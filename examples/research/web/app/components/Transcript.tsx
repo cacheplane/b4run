@@ -1,4 +1,5 @@
 "use client"
+import { type SubagentEventSource, SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
 import {
   CopilotChatAssistantMessage,
   useRenderActivityMessage,
@@ -22,14 +23,14 @@ import { RunError } from "./RunError"
 
 /**
  * What a restore cannot bring back, said in the app rather than only in the
- * README. Subagent cards are derived from a live event stream the server does
- * not persist — the checkpoint holds messages, tool results and the plan, and
- * nothing else — so the cards the user watched appear are gone for good. The
- * wording is careful about that: new runs draw new cards, the old ones do not
- * come back. Exported so the tests assert the string the user reads.
+ * README. The subagent panel is built from a live event stream the server
+ * does not persist — the checkpoint holds messages, tool results and the plan,
+ * and nothing else — so the subagent activity the user watched is gone for
+ * good. The wording is careful about that: new runs show new activity, the old
+ * does not come back. Exported so the tests assert the string the user reads.
  */
 export const RESTORED_HISTORY_NOTICE =
-  "Restored from this conversation's saved history. Subagent cards from earlier runs aren't saved — new ones appear as they run."
+  "Restored from this conversation's saved history. Subagent activity from earlier runs isn't saved — new runs show it as it happens."
 
 /**
  * The line a `notice` item reads: how many parts the model never saw, and for
@@ -45,6 +46,13 @@ export function dropNoticeText(parts: readonly DroppedPartLike[]): string {
 }
 
 export interface TranscriptProps {
+  /**
+   * The agent whose event stream the subagent panel follows — the instance
+   * `useAgent()` hands `AppShell`. Subagents are not messages: they arrive as
+   * AG-UI `SUBAGENT_*` events plus events tagged `subagentRunId`, which
+   * `useSubagentRuns` reduces into the tree `SubagentPanel` renders.
+   */
+  readonly agent: SubagentEventSource | undefined
   /**
    * The active thread's id. Two consumers, both about permission gates:
    * `PermissionInterrupt`'s `key`, and `HydratedInterrupts`' fetch.
@@ -124,6 +132,7 @@ export interface TranscriptProps {
  * neither the gate nor an error is showing.
  */
 export function Transcript({
+  agent,
   threadKey,
   messages,
   notices = [],
@@ -138,6 +147,7 @@ export function Transcript({
 }: TranscriptProps) {
   const { renderActivityMessage } = useRenderActivityMessage()
   const renderToolCall = useRenderToolCall()
+  const subagents = useSubagentRuns(agent)
   // NOT memoized on `messages`, and that is load-bearing. `AbstractAgent`
   // mutates its `messages` array in place (`addMessage` does `push`), so the
   // reference is stable across a run and `useMemo(..., [messages])` would keep
@@ -292,6 +302,15 @@ export function Transcript({
         }
       >
         {items.map(renderItem)}
+        {/*
+          The subagent tree for this thread's runs. Same `classNames` rule as
+          the plan card (see `activity-renderers.tsx`): only properties the
+          package stylesheet leaves unset on that element.
+        */}
+        <SubagentPanel
+          runs={subagents.runs}
+          classNames={{ root: "tracking-tight", title: "font-medium", meta: "tabular-nums" }}
+        />
         {/* Persistent, with toggling text — same reason as the region above. */}
         <p className="text-[13px] text-wb-muted empty:hidden motion-safe:animate-pulse">
           {isRunning ? "Working…" : ""}

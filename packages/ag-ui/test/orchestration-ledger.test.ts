@@ -62,22 +62,15 @@ describe("createOrchestrationLedger", () => {
     expect(ledger.onToolResult("call_w", "writeTodos", result("call_w"))).toEqual([])
   })
 
-  test("holds a task call until subagent.start commits suppression", () => {
-    const ledger = createOrchestrationLedger()
-    expect(ledger.onToolCall("call_t", "task", frames("call_t", "task"))).toEqual([])
-    const subagentActivity = activity("b4:subagent:call_t")
-    expect(ledger.onActivity(subagentActivity, { toolCallId: "call_t", toolName: "task" })).toEqual(
-      [subagentActivity],
-    )
-    expect(ledger.onToolResult("call_t", "task", result("call_t"))).toEqual([])
-  })
-
   test("falls back when the result arrives with no correlation", () => {
     const ledger = createOrchestrationLedger()
-    const callFrames = frames("call_t", "task")
-    expect(ledger.onToolCall("call_t", "task", callFrames)).toEqual([])
+    const callFrames = frames("call_t", "writeTodos")
+    expect(ledger.onToolCall("call_t", "writeTodos", callFrames)).toEqual([])
     const toolResult = result("call_t")
-    expect(ledger.onToolResult("call_t", "task", toolResult)).toEqual([...callFrames, toolResult])
+    expect(ledger.onToolResult("call_t", "writeTodos", toolResult)).toEqual([
+      ...callFrames,
+      toolResult,
+    ])
   })
 
   test("defers unrelated events behind an unresolved candidate and releases them in order", () => {
@@ -109,20 +102,6 @@ describe("createOrchestrationLedger", () => {
     expect(ledger.onToolResult("call_w", "writeTodos", toolResult)).toEqual([
       ...callFrames,
       planActivity,
-      toolResult,
-    ])
-  })
-
-  test("a correlation whose toolName does not match the tracked name does not suppress", () => {
-    const ledger = createOrchestrationLedger()
-    const callFrames = frames("call_w", "writeTodos")
-    expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
-    const wrongActivity = activity("b4:subagent:call_w")
-    expect(ledger.onActivity(wrongActivity, { toolCallId: "call_w", toolName: "task" })).toEqual([])
-    const toolResult = result("call_w")
-    expect(ledger.onToolResult("call_w", "writeTodos", toolResult)).toEqual([
-      ...callFrames,
-      wrongActivity,
       toolResult,
     ])
   })
@@ -166,22 +145,22 @@ describe("createOrchestrationLedger", () => {
   test("settle flushes unresolved candidates as fallback in source order", () => {
     const ledger = createOrchestrationLedger()
     const planFrames = frames("call_w", "writeTodos")
-    const taskFrames = frames("call_t", "task")
+    const taskFrames = frames("call_t", "writeTodos")
     const between = text("x")
     expect(ledger.onToolCall("call_w", "writeTodos", planFrames)).toEqual([])
     expect(ledger.onPassthrough(between)).toEqual([])
-    expect(ledger.onToolCall("call_t", "task", taskFrames)).toEqual([])
+    expect(ledger.onToolCall("call_t", "writeTodos", taskFrames)).toEqual([])
     expect(ledger.settle()).toEqual([...planFrames, between, ...taskFrames])
   })
 
   test("settle drops the candidate named by the interrupt", () => {
     const ledger = createOrchestrationLedger()
     const planFrames = frames("call_w", "writeTodos")
-    const taskFrames = frames("call_t", "task")
+    const taskFrames = frames("call_t", "writeTodos")
     const between = text("x")
     expect(ledger.onToolCall("call_w", "writeTodos", planFrames)).toEqual([])
     expect(ledger.onPassthrough(between)).toEqual([])
-    expect(ledger.onToolCall("call_t", "task", taskFrames)).toEqual([])
+    expect(ledger.onToolCall("call_t", "writeTodos", taskFrames)).toEqual([])
     expect(ledger.settle("call_t")).toEqual([...planFrames, between])
   })
 

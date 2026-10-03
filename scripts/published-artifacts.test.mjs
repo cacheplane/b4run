@@ -1611,7 +1611,6 @@ describe("AG-UI installed probes", () => {
     assert.ok(
       source.includes(`assert.deepEqual(Object.keys(root).sort(), [
   "B4_PLAN_ACTIVITY_TYPE",
-  "B4_SUBAGENT_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
   "fromRunAgentInput",
@@ -1620,7 +1619,6 @@ describe("AG-UI installed probes", () => {
       "ESM probe must compare the complete sorted root export surface",
     )
     assert.match(source, /assert\.equal\(root\.B4_PLAN_ACTIVITY_TYPE, "b4\.plan"\)/)
-    assert.match(source, /assert\.equal\(root\.B4_SUBAGENT_ACTIVITY_TYPE, "b4\.subagent"\)/)
     assert.ok(
       source.includes(`for (const exportName of [
   "createCounterIdFactory",
@@ -1656,7 +1654,6 @@ describe("AG-UI installed probes", () => {
     assert.ok(
       source.includes(`type RootValueSurface = readonly [
   typeof B4_PLAN_ACTIVITY_TYPE,
-  typeof B4_SUBAGENT_ACTIVITY_TYPE,
   typeof createCounterIdFactory,
   typeof createDefaultIdFactory,
   typeof fromRunAgentInput,
@@ -1675,7 +1672,6 @@ describe("AG-UI installed probes", () => {
       "B4AgentStreamChunk",
       "RunContext",
       "B4PlanActivityContent",
-      "B4SubagentActivityContent",
     ]) {
       assert.match(source, new RegExp(`type ${typeName}`))
     }
@@ -1691,7 +1687,6 @@ describe("AG-UI installed probes", () => {
   B4AgentStreamChunk,
   RunContext,
   B4PlanActivityContent,
-  B4SubagentActivityContent,
 ]`),
       "type probe must exercise every canonical root type",
     )
@@ -3336,7 +3331,7 @@ async function createAgUiProbeFixture(options = {}) {
 export function createDefaultIdFactory() {}
 export function fromRunAgentInput(input) { return input }
 export function toAguiEvents(events) { return events }
-export { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "./activities.js"
+export { B4_PLAN_ACTIVITY_TYPE } from "./activities.js"
 `
   const canonicalFunctionDeclarations = {
     createCounterIdFactory: "export declare function createCounterIdFactory(): IdFactory",
@@ -3361,36 +3356,17 @@ export interface AguiOutboundEvent { readonly type: string }
 export interface ToAguiOptions { readonly idFactory?: IdFactory }
 export type B4AgentStreamChunk = { readonly type: string; readonly data?: unknown }
 export interface RunContext { readonly threadId: string; readonly runId: string }
-export {
-  B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
-  type B4PlanActivityContent,
-  type B4SubagentActivityContent,
-} from "./activities.js"
+export { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "./activities.js"
 ${includedFunctionDeclarations}
 ${options.extraRootDeclarations ?? ""}`
   const activitiesJavaScript = `export const B4_PLAN_ACTIVITY_TYPE = "b4.plan"
-export const B4_SUBAGENT_ACTIVITY_TYPE = "b4.subagent"
 `
   const activitiesDeclarations = `export declare const B4_PLAN_ACTIVITY_TYPE: "b4.plan"
-export declare const B4_SUBAGENT_ACTIVITY_TYPE: "b4.subagent"
 export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
     readonly content: string
     readonly status: "pending" | "in_progress" | "completed"
   }>
-}
-export interface B4SubagentActivityContent {
-  readonly name: string
-  readonly depth: number
-  readonly status: "running" | "completed" | "failed"
-  readonly todos?: B4PlanActivityContent["todos"]
-  readonly tools: ReadonlyArray<{
-    readonly name: string
-    readonly status: "running" | "completed" | "incomplete"
-  }>
-  readonly totalToolCount: number
-  readonly error?: string
 }
 `
   const sseJavaScript =

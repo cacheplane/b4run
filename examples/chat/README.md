@@ -25,10 +25,11 @@
 - **Subagents** — `/coordinator` dispatches to specialist subagents (`research`,
   `summarizer`) via an auto-generated `task({ subagent, input })` tool. Subagent runs
   bubble `subagent.*` Agent Protocol stream events with `call_id` correlation, and the
-  AG-UI adapter maps matching lifecycles to bounded replacement `b4.subagent`
-  snapshots. The basic web client registers `b4ActivityRenderers` from
-  `@b4run/ag-ui/react`, but drives only `/chat` and does not expose
-  `/coordinator`, so drive coordinator runs through Agent Protocol instead.
+  AG-UI adapter presents them as AG-UI 1.0 `SUBAGENT_STARTED/FINISHED/ERROR` with the
+  child's own text and tool calls tagged `subagentRunId` (`@b4run/ag-ui/react` renders
+  that tree with `useSubagentRuns` + `SubagentPanel`). The basic web client drives only
+  `/chat` and does not expose `/coordinator`, so drive coordinator runs through Agent
+  Protocol instead.
 - **HITL permissions** — `b4.config.ts` seeds allow/deny lists for `runBash`. Unknown
   commands in interactive mode emit an interrupt; resume the thread with `once`, `always`,
   or `deny` to continue. See [Permissions](../../apps/web/content/docs/permissions.mdx)

@@ -819,6 +819,7 @@ describe("transcript media and notices", () => {
     act(() => {
       root.render(
         <Transcript
+          agent={mocks.agent as never}
           threadKey="thread-a"
           messages={messages}
           notices={notices}

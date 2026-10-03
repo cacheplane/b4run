@@ -1,25 +1,18 @@
-import {
-  B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
-  type B4PlanActivityContent,
-} from "@b4run/ag-ui"
-import {
-  planActivityContentSchema,
-  type SubagentActivityContentOutput,
-  subagentActivityContentSchema,
-} from "@b4run/ag-ui/react"
+import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "@b4run/ag-ui"
+import { planActivityContentSchema } from "@b4run/ag-ui/react"
 import type { ReactActivityMessageRenderer } from "@copilotkit/react-core/v2"
 import { PlanCard } from "./PlanCard"
-import { SubagentCard } from "./SubagentCard"
 
 /**
- * The workbench registers its own wrappers rather than `b4ActivityRenderers`
- * so the cards are the app's to restyle — the same source a scaffolded app will
- * own. The schemas still come from the package, so validation stays identical.
+ * The workbench registers its own wrapper rather than `b4ActivityRenderers`
+ * so the card is the app's to restyle — the same source a scaffolded app will
+ * own. The schema still comes from the package, so validation stays identical.
+ * Subagents are not activities: `Transcript.tsx` renders them with the
+ * package's `SubagentPanel`, from the agent's AG-UI `SUBAGENT_*` events.
  *
- * THE RULE BOTH CARDS FOLLOW — stated here once; `PlanCard.tsx` and
- * `SubagentCard.tsx` point back at it, so if the package ever ships its
- * stylesheet inside a layer, only this paragraph goes stale:
+ * THE RULE EVERY CARD FOLLOWS — stated here once; `PlanCard.tsx` and the
+ * `SubagentPanel` props in `Transcript.tsx` point back at it, so if the package
+ * ever ships its stylesheet inside a layer, only this paragraph goes stale:
  *
  * A `classNames` entry may only set a property that `@b4run/ag-ui`'s
  * stylesheet leaves unset on that same element. That sheet is plain, UNLAYERED
@@ -48,15 +41,4 @@ const planRenderer = {
   render: ({ content }) => <PlanCard content={content} />,
 } satisfies ReactActivityMessageRenderer<B4PlanActivityContent>
 
-/**
- * Typed against `SubagentActivityContentOutput` for the same reason the package
- * renderer is: zod passes an input's own `todos: undefined` through, so the
- * parsed value is wider than the exact-optional published type.
- */
-const subagentRenderer = {
-  activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-  content: subagentActivityContentSchema,
-  render: ({ content }) => <SubagentCard content={content} />,
-} satisfies ReactActivityMessageRenderer<SubagentActivityContentOutput>
-
-export const workbenchActivityRenderers = [planRenderer, subagentRenderer]
+export const workbenchActivityRenderers = [planRenderer]

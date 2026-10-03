@@ -8,7 +8,7 @@ const CSS = readFileSync(
 )
 
 /** Every card source, for the TSX-emits-it/CSS-styles-it drift guard. */
-const CARD_SOURCES = ["ActivityChecklist.tsx", "PlanActivityCard.tsx", "SubagentActivityCard.tsx"]
+const CARD_SOURCES = ["ActivityChecklist.tsx", "PlanActivityCard.tsx", "SubagentPanel.tsx"]
   .map((file) =>
     readFileSync(fileURLToPath(new URL(`../../src/react/${file}`, import.meta.url)), "utf8"),
   )
@@ -124,7 +124,7 @@ describe("styles.css", () => {
 
   test("every status modifier the cards emit has a glyph rule", () => {
     // Todo statuses: `statusPresentation` in ActivityChecklist.tsx.
-    // Tool statuses: `toolStatusPresentation` in SubagentActivityCard.tsx.
+    // Tool statuses: `toolStatusPresentation` in SubagentPanel.tsx.
     const todoStatuses = ["pending", "in_progress", "completed"]
     const toolStatuses = ["running", "completed", "incomplete"]
     for (const status of new Set([...todoStatuses, ...toolStatuses])) {

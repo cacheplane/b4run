@@ -286,19 +286,28 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
       String(event.type),
     ),
   )
-  const starts = events.flatMap((event, index) =>
+  const allStarts = events.flatMap((event, index) =>
     event.type === "TOOL_CALL_START" ? [{ event, index }] : [],
   )
-  // `writeTodos` and `task` are absent by design: each presents once, as its
-  // b4.plan / b4.subagent activity, with no generic tool frames.
+  // `writeTodos` is absent by design: it presents once, as the b4.plan
+  // activity, with no generic tool frames. `task` is an ordinary tool call
+  // whose subagent is presented with SUBAGENT_* events; the child's own tool
+  // calls are on the wire too, tagged with its subagentRunId.
+  const starts = allStarts.filter(({ event }) => event.subagentRunId === undefined)
   expect(starts.map(({ event }) => event.toolCallName)).toEqual([
     "recall",
+    "task",
     "searchCorpus",
     "readDoc",
     "writeFile",
   ])
+  const childStarts = allStarts.filter(({ event }) => event.subagentRunId !== undefined)
+  expect(childStarts.map(({ event }) => event.toolCallName)).toEqual(["searchCorpus", "readDoc"])
+  expect(new Set(childStarts.map(({ event }) => event.subagentRunId))).toEqual(
+    new Set(["call_task_0_2"]),
+  )
 
-  const startIds = starts.map(({ event }) => event.toolCallId)
+  const startIds = allStarts.map(({ event }) => event.toolCallId)
   expect(startIds.every((id) => typeof id === "string")).toBe(true)
   expect(new Set(startIds).size).toBe(startIds.length)
   const knownIds = new Set(startIds)
@@ -306,10 +315,21 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
     expect(typeof event.toolCallId).toBe("string")
     expect(knownIds.has(event.toolCallId)).toBe(true)
   }
-  for (const { event } of starts) {
+  for (const { event } of allStarts) {
     expect(String(event.toolCallId)).toMatch(/^call_/)
   }
+  // Every frame of a child's call carries the child's id; no root frame does.
+  for (const { event: start } of allStarts) {
+    for (const event of toolEvents.filter((event) => event.toolCallId === start.toolCallId)) {
+      if (start.subagentRunId === undefined) {
+        expect(event).not.toHaveProperty("subagentRunId")
+      } else {
+        expect(event.subagentRunId).toBe(start.subagentRunId)
+      }
+    }
+  }
 
+  // Root calls only: the child's calls repeat the root's tool names.
   const parsedArgsByName = new Map<string, unknown>()
   for (const { event: start } of starts) {
     const toolCallId = start.toolCallId
@@ -341,9 +361,10 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
   return parsedArgsByName
 }
 
+/** The ROOT agent's prose: a subagent's text is on the wire too, tagged with its id. */
 function reconstructAssistantText(events: readonly AgUiEvent[]): string {
   return events
-    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === undefined)
     .map((event) => {
       if (typeof event.delta !== "string") {
         throw new Error("AG-UI text delta was not a string")
@@ -641,16 +662,51 @@ function assertSafeResearchJourney(
   assertSuccessfulTerminal(events, ids)
 
   const parsedArgsByName = correlateRootToolCalls(events)
-  // `task`'s arguments no longer reach the wire — the subagent activity is its
-  // only presentation — so an ordinary tool carries the args-decoding pin.
-  expect(parsedArgsByName.has("task")).toBe(false)
+  // `task` is an ordinary tool call again, so its arguments reach the wire;
+  // `writeTodos` presents only as the plan activity.
+  expect(parsedArgsByName.get("task")).toEqual({ subagent: "researcher", input: SUBQUESTION })
   expect(parsedArgsByName.has("writeTodos")).toBe(false)
   expect(parsedArgsByName.get("searchCorpus")).toEqual({ query: "agent architectures" })
   const assistantText = reconstructAssistantText(events)
   expect(assistantText).toContain("[corpus/agent-architectures.md]")
   expect(assistantText).not.toContain(CHILD_REPLY)
+  // The child's prose is on the wire, attributed to it — and only there.
+  const childText = events
+    .filter(
+      (event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === "call_task_0_2",
+    )
+    .map((event) => String(event.delta))
+    .join("")
+  expect(childText).toContain(CHILD_REPLY)
+
+  // The subagent's lifecycle: announced before anything is attributed to it,
+  // closed with its result before the run ends.
+  const kindsInOrder = events.map((event) => event.type)
+  const started = kindsInOrder.indexOf("SUBAGENT_STARTED")
+  const finished = kindsInOrder.indexOf("SUBAGENT_FINISHED")
+  expect(started).toBeGreaterThan(-1)
+  expect(finished).toBeGreaterThan(started)
+  expect(events[started]).toMatchObject({
+    subagentRunId: "call_task_0_2",
+    name: "researcher",
+    parentToolCallId: "call_task_0_2",
+  })
+  expect(events[finished]).toMatchObject({
+    subagentRunId: "call_task_0_2",
+    result: CHILD_REPLY,
+    outcome: { type: "success" },
+  })
+  // Everything attributed to the child lies strictly between its lifecycle events.
+  for (const [index, event] of events.entries()) {
+    if (event.subagentRunId === undefined) continue
+    if (event.type === "SUBAGENT_STARTED" || event.type === "SUBAGENT_FINISHED") continue
+    expect(index).toBeGreaterThan(started)
+    expect(index).toBeLessThan(finished)
+  }
+  expect(kindsInOrder).not.toContain("SUBAGENT_ERROR")
 
   const activities = events.filter((event) => event.type === "ACTIVITY_SNAPSHOT")
+  // The plan is the only activity: the subagent is SUBAGENT_* events above.
   expect(activities).toEqual([
     {
       type: "ACTIVITY_SNAPSHOT",
@@ -659,114 +715,25 @@ function assertSafeResearchJourney(
       replace: true,
       content: { todos },
     },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [],
-        totalToolCount: 0,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [{ name: "searchCorpus", status: "running" }],
-        totalToolCount: 1,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [{ name: "searchCorpus", status: "completed" }],
-        totalToolCount: 1,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "running" },
-        ],
-        totalToolCount: 2,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "completed" },
-        ],
-        totalToolCount: 2,
-      },
-    },
-    {
-      type: "ACTIVITY_SNAPSHOT",
-      messageId: "b4:subagent:call_task_0_2",
-      activityType: "b4.subagent",
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "completed",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "readDoc", status: "completed" },
-        ],
-        totalToolCount: 2,
-      },
-    },
   ])
 
-  // The generic frames for the two built-in orchestration calls are gone: the
-  // activities above are the only presentation of that work.
+  // The generic frames for writeTodos are gone: the plan activity is the only
+  // presentation of that work. The task call keeps its frames.
   const toolFrames = events.filter((event) =>
     ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "TOOL_CALL_RESULT"].includes(
       String(event.type),
     ),
   )
-  for (const suppressedId of ["call_writeTodos_0_1", "call_task_0_2"]) {
-    expect(toolFrames.map((event) => event.toolCallId)).not.toContain(suppressedId)
-  }
+  expect(toolFrames.map((event) => event.toolCallId)).not.toContain("call_writeTodos_0_1")
+  expect(toolFrames.map((event) => event.toolCallId)).toContain("call_task_0_2")
   expect(
     events.filter((event) => event.type === "TOOL_CALL_START").map((event) => event.toolCallName),
   ).not.toContain("writeTodos")
-  expect(
-    events.filter((event) => event.type === "TOOL_CALL_START").map((event) => event.toolCallName),
-  ).not.toContain("task")
 
   const activityIndices = activities.map((activity) => events.indexOf(activity))
-  const firstFinalTextIndex = events.findIndex((event) => event.type === "TEXT_MESSAGE_CONTENT")
+  const firstFinalTextIndex = events.findIndex(
+    (event) => event.type === "TEXT_MESSAGE_CONTENT" && event.subagentRunId === undefined,
+  )
   expect(firstFinalTextIndex).toBeGreaterThanOrEqual(0)
   expect(activityIndices.every((index) => index < firstFinalTextIndex)).toBe(true)
 

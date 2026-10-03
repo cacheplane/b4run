@@ -11,6 +11,9 @@ import type {
   RunErrorEvent,
   RunFinishedEvent,
   RunStartedEvent,
+  SubagentErrorEvent,
+  SubagentFinishedEvent,
+  SubagentStartedEvent,
   TextMessageContentEvent,
   TextMessageEndEvent,
   TextMessageStartEvent,
@@ -21,10 +24,11 @@ import type {
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { isContentPartArray } from "@b4run/sdk"
-import { createB4ActivityProjector, isB4ActivityChunkType } from "./activities.js"
+import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
 import { createOrchestrationLedger } from "./orchestration-ledger.js"
+import { asSubagentEndData, asSubagentStartData, unwrapSubagentChunk } from "./subagent-chunks.js"
 import {
   asToolCallArgsData,
   asToolCallData,
@@ -54,6 +58,9 @@ export type AguiOutboundEvent =
   | ReasoningMessageContentEvent
   | ReasoningMessageEndEvent
   | ReasoningEndEvent
+  | SubagentStartedEvent
+  | SubagentFinishedEvent
+  | SubagentErrorEvent
 
 /** The CUSTOM event name for the spec's lossy-downgrade warning. */
 export const B4_CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
@@ -63,6 +70,48 @@ interface OpenReasoning {
   readonly spanId: string
   readonly messageId: string
 }
+
+/**
+ * The framing state of one owner: the root agent (`undefined`) or one
+ * announced subagent, keyed by its `call_id`. A child is framed exactly as
+ * root is, from the same code, and every event it produces is tagged with its
+ * `subagentRunId` (= `call_id`) on the way out.
+ */
+interface OwnerState {
+  openMessageId: string | null
+  readonly identifiedMessages: Map<string, string>
+  /**
+   * Reasoning is framed per model invocation like text: one span and one
+   * message, opened on the first delta. The span and message ids are distinct
+   * from each other and from the invocation's text message id — the 1.0
+   * reducer warns when one id is shared across text, reasoning and activity
+   * messages.
+   */
+  openReasoning: OpenReasoning | null
+  readonly identifiedReasoning: Map<string, OpenReasoning>
+  /**
+   * Tool calls opened by streamed argument deltas and not yet ended, with the
+   * text sent so far. Only tools outside the orchestration set ever stream,
+   * so their frames route as passthrough events; see the `tool_call` case for
+   * how the announce closes one.
+   */
+  readonly openStreamedToolCalls: Map<string, string>
+  readonly pendingFallbackToolCallIds: Map<string, string[]>
+}
+
+/** An announced subagent invocation that has not closed yet. */
+interface OpenSubagent {
+  readonly callId: string
+  readonly parentCallId: string | undefined
+}
+
+type Owner = string | undefined
+
+/** Why every still-open subagent is being closed at a terminal boundary. */
+type SubagentCloseReason =
+  | { readonly kind: "interrupt"; readonly interrupts: readonly Interrupt[] }
+  | { readonly kind: "unterminated" }
+  | { readonly kind: "cancelled" }
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
@@ -163,12 +212,33 @@ function messageKeptParts(
   return { parts: [...parts], toolCallId: message.tool_call_id ?? kwargs?.tool_call_id }
 }
 
+function newOwnerState(): OwnerState {
+  return {
+    openMessageId: null,
+    identifiedMessages: new Map(),
+    openReasoning: null,
+    identifiedReasoning: new Map(),
+    openStreamedToolCalls: new Map(),
+    pendingFallbackToolCallIds: new Map(),
+  }
+}
+
+/** A child's event carries its owner; root events are never tagged (never `null`). */
+function tag<E extends AguiOutboundEvent>(owner: Owner, event: E): E {
+  return owner === undefined ? event : { ...event, subagentRunId: owner }
+}
+
 /**
- * Map a B4.run agent stream (`token | tool_call | tool_result | interrupt |
- * done`) to AG-UI events, including snapshots for recognized B4.run plan and
- * subagent activity chunks. Stateful: it frames assistant text and tool calls
- * that B4.run emits implicitly, and it never throws into the consumer - an
- * upstream error becomes a `RUN_ERROR` event and a clean return.
+ * Map a B4.run agent stream (`token | reasoning | tool_call | tool_result |
+ * plan_update | usage | subagent.* | interrupt | done`) to AG-UI events.
+ * Stateful: it frames assistant text, reasoning and tool calls that B4.run
+ * emits implicitly — for the root agent and, identically, for every announced
+ * subagent, whose events carry its `subagentRunId` — presents a subagent's
+ * lifecycle as `SUBAGENT_STARTED/FINISHED/ERROR`, and it never throws into the
+ * consumer: an upstream error becomes a `RUN_ERROR` event and a clean return.
+ *
+ * 1.0 discipline, owned here: nothing this mapper opens — a text message, a
+ * reasoning span or message, a tool call, a subagent — survives `RUN_FINISHED`.
  */
 export async function* toAguiEvents(
   chunks: AsyncIterable<B4AgentStreamChunk>,
@@ -179,26 +249,23 @@ export async function* toAguiEvents(
   const activityProjector = createB4ActivityProjector(ctx.runId)
   const ledger = createOrchestrationLedger()
   const usage = createUsageCollector()
-  let openMessageId: string | null = null
-  const identifiedMessages = new Map<string, string>()
-  /**
-   * Reasoning is framed per model invocation like text: one span and one
-   * message, opened on the first delta. The span and message ids are distinct
-   * from each other and from the invocation's text message id — the 1.0
-   * reducer warns when one id is shared across text, reasoning and activity
-   * messages.
-   */
-  let openReasoning: OpenReasoning | null = null
-  const identifiedReasoning = new Map<string, OpenReasoning>()
-  const pendingFallbackToolCallIds = new Map<string, string[]>()
+  const owners = new Map<Owner, OwnerState>()
+  /** Insertion-ordered: a child is announced after its parent, so reverse order is deepest first. */
+  const openSubagents = new Map<string, OpenSubagent>()
   const pendingInterrupts: Interrupt[] = []
-  /**
-   * Tool calls opened by streamed argument deltas and not yet ended, with the
-   * text sent so far. Only tools outside the orchestration set ever stream,
-   * so their frames route as passthrough events; see the `tool_call` case for
-   * how the announce closes one.
-   */
-  const openStreamedToolCalls = new Map<string, string>()
+
+  function stateFor(owner: Owner): OwnerState {
+    let state = owners.get(owner)
+    if (state === undefined) {
+      state = newOwnerState()
+      owners.set(owner, state)
+    }
+    return state
+  }
+
+  function* emit(owner: Owner, event: AguiOutboundEvent): Generator<AguiOutboundEvent> {
+    yield* ledger.onPassthrough(tag(owner, event))
+  }
 
   async function successOutcome(): Promise<NonNullable<RunFinishedEvent["outcome"]>> {
     const pending = (await options.pendingToolCallIds?.()) ?? []
@@ -207,27 +274,25 @@ export async function* toAguiEvents(
       : { type: "success" }
   }
 
-  function* closeReasoning(open: OpenReasoning): Generator<AguiOutboundEvent> {
-    yield* ledger.onPassthrough({
-      type: EventType.REASONING_MESSAGE_END,
-      messageId: open.messageId,
-    })
-    yield* ledger.onPassthrough({ type: EventType.REASONING_END, messageId: open.spanId })
+  function* closeReasoning(owner: Owner, open: OpenReasoning): Generator<AguiOutboundEvent> {
+    yield* emit(owner, { type: EventType.REASONING_MESSAGE_END, messageId: open.messageId })
+    yield* emit(owner, { type: EventType.REASONING_END, messageId: open.spanId })
   }
 
   /** Anonymous reasoning closes at every boundary anonymous text does. */
-  function* flushReasoning(): Generator<AguiOutboundEvent> {
-    if (openReasoning !== null) {
-      const open = openReasoning
-      openReasoning = null
-      yield* closeReasoning(open)
+  function* flushReasoning(owner: Owner): Generator<AguiOutboundEvent> {
+    const state = stateFor(owner)
+    if (state.openReasoning !== null) {
+      const open = state.openReasoning
+      state.openReasoning = null
+      yield* closeReasoning(owner, open)
     }
   }
 
-  function* openReasoningFrame(): Generator<AguiOutboundEvent, OpenReasoning> {
+  function* openReasoningFrame(owner: Owner): Generator<AguiOutboundEvent, OpenReasoning> {
     const open: OpenReasoning = { spanId: nextId("reasoningSpan"), messageId: nextId("reasoning") }
-    yield* ledger.onPassthrough({ type: EventType.REASONING_START, messageId: open.spanId })
-    yield* ledger.onPassthrough({
+    yield* emit(owner, { type: EventType.REASONING_START, messageId: open.spanId })
+    yield* emit(owner, {
       type: EventType.REASONING_MESSAGE_START,
       messageId: open.messageId,
       role: "reasoning",
@@ -235,44 +300,358 @@ export async function* toAguiEvents(
     return open
   }
 
-  function* flushText(): Generator<AguiOutboundEvent> {
-    yield* flushReasoning()
-    if (openMessageId !== null) {
+  function* flushText(owner: Owner): Generator<AguiOutboundEvent> {
+    yield* flushReasoning(owner)
+    const state = stateFor(owner)
+    if (state.openMessageId !== null) {
       const end: TextMessageEndEvent = {
         type: EventType.TEXT_MESSAGE_END,
-        messageId: openMessageId,
+        messageId: state.openMessageId,
       }
-      openMessageId = null
-      yield* ledger.onPassthrough(end)
+      state.openMessageId = null
+      yield* emit(owner, end)
     }
   }
 
   /** End an invocation: its reasoning (span and message), then its text. */
-  function* closeIdentified(sourceId: string): Generator<AguiOutboundEvent> {
-    const reasoning = identifiedReasoning.get(sourceId)
+  function* closeIdentified(owner: Owner, sourceId: string): Generator<AguiOutboundEvent> {
+    const state = stateFor(owner)
+    const reasoning = state.identifiedReasoning.get(sourceId)
     if (reasoning !== undefined) {
-      identifiedReasoning.delete(sourceId)
-      yield* closeReasoning(reasoning)
+      state.identifiedReasoning.delete(sourceId)
+      yield* closeReasoning(owner, reasoning)
     }
-    const messageId = identifiedMessages.get(sourceId)
+    const messageId = state.identifiedMessages.get(sourceId)
     if (messageId === undefined) return
-    identifiedMessages.delete(sourceId)
-    yield* ledger.onPassthrough({ type: EventType.TEXT_MESSAGE_END, messageId })
+    state.identifiedMessages.delete(sourceId)
+    yield* emit(owner, { type: EventType.TEXT_MESSAGE_END, messageId })
   }
 
-  function* flushAllText(): Generator<AguiOutboundEvent> {
-    yield* flushText()
-    for (const sourceId of new Set([...identifiedReasoning.keys(), ...identifiedMessages.keys()])) {
-      yield* closeIdentified(sourceId)
-    }
+  function* flushAllText(owner: Owner): Generator<AguiOutboundEvent> {
+    yield* flushText(owner)
+    const state = stateFor(owner)
+    const sources = new Set([
+      ...state.identifiedReasoning.keys(),
+      ...state.identifiedMessages.keys(),
+    ])
+    for (const sourceId of sources) yield* closeIdentified(owner, sourceId)
   }
 
   /** A terminal boundary reached with streamed calls still open: end them. */
-  function* closeStreamedToolCalls(): Generator<AguiOutboundEvent> {
-    for (const toolCallId of openStreamedToolCalls.keys()) {
-      yield* ledger.onPassthrough({ type: EventType.TOOL_CALL_END, toolCallId })
+  function* closeStreamedToolCalls(owner: Owner): Generator<AguiOutboundEvent> {
+    const state = stateFor(owner)
+    for (const toolCallId of state.openStreamedToolCalls.keys()) {
+      yield* emit(owner, { type: EventType.TOOL_CALL_END, toolCallId })
     }
-    openStreamedToolCalls.clear()
+    state.openStreamedToolCalls.clear()
+  }
+
+  /** Everything one owner has open: text, reasoning, streamed tool calls. */
+  function* flushOwner(owner: Owner): Generator<AguiOutboundEvent> {
+    yield* flushAllText(owner)
+    yield* closeStreamedToolCalls(owner)
+  }
+
+  function* flushEveryOwner(): Generator<AguiOutboundEvent> {
+    for (const owner of [...owners.keys()]) yield* flushOwner(owner)
+  }
+
+  /**
+   * Every announced invocation MUST close before the run finishes (spec:
+   * subagents). An interrupt suspends them, naming the interrupts each one
+   * raised; a cancel or a stream that ended early fails them, since no
+   * `subagent.end` will come. `RUN_ERROR` abandons them: nothing is emitted.
+   * Deepest first, so a parent closes after its child. Returns the ids that
+   * were open, so the interrupt outcome can attribute each interrupt.
+   */
+  function* closeOpenSubagents(
+    reason: SubagentCloseReason,
+  ): Generator<AguiOutboundEvent, ReadonlySet<string>> {
+    const closed = new Set<string>()
+    for (const open of [...openSubagents.values()].reverse()) {
+      yield* flushOwner(open.callId)
+      closed.add(open.callId)
+      if (reason.kind === "interrupt") {
+        const interruptIds = reason.interrupts
+          .filter((interrupt) => interrupt.toolCallId === open.callId)
+          .map((interrupt) => interrupt.id)
+        yield* ledger.onPassthrough({
+          type: EventType.SUBAGENT_FINISHED,
+          subagentRunId: open.callId,
+          outcome: {
+            type: "suspended",
+            ...(interruptIds.length > 0 ? { interruptIds } : {}),
+          },
+        })
+      } else {
+        yield* ledger.onPassthrough({
+          type: EventType.SUBAGENT_ERROR,
+          subagentRunId: open.callId,
+          message:
+            reason.kind === "cancelled"
+              ? "The run was cancelled."
+              : "The run ended before the subagent finished.",
+          code: reason.kind,
+        })
+      }
+    }
+    openSubagents.clear()
+    return closed
+  }
+
+  /** The interrupt outcome, with each interrupt a suspended child raised attributed to it. */
+  function* finishInterrupted(): Generator<AguiOutboundEvent> {
+    yield* flushEveryOwner()
+    const suspended = yield* closeOpenSubagents({
+      kind: "interrupt",
+      interrupts: pendingInterrupts,
+    })
+    yield* ledger.settle()
+    yield {
+      type: EventType.RUN_FINISHED,
+      threadId: ctx.threadId,
+      runId: ctx.runId,
+      outcome: {
+        type: "interrupt",
+        interrupts: pendingInterrupts.map((interrupt) =>
+          interrupt.toolCallId !== undefined && suspended.has(interrupt.toolCallId)
+            ? { ...interrupt, subagentRunId: interrupt.toolCallId }
+            : interrupt,
+        ),
+      },
+      ...usage.terminal(),
+    }
+  }
+
+  /**
+   * The success outcome; a subagent still open here never got its `end`.
+   * Async because the pending client-tool ids may come from the runtime's
+   * tool-call record (an async read).
+   */
+  async function* finishSuccess(result: unknown): AsyncGenerator<AguiOutboundEvent> {
+    yield* flushEveryOwner()
+    yield* closeOpenSubagents({ kind: "unterminated" })
+    yield* ledger.settle()
+    yield {
+      type: EventType.RUN_FINISHED,
+      threadId: ctx.threadId,
+      runId: ctx.runId,
+      // 1.0: an absent result is omitted; null is not a result.
+      ...(result !== undefined && result !== null ? { result } : {}),
+      outcome: await successOutcome(),
+      ...usage.terminal(),
+    }
+  }
+
+  /** One owner's chunk, in the root chunk vocabulary. */
+  function* handle(owner: Owner, chunk: B4AgentStreamChunk): Generator<AguiOutboundEvent> {
+    const state = stateFor(owner)
+    switch (chunk.type) {
+      case "token": {
+        const delta = typeof chunk.data === "string" ? chunk.data : ""
+        if (delta.length === 0) break
+        const sourceId =
+          "messageId" in chunk && typeof chunk.messageId === "string" && chunk.messageId.length > 0
+            ? chunk.messageId
+            : undefined
+        if (sourceId !== undefined) {
+          yield* flushText(owner)
+          let messageId = state.identifiedMessages.get(sourceId)
+          if (messageId === undefined) {
+            messageId = nextId("message")
+            state.identifiedMessages.set(sourceId, messageId)
+            yield* emit(owner, { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant" })
+          }
+          yield* emit(owner, { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta })
+          break
+        }
+        if (state.openMessageId === null) {
+          state.openMessageId = nextId("message")
+          yield* emit(owner, {
+            type: EventType.TEXT_MESSAGE_START,
+            messageId: state.openMessageId,
+            role: "assistant",
+          })
+        }
+        yield* emit(owner, {
+          type: EventType.TEXT_MESSAGE_CONTENT,
+          messageId: state.openMessageId,
+          delta,
+        })
+        break
+      }
+      case "reasoning": {
+        const delta = typeof chunk.data === "string" ? chunk.data : ""
+        if (delta.length === 0) break
+        const sourceId =
+          "messageId" in chunk && typeof chunk.messageId === "string" && chunk.messageId.length > 0
+            ? chunk.messageId
+            : undefined
+        if (sourceId !== undefined) {
+          // An identified delta means the producer identifies invocations, so
+          // anonymous reasoning belongs to nothing current. This invocation's
+          // own text stays open: reasoning and text interleave until
+          // `message_end`.
+          yield* flushReasoning(owner)
+          let open = state.identifiedReasoning.get(sourceId)
+          if (open === undefined) {
+            open = yield* openReasoningFrame(owner)
+            state.identifiedReasoning.set(sourceId, open)
+          }
+          yield* emit(owner, {
+            type: EventType.REASONING_MESSAGE_CONTENT,
+            messageId: open.messageId,
+            delta,
+          })
+          break
+        }
+        if (state.openReasoning === null) state.openReasoning = yield* openReasoningFrame(owner)
+        yield* emit(owner, {
+          type: EventType.REASONING_MESSAGE_CONTENT,
+          messageId: state.openReasoning.messageId,
+          delta,
+        })
+        break
+      }
+      case "message_end": {
+        const data = chunk.data
+        if (
+          data &&
+          typeof data === "object" &&
+          "messageId" in data &&
+          typeof data.messageId === "string"
+        ) {
+          yield* closeIdentified(owner, data.messageId)
+        }
+        break
+      }
+      case "tool_call_args": {
+        const fragment = asToolCallArgsData(chunk.data)
+        if (!fragment) break
+        const sent = state.openStreamedToolCalls.get(fragment.id)
+        if (sent === undefined) {
+          yield* flushText(owner)
+          state.openStreamedToolCalls.set(fragment.id, "")
+          yield* emit(owner, {
+            type: EventType.TOOL_CALL_START,
+            toolCallId: fragment.id,
+            toolCallName: fragment.name,
+          })
+        }
+        if (fragment.delta.length === 0) break
+        state.openStreamedToolCalls.set(fragment.id, (sent ?? "") + fragment.delta)
+        yield* emit(owner, {
+          type: EventType.TOOL_CALL_ARGS,
+          toolCallId: fragment.id,
+          delta: fragment.delta,
+        })
+        break
+      }
+      case "tool_call": {
+        yield* flushText(owner)
+        const tc = asToolCallData(chunk.data)
+        if (!tc) break
+        const sent = tc.id === undefined ? undefined : state.openStreamedToolCalls.get(tc.id)
+        if (tc.id !== undefined && sent !== undefined) {
+          // The deltas already opened this call. The announce carries the
+          // complete input, so anything the deltas did not cover goes out as
+          // one last delta; the concatenation is then exactly the single
+          // delta a non-streamed call carries. A payload that does not
+          // extend the streamed text cannot be corrected, only ended.
+          state.openStreamedToolCalls.delete(tc.id)
+          const full = stringifyArgs(tc.input)
+          if (full.length > sent.length && full.startsWith(sent)) {
+            yield* emit(owner, {
+              type: EventType.TOOL_CALL_ARGS,
+              toolCallId: tc.id,
+              delta: full.slice(sent.length),
+            })
+          }
+          yield* emit(owner, { type: EventType.TOOL_CALL_END, toolCallId: tc.id })
+          break
+        }
+        const toolCallId = tc.id ?? nextId("toolCall")
+        if (tc.id === undefined) {
+          const pending = state.pendingFallbackToolCallIds.get(tc.name)
+          if (pending) {
+            pending.push(toolCallId)
+          } else {
+            state.pendingFallbackToolCallIds.set(tc.name, [toolCallId])
+          }
+        }
+        const frames: AguiOutboundEvent[] = [
+          tag(owner, { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: tc.name }),
+          tag(owner, {
+            type: EventType.TOOL_CALL_ARGS,
+            toolCallId,
+            delta: stringifyArgs(tc.input),
+          }),
+          tag(owner, { type: EventType.TOOL_CALL_END, toolCallId }),
+        ]
+        if (owner === undefined) {
+          yield* ledger.onToolCall(tc.id, tc.name, frames)
+        } else {
+          // Nothing of a child's is ever suppressed: its frames pass straight through.
+          for (const frame of frames) yield* ledger.onPassthrough(frame)
+        }
+        break
+      }
+      case "tool_result": {
+        yield* flushText(owner)
+        const tr = asToolResultData(chunk.data)
+        if (!tr) break
+        const pending =
+          tr.id === undefined ? state.pendingFallbackToolCallIds.get(tr.name) : undefined
+        const toolCallId = tr.id ?? pending?.shift() ?? nextId("toolCall")
+        if (pending?.length === 0) state.pendingFallbackToolCallIds.delete(tr.name)
+        const resultEvent: ToolCallResultEvent = tag(owner, {
+          type: EventType.TOOL_CALL_RESULT,
+          messageId: nextId("toolResult"),
+          toolCallId,
+          content: toResultContent(tr.output, tr.id),
+        })
+        if (owner === undefined) {
+          yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
+        } else {
+          yield* ledger.onPassthrough(resultEvent)
+        }
+        break
+      }
+      case "plan_update": {
+        const projection = activityProjector.project("plan_update", chunk.data, owner)
+        if (projection.event === null) break
+        if (owner === undefined) {
+          yield* ledger.onActivity(projection.event, projection.orchestration)
+        } else {
+          yield* ledger.onPassthrough(projection.event)
+        }
+        break
+      }
+      case "content_parts_dropped": {
+        // Root only: a child's `subagent.content_parts_dropped` takes the
+        // default path below (its text is flushed, the chunk ignored).
+        if (owner !== undefined) {
+          yield* flushText(owner)
+          break
+        }
+        // Not a protocol requirement: B4 frames text with START/CONTENT/END
+        // (never CHUNK events), and the 1.0 client accepts a CUSTOM while a
+        // message is open. Ending open text first is a tidiness choice, so
+        // the drop notice lands between messages rather than inside one.
+        yield* flushText(owner)
+        yield* emit(owner, {
+          type: EventType.CUSTOM,
+          name: B4_CONTENT_PARTS_DROPPED_EVENT,
+          value: chunk.data,
+        })
+        break
+      }
+      default:
+        // Unknown extension chunks (e.g. capability.unknown) flush open text
+        // and are ignored.
+        yield* flushText(owner)
+        break
+    }
   }
 
   // The producer's own version, never an echo of the input's (spec: versioning).
@@ -287,205 +666,69 @@ export async function* toAguiEvents(
     for await (const chunk of chunks) {
       if (chunk.type !== "interrupt" && pendingInterrupts.length > 0) {
         if (chunk.type === "done") {
-          yield* closeStreamedToolCalls()
-          yield* ledger.settle()
-          yield {
-            type: EventType.RUN_FINISHED,
-            threadId: ctx.threadId,
-            runId: ctx.runId,
-            outcome: { type: "interrupt", interrupts: pendingInterrupts },
-            ...usage.terminal(),
-          }
+          yield* finishInterrupted()
           return
         }
         continue
       }
 
-      if (isB4ActivityChunkType(chunk.type)) {
-        const projection = activityProjector.project(chunk.type, chunk.data)
-        if (projection.event !== null) {
-          yield* ledger.onActivity(projection.event, projection.orchestration)
-        }
-        continue
-      }
-
       switch (chunk.type) {
-        case "token": {
-          const delta = typeof chunk.data === "string" ? chunk.data : ""
-          if (delta.length === 0) break
-          const sourceId =
-            "messageId" in chunk &&
-            typeof chunk.messageId === "string" &&
-            chunk.messageId.length > 0
-              ? chunk.messageId
-              : undefined
-          if (sourceId !== undefined) {
-            yield* flushText()
-            let messageId = identifiedMessages.get(sourceId)
-            if (messageId === undefined) {
-              messageId = nextId("message")
-              identifiedMessages.set(sourceId, messageId)
-              yield* ledger.onPassthrough({
-                type: EventType.TEXT_MESSAGE_START,
-                messageId,
-                role: "assistant",
-              })
-            }
-            yield* ledger.onPassthrough({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta })
-            break
-          }
-          if (openMessageId === null) {
-            openMessageId = nextId("message")
-            yield* ledger.onPassthrough({
-              type: EventType.TEXT_MESSAGE_START,
-              messageId: openMessageId,
-              role: "assistant",
-            })
-          }
-          yield* ledger.onPassthrough({
-            type: EventType.TEXT_MESSAGE_CONTENT,
-            messageId: openMessageId,
-            delta,
-          })
-          break
-        }
-        case "reasoning": {
-          const delta = typeof chunk.data === "string" ? chunk.data : ""
-          if (delta.length === 0) break
-          const sourceId =
-            "messageId" in chunk &&
-            typeof chunk.messageId === "string" &&
-            chunk.messageId.length > 0
-              ? chunk.messageId
-              : undefined
-          if (sourceId !== undefined) {
-            // An identified delta means the producer identifies invocations, so
-            // anonymous reasoning belongs to nothing current. This invocation's
-            // own text stays open: reasoning and text interleave until
-            // `message_end`.
-            yield* flushReasoning()
-            let open = identifiedReasoning.get(sourceId)
-            if (open === undefined) {
-              open = yield* openReasoningFrame()
-              identifiedReasoning.set(sourceId, open)
-            }
-            yield* ledger.onPassthrough({
-              type: EventType.REASONING_MESSAGE_CONTENT,
-              messageId: open.messageId,
-              delta,
-            })
-            break
-          }
-          if (openReasoning === null) openReasoning = yield* openReasoningFrame()
-          yield* ledger.onPassthrough({
-            type: EventType.REASONING_MESSAGE_CONTENT,
-            messageId: openReasoning.messageId,
-            delta,
-          })
-          break
-        }
-        case "message_end": {
-          const data = chunk.data
-          if (
-            data &&
-            typeof data === "object" &&
-            "messageId" in data &&
-            typeof data.messageId === "string"
-          ) {
-            yield* closeIdentified(data.messageId)
-          }
-          break
-        }
-        case "tool_call_args": {
-          const fragment = asToolCallArgsData(chunk.data)
-          if (!fragment) break
-          const sent = openStreamedToolCalls.get(fragment.id)
-          if (sent === undefined) {
-            yield* flushText()
-            openStreamedToolCalls.set(fragment.id, "")
-            yield* ledger.onPassthrough({
-              type: EventType.TOOL_CALL_START,
-              toolCallId: fragment.id,
-              toolCallName: fragment.name,
-            })
-          }
-          if (fragment.delta.length === 0) break
-          openStreamedToolCalls.set(fragment.id, (sent ?? "") + fragment.delta)
-          yield* ledger.onPassthrough({
-            type: EventType.TOOL_CALL_ARGS,
-            toolCallId: fragment.id,
-            delta: fragment.delta,
-          })
-          break
-        }
-        case "tool_call": {
-          yield* flushText()
-          const tc = asToolCallData(chunk.data)
-          if (!tc) break
-          const sent = tc.id === undefined ? undefined : openStreamedToolCalls.get(tc.id)
-          if (tc.id !== undefined && sent !== undefined) {
-            // The deltas already opened this call. The announce carries the
-            // complete input, so anything the deltas did not cover goes out as
-            // one last delta; the concatenation is then exactly the single
-            // delta a non-streamed call carries. A payload that does not
-            // extend the streamed text cannot be corrected, only ended.
-            openStreamedToolCalls.delete(tc.id)
-            const full = stringifyArgs(tc.input)
-            if (full.length > sent.length && full.startsWith(sent)) {
-              yield* ledger.onPassthrough({
-                type: EventType.TOOL_CALL_ARGS,
-                toolCallId: tc.id,
-                delta: full.slice(sent.length),
-              })
-            }
-            yield* ledger.onPassthrough({ type: EventType.TOOL_CALL_END, toolCallId: tc.id })
-            break
-          }
-          const toolCallId = tc.id ?? nextId("toolCall")
-          if (tc.id === undefined) {
-            const pending = pendingFallbackToolCallIds.get(tc.name)
-            if (pending) {
-              pending.push(toolCallId)
-            } else {
-              pendingFallbackToolCallIds.set(tc.name, [toolCallId])
-            }
-          }
-          const frames: AguiOutboundEvent[] = [
-            { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: tc.name },
-            { type: EventType.TOOL_CALL_ARGS, toolCallId, delta: stringifyArgs(tc.input) },
-            { type: EventType.TOOL_CALL_END, toolCallId },
-          ]
-          yield* ledger.onToolCall(tc.id, tc.name, frames)
-          break
-        }
-        case "tool_result": {
-          yield* flushText()
-          const tr = asToolResultData(chunk.data)
-          if (!tr) break
-          const pending = tr.id === undefined ? pendingFallbackToolCallIds.get(tr.name) : undefined
-          const toolCallId = tr.id ?? pending?.shift() ?? nextId("toolCall")
-          if (pending?.length === 0) pendingFallbackToolCallIds.delete(tr.name)
-          const messageId = nextId("toolResult")
-          const resultEvent: ToolCallResultEvent = {
-            type: EventType.TOOL_CALL_RESULT,
-            messageId,
-            toolCallId,
-            content: toResultContent(tr.output, tr.id),
-          }
-          yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
-          break
-        }
         case "usage":
         case "subagent.usage": {
           // A child's model call is part of this run's usage (the run is the
           // accounting boundary), so both spellings land in one collector.
           const data = asUsageData(chunk.data)
           if (data) usage.add(data)
-          break
+          continue
+        }
+        case "subagent.start": {
+          const start = asSubagentStartData(chunk.data)
+          // A malformed announce, or one for an invocation already open, is a
+          // malformed stream: dropped, never re-announced (the 1.0 verifier
+          // would fail the run on a duplicate).
+          if (start === null || openSubagents.has(start.callId)) continue
+          openSubagents.set(start.callId, {
+            callId: start.callId,
+            parentCallId: start.parentCallId,
+          })
+          // The `subagentRunId` IS the `task` tool-call id: stable across an
+          // interrupt → resume (the resumed run re-announces it, which 1.0
+          // allows for a continued invocation), and the call it hangs off.
+          yield* ledger.onPassthrough({
+            type: EventType.SUBAGENT_STARTED,
+            subagentRunId: start.callId,
+            name: start.name,
+            parentToolCallId: start.callId,
+            ...(start.parentCallId !== undefined
+              ? { parentSubagentRunId: start.parentCallId }
+              : {}),
+            ...(start.description !== undefined ? { description: start.description } : {}),
+          })
+          continue
+        }
+        case "subagent.end": {
+          const end = asSubagentEndData(chunk.data)
+          if (end === null || !openSubagents.has(end.callId)) continue
+          yield* flushOwner(end.callId)
+          openSubagents.delete(end.callId)
+          if (end.error !== undefined) {
+            yield* ledger.onPassthrough({
+              type: EventType.SUBAGENT_ERROR,
+              subagentRunId: end.callId,
+              message: end.error,
+            })
+          } else {
+            yield* ledger.onPassthrough({
+              type: EventType.SUBAGENT_FINISHED,
+              subagentRunId: end.callId,
+              ...(end.result !== undefined ? { result: end.result } : {}),
+              outcome: { type: "success" },
+            })
+          }
+          continue
         }
         case "interrupt": {
-          yield* flushAllText()
-          yield* closeStreamedToolCalls()
+          yield* flushEveryOwner()
           const interrupt = toAguiInterrupt(chunk.data)
           if (interrupt === null) {
             yield* ledger.settle()
@@ -502,71 +745,37 @@ export async function* toAguiEvents(
           // the fuller rationale.
           yield* ledger.settle(interrupt.toolCallId)
           pendingInterrupts.push(interrupt)
-          break
+          continue
         }
         case "done": {
-          yield* flushAllText()
-          yield* closeStreamedToolCalls()
-          yield* ledger.settle()
-          yield {
-            type: EventType.RUN_FINISHED,
-            threadId: ctx.threadId,
-            runId: ctx.runId,
-            // 1.0: an absent result is omitted; null is not a result.
-            ...(Object.hasOwn(chunk, "data") && chunk.data !== undefined && chunk.data !== null
-              ? { result: chunk.data }
-              : {}),
-            outcome: await successOutcome(),
-            ...usage.terminal(),
-          }
+          yield* finishSuccess(Object.hasOwn(chunk, "data") ? chunk.data : undefined)
           return
         }
-        case "content_parts_dropped": {
-          // Not a protocol requirement: B4 frames text with START/CONTENT/END
-          // (never CHUNK events), and the 1.0 client accepts a CUSTOM while a
-          // message is open. Ending open text first is a tidiness choice, so
-          // the drop notice lands between messages rather than inside one.
-          yield* flushText()
-          yield* ledger.onPassthrough({
-            type: EventType.CUSTOM,
-            name: B4_CONTENT_PARTS_DROPPED_EVENT,
-            value: chunk.data,
-          })
-          break
-        }
         default:
-          yield* flushText()
-          // Unknown extension chunks (e.g. capability.unknown) flush open text
-          // and are ignored.
           break
       }
+
+      const unwrapped = unwrapSubagentChunk(chunk)
+      if (unwrapped !== null) {
+        // Announce before attribute (spec: subagents): a chunk for an
+        // invocation this run never announced has no owner to carry it.
+        if (!openSubagents.has(unwrapped.owner)) continue
+        yield* handle(unwrapped.owner, unwrapped.chunk)
+        continue
+      }
+      yield* handle(undefined, chunk)
     }
     // Stream ended without an explicit done/interrupt: flush and finish.
-    yield* flushAllText()
-    yield* closeStreamedToolCalls()
-    yield* ledger.settle()
     if (pendingInterrupts.length > 0) {
-      yield {
-        type: EventType.RUN_FINISHED,
-        threadId: ctx.threadId,
-        runId: ctx.runId,
-        outcome: { type: "interrupt", interrupts: pendingInterrupts },
-        ...usage.terminal(),
-      }
+      yield* finishInterrupted()
       return
     }
-    yield {
-      type: EventType.RUN_FINISHED,
-      threadId: ctx.threadId,
-      runId: ctx.runId,
-      outcome: await successOutcome(),
-      ...usage.terminal(),
-    }
+    yield* finishSuccess(undefined)
   } catch (err) {
-    yield* flushAllText()
-    yield* closeStreamedToolCalls()
-    yield* ledger.settle()
+    yield* flushEveryOwner()
     if (options.cancelled?.() === true) {
+      yield* closeOpenSubagents({ kind: "cancelled" })
+      yield* ledger.settle()
       yield {
         type: EventType.RUN_FINISHED,
         threadId: ctx.threadId,
@@ -576,6 +785,8 @@ export async function* toAguiEvents(
       }
       return
     }
+    // `RUN_ERROR` ends everything: open subagents are abandoned, not closed.
+    yield* ledger.settle()
     // An upstream error that names a machine-readable `code` (the runtime's
     // middleware `after` rejection does) keeps it on the wire; anything else
     // stays message-only, exactly as before.

@@ -1,15 +1,11 @@
 import { isValidElement, type ReactElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
-import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../../src/activities.js"
+import { B4_PLAN_ACTIVITY_TYPE } from "../../src/activities.js"
 import { ActivityChecklist } from "../../src/react/ActivityChecklist.js"
 import { PlanActivityCard } from "../../src/react/PlanActivityCard.js"
 import { b4ActivityRenderers } from "../../src/react/renderers.js"
-import { SubagentActivityCard } from "../../src/react/SubagentActivityCard.js"
-import {
-  planActivityContentSchema,
-  subagentActivityContentSchema,
-} from "../../src/react/schemas.js"
+import { planActivityContentSchema } from "../../src/react/schemas.js"
 
 describe("plan schema", () => {
   it("accepts a valid plan activity", () => {
@@ -33,98 +29,6 @@ describe("plan schema", () => {
   })
 })
 
-const runningSubagent = {
-  name: "researcher",
-  depth: 1,
-  status: "running",
-  tools: [{ name: "searchCorpus", status: "running" }],
-  totalToolCount: 1,
-} as const
-
-describe("subagent schema valid states", () => {
-  it.each([
-    runningSubagent,
-    { ...runningSubagent, status: "completed", tools: [] as const },
-    { ...runningSubagent, status: "failed", error: "Corpus unavailable" },
-  ])("accepts $status content", (content) => {
-    expect(subagentActivityContentSchema.safeParse(content).success).toBe(true)
-  })
-})
-
-describe("subagent schema privacy", () => {
-  it.each(["call_id", "route_id", "id", "input", "output", "final_message"])(
-    "rejects the extra key %s",
-    (key) => {
-      expect(
-        subagentActivityContentSchema.safeParse({ ...runningSubagent, [key]: "private" }).success,
-      ).toBe(false)
-    },
-  )
-})
-
-describe("subagent schema bounds", () => {
-  it("rejects more than five tools", () => {
-    expect(
-      subagentActivityContentSchema.safeParse({
-        ...runningSubagent,
-        tools: Array.from({ length: 6 }, (_, index) => ({
-          name: `tool-${index}`,
-          status: "completed",
-        })),
-        totalToolCount: 6,
-      }).success,
-    ).toBe(false)
-  })
-
-  it("rejects errors longer than 400 characters", () => {
-    expect(
-      subagentActivityContentSchema.safeParse({
-        ...runningSubagent,
-        status: "failed",
-        error: "x".repeat(401),
-      }).success,
-    ).toBe(false)
-  })
-
-  it.each(["running", "completed"] as const)("rejects an error for %s content", (status) => {
-    expect(
-      subagentActivityContentSchema.safeParse({
-        ...runningSubagent,
-        status,
-        error: "not allowed",
-      }).success,
-    ).toBe(false)
-  })
-
-  it("requires an error for failed content", () => {
-    expect(
-      subagentActivityContentSchema.safeParse({ ...runningSubagent, status: "failed" }).success,
-    ).toBe(false)
-  })
-
-  it.each([0, -1, 1.5])("rejects invalid depth %s", (depth) => {
-    expect(subagentActivityContentSchema.safeParse({ ...runningSubagent, depth }).success).toBe(
-      false,
-    )
-  })
-
-  it("rejects a total tool count below the displayed tool count", () => {
-    expect(
-      subagentActivityContentSchema.safeParse({ ...runningSubagent, totalToolCount: 0 }).success,
-    ).toBe(false)
-  })
-})
-
-/**
- * The text a reader sees, collected from between the tags.
- *
- * This gathers the runs of text that follow each `>` and contain no `<`, which
- * is extraction rather than sanitization. Removing tags with a replace is the
- * shape to avoid: one pass turns `<scr<script>ipt>` back into `<script>`, and
- * even a repeat-until-stable version reads like a sanitizer that someone will
- * later copy somewhere it matters. Taking only `<`-free substrings cannot
- * reassemble a tag no matter what the input is.
- */
 function visibleText(markup: string): string {
   return Array.from(markup.matchAll(/>([^<]*)/g), (match) => match[1] ?? "").join("")
 }
@@ -177,130 +81,6 @@ describe("plan activity card", () => {
   })
 })
 
-const displayedTools = [
-  { name: "searchCorpus", status: "completed" },
-  { name: "readDoc", status: "completed" },
-  { name: "extractQuotes", status: "completed" },
-  { name: "compareSources", status: "running" },
-  { name: "checkCitation", status: "incomplete" },
-] as const
-
-describe("subagent activity card", () => {
-  it("expands running work with a child plan and five visible tool statuses", () => {
-    const markup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: "researcher",
-          depth: 2,
-          status: "running",
-          todos: [
-            { content: "Find primary sources", status: "completed" },
-            { content: "Compare the evidence", status: "in_progress" },
-          ],
-          tools: displayedTools,
-          totalToolCount: 12,
-        }}
-      />,
-    )
-
-    expect(markup).toContain("<details open")
-    expect(markup).toContain("researcher")
-    expect(markup).toContain("running")
-    expect(markup).toContain("12 tools")
-    expect(markup).toContain("Find primary sources")
-    for (const tool of displayedTools) {
-      expect(markup).toContain(tool.name)
-      expect(markup).toContain(tool.status)
-    }
-  })
-
-  it("labels only subagents deeper than the first level as nested", () => {
-    const nestedMarkup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: "fact checker",
-          depth: 2,
-          status: "completed",
-          tools: [],
-          totalToolCount: 0,
-        }}
-      />,
-    )
-    const rootMarkup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: "researcher",
-          depth: 1,
-          status: "completed",
-          tools: [],
-          totalToolCount: 0,
-        }}
-      />,
-    )
-
-    expect(nestedMarkup).toContain("nested")
-    expect(rootMarkup).not.toContain("nested")
-  })
-
-  it.each([
-    {
-      name: "researcher",
-      depth: 1,
-      status: "completed" as const,
-      tools: [],
-      totalToolCount: 0,
-    },
-    {
-      name: "researcher",
-      depth: 1,
-      status: "failed" as const,
-      tools: [],
-      totalToolCount: 0,
-      error: "The source service returned an error",
-    },
-  ])("collapses $status work", (content) => {
-    const markup = renderToStaticMarkup(<SubagentActivityCard content={content} />)
-    expect(markup).not.toContain("<details open")
-  })
-
-  it("shows the supplied bounded failure as an alert", () => {
-    const boundedError = `Bounded failure: ${"x".repeat(380)}`
-    const markup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: "researcher",
-          depth: 1,
-          status: "failed",
-          tools: [],
-          totalToolCount: 0,
-          error: boundedError,
-        }}
-      />,
-    )
-
-    expect(markup).toContain('role="alert"')
-    expect(markup).toContain("b4-activity__error")
-    expect(markup).toContain(boundedError)
-  })
-
-  it("does not render runtime identifiers, inputs, or outputs", () => {
-    const privateContent = {
-      name: "researcher",
-      depth: 1,
-      status: "running" as const,
-      tools: [],
-      totalToolCount: 0,
-      call_id: "CALL-ID-SENTINEL",
-      route_id: "ROUTE-ID-SENTINEL",
-      input: "INPUT-SENTINEL",
-      output: "OUTPUT-SENTINEL",
-    }
-    const markup = renderToStaticMarkup(<SubagentActivityCard content={privateContent} />)
-
-    expect(markup).not.toMatch(/CALL-ID-SENTINEL|ROUTE-ID-SENTINEL|INPUT-SENTINEL|OUTPUT-SENTINEL/)
-  })
-})
-
 function descendantElements(element: ReactElement): ReactElement[] {
   const { children } = element.props as { children?: ReactNode }
   const childNodes = Array.isArray(children) ? children : [children]
@@ -324,26 +104,6 @@ describe("activity card quality boundaries", () => {
     expect(new Set(itemKeys).size).toBe(itemKeys.length)
   })
 
-  it("assigns unique identifier-free keys to duplicate tool names", () => {
-    const card = SubagentActivityCard({
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [
-          { name: "searchCorpus", status: "completed" },
-          { name: "searchCorpus", status: "running" },
-        ],
-        totalToolCount: 2,
-      },
-    })
-    const itemKeys = descendantElements(card)
-      .filter((element) => element.type === "li")
-      .map((element) => element.key)
-
-    expect(new Set(itemKeys).size).toBe(itemKeys.length)
-  })
-
   it("protects long unbroken plan content from overflowing", () => {
     const longContent = "evidence".repeat(60)
     const markup = renderToStaticMarkup(
@@ -354,27 +114,6 @@ describe("activity card quality boundaries", () => {
     expect(markup.match(/b4-activity__item-label/g)).toHaveLength(1)
   })
 
-  it("protects long unbroken subagent and tool names from overflowing", () => {
-    const longName = "researcher".repeat(50)
-    const longToolName = "searchCorpus".repeat(50)
-    const markup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: longName,
-          depth: 1,
-          status: "running",
-          tools: [{ name: longToolName, status: "running" }],
-          totalToolCount: 1,
-        }}
-      />,
-    )
-
-    expect(markup).toContain(longName)
-    expect(markup).toContain(longToolName)
-    expect(markup.match(/b4-activity__title/g)).toHaveLength(1)
-    expect(markup.match(/b4-activity__item-label/g)).toHaveLength(1)
-  })
-
   it("retains explicit list semantics for the markerless checklist", () => {
     const markup = renderToStaticMarkup(
       <PlanActivityCard content={{ todos: [{ content: "Review evidence", status: "pending" }] }} />,
@@ -382,42 +121,18 @@ describe("activity card quality boundaries", () => {
 
     expect(markup).toMatch(/<ol[^>]*role="list"/)
   })
-
-  it("retains explicit list semantics for markerless tools", () => {
-    const markup = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={{
-          name: "researcher",
-          depth: 1,
-          status: "running",
-          tools: [{ name: "searchCorpus", status: "running" }],
-          totalToolCount: 1,
-        }}
-      />,
-    )
-
-    expect(markup).toMatch(/<ul[^>]*role="list"/)
-  })
 })
 
 describe("activity renderer registry", () => {
   it("registers the public activity types in order", () => {
     expect(b4ActivityRenderers.map((renderer) => renderer.activityType)).toEqual([
       B4_PLAN_ACTIVITY_TYPE,
-      B4_SUBAGENT_ACTIVITY_TYPE,
     ])
   })
 
   it("synchronously validates representative content through each renderer", () => {
     const representativeContent = [
       { todos: [{ content: "Write the report", status: "pending" }] },
-      {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [{ name: "searchCorpus", status: "running" }],
-        totalToolCount: 1,
-      },
     ] as const
 
     b4ActivityRenderers.forEach((renderer, index) => {

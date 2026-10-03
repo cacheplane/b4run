@@ -4,7 +4,7 @@ import { type BaseEvent, EventType, PROTOCOL_VERSION, type RunAgentInput } from 
 import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
 import { AGUI_MEDIA_TYPE } from "@ag-ui/encoder"
 import { afterAll, afterEach, expect, it, vi } from "vitest"
-import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
+import { B4_PLAN_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { type ToAguiOptions, toAguiEvents } from "../src/outbound.js"
 import { agUiContentType, encodeAgUiEvent } from "../src/sse.js"
@@ -160,7 +160,7 @@ const CANNED: B4AgentStreamChunk[] = [
   },
   {
     type: "subagent.tool_result",
-    data: { ...childIdentity, id: "child-tool-1", output: "not public output" },
+    data: { ...childIdentity, id: "child-tool-1", name: "readDoc", output: "not public output" },
   },
   {
     type: "subagent.token",
@@ -308,8 +308,8 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   expect(kinds).toContain(EventType.TOOL_CALL_START)
   expect(kinds).toContain(EventType.TOOL_CALL_RESULT)
 
-  // The two built-in orchestration calls present as activities only: no generic
-  // tool frame anywhere in the stream references their ids.
+  // writeTodos presents as the plan activity only; the task call is an ordinary
+  // tool call whose subagent is presented with SUBAGENT_* and attribution.
   const toolEvents = events.filter(
     (event) =>
       event.type === EventType.TOOL_CALL_START ||
@@ -318,12 +318,11 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
       event.type === EventType.TOOL_CALL_RESULT,
   )
   expect(toolEvents.map((event) => event.toolCallId)).not.toContain(PLAN_TOOL_CALL_ID)
-  expect(toolEvents.map((event) => event.toolCallId)).not.toContain(TASK_TOOL_CALL_ID)
   expect(
     toolEvents
       .filter((event) => event.type === EventType.TOOL_CALL_START)
       .map((event) => event.toolCallName),
-  ).toEqual(["draftReply", "searchCorpus", "renderChart"])
+  ).toEqual(["draftReply", "searchCorpus", "renderChart", "task", "readDoc"])
 
   // A streamed call reaches the client as several args deltas whose
   // concatenation is exactly the single delta a non-streamed call carries.
@@ -375,26 +374,73 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   expect(customs).toEqual([
     expect.objectContaining({ name: "b4.content_parts_dropped", value: DROPPED }),
   ])
+  // The client keeps the parts as the tool message's content.
+  expect(
+    agent.messages.find(
+      (message) => message.role === "tool" && message.toolCallId === PARTS_TOOL_CALL_ID,
+    ),
+  ).toMatchObject({ content: PARTS_RESULT })
 
+  // The subagent: announced before anything is attributed to it, every event
+  // in between carries its id, closed with its result before the run ends.
+  const started = kinds.indexOf(EventType.SUBAGENT_STARTED)
+  const finished = kinds.indexOf(EventType.SUBAGENT_FINISHED)
+  expect(started).toBeGreaterThan(-1)
+  expect(finished).toBeGreaterThan(started)
+  expect(events[started]).toMatchObject({
+    subagentRunId: childIdentity.call_id,
+    name: childIdentity.subagent,
+    parentToolCallId: TASK_TOOL_CALL_ID,
+  })
+  expect(events[finished]).toMatchObject({
+    subagentRunId: childIdentity.call_id,
+    result: "not public final",
+    outcome: { type: "success" },
+  })
+  for (const event of events.slice(started + 1, finished)) {
+    expect(event).toHaveProperty("subagentRunId", childIdentity.call_id)
+  }
+  const attributedKinds = events
+    .filter((event) => event.subagentRunId === childIdentity.call_id)
+    .map((event) => event.type)
+  expect(attributedKinds).toContain(EventType.TEXT_MESSAGE_CONTENT)
+  expect(attributedKinds).toContain(EventType.TOOL_CALL_START)
+  expect(attributedKinds).toContain(EventType.TOOL_CALL_RESULT)
+  expect(attributedKinds).toContain(EventType.ACTIVITY_SNAPSHOT)
+  for (const event of toolEvents) {
+    if (event.toolCallId === "child-tool-1") {
+      expect(event).toHaveProperty("subagentRunId", childIdentity.call_id)
+    } else {
+      expect(event).not.toHaveProperty("subagentRunId")
+    }
+  }
+  // Root and child plans are both `b4.plan`, under their own stable ids.
   const activities = events
     .filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
     .map((event) => ActivitySnapshotEventSchema.parse(event))
-  expect(activities.length).toBeGreaterThan(0)
   expect(new Set(activities.map((activity) => activity.activityType))).toEqual(
-    new Set([B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE]),
+    new Set([B4_PLAN_ACTIVITY_TYPE]),
   )
-  const serializedActivityContent = JSON.stringify(activities.map((activity) => activity.content))
-  for (const privateValue of [
-    "not public",
-    childIdentity.route_id,
-    childIdentity.call_id,
-    "child-tool-1",
-  ]) {
-    expect(serializedActivityContent).not.toContain(privateValue)
-  }
+  expect(activities.map((activity) => activity.messageId).sort()).toEqual(
+    [`b4:plan:${childIdentity.call_id}`, "b4:plan:r1"].sort(),
+  )
+  // The child's prose is in the transcript as its own tagged message; the
+  // root's text is exactly the root's.
+  // (The child's tool-call-bearing assistant message has no content; the prose one does.)
+  expect(
+    agent.messages
+      .filter(
+        (message) =>
+          message.role === "assistant" && message.subagentRunId === childIdentity.call_id,
+      )
+      .map((message) => message.content)
+      .filter((content) => typeof content === "string"),
+  ).toEqual(["not public message"])
   expect(
     events
-      .filter((event) => event.type === EventType.TEXT_MESSAGE_CONTENT)
+      .filter(
+        (event) => event.type === EventType.TEXT_MESSAGE_CONTENT && !("subagentRunId" in event),
+      )
       .map((event) => event.delta)
       .join(""),
   ).toBe("Researching done. [corpus/a.md]")
@@ -560,6 +606,143 @@ it("reasoning open at an interrupt is closed before RUN_FINISHED, and the resume
   )
   expect(kinds.at(-1)).toBe(EventType.RUN_FINISHED)
   expect(agent.messages.filter((message) => message.role === "reasoning")).toHaveLength(2)
+})
+
+it("a child interrupt suspends the subagent, tags the interrupt, and the resume re-announces it", async () => {
+  const { url } = await startCannedServer([
+    {
+      stream: () =>
+        toAsync([
+          { type: "subagent.start", data: childIdentity },
+          { type: "subagent.token", data: { ...childIdentity, data: "asking", messageId: "cm1" } },
+          {
+            type: "interrupt",
+            data: {
+              interruptId: "perm-1",
+              kind: "tool",
+              callId: childIdentity.call_id,
+              grant: "b4ag_xyz",
+            },
+          },
+        ]),
+    },
+    {
+      stream: () =>
+        toAsync([
+          { type: "subagent.start", data: childIdentity },
+          {
+            type: "subagent.token",
+            data: { ...childIdentity, data: "approved", messageId: "cm2" },
+          },
+          { type: "subagent.end", data: { ...childIdentity, final_message: "approved" } },
+          { type: "done", data: {} },
+        ]),
+      options: { idFactory: (kind) => `r2-${kind}` },
+    },
+  ])
+  const { agent, events } = await runThroughClient(url, { runId: "r1" })
+  const kinds = events.map((event) => event.type)
+  expect(kinds.slice(-2)).toEqual([EventType.SUBAGENT_FINISHED, EventType.RUN_FINISHED])
+  expect(events.at(-2)).toMatchObject({
+    subagentRunId: childIdentity.call_id,
+    outcome: { type: "suspended", interruptIds: ["perm-1"] },
+  })
+  expect(events.at(-1)).toMatchObject({
+    outcome: {
+      type: "interrupt",
+      interrupts: [
+        { id: "perm-1", subagentRunId: childIdentity.call_id, metadata: { grant: "b4ag_xyz" } },
+      ],
+    },
+  })
+  expect(kinds.indexOf(EventType.TEXT_MESSAGE_END)).toBeLessThan(
+    kinds.indexOf(EventType.SUBAGENT_FINISHED),
+  )
+
+  const resumed: BaseEvent[] = []
+  await withNoWarnings(() =>
+    agent.runAgent(
+      {
+        runId: "r2",
+        resume: [
+          {
+            interruptId: "perm-1",
+            status: "resolved",
+            payload: "once",
+            metadata: { grant: "b4ag_xyz" },
+          },
+        ],
+      },
+      {
+        onEvent: ({ event }) => {
+          resumed.push(event)
+        },
+      },
+    ),
+  )
+  const resumedKinds = resumed.map((event) => event.type)
+  expect(resumedKinds.filter((kind) => kind === EventType.SUBAGENT_STARTED)).toHaveLength(1)
+  expect(resumedKinds.indexOf(EventType.SUBAGENT_FINISHED)).toBeLessThan(
+    resumedKinds.indexOf(EventType.RUN_FINISHED),
+  )
+  expect(resumed.find((event) => event.type === EventType.SUBAGENT_FINISHED)).toMatchObject({
+    result: "approved",
+    outcome: { type: "success" },
+  })
+})
+
+it("a cancel with a subagent open closes it with SUBAGENT_ERROR before the cancelled outcome", async () => {
+  async function* abortedMidChild(): AsyncIterable<B4AgentStreamChunk> {
+    yield { type: "subagent.start", data: childIdentity }
+    yield { type: "subagent.token", data: { ...childIdentity, data: "partial", messageId: "cm1" } }
+    throw new Error("AG-UI request aborted")
+  }
+  const { url } = await startCannedServer([
+    { stream: abortedMidChild, options: { cancelled: () => true } },
+  ])
+  const { events } = await runThroughClient(url, { runId: "r1" })
+  const kinds = events.map((event) => event.type)
+  expect(kinds.slice(-2)).toEqual([EventType.SUBAGENT_ERROR, EventType.RUN_FINISHED])
+  expect(events.at(-2)).toMatchObject({ subagentRunId: childIdentity.call_id, code: "cancelled" })
+  expect(events.at(-1)).toMatchObject({ outcome: { type: "cancelled" } })
+})
+
+it("a nested subagent names its parent and both close before the run ends", async () => {
+  const grandchild = {
+    call_id: "c2",
+    subagent: "reader",
+    route_id: "/research#reader",
+    depth: 2,
+    parent_call_id: childIdentity.call_id,
+  } as const
+  const { url } = await startCannedServer([
+    {
+      stream: () =>
+        toAsync([
+          { type: "subagent.start", data: childIdentity },
+          { type: "subagent.start", data: grandchild },
+          { type: "subagent.token", data: { ...grandchild, data: "deep", messageId: "gm1" } },
+          { type: "subagent.end", data: { ...grandchild, final_message: "deep" } },
+          { type: "subagent.end", data: { ...childIdentity, final_message: "shallow" } },
+          { type: "done", data: {} },
+        ]),
+    },
+  ])
+  const { events } = await runThroughClient(url, { runId: "r1" })
+  const starts = events.filter((event) => event.type === EventType.SUBAGENT_STARTED)
+  expect(starts[1]).toMatchObject({
+    subagentRunId: "c2",
+    parentSubagentRunId: childIdentity.call_id,
+  })
+  expect(
+    events
+      .filter((event) => event.type === EventType.SUBAGENT_FINISHED)
+      .map((event) => event.subagentRunId),
+  ).toEqual(["c2", childIdentity.call_id])
+  expect(events.find((event) => event.type === EventType.TEXT_MESSAGE_CONTENT)).toHaveProperty(
+    "subagentRunId",
+    "c2",
+  )
 })
 
 it("a client-tool park ends as success naming the pending call", async () => {
