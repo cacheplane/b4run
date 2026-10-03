@@ -14,7 +14,8 @@ The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js
 - **Researcher cards:** delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
 - **Suggestions + tools:** three discovery prompts on the empty state, and generic root-tool cards in the transcript.
 - **Permissions:** the standard interrupt UI owns the approve and deny actions, rendered at the end of the transcript where the run stopped.
-- **Composer:** send, and stop while a run is in flight. It's blocked while the agent is running or waiting on an approval, and the header says which.
+- **Composer:** send, attach an image when the route's model takes one, and stop while a run is in flight. It's blocked while the agent is running or waiting on an approval, and the header says which.
+- **Media:** images, audio, video, and documents in user messages and tool results, plus a notice for each part the model never saw.
 
 The plan and researcher cards only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
 
@@ -129,6 +130,58 @@ The same seam restores history when you switch threads. CopilotKit's own replay 
 The same seam also carries `GET /threads/:id/pending_interrupts`, which lets a permission prompt survive a reload. `useInterrupt` only gets its state from live run events, so after a reload the server is still holding the gate and nothing on screen says so. `app/components/HydratedInterrupts.tsx` asks for the parked interrupts and reports their count upward, so the composer stays blocked until one is answered.
 
 To restyle the app, edit `examples/research/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
+
+## Attach an image
+
+The attach control appears only when the route's model takes an image. `AppShell` reads that from the route's [capability document](/docs/ag-ui#capabilities):
+
+```tsx title="examples/research/web/app/components/AppShell.tsx"
+const capabilities = useCapabilities()
+const canAttachImages = capabilities?.multimodal?.input?.image === true
+```
+
+There is no browser call to make here. In the browser, the agent is CopilotKit's runtime proxy, and it carries what the runtime's `/info` sync fetched through `B4HttpAgent.getCapabilities()`. `useCapabilities()` returns `undefined` until that handshake lands, which keeps the control hidden until then.
+
+The composer reads a picked file as an inline `image` part, with the bytes and `mimeType` split out of the `data:` URL and the filename in `metadata`. On send, the shell puts the text first and adds the message itself:
+
+```tsx title="examples/research/web/app/components/AppShell.tsx"
+const content: string | B4ContentPart[] =
+  parts.length > 0
+    ? [...(text.length > 0 ? [{ type: "text" as const, text }] : []), ...parts]
+    : text
+agent.addMessage({ id: globalThis.crypto.randomUUID(), role: "user", content })
+```
+
+A text-only turn stays a plain string, so it's exactly what it was before attachments existed.
+
+### Media in the transcript
+
+User bubbles and tool cards draw their media with `app/components/MediaParts.tsx`: an `<img>` for an image, the native players for audio and video, a download chip for a document, and a chip naming the handle for a provider `file` source, which the browser can't load. A `url` source is loaded only when it's `http(s)`, because tool results are model-driven.
+
+Tool-result media is drawn beside the card, not inside it. CopilotKit's tool renderer only receives `contentToText(content)`, so the parts are flattened to text before `ToolCallCard` sees them. The app's `Transcript` keeps the result's parts and renders `MediaParts` under the card itself.
+
+### Parts the model didn't see
+
+When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and the transcript turns each event into a muted line, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`. A notice with a `toolCallId` follows that tool call. One without it is about the user's own message, so the shell stamps it with the newest user message's id and it stays after that turn.
+
+CopilotKit keeps no record of `CUSTOM` events, so the notices live only in the shell's state. Switching threads clears them, and a reload or a restored thread doesn't bring them back.
+
+### Restored threads
+
+Hydration (`app/lib/hydrate.ts`) brings media back too. A checkpointed user message holds LangChain content blocks, not AG-UI parts, so `blocksToParts` in `app/lib/parts.ts` maps them back. A tool that returned parts keeps the full list in the tool message's `additional_kwargs.b4_content_parts`, while its `content` holds only what the model could take. The UI shows what the tool produced, so those parts win.
+
+### A chart the model doesn't see
+
+The research server ships `renderChart` (`server/src/tools/renderChart.ts`). Given a title and up to 12 `{ label, value }` pairs, it returns two parts: a one-line text summary and an inline SVG bar chart.
+
+```ts title="examples/research/server/src/tools/renderChart.ts"
+return [
+  { type: "text", text: summary },
+  { type: "image", source: { type: "data", value: base64(svg), mimeType: "image/svg+xml" } },
+]
+```
+
+The user sees the chart under the tool card. The model, `gpt-5-mini`, sees only the summary, because media in a tool result never reaches an OpenAI model. So every `renderChart` call also produces a dropped-part notice. That's expected: the notice is telling you the truth about what the model saw.
 
 ## Render plan and researcher activities
 
