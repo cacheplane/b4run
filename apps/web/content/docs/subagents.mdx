@@ -203,15 +203,15 @@ An invalid registration or policy fails `b4 check` or route preparation with `B4
 When you run the parent through `runs/stream`, B4.run forwards the child's activity as `subagent.*` events:
 
 - `subagent.start`
-- `subagent.tool_call`
-- `subagent.tool_result`
-- `subagent.message`
+- `subagent.token`, `subagent.reasoning` and `subagent.message_end`
+- `subagent.tool_call`, `subagent.tool_call_args` and `subagent.tool_result`
+- `subagent.usage`
 - capability events such as `subagent.plan_update`
 - `subagent.end`
 
-Each forwarded event includes a generated `call_id`. `subagent.start` also includes the subagent name, route id, and depth. `subagent.end` includes either `final_message` or `error`.
+Each forwarded event carries the child's `call_id`, name, route id and depth, and otherwise has the shape of the root event of the same name. `subagent.start` also includes the child's declared description and, for a nested child, `parent_call_id`. `subagent.end` includes either `final_message` or `error`.
 
-While a child runs, its tokens arrive as `subagent.message`, and B4.run drops the duplicate parent message chunks.
+While a child runs, its tokens arrive as `subagent.token` with the child's `messageId`, and B4.run drops the duplicate parent message chunks. Child tool calls carry the model's tool-call id, the same id their results carry. See [Streaming output](/docs/recipes/stream-output#sse-event-types) for the payloads.
 
 If a child hits a tool, path, command, memory, or delegation approval, B4.run sends a top-level `interrupt` on the root parent's stream. Resume the root thread with every pending interrupt, by ID. Don't start or resume the child yourself. See [Resuming an interrupted run](/docs/permissions#resuming-an-interrupted-run).
 
