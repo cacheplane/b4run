@@ -240,16 +240,23 @@ it("coalesces the emitted subagent call_id/chunk schema without mixing calls", (
     resume: false,
     input: null,
   })
-  const message = (call_id: string, chunk: string): StreamChunk => ({
-    type: "subagent.message",
-    data: { call_id, subagent: "researcher", route_id: "/child", depth: 1, chunk },
-  })
+  const message = (call_id: string, data: string, messageId = "m1"): StreamChunk =>
+    ({
+      type: "subagent.token",
+      data: { call_id, subagent: "researcher", route_id: "/child", depth: 1, data, messageId },
+    }) as StreamChunk
   producer.publish(message("first", "hel"))
   producer.publish(message("second", "other"))
   producer.publish(message("first", "lo"))
+  // A new invocation of the same child is a new digest entry, not more of the old one.
+  producer.publish(message("first", "again", "m2"))
   const attachment = hub.attach("children")
   if (!attachment) throw new Error("Expected child turn attachment")
-  expect(attachment.turn).toEqual([message("first", "hello"), message("second", "other")])
+  expect(attachment.turn).toEqual([
+    message("first", "hello"),
+    message("second", "other"),
+    message("first", "again", "m2"),
+  ])
   attachment.detach()
   hub.closeAll()
 })
