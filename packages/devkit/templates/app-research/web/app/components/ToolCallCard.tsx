@@ -141,9 +141,9 @@ const STATUS: Record<ToolCallStatus, { readonly glyph: string; readonly label: s
  * a lifecycle: a tool that threw still arrives here as `"complete"`, and this
  * card sees only the result string, because the wire carries the tool's output
  * text and not the `ToolMessage`'s success/error flag (see `app/lib/hydrate.ts`, which drops
- * it deliberately to keep the live and restored paths at parity). Reading it in
- * `parseResult` would be a behavior change to a frozen function; if outcome is
- * ever worth showing, it belongs in a follow-up that changes both paths at once.
+ * it deliberately to keep the live and restored paths at parity). The status is
+ * not derived from the result text; if outcome is ever worth showing, it
+ * belongs in a follow-up that changes both paths at once.
  * Until then a muted ✓ means "finished", which is all we know.
  */
 const STATUS_GLYPH_CLASS: Record<ToolCallStatus, string> = {

@@ -1736,7 +1736,7 @@ describe("toolResultView", () => {
       { type: "image_url", image_url: "x" },
       { type: "text", text: "b" },
     ]
-    expect(toolResultView(live({ content })).content).toBe("ab")
+    expect(toolResultView(live({ content })).content).toBe("a b")
   })
 
   test("a hostile getter does not escape the stream", async () => {

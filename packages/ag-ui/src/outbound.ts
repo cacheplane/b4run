@@ -166,9 +166,13 @@ function readToolMessageFields(
 /** A ToolMessage's text: a string as-is, content parts joined by their text parts. */
 function contentText(content: unknown): string {
   if (Array.isArray(content)) {
-    return content
-      .map((part) => (isPlainObject(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
-      .join("")
+    const texts: string[] = []
+    for (const part of content) {
+      if (isPlainObject(part) && part.type === "text" && typeof part.text === "string") {
+        texts.push(part.text)
+      }
+    }
+    return texts.join(" ")
   }
   return stringifyContent(content)
 }
