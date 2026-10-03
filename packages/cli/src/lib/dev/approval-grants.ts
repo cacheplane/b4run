@@ -61,7 +61,7 @@ export class ApprovalGrantConfigError extends Error {
   }
 }
 
-/** How long a settled grant record is kept by default: 7 days. */
+/** How long a settled (voided) grant record is kept by default: 7 days. */
 export const DEFAULT_APPROVAL_GRANT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 /** `approvals.grantRetentionMs`, validated; a mistyped value fails the boot. */
@@ -440,7 +440,13 @@ export async function consumeGrants(args: {
  * refused to settle a turn because a bookkeeping UPDATE failed would trade a
  * replay window for an outage.
  *
- * Also runs the hourly settled-grant sweep, so retention rides the same
+ * The void covers every unvoided row of the thread not in `stillPending`,
+ * consumed rows included: a resume consumes its row before the resumed run
+ * executes, so a consumed row whose turn completed is voided here, while one
+ * whose resume did not complete is still pending, stays unvoided, and keeps
+ * its prompt gated.
+ *
+ * Also runs the hourly voided-grant sweep, so retention rides the same
  * moment. Returns the void count alone; the sweep runs after the void, even a
  * failed one.
  */
@@ -486,9 +492,12 @@ export function __resetApprovalGrantPruneThrottleForTests(): void {
  * Opportunistic retention for settled grant records, run by
  * {@link voidSupersededGrants} wherever the runtime asserts "the thread moved
  * on". Global, not per thread, so threads that never return are swept too.
- * Only settled rows (consumed or voided) are deleted — never outstanding ones,
- * however old, because a parked prompt with no grant row resumes ungated under
- * `approvals.grants: "optional"`. At most once per
+ * "Settled" means voided: only rows with `voidedAt` before the cutoff are
+ * deleted. A consumed grant is voided once its resumed turn completes; one
+ * whose resume did not complete is never pruned, because deleting it would
+ * leave its parked prompt with no row, and a parked prompt with no grant row
+ * resumes ungated under `approvals.grants: "optional"`. Outstanding rows are
+ * never deleted either, however old, for the same reason. At most once per
  * {@link APPROVAL_GRANT_PRUNE_INTERVAL_MS} per store; the sweep time is
  * recorded before the call, so a failed sweep is not retried until the
  * interval elapses either, which bounds the warning to once an hour. Never

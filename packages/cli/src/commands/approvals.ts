@@ -1,8 +1,11 @@
 /**
- * `b4 approvals prune` — delete settled approval grant records by hand
- * (cacheplane/b4run#902). The runtime sweeps the same store hourly wherever
- * it voids superseded grants; this is the operator's handle for cron or a
- * one-off. Outstanding grants are never deleted, however old.
+ * `b4 approvals prune` — delete voided approval grant records by hand
+ * (cacheplane/b4run#902). Voided only: a consumed grant is voided once its
+ * resumed turn completes and the thread has moved past the prompt; one whose
+ * resume did not complete stays, consumed and unvoided, so its parked prompt
+ * stays gated and it is never pruned. Outstanding grants are never deleted,
+ * however old. The runtime sweeps the same store hourly wherever it voids
+ * superseded grants; this is the operator's handle for cron or a one-off.
  */
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"

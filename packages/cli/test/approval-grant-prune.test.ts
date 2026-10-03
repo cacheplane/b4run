@@ -66,11 +66,21 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
     await store.issue(row({ interruptId: "old", voidedAt: "2026-10-01T00:00:00.000Z" }))
     await store.issue(row({ interruptId: "expired", expiresAt: "2026-10-01T00:01:00.000Z" }))
     await store.issue(row({ interruptId: "live" }))
+    // Consumed but never voided: its resume did not complete, the prompt is
+    // still parked, and the row is never pruned however old.
+    await store.issue(
+      row({
+        interruptId: "stuck",
+        consumedAt: "2020-01-01T00:00:00.000Z",
+        consumedDecision: "once",
+      }),
+    )
     const now = new Date("2026-10-01T12:00:00.000Z")
     expect(await pruneSettledGrants(store, 3_600_000, now)).toBe(1)
     expect((await store.listForThread("t-sweep")).map((r) => r.interruptId).sort()).toEqual([
       "expired",
       "live",
+      "stuck",
     ])
   })
 
@@ -130,16 +140,39 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
     )
     await store.issue(row({ threadId: "t-now", interruptId: "pending" }))
     await store.issue(row({ threadId: "t-now", interruptId: "moved_past" }))
+    // Consumed rows: a resume consumes before the resumed run executes, so a
+    // consumed prompt the thread moved past is voided here (its turn
+    // completed), while a consumed prompt still pending (its resume did not
+    // complete) is left unvoided and stays gated.
+    const consumedAt = "2026-10-01T00:00:00.000Z"
+    await store.issue(
+      row({
+        threadId: "t-now",
+        interruptId: "consumed_done",
+        consumedAt,
+        consumedDecision: "once",
+      }),
+    )
+    await store.issue(
+      row({
+        threadId: "t-now",
+        interruptId: "consumed_stuck",
+        consumedAt,
+        consumedDecision: "once",
+      }),
+    )
     const voided = await voidSupersededGrants({
       store,
       threadId: "t-now",
-      stillPending: ["pending"],
+      stillPending: ["pending", "consumed_stuck"],
       retentionMs: 3_600_000,
     })
-    expect(voided).toBe(1)
+    expect(voided).toBe(2)
     expect(await store.get("t-other", "old")).toBeUndefined()
     expect((await store.get("t-now", "moved_past"))?.voidedAt).not.toBeNull()
     expect((await store.get("t-now", "pending"))?.voidedAt).toBeNull()
+    expect((await store.get("t-now", "consumed_done"))?.voidedAt).not.toBeNull()
+    expect((await store.get("t-now", "consumed_stuck"))?.voidedAt).toBeNull()
   })
 
   it("sweeps even when the void itself failed", async () => {

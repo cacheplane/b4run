@@ -62,7 +62,7 @@ async function seededStore(appRoot: string) {
   await store.issue(row({ interruptId: "old", voidedAt: thirtyDaysAgo }))
   // Voided just now: kept by every window.
   await store.issue(row({ interruptId: "recent", voidedAt: new Date().toISOString() }))
-  // Outstanding and long expired: kept by every window — only settled rows go.
+  // Outstanding and long expired: kept by every window — only voided rows go.
   await store.issue(row({ interruptId: "live", expiresAt: "2020-01-01T00:00:00.000Z" }))
   return store
 }
@@ -84,6 +84,33 @@ describe("b4 approvals prune", () => {
     expect((await store.listForThread("t")).map((r) => r.interruptId).sort()).toEqual([
       "live",
       "recent",
+    ])
+  })
+
+  it("a consumed grant whose prompt is still parked is never pruned", async () => {
+    // A resume consumes the row before the resumed run executes; if that run
+    // failed the prompt is still parked on a consumed, unvoided row. Deleting
+    // it would leave the prompt with no row, which resumes ungated under
+    // "optional". Only the void — the thread moving past the prompt — can
+    // make the row prunable.
+    const appRoot = await makeApp('export default { approvals: { grants: "optional" } }\n')
+    const store = await seededStore(appRoot)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    await store.issue(
+      row({
+        interruptId: "stuck",
+        consumedAt: thirtyDaysAgo,
+        consumedDecision: "once",
+        voidedAt: null,
+      }),
+    )
+    const { io: cio, out } = io()
+    await runApprovalsCommand(["prune"], { cwd: appRoot }, cio)
+    expect(out.join("\n")).toBe("pruned: 1")
+    expect((await store.listForThread("t")).map((r) => r.interruptId).sort()).toEqual([
+      "live",
+      "recent",
+      "stuck",
     ])
   })
 
