@@ -816,6 +816,19 @@ describe("toAguiEvents", () => {
     })
   })
 
+  test("pendingToolCallIds may be read asynchronously (the runtime reads them from its record)", async () => {
+    const out = []
+    for await (const ev of toAguiEvents(toAsync([{ type: "done", data: {} }]), CTX, {
+      pendingToolCallIds: async () => ["call_a"],
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "success", pendingToolCallIds: ["call_a"] },
+    })
+  })
+
   test("an ordinary success carries no pendingToolCallIds key at all", async () => {
     const events = await collect([{ type: "done", data: {} }])
     expect(events.at(-1)).toMatchObject({ outcome: { type: "success" } })
