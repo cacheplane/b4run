@@ -223,7 +223,8 @@ so the call can be abandoned, or start a new thread.
 ### The tool-call record
 
 On an app where the store is resolved — some route is listed in
-`server.agui.clientTools`, or `server.agui.clientToolStore` is set — every
+`server.agui.clientTools`, `server.agui.clientToolStore` is set, or the default
+`.b4/client-tool-calls.sqlite` still exists from an earlier opt-in — every
 tool call the model makes on an AG-UI run is recorded, not only client ones,
 on every route. A server tool's row is identity only: thread, route, run, tool
 name, when it was issued and when it returned or threw. No result text is

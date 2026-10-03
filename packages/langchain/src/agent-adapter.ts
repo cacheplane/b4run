@@ -1148,10 +1148,12 @@ export interface AgentOptions {
    */
   readonly approvalGrantMinter?: ApprovalGrantMinter
   /**
-   * Per-run client tool recorder, forwarded into
+   * Per-run tool-call recorder, forwarded into
    * `config.configurable[CLIENT_TOOL_RECORDER_KEY]` so a client tool stub in
-   * `@b4run/core` can record the call it parks. Same channel and optionality
-   * as the minter: the stub refuses to park without one, so do NOT default it.
+   * `@b4run/core` can record the call it parks and the tool converter can
+   * issue and settle a server row around every other tool call. Same channel
+   * and optionality as the minter: the stub refuses to park without one, and
+   * without one the converter records nothing, so do NOT default it.
    */
   readonly clientToolRecorder?: ClientToolRecorder
   readonly summarization?: ResolvedSummarizationConfig

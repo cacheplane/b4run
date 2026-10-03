@@ -270,10 +270,10 @@ rows; that is accepted, and the docs say so.
 
 - The AG-UI docs page documents the record's new scope (every tool call on an opted-in app, server
   rows as identity only), `server.agui.toolCallRetentionMs`, and the per-thread prune semantics.
-- The `ClientToolCallStore` doc comments in `@b4run/sdk` and the storage packages' READMEs
-  mention the appended migration.
-- One patch changeset covering `@b4run/sdk`, `@b4run/core`, `@b4run/langchain`, `@b4run/cli`,
-  `@b4run/sqlite-storage` and `@b4run/postgres-storage`.
+- The `ClientToolCallStore` doc comments in `@b4run/sdk` and the storage packages' migration
+  constants document the appended migration.
+- One patch changeset covering `@b4run/sdk`, `@b4run/core`, `@b4run/langchain`, `@b4run/ag-ui`,
+  `@b4run/cli`, `@b4run/sqlite-storage` and `@b4run/postgres-storage`.
 
 ## 8. Out of scope
 

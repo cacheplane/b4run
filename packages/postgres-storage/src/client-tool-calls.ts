@@ -13,8 +13,9 @@ import { throwNoPool } from "./sql.js"
  * The client tool call contract, declared structurally here rather than
  * imported from `@b4run/sdk` (same rule as `interrupt-grants.ts`: this
  * package's `.d.ts` must not drag a consumer into another workspace package).
- * Member for member identical to `@b4run/sdk`'s `ClientToolCallRecord`,
- * `ClientToolCallAnswer`, `ClientToolCallSettle` and `ClientToolCallStore`;
+ * Member for member identical to `@b4run/sdk`'s `ToolCallRecordKind`,
+ * `ClientToolCallRecord`, `ClientToolCallAnswer`, `ClientToolCallSettle` and
+ * `ClientToolCallStore`;
  * change one, change the other. Structural assignability at the wiring site
  * catches a drift.
  */

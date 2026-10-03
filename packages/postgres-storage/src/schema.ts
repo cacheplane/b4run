@@ -266,7 +266,7 @@ export const CHECKPOINTER_MIGRATIONS: readonly Migration[] = [
  * `test/interrupt-grants-ddl.test.ts` so neither can be lost to a refactor.
  *
  * 1. **A shipped migration is frozen.** Once a database has recorded
- *    `version = 1` (or 2) in the component's migrations table, `runMigrations` will
+ *    `version = 1` in the component's migrations table, `runMigrations` will
  *    never issue this statement against it again. Editing version 1 therefore
  *    changes only what a VIRGIN database gets: every existing deployment keeps
  *    the old shape, silently, with no error and no drift signal — until a

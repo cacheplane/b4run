@@ -1283,6 +1283,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 // is not this turn's park. A turn that did not park has
                 // nothing pending (any stray row is voided right after, in the
                 // finally).
+                // Keyed on the client-supplied runId: a client that reused a
+                // runId on this thread could be shown a stray row from that
+                // earlier run, which AG-UI clients never do.
                 pendingToolCallIds: async () =>
                   sawInterrupt && clientToolStore
                     ? (await clientToolStore.listOutstanding(threadId))
