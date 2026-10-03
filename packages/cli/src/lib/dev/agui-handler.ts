@@ -14,6 +14,7 @@ import type {
   MiddlewareRequest,
   ThreadAccessPolicy,
 } from "@b4run/sdk"
+import { type B4MessageContent, contentPartsText } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkpointRoutes } from "../runtime/checkpoint-route-provenance.js"
@@ -1587,7 +1588,11 @@ function clientToolStoreUnavailable(): Response {
  * or the model.
  */
 async function screenOversizedClientToolResults<
-  M extends { readonly role: string; readonly content: string; readonly toolCallId?: string },
+  M extends {
+    readonly role: string
+    readonly content: B4MessageContent
+    readonly toolCallId?: string
+  },
 >(
   store: NonNullable<ClientToolRuntime["store"]>,
   threadId: string,
@@ -1597,7 +1602,8 @@ async function screenOversizedClientToolResults<
 ): Promise<{ readonly refused?: Response; readonly messages: readonly M[] }> {
   const encoder = new TextEncoder()
   const oversized = (message: M): boolean =>
-    message.role === "tool" && encoder.encode(message.content).byteLength > MAX_CLIENT_TOOL_RESULT
+    message.role === "tool" &&
+    encoder.encode(messageText(message)).byteLength > MAX_CLIENT_TOOL_RESULT
   if (!messages.some(oversized)) return { messages }
   if (messages.at(-1)?.role === "tool") {
     const parked = clientToolCallIds(clientParks)
@@ -1701,10 +1707,19 @@ async function clientToolPartialResponse(
   })
 }
 
+/**
+ * A message's text for the client-tool seams. PR 1 carries parts only to the
+ * MODEL; a client-tool result with parts is stored and screened as its text
+ * until sub-project 3's PR 2 widens the store contract (spec §6).
+ */
+function messageText(message: { readonly content: B4MessageContent }): string {
+  return contentPartsText(message.content)
+}
+
 /** The SDK-facing view of one inbound message: role, text, and the client's id when it sent one. */
 function toAfterMessage(message: {
   readonly role: string
-  readonly content: string
+  readonly content: B4MessageContent
   readonly id?: string | undefined
 }): MiddlewareAfterMessage {
   return {

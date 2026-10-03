@@ -56,7 +56,7 @@ import {
   type ClientToolResumeValue,
   isClientToolCallEnvelope,
 } from "@b4run/core"
-import type { ClientToolCallRecord, ClientToolCallStore } from "@b4run/sdk"
+import { type ClientToolCallRecord, type ClientToolCallStore, contentPartsText } from "@b4run/sdk"
 
 import {
   isClientToolPark,
@@ -165,7 +165,7 @@ export async function resolveClientToolTurn(options: {
     if (typeof toolCallId !== "string" || !answerable.has(toolCallId)) continue
     // "already_answered" / "voided" / "missing" are history or a lost race:
     // ignored. A later duplicate message for the same call lands here too.
-    await store.answer({ threadId, toolCallId, result: message.content, at })
+    await store.answer({ threadId, toolCallId, result: contentPartsText(message.content), at })
   }
 
   const rows = answerable.size > 0 ? await readRows(store, threadId) : rowsBefore
