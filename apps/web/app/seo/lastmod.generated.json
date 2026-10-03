@@ -62,9 +62,9 @@
       "recordDigest": "eec7bcbe12c1e1226eab43a17c2720faca21cb917fe2c65def43a8d8fbb3d16b"
     },
     "/docs/api/cli": {
-      "lastModified": "2026-09-25T17:07:15.000Z",
-      "sourceDigest": "c953cc094ef7d5466674f15b3abe438b7e9000a4951f5396d2ea3df2c0976a3b",
-      "recordDigest": "edf34457e56757de73d69ee1750f9e6611dfa787a1158bb6b7202eb21c4a1208"
+      "lastModified": "2026-09-25T17:46:18.000Z",
+      "sourceDigest": "3b815ca17093f0aee39dcd88cb080c0ba29c4d31b81ae8aee6805e7f00816747",
+      "recordDigest": "b87373fafd39825f36c827438cb8cc15c36199fad73828152a7258d523df07e1"
     },
     "/docs/api/core": {
       "lastModified": "2026-09-30T21:52:21.000Z",
@@ -167,9 +167,9 @@
       "recordDigest": "46c12ad2dff48d0287a60f503ca9d6204442a8c104499d927b1e36c073ab66ad"
     },
     "/docs/deployment/edge": {
-      "lastModified": "2026-10-03T03:04:17.000Z",
-      "sourceDigest": "57d402bab6fcb6fbfabd5bec54e70ee19438154768b38e77ccd9a4fa167e5666",
-      "recordDigest": "63533c48f8e39461e286d1da9667879827b9069934e100f4ec2eba683c5831c8"
+      "lastModified": "2026-10-03T20:20:11.000Z",
+      "sourceDigest": "a0d69041033bfb006bfad0ad6f267e1b0c25a200adc4e7864a529047c11ac23b",
+      "recordDigest": "7dfb2870e545835f90f3dc0811f985316a6022cdc41aeb74a7cb58dfc38343c2"
     },
     "/docs/deployment/kubernetes": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -202,9 +202,9 @@
       "recordDigest": "b74f75795fe808c051f3fd900283ea13ea116922c9b8c5c329281ffd78adfe9e"
     },
     "/docs/embedding": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "45a9a118e7583aa9724248ae36811b5ea55c8465197b926d0090a68b16e2bd70",
-      "recordDigest": "e9bc30ec7c2bcff18072f5332a00ea1fb3dc78584c35b43c87e14696e0df201a"
+      "lastModified": "2026-10-03T20:20:11.000Z",
+      "sourceDigest": "118949b314616d8551fef2da5491cd7c8b414357e8486fedd534435b075cb0c2",
+      "recordDigest": "a365cf5b3d6c104407de3486f4737f9ef032fd5a154c283e49c05750a7944344"
     },
     "/docs/errors": {
       "lastModified": "2026-09-29T18:42:00.000Z",
