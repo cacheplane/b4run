@@ -1,6 +1,6 @@
 # Subagent child stream — same shapes as root (AG-UI sub-project 2, PR 3a) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A subagent's model turns and tool calls reach the B4 stream as `subagent.<type>` chunks whose `data` is **identical to the root chunk of the same type** plus the child identity — text as `subagent.token` with a `messageId`, `subagent.message_end`, `subagent.reasoning`, `subagent.tool_call_args`, and tool calls announced under the model's **logical** tool-call id from the child's `on_chat_model_end` — and `subagent.start` carries `parent_call_id` and `description`. Every consumer of the old shapes (`subagent.message { chunk }`, `subagent.tool_call { tool, id: <execution run id> }`) moves with it.
 
@@ -39,7 +39,7 @@ Conventions (from `AGENTS.md`): run from the repo root on Node 24; format from *
 - Modify: `packages/cli/src/lib/runtime/execute-route-core.ts` (`prepareChild` return ~line 1733)
 - Test: `packages/langchain/test/agent-adapter.test.ts` (the `collectCustomEvents` helper at the top of the file drives the bridge directly — read its first describe to see how a resolver is faked)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `packages/langchain/test/agent-adapter.test.ts`, inside the first describe that uses `collectCustomEvents` (read lines 13-95 to copy its resolver fake), add:
 
@@ -66,12 +66,12 @@ In `packages/langchain/test/agent-adapter.test.ts`, inside the first describe th
 
 Fill the fake from the existing helper; the assertion is the contract. A root-level dispatch (empty stack) must produce **no** `parent_call_id` key (add `expect(start?.data).not.toHaveProperty("parent_call_id")` in a second case with an empty stack).
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/agent-adapter.test.ts -t "names its parent call"`
 Expected: FAIL — `parent_call_id`/`description` missing.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `packages/langchain/src/subagent-tool-bridge.ts`:
 
@@ -115,7 +115,7 @@ and in the tool `func`, after `const parentStack = readSubagentStack(parentB4)`:
 
 In `packages/langchain/src/agent-adapter.ts` `parseSubagentPhaseEvent`, the `{ phase, tool_run_id, ...data }` destructuring already forwards every other key, so `parent_call_id` and `description` reach the `subagent.start`/`subagent.end` chunk `data` with no change — confirm by reading it; add nothing.
 
-- [ ] **Step 4: Run, format, commit**
+- [x] **Step 4: Run, format, commit**
 
 ```bash
 pnpm --filter @b4run/langchain exec vitest run test/agent-adapter.test.ts
@@ -136,7 +136,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/langchain/src/agent-adapter.ts`
 - Modify: `packages/langchain/test/agent-adapter.test.ts` (`"projects child events exactly once…"` ~line 210, plus new tests)
 
-- [ ] **Step 1: Rewrite the native-projection expectation and add the new cases**
+- [x] **Step 1: Rewrite the native-projection expectation and add the new cases**
 
 In the test at ~line 210, the fixture stays; replace the `expect(chunks).toEqual([...])` block with:
 
@@ -252,12 +252,12 @@ Then add, in the same `describe("native subagent event projection")`, reusing it
 
 (`metadata` in this describe is the child `b4.subagent_stack` metadata the existing test uses — the identity above must match what it encodes: `call_id: "call-child"`, `researcher`, `/planner/researcher`, depth 2. Adjust the literal to that fixture.) The exact order of `tool_call_args` vs `token` within one chunk follows the root order (`reasoning`, `token`, then fragments) — if the root emits fragments before tokens, mirror that; the point is parity.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run test/agent-adapter.test.ts -t "native subagent"`
 Expected: FAIL (old shapes emitted).
 
-- [ ] **Step 3: Refactor the adapter**
+- [x] **Step 3: Refactor the adapter**
 
 In `packages/langchain/src/agent-adapter.ts`:
 
@@ -343,12 +343,12 @@ Rename every `rootTools.heldRootToolStarts` → `tools.heldToolStarts`, `rootToo
 
 (d) Delete `subagent.message` everywhere in the file (it was only produced in the stream branch). Update the `isCapabilityEventName` reservation comment if it lists chunk names.
 
-- [ ] **Step 4: Run the langchain suite and typecheck**
+- [x] **Step 4: Run the langchain suite and typecheck**
 
 Run: `pnpm --filter @b4run/langchain exec vitest run && pnpm --filter @b4run/langchain typecheck`
 Expected: the two tests above PASS; other suites in the package that assert child shapes (`agent-adapter-interrupt.test.ts` asserts only `subagent.end`'s error shape and `interrupt` chunks — unchanged) PASS. Any test that still expects `subagent.message`/`tool:` is updated to the new shape, never the reverse.
 
-- [ ] **Step 5: Format and commit**
+- [x] **Step 5: Format and commit**
 
 ```bash
 (cd packages/langchain && pnpm exec biome check --write --config-path ../config-biome/biome.json src/agent-adapter.ts test/agent-adapter.test.ts)
@@ -366,7 +366,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/cli/src/lib/dev/live-turn-hub.ts` (~lines 93-110, 130-145)
 - Modify: `packages/cli/test/live-turn-hub.test.ts` (~line 244)
 
-- [ ] **Step 1: Update the test**
+- [x] **Step 1: Update the test**
 
 Replace the `message` factory and expectation in the child-attach test:
 
@@ -390,7 +390,7 @@ Replace the `message` factory and expectation in the child-attach test:
   ])
 ```
 
-- [ ] **Step 2: Run to verify failure**, then **Step 3: implement**
+- [x] **Step 2: Run to verify failure**, then **Step 3: implement**
 
 ```ts
 /** `subagent.token` coalesces per child invocation: same `call_id` AND `messageId`. */
@@ -415,7 +415,7 @@ function mergeSubagentToken(existing: StreamChunk, incoming: StreamChunk): Strea
 
 replacing `subagentCallId`/`mergeSubagent`, and in `appendCoalesced` replace the `subagent.message` block with a lookup by `subagentTokenKey` that merges only when the **last** digest entry has the same key (adjacent coalescing, like root `chunk`s — a different invocation or an interleaved chunk starts a new entry). Update the comment: `// subagent.token uses the public call_id/messageId/data wire fields.`
 
-- [ ] **Step 4: Run, format, commit**
+- [x] **Step 4: Run, format, commit**
 
 ```bash
 pnpm --filter @b4run/cli exec vitest run test/live-turn-hub.test.ts test/subagent-delegation.test.ts test/subagent-interrupts.test.ts
@@ -434,11 +434,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/testing/src/run-result.ts` (`case "subagent.tool_call"` ~line 419)
 - Modify: `packages/testing/test/run-result.test.ts` (~lines 86-150), `packages/testing/test/matchers.test.ts` (~line 117)
 
-- [ ] **Step 1: Update fixtures**: in both tests change `tool: "webSearch"` → `name: "webSearch"`, and `{ type: "subagent.message", data: { ...child, chunk: "Inspecting" } }` → `{ type: "subagent.token", data: { ...child, data: "Inspecting", messageId: "child-model" } }` (and the matching `subagentEvents` expectation). Add to `run-result.test.ts`'s subagent test: `expect(r.subagents[0]?.toolCalls).toEqual([{ name: "webSearch", args: { q: "x" } }])` stays true only once the source reads `name`.
+- [x] **Step 1: Update fixtures**: in both tests change `tool: "webSearch"` → `name: "webSearch"`, and `{ type: "subagent.message", data: { ...child, chunk: "Inspecting" } }` → `{ type: "subagent.token", data: { ...child, data: "Inspecting", messageId: "child-model" } }` (and the matching `subagentEvents` expectation). Add to `run-result.test.ts`'s subagent test: `expect(r.subagents[0]?.toolCalls).toEqual([{ name: "webSearch", args: { q: "x" } }])` stays true only once the source reads `name`.
 
-- [ ] **Step 2: Run to verify failure**, **Step 3: implement**: in `run-result.ts` `case "subagent.tool_call"` read `String(d.name ?? "")`. Nothing else in the harness reads `subagent.message`.
+- [x] **Step 2: Run to verify failure**, **Step 3: implement**: in `run-result.ts` `case "subagent.tool_call"` read `String(d.name ?? "")`. Nothing else in the harness reads `subagent.message`.
 
-- [ ] **Step 4: Run, format, commit**
+- [x] **Step 4: Run, format, commit**
 
 ```bash
 pnpm --filter @b4run/testing exec vitest run
@@ -457,11 +457,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/ag-ui/src/activities.ts` (`B4ActivityChunkType`, `isB4ActivityChunkType`, the `subagent.tool_call` branch reading `"tool"`)
 - Modify: `packages/ag-ui/test/activities.test.ts` (~lines 38-54 list, and every `tool:` fixture), `packages/ag-ui/test/outbound.test.ts`, `packages/ag-ui/test/conformance.test.ts` (`CANNED`'s child chunks: `tool: "readDoc"` → `name`, `subagent.message { content }` → `subagent.token { data, messageId }`)
 
-- [ ] **Step 1: Update the tests** to the new shapes (`subagent.message` → `subagent.token`; `tool` → `name`). The list test at ~line 38 names the accepted chunk types: replace `"subagent.message"` with `"subagent.token"` and add `"subagent.message_end"`, `"subagent.reasoning"`, `"subagent.tool_call_args"` as **recognized-and-consumed** (they must be swallowed by the activity boundary exactly as `subagent.message` was — the privacy rule "no raw child stream" still holds until 3b).
+- [x] **Step 1: Update the tests** to the new shapes (`subagent.message` → `subagent.token`; `tool` → `name`). The list test at ~line 38 names the accepted chunk types: replace `"subagent.message"` with `"subagent.token"` and add `"subagent.message_end"`, `"subagent.reasoning"`, `"subagent.tool_call_args"` as **recognized-and-consumed** (they must be swallowed by the activity boundary exactly as `subagent.message` was — the privacy rule "no raw child stream" still holds until 3b).
 
-- [ ] **Step 2: Run to verify failure**, **Step 3: implement**: in `activities.ts` the union and `isB4ActivityChunkType` gain `"subagent.token" | "subagent.message_end" | "subagent.reasoning" | "subagent.tool_call_args"` and lose `"subagent.message"`; the projector returns `projectEvent(null)` for the three new consumed types (as it did for `subagent.message`); the `subagent.tool_call` branch reads `readTrimmedNonemptyString(data, "name")`. Keep `"subagent.usage"` **out** of this list (it is routed to the usage collector by `outbound.ts`, PR 1).
+- [x] **Step 2: Run to verify failure**, **Step 3: implement**: in `activities.ts` the union and `isB4ActivityChunkType` gain `"subagent.token" | "subagent.message_end" | "subagent.reasoning" | "subagent.tool_call_args"` and lose `"subagent.message"`; the projector returns `projectEvent(null)` for the three new consumed types (as it did for `subagent.message`); the `subagent.tool_call` branch reads `readTrimmedNonemptyString(data, "name")`. Keep `"subagent.usage"` **out** of this list (it is routed to the usage collector by `outbound.ts`, PR 1).
 
-- [ ] **Step 4: Run, format, commit**
+- [x] **Step 4: Run, format, commit**
 
 ```bash
 pnpm --filter @b4run/ag-ui exec vitest run
@@ -480,7 +480,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `apps/web/content/docs/recipes/stream-output.mdx` (table ~lines 88-92 and the `default:` comment ~line 69), `apps/web/content/docs/subagents.mdx` (~lines 203-214), `apps/web/content/docs/ag-ui.mdx` (outbound table row for `subagent.start` …), `apps/web/content/docs/upgrading.mdx`
 - Create: `.changeset/agui-subagent-stream.md`
 
-- [ ] **Step 1: stream-output.mdx** — replace the five `subagent.*` rows with:
+- [x] **Step 1: stream-output.mdx** — replace the five `subagent.*` rows with:
 
 ```md
 | `subagent.start` | `{ call_id, parent_call_id?, subagent, route_id, depth, description? }` | A subagent started. `parent_call_id` names the call that dispatched it when the parent is itself a subagent. |
@@ -496,11 +496,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 and fix the `default:` comment list. `…identity` is `subagent, route_id, depth` — say so once above the table.
 
-- [ ] **Step 2: subagents.mdx** — the bullet list becomes `subagent.start`, `subagent.token` / `subagent.reasoning` / `subagent.message_end`, `subagent.tool_call` / `subagent.tool_call_args` / `subagent.tool_result`, `subagent.usage`, capability events such as `subagent.plan_update`, `subagent.end`; the paragraph after it: "`subagent.start` also includes the subagent name, route id, depth, its declared description, and — for a nested child — `parent_call_id`." and "While a child runs, its tokens arrive as `subagent.token` with the child's `messageId`, and B4.run drops the duplicate parent message chunks. Child tool calls carry the model's tool-call id, the same id their results carry."
+- [x] **Step 2: subagents.mdx** — the bullet list becomes `subagent.start`, `subagent.token` / `subagent.reasoning` / `subagent.message_end`, `subagent.tool_call` / `subagent.tool_call_args` / `subagent.tool_result`, `subagent.usage`, capability events such as `subagent.plan_update`, `subagent.end`; the paragraph after it: "`subagent.start` also includes the subagent name, route id, depth, its declared description, and — for a nested child — `parent_call_id`." and "While a child runs, its tokens arrive as `subagent.token` with the child's `messageId`, and B4.run drops the duplicate parent message chunks. Child tool calls carry the model's tool-call id, the same id their results carry."
 
-- [ ] **Step 3: ag-ui.mdx** — the outbound row `| \`subagent.start\` and matching child plan/tool/result/end chunks | … |` becomes `| \`subagent.start\` and matching child \`token\`/\`reasoning\`/\`message_end\`/\`tool_call\`/\`tool_call_args\`/\`tool_result\`/\`plan_update\`/\`end\` chunks | replacement \`ACTIVITY_SNAPSHOT\` with activity type \`b4.subagent\` (the child stream itself is consumed; AG-UI 1.0 \`SUBAGENT_*\` lifecycle and attribution follow in the next release) |`.
+- [x] **Step 3: ag-ui.mdx** — the outbound row `| \`subagent.start\` and matching child plan/tool/result/end chunks | … |` becomes `| \`subagent.start\` and matching child \`token\`/\`reasoning\`/\`message_end\`/\`tool_call\`/\`tool_call_args\`/\`tool_result\`/\`plan_update\`/\`end\` chunks | replacement \`ACTIVITY_SNAPSHOT\` with activity type \`b4.subagent\` (the child stream itself is consumed; AG-UI 1.0 \`SUBAGENT_*\` lifecycle and attribution follow in the next release) |`.
 
-- [ ] **Step 4: upgrading.mdx** — first entry under "Changes by version":
+- [x] **Step 4: upgrading.mdx** — first entry under "Changes by version":
 
 ```md
 ### Subagent stream events carry the root shapes
@@ -510,7 +510,7 @@ Landed in the first release after **0.13.1**. Action required only if you read `
 `subagent.message { call_id, chunk }` is now `subagent.token { call_id, …identity, data, messageId }`, and `subagent.tool_call` / `subagent.tool_result` carry `name` (not `tool`) under the model's tool-call `id` (not the execution run id). New: `subagent.reasoning`, `subagent.message_end`, `subagent.tool_call_args`, and `parent_call_id` / `description` on `subagent.start`. `@b4run/testing`'s `RunResult.subagents` reads the new shapes. See [Streaming output](/docs/recipes/stream-output#sse-event-types).
 ```
 
-- [ ] **Step 5: Changeset** `.changeset/agui-subagent-stream.md`:
+- [x] **Step 5: Changeset** `.changeset/agui-subagent-stream.md`:
 
 ```md
 ---
@@ -523,7 +523,7 @@ Landed in the first release after **0.13.1**. Action required only if you read `
 **Breaking (Agent Protocol stream):** a subagent's events now carry the same shapes as the root's. `subagent.message { chunk }` is replaced by `subagent.token { data, messageId }`; `subagent.tool_call` / `subagent.tool_result` carry `name` under the model's tool-call `id` instead of `tool` under an execution run id; new `subagent.reasoning`, `subagent.message_end` and `subagent.tool_call_args`; `subagent.start` gains `parent_call_id` (nested children) and `description`. The langchain adapter announces a child's tool calls from its own model turn with the same per-owner bookkeeping root uses, the dev server's attach digest coalesces `subagent.token` per child invocation, `@b4run/testing` reads the new shapes, and `@b4run/ag-ui` consumes them at the activity boundary unchanged on the wire (the AG-UI `SUBAGENT_*` presentation follows in the next release).
 ```
 
-- [ ] **Step 6: Commit, lastmod, gates**
+- [x] **Step 6: Commit, lastmod, gates**
 
 ```bash
 git add apps/web/content .changeset/agui-subagent-stream.md
