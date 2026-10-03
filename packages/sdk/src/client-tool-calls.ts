@@ -133,7 +133,8 @@ export interface ClientToolCallStore {
  * `@b4run/core` writes client rows (`has`/`record`) before it parks; the
  * LangChain tool converter writes server rows (`issue`/`settle`) around each
  * server tool call. Per-run: it closes over the thread and run whose AG-UI
- * endpoint will receive the answer.
+ * endpoint will receive the answer. A recorder always carries `has`/`record`;
+ * it carries `issue`/`settle` only on runs that record server calls.
  */
 export interface ClientToolRecorder {
   /**
@@ -147,10 +148,15 @@ export interface ClientToolRecorder {
     readonly interruptId: string
     readonly toolName: string
   }): Promise<void>
-  /** Writes a server row for one of the server's own tool calls, before it runs. Idempotent on the id. */
-  issue(call: { readonly toolCallId: string; readonly toolName: string }): Promise<void>
-  /** Stamps the server row once the tool returned or threw. Idempotent. */
-  settle(toolCallId: string): Promise<void>
+  /**
+   * Writes a server row for one of the server's own tool calls, before it
+   * runs. Idempotent on the id. Absent when the runtime does not record
+   * server calls (no route opted into client tools and no configured store);
+   * a writer that finds it absent records nothing.
+   */
+  issue?(call: { readonly toolCallId: string; readonly toolName: string }): Promise<void>
+  /** Stamps the server row once the tool returned or threw. Idempotent. Absent together with `issue`. */
+  settle?(toolCallId: string): Promise<void>
 }
 
 function compareIssue(a: ClientToolCallRecord, b: ClientToolCallRecord): number {
