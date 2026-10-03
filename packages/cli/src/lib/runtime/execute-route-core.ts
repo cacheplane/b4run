@@ -1731,6 +1731,7 @@ async function prepareRouteExecutionForInvocation(
           return {
             graph: withEpisodeRecording(graph, childPrepared),
             routeId: route.id,
+            ...(entry.description !== "" ? { description: entry.description } : {}),
           }
         },
         registry: subagentRegistry,
