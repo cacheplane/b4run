@@ -227,7 +227,7 @@ sweep runs wherever the runtime voids superseded grants, at most once an hour
 per store. Outstanding grants are never deleted, however old, because a parked
 prompt with no grant row resumes ungated under `"optional"`.
 [`b4 approvals prune`](/docs/cli#b4-approvals) runs the same pass by hand. A
-`grantStore` you supply is checked at boot and must implement every store
+`grantStore` you supply is checked at boot while grants are on and must implement every store
 method, `prune` included.
 
 ### `checkpointer`

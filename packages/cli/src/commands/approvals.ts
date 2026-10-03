@@ -78,7 +78,9 @@ async function runPrune(appRoot: string, args: readonly string[], io: CommandIo)
   }
 
   // The same validators the boot runs, so a mistyped config or a store
-  // missing a method fails here too instead of silently defaulting.
+  // missing a method fails here too instead of silently defaulting. One
+  // difference: the boot checks the store only when grants are on, while this
+  // command validates a configured store whenever it would prune through it.
   const approvals = (await loadOptionalB4Config(appRoot))?.approvals
   const configured = validateInterruptGrantStore(approvals?.grantStore)
   const retentionMs =
@@ -86,6 +88,8 @@ async function runPrune(appRoot: string, args: readonly string[], io: CommandIo)
 
   // Grants may have been switched off after rows were written: an existing
   // default file is still opened, as the client tool store resolver does.
+  // With grants on and no file yet, the resolver creates the default SQLite
+  // store (as the dev server would at its next boot) and the pass prunes 0.
   const defaultPath = resolve(appRoot, ".b4/interrupt-grants.sqlite")
   const store =
     configured ??
