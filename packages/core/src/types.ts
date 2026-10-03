@@ -281,13 +281,13 @@ export interface B4Config {
       readonly clientToolTtlMs?: number
       /**
        * How long, in milliseconds, a closed tool-call record (answered, voided
-       * or settled) is kept before the thread's next run prunes it. Default
+       * or settled) is kept before the thread's next AG-UI run prunes it. Default
        * `604800000` (7 days). Must be a positive integer no greater than one
-       * year; anything else fails the boot. Open rows are never pruned.
+       * year (`31536000000`); anything else fails the boot. Open rows are never pruned.
        */
       readonly toolCallRetentionMs?: number
       /**
-       * Where outstanding client tool calls are recorded, so a later
+       * Where tool calls on AG-UI runs are recorded, so a later
        * `role: "tool"` message can be matched to a call this server issued.
        * On an app with a store, every tool call on an AG-UI run is recorded
        * (server calls as identity only).
