@@ -171,8 +171,7 @@ export async function resolveClientToolTurn(options: {
   const answeredResult = (toolCallId: string | undefined): string | undefined => {
     if (toolCallId === undefined) return undefined
     const row = rows.get(toolCallId)
-    if (!row || row.kind !== "client" || row.answeredAt === null || row.voidedAt !== null)
-      return undefined
+    if (row?.kind !== "client" || row.answeredAt === null || row.voidedAt !== null) return undefined
     return typeof row.result === "string" ? row.result : undefined
   }
 
