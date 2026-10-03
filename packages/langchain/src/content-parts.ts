@@ -25,6 +25,12 @@ export type DropReason =
   | "foreign_file_provider"
   | "document_not_pdf"
   | "tool_result_media_unsupported"
+  /**
+   * The entry is not a structurally valid part; the AG-UI handler's schema parse
+   * rejects these with a 400 before they get here, so this is reached only from
+   * the Agent Protocol path or a direct caller.
+   */
+  | "malformed_part"
 
 export interface DroppedPart {
   /** Position in the message's part list. */

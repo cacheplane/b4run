@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   __resetMaterializedAgentsForTests,
   type AgentStreamChunk,
+  executeAgentTurn,
   streamAgent,
 } from "../src/agent-adapter.ts"
 
@@ -44,25 +45,47 @@ const wav = {
   source: { type: "data", value: "UklG", mimeType: "audio/wav" },
 } as const
 
-async function run(content: unknown): Promise<AgentStreamChunk[]> {
+const describeAgent = agent({ model: "gpt-5-mini", systemPrompt: "Describe." })
+
+function options(
+  content: unknown,
+  overrides: { readonly checkpointer?: MemorySaver; readonly entry?: unknown } = {},
+) {
+  return {
+    checkpointer: overrides.checkpointer ?? new MemorySaver(),
+    entry: overrides.entry ?? describeAgent,
+    input: { messages: [{ role: "user", content }] },
+    routeParamNames: [],
+    signal: new AbortController().signal,
+    threadId: `t-${Math.random()}`,
+    tools: [],
+  }
+}
+
+async function withFakeModel<T>(body: () => Promise<T>): Promise<T> {
   vi.doMock("@langchain/openai", () => ({ ChatOpenAI: ProfiledChatModel }))
   try {
-    const chunks: AgentStreamChunk[] = []
-    for await (const chunk of streamAgent({
-      checkpointer: new MemorySaver(),
-      entry: agent({ model: "gpt-5-mini", systemPrompt: "Describe." }),
-      input: { messages: [{ role: "user", content }] },
-      routeParamNames: [],
-      signal: new AbortController().signal,
-      threadId: `t-${Math.random()}`,
-      tools: [],
-    })) {
-      chunks.push(chunk)
-    }
-    return chunks
+    return await body()
   } finally {
     vi.doUnmock("@langchain/openai")
   }
+}
+
+async function run(
+  content: unknown,
+  overrides: { readonly checkpointer?: MemorySaver; readonly entry?: unknown } = {},
+): Promise<AgentStreamChunk[]> {
+  return withFakeModel(async () => {
+    const chunks: AgentStreamChunk[] = []
+    for await (const chunk of streamAgent(options(content, overrides))) {
+      chunks.push(chunk)
+    }
+    return chunks
+  })
+}
+
+function dropChunk(chunks: readonly AgentStreamChunk[]): AgentStreamChunk | undefined {
+  return chunks.find((c) => c.type === "content_parts_dropped")
 }
 
 function humanMessage(): BaseMessage | undefined {
@@ -76,6 +99,7 @@ function humanContent(): unknown {
 
 describe("multimodal user input", () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     seenMessages.length = 0
     fakeProfile = {}
     __resetMaterializedAgentsForTests()
@@ -137,5 +161,67 @@ describe("multimodal user input", () => {
         { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
       ]),
     )
+  })
+
+  it("the non-streaming path logs the drop as the developer warning", async () => {
+    fakeProfile = { imageInputs: true }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await withFakeModel(() => executeAgentTurn(options([{ type: "text", text: "listen" }, wav])))
+    const messages = warn.mock.calls.map((call) => String(call[0]))
+    const warning = messages.find((m) => m.includes("audio/data (modality_unsupported)"))
+    expect(warning).toBeDefined()
+    expect(warning).toContain("openai/gpt-5-mini")
+  })
+
+  it("a malformed entry drops on its own instead of stringifying the whole list", async () => {
+    const chunks = await run([
+      { type: "text", text: "a" },
+      { type: "image", source: { type: "blob", value: "x" } },
+    ])
+    expect(humanContent()).toEqual([{ type: "text", text: "a" }])
+    expect(dropChunk(chunks)?.data).toEqual({
+      provider: "openai",
+      model: "gpt-5-mini",
+      parts: [{ index: 1, type: "image", reason: "malformed_part" }],
+    })
+  })
+
+  it("drop indices stay positions in the original list around a malformed entry", async () => {
+    fakeProfile = { imageInputs: true }
+    const chunks = await run([{ type: "bogus" }, { type: "text", text: "a" }, wav, png])
+    expect(dropChunk(chunks)?.data).toMatchObject({
+      parts: [
+        { index: 0, type: "bogus", reason: "malformed_part" },
+        { index: 2, type: "audio", source: "data", reason: "modality_unsupported" },
+      ],
+    })
+  })
+
+  it("a raw runnable announces drops without provider or model", async () => {
+    const seenInputs: unknown[] = []
+    const entry = {
+      invoke: async (input: unknown) => {
+        seenInputs.push(input)
+        return { messages: [] }
+      },
+    }
+    const chunks = await run([{ type: "text", text: "listen" }, wav], { entry })
+    expect(dropChunk(chunks)?.data).toEqual({
+      parts: [{ index: 1, type: "audio", source: "data", reason: "modality_unsupported" }],
+    })
+    expect(seenInputs).toHaveLength(1)
+  })
+
+  it("a cached agent keeps its modality", async () => {
+    fakeProfile = { imageInputs: true }
+    const checkpointer = new MemorySaver()
+    const first = await run([{ type: "text", text: "one" }, wav], { checkpointer })
+    const second = await run([{ type: "text", text: "two" }, wav], { checkpointer })
+    for (const chunks of [first, second]) {
+      expect(dropChunk(chunks)?.data).toMatchObject({
+        provider: "openai",
+        parts: [{ index: 1, type: "audio", reason: "modality_unsupported" }],
+      })
+    }
   })
 })

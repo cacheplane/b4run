@@ -3,7 +3,7 @@ import { readRuntimeEnv } from "@b4run/core"
 import type {
   ApprovalGrantMinter,
   B4Agent,
-  B4MessageContent,
+  B4ContentPart,
   BuiltInModelProviderId,
   ClientToolRecorder,
   RetryConfig,
@@ -12,7 +12,7 @@ import {
   APPROVAL_GRANT_MINTER_KEY,
   CLIENT_TOOL_RECORDER_KEY,
   isB4Agent,
-  isContentPartArray,
+  isContentPart,
 } from "@b4run/sdk"
 import {
   type BaseMessageLike,
@@ -31,7 +31,13 @@ import {
   resolveModalitySupport,
 } from "./chat-model-factory.js"
 import { trackCheckpointWrites } from "./checkpoint-writes.js"
-import { type DroppedPart, toLangChainContent } from "./content-parts.js"
+import {
+  type ConvertedContent,
+  type DroppedPart,
+  type DroppedPartsReport,
+  formatDroppedPartsWarning,
+  toLangChainContent,
+} from "./content-parts.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
@@ -1287,6 +1293,11 @@ export async function executeAgentTurn(options: AgentOptions): Promise<AgentTurn
   for await (const chunk of streamAgent(options)) {
     if (chunk.type === "done") output = chunk.data
     else if (chunk.type === "interrupt") parked = true
+    // No stream to announce on: the spec's developer warning is the only signal.
+    // (The streaming path logs from the CLI's chunk switch, never reached here.)
+    else if (chunk.type === "content_parts_dropped") {
+      console.warn(formatDroppedPartsWarning(chunk.data as DroppedPartsReport))
+    }
   }
   return { output, parked }
 }
@@ -1546,7 +1557,8 @@ async function* streamFromRunnable(
 
 interface InputMessage {
   readonly role: string
-  readonly content: B4MessageContent
+  /** A string, or a part list whose entries may still be malformed (checked per entry). */
+  readonly content: string | readonly unknown[]
 }
 
 function isInputMessageArray(value: unknown): value is readonly InputMessage[] {
@@ -1559,7 +1571,7 @@ function isInputMessageArray(value: unknown): value is readonly InputMessage[] {
         item !== null &&
         typeof (item as { role?: unknown }).role === "string" &&
         (typeof (item as { content?: unknown }).content === "string" ||
-          isContentPartArray((item as { content?: unknown }).content)),
+          Array.isArray((item as { content?: unknown }).content)),
     )
   )
 }
@@ -1591,12 +1603,7 @@ function extractMessages(
     const messages = input.messages
       .filter((msg) => msg.role === "user")
       .map((msg) => {
-        const converted = toLangChainContent(
-          msg.content,
-          modality.support,
-          modality.provider,
-          "user",
-        )
+        const converted = convertUserContent(msg.content, modality)
         dropped.push(...converted.dropped)
         return typeof converted.content === "string"
           ? new HumanMessage(converted.content)
@@ -1609,6 +1616,47 @@ function extractMessages(
 
   // Legacy flat-object format: {key: value, ...}
   return { messages: [new HumanMessage(formatAgentMessage(input))], dropped: [] }
+}
+
+/**
+ * One message's content under the root model. A malformed entry drops on its
+ * own (`malformed_part`) instead of sending the whole list to the flat-object
+ * fallback, where it would stringify to `[object Object]`. Drop indices are the
+ * entries' positions in the original list, in order.
+ */
+function convertUserContent(
+  content: string | readonly unknown[],
+  modality: MaterializedModality,
+): ConvertedContent {
+  if (typeof content === "string") {
+    return toLangChainContent(content, modality.support, modality.provider, "user")
+  }
+  const valid: B4ContentPart[] = []
+  const validIndices: number[] = []
+  const malformed: DroppedPart[] = []
+  for (const [index, entry] of content.entries()) {
+    if (isContentPart(entry)) {
+      valid.push(entry)
+      validIndices.push(index)
+      continue
+    }
+    const type =
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as { type?: unknown }).type === "string"
+        ? (entry as { type: string }).type
+        : "unknown"
+    malformed.push({ index, type, reason: "malformed_part" })
+  }
+  const converted = toLangChainContent(valid, modality.support, modality.provider, "user")
+  const dropped = [
+    ...converted.dropped.map((part) => ({
+      ...part,
+      index: validIndices[part.index] ?? part.index,
+    })),
+    ...malformed,
+  ].sort((a, b) => a.index - b.index)
+  return { content: converted.content, dropped }
 }
 
 function droppedPartsChunk(
