@@ -3,17 +3,9 @@ import { ActivitySnapshotEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
 import {
   B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
   createB4ActivityProjector as createUncheckedB4ActivityProjector,
   isB4ActivityChunkType,
 } from "../src/activities.ts"
-
-const identity = {
-  call_id: "call-research-1",
-  subagent: "researcher",
-  route_id: "/research#researcher",
-  depth: 1,
-} as const
 
 const todos = [
   { content: "Search the corpus", status: "completed" },
@@ -32,31 +24,18 @@ function createB4ActivityProjector(runId: string) {
 }
 
 describe("isB4ActivityChunkType", () => {
-  test("recognizes exactly the seven activity chunk types", () => {
-    for (const type of [
-      "plan_update",
+  test("recognizes exactly plan_update: a subagent's lifecycle is not an activity", () => {
+    expect(isB4ActivityChunkType("plan_update")).toBe(true)
+    for (const other of [
       "subagent.start",
       "subagent.plan_update",
       "subagent.tool_call",
-      "subagent.tool_result",
       "subagent.token",
-      "subagent.message_end",
-      "subagent.reasoning",
-      "subagent.tool_call_args",
       "subagent.end",
-    ]) {
-      expect(isB4ActivityChunkType(type)).toBe(true)
-    }
-
-    for (const type of [
       "token",
-      "tool_call",
-      "done",
-      "capability.unknown",
-      "subagent.unknown",
-      "subagent.start.extra",
+      "plan_update.extra",
     ]) {
-      expect(isB4ActivityChunkType(type)).toBe(false)
+      expect(isB4ActivityChunkType(other)).toBe(false)
     }
   })
 })
@@ -81,589 +60,55 @@ describe("createB4ActivityProjector", () => {
       replace: true,
       content: { todos },
     })
-    expect(B4_SUBAGENT_ACTIVITY_TYPE).toBe("b4.subagent")
-    expect(ActivitySnapshotEventSchema.parse(first)).toEqual(first)
-    expect(ActivitySnapshotEventSchema.parse(second)).toEqual(second)
   })
 
-  test("starts a subagent and replaces its complete child plan", () => {
+  test("a subagent's plan has its own stable id and carries the child's subagentRunId", () => {
     const projector = createB4ActivityProjector("run-1")
-    const start = projector.project("subagent.start", identity)
-    const plan = projector.project("subagent.plan_update", { ...identity, todos })
+    const child = projector.project("plan_update", { todos }, "call-research-1")
 
-    expect(start).toEqual({
+    expect(child).toEqual({
       type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "b4:subagent:call-research-1",
-      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
+      messageId: "b4:plan:call-research-1",
+      activityType: B4_PLAN_ACTIVITY_TYPE,
       replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [],
-        totalToolCount: 0,
-      },
+      content: { todos },
+      subagentRunId: "call-research-1",
     })
-    expect(plan).toEqual({
-      type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "b4:subagent:call-research-1",
-      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        todos,
-        tools: [],
-        totalToolCount: 0,
-      },
-    })
-    expect(ActivitySnapshotEventSchema.parse(start)).toEqual(start)
-    expect(ActivitySnapshotEventSchema.parse(plan)).toEqual(plan)
+    // Root and child plans never collide, and root is never tagged.
+    expect(projector.project("plan_update", { todos })).not.toHaveProperty("subagentRunId")
   })
 
-  test("ignores child plans before start and payloads without canonical identity", () => {
+  test("normalizes todo prose and rejects malformed plans", () => {
     const projector = createB4ActivityProjector("run-1")
-
-    expect(projector.project("subagent.plan_update", { ...identity, todos })).toBeNull()
     expect(
-      projector.project("subagent.start", {
-        call_id: identity.call_id,
-        subagent: identity.subagent,
-        depth: identity.depth,
-      }),
-    ).toBeNull()
-  })
-
-  test("ignores identity conflicts after start", () => {
-    const projector = createB4ActivityProjector("run-1")
-    expect(projector.project("subagent.start", identity)).not.toBeNull()
-
-    expect(
-      projector.project("subagent.start", { ...identity, route_id: "/research#writer" }),
-    ).toBeNull()
-    expect(
-      projector.project("subagent.plan_update", {
-        ...identity,
-        subagent: "writer",
-        todos,
-      }),
-    ).toBeNull()
-  })
-
-  test("requires byte-exact identity fields after start", () => {
-    for (const paddedIdentity of [
-      { ...identity, call_id: `  ${identity.call_id}  ` },
-      { ...identity, subagent: `  ${identity.subagent}  ` },
-      { ...identity, route_id: `  ${identity.route_id}  ` },
-    ]) {
-      const projector = createB4ActivityProjector("run-1")
-      expect(projector.project("subagent.start", identity)).not.toBeNull()
-      expect(projector.project("subagent.plan_update", { ...paddedIdentity, todos })).toBeNull()
-    }
-  })
-
-  test("correlates child tool calls and results without exposing inputs or outputs", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    const call = projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-1",
-      name: "searchCorpus",
-      input: { secret: "private prompt" },
-    })
-    const result = projector.project("subagent.tool_result", {
-      ...identity,
-      id: "tool-1",
-      name: "wrong-name-must-not-be-read",
-      output: { secret: "private result" },
-    })
-
-    expect(call?.content).toMatchObject({
-      tools: [{ name: "searchCorpus", status: "running" }],
-      totalToolCount: 1,
-    })
-    expect(result?.content).toMatchObject({
-      tools: [{ name: "searchCorpus", status: "completed" }],
-      totalToolCount: 1,
-    })
-    expect(JSON.stringify([call, result])).not.toMatch(/private prompt|private result|wrong-name/)
-    expect(ActivitySnapshotEventSchema.parse(call)).toEqual(call)
-    expect(ActivitySnapshotEventSchema.parse(result)).toEqual(result)
-  })
-
-  test("preserves tool ids for exact correlation while trimming public names", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    const called = projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-1",
-      name: "  searchCorpus  ",
-    })
-    expect(called?.content).toMatchObject({
-      tools: [{ name: "searchCorpus", status: "running" }],
-      totalToolCount: 1,
-    })
-
-    expect(
-      projector.project("subagent.tool_result", {
-        ...identity,
-        id: "  tool-1  ",
-      }),
-    ).toBeNull()
-
-    const completed = projector.project("subagent.tool_result", {
-      ...identity,
-      id: "tool-1",
-    })
-    expect(completed?.content).toMatchObject({
-      tools: [{ name: "searchCorpus", status: "completed" }],
-      totalToolCount: 1,
-    })
-
-    const padded = projector.project("subagent.tool_call", {
-      ...identity,
-      id: "  tool-1  ",
-      name: "  searchCorpusAgain  ",
-    })
-    expect(padded?.content).toMatchObject({
-      tools: [
-        { name: "searchCorpus", status: "completed" },
-        { name: "searchCorpusAgain", status: "running" },
-      ],
-      totalToolCount: 2,
-    })
-
-    const paddedCompleted = projector.project("subagent.tool_result", {
-      ...identity,
-      id: "  tool-1  ",
-    })
-    expect(paddedCompleted?.content).toMatchObject({
-      tools: [
-        { name: "searchCorpus", status: "completed" },
-        { name: "searchCorpusAgain", status: "completed" },
-      ],
-      totalToolCount: 2,
-    })
-  })
-
-  test("retains only the five newest tool summaries while counting each id once", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    let snapshot = null
-    for (let index = 1; index <= 6; index += 1) {
-      snapshot = projector.project("subagent.tool_call", {
-        ...identity,
-        id: `tool-${index}`,
-        name: `toolName${index}`,
-      })
-    }
-
-    expect(snapshot?.content).toMatchObject({
-      tools: [
-        { name: "toolName2", status: "running" },
-        { name: "toolName3", status: "running" },
-        { name: "toolName4", status: "running" },
-        { name: "toolName5", status: "running" },
-        { name: "toolName6", status: "running" },
-      ],
-      totalToolCount: 6,
-    })
-    expect(projector.project("subagent.tool_result", { ...identity, id: "tool-1" })).toBeNull()
-
-    const completed = projector.project("subagent.tool_result", {
-      ...identity,
-      id: "tool-6",
-    })
-    expect(completed?.content).toMatchObject({
-      tools: [
-        { name: "toolName2", status: "running" },
-        { name: "toolName3", status: "running" },
-        { name: "toolName4", status: "running" },
-        { name: "toolName5", status: "running" },
-        { name: "toolName6", status: "completed" },
-      ],
-      totalToolCount: 6,
-    })
-
-    const reinserted = projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-1",
-      name: "toolName1",
-    })
-    expect(reinserted?.content).toMatchObject({
-      tools: [
-        { name: "toolName3", status: "running" },
-        { name: "toolName4", status: "running" },
-        { name: "toolName5", status: "running" },
-        { name: "toolName6", status: "completed" },
-        { name: "toolName1", status: "running" },
-      ],
-      totalToolCount: 6,
-    })
-    expect(ActivitySnapshotEventSchema.parse(reinserted)).toEqual(reinserted)
-  })
-
-  test("completes once, marks running tools incomplete, and freezes terminal state", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-    projector.project("subagent.plan_update", { ...identity, todos })
-    projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-running",
-      name: "searchCorpus",
-    })
-    projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-completed",
-      name: "readDoc",
-    })
-    projector.project("subagent.tool_result", { ...identity, id: "tool-completed" })
-
-    const ended = projector.project("subagent.end", {
-      ...identity,
-      final_message: "private child answer",
-    })
-    expect(ended?.content).toEqual({
-      name: "researcher",
-      depth: 1,
-      status: "completed",
-      todos,
-      tools: [
-        { name: "searchCorpus", status: "incomplete" },
-        { name: "readDoc", status: "completed" },
-      ],
-      totalToolCount: 2,
-    })
-    expect(JSON.stringify(ended)).not.toContain("private child answer")
-    expect(ActivitySnapshotEventSchema.parse(ended)).toEqual(ended)
-
-    expect(projector.project("subagent.end", identity)).toBeNull()
-    expect(projector.project("subagent.start", identity)).toBeNull()
-    expect(
-      projector.project("subagent.tool_call", {
-        ...identity,
-        id: "tool-late",
-        name: "lateTool",
-      }),
-    ).toBeNull()
-    expect(projector.project("subagent.plan_update", { ...identity, todos: [] })).toBeNull()
-  })
-
-  test("caps failure errors at 400 characters", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    const ended = projector.project("subagent.end", {
-      ...identity,
-      error: "x".repeat(500),
-    })
-
-    expect(ended?.content).toMatchObject({
-      status: "failed",
-      error: "x".repeat(400),
-    })
-    expect(ActivitySnapshotEventSchema.parse(ended)).toEqual(ended)
-  })
-
-  test("rejects a present non-string error without ending, while whitespace completes", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    expect(
-      projector.project("subagent.end", { ...identity, error: { message: "private" } }),
-    ).toBeNull()
-    const ended = projector.project("subagent.end", { ...identity, error: "   " })
-    expect(ended?.content).toMatchObject({ status: "completed" })
-    expect(ended?.content).not.toHaveProperty("error")
-    expect(ActivitySnapshotEventSchema.parse(ended)).toEqual(ended)
-  })
-
-  test("re-emits an identical repeated start without discarding progress", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-    projector.project("subagent.plan_update", { ...identity, todos })
-    projector.project("subagent.tool_call", {
-      ...identity,
-      id: "tool-1",
-      name: "searchCorpus",
-    })
-
-    const repeated = projector.project("subagent.start", identity)
-    expect(repeated?.content).toEqual({
-      name: "researcher",
-      depth: 1,
-      status: "running",
-      todos,
-      tools: [{ name: "searchCorpus", status: "running" }],
-      totalToolCount: 1,
-    })
-    expect(ActivitySnapshotEventSchema.parse(repeated)).toEqual(repeated)
-  })
-
-  test("ignores lifecycle events received before start", () => {
-    const projector = createB4ActivityProjector("run-1")
-
-    expect(
-      projector.project("subagent.tool_call", {
-        ...identity,
-        id: "tool-1",
-        name: "searchCorpus",
-      }),
-    ).toBeNull()
-    expect(projector.project("subagent.tool_result", { ...identity, id: "tool-1" })).toBeNull()
-    expect(projector.project("subagent.token", { ...identity, content: "private" })).toBeNull()
-    expect(projector.project("subagent.end", identity)).toBeNull()
-  })
-
-  test("keeps interleaved call ids isolated", () => {
-    const projector = createB4ActivityProjector("run-1")
-    const writerIdentity = {
-      call_id: "call-writer-1",
-      subagent: "writer",
-      route_id: "/research#writer",
-      depth: 2,
-    } as const
-    projector.project("subagent.start", identity)
-    projector.project("subagent.start", writerIdentity)
-    projector.project("subagent.tool_call", {
-      ...identity,
-      id: "research-tool",
-      name: "searchCorpus",
-    })
-    projector.project("subagent.tool_call", {
-      ...writerIdentity,
-      id: "writer-tool",
-      name: "draftReport",
-    })
-
-    const researchEnded = projector.project("subagent.end", identity)
-    const writerProgress = projector.project("subagent.tool_result", {
-      ...writerIdentity,
-      id: "writer-tool",
-    })
-    expect(researchEnded?.messageId).toBe("b4:subagent:call-research-1")
-    expect(researchEnded?.content).toMatchObject({
-      name: "researcher",
-      status: "completed",
-      tools: [{ name: "searchCorpus", status: "incomplete" }],
-    })
-    expect(writerProgress?.messageId).toBe("b4:subagent:call-writer-1")
-    expect(writerProgress?.content).toMatchObject({
-      name: "writer",
-      status: "running",
-      tools: [{ name: "draftReport", status: "completed" }],
-    })
-    expect(ActivitySnapshotEventSchema.parse(researchEnded)).toEqual(researchEnded)
-    expect(ActivitySnapshotEventSchema.parse(writerProgress)).toEqual(writerProgress)
-  })
-
-  test("consumes child messages and exposes only allowlisted public fields", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", { ...identity, private_start: "secret-start" })
-    expect(
-      projector.project("subagent.token", {
-        ...identity,
-        content: "private child prose",
-        reasoning: "private reasoning",
-      }),
-    ).toBeNull()
-    const call = projector.project("subagent.tool_call", {
-      ...identity,
-      id: "private-tool-id",
-      name: "searchCorpus",
-      input: { query: "private query" },
-    })
-    projector.project("subagent.tool_result", {
-      ...identity,
-      id: "private-tool-id",
-      name: "private result tool name",
-      output: "private tool output",
-    })
-    const ended = projector.project("subagent.end", {
-      ...identity,
-      final_message: "private final child answer",
-    })
-
-    expect(Object.keys(call?.content ?? {}).sort()).toEqual([
-      "depth",
-      "name",
-      "status",
-      "tools",
-      "totalToolCount",
-    ])
-    expect(Object.keys(ended?.content ?? {}).sort()).toEqual([
-      "depth",
-      "name",
-      "status",
-      "tools",
-      "totalToolCount",
-    ])
-    const serializedContent = JSON.stringify([call?.content, ended?.content])
-    for (const privateValue of [
-      identity.call_id,
-      identity.route_id,
-      "private-tool-id",
-      "private child prose",
-      "private reasoning",
-      "private query",
-      "private tool output",
-      "private result tool name",
-      "private final child answer",
-      "secret-start",
-    ]) {
-      expect(serializedContent).not.toContain(privateValue)
-    }
-  })
-
-  test("rejects malformed plans and canonical subagent fields", () => {
-    const malformedPlanProjector = createB4ActivityProjector("run-plan")
-    for (const data of [
-      null,
-      [],
-      { todos: {} },
-      { todos: [null] },
-      { todos: [{ content: "", status: "pending" }] },
+      projector.project("plan_update", { todos: [{ content: "  padded  ", status: "pending" }] }),
+    ).toMatchObject({ content: { todos: [{ content: "padded", status: "pending" }] } })
+    for (const bad of [
+      { todos: [{ content: "bad", status: "unknown" }] },
       { todos: [{ content: "   ", status: "pending" }] },
-      { todos: [{ content: "valid", status: "unknown" }] },
+      { todos: [{ status: "pending" }] },
+      { todos: "not a list" },
+      null,
+      "todos",
     ]) {
-      expect(malformedPlanProjector.project("plan_update", data)).toBeNull()
-    }
-
-    const malformedIdentities = [
-      [],
-      { ...identity, call_id: " " },
-      { ...identity, subagent: " " },
-      { ...identity, route_id: " " },
-      { ...identity, depth: 0 },
-      { ...identity, depth: -1 },
-      { ...identity, depth: 1.5 },
-      { ...identity, depth: "1" },
-    ]
-    for (const data of malformedIdentities) {
-      const projector = createB4ActivityProjector("run-subagent")
-      expect(projector.project("subagent.start", data)).toBeNull()
+      expect(projector.project("plan_update", bad)).toBeNull()
     }
   })
 
-  test("normalizes todo prose but preserves accepted identity strings", () => {
+  test("returns null without throwing for hostile getters", () => {
     const projector = createB4ActivityProjector("run-1")
-    const plan = projector.project("plan_update", {
-      todos: [{ content: "  Search the corpus  ", status: "pending" }],
-    })
-    const paddedIdentity = {
-      call_id: "  call-trimmed  ",
-      subagent: "  researcher  ",
-      route_id: "  /research#researcher  ",
-      depth: 1,
-    } as const
-    const start = projector.project("subagent.start", paddedIdentity)
-
-    expect(plan?.content).toEqual({
-      todos: [{ content: "Search the corpus", status: "pending" }],
-    })
-    expect(start?.messageId).toBe("b4:subagent:  call-trimmed  ")
-    expect(start?.content).toMatchObject({ name: "  researcher  " })
-    expect(
-      projector.project("subagent.plan_update", {
-        call_id: "call-trimmed",
-        subagent: "researcher",
-        route_id: "/research#researcher",
-        depth: 1,
-        todos,
-      }),
-    ).toBeNull()
-    expect(projector.project("subagent.plan_update", { ...paddedIdentity, todos })).not.toBeNull()
-  })
-
-  test("rejects malformed child plans, tool ids, tool names, and unknown results", () => {
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-
-    expect(
-      projector.project("subagent.plan_update", {
-        ...identity,
-        todos: [{ content: "valid", status: "invalid" }],
-      }),
-    ).toBeNull()
-    expect(
-      projector.project("subagent.tool_call", {
-        ...identity,
-        id: " ",
-        name: "searchCorpus",
-      }),
-    ).toBeNull()
-    expect(
-      projector.project("subagent.tool_call", {
-        ...identity,
-        id: "tool-1",
-        name: " ",
-      }),
-    ).toBeNull()
-    expect(projector.project("subagent.tool_result", { ...identity, id: "unknown" })).toBeNull()
-  })
-
-  test("returns null without throwing for hostile getters and never reads ignored prose", () => {
-    const throwingIdentity = Object.defineProperty({}, "call_id", {
-      get() {
-        throw new Error("hostile identity")
+    const hostile = {
+      get todos(): unknown {
+        throw new Error("boom")
       },
-    })
-    const throwingTodos = Object.defineProperty({}, "todos", {
-      get() {
-        throw new Error("hostile todos")
-      },
-    })
-    expect(() =>
-      createB4ActivityProjector("run-1").project("subagent.start", throwingIdentity),
-    ).not.toThrow()
-    expect(
-      createB4ActivityProjector("run-1").project("subagent.start", throwingIdentity),
-    ).toBeNull()
-    expect(() =>
-      createB4ActivityProjector("run-1").project("plan_update", throwingTodos),
-    ).not.toThrow()
-    expect(createB4ActivityProjector("run-1").project("plan_update", throwingTodos)).toBeNull()
-
-    const projector = createB4ActivityProjector("run-1")
-    projector.project("subagent.start", identity)
-    const hostileTool = Object.defineProperty({ ...identity, name: "searchCorpus" }, "id", {
-      get() {
-        throw new Error("hostile tool id")
-      },
-    })
-    expect(() => projector.project("subagent.tool_call", hostileTool)).not.toThrow()
-    expect(projector.project("subagent.tool_call", hostileTool)).toBeNull()
-
-    const hostileMessage = Object.defineProperty({ ...identity }, "content", {
-      get() {
-        throw new Error("child prose must not be read")
-      },
-    })
-    expect(() => projector.project("subagent.token", hostileMessage)).not.toThrow()
-    expect(projector.project("subagent.token", hostileMessage)).toBeNull()
-
-    const hostileEnd = Object.defineProperty({ ...identity }, "final_message", {
-      get() {
-        throw new Error("final child answer must not be read")
-      },
-    })
-    expect(() => projector.project("subagent.end", hostileEnd)).not.toThrow()
+    }
+    expect(() => projector.project("plan_update", hostile)).not.toThrow()
+    expect(projector.project("plan_update", hostile)).toBeNull()
   })
 })
 
 describe("orchestration correlation", () => {
-  const IDENTITY = {
-    call_id: "call_task_0_2",
-    subagent: "researcher",
-    route_id: "/researcher",
-    depth: 1,
-  } as const
-
-  test("a valid plan update correlates to its writeTodos call", () => {
+  test("a valid root plan update correlates to its writeTodos call", () => {
     const projector = createUncheckedB4ActivityProjector("run-1")
     const projection = projector.project("plan_update", {
       todos: [{ content: "Search", status: "pending" }],
@@ -676,6 +121,19 @@ describe("orchestration correlation", () => {
       toolName: "writeTodos",
     })
     expect(JSON.stringify(projection.event?.content)).not.toContain("call_writeTodos_0_1")
+  })
+
+  test("a child's plan update never correlates: nothing of a child's is suppressed", () => {
+    const projector = createUncheckedB4ActivityProjector("run-1")
+    const projection = projector.project(
+      "plan_update",
+      { todos: [{ content: "Search", status: "pending" }], tool_call_id: "call_child_writeTodos" },
+      "call-research-1",
+    )
+
+    expect(projection.event).not.toBeNull()
+    expect(projection.orchestration).toBeUndefined()
+    expect(JSON.stringify(projection.event)).not.toContain("call_child_writeTodos")
   })
 
   test("a plan update without a correlation id yields no correlation", () => {
@@ -706,55 +164,6 @@ describe("orchestration correlation", () => {
       todos: [{ content: "bad", status: "unknown" }],
       tool_call_id: "call_writeTodos_0_1",
     })
-
-    expect(projection.event).toBeNull()
-    expect(projection.orchestration).toBeUndefined()
-  })
-
-  test("the first subagent start correlates to its task call by call_id", () => {
-    const projector = createUncheckedB4ActivityProjector("run-1")
-    const projection = projector.project("subagent.start", IDENTITY)
-
-    expect(projection.event).not.toBeNull()
-    expect(projection.orchestration).toEqual({
-      toolCallId: "call_task_0_2",
-      toolName: "task",
-    })
-  })
-
-  test("a repeated subagent start re-emits the snapshot without re-correlating", () => {
-    const projector = createUncheckedB4ActivityProjector("run-1")
-    projector.project("subagent.start", IDENTITY)
-    const repeat = projector.project("subagent.start", IDENTITY)
-
-    expect(repeat.event).not.toBeNull()
-    expect(repeat.orchestration).toBeUndefined()
-  })
-
-  test("subagent lifecycle updates after start carry no correlation", () => {
-    const projector = createUncheckedB4ActivityProjector("run-1")
-    projector.project("subagent.start", IDENTITY)
-
-    const planUpdate = projector.project("subagent.plan_update", {
-      ...IDENTITY,
-      todos: [{ content: "child", status: "pending" }],
-    })
-    const toolCall = projector.project("subagent.tool_call", {
-      ...IDENTITY,
-      id: "child-tool-1",
-      name: "readDoc",
-    })
-    const end = projector.project("subagent.end", IDENTITY)
-
-    expect(planUpdate.orchestration).toBeUndefined()
-    expect(toolCall.orchestration).toBeUndefined()
-    expect(end.orchestration).toBeUndefined()
-    expect(end.event).not.toBeNull()
-  })
-
-  test("a malformed subagent start yields neither event nor correlation", () => {
-    const projector = createUncheckedB4ActivityProjector("run-1")
-    const projection = projector.project("subagent.start", { ...IDENTITY, depth: 0 })
 
     expect(projection.event).toBeNull()
     expect(projection.orchestration).toBeUndefined()

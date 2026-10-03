@@ -2,21 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { PlanActivityCard } from "../../src/react/PlanActivityCard.js"
 import type { B4ActivityClassNames } from "../../src/react/parts.js"
-import { SubagentActivityCard } from "../../src/react/SubagentActivityCard.js"
 
 const PLAN = {
   todos: [
     { content: "Search the corpus", status: "completed" },
     { content: "Read the best sources", status: "in_progress" },
   ],
-} as const
-
-const SUBAGENT = {
-  name: "researcher",
-  depth: 1,
-  status: "running",
-  tools: [{ name: "searchCorpus", status: "running" }],
-  totalToolCount: 1,
 } as const
 
 /**
@@ -100,17 +91,6 @@ const OVERFLOWING_PLAN = {
   ],
 }
 
-/** Nested, failed, with todos past the bound and a tool: reaches every part. */
-const EXHAUSTIVE_SUBAGENT = {
-  name: "researcher",
-  depth: 2,
-  status: "failed" as const,
-  error: "The source service returned an error",
-  todos: OVERFLOWING_PLAN.todos,
-  tools: [{ name: "searchCorpus", status: "incomplete" as const }],
-  totalToolCount: 3,
-}
-
 /**
  * Parts the plan card has no markup for.
  *
@@ -145,29 +125,6 @@ describe("customization ladder", () => {
     }
   })
 
-  test("rung 2: every part the subagent card renders appends its consumer class", () => {
-    const html = renderToStaticMarkup(
-      <SubagentActivityCard content={EXHAUSTIVE_SUBAGENT} classNames={EVERY_PART} />,
-    )
-
-    for (const part of ALL_PARTS) {
-      expect(html, `part ${part} must append its consumer class`).toMatch(APPENDED_ATTRIBUTE[part])
-    }
-  })
-
-  test("rung 2: a consumer section class lands on the region, not on the checklist too", () => {
-    // The regression pin for the `section`/`checklist` split. The subagent card
-    // renders two labelled regions, and it used to render the checklist wrapper
-    // with the same class — three matches, two of them nested, so any box-like
-    // utility passed to `section` drew twice. The lookahead keeps
-    // `my-section-label` from being counted as a `my-section` match.
-    const html = renderToStaticMarkup(
-      <SubagentActivityCard content={EXHAUSTIVE_SUBAGENT} classNames={EVERY_PART} />,
-    )
-    expect(html.match(/my-section(?![\w-])/g)).toHaveLength(2)
-    expect(html.match(/my-checklist/g)).toHaveLength(1)
-  })
-
   test("rung 2: the marker is the first child of the header and hidden from a11y", () => {
     // Structure, position, and `aria-hidden` in one pattern. The glyph was a
     // `::before` with no key; Chrome put its content in the summary's accessible
@@ -176,9 +133,6 @@ describe("customization ladder", () => {
       /<summary class="b4-activity__header[^"]*"><span aria-hidden="true" class="b4-activity__marker/
     expect(
       renderToStaticMarkup(<PlanActivityCard content={PLAN} classNames={EVERY_PART} />),
-    ).toMatch(markerFirst)
-    expect(
-      renderToStaticMarkup(<SubagentActivityCard content={SUBAGENT} classNames={EVERY_PART} />),
     ).toMatch(markerFirst)
     expect(renderToStaticMarkup(<PlanActivityCard content={PLAN} />)).toMatch(markerFirst)
   })
@@ -198,16 +152,6 @@ describe("customization ladder", () => {
     )
     expect(html).toContain("<em>Search the corpus</em>")
     expect(html).not.toContain("b4-activity__item-glyph")
-  })
-
-  test("rung 3: a ToolRow slot replaces tool rows", () => {
-    const html = renderToStaticMarkup(
-      <SubagentActivityCard
-        content={SUBAGENT}
-        components={{ ToolRow: ({ name }) => <b>{name}</b> }}
-      />,
-    )
-    expect(html).toContain("<b>searchCorpus</b>")
   })
 
   test("a slot cannot exceed the card's todo bound", () => {

@@ -47,6 +47,13 @@ const EFFORT_ONLY_ROUTE = [
   "",
 ].join("\n")
 
+/** A convention subagent of `/open`: discovered under its `subagents/` directory. */
+const RESEARCHER_ROUTE = [
+  'import { agent } from "@b4run/sdk"',
+  'export default agent({ model: "gpt-5-mini", description: "Finds sources", systemPrompt: "t" })',
+  "",
+].join("\n")
+
 const GRAPH_ROUTE = "export const graph = async () => ({ ok: true })\n"
 
 /** An agent route that exports a runnable rather than an `agent()` descriptor. */
@@ -61,6 +68,13 @@ const MIDDLEWARE = `
 /** Claims every route makes, whatever its module says. */
 const TRANSPORT = { httpBinary: true, streaming: true }
 const NO_REASONING = { supported: false }
+/** `/open` dispatches one convention subagent; nothing else does. */
+const RESEARCHER_MULTI_AGENT = {
+  delegation: true,
+  handoffs: false,
+  subagents: [{ name: "researcher", description: "Finds sources" }],
+  supported: true,
+}
 const AGENT_STATE = { deltas: false, persistentState: true, snapshots: false }
 const RAW_STATE = { deltas: false, snapshots: false }
 const ONE_SHOT_STATE = { deltas: false, persistentState: false, snapshots: false }
@@ -76,6 +90,7 @@ async function fixtureApp(
       'export default { server: { agui: { clientTools: ["/open", "/echo"] } } }\n',
     "package.json": '{ "name": "agui-capabilities-fixture", "type": "module" }\n',
     "src/app/open/index.ts": DESCRIPTOR_ROUTE,
+    "src/app/open/subagents/researcher/index.ts": RESEARCHER_ROUTE,
     "src/app/closed/index.ts": DESCRIPTOR_ROUTE,
     "src/app/echo/index.ts": GRAPH_ROUTE,
     "src/app/gemini/index.ts": GEMINI_ROUTE,
@@ -145,12 +160,22 @@ describe("GET /agui/:routeId", () => {
         interrupts: true,
         supported: true,
       },
+      multiAgent: RESEARCHER_MULTI_AGENT,
       output: { structuredOutput: true },
       reasoning: NO_REASONING,
       state: AGENT_STATE,
       tools: { clientProvided: true, parallelCalls: true, supported: true },
       transport: TRANSPORT,
     })
+  })
+
+  it("advertises multiAgent from the registry the task tool dispatches from, and omits it otherwise", async () => {
+    const handler = await createHandler(await fixtureApp())
+
+    expect((await capabilities(handler, "/open#agent")).multiAgent).toEqual(RESEARCHER_MULTI_AGENT)
+    for (const routeKey of ["/closed#agent", "/thinking#agent", "/echo#graph", "/raw#agent"]) {
+      expect(await capabilities(handler, routeKey)).not.toHaveProperty("multiAgent")
+    }
   })
 
   it("advertises reasoning only when the route's config makes it stream", async () => {
