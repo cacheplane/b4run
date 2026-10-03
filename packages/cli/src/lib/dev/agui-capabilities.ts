@@ -30,13 +30,19 @@
  *   rule; `agui-endpoint.test.ts` proves both). `websocket`, `resumable` and
  *   `pushNotifications` are omitted: nothing serves them, and nothing
  *   settles them as false either.
- * - `reasoning.supported` is `false` for every route: `toAguiEvents` has no
- *   `REASONING_*` branch, and the langchain adapter's `chunkText` keeps only
- *   `text` blocks, so nothing reasoning-shaped reaches the wire. The claim
- *   flips when the translator emits them (AG-UI sub-project 2). Pinned on
- *   both sides: `packages/langchain/test/model-message-framing.test.ts`
- *   (non-text blocks carry no token) and `packages/ag-ui/test/outbound.test.ts`
- *   (no chunk becomes `REASONING_*`).
+ * - `reasoning` is `checkRouteReasoningSupport`: the chat-model factory
+ *   forwards an OpenAI reasoning `summary` or an Anthropic thinking budget
+ *   exactly when `resolveReasoningConfig(...).streams` is true, the adapter
+ *   turns the resulting blocks into `reasoning` chunks, and the translator
+ *   frames them as `REASONING_*` — so a descriptor route advertises
+ *   `{ supported: true, streaming: true, encrypted: false }` exactly then
+ *   (redacted/encrypted material is dropped, never carried), and
+ *   `{ supported: false }` otherwise: effort alone, no `reasoning`, a config
+ *   the factory rejects, a chain/graph/workflow route, or a raw runnable.
+ *   Pinned along the chain: `packages/langchain/test/reasoning-config.test.ts`
+ *   (what streams), `packages/langchain/test/model-message-framing.test.ts`
+ *   (blocks → `reasoning` chunks), `packages/ag-ui/test/outbound.test.ts`
+ *   `describe("reasoning")` (chunks → `REASONING_*`).
  * - `state.snapshots` and `state.deltas` are `false` for every route: no
  *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is
  *   `true` for an `agent()` route, whose compiled graph embeds the boot
@@ -69,6 +75,7 @@ import type { MiddlewareHandler, MiddlewareRequest } from "@b4run/sdk"
 import {
   type BootResolvedInstances,
   checkRouteClientToolsSupport,
+  checkRouteReasoningSupport,
   checkRouteResponseFormatSupport,
 } from "../runtime/execute-route-core.js"
 import { type ApprovalGrantRuntime, grantsRefuseEveryResume } from "./approval-grants.js"
@@ -85,8 +92,14 @@ const TRANSPORT: NonNullable<AgentCapabilities["transport"]> = {
   streaming: true,
 }
 
-/** Nothing reasoning-shaped reaches the wire from any route (module comment). */
-const REASONING: NonNullable<AgentCapabilities["reasoning"]> = { supported: false }
+/** Nothing reasoning-shaped reaches the wire from this route (module comment). */
+const NO_REASONING: NonNullable<AgentCapabilities["reasoning"]> = { supported: false }
+/** The route's config makes reasoning text stream (module comment). */
+const STREAMED_REASONING: NonNullable<AgentCapabilities["reasoning"]> = {
+  encrypted: false,
+  streaming: true,
+  supported: true,
+}
 
 /** No route emits state events; persistence is B4.run's only when it wires the checkpointer. */
 function stateCapabilities(
@@ -151,7 +164,7 @@ export async function handleAgUiCapabilitiesRequest(
             supported: false,
           },
           output: { structuredOutput: false },
-          reasoning: REASONING,
+          reasoning: NO_REASONING,
           state: stateCapabilities(false),
           tools: { clientProvided: false, supported: false },
           transport: TRANSPORT,
@@ -174,10 +187,13 @@ async function agentCapabilities(
   }
   let isDescriptor: boolean
   let structuredOutput: boolean
+  let streamsReasoning: boolean
   try {
-    // Both preflights share one memoized module load.
+    // All three preflights share one memoized module load.
     isDescriptor = (await checkRouteClientToolsSupport(routeModule)).ok
     structuredOutput = (await checkRouteResponseFormatSupport(routeModule)).ok
+    const reasoningSupport = await checkRouteReasoningSupport(routeModule)
+    streamsReasoning = reasoningSupport.ok && reasoningSupport.streams
   } catch (error) {
     // With node fallbacks the load is the one `POST` would do, and its
     // failure is the route's — surfaced, never dressed up as a document.
@@ -186,7 +202,7 @@ async function agentCapabilities(
     // this runtime cannot read route modules here at all: nothing about the
     // route is settled, so nothing the module settles is claimed — only what
     // is true of every route.
-    return { reasoning: REASONING, state: stateCapabilities(undefined), transport: TRANSPORT }
+    return { reasoning: NO_REASONING, state: stateCapabilities(undefined), transport: TRANSPORT }
   }
 
   const grants = options.approvalGrants
@@ -210,7 +226,7 @@ async function agentCapabilities(
       ...(isDescriptor ? { approvals } : {}),
     },
     output: { structuredOutput },
-    reasoning: REASONING,
+    reasoning: streamsReasoning ? STREAMED_REASONING : NO_REASONING,
     state: stateCapabilities(isDescriptor ? true : undefined),
     tools: {
       clientProvided,

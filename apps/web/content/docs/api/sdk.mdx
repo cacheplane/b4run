@@ -44,7 +44,9 @@ import { scenarios } from "@b4run/sdk/testing"
 | `DelegationRule` | Express one named delegation policy. |
 | `DelegationRules` | Map subagent names to delegation policy. |
 | `DelegationVerdict` | Express a delegation constraint decision. |
-| `ReasoningConfig` | Configure model reasoning effort. |
+| `ReasoningConfig` | Configure model reasoning per provider. |
+| `OpenAIReasoningConfig` | Configure OpenAI reasoning effort and streamed summary. |
+| `AnthropicReasoningConfig` | Configure Anthropic extended thinking. |
 | `RetryConfig` | Configure model-call retry attempts and delay. |
 | `SubagentMap` | Map local subagent names to agents. |
 | `ToolScope` | Select and gate route tools. |
@@ -215,7 +217,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 | `readonly description` | `string` | no | Describe the agent for selection. |
 | `readonly model` | `KnownModelId` | yes | Select the model. |
 | `readonly provider` | `ModelProviderId` | no | Override provider inference. |
-| `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning effort. |
+| `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning per provider. |
 | `readonly retry` | `RetryConfig` | no | Tune transient retry behavior. |
 | `readonly recursionLimit` | `number` | no | Cap LangGraph super-steps. |
 | `readonly subagents` | `Subagents` | no | Register child agents by name. |
@@ -230,14 +232,40 @@ agent() returns a branded descriptor and includes optional tool scope only when 
 
 ```ts api-contract="@b4run/sdk#.:ReasoningConfig"
 export interface ReasoningConfig {
-  readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly openai?: OpenAIReasoningConfig
+  readonly anthropic?: AnthropicReasoningConfig
 }
 ```
 
 **Fields: `@b4run/sdk#.:ReasoningConfig`**
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `readonly effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | no | Set the model reasoning budget. |
+| `readonly openai` | `OpenAIReasoningConfig` | no | Apply when the route resolves to OpenAI. |
+| `readonly anthropic` | `AnthropicReasoningConfig` | no | Apply when the route resolves to Anthropic. |
+
+```ts api-contract="@b4run/sdk#.:OpenAIReasoningConfig"
+export interface OpenAIReasoningConfig {
+  readonly effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  readonly summary?: "auto" | "concise" | "detailed"
+}
+```
+
+**Fields: `@b4run/sdk#.:OpenAIReasoningConfig`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly effort` | `"none" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh"` | no | Set the request's reasoning effort. |
+| `readonly summary` | `"auto" \| "concise" \| "detailed"` | no | Stream a reasoning summary on the Responses API. |
+
+```ts api-contract="@b4run/sdk#.:AnthropicReasoningConfig"
+export interface AnthropicReasoningConfig {
+  readonly budgetTokens: number
+}
+```
+
+**Fields: `@b4run/sdk#.:AnthropicReasoningConfig`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly budgetTokens` | `number` | yes | Enable extended thinking with this token budget (at least 1024). |
 
 ```ts api-contract="@b4run/sdk#.:RetryConfig"
 export interface RetryConfig {

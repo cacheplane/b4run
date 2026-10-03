@@ -24,6 +24,32 @@ it("reduces a stream into an AgentRunResult", async () => {
   expect(r.messages).toHaveLength(1)
 })
 
+it("reads the final message from content blocks, keeping only text", async () => {
+  // The OpenAI Responses API (and Anthropic once tools are bound) answer in
+  // blocks: reasoning and tool-use blocks are not the assistant's prose.
+  async function* blocks() {
+    yield {
+      type: "done",
+      output: {
+        messages: [
+          {
+            id: ["x", "y", "AIMessage"],
+            kwargs: {
+              content: [
+                { type: "reasoning", reasoning: "the user wants a greeting" },
+                { type: "text", text: "Hi! " },
+                { type: "text", text: "How can I help?" },
+              ],
+            },
+          },
+        ],
+      },
+    }
+  }
+  const r = await collectRunResult(blocks() as never, "t")
+  expect(r.finalMessage).toBe("Hi! How can I help?")
+})
+
 it("handles an empty/aborted stream", async () => {
   async function* empty() {}
   const r = await collectRunResult(empty() as never, "t")
@@ -66,12 +92,15 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
     yield { type: "subagent.start", data: child }
     yield {
       type: "subagent.tool_call",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", input: { q: "x" } },
+      data: { ...child, id: "tool-run-1", name: "webSearch", input: { q: "x" } },
     }
-    yield { type: "subagent.message", data: { ...child, chunk: "Inspecting" } }
+    yield {
+      type: "subagent.token",
+      data: { ...child, data: "Inspecting", messageId: "child-model" },
+    }
     yield {
       type: "subagent.tool_result",
-      data: { ...child, id: "tool-run-1", tool: "webSearch", output: ["result"] },
+      data: { ...child, id: "tool-run-1", name: "webSearch", output: ["result"] },
     }
     yield {
       type: "subagent.memory.recalled",
@@ -106,18 +135,19 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         input: { q: "x" },
       },
     },
     {
-      type: "subagent.message",
+      type: "subagent.token",
       data: {
         call_id: "c1",
         subagent: "research",
         route_id: "/research",
         depth: 1,
-        chunk: "Inspecting",
+        data: "Inspecting",
+        messageId: "child-model",
       },
     },
     {
@@ -128,7 +158,7 @@ it("captures interrupts, plan updates, and folds subagent events", async () => {
         route_id: "/research",
         depth: 1,
         id: "tool-run-1",
-        tool: "webSearch",
+        name: "webSearch",
         output: ["result"],
       },
     },

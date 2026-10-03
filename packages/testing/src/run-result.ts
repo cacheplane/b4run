@@ -195,6 +195,21 @@ function finalMessageFrom(state: Record<string, unknown>): string {
     if (!isAi) continue
     const content = m.kwargs?.content ?? m.content
     if (typeof content === "string") return content
+    // Providers that answer in content blocks (the OpenAI Responses API,
+    // Anthropic once tools are bound) put the prose in `text` blocks; thinking,
+    // tool-use and other blocks are not the assistant's final message.
+    if (Array.isArray(content)) {
+      return content
+        .map((block) =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "text" &&
+          typeof (block as { text?: unknown }).text === "string"
+            ? (block as { text: string }).text
+            : "",
+        )
+        .join("")
+    }
   }
   return ""
 }
@@ -420,7 +435,7 @@ export async function collectRunResult(
         const d = (chunk as unknown as { data?: Record<string, unknown> }).data ?? {}
         const callId = String(d.call_id ?? "")
         const run = subagentFor(callId)
-        run.toolCalls.push({ name: String(d.tool ?? ""), args: normalizeToolArgs(d.input) })
+        run.toolCalls.push({ name: String(d.name ?? ""), args: normalizeToolArgs(d.input) })
         break
       }
       case "subagent.end": {

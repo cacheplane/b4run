@@ -16,10 +16,17 @@ export type B4AgentStreamChunk =
       /** Source model invocation identity; omitted by legacy producers. */
       readonly messageId?: string
     }
+  | {
+      readonly type: "reasoning"
+      readonly data: string
+      /** Source model invocation identity; shared with that invocation's tokens. */
+      readonly messageId?: string
+    }
   | { readonly type: "message_end"; readonly data: { readonly messageId: string } }
   | { readonly type: "tool_call"; readonly data: B4ToolCallData }
   | { readonly type: "tool_call_args"; readonly data: B4ToolCallArgsData }
   | { readonly type: "tool_result"; readonly data: B4ToolResultData }
+  | { readonly type: "usage"; readonly data: B4UsageData }
   | { readonly type: "interrupt"; readonly data: unknown }
   | { readonly type: "done"; readonly data?: unknown }
   | { readonly type: string; readonly data?: unknown }
@@ -44,6 +51,17 @@ export interface B4ToolResultData {
   readonly id?: string | undefined
   readonly name: string
   readonly output: unknown
+}
+
+/**
+ * One finished model call's token accounting, as the langchain adapter reports
+ * it: the provider's own LangChain `usage_metadata` plus optional labels. The
+ * mapper applies the protocol's rules; this package never invents a count.
+ */
+export interface B4UsageData {
+  readonly provider?: string | undefined
+  readonly model?: string | undefined
+  readonly usage_metadata: Readonly<Record<string, unknown>>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,5 +93,17 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
     id: typeof data.id === "string" ? data.id : undefined,
     name: data.name,
     output: data.output,
+  }
+}
+
+/** Validates and narrows a `usage` chunk's `data`. Returns null if malformed. */
+export function asUsageData(data: unknown): B4UsageData | null {
+  if (!isRecord(data) || !isRecord(data.usage_metadata)) return null
+  return {
+    ...(typeof data.provider === "string" && data.provider !== ""
+      ? { provider: data.provider }
+      : {}),
+    ...(typeof data.model === "string" && data.model !== "" ? { model: data.model } : {}),
+    usage_metadata: data.usage_metadata,
   }
 }

@@ -38,7 +38,7 @@ export const DOCS_NAV = [
       { label: "Skills", href: "/docs/skills" },
       { label: "Subagents", href: "/docs/subagents" },
       { label: "Context Management", href: "/docs/context-management" },
-      { label: "Reasoning Effort", href: "/docs/reasoning-effort" },
+      { label: "Reasoning", href: "/docs/reasoning-effort" },
       { label: "Retry", href: "/docs/retry" },
     ],
   },

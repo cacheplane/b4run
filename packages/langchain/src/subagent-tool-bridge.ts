@@ -9,6 +9,8 @@ import type { z } from "zod"
 
 export interface ResolvedSubagentGraph {
   readonly routeId: string
+  /** The child's declared description, surfaced on `subagent.start` for clients. */
+  readonly description?: string
   readonly graph: {
     invoke(input: unknown, config: RunnableConfig): Promise<unknown>
   }
@@ -87,12 +89,20 @@ export function convertSubagentTaskToLangChain(
           },
         },
       }
+      // `parent_call_id` names the call that dispatched THIS parent, so a
+      // nested child's events can be attributed to their lineage (AG-UI
+      // `parentSubagentRunId`); absent at depth 1, where the parent is root.
+      const parentCallId = parentStack.at(-1)?.callId
       const eventBase = {
         call_id: callId,
+        ...(parentCallId !== undefined ? { parent_call_id: parentCallId } : {}),
         ...(toolRunId !== undefined ? { tool_run_id: toolRunId } : {}),
         subagent: input.subagent,
         route_id: resolved.child.routeId,
         depth: nextDepth,
+        ...(resolved.child.description !== undefined && resolved.child.description !== ""
+          ? { description: resolved.child.description }
+          : {}),
       }
 
       await dispatchCustomEvent("b4.subagent", { phase: "start", ...eventBase }, childConfig)

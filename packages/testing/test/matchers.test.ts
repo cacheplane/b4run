@@ -114,7 +114,7 @@ const withSubagent: AgentRunResult = {
   ],
   subagentEvents: [
     { type: "subagent.start", data: { call_id: "c1", subagent: "research" } },
-    { type: "subagent.tool_call", data: { call_id: "c1", tool: "webSearch", input: { q: "x" } } },
+    { type: "subagent.tool_call", data: { call_id: "c1", name: "webSearch", input: { q: "x" } } },
     { type: "subagent.end", data: { call_id: "c1", final_message: "found it" } },
   ],
 }

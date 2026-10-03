@@ -47,8 +47,19 @@ const PLAN_TOOL_CALL_ID = "call_writeTodos_0_1"
 // activity correlates back to the root tool call that started it.
 const TASK_TOOL_CALL_ID = childIdentity.call_id
 
+const REASONING_TEXT = "The user wants sources; search first."
+
 const CANNED: B4AgentStreamChunk[] = [
+  { type: "reasoning", data: REASONING_TEXT },
   { type: "token", data: "Researching" },
+  {
+    type: "usage",
+    data: {
+      provider: "openai",
+      model: "gpt-5-mini",
+      usage_metadata: { input_tokens: 40, output_tokens: 12, total_tokens: 52 },
+    },
+  },
   {
     type: "tool_call_args",
     data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", delta: '{"subject":"Agents",' },
@@ -107,6 +118,15 @@ const CANNED: B4AgentStreamChunk[] = [
   },
   { type: "subagent.start", data: childIdentity },
   {
+    type: "subagent.usage",
+    data: {
+      ...childIdentity,
+      provider: "openai",
+      model: "gpt-5-nano",
+      usage_metadata: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+    },
+  },
+  {
     type: "subagent.plan_update",
     data: {
       ...childIdentity,
@@ -118,7 +138,7 @@ const CANNED: B4AgentStreamChunk[] = [
     data: {
       ...childIdentity,
       id: "child-tool-1",
-      tool: "readDoc",
+      name: "readDoc",
       input: "not public input",
     },
   },
@@ -126,7 +146,10 @@ const CANNED: B4AgentStreamChunk[] = [
     type: "subagent.tool_result",
     data: { ...childIdentity, id: "child-tool-1", output: "not public output" },
   },
-  { type: "subagent.message", data: { ...childIdentity, content: "not public message" } },
+  {
+    type: "subagent.token",
+    data: { ...childIdentity, data: "not public message", messageId: "child-model" },
+  },
   { type: "subagent.end", data: { ...childIdentity, final_message: "not public final" } },
   {
     type: "tool_result",
@@ -262,7 +285,7 @@ async function runThroughClient(
 
 it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   const { url } = await startCannedServer([{ stream: () => toAsync(CANNED) }])
-  const { events } = await runThroughClient(url, { runId: "r1" })
+  const { agent, events } = await runThroughClient(url, { runId: "r1" })
   expect(events[0]).toMatchObject({ protocolVersion: PROTOCOL_VERSION })
   const kinds = events.map((e) => e.type)
   expect(kinds[0]).toBe(EventType.RUN_STARTED)
@@ -335,11 +358,42 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
       .map((event) => event.delta)
       .join(""),
   ).toBe("Researching done. [corpus/a.md]")
+  // Reasoning survives enforcement as a span plus a `role: "reasoning"`
+  // message, both closed before the first tool frame, and the client keeps
+  // the message in its transcript.
+  expect(kinds).toContain(EventType.REASONING_START)
+  expect(kinds).toContain(EventType.REASONING_MESSAGE_START)
+  expect(kinds.indexOf(EventType.REASONING_END)).toBeLessThan(
+    kinds.indexOf(EventType.TOOL_CALL_START),
+  )
+  expect(
+    events
+      .filter((event) => event.type === EventType.REASONING_MESSAGE_CONTENT)
+      .map((event) => event.delta)
+      .join(""),
+  ).toBe(REASONING_TEXT)
+  expect(agent.messages.filter((message) => message.role === "reasoning")).toEqual([
+    expect.objectContaining({ content: REASONING_TEXT }),
+  ])
   expect(kinds).not.toContain(EventType.ACTIVITY_DELTA)
   expect(kinds).not.toContain(EventType.STATE_SNAPSHOT)
   expect(kinds).not.toContain(EventType.CUSTOM)
   expect(kinds).not.toContain(EventType.RAW)
   expect(kinds[kinds.length - 1]).toBe(EventType.RUN_FINISHED)
+  // Usage survives 1.0 enforcement intact: one entry per provider+model, the
+  // child's call included, the protocol's camelCase keys.
+  expect(events[events.length - 1]).toMatchObject({
+    usage: [
+      {
+        provider: "openai",
+        model: "gpt-5-mini",
+        inputTokens: 40,
+        outputTokens: 12,
+        totalTokens: 52,
+      },
+      { provider: "openai", model: "gpt-5-nano", inputTokens: 8, outputTokens: 3, totalTokens: 11 },
+    ],
+  })
 })
 
 it("the HTTP+protobuf binding passes 1.0 enforcement with the same events", async () => {
@@ -405,6 +459,70 @@ it("an approval interrupt keeps its grant in metadata, and the resume carries it
   expect(bodies[1]).not.toHaveProperty("resume.0.grant")
 })
 
+it("reasoning open at an interrupt is closed before RUN_FINISHED, and the resume starts fresh", async () => {
+  const { url } = await startCannedServer([
+    {
+      stream: () =>
+        toAsync([
+          { type: "reasoning", data: "need approval", messageId: "m1" },
+          {
+            type: "interrupt",
+            data: { interruptId: "perm-1", kind: "tool", callId: "c1", grant: "b4ag_xyz" },
+          },
+        ]),
+    },
+    {
+      stream: () =>
+        toAsync([
+          { type: "reasoning", data: "approved, continuing", messageId: "m2" },
+          { type: "token", data: "done", messageId: "m2" },
+          { type: "message_end", data: { messageId: "m2" } },
+          { type: "done", data: {} },
+        ]),
+      // Message ids are per thread, not per run: the production factory mints
+      // UUIDs, while the canned server's counter restarts every request, so
+      // the second run would otherwise reuse `rsn-1` and overwrite the first.
+      options: { idFactory: (kind) => `r2-${kind}` },
+    },
+  ])
+  const { agent, events } = await runThroughClient(url, { runId: "r1" })
+  expect(events.map((event) => event.type).slice(-3)).toEqual([
+    EventType.REASONING_MESSAGE_END,
+    EventType.REASONING_END,
+    EventType.RUN_FINISHED,
+  ])
+  expect(events[events.length - 1]).toMatchObject({ outcome: { type: "interrupt" } })
+
+  const resumed: BaseEvent[] = []
+  await withNoWarnings(() =>
+    agent.runAgent(
+      {
+        runId: "r2",
+        resume: [
+          {
+            interruptId: "perm-1",
+            status: "resolved",
+            payload: "once",
+            metadata: { grant: "b4ag_xyz" },
+          },
+        ],
+      },
+      {
+        onEvent: ({ event }) => {
+          resumed.push(event)
+        },
+      },
+    ),
+  )
+  const kinds = resumed.map((event) => event.type)
+  expect(kinds.filter((kind) => kind === EventType.REASONING_START)).toHaveLength(1)
+  expect(kinds.indexOf(EventType.REASONING_END)).toBeLessThan(
+    kinds.indexOf(EventType.TEXT_MESSAGE_END),
+  )
+  expect(kinds.at(-1)).toBe(EventType.RUN_FINISHED)
+  expect(agent.messages.filter((message) => message.role === "reasoning")).toHaveLength(2)
+})
+
 it("a client-tool park ends as success naming the pending call", async () => {
   const { url } = await startCannedServer([
     {
@@ -424,6 +542,14 @@ it("a client-tool park ends as success naming the pending call", async () => {
 
 it("a cancelled run ends with the cancelled outcome and no RUN_ERROR", async () => {
   async function* abortedAfterOneToken(): AsyncIterable<B4AgentStreamChunk> {
+    yield {
+      type: "usage",
+      data: {
+        provider: "openai",
+        model: "gpt-5-mini",
+        usage_metadata: { input_tokens: 4, output_tokens: 1 },
+      },
+    }
     yield { type: "token", data: "partial" }
     throw new Error("AG-UI request aborted")
   }
@@ -435,12 +561,13 @@ it("a cancelled run ends with the cancelled outcome and no RUN_ERROR", async () 
   expect(events[events.length - 1]).toMatchObject({
     type: EventType.RUN_FINISHED,
     outcome: { type: "cancelled" },
+    usage: [{ provider: "openai", model: "gpt-5-mini", inputTokens: 4, outputTokens: 1 }],
   })
 })
 
 it("an upstream error is RUN_ERROR with its code intact", async () => {
-  // biome-ignore lint/correctness/useYield: a stream that fails before its first chunk
   async function* failing(): AsyncIterable<B4AgentStreamChunk> {
+    yield { type: "usage", data: { usage_metadata: { input_tokens: 2, output_tokens: 0 } } }
     throw Object.assign(new Error("after rejected"), { code: "after_rejected" })
   }
   const { url } = await startCannedServer([{ stream: failing }])
@@ -453,6 +580,7 @@ it("an upstream error is RUN_ERROR with its code intact", async () => {
     type: EventType.RUN_ERROR,
     message: "after rejected",
     code: "after_rejected",
+    usage: [{ inputTokens: 2, outputTokens: 0 }],
   })
 })
 

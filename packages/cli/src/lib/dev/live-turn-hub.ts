@@ -91,20 +91,26 @@ interface LiveTurn {
 const encoder = new TextEncoder()
 const frameBytes = (chunk: StreamChunk): number => encoder.encode(JSON.stringify(chunk)).byteLength
 
-function subagentCallId(chunk: StreamChunk): string | undefined {
-  if (chunk.type !== "subagent.message") return undefined
+/**
+ * `subagent.token` coalesces per child INVOCATION — same `call_id` and same
+ * `messageId` — so two model turns of one child stay two digest entries, as
+ * root `chunk`s keyed by `messageId` do.
+ */
+function subagentTokenKey(chunk: StreamChunk): string | undefined {
+  if (chunk.type !== "subagent.token") return undefined
   const data = (chunk as { readonly data?: unknown }).data
-  const callId =
-    data && typeof data === "object" ? (data as { call_id?: unknown }).call_id : undefined
-  return typeof callId === "string" ? callId : undefined
+  if (!data || typeof data !== "object") return undefined
+  const { call_id, messageId } = data as { call_id?: unknown; messageId?: unknown }
+  if (typeof call_id !== "string") return undefined
+  return `${call_id}\u0000${typeof messageId === "string" ? messageId : ""}`
 }
 
-function mergeSubagent(existing: StreamChunk, incoming: StreamChunk): StreamChunk {
-  const ex = (existing as { data?: { chunk?: unknown } }).data ?? {}
-  const inc = (incoming as { data?: { chunk?: unknown } }).data ?? {}
+function mergeSubagentToken(existing: StreamChunk, incoming: StreamChunk): StreamChunk {
+  const ex = (existing as { data?: { data?: unknown } }).data ?? {}
+  const inc = (incoming as { data?: { data?: unknown } }).data ?? {}
   return {
-    type: "subagent.message",
-    data: { ...ex, chunk: `${String(ex.chunk ?? "")}${String(inc.chunk ?? "")}` },
+    type: "subagent.token",
+    data: { ...ex, data: `${String(ex.data ?? "")}${String(inc.data ?? "")}` },
   } as StreamChunk
 }
 
@@ -127,14 +133,14 @@ function appendCoalesced(digest: StreamChunk[], chunk: StreamChunk): { added: nu
     digest[digest.length - 1] = merged
     return { added: frameBytes(merged) - before }
   }
-  // subagent.message uses the public call_id/chunk wire fields.
-  const callId = subagentCallId(chunk)
-  if (callId !== undefined) {
-    const idx = digest.findIndex((e) => subagentCallId(e) === callId)
+  // subagent.token uses the public call_id/messageId/data wire fields.
+  const tokenKey = subagentTokenKey(chunk)
+  if (tokenKey !== undefined) {
+    const idx = digest.findIndex((e) => subagentTokenKey(e) === tokenKey)
     const existing = idx >= 0 ? digest[idx] : undefined
     if (idx >= 0 && existing) {
       const before = frameBytes(existing)
-      const merged = mergeSubagent(existing, chunk)
+      const merged = mergeSubagentToken(existing, chunk)
       digest[idx] = merged
       return { added: frameBytes(merged) - before }
     }

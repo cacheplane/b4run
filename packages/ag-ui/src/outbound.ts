@@ -1,6 +1,11 @@
 import type {
   ActivitySnapshotEvent,
   Interrupt,
+  ReasoningEndEvent,
+  ReasoningMessageContentEvent,
+  ReasoningMessageEndEvent,
+  ReasoningMessageStartEvent,
+  ReasoningStartEvent,
   RunErrorEvent,
   RunFinishedEvent,
   RunStartedEvent,
@@ -21,9 +26,11 @@ import {
   asToolCallArgsData,
   asToolCallData,
   asToolResultData,
+  asUsageData,
   type B4AgentStreamChunk,
   type RunContext,
 } from "./types.js"
+import { createUsageCollector } from "./usage.js"
 
 /** The AG-UI events this mapper can emit. */
 export type AguiOutboundEvent =
@@ -38,6 +45,17 @@ export type AguiOutboundEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent
   | ActivitySnapshotEvent
+  | ReasoningStartEvent
+  | ReasoningMessageStartEvent
+  | ReasoningMessageContentEvent
+  | ReasoningMessageEndEvent
+  | ReasoningEndEvent
+
+/** One invocation's open reasoning: the span and the message inside it. */
+interface OpenReasoning {
+  readonly spanId: string
+  readonly messageId: string
+}
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
@@ -93,8 +111,18 @@ export async function* toAguiEvents(
   const nextId = options.idFactory ?? createDefaultIdFactory()
   const activityProjector = createB4ActivityProjector(ctx.runId)
   const ledger = createOrchestrationLedger()
+  const usage = createUsageCollector()
   let openMessageId: string | null = null
   const identifiedMessages = new Map<string, string>()
+  /**
+   * Reasoning is framed per model invocation like text: one span and one
+   * message, opened on the first delta. The span and message ids are distinct
+   * from each other and from the invocation's text message id — the 1.0
+   * reducer warns when one id is shared across text, reasoning and activity
+   * messages.
+   */
+  let openReasoning: OpenReasoning | null = null
+  const identifiedReasoning = new Map<string, OpenReasoning>()
   const pendingFallbackToolCallIds = new Map<string, string[]>()
   const pendingInterrupts: Interrupt[] = []
   /**
@@ -112,7 +140,36 @@ export async function* toAguiEvents(
       : { type: "success" }
   }
 
+  function* closeReasoning(open: OpenReasoning): Generator<AguiOutboundEvent> {
+    yield* ledger.onPassthrough({
+      type: EventType.REASONING_MESSAGE_END,
+      messageId: open.messageId,
+    })
+    yield* ledger.onPassthrough({ type: EventType.REASONING_END, messageId: open.spanId })
+  }
+
+  /** Anonymous reasoning closes at every boundary anonymous text does. */
+  function* flushReasoning(): Generator<AguiOutboundEvent> {
+    if (openReasoning !== null) {
+      const open = openReasoning
+      openReasoning = null
+      yield* closeReasoning(open)
+    }
+  }
+
+  function* openReasoningFrame(): Generator<AguiOutboundEvent, OpenReasoning> {
+    const open: OpenReasoning = { spanId: nextId("reasoningSpan"), messageId: nextId("reasoning") }
+    yield* ledger.onPassthrough({ type: EventType.REASONING_START, messageId: open.spanId })
+    yield* ledger.onPassthrough({
+      type: EventType.REASONING_MESSAGE_START,
+      messageId: open.messageId,
+      role: "reasoning",
+    })
+    return open
+  }
+
   function* flushText(): Generator<AguiOutboundEvent> {
+    yield* flushReasoning()
     if (openMessageId !== null) {
       const end: TextMessageEndEvent = {
         type: EventType.TEXT_MESSAGE_END,
@@ -123,7 +180,13 @@ export async function* toAguiEvents(
     }
   }
 
+  /** End an invocation: its reasoning (span and message), then its text. */
   function* closeIdentified(sourceId: string): Generator<AguiOutboundEvent> {
+    const reasoning = identifiedReasoning.get(sourceId)
+    if (reasoning !== undefined) {
+      identifiedReasoning.delete(sourceId)
+      yield* closeReasoning(reasoning)
+    }
     const messageId = identifiedMessages.get(sourceId)
     if (messageId === undefined) return
     identifiedMessages.delete(sourceId)
@@ -132,7 +195,9 @@ export async function* toAguiEvents(
 
   function* flushAllText(): Generator<AguiOutboundEvent> {
     yield* flushText()
-    for (const sourceId of identifiedMessages.keys()) yield* closeIdentified(sourceId)
+    for (const sourceId of new Set([...identifiedReasoning.keys(), ...identifiedMessages.keys()])) {
+      yield* closeIdentified(sourceId)
+    }
   }
 
   /** A terminal boundary reached with streamed calls still open: end them. */
@@ -162,6 +227,7 @@ export async function* toAguiEvents(
             threadId: ctx.threadId,
             runId: ctx.runId,
             outcome: { type: "interrupt", interrupts: pendingInterrupts },
+            ...usage.terminal(),
           }
           return
         }
@@ -212,6 +278,41 @@ export async function* toAguiEvents(
           yield* ledger.onPassthrough({
             type: EventType.TEXT_MESSAGE_CONTENT,
             messageId: openMessageId,
+            delta,
+          })
+          break
+        }
+        case "reasoning": {
+          const delta = typeof chunk.data === "string" ? chunk.data : ""
+          if (delta.length === 0) break
+          const sourceId =
+            "messageId" in chunk &&
+            typeof chunk.messageId === "string" &&
+            chunk.messageId.length > 0
+              ? chunk.messageId
+              : undefined
+          if (sourceId !== undefined) {
+            // An identified delta means the producer identifies invocations, so
+            // anonymous reasoning belongs to nothing current. This invocation's
+            // own text stays open: reasoning and text interleave until
+            // `message_end`.
+            yield* flushReasoning()
+            let open = identifiedReasoning.get(sourceId)
+            if (open === undefined) {
+              open = yield* openReasoningFrame()
+              identifiedReasoning.set(sourceId, open)
+            }
+            yield* ledger.onPassthrough({
+              type: EventType.REASONING_MESSAGE_CONTENT,
+              messageId: open.messageId,
+              delta,
+            })
+            break
+          }
+          if (openReasoning === null) openReasoning = yield* openReasoningFrame()
+          yield* ledger.onPassthrough({
+            type: EventType.REASONING_MESSAGE_CONTENT,
+            messageId: openReasoning.messageId,
             delta,
           })
           break
@@ -307,6 +408,14 @@ export async function* toAguiEvents(
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
           break
         }
+        case "usage":
+        case "subagent.usage": {
+          // A child's model call is part of this run's usage (the run is the
+          // accounting boundary), so both spellings land in one collector.
+          const data = asUsageData(chunk.data)
+          if (data) usage.add(data)
+          break
+        }
         case "interrupt": {
           yield* flushAllText()
           yield* closeStreamedToolCalls()
@@ -316,6 +425,7 @@ export async function* toAguiEvents(
             yield {
               type: EventType.RUN_ERROR,
               message: "Malformed B4.run interrupt: missing interruptId",
+              ...usage.terminal(),
             }
             return
           }
@@ -340,6 +450,7 @@ export async function* toAguiEvents(
               ? { result: chunk.data }
               : {}),
             outcome: await successOutcome(),
+            ...usage.terminal(),
           }
           return
         }
@@ -360,6 +471,7 @@ export async function* toAguiEvents(
         threadId: ctx.threadId,
         runId: ctx.runId,
         outcome: { type: "interrupt", interrupts: pendingInterrupts },
+        ...usage.terminal(),
       }
       return
     }
@@ -368,6 +480,7 @@ export async function* toAguiEvents(
       threadId: ctx.threadId,
       runId: ctx.runId,
       outcome: await successOutcome(),
+      ...usage.terminal(),
     }
   } catch (err) {
     yield* flushAllText()
@@ -379,6 +492,7 @@ export async function* toAguiEvents(
         threadId: ctx.threadId,
         runId: ctx.runId,
         outcome: { type: "cancelled" },
+        ...usage.terminal(),
       }
       return
     }
@@ -391,6 +505,7 @@ export async function* toAguiEvents(
       type: EventType.RUN_ERROR,
       message: err instanceof Error ? err.message : String(err),
       ...(code !== undefined ? { code } : {}),
+      ...usage.terminal(),
     }
   }
 }

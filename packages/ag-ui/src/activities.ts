@@ -28,8 +28,11 @@ export type B4ActivityChunkType =
   | "subagent.start"
   | "subagent.plan_update"
   | "subagent.tool_call"
+  | "subagent.tool_call_args"
   | "subagent.tool_result"
-  | "subagent.message"
+  | "subagent.token"
+  | "subagent.message_end"
+  | "subagent.reasoning"
   | "subagent.end"
 
 /** The two built-in orchestration tools that have canonical activities. */
@@ -92,8 +95,11 @@ export function isB4ActivityChunkType(value: string): value is B4ActivityChunkTy
     case "subagent.start":
     case "subagent.plan_update":
     case "subagent.tool_call":
+    case "subagent.tool_call_args":
     case "subagent.tool_result":
-    case "subagent.message":
+    case "subagent.token":
+    case "subagent.message_end":
+    case "subagent.reasoning":
     case "subagent.end":
       return true
     default:
@@ -291,7 +297,7 @@ export function createB4ActivityProjector(runId: string): B4ActivityProjector {
           return projectEvent(null)
         }
         const id = readRawNonemptyString(data, "id")
-        const name = readTrimmedNonemptyString(data, "tool")
+        const name = readTrimmedNonemptyString(data, "name")
         if (id === null || name === null) return projectEvent(null)
 
         const retainedIndex = current.tools.findIndex((tool) => tool.id === id)

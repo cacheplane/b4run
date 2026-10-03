@@ -288,7 +288,7 @@ describe("toAguiEvents", () => {
         data: {
           ...CHILD,
           id: "child-tool-1",
-          tool: "readDoc",
+          name: "readDoc",
           input: "secret-input",
         },
       },
@@ -296,7 +296,7 @@ describe("toAguiEvents", () => {
         type: "subagent.tool_result",
         data: { ...CHILD, id: "child-tool-1", output: "secret-output" },
       },
-      { type: "subagent.message", data: { ...CHILD, content: "secret-child-prose" } },
+      { type: "subagent.token", data: { ...CHILD, content: "secret-child-prose" } },
       { type: "subagent.end", data: { ...CHILD, final_message: "secret-final" } },
       { type: "token", data: "root-after" },
       { type: "done" },
@@ -490,7 +490,7 @@ describe("toAguiEvents", () => {
       },
       {
         type: "subagent.tool_call",
-        data: { ...CHILD, id: "late-tool", tool: "lateTool", input: "private-late-input" },
+        data: { ...CHILD, id: "late-tool", name: "lateTool", input: "private-late-input" },
       },
       { type: "subagent.end", data: { ...CHILD, final_message: "private-late-final" } },
       { type: "done" },
@@ -540,7 +540,7 @@ describe("toAguiEvents", () => {
       },
       {
         type: "subagent.tool_call",
-        data: { ...CHILD, id: "old-tool", tool: "oldTool", input: "old-input" },
+        data: { ...CHILD, id: "old-tool", name: "oldTool", input: "old-input" },
       },
       { type: "interrupt", data: { interruptId: "parked-child", kind: "command" } },
       { type: "done" },
@@ -1450,16 +1450,223 @@ describe("1.0 null discipline", () => {
     expect(events.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
     expect(events.at(-1)).not.toHaveProperty("result")
   })
+})
 
-  test("no chunk becomes a REASONING_* event (capabilities advertise reasoning.supported: false)", async () => {
-    const events = await collect([
-      { type: "reasoning", data: "let me think" } as never,
-      { type: "thinking", data: { thinking: "…" } } as never,
-      { type: "token", data: "Hi" },
-      { type: "done", data: {} },
+describe("usage", () => {
+  const CALL = {
+    provider: "openai",
+    model: "gpt-5-mini",
+    usage_metadata: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+  }
+  const ONE = {
+    provider: "openai",
+    model: "gpt-5-mini",
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+  }
+  const TWO = { ...ONE, inputTokens: 20, outputTokens: 10, totalTokens: 30 }
+
+  test("RUN_FINISHED success aggregates root and child calls", async () => {
+    const out = await collect([
+      { type: "usage", data: CALL },
+      { type: "subagent.usage", data: { ...CHILD, ...CALL } },
+      { type: "done", data: { ok: true } },
     ])
-    // Flips with AG-UI sub-project 2: when the translator emits REASONING_*,
-    // agui-capabilities.ts's REASONING constant must flip in the same change.
-    expect(events.filter((event) => String(event.type).startsWith("REASONING"))).toEqual([])
+    expect(out.at(-1)).toEqual({
+      type: EventType.RUN_FINISHED,
+      threadId: CTX.threadId,
+      runId: CTX.runId,
+      result: { ok: true },
+      outcome: { type: "success" },
+      usage: [TWO],
+    })
+  })
+
+  test("the key is absent, never [], when no call reported usage", async () => {
+    const out = await collect([{ type: "token", data: "hi" }, { type: "done" }])
+    expect(out.at(-1)).not.toHaveProperty("usage")
+  })
+
+  test("a malformed usage payload is ignored", async () => {
+    const out = await collect([
+      { type: "usage", data: { provider: "openai" } },
+      { type: "usage", data: { usage_metadata: { nothing: true } } },
+      { type: "done" },
+    ])
+    expect(out.at(-1)).not.toHaveProperty("usage")
+  })
+
+  test("RUN_FINISHED interrupt carries usage", async () => {
+    const out = await collect([
+      { type: "usage", data: CALL },
+      { type: "interrupt", data: { interruptId: "i-1", kind: "tool", callId: "tc-9" } },
+      { type: "done" },
+    ])
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "interrupt" },
+      usage: [ONE],
+    })
+  })
+
+  test("RUN_FINISHED cancelled carries the usage accrued before the stop", async () => {
+    async function* stream(): AsyncIterable<B4AgentStreamChunk> {
+      yield { type: "usage", data: CALL }
+      throw new Error("aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(stream(), CTX, {
+      idFactory: createCounterIdFactory(),
+      cancelled: () => true,
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({
+      type: EventType.RUN_FINISHED,
+      threadId: CTX.threadId,
+      runId: CTX.runId,
+      outcome: { type: "cancelled" },
+      usage: [ONE],
+    })
+  })
+
+  test("RUN_ERROR carries the usage accrued before the failure", async () => {
+    async function* stream(): AsyncIterable<B4AgentStreamChunk> {
+      yield { type: "usage", data: CALL }
+      throw new Error("boom")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(stream(), CTX, { idFactory: createCounterIdFactory() })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({ type: EventType.RUN_ERROR, message: "boom", usage: [ONE] })
+  })
+
+  test("a stream that ends without done still reports usage", async () => {
+    const out = await collect([{ type: "usage", data: CALL }])
+    expect(out.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED, usage: [ONE] })
+  })
+
+  test("usage chunks never open or close a text message", async () => {
+    const out = await collect([
+      { type: "token", data: "a" },
+      { type: "usage", data: CALL },
+      { type: "token", data: "b" },
+      { type: "done" },
+    ])
+    expect(out.filter((e) => e.type === EventType.TEXT_MESSAGE_START)).toHaveLength(1)
+  })
+})
+
+describe("reasoning", () => {
+  test("an identified invocation: span and message open on the first delta, close at message_end, interleaving with text", async () => {
+    const out = await collect([
+      { type: "reasoning", data: "think ", messageId: "m1" },
+      { type: "token", data: "Hi", messageId: "m1" },
+      { type: "reasoning", data: "more", messageId: "m1" },
+      { type: "message_end", data: { messageId: "m1" } },
+      { type: "done" },
+    ])
+    expect(out.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.REASONING_START,
+      EventType.REASONING_MESSAGE_START,
+      EventType.REASONING_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.REASONING_MESSAGE_CONTENT,
+      EventType.REASONING_MESSAGE_END,
+      EventType.REASONING_END,
+      EventType.TEXT_MESSAGE_END,
+      EventType.RUN_FINISHED,
+    ])
+    expect(out[1]).toEqual({ type: EventType.REASONING_START, messageId: "rspan-1" })
+    expect(out[2]).toEqual({
+      type: EventType.REASONING_MESSAGE_START,
+      messageId: "rsn-1",
+      role: "reasoning",
+    })
+    expect(out[3]).toEqual({
+      type: EventType.REASONING_MESSAGE_CONTENT,
+      messageId: "rsn-1",
+      delta: "think ",
+    })
+    expect(out[4]).toMatchObject({ type: EventType.TEXT_MESSAGE_START, messageId: "msg-1" })
+    expect(out[7]).toEqual({ type: EventType.REASONING_MESSAGE_END, messageId: "rsn-1" })
+    expect(out[8]).toEqual({ type: EventType.REASONING_END, messageId: "rspan-1" })
+  })
+
+  test("two invocations get two spans and two reasoning messages", async () => {
+    const out = await collect([
+      { type: "reasoning", data: "a", messageId: "m1" },
+      { type: "message_end", data: { messageId: "m1" } },
+      { type: "reasoning", data: "b", messageId: "m2" },
+      { type: "message_end", data: { messageId: "m2" } },
+      { type: "done" },
+    ])
+    expect(
+      out.filter((e) => e.type === EventType.REASONING_MESSAGE_START).map((e) => e.messageId),
+    ).toEqual(["rsn-1", "rsn-2"])
+    expect(out.filter((e) => e.type === EventType.REASONING_START).map((e) => e.messageId)).toEqual(
+      ["rspan-1", "rspan-2"],
+    )
+  })
+
+  test("an anonymous reasoning delta closes at the next tool boundary", async () => {
+    const out = await collect([
+      { type: "reasoning", data: "plan" },
+      { type: "tool_call", data: { id: "tc-9", name: "search", input: {} } },
+      { type: "done" },
+    ])
+    const kinds = out.map((e) => e.type)
+    expect(kinds.indexOf(EventType.REASONING_END)).toBeLessThan(
+      kinds.indexOf(EventType.TOOL_CALL_START),
+    )
+    expect(kinds.filter((k) => k === EventType.REASONING_START)).toHaveLength(1)
+  })
+
+  test("reasoning still open at done, interrupt and stream end is closed before the terminal", async () => {
+    const tails: B4AgentStreamChunk[][] = [
+      [{ type: "done" }],
+      [
+        { type: "interrupt", data: { interruptId: "i-1", kind: "tool", callId: "tc-1" } },
+        { type: "done" },
+      ],
+      [],
+    ]
+    for (const tail of tails) {
+      const out = await collect([{ type: "reasoning", data: "x", messageId: "m1" }, ...tail])
+      const kinds = out.map((e) => e.type)
+      expect(kinds).toContain(EventType.REASONING_MESSAGE_END)
+      expect(kinds.indexOf(EventType.REASONING_END)).toBeLessThan(kinds.length - 1)
+      expect(kinds.at(-1)).toBe(EventType.RUN_FINISHED)
+    }
+  })
+
+  test("reasoning still open at a cancel or an error is closed before the terminal", async () => {
+    for (const cancelled of [true, false]) {
+      async function* stream(): AsyncIterable<B4AgentStreamChunk> {
+        yield { type: "reasoning", data: "x", messageId: "m1" }
+        throw new Error("stop")
+      }
+      const out = []
+      for await (const ev of toAguiEvents(stream(), CTX, {
+        idFactory: createCounterIdFactory(),
+        cancelled: () => cancelled,
+      })) {
+        out.push(ev)
+      }
+      expect(out.map((e) => e.type).slice(-3)).toEqual([
+        EventType.REASONING_MESSAGE_END,
+        EventType.REASONING_END,
+        cancelled ? EventType.RUN_FINISHED : EventType.RUN_ERROR,
+      ])
+    }
+  })
+
+  test("an empty reasoning delta emits nothing", async () => {
+    const out = await collect([{ type: "reasoning", data: "", messageId: "m1" }, { type: "done" }])
+    expect(out.map((e) => e.type)).toEqual([EventType.RUN_STARTED, EventType.RUN_FINISHED])
   })
 })
