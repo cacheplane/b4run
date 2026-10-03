@@ -8,6 +8,8 @@ import { gateBashOp } from "../permission-gate.js"
 import type { B4ToolDefinition, CapabilityMarker } from "../types.js"
 import { createWorkspaceFs } from "../workspace-fs.js"
 
+const firstLine = (command: string) => command.split("\n", 1)[0] ?? command
+
 /** How each workspace tool's call reads to a person. */
 export const WORKSPACE_DISPLAY = {
   readFile: {
@@ -32,8 +34,8 @@ export const WORKSPACE_DISPLAY = {
   },
   runBash: {
     icon: "run",
-    running: (input: { command: string }) => `Running ${input.command}`,
-    done: (input: { command: string }) => `Ran ${input.command}`,
+    running: (input: { command: string }) => `Running ${firstLine(input.command)}`,
+    done: (input: { command: string }) => `Ran ${firstLine(input.command)}`,
   },
 } satisfies Record<string, ToolDisplay>
 

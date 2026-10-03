@@ -5,7 +5,7 @@ import type { CapabilityMarker, MarkerFs, PromptFragment } from "../types.js"
 import { parseFrontmatter } from "./frontmatter.js"
 
 export const READ_SKILL_DISPLAY = {
-  icon: "think",
+  icon: "read",
   running: (input: { name: string }) => `Loading the ${input.name} skill`,
   done: (input: { name: string }) => `Loaded the ${input.name} skill`,
 } satisfies ToolDisplay

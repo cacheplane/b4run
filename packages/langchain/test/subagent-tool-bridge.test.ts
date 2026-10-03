@@ -654,7 +654,7 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
     const display = {
       icon: "agent" as const,
       running: (i: { subagent: string; input: string }) => `Asking ${i.subagent} to ${i.input}`,
-      done: (i: { subagent: string }) => `${i.subagent} finished`,
+      done: (i: { subagent: string }) => `Heard back from ${i.subagent}`,
     }
 
     async function runTask(placeholder: typeof taskPlaceholder & { display?: ToolDisplay }) {
@@ -712,7 +712,7 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
           tool_call_id: "task-step",
           status: "completed",
           icon: "agent",
-          label: "researcher finished",
+          label: "Heard back from researcher",
         },
       ])
     })

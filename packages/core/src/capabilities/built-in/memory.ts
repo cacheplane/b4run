@@ -12,12 +12,18 @@ import type {
 } from "../types.js"
 import { resolveTimeExpr } from "./time-expr.js"
 
+/** What `recall` returns when nothing matches; the display reads it too. */
+const NO_MEMORIES = "(no memories found)"
+
 export const MEMORY_DISPLAY = {
   recall: {
     icon: "memory",
     running: (input: { query?: string }) =>
       input.query ? `Recalling “${input.query}”` : "Checking memory",
-    done: () => "Checked memory",
+    done: (_input: unknown, output: unknown) => {
+      const result = (output as { result?: unknown } | undefined)?.result
+      return result === NO_MEMORIES ? "Checked memory, nothing relevant" : "Checked memory"
+    },
   },
   remember: {
     icon: "memory",
@@ -138,7 +144,7 @@ export function createMemoryMarker(): CapabilityMarker {
           // instead of passing an out-of-contract string to the store.
           let kind: MemoryKindLike | undefined
           if (q.kind) {
-            if (!isMemoryKind(q.kind)) return { result: "(no memories found)" }
+            if (!isMemoryKind(q.kind)) return { result: NO_MEMORIES }
             kind = q.kind
           }
           const now = mem.now()
@@ -194,7 +200,7 @@ export function createMemoryMarker(): CapabilityMarker {
           // Wrap in {result} so the langchain bridge uses the string verbatim as
           // the ToolMessage content; a bare string hits unwrapToolResult's
           // JSON.stringify path, quoting it and escaping the newlines below.
-          if (rows.length === 0) return { result: "(no memories found)" }
+          if (rows.length === 0) return { result: NO_MEMORIES }
           return {
             result: rows.map((r) => `${r.id}: ${r.content}`).join("\n"),
           }

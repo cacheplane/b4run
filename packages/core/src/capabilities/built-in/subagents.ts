@@ -7,7 +7,7 @@ export const TASK_DISPLAY = {
   icon: "agent",
   running: (input: { subagent: string; input: string }) =>
     `Asking ${input.subagent} to ${input.input}`,
-  done: (input: { subagent: string }) => `${input.subagent} finished`,
+  done: (input: { subagent: string }) => `Heard back from ${input.subagent}`,
 } satisfies ToolDisplay
 
 const SUBAGENTS_PROMPT_HEADER = `# Subagents
