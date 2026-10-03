@@ -4907,7 +4907,7 @@ const frozenApiHeadingIds = [
   "id-factories",
   "toaguieventschunks-context",
   "fromrunagentinputinput",
-  "sse-subpath-encodeaguieventevent-accept-and-aguicontenttypeaccept",
+  "sse-subpath-encodeaguisseevent-accept",
   "b4runmemory",
   "memorystore",
   "memoryrecord",

@@ -20,9 +20,9 @@ B4.run speaks AG-UI protocol **1.0**; `RUN_STARTED` declares `protocolVersion: "
 
 ## Transport
 
-`accept` selects the AG-UI HTTP binding, by AG-UI's own rule: `text/event-stream` unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality — named, or through a wildcard range such as `*/*` — in which case the response is `content-type: application/vnd.ag-ui.event+proto` and each event is a 4-byte unsigned big-endian length followed by exactly that many bytes of one protobuf-encoded event, with no separator between frames. The rule asks only whether protobuf is admitted, never how it ranks against SSE: `text/event-stream, */*;q=0.1` selects protobuf too. A client that cannot read protobuf must name `text/event-stream`; `@ag-ui/client` and CopilotKit do, and so does `b4 threads`. A bare `curl` sends `*/*` and receives protobuf: pass `-H 'accept: text/event-stream'` to read the stream by eye.
+`accept` selects the AG-UI HTTP binding, by AG-UI's own rule: `text/event-stream` unless the header admits `application/vnd.ag-ui.event+proto` with a positive quality — named, or through a wildcard range such as `*/*` — in which case the response is `content-type: application/vnd.ag-ui.event+proto` and each event is a 4-byte unsigned big-endian length followed by exactly that many bytes of one protobuf-encoded event, with no separator between frames. The rule asks only whether protobuf is admitted, never how it ranks against SSE: `text/event-stream, */*;q=0.1` selects protobuf too. A client that cannot read protobuf must name `text/event-stream`; `@ag-ui/client` and CopilotKit do. A bare `curl` sends `*/*` and receives protobuf: pass `-H 'accept: text/event-stream'` to read the stream by eye.
 
-Both bindings carry the same events, and a thread's attach stream (`/threads/{id}/runs/{runId}/stream`) is unaffected by which one the primary client chose. WebSocket is not served.
+Both bindings carry the same events. The Agent Protocol attach stream (`GET /threads/:thread_id/runs/stream`, which `b4 threads tail` reads) is SSE whichever binding the primary client chose. WebSocket is not served.
 
 ## Envelope validation
 
@@ -342,9 +342,9 @@ The `422` refusals carry [`B4_E5401`](/docs/errors).
 | `transport.streaming`, `transport.httpBinary` | always `true`: the handler serves SSE, and protobuf when `accept` asks (see [Transport](#transport)) |
 | `reasoning.supported` | always `false` for now: nothing reasoning-shaped reaches the wire; flips when `REASONING_*` events ship |
 | `state.snapshots`, `state.deltas` | always `false`: no `STATE_SNAPSHOT` or `STATE_DELTA` is emitted |
-| `state.persistentState` | the route is an agent route, the only kind run under a checkpointer |
+| `state.persistentState` | `true` for an `agent()` route, whose graph runs under the boot checkpointer; `false` for a chain, graph or workflow route, invoked once without one |
 
-A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts and approvals. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals and parallel calls, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning` and `state` for an agent route — the claims that do not read the module. A route whose module fails to load is an error, as it is for a run. `multiAgent`, `state.memory`, `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted: nothing in the runtime settles them.
+A chain, graph or workflow route reports `false` for client tools, tool calls, structured output, interrupts, approvals and persistent state. AG-UI treats an omitted field as unknown, so a claim B4.run cannot settle is left out rather than guessed. An agent route that exports a raw runnable omits approvals, parallel calls and `state.persistentState`, because its own code decides them. A runtime that cannot load route modules at all (no node fallbacks and no static manifest) answers only `transport`, `reasoning`, `state.snapshots` and `state.deltas` for an agent route — the claims that hold for every route. A route whose module fails to load is an error, as it is for a run. `multiAgent` and `state.memory` are omitted until AG-UI sub-project 2 settles them; `transport.websocket`, `transport.resumable` and `transport.pushNotifications` are omitted because nothing in the runtime serves them.
 
 Route middleware runs first, as it does for a run, but sees `method: "GET"`, no body and no route params, so middleware that authorizes on the request body refuses it. An unknown route is `404`. The response is `Cache-Control: no-store`, because middleware decides per caller who may see it.
 
@@ -407,7 +407,7 @@ for await (const event of toAguiEvents(b4Chunks, { threadId, runId })) {
 }
 ```
 
-Transport helpers live behind subpaths. For example, an SSE server can encode an event like this:
+Transport helpers live behind subpaths. For example, an HTTP server can encode an event like this:
 
 ```ts
 import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"

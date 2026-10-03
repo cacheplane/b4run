@@ -471,7 +471,7 @@ const FROZEN_API_HEADING_IDS = [
   "id-factories",
   "toaguieventschunks-context",
   "fromrunagentinputinput",
-  "sse-subpath-encodeaguieventevent-accept-and-aguicontenttypeaccept",
+  "sse-subpath-encodeaguisseevent-accept",
   "b4runmemory",
   "memorystore",
   "memoryrecord",
@@ -755,7 +755,7 @@ function canonicalApiDestination(id: string, ownerHref: string): string {
     if (new Set(["toaguieventschunks-context", "fromrunagentinputinput"]).has(id)) {
       return `${ownerHref}#inbound-and-outbound-calls`
     }
-    if (id === "sse-subpath-encodeaguieventevent-accept-and-aguicontenttypeaccept") {
+    if (id === "sse-subpath-encodeaguisseevent-accept") {
       return `${ownerHref}#b4runag-uisse`
     }
     return `${ownerHref}#b4runag-ui-1`
