@@ -351,13 +351,16 @@ b4 approvals prune
 b4 approvals prune --retention <ms>
 ```
 
-`prune` deletes settled grant records: grants consumed, or voided because the
-thread moved past the prompt, longer ago than the retention window. An
-outstanding grant is never deleted, however old. The window is
+`prune` deletes grant records voided because the thread moved past the prompt
+longer ago than the retention window. A consumed grant is voided when its
+resumed turn completes; an outstanding grant, or a consumed grant whose resume
+never completed, is never deleted, however old. The window is
 [`approvals.grantRetentionMs`](/docs/configuration#approvals) (7 days by
 default); `--retention <ms>` overrides it for one pass. The runtime runs the
 same pass on its own, at most once an hour, so this is for cron or a one-off.
-It prints `pruned: <n>`, or says so when the app has no grant store.
+It prints `pruned: <n>`. With grants on and no store file yet, it creates the
+default store file (`.b4/interrupt-grants.sqlite`) and prunes nothing; with
+grants off and no store file, it says so and exits cleanly.
 
 Flags:
 - `--retention <ms>`: retention window for this pass, a positive integer of at
