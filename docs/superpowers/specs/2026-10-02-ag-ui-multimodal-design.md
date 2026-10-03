@@ -131,15 +131,21 @@ AP  POST /threads/:id/runs┘  (newest user message only)   └─ dropped[] →
   callers of `fromRunAgentInput`) and text parts kept as parts, not
   concatenated; an array with nothing left → `""`; any other shape → its
   JSON, as today.
-- Messages handed to LangChain are built with `contentBlocks:`, never
-  `content:`. `@langchain/core` 1.2's `isDataContentBlock` recognises only
-  legacy `source_type` blocks under `content:`; the standard blocks this
-  design emits are converted by the OpenAI package only when the message
-  carries `response_metadata.output_version: "v1"`, which `contentBlocks:`
-  sets. Under `content:` Chat Completions sends them raw (a 400 from the API)
-  and the Responses path drops them silently. Anthropic and Google convert
-  either way. A test runs real messages through
-  `convertMessagesToCompletionsMessageParams` to pin this.
+- Messages handed to LangChain are built with `content: blocks` plus
+  `response_metadata: { output_version: "v1" }`. `@langchain/core` 1.2's
+  `isDataContentBlock` recognises only legacy `source_type` blocks under a
+  bare `content:`; the standard blocks this design emits are converted by the
+  OpenAI package only when the message carries that `output_version`
+  (without it, Chat Completions sends them raw — a 400 from the API — and the
+  Responses path drops them silently). The `contentBlocks:` constructor
+  field sets the same metadata but serialises the message with
+  `content_blocks` and no `content`, which every B4.run reader of
+  `kwargs.content` (testing matchers, episode recording, the research
+  example's hydration) would miss; so the metadata is set by hand on a
+  `content:` message instead. Anthropic and Google convert either way. Tests
+  run real messages through `convertMessagesToCompletionsMessageParams` and
+  the Anthropic payload converter to pin this, and assert the serialised
+  form keeps `kwargs.content`.
 - The handler still forwards only the newest user message to the route
   (`agui-handler.ts` `newestUserMessage`); the checkpointer owns history. So
   media in resent history costs wire bytes, not model tokens.
