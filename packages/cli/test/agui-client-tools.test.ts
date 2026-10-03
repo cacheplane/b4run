@@ -1897,7 +1897,7 @@ describe("the tool-call record covers every tool call on a run with a store", ()
     ])
   })
 
-  it("a leftover default store file keeps client parks answerable but records no server calls, and boot says so", async () => {
+  it("a leftover default store file still resolves a store but records no server calls, and boot says so", async () => {
     await withModel([
       { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
       { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
