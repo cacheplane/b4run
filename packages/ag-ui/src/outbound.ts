@@ -28,8 +28,10 @@ import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
 import { createOrchestrationLedger } from "./orchestration-ledger.js"
+import { B4_STEP_EVENT_NAME, type B4StepEventValue } from "./step.js"
 import { asSubagentEndData, asSubagentStartData, unwrapSubagentChunk } from "./subagent-chunks.js"
 import {
+  asStepData,
   asToolCallArgsData,
   asToolCallData,
   asToolResultData,
@@ -303,6 +305,10 @@ function newOwnerState(): OwnerState {
 /** A child's event carries its owner; root events are never tagged (never `null`). */
 function tag<E extends AguiOutboundEvent>(owner: Owner, event: E): E {
   return owner === undefined ? event : { ...event, subagentRunId: owner }
+}
+
+function stepEvent(owner: Owner, value: B4StepEventValue): CustomEvent {
+  return tag(owner, { type: EventType.CUSTOM, name: B4_STEP_EVENT_NAME, value })
 }
 
 /**
@@ -693,6 +699,27 @@ export async function* toAguiEvents(
         } else {
           yield* ledger.onPassthrough(resultEvent)
         }
+        // A tool that threw: say so on the step, since the result's text alone
+        // cannot tell an error from an answer.
+        if (toolResultView(tr.output).failed) {
+          yield* ledger.onPassthrough(stepEvent(owner, { toolCallId, status: "failed" }))
+        }
+        break
+      }
+      case "step": {
+        const step = asStepData(chunk.data)
+        if (!step) break
+        yield* ledger.onPassthrough(
+          stepEvent(owner, {
+            toolCallId: step.tool_call_id,
+            status: step.status,
+            ...(step.icon !== undefined
+              ? { icon: step.icon as NonNullable<B4StepEventValue["icon"]> }
+              : {}),
+            ...(step.label !== undefined ? { label: step.label } : {}),
+            ...(step.sources !== undefined ? { sources: step.sources } : {}),
+          }),
+        )
         break
       }
       case "plan_update": {

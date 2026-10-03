@@ -93,11 +93,30 @@ const CANNED: B4AgentStreamChunk[] = [
     data: { id: ORDINARY_TOOL_CALL_ID, name: "searchCorpus", input: { query: "agents" } },
   },
   {
+    type: "step",
+    data: {
+      tool_call_id: ORDINARY_TOOL_CALL_ID,
+      status: "running",
+      icon: "search",
+      label: "Searching the corpus for “agents”",
+    },
+  },
+  {
     type: "tool_result",
     data: {
       id: ORDINARY_TOOL_CALL_ID,
       name: "searchCorpus",
       output: [{ path: "corpus/a.md" }],
+    },
+  },
+  {
+    type: "step",
+    data: {
+      tool_call_id: ORDINARY_TOOL_CALL_ID,
+      status: "completed",
+      icon: "search",
+      label: "Searched the corpus for “agents”",
+      sources: [{ title: "corpus/a.md" }],
     },
   },
   { type: "content_parts_dropped", data: DROPPED },
@@ -371,8 +390,20 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   ).toMatchObject({ content: PARTS_RESULT })
 
   // Parts the model could not take are announced, once, as a vendor CUSTOM event.
-  const customs = events.filter((event) => event.type === EventType.CUSTOM)
-  expect(customs).toEqual([
+  const custom = events.filter((event) => event.type === EventType.CUSTOM)
+  // The only other CUSTOM event B4.run emits is `b4.step`, and the 1.0 client passes it through intact.
+  expect(custom.length).toBeGreaterThan(0)
+  for (const event of custom) {
+    expect(event).toMatchObject({
+      name: expect.stringMatching(/^b4\.(step|content_parts_dropped)$/),
+    })
+  }
+  const steps = custom.filter((event) => event.name === "b4.step")
+  expect(steps).toHaveLength(2)
+  for (const event of steps) {
+    expect(event).toMatchObject({ value: { toolCallId: expect.any(String) } })
+  }
+  expect(custom.filter((event) => event.name !== "b4.step")).toEqual([
     expect.objectContaining({ name: "b4.content_parts_dropped", value: DROPPED }),
   ])
   // The client keeps the parts as the tool message's content.

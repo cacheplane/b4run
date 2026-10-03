@@ -96,6 +96,39 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
   }
 }
 
+/** The `step` chunk the langchain adapter forwards from a `b4.step` custom event. */
+export interface B4StepData {
+  readonly tool_call_id: string
+  readonly status: "running" | "completed" | "failed"
+  readonly icon?: string | undefined
+  readonly label?: string | undefined
+  readonly sources?: ReadonlyArray<{ readonly title: string; readonly href?: string }> | undefined
+}
+
+const STEP_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed"])
+
+/** Validates and narrows a `step` chunk's `data`. Returns null if malformed. */
+export function asStepData(data: unknown): B4StepData | null {
+  if (!isRecord(data)) return null
+  if (typeof data.tool_call_id !== "string" || data.tool_call_id === "") return null
+  if (typeof data.status !== "string" || !STEP_STATUSES.has(data.status)) return null
+  const sources = Array.isArray(data.sources)
+    ? data.sources.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.title !== "string") return []
+        return [
+          { title: entry.title, ...(typeof entry.href === "string" ? { href: entry.href } : {}) },
+        ]
+      })
+    : undefined
+  return {
+    tool_call_id: data.tool_call_id,
+    status: data.status as B4StepData["status"],
+    ...(typeof data.icon === "string" ? { icon: data.icon } : {}),
+    ...(typeof data.label === "string" ? { label: data.label } : {}),
+    ...(sources !== undefined ? { sources } : {}),
+  }
+}
+
 /** Validates and narrows a `usage` chunk's `data`. Returns null if malformed. */
 export function asUsageData(data: unknown): B4UsageData | null {
   if (!isRecord(data) || !isRecord(data.usage_metadata)) return null
