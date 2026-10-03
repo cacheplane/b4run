@@ -694,7 +694,7 @@ describe("dependency security graph invariants", () => {
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
         "@copilotkit/react-core"
       ],
-    ).toBe(">=1.66.0")
+    ).toBe(">=1.76.0")
     expect(
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
         "@ag-ui/client"
