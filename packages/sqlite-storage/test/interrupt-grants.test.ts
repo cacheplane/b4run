@@ -160,7 +160,7 @@ describe("createInterruptGrantStore", () => {
     expect((await store.get("t-1", "int-b"))?.voidedAt).toBe("2026-09-18T03:00:00.000Z")
   })
 
-  it("voidOutstanding skips already-consumed and already-voided grants", async () => {
+  it("voidOutstanding voids consumed grants too, and skips already-voided ones", async () => {
     const store = newStore()
     await store.issue(record({ interruptId: "int-consumed" }))
     await store.issue(record({ interruptId: "int-voided" }))
@@ -171,21 +171,32 @@ describe("createInterruptGrantStore", () => {
       decision: "always",
       at: "2026-09-18T01:00:00.000Z",
     })
-    await store.voidOutstanding({
-      threadId: "t-1",
-      keepInterruptIds: ["int-open"],
-      at: "2026-09-18T02:00:00.000Z",
-    })
+    // First pass: the thread still has int-open AND int-consumed parked, so
+    // only int-voided is voided.
+    expect(
+      await store.voidOutstanding({
+        threadId: "t-1",
+        keepInterruptIds: ["int-open", "int-consumed"],
+        at: "2026-09-18T02:00:00.000Z",
+      }),
+    ).toBe(1)
 
     const voided = await store.voidOutstanding({
       threadId: "t-1",
       keepInterruptIds: [],
       at: "2026-09-18T03:00:00.000Z",
     })
-    expect(voided).toBe(1)
-    // The earlier void keeps its own timestamp; re-voiding must not restamp it.
+    // int-consumed and int-open. The earlier void keeps its own timestamp;
+    // re-voiding must not restamp it or count it again.
+    expect(voided).toBe(2)
     expect((await store.get("t-1", "int-voided"))?.voidedAt).toBe("2026-09-18T02:00:00.000Z")
-    expect((await store.get("t-1", "int-consumed"))?.voidedAt).toBeNull()
+    // The consumed row is voided once the thread moves past its prompt, and
+    // keeps its consumption record.
+    expect(await store.get("t-1", "int-consumed")).toMatchObject({
+      voidedAt: "2026-09-18T03:00:00.000Z",
+      consumedAt: "2026-09-18T01:00:00.000Z",
+      consumedDecision: "always",
+    })
     expect((await store.get("t-1", "int-open"))?.voidedAt).toBe("2026-09-18T03:00:00.000Z")
   })
 
@@ -238,60 +249,75 @@ describe("createInterruptGrantStore", () => {
 
   describe("prune", () => {
     const BEFORE = "2026-09-30T12:00:00.000Z"
+    const OLD = "2026-09-30T01:00:00.000Z"
+    const RECENT = "2026-09-30T13:00:00.000Z"
 
-    it("deletes consumed and voided rows settled before the cutoff and keeps later ones", async () => {
+    it("deletes voided rows before the cutoff; keeps a recent void and one exactly at the cutoff", async () => {
       const store = newStore()
-      await store.issue(
-        record({
-          interruptId: "old_consumed",
-          consumedAt: "2026-09-30T01:00:00.000Z",
-          consumedDecision: "once",
-        }),
-      )
-      await store.issue(
-        record({ interruptId: "new_consumed", consumedAt: BEFORE, consumedDecision: "once" }),
-      )
-      await store.issue(record({ interruptId: "old_voided", voidedAt: "2026-09-30T01:00:00.000Z" }))
-      await store.issue(record({ interruptId: "new_voided", voidedAt: "2026-09-30T13:00:00.000Z" }))
-      expect(await store.prune({ before: BEFORE })).toBe(2)
+      await store.issue(record({ interruptId: "old_voided", voidedAt: OLD }))
+      await store.issue(record({ interruptId: "new_voided", voidedAt: RECENT }))
+      await store.issue(record({ interruptId: "at_cutoff", voidedAt: BEFORE }))
+      expect(await store.prune({ before: BEFORE })).toBe(1)
       expect((await store.listForThread("t-1")).map((row) => row.interruptId).sort()).toEqual([
-        "new_consumed",
+        "at_cutoff",
         "new_voided",
       ])
     })
 
-    it("a void is the settle time: an old consume with a recent void is kept", async () => {
+    it("a consumed grant whose prompt is still parked is never pruned", async () => {
+      // A resume consumes the row BEFORE the resumed run executes. If that run
+      // fails the prompt stays parked with a consumed, unvoided row; deleting
+      // it would let the prompt resume ungated under approvals.grants "optional".
+      const store = newStore()
+      await store.issue(
+        record({
+          interruptId: "stuck",
+          consumedAt: OLD,
+          consumedDecision: "once",
+          voidedAt: null,
+        }),
+      )
+      expect(await store.prune({ before: BEFORE })).toBe(0)
+      expect(await store.get("t-1", "stuck")).toMatchObject({
+        consumedAt: OLD,
+        voidedAt: null,
+      })
+    })
+
+    it("deletes a consumed grant once it has been voided before the cutoff", async () => {
       const store = newStore()
       await store.issue(
         record({
           interruptId: "consumed_then_voided",
-          consumedAt: "2026-09-30T01:00:00.000Z",
+          consumedAt: OLD,
           consumedDecision: "once",
-          voidedAt: "2026-09-30T13:00:00.000Z",
+          voidedAt: OLD,
         }),
       )
-      expect(await store.prune({ before: BEFORE })).toBe(0)
-      expect(await store.get("t-1", "consumed_then_voided")).toBeDefined()
+      expect(await store.prune({ before: BEFORE })).toBe(1)
+      expect(await store.get("t-1", "consumed_then_voided")).toBeUndefined()
     })
 
     it("never deletes an outstanding row, expired or not", async () => {
       const store = newStore()
       await store.issue(
-        record({ interruptId: "expired_long_ago", expiresAt: "2020-01-01T00:00:00.000Z" }),
+        record({
+          interruptId: "expired_long_ago",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+        }),
       )
       await store.issue(record({ interruptId: "never_expires", expiresAt: null }))
       expect(await store.prune({ before: BEFORE })).toBe(0)
-      expect((await store.listForThread("t-1")).length).toBe(2)
+      expect((await store.listForThread("t-1")).map((row) => row.interruptId).sort()).toEqual([
+        "expired_long_ago",
+        "never_expires",
+      ])
     })
 
     it("sweeps every thread and is idempotent", async () => {
       const store = newStore()
-      await store.issue(
-        record({ threadId: "t-1", interruptId: "a", voidedAt: "2026-09-30T01:00:00.000Z" }),
-      )
-      await store.issue(
-        record({ threadId: "t-2", interruptId: "b", voidedAt: "2026-09-30T01:00:00.000Z" }),
-      )
+      await store.issue(record({ threadId: "t-1", interruptId: "a", voidedAt: OLD }))
+      await store.issue(record({ threadId: "t-2", interruptId: "b", voidedAt: OLD }))
       expect(await store.prune({ before: BEFORE })).toBe(2)
       expect(await store.prune({ before: BEFORE })).toBe(0)
       expect(await store.listForThread("t-1")).toEqual([])
