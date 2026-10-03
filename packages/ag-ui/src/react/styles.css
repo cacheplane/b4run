@@ -157,9 +157,18 @@
   padding: 0;
 }
 
+/*
+ * `flex-wrap` is load-bearing. The subagent tool row appends its args and
+ * result as flex siblings of the label, and a long result's max-content basis
+ * made the row's free space negative — so the label's `flex: 1` (basis 0) had
+ * nothing to grow into and laid out at zero width, which Playwright reports as
+ * hidden. Wrapping puts args/result on their own full-width lines (below), so
+ * the label line always has free space.
+ */
 .b4-activity__item {
   align-items: baseline;
   display: flex;
+  flex-wrap: wrap;
   gap: var(--b4-activity-gap);
   margin-top: 4px;
 }
@@ -259,6 +268,7 @@
 .b4-activity__item-result {
   color: var(--b4-activity-muted);
   display: block;
+  flex-basis: 100%;
   font-size: 0.92em;
   margin-top: 2px;
   overflow-wrap: anywhere;
