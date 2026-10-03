@@ -19,6 +19,7 @@ export {
   DEFAULT_MODALITY_SUPPORT,
   JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS,
   providerPackages,
+  readModelProfile,
   resolveModalitySupport,
   seedModelImporter,
   supportsJsonSchemaResponseFormat,
