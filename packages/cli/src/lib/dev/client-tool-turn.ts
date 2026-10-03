@@ -8,21 +8,24 @@
  * decides what that run means. It is pure decision logic over the store and
  * the checkpoint's pending snapshot; the AG-UI handler acts on the result.
  *
- * Security invariant: a `toolCallId` is trusted only when it names a client
- * park pending in THIS thread's checkpoint AND an outstanding, unexpired
- * record on THIS thread. Any other tool message is ordinary resupplied history
- * and is ignored — never an error, never passed anywhere — because every
- * AG-UI client resends its history on every run. That includes a tool message
- * for an already-answered or voided record: it is history, not a replay.
- * Replay stays impossible because a park is resumed once and answered records
- * are never re-fed from the message; the resume value always comes from the
- * store.
+ * Security invariant (the record is authoritative for every issued tool
+ * call): content from a `role: "tool"` message reaches the model ONLY through
+ * a row in the tool-call record that this server issued as `kind: "client"`
+ * on THIS thread, that is still open (neither answered nor voided), unexpired,
+ * and whose park is pending in THIS thread's checkpoint. A message naming a
+ * server-kind row, a closed client row, or no row at all is ordinary
+ * resupplied history and is ignored — never an error, never logged, never
+ * passed anywhere — because every AG-UI client resends its history on every
+ * run and ids the record has pruned are the ordinary case. Replay stays
+ * impossible because a park is resumed once and the resume value always
+ * comes from the store, never from the message.
  *
  * Precedence, when several apply:
  *   1. no client park pending              → `none`
  *   2. any client park unanswerable        → `abandon` / "unanswerable"
  *      (no resume key, a malformed envelope, a malformed snapshot, no record
- *      on this thread, a record for a different park, or a voided record)
+ *      on this thread, a server-kind record, a record for a different park,
+ *      or a voided record)
  *   3. any client park's outstanding record expired → `abandon` / "expired"
  *   4. last message is a user message      → `abandon` / "new_user_message"
  *      — even when every client park is answered. A resume carries no new
@@ -66,11 +69,7 @@ import {
 
 export type ClientToolTurn =
   | { readonly mode: "none" }
-  | {
-      readonly mode: "partial"
-      /** The client parks still awaiting a result, by provider tool-call id. */
-      readonly pendingToolCallIds: readonly string[]
-    }
+  | { readonly mode: "partial" }
   | {
       readonly mode: "resume"
       /** Keyed by each client park's LangGraph resumeKey. */
@@ -144,6 +143,7 @@ export async function resolveClientToolTurn(options: {
       toolCallId === undefined ||
       park.resumeKey === null ||
       !row ||
+      row.kind !== "client" ||
       row.interruptId !== park.interruptId ||
       row.voidedAt !== null
     ) {
@@ -183,7 +183,7 @@ export async function resolveClientToolTurn(options: {
   const answeredResult = (toolCallId: string | undefined): string | undefined => {
     if (toolCallId === undefined) return undefined
     const row = rows.get(toolCallId)
-    if (!row || row.answeredAt === null || row.voidedAt !== null) return undefined
+    if (row?.kind !== "client" || row.answeredAt === null || row.voidedAt !== null) return undefined
     return typeof row.result === "string" ? row.result : undefined
   }
 
@@ -220,12 +220,7 @@ export async function resolveClientToolTurn(options: {
     resume[park.resumeKey] = { clientToolResult: result }
   }
   if (allAnswered) return { mode: "resume", resume, others }
-  return {
-    mode: "partial",
-    pendingToolCallIds: clientParks.flatMap(({ toolCallId }) =>
-      toolCallId !== undefined && answeredResult(toolCallId) === undefined ? [toolCallId] : [],
-    ),
-  }
+  return { mode: "partial" }
 }
 
 async function readRows(

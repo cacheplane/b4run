@@ -40,6 +40,8 @@ function recordingRecorder(): ClientToolRecorder & {
     async record(call) {
       calls.push({ ...call })
     },
+    async issue() {},
+    async settle() {},
   }
 }
 
@@ -259,6 +261,11 @@ describe("client tool stub", () => {
       "[Client-provided tool; definition authored by the caller] Open a panel in the client UI.",
     )
     expect(stub.schema).toBe(definition.parameters)
+  })
+
+  it("marks itself as a client tool so the backend converter does not record it as a server call", () => {
+    const stub = createClientToolStub(definition, undefined)
+    expect(stub.clientTool).toBe(true)
   })
 })
 

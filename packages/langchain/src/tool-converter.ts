@@ -1,5 +1,4 @@
 import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
-import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } from "@b4run/sdk"
 // `/web`, not the default entry, and the difference is a hard runtime
 // constraint rather than a style preference. The default entry statically
 // imports `node:async_hooks` — it exists to INFER the config off
@@ -12,11 +11,18 @@ import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } fro
 // AsyncLocalStorage instance the default entry installs as a side effect is
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
+import {
+  type B4ContentPart,
+  type BuiltInModelProviderId,
+  CLIENT_TOOL_RECORDER_KEY,
+  type ClientToolRecorder,
+  contentPartsText,
+} from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
-import { Command } from "@langchain/langgraph"
+import { Command, isGraphInterrupt } from "@langchain/langgraph"
 import { z } from "zod"
 import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "./chat-model-factory.js"
 import {
@@ -49,6 +55,8 @@ interface B4ToolDefinition {
   readonly schema?: unknown
   /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
   readonly returnDirect?: boolean
+  /** The server-side stub of a client-provided tool; it records itself. Never issued as a server call. */
+  readonly clientTool?: true
 }
 
 export type OffloadFn = (
@@ -107,96 +115,123 @@ export function convertToolToLangChain(
         if (paramNameSet.has(key) && typeof value === "string") params[key] = value
       }
       const toolCallId = extractToolCallId(liveConfig)
-      const rawResult = await tool.run(input, {
-        ...(middlewareContext ? { middleware: middlewareContext } : {}),
-        signal,
-        ...(threadId ? { threadId } : {}),
-        ...(Object.keys(params).length > 0 ? { params } : {}),
-        ...(toolCallId !== "" ? { toolCallId } : {}),
-      })
-      const { content, stateUpdates } = unwrapToolResult(rawResult)
-      let finalContent: string | readonly LangChainContentBlock[]
-      let partsForUi: readonly B4ContentPart[] | undefined
-      if (typeof content === "string") {
-        finalContent = offload
-          ? await offload(content, tool.name, toolCallId || undefined, signal)
-          : content
-      } else {
-        partsForUi = content
-        const support = modality?.support ?? DEFAULT_MODALITY_SUPPORT
-        // Drops are judged on the ORIGINAL list so their indices mean what the UI sees.
-        const converted = toLangChainContent(content, support, modality?.provider, "tool")
-        // Offload bounds the text; media bypass it (their size is the body's business).
-        const text = contentPartsText(content)
-        const offloadedText =
-          offload && text.length > 0
-            ? await offload(text, tool.name, toolCallId || undefined, signal)
-            : text
-        finalContent =
-          typeof converted.content === "string"
-            ? offloadedText
-            : placeToolText(content, converted.content, converted.dropped, offloadedText)
-        if (converted.dropped.length > 0) {
-          try {
-            await dispatchCustomEvent(
-              "b4.capability",
-              {
-                event: "content_parts_dropped",
-                data: droppedPartsData(modality, converted.dropped, toolCallId),
-              },
-              liveConfig,
-            )
-          } catch {
-            // The announce is secondary; the result still stands.
-          }
-        }
-      }
-
-      const toolMessage = (): ToolMessage =>
-        new ToolMessage({
-          tool_call_id: toolCallId,
-          name: tool.name,
-          ...(partsForUi !== undefined
-            ? { additional_kwargs: { [B4_CONTENT_PARTS_KEY]: partsForUi } }
-            : {}),
-          // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
-          ...(typeof finalContent === "string"
-            ? { content: finalContent }
-            : {
-                content: finalContent as unknown as MessageContent,
-                response_metadata: V1_RESPONSE_METADATA,
-              }),
+      // Server-kind row in the tool-call record: issued before the body runs
+      // (a call the server cannot account for must not run — an issue failure
+      // is the tool's error), settled in `finally` so a throw, a refusal
+      // returned as text and an abort all close it. The client stub records
+      // its own client-kind row and is skipped via its marker.
+      const recorder =
+        tool.clientTool === true || toolCallId === "" ? undefined : readRecorder(liveConfig)
+      if (recorder) await recorder.issue({ toolCallId, toolName: tool.name })
+      // A permission gate parks by throwing a GraphInterrupt. A park is not
+      // completion: the row stays open, and the resumed re-execution issues
+      // again (a no-op on the key) and settles when the tool really returns.
+      let parked = false
+      try {
+        const rawResult = await tool.run(input, {
+          ...(middlewareContext ? { middleware: middlewareContext } : {}),
+          signal,
+          ...(threadId ? { threadId } : {}),
+          ...(Object.keys(params).length > 0 ? { params } : {}),
+          ...(toolCallId !== "" ? { toolCallId } : {}),
         })
-
-      const convertedResult = stateUpdates
-        ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
-        : partsForUi !== undefined
-          ? toolMessage()
-          : finalContent
-
-      for (const transformer of streamTransformers) {
-        if (transformer.observes !== "tool_result") continue
-        try {
-          for await (const output of transformer.transform({
-            toolName: tool.name,
-            toolOutput: convertedResult,
-            // The model/provider tool-call id — the public identity the root
-            // AG-UI tool frames use. `extractToolCallId` returns "" when the
-            // provider supplied none, in which case the field stays absent.
-            ...(toolCallId ? { toolCallId } : {}),
-          })) {
-            await dispatchCustomEvent(
-              "b4.capability",
-              { event: output.event, data: output.data },
-              liveConfig,
-            )
+        const { content, stateUpdates } = unwrapToolResult(rawResult)
+        let finalContent: string | readonly LangChainContentBlock[]
+        let partsForUi: readonly B4ContentPart[] | undefined
+        if (typeof content === "string") {
+          finalContent = offload
+            ? await offload(content, tool.name, toolCallId || undefined, signal)
+            : content
+        } else {
+          partsForUi = content
+          const support = modality?.support ?? DEFAULT_MODALITY_SUPPORT
+          // Drops are judged on the ORIGINAL list so their indices mean what the UI sees.
+          const converted = toLangChainContent(content, support, modality?.provider, "tool")
+          // Offload bounds the text; media bypass it (their size is the body's business).
+          const text = contentPartsText(content)
+          const offloadedText =
+            offload && text.length > 0
+              ? await offload(text, tool.name, toolCallId || undefined, signal)
+              : text
+          finalContent =
+            typeof converted.content === "string"
+              ? offloadedText
+              : placeToolText(content, converted.content, converted.dropped, offloadedText)
+          if (converted.dropped.length > 0) {
+            try {
+              await dispatchCustomEvent(
+                "b4.capability",
+                {
+                  event: "content_parts_dropped",
+                  data: droppedPartsData(modality, converted.dropped, toolCallId),
+                },
+                liveConfig,
+              )
+            } catch {
+              // The announce is secondary; the result still stands.
+            }
           }
-        } catch {
-          // Capability events are secondary; preserve the successful tool result.
+        }
+
+        const toolMessage = (): ToolMessage =>
+          new ToolMessage({
+            tool_call_id: toolCallId,
+            name: tool.name,
+            ...(partsForUi !== undefined
+              ? { additional_kwargs: { [B4_CONTENT_PARTS_KEY]: partsForUi } }
+              : {}),
+            // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
+            ...(typeof finalContent === "string"
+              ? { content: finalContent }
+              : {
+                  content: finalContent as unknown as MessageContent,
+                  response_metadata: V1_RESPONSE_METADATA,
+                }),
+          })
+
+        const convertedResult = stateUpdates
+          ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
+          : partsForUi !== undefined
+            ? toolMessage()
+            : finalContent
+
+        for (const transformer of streamTransformers) {
+          if (transformer.observes !== "tool_result") continue
+          try {
+            for await (const output of transformer.transform({
+              toolName: tool.name,
+              toolOutput: convertedResult,
+              // The model/provider tool-call id — the public identity the root
+              // AG-UI tool frames use. `extractToolCallId` returns "" when the
+              // provider supplied none, in which case the field stays absent.
+              ...(toolCallId ? { toolCallId } : {}),
+            })) {
+              await dispatchCustomEvent(
+                "b4.capability",
+                { event: output.event, data: output.data },
+                liveConfig,
+              )
+            }
+          } catch {
+            // Capability events are secondary; preserve the successful tool result.
+          }
+        }
+
+        return convertedResult
+      } catch (error) {
+        parked = isGraphInterrupt(error)
+        throw error
+      } finally {
+        if (recorder && !parked) {
+          try {
+            await recorder.settle(toolCallId)
+          } catch (error) {
+            // The tool already ran; an unsettled server row is never answerable
+            // and only delays pruning.
+            console.warn(`B4: could not settle tool call ${toolCallId} for ${tool.name}.`, error)
+          }
         }
       }
-
-      return convertedResult
     },
   })
 }
@@ -312,6 +347,23 @@ function jsonSchemaFieldToZod(prop: JsonSchemaProperty, depth = 0): z.ZodTypeAny
     default:
       return z.unknown()
   }
+}
+
+/**
+ * The per-run tool-call recorder the runtime injected, if any. Present only on
+ * runs where the tool-call record's store resolved (an AG-UI route opted into
+ * client tools, or an operator-configured store): without one, nothing is
+ * recorded and the tool runs exactly as before.
+ */
+function readRecorder(config: unknown): ClientToolRecorder | undefined {
+  if (typeof config !== "object" || config === null) return undefined
+  const configurable = (config as { configurable?: Record<string, unknown> }).configurable
+  const candidate = configurable?.[CLIENT_TOOL_RECORDER_KEY]
+  return candidate &&
+    typeof (candidate as ClientToolRecorder).issue === "function" &&
+    typeof (candidate as ClientToolRecorder).settle === "function"
+    ? (candidate as ClientToolRecorder)
+    : undefined
 }
 
 function extractToolCallId(config: unknown): string {

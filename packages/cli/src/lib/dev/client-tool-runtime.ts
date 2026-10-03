@@ -116,6 +116,7 @@ const STORE_METHODS = [
   "listOutstanding",
   "answer",
   "voidOutstanding",
+  "settle",
   "prune",
 ] as const
 

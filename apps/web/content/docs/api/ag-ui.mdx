@@ -178,7 +178,7 @@ Supply an `IdFactory` when emitted IDs must be deterministic. Production integra
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
   readonly cancelled?: () => boolean
-  readonly pendingToolCallIds?: () => readonly string[]
+  readonly pendingToolCallIds?: () => readonly string[] | Promise<readonly string[]>
 }
 ```
 
@@ -187,7 +187,7 @@ export interface ToAguiOptions {
 |---|---|---|---|
 | `readonly idFactory` | `IdFactory` | no | Override outbound event-ID generation. |
 | `readonly cancelled` | `() => boolean` | no | Asked once when the upstream stream throws; `true` ends the run with `RUN_FINISHED` and `outcome.type: "cancelled"` instead of `RUN_ERROR`. |
-| `readonly pendingToolCallIds` | `() => readonly string[]` | no | Asked when the run succeeds; a non-empty list becomes `outcome.pendingToolCallIds`. |
+| `readonly pendingToolCallIds` | `() => readonly string[] \| Promise<readonly string[]>` | no | Asked when the run succeeds, and may return a Promise; a non-empty list becomes `outcome.pendingToolCallIds`. A rejection ends the run as `RUN_ERROR`. |
 
 ### Inbound and outbound calls
 
