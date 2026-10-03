@@ -16,6 +16,7 @@ function call(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRecord {
     result: null,
     voidedAt: null,
     settledAt: null,
+    parentToolCallId: null,
     ...over,
   }
 }
@@ -275,6 +276,7 @@ function serverCall(over: Partial<ClientToolCallRecord> = {}): ClientToolCallRec
     result: null,
     voidedAt: null,
     settledAt: null,
+    parentToolCallId: null,
     ...over,
   }
 }
@@ -419,5 +421,24 @@ describe("createMemoryClientToolCallStore — prune with server rows", () => {
     await store.issue(call({ toolCallId: "recent_issue", issuedAt: T1, voidedAt: T0 }))
     await store.issue(serverCall({ toolCallId: "recent_server", issuedAt: T1, settledAt: T0 }))
     expect(await store.prune({ before: BEFORE })).toBe(2)
+  })
+})
+
+describe("createMemoryClientToolCallStore — origin", () => {
+  it("stores the issuing route and the parent task link, null at the root", async () => {
+    const store = createMemoryClientToolCallStore()
+    await store.issue(serverCall({ toolCallId: "root", routeId: "/chat#agent" }))
+    await store.issue(
+      serverCall({
+        toolCallId: "child",
+        routeId: "/chat/subagents/researcher#agent",
+        parentToolCallId: "call_task_1",
+      }),
+    )
+    expect((await store.get("t1", "root"))?.parentToolCallId).toBeNull()
+    expect(await store.get("t1", "child")).toMatchObject({
+      routeId: "/chat/subagents/researcher#agent",
+      parentToolCallId: "call_task_1",
+    })
   })
 })
