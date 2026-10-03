@@ -439,23 +439,73 @@ export async function consumeGrants(args: {
  * Never allowed to fail a turn: voiding is a tightening, and a runtime that
  * refused to settle a turn because a bookkeeping UPDATE failed would trade a
  * replay window for an outage.
+ *
+ * Also runs the hourly settled-grant sweep, so retention rides the same
+ * moment. Returns the void count alone; the sweep runs after the void, even a
+ * failed one.
  */
 export async function voidSupersededGrants(args: {
   readonly store?: InterruptGrantStore
   readonly threadId: string
   readonly stillPending: readonly string[]
+  /** `approvals.grantRetentionMs`, resolved; the default when omitted. */
+  readonly retentionMs?: number
   readonly now?: () => number
 }): Promise<number> {
   if (!args.store) return 0
+  const now = new Date((args.now ?? Date.now)())
+  let voided = 0
   try {
-    return await args.store.voidOutstanding({
+    voided = await args.store.voidOutstanding({
       threadId: args.threadId,
       keepInterruptIds: args.stillPending,
-      at: new Date((args.now ?? Date.now)()).toISOString(),
+      at: now.toISOString(),
     })
   } catch (error) {
     console.warn(`B4: could not void superseded approval grants for ${args.threadId}.`, error)
-    return 0
+  }
+  await pruneSettledGrants(args.store, args.retentionMs ?? DEFAULT_APPROVAL_GRANT_RETENTION_MS, now)
+  return voided
+}
+
+/** Least time between two opportunistic sweeps of the same grant store: one hour. */
+export const APPROVAL_GRANT_PRUNE_INTERVAL_MS = 60 * 60 * 1000
+
+/** Last sweep per store (ms since epoch). Per process; a WeakMap so a store is never retained by it. */
+let lastGrantSweepAt = new WeakMap<InterruptGrantStore, number>()
+
+/** Test seam: forget every store's last sweep time. */
+export function __resetApprovalGrantPruneThrottleForTests(): void {
+  lastGrantSweepAt = new WeakMap()
+}
+
+/**
+ * Opportunistic retention for settled grant records, run by
+ * {@link voidSupersededGrants} wherever the runtime asserts "the thread moved
+ * on". Global, not per thread, so threads that never return are swept too.
+ * Only settled rows (consumed or voided) are deleted — never outstanding ones,
+ * however old, because a parked prompt with no grant row resumes ungated under
+ * `approvals.grants: "optional"`. At most once per
+ * {@link APPROVAL_GRANT_PRUNE_INTERVAL_MS} per store; the sweep time is
+ * recorded before the call, so a failed sweep is not retried until the
+ * interval elapses either, which bounds the warning to once an hour. Never
+ * throws. Returns the rows deleted, or `undefined` when nothing ran.
+ */
+export async function pruneSettledGrants(
+  store: InterruptGrantStore,
+  retentionMs: number,
+  now: Date,
+): Promise<number | undefined> {
+  const last = lastGrantSweepAt.get(store)
+  if (last !== undefined && now.getTime() - last < APPROVAL_GRANT_PRUNE_INTERVAL_MS) {
+    return undefined
+  }
+  lastGrantSweepAt.set(store, now.getTime())
+  try {
+    return await store.prune({ before: new Date(now.getTime() - retentionMs).toISOString() })
+  } catch (error) {
+    console.warn("B4: could not prune settled approval grants.", error)
+    return undefined
   }
 }
 

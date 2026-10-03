@@ -1284,6 +1284,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),

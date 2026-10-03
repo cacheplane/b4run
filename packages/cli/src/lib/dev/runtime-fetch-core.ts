@@ -2813,6 +2813,7 @@ async function handleApStreamRequest(options: {
                       ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                       threadId,
                       stillPending,
+                      retentionMs: approvalGrants.retentionMs,
                     })
                   },
                 }),
@@ -2856,6 +2857,7 @@ async function handleApStreamRequest(options: {
                       ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                       threadId,
                       stillPending,
+                      retentionMs: approvalGrants.retentionMs,
                     })
                   },
                 }),
@@ -3168,6 +3170,7 @@ async function handleApWaitRequest(options: {
                 ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                 threadId,
                 stillPending,
+                retentionMs: approvalGrants.retentionMs,
               })
             },
           }),
@@ -4202,6 +4205,7 @@ async function handleResumeRequest(options: {
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),
@@ -4242,6 +4246,7 @@ async function handleResumeRequest(options: {
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),
