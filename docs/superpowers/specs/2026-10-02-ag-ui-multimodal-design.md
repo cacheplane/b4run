@@ -361,20 +361,38 @@ carries `B4MessageContent`:
 - `app/lib/transcript.ts`: user and tool items expose `parts` alongside
   `text`; a `b4.content_parts_dropped` CUSTOM event becomes a `notice` item
   attached to its message.
-- `ToolCallCard.tsx` and the user bubble: image → `<img>` (a data URL built
-  from a `data` source, or the `url`; a `file` handle renders as a chip, since
-  nobody but the provider can show it); document → link chip; audio/video →
-  native element. The text/JSON preview is unchanged.
-- Composer: an attach-image control (file picker → base64 `data` part; a
-  pasted URL → `url` part), rendered only when
-  `getCapabilities().multimodal?.input?.image === true`; absent or unknown
-  hides it. This is the first real consumer of #883's `B4HttpAgent.getCapabilities()`.
-- `app/lib/hydrate.ts` carries parts through unchanged.
+- Media is drawn by the app's own `Transcript`, in the user bubble and
+  BESIDE `renderToolCall(...)` for a tool result: CopilotKit 1.76's tool
+  renderer hands the app's `render` only `contentToText(toolMessage.content)`,
+  so a renderer registered through it can never see a media part. A new
+  `MediaParts` component: image → `<img>` (a data URL built from a `data`
+  source, or the `url`; a `file` handle renders as a chip, since nobody but
+  the provider can show it); document → link chip; audio/video → native
+  element. The card's text/JSON preview is unchanged.
+- Composer: an attach-image control (file picker → base64 `data` part; no
+  URL input — the capability flag describes the inline source), rendered only
+  when the route takes images. In the browser the agent is CopilotKit's
+  runtime proxy, which already carries the capabilities `/info` fetched
+  through `B4HttpAgent.getCapabilities()`; the gate is
+  `useCapabilities()?.multimodal?.input?.image === true` from
+  `@copilotkit/react-core/v2`; absent or unknown hides it. The message is
+  sent as `agent.addMessage({ role: "user", content: parts })`, the shape
+  CopilotKit's own submit uses. (Amended for PR 3: the first draft named
+  `getCapabilities()` and `ToolCallCard`.)
+- Notices: `agent.subscribe({ onCustomEvent })` collects
+  `b4.content_parts_dropped` events; the transcript places each after the
+  tool call it names, or after the newest user message.
+- `app/lib/hydrate.ts`: a restored user message holds the checkpoint's
+  LangChain v1 blocks (`{ type: "image", data|url, mimeType }`), not AG-UI
+  parts — a `blocksToParts` mapper restores the part shape; a restored tool
+  message's parts are read from `additional_kwargs.b4_content_parts`.
 - One media-producing server tool, `renderChart`: takes the research findings
   and returns `[{ type: "text", … }, { type: "image", source: { type: "data", mimeType: "image/svg+xml", value } }]`.
-  SVG keeps it dependency-free. Whether gpt-5-mini's profile admits
-  `image/svg+xml` in a tool message is checked during planning; if not, the
-  image is UI-only (`toolResult.image` governs) or the tool rasterises to PNG.
+  SVG keeps it dependency-free. On gpt-5-mini the image is UI-only — the
+  OpenAI override sets `toolResult` all-false — so every `renderChart` call
+  also emits the dropped-parts notice: the example demonstrates exactly that
+  path. Its input is `{ title, series: [{ label, value }] }` (the research
+  state holds no structured findings to read).
 
 **Docs** (`apps/web/content/docs`): `ag-ui.mdx` gains a "Multimodal input"
 section (what is carried, the drop-and-announce rule, the CUSTOM event, the
