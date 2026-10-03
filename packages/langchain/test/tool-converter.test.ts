@@ -718,7 +718,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
         },
       },
     })
-    expect(issued).toEqual([
+    expect(issued).toStrictEqual([
       {
         toolCallId: "call_1",
         toolName: "probe",

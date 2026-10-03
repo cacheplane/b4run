@@ -561,7 +561,7 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
         },
       }),
     )
-    expect(issued).toEqual([
+    expect(issued).toStrictEqual([
       { toolCallId: "call_task_1", toolName: "task" },
       {
         toolCallId: "call_task_2",

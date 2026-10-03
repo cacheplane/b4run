@@ -155,7 +155,7 @@ describe("recordToolCall — origin", () => {
       async () => "ok",
     )
     await recordToolCall(config, { toolCallId: "c2", toolName: "readFile" }, async () => "ok")
-    expect(issued).toEqual([
+    expect(issued).toStrictEqual([
       { toolCallId: "c1", toolName: "readFile", origin },
       { toolCallId: "c2", toolName: "readFile" },
     ])

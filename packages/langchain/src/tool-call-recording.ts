@@ -48,11 +48,13 @@ export function readCallOrigin(config: unknown): ToolCallOrigin | undefined {
  * Run `body` as one recorded server tool call. With no server-call recorder on
  * `config`, or no provider tool-call id, the body runs untouched. Otherwise
  * `issue` runs first, with the call's `origin` (the issuing subagent route and
- * its launching `task` call; absent at the root) forwarded untouched — a call the server cannot account for must not run, so
- * an issue failure is the call's error — and `settle` runs in `finally` for a
- * return (a refusal returned as text included), a throw and an abort, but NOT
- * for a `GraphInterrupt`: a park is not completion. The resumed re-execution issues again (a no-op on the key) and
- * settles when the body really returns or throws. A settle failure is warned
+ * its launching `task` call; absent at the root) forwarded untouched — a call
+ * the server cannot account for must not run, so an issue failure is the
+ * call's error — and `settle` runs in `finally` for a return (a refusal
+ * returned as text included), a throw and an abort, but NOT for a
+ * `GraphInterrupt`: a park is not completion. The resumed re-execution issues
+ * again (a no-op on the key) and settles when the body really returns or
+ * throws. A settle failure is warned
  * and swallowed: the body already ran, and an unsettled server row is never
  * answerable and only delays pruning.
  */
