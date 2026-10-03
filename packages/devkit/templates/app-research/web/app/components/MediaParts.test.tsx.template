@@ -42,7 +42,7 @@ describe("MediaParts", () => {
       },
     ])
     expect(markup).toMatch(
-      /<a[^>]*href="data:application\/pdf;base64,JVBE"[^>]*download="paper.pdf"/,
+      /<a[^>]*href="data:application\/pdf;base64,JVBE"[^>]*download="document.pdf"/,
     )
     expect(markup).toContain("paper.pdf")
   })
@@ -87,5 +87,38 @@ describe("MediaParts", () => {
     ])
     expect(markup).not.toContain("href=")
     expect(markup).toContain("document")
+  })
+
+  test("an image whose data claims a non-image MIME type is a chip, never a src", () => {
+    const markup = render([
+      { type: "image", source: { type: "data", value: "PGgxPg==", mimeType: "text/html" } },
+    ])
+    expect(markup).not.toContain("<img")
+    expect(markup).not.toContain("src=")
+    expect(markup).toContain("image")
+  })
+
+  test("a document outside the allow-list is a chip with no link", () => {
+    const markup = render([
+      {
+        type: "document",
+        source: { type: "data", value: "TVo=", mimeType: "application/x-msdownload" },
+      },
+    ])
+    expect(markup).not.toContain("href=")
+  })
+
+  test("the download name comes from the MIME type, not the part's filename", () => {
+    const markup = render([
+      {
+        type: "document",
+        source: { type: "data", value: "JVBE", mimeType: "application/pdf" },
+        metadata: { filename: "report.exe" },
+      },
+    ])
+    expect(markup).toContain('download="document.pdf"')
+    expect(markup).not.toContain('download="report.exe"')
+    // Still shown as the label: it is only text.
+    expect(markup).toContain("report.exe")
   })
 })

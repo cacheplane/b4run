@@ -201,4 +201,92 @@ describe("composer attachments", () => {
     })
     expect(onSend).toHaveBeenCalledWith({ text: "hello", parts: [] })
   })
+
+  test("a non-image file is ignored, with a hint saying why", async () => {
+    mount(vi.fn())
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    if (input === null) throw new Error("no file input")
+    const exe = new File([new Uint8Array([77, 90])], "setup.exe", {
+      type: "application/x-msdownload",
+    })
+    Object.defineProperty(input, "files", { configurable: true, value: [exe, exe] })
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(container.querySelectorAll("[data-attachment]")).toHaveLength(0)
+    expect(container.textContent).toContain("Only images can be attached")
+    expect(container.textContent?.split("Only images can be attached")).toHaveLength(2)
+    expect(button("Send").disabled).toBe(true)
+  })
+
+  describe("with a FileReader the test drives", () => {
+    const readers: ControlledReader[] = []
+
+    class ControlledReader {
+      result: string | null = null
+      error: Error | null = null
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      readAsDataURL() {
+        readers.push(this)
+      }
+      succeed(url: string) {
+        this.result = url
+        this.onload?.()
+      }
+      fail() {
+        this.error = new Error("boom")
+        this.onerror?.()
+      }
+    }
+
+    beforeEach(() => {
+      readers.length = 0
+      vi.stubGlobal("FileReader", ControlledReader)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    async function choose(file: File) {
+      const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+      if (input === null) throw new Error("no file input")
+      Object.defineProperty(input, "files", { configurable: true, value: [file] })
+      await act(async () => {
+        input.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+    }
+
+    test("Send is disabled while a read is pending, and enabled once it lands", async () => {
+      mount(vi.fn())
+      const textarea = container.querySelector("textarea")
+      if (textarea === null) throw new Error("no textarea")
+      act(() => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+        setter?.call(textarea, "with words already")
+        textarea.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      expect(button("Send").disabled).toBe(false)
+      await choose(png())
+      expect(readers).toHaveLength(1)
+      expect(button("Send").disabled).toBe(true)
+      await act(async () => {
+        readers[0]?.succeed("data:image/png;base64,AQID")
+      })
+      expect(container.querySelectorAll("[data-attachment]")).toHaveLength(1)
+      expect(button("Send").disabled).toBe(false)
+    })
+
+    test("a read error says which file could not be read", async () => {
+      mount(vi.fn())
+      await choose(png())
+      await act(async () => {
+        readers[0]?.fail()
+      })
+      expect(container.textContent).toContain("Could not read chart.png")
+      expect(container.querySelectorAll("[data-attachment]")).toHaveLength(0)
+      expect(button("Send").disabled).toBe(true)
+    })
+  })
 })

@@ -76,29 +76,45 @@ export function Composer({
 }: ComposerProps) {
   const [value, setValue] = useState("")
   const [attachments, setAttachments] = useState<readonly Attachment[]>([])
+  // Reads still in flight. Send waits for them: sending mid-read would drop
+  // the image the user just picked, silently.
+  const [pendingReads, setPendingReads] = useState(0)
+  // One line about the last pick that did not become an attachment.
+  const [attachHint, setAttachHint] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const hintId = useId()
   const isBlocked = isRunning || isAwaitingApproval
   // An image with no words is a complete question ("what is this?" is implied).
-  const canSend = !isBlocked && (value.trim().length > 0 || attachments.length > 0)
+  const canSend =
+    !isBlocked && pendingReads === 0 && (value.trim().length > 0 || attachments.length > 0)
 
   function onFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = [...(event.target.files ?? [])]
+    const chosen = [...(event.target.files ?? [])]
     // Cleared so picking the same file again (after removing it) still fires.
     event.target.value = ""
+    // `accept="image/*"` is a hint to the OS dialog, not a guarantee ("All
+    // files" is one click away), and the route only declared images.
+    const files = chosen.filter((file) => file.type.startsWith("image/"))
+    setAttachHint(files.length < chosen.length ? "Only images can be attached" : null)
     for (const file of files) {
-      void readImage(file).then(
-        (part) => {
-          setAttachments((current) => [
-            ...current,
-            { id: globalThis.crypto.randomUUID(), name: file.name, part },
-          ])
-        },
-        (error: unknown) => {
-          console.error("Composer: could not read the attachment", error)
-        },
-      )
+      setPendingReads((count) => count + 1)
+      void readImage(file)
+        .then(
+          (part) => {
+            setAttachments((current) => [
+              ...current,
+              { id: globalThis.crypto.randomUUID(), name: file.name, part },
+            ])
+          },
+          (error: unknown) => {
+            console.error("Composer: could not read the attachment", error)
+            setAttachHint(`Could not read ${file.name}`)
+          },
+        )
+        .finally(() => {
+          setPendingReads((count) => count - 1)
+        })
     }
   }
 
@@ -107,6 +123,7 @@ export function Composer({
     onSend({ text: value.trim(), parts: attachments.map((attachment) => attachment.part) })
     setValue("")
     setAttachments([])
+    setAttachHint(null)
     // Sending empties the box, which flips `canSend` false and disables the
     // very button the user just activated — and a disabled element cannot hold
     // focus, so it lands on <body> and the next Tab restarts from the top of
@@ -145,6 +162,11 @@ export function Composer({
           send()
         }}
       >
+        {attachHint !== null ? (
+          <p role="status" className="mb-2 text-[11px] text-wb-muted">
+            {attachHint}
+          </p>
+        ) : null}
         {attachments.length > 0 ? (
           <ul className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((attachment) => (

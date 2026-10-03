@@ -1,4 +1,5 @@
 import type { B4ContentPart, B4MediaPart } from "@b4run/sdk"
+import { memo } from "react"
 import { dataUrl, mediaParts } from "../lib/parts"
 
 /**
@@ -31,7 +32,12 @@ export function MediaParts({ parts }: { readonly parts: readonly B4ContentPart[]
 const CHIP =
   "inline-flex max-w-full items-center gap-1.5 rounded-wb-sm border border-wb-border bg-wb-surface px-2.5 py-1 text-[12px] text-wb-muted [overflow-wrap:anywhere]"
 
-function MediaPart({ part }: { readonly part: B4MediaPart }) {
+/**
+ * Memoized: the part objects are stable references out of `agent.messages`,
+ * and the transcript re-renders on every streamed token — decoding the same
+ * base64 image on each of those is the cost this skips.
+ */
+const MediaPart = memo(function MediaPart({ part }: { readonly part: B4MediaPart }) {
   const src = loadableUrl(part)
   const name = filenameOf(part)
   if (src === undefined) {
@@ -61,7 +67,14 @@ function MediaPart({ part }: { readonly part: B4MediaPart }) {
       return <video controls src={src} className="max-w-full rounded-wb border border-wb-border" />
     case "document":
       return (
-        <a href={src} download={name ?? true} className={`${CHIP} wb-focus hover:border-wb-muted`}>
+        // The download name comes from the (allow-listed) MIME type, never from
+        // `metadata.filename`: a model-driven tool could name it `invoice.exe`.
+        // The filename is only the visible label.
+        <a
+          href={src}
+          download={downloadName(part.source.mimeType)}
+          className={`${CHIP} wb-focus hover:border-wb-muted`}
+        >
           <span className="font-medium text-wb-text">document</span>
           <span>{name ?? part.source.mimeType ?? "download"}</span>
         </a>
@@ -71,6 +84,33 @@ function MediaPart({ part }: { readonly part: B4MediaPart }) {
       return unhandled
     }
   }
+})
+
+/** The document types a link may be built for, and the extension each downloads as. */
+const DOCUMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  "application/pdf": "pdf",
+  "text/csv": "csv",
+  "text/markdown": "md",
+  "text/plain": "txt",
+}
+
+function downloadName(mimeType: string | undefined): string | true {
+  const extension = mimeType !== undefined ? DOCUMENT_EXTENSIONS[mimeType] : undefined
+  return extension !== undefined ? `document.${extension}` : true
+}
+
+/**
+ * Whether a part's declared MIME type matches what it claims to be: an image
+ * must be `image/*`, audio `audio/*`, video `video/*`, a document one of
+ * `DOCUMENT_EXTENSIONS`. A `data:` URL is served with exactly the type it
+ * names, so an "image" whose bytes say `text/html` must never become a `src`
+ * or an `href`. A url source with no declared type passes (the server decides).
+ */
+function isAllowedMimeType(part: B4MediaPart): boolean {
+  const { mimeType } = part.source
+  if (mimeType === undefined) return part.source.type !== "data"
+  if (part.type === "document") return mimeType in DOCUMENT_EXTENSIONS
+  return mimeType.startsWith(`${part.type}/`)
 }
 
 /**
@@ -80,7 +120,10 @@ function MediaPart({ part }: { readonly part: B4MediaPart }) {
  */
 function loadableUrl(part: B4MediaPart): string | undefined {
   const url = dataUrl(part)
-  if (url === undefined) return undefined
+  if (url === undefined || !isAllowedMimeType(part)) return undefined
+  // An http(s) URL source is still auto-loaded (an `<img src>` is a request to
+  // that host, which a model-driven tool could use to exfiltrate); the
+  // example's own `renderChart` emits inline `data` parts, never URLs.
   if (part.source.type === "data") return url
   return /^https?:\/\//i.test(url) ? url : undefined
 }
