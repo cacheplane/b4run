@@ -397,9 +397,10 @@ b4 client-tools prune --retention <ms>
 ```
 
 `prune` deletes records that can no longer affect a turn: answered or voided
-calls settled longer ago than the retention window, and outstanding calls
-whose expiry is older than it. An outstanding, unexpired call is never
-deleted. The window is
+client calls settled longer ago than the retention window, outstanding client
+calls whose expiry is older than it, and server tool calls settled longer ago
+than it. An outstanding, unexpired client call and an unsettled server call
+are never deleted. The window is
 [`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
 by default) and never shorter than `clientToolTtlMs`; `--retention <ms>`
 overrides it for one pass. The runtime runs the same pass on its own when a

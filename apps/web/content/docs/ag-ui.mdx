@@ -329,7 +329,7 @@ is refused with `503` `client_tool_store_unavailable`. A deployment with more
 than one instance needs a shared store for the same reason.
 
 Records do not accumulate. Once a turn settles, the runtime deletes records
-answered, voided or expired longer ago than
+answered, voided or expired — or, for a server tool call, settled — longer ago than
 [`server.agui.clientToolRetentionMs`](/docs/configuration#serveragui) (7 days
 by default, never less than the TTL), at most once an hour per store.
 `b4 client-tools prune` does the same on demand. An outstanding, unexpired
@@ -465,7 +465,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
 | `subagent.start` and matching child plan/tool/result/end chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent` |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
-| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names the client calls this run left parked; a null route result is omitted, never `null` |
+| `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
 | `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
 

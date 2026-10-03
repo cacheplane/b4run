@@ -1916,9 +1916,10 @@ describe("the record readers stay within what the request owns", () => {
 
   it("prune never outruns the TTL: an answered call survives until the resume re-reads it", async () => {
     // Every answer is stamped five minutes in the past: inside the 10-minute
-    // TTL, far outside the 1ms retention window. A cutoff taken from the
-    // retention alone would delete call_a's answered row before run-3's
-    // replay re-reads it through `has`.
+    // TTL, far outside the 1ms retention window. The sweep runs when a turn
+    // settles, so here it is run-3's own settle sweep that would, with a
+    // cutoff taken from the retention alone, delete call_a's answered row;
+    // the TTL floor keeps it, and the final `get` below pins that.
     const inner = createMemoryClientToolCallStore()
     const store: ClientToolCallStore = {
       ...inner,
