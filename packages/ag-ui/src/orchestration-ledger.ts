@@ -2,7 +2,9 @@ import type { B4ActivityCorrelation, OrchestrationToolName } from "./activities.
 import type { AguiOutboundEvent } from "./outbound.js"
 
 /**
- * Built-in tools whose generic frames a semantic activity can replace.
+ * Built-in tools whose generic frames a semantic activity can replace. Only
+ * `writeTodos` today: a `task` call is an ordinary tool call whose subagent is
+ * presented with AG-UI 1.0 `SUBAGENT_*` events, so its frames always flow.
  *
  * Typed as a total record over `OrchestrationToolName` so that adding a member
  * to that union (in `activities.ts`) is a compile error here rather than a
@@ -10,7 +12,6 @@ import type { AguiOutboundEvent } from "./outbound.js"
  */
 const ORCHESTRATION_TOOLS: Record<OrchestrationToolName, true> = {
   writeTodos: true,
-  task: true,
 }
 const ORCHESTRATION_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(ORCHESTRATION_TOOLS))
 

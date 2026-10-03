@@ -1,7 +1,7 @@
 import { type BaseEvent, EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/core/schemas"
 import { describe, expect, test } from "vitest"
-import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "../src/activities.ts"
+import { B4_PLAN_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
 import { toAguiEvents } from "../src/outbound.js"
 import { encodeAgUiEvent } from "../src/sse.js"
@@ -277,126 +277,6 @@ describe("toAguiEvents", () => {
     expect(events.filter((event) => event.type === EventType.RUN_ERROR)).toEqual([])
   })
 
-  test("subagent activity exposes only allowlisted progress and never child content", async () => {
-    const childTodos = [{ content: "Read the source", status: "in_progress" }] as const
-    const events = await collect([
-      { type: "token", data: "root-before" },
-      { type: "subagent.start", data: CHILD },
-      { type: "subagent.plan_update", data: { ...CHILD, todos: childTodos } },
-      {
-        type: "subagent.tool_call",
-        data: {
-          ...CHILD,
-          id: "child-tool-1",
-          name: "readDoc",
-          input: "secret-input",
-        },
-      },
-      {
-        type: "subagent.tool_result",
-        data: { ...CHILD, id: "child-tool-1", output: "secret-output" },
-      },
-      { type: "subagent.token", data: { ...CHILD, content: "secret-child-prose" } },
-      { type: "subagent.end", data: { ...CHILD, final_message: "secret-final" } },
-      { type: "token", data: "root-after" },
-      { type: "done" },
-    ])
-
-    const activities = events
-      .filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
-      .map((event) => ActivitySnapshotEventSchema.parse(event))
-    expect(activities).toEqual([
-      {
-        type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "b4:subagent:call-1",
-        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-        replace: true,
-        content: {
-          name: "researcher",
-          depth: 1,
-          status: "running",
-          tools: [],
-          totalToolCount: 0,
-        },
-      },
-      {
-        type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "b4:subagent:call-1",
-        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-        replace: true,
-        content: {
-          name: "researcher",
-          depth: 1,
-          status: "running",
-          todos: childTodos,
-          tools: [],
-          totalToolCount: 0,
-        },
-      },
-      {
-        type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "b4:subagent:call-1",
-        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-        replace: true,
-        content: {
-          name: "researcher",
-          depth: 1,
-          status: "running",
-          todos: childTodos,
-          tools: [{ name: "readDoc", status: "running" }],
-          totalToolCount: 1,
-        },
-      },
-      {
-        type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "b4:subagent:call-1",
-        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-        replace: true,
-        content: {
-          name: "researcher",
-          depth: 1,
-          status: "running",
-          todos: childTodos,
-          tools: [{ name: "readDoc", status: "completed" }],
-          totalToolCount: 1,
-        },
-      },
-      {
-        type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: "b4:subagent:call-1",
-        activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-        replace: true,
-        content: {
-          name: "researcher",
-          depth: 1,
-          status: "completed",
-          todos: childTodos,
-          tools: [{ name: "readDoc", status: "completed" }],
-          totalToolCount: 1,
-        },
-      },
-    ])
-
-    const serializedContent = JSON.stringify(activities.map((activity) => activity.content))
-    for (const secret of [
-      "secret-input",
-      "secret-output",
-      "secret-child-prose",
-      "secret-final",
-      CHILD.call_id,
-      CHILD.route_id,
-      "child-tool-1",
-    ]) {
-      expect(serializedContent).not.toContain(secret)
-    }
-    const rootText = events
-      .filter((event) => event.type === EventType.TEXT_MESSAGE_CONTENT)
-      .map((event) => event.delta)
-      .join("")
-    expect(rootText).toBe("root-beforeroot-after")
-    expect(rootText).not.toMatch(/secret-input|secret-output|secret-child-prose|secret-final/)
-  })
-
   test("repeated calls to the same tool get distinct toolCallIds from their upstream ids", async () => {
     const events = await collect([
       { type: "tool_call", data: { id: "run-1", name: "t", input: {} } },
@@ -446,145 +326,6 @@ describe("toAguiEvents", () => {
     })
     // exactly one RUN_FINISHED (done after interrupt was ignored)
     expect(events.filter((e) => e.type === EventType.RUN_FINISHED)).toHaveLength(1)
-  })
-
-  test("delegation approval interrupt before subagent start emits no activity", async () => {
-    const events = await collect([
-      { type: "interrupt", data: { interruptId: "delegate-1", kind: "tool" } },
-      { type: "subagent.start", data: CHILD },
-      { type: "done" },
-    ])
-
-    expect(events).toEqual([
-      {
-        type: EventType.RUN_STARTED,
-        threadId: "th-1",
-        runId: "rn-1",
-        protocolVersion: PROTOCOL_VERSION,
-      },
-      {
-        type: EventType.RUN_FINISHED,
-        threadId: "th-1",
-        runId: "rn-1",
-        outcome: {
-          type: "interrupt",
-          interrupts: [
-            {
-              id: "delegate-1",
-              reason: "tool",
-              metadata: { interruptId: "delegate-1", kind: "tool" },
-            },
-          ],
-        },
-      },
-    ])
-  })
-
-  test("child-owned interrupt preserves one running activity and suppresses later child events", async () => {
-    const events = await collect([
-      { type: "subagent.start", data: CHILD },
-      { type: "interrupt", data: { interruptId: "child-approval", kind: "command" } },
-      {
-        type: "subagent.plan_update",
-        data: { ...CHILD, todos: [{ content: "private-late-plan", status: "pending" }] },
-      },
-      {
-        type: "subagent.tool_call",
-        data: { ...CHILD, id: "late-tool", name: "lateTool", input: "private-late-input" },
-      },
-      { type: "subagent.end", data: { ...CHILD, final_message: "private-late-final" } },
-      { type: "done" },
-    ])
-
-    const activities = events.filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
-    expect(activities).toHaveLength(1)
-    expect(ActivitySnapshotEventSchema.parse(activities[0])).toEqual({
-      type: EventType.ACTIVITY_SNAPSHOT,
-      messageId: "b4:subagent:call-1",
-      activityType: B4_SUBAGENT_ACTIVITY_TYPE,
-      replace: true,
-      content: {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [],
-        totalToolCount: 0,
-      },
-    })
-    expect(events.at(-1)).toEqual({
-      type: EventType.RUN_FINISHED,
-      threadId: "th-1",
-      runId: "rn-1",
-      outcome: {
-        type: "interrupt",
-        interrupts: [
-          {
-            id: "child-approval",
-            reason: "command",
-            metadata: { interruptId: "child-approval", kind: "command" },
-          },
-        ],
-      },
-    })
-    expect(JSON.stringify(events)).not.toMatch(
-      /private-late-plan|private-late-input|private-late-final/,
-    )
-  })
-
-  test("resume replaces a subagent activity with fresh request-local state", async () => {
-    const firstRequest = await collect([
-      { type: "subagent.start", data: CHILD },
-      {
-        type: "subagent.plan_update",
-        data: { ...CHILD, todos: [{ content: "Old plan", status: "in_progress" }] },
-      },
-      {
-        type: "subagent.tool_call",
-        data: { ...CHILD, id: "old-tool", name: "oldTool", input: "old-input" },
-      },
-      { type: "interrupt", data: { interruptId: "parked-child", kind: "command" } },
-      { type: "done" },
-    ])
-    const secondRequest = await collect([
-      { type: "subagent.start", data: CHILD },
-      { type: "subagent.end", data: { ...CHILD, final_message: "private-final" } },
-      { type: "done" },
-    ])
-
-    const firstActivities = firstRequest
-      .filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
-      .map((event) => ActivitySnapshotEventSchema.parse(event))
-    const secondActivities = secondRequest
-      .filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
-      .map((event) => ActivitySnapshotEventSchema.parse(event))
-    expect(firstActivities).toHaveLength(3)
-    expect(secondActivities).toHaveLength(2)
-    expect([...firstActivities, ...secondActivities].map((event) => event.messageId)).toEqual([
-      "b4:subagent:call-1",
-      "b4:subagent:call-1",
-      "b4:subagent:call-1",
-      "b4:subagent:call-1",
-      "b4:subagent:call-1",
-    ])
-    expect(secondActivities.map((event) => event.content)).toEqual([
-      {
-        name: "researcher",
-        depth: 1,
-        status: "running",
-        tools: [],
-        totalToolCount: 0,
-      },
-      {
-        name: "researcher",
-        depth: 1,
-        status: "completed",
-        tools: [],
-        totalToolCount: 0,
-      },
-    ])
-    expect(JSON.stringify(secondActivities.map((event) => event.content))).not.toMatch(
-      /Old plan|oldTool|old-input|private-final/,
-    )
   })
 
   test("consecutive interrupts are accumulated in order before done", async () => {
@@ -868,13 +609,6 @@ describe("toAguiEvents", () => {
 
 describe("orchestration suppression", () => {
   const TODOS = [{ content: "Search the corpus", status: "in_progress" }] as const
-  const ORCHESTRATION_CHILD = {
-    call_id: "call_task_0_2",
-    subagent: "researcher",
-    route_id: "/researcher",
-    depth: 1,
-  } as const
-
   test("a correlated writeTodos call presents only as a plan activity", async () => {
     const events = await collect([
       {
@@ -945,26 +679,6 @@ describe("orchestration suppression", () => {
       EventType.RUN_FINISHED,
     ])
     expect(uncorrelated[4]).toEqual(custom)
-  })
-
-  test("a correlated task call presents only as a subagent activity", async () => {
-    const events = await collect([
-      {
-        type: "tool_call",
-        data: { id: "call_task_0_2", name: "task", input: { subagent: "researcher" } },
-      },
-      { type: "subagent.start", data: ORCHESTRATION_CHILD },
-      { type: "subagent.end", data: ORCHESTRATION_CHILD },
-      { type: "tool_result", data: { id: "call_task_0_2", name: "task", output: "done" } },
-      { type: "done", data: {} },
-    ])
-
-    expect(events.map((event) => event.type)).toEqual([
-      EventType.RUN_STARTED,
-      EventType.ACTIVITY_SNAPSHOT,
-      EventType.ACTIVITY_SNAPSHOT,
-      EventType.RUN_FINISHED,
-    ])
   })
 
   test("an uncorrelated writeTodos call keeps its generic frames in source order", async () => {
@@ -1078,10 +792,10 @@ describe("orchestration suppression", () => {
 
   test("an interrupt drops the frames of the call it belongs to", async () => {
     const events = await collect([
-      { type: "tool_call", data: { id: "call_task_0_2", name: "task", input: {} } },
+      { type: "tool_call", data: { id: "call_writeTodos_0_2", name: "writeTodos", input: {} } },
       {
         type: "interrupt",
-        data: { interruptId: "int-1", kind: "tool", toolCallId: "call_task_0_2" },
+        data: { interruptId: "int-1", kind: "tool", toolCallId: "call_writeTodos_0_2" },
       },
       { type: "done", data: {} },
     ])
@@ -1098,10 +812,10 @@ describe("orchestration suppression", () => {
     // projectInterruptValue) carry `callId`, not `toolCallId` — this proves
     // the mapper bridges that vocabulary end to end into the ledger.
     const events = await collect([
-      { type: "tool_call", data: { id: "call_task_0_2", name: "task", input: {} } },
+      { type: "tool_call", data: { id: "call_writeTodos_0_2", name: "writeTodos", input: {} } },
       {
         type: "interrupt",
-        data: { interruptId: "int-1", kind: "subagent", callId: "call_task_0_2" },
+        data: { interruptId: "int-1", kind: "tool", callId: "call_writeTodos_0_2" },
       },
       { type: "done", data: {} },
     ])
@@ -1796,6 +1510,20 @@ describe("content parts outbound", () => {
       EventType.RUN_FINISHED,
     ])
   })
+
+  test("a subagent's content_parts_dropped is not mapped", async () => {
+    const child = { call_id: "c1", subagent: "researcher", route_id: "/r#researcher", depth: 1 }
+    const events = await collect([
+      { type: "subagent.start", data: child },
+      {
+        type: "subagent.content_parts_dropped",
+        data: { ...child, provider: "openai", model: "gpt-5-mini", parts: [] },
+      },
+      { type: "subagent.end", data: child },
+      { type: "done", data: {} },
+    ])
+    expect(events.map((e) => e.type)).not.toContain(EventType.CUSTOM)
+  })
 })
 
 describe("reasoning", () => {
@@ -1907,5 +1635,259 @@ describe("reasoning", () => {
   test("an empty reasoning delta emits nothing", async () => {
     const out = await collect([{ type: "reasoning", data: "", messageId: "m1" }, { type: "done" }])
     expect(out.map((e) => e.type)).toEqual([EventType.RUN_STARTED, EventType.RUN_FINISHED])
+  })
+})
+
+describe("subagents", () => {
+  const START = {
+    type: "subagent.start",
+    data: { ...CHILD, description: "Finds sources" },
+  } as const
+  const token = (data: string, messageId = "cm1") =>
+    ({ type: "subagent.token", data: { ...CHILD, data, messageId } }) as const
+
+  test("start → SUBAGENT_STARTED hanging off the task call; end → FINISHED with the result; task frames flow", async () => {
+    const out = await collect([
+      {
+        type: "tool_call",
+        data: { id: CHILD.call_id, name: "task", input: { subagent: "researcher" } },
+      },
+      START,
+      token("Reading"),
+      { type: "subagent.message_end", data: { ...CHILD, messageId: "cm1" } },
+      { type: "subagent.end", data: { ...CHILD, final_message: "found it" } },
+      { type: "tool_result", data: { id: CHILD.call_id, name: "task", output: "found it" } },
+      { type: "done" },
+    ])
+    const kinds = out.map((e) => e.type)
+    // The task call is an ordinary tool call again: its frames are on the wire.
+    expect(kinds.slice(1, 4)).toEqual([
+      EventType.TOOL_CALL_START,
+      EventType.TOOL_CALL_ARGS,
+      EventType.TOOL_CALL_END,
+    ])
+    expect(out[4]).toEqual({
+      type: EventType.SUBAGENT_STARTED,
+      subagentRunId: CHILD.call_id,
+      name: "researcher",
+      description: "Finds sources",
+      parentToolCallId: CHILD.call_id,
+    })
+    expect(out[5]).toEqual({
+      type: EventType.TEXT_MESSAGE_START,
+      messageId: "msg-1",
+      role: "assistant",
+      subagentRunId: CHILD.call_id,
+    })
+    expect(out[6]).toMatchObject({
+      type: EventType.TEXT_MESSAGE_CONTENT,
+      delta: "Reading",
+      subagentRunId: CHILD.call_id,
+    })
+    expect(out[7]).toEqual({
+      type: EventType.TEXT_MESSAGE_END,
+      messageId: "msg-1",
+      subagentRunId: CHILD.call_id,
+    })
+    expect(out[8]).toEqual({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: CHILD.call_id,
+      result: "found it",
+      outcome: { type: "success" },
+    })
+    expect(out[9]).toMatchObject({ type: EventType.TOOL_CALL_RESULT, toolCallId: CHILD.call_id })
+    expect(out[9]).not.toHaveProperty("subagentRunId")
+    expect(kinds).not.toContain(EventType.ACTIVITY_SNAPSHOT)
+  })
+
+  test("a failed child is SUBAGENT_ERROR", async () => {
+    const out = await collect([
+      START,
+      { type: "subagent.end", data: { ...CHILD, error: "boom" } },
+      { type: "done" },
+    ])
+    expect(out[1]).toMatchObject({ type: EventType.SUBAGENT_STARTED })
+    expect(out[2]).toEqual({
+      type: EventType.SUBAGENT_ERROR,
+      subagentRunId: CHILD.call_id,
+      message: "boom",
+    })
+  })
+
+  test("the child's tool calls, reasoning, usage and plan are attributed; the plan has its own id", async () => {
+    const out = await collect([
+      START,
+      { type: "subagent.reasoning", data: { ...CHILD, data: "plan", messageId: "cm1" } },
+      {
+        type: "subagent.tool_call",
+        data: { ...CHILD, id: "ct1", name: "readDoc", input: { p: "a" } },
+      },
+      {
+        type: "subagent.tool_result",
+        data: { ...CHILD, id: "ct1", name: "readDoc", output: "text" },
+      },
+      {
+        type: "subagent.plan_update",
+        data: { ...CHILD, todos: [{ content: "read", status: "completed" }] },
+      },
+      {
+        type: "subagent.usage",
+        data: { ...CHILD, usage_metadata: { input_tokens: 1, output_tokens: 1 } },
+      },
+      { type: "subagent.end", data: { ...CHILD, final_message: "ok" } },
+      { type: "done" },
+    ])
+    for (const e of out) {
+      if (e.type === EventType.RUN_STARTED || e.type === EventType.RUN_FINISHED) continue
+      expect(e).toHaveProperty("subagentRunId", CHILD.call_id)
+    }
+    expect(out.find((e) => e.type === EventType.ACTIVITY_SNAPSHOT)).toMatchObject({
+      messageId: `b4:plan:${CHILD.call_id}`,
+      activityType: B4_PLAN_ACTIVITY_TYPE,
+      replace: true,
+    })
+    expect(out.find((e) => e.type === EventType.TOOL_CALL_START)).toMatchObject({
+      toolCallId: "ct1",
+      toolCallName: "readDoc",
+    })
+    const kinds = out.map((e) => e.type)
+    // Open reasoning closes before the child finishes.
+    expect(kinds.indexOf(EventType.REASONING_END)).toBeLessThan(
+      kinds.indexOf(EventType.SUBAGENT_FINISHED),
+    )
+    expect(out.at(-1)).toMatchObject({ usage: [{ inputTokens: 1, outputTokens: 1 }] })
+  })
+
+  test("a nested child names its parent invocation", async () => {
+    const GRAND = { call_id: "c2", subagent: "reader", route_id: "/r#reader", depth: 2 }
+    const out = await collect([
+      START,
+      { type: "subagent.start", data: { ...GRAND, parent_call_id: CHILD.call_id } },
+      { type: "subagent.end", data: { ...GRAND, final_message: "x" } },
+      { type: "subagent.end", data: { ...CHILD, final_message: "y" } },
+      { type: "done" },
+    ])
+    expect(out[2]).toEqual({
+      type: EventType.SUBAGENT_STARTED,
+      subagentRunId: "c2",
+      name: "reader",
+      parentToolCallId: "c2",
+      parentSubagentRunId: CHILD.call_id,
+    })
+    expect(out.map((e) => e.type).slice(3)).toEqual([
+      EventType.SUBAGENT_FINISHED,
+      EventType.SUBAGENT_FINISHED,
+      EventType.RUN_FINISHED,
+    ])
+  })
+
+  test("a child interrupt suspends the child, tags the interrupt, and text closes first", async () => {
+    const out = await collect([
+      START,
+      token("asking"),
+      { type: "interrupt", data: { interruptId: "i1", kind: "tool", callId: CHILD.call_id } },
+      { type: "done" },
+    ])
+    const kinds = out.map((e) => e.type)
+    expect(kinds.slice(-2)).toEqual([EventType.SUBAGENT_FINISHED, EventType.RUN_FINISHED])
+    expect(out.at(-2)).toEqual({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: CHILD.call_id,
+      outcome: { type: "suspended", interruptIds: ["i1"] },
+    })
+    expect(out.at(-1)).toMatchObject({
+      outcome: {
+        type: "interrupt",
+        interrupts: [{ id: "i1", toolCallId: CHILD.call_id, subagentRunId: CHILD.call_id }],
+      },
+    })
+    expect(kinds.indexOf(EventType.TEXT_MESSAGE_END)).toBeLessThan(
+      kinds.indexOf(EventType.SUBAGENT_FINISHED),
+    )
+  })
+
+  test("a parent suspended only because its child interrupted carries no interruptIds; deepest closes first", async () => {
+    const GRAND = { call_id: "c2", subagent: "reader", route_id: "/r#reader", depth: 2 }
+    const out = await collect([
+      START,
+      { type: "subagent.start", data: { ...GRAND, parent_call_id: CHILD.call_id } },
+      { type: "interrupt", data: { interruptId: "i1", kind: "tool", callId: "c2" } },
+      { type: "done" },
+    ])
+    const finished = out.filter((e) => e.type === EventType.SUBAGENT_FINISHED)
+    expect(finished.map((e) => e.subagentRunId)).toEqual(["c2", CHILD.call_id])
+    expect(finished[0]).toMatchObject({ outcome: { type: "suspended", interruptIds: ["i1"] } })
+    expect(finished[1]).toEqual({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: CHILD.call_id,
+      outcome: { type: "suspended" },
+    })
+    // A root interrupt is never attributed.
+    const root = await collect([
+      START,
+      { type: "interrupt", data: { interruptId: "r1", kind: "tool", callId: "some-root-tool" } },
+      { type: "done" },
+    ])
+    expect(root.at(-1)).toMatchObject({ outcome: { interrupts: [{ id: "r1" }] } })
+    expect(
+      (root.at(-1) as { outcome: { interrupts: unknown[] } }).outcome.interrupts[0],
+    ).not.toHaveProperty("subagentRunId")
+  })
+
+  test("open children at done or stream end are closed with SUBAGENT_ERROR; a cancel too; RUN_ERROR abandons them", async () => {
+    for (const tail of [[{ type: "done" }], []] as B4AgentStreamChunk[][]) {
+      const out = await collect([START, token("x"), ...tail])
+      expect(out.at(-2)).toEqual({
+        type: EventType.SUBAGENT_ERROR,
+        subagentRunId: CHILD.call_id,
+        message: "The run ended before the subagent finished.",
+        code: "unterminated",
+      })
+      expect(out.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED })
+    }
+    for (const cancelled of [true, false]) {
+      async function* failing(): AsyncIterable<B4AgentStreamChunk> {
+        yield START
+        throw new Error("stop")
+      }
+      const out = []
+      for await (const ev of toAguiEvents(failing(), CTX, {
+        idFactory: createCounterIdFactory(),
+        cancelled: () => cancelled,
+      })) {
+        out.push(ev)
+      }
+      if (cancelled) {
+        expect(out.at(-2)).toEqual({
+          type: EventType.SUBAGENT_ERROR,
+          subagentRunId: CHILD.call_id,
+          message: "The run was cancelled.",
+          code: "cancelled",
+        })
+        expect(out.at(-1)).toMatchObject({ outcome: { type: "cancelled" } })
+      } else {
+        expect(out.map((e) => e.type)).not.toContain(EventType.SUBAGENT_ERROR)
+        expect(out.at(-1)?.type).toBe(EventType.RUN_ERROR)
+      }
+    }
+  })
+
+  test("a chunk for an unannounced child, or a re-announce of an open child, is dropped", async () => {
+    const out = await collect([
+      token("orphan"),
+      START,
+      START,
+      { type: "subagent.end", data: { ...CHILD, final_message: "ok" } },
+      { type: "done" },
+    ])
+    const kinds = out.map((e) => e.type)
+    expect(kinds.filter((k) => k === EventType.SUBAGENT_STARTED)).toHaveLength(1)
+    expect(kinds).not.toContain(EventType.TEXT_MESSAGE_START)
+    expect(kinds).toEqual([
+      EventType.RUN_STARTED,
+      EventType.SUBAGENT_STARTED,
+      EventType.SUBAGENT_FINISHED,
+      EventType.RUN_FINISHED,
+    ])
   })
 })

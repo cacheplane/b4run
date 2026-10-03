@@ -347,7 +347,6 @@ import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 assert.deepEqual(Object.keys(root).sort(), [
   "B4_PLAN_ACTIVITY_TYPE",
-  "B4_SUBAGENT_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
   "fromRunAgentInput",
@@ -355,7 +354,6 @@ assert.deepEqual(Object.keys(root).sort(), [
 ])
 
 assert.equal(root.B4_PLAN_ACTIVITY_TYPE, "b4.plan")
-assert.equal(root.B4_SUBAGENT_ACTIVITY_TYPE, "b4.subagent")
 
 for (const exportName of [
   "createCounterIdFactory",
@@ -394,7 +392,6 @@ assert.equal(frame.length, 4 + declared, "a protobuf frame is its 4-byte length 
 export function agUiTypeProbeSource() {
   return `import {
   B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
   createCounterIdFactory,
   createDefaultIdFactory,
   fromRunAgentInput,
@@ -406,7 +403,6 @@ export function agUiTypeProbeSource() {
   type B4PlanActivityContent,
   type B4ResumeRequest,
   type B4RunInput,
-  type B4SubagentActivityContent,
   type IdFactory,
   type RunContext,
   type ToAguiOptions,
@@ -449,7 +445,6 @@ import { asToolResultData } from "@b4run/ag-ui"
 
 type RootValueSurface = readonly [
   typeof B4_PLAN_ACTIVITY_TYPE,
-  typeof B4_SUBAGENT_ACTIVITY_TYPE,
   typeof createCounterIdFactory,
   typeof createDefaultIdFactory,
   typeof fromRunAgentInput,
@@ -467,7 +462,6 @@ type RootTypeSurface = readonly [
   B4AgentStreamChunk,
   RunContext,
   B4PlanActivityContent,
-  B4SubagentActivityContent,
 ]
 
 declare const rootTypeSurface: RootTypeSurface
@@ -481,16 +475,7 @@ const contentType: string = agUiContentType("text/event-stream")
 const planActivity: B4PlanActivityContent = {
   todos: [{ content: "Search the corpus", status: "in_progress" }],
 }
-const subagentActivity: B4SubagentActivityContent = {
-  name: "researcher",
-  depth: 1,
-  status: "running",
-  todos: planActivity.todos,
-  tools: [{ name: "searchCorpus", status: "completed" }],
-  totalToolCount: 1,
-}
 const planActivityType: "b4.plan" = B4_PLAN_ACTIVITY_TYPE
-const subagentActivityType: "b4.subagent" = B4_SUBAGENT_ACTIVITY_TYPE
 
 void [
   rootValueSurface,
@@ -501,9 +486,7 @@ void [
   encoder,
   contentType,
   planActivity,
-  subagentActivity,
   planActivityType,
-  subagentActivityType,
 ]
 `
 }

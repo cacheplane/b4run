@@ -435,7 +435,7 @@ browser
 
 CopilotKit's sidebar uses the literal agent id `default` when none is supplied, so the example registers the B4.run route under that key. See `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
-The client renders plan and researcher cards by passing the adapter's renderer array to CopilotKit:
+The client renders the plan card by passing the adapter's renderer array to CopilotKit, and the subagent tree by mounting `SubagentPanel` on the agent's event stream:
 
 ```tsx
 import "@b4run/ag-ui/react/styles.css"
@@ -449,9 +449,20 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 >
 ```
 
-The stylesheet import gives the cards B4.run's default look in light and dark mode. Without it, the cards still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components` to the card components. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
+```tsx
+import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
+import { useAgent } from "@copilotkit/react-core/v2"
 
-React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the two renderers individually, the card components, and the content schemas, for a client that presents the activities its own way.
+function Subagents() {
+  const { agent } = useAgent()
+  const { runs } = useSubagentRuns(agent)
+  return <SubagentPanel runs={runs} />
+}
+```
+
+`useSubagentRuns` subscribes to the agent and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations — each with its name, status, tool calls, plan, reasoning, prose and result — which `SubagentPanel` renders nested, with the same stylesheet and customization ladder as the plan card. The stylesheet import gives both B4.run's default look in light and dark mode. Without it, they still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components`. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
+
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the plan renderer, card and schema individually, and `reduceSubagentRuns` — the pure reducer behind the hook — for a client that presents the activities or the subagent tree its own way.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
 
@@ -489,9 +500,12 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
 | `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the serialized `status: "error"` ToolMessage the model receives (serialized the same way as a successful result) |
-| `tool_call` and `tool_result` for a `writeTodos` or `task` call whose activity was emitted | none (the activity is the whole presentation) |
-| root `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` |
-| `subagent.start` and the matching child `token`/`reasoning`/`message_end`/`tool_call`/`tool_call_args`/`tool_result`/`plan_update`/`end` chunks | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.subagent`; the child stream itself is consumed (AG-UI 1.0 `SUBAGENT_*` lifecycle and attribution follow in the next release) |
+| `tool_call` and `tool_result` for a `writeTodos` call whose plan activity was emitted | none (the activity is the whole presentation) |
+| `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` — `b4:plan:${runId}` for the root agent, `b4:plan:${call_id}` tagged `subagentRunId` for a subagent's plan |
+| `subagent.start` | `SUBAGENT_STARTED { subagentRunId: call_id, name, description?, parentToolCallId: call_id, parentSubagentRunId? }` |
+| the child's `token`/`reasoning`/`message_end`/`tool_call`/`tool_call_args`/`tool_result`/`plan_update` chunks | the same events the root chunk produces, each tagged `subagentRunId: call_id` |
+| `subagent.end` with `final_message` / with `error` | `SUBAGENT_FINISHED { result, outcome: success }` / `SUBAGENT_ERROR { message }` |
+| a subagent still open at an interrupt, a cancel, or a stream that ended | `SUBAGENT_FINISHED { outcome: suspended, interruptIds? }` / `SUBAGENT_ERROR { code: "cancelled" }` / `SUBAGENT_ERROR { code: "unterminated" }`, before the terminal event |
 | `reasoning` (per model invocation, alongside its `token`s) | `REASONING_START` and `REASONING_MESSAGE_START { role: "reasoning" }` once, then `REASONING_MESSAGE_CONTENT` per delta; both closed at the invocation's `message_end` or the next tool or terminal boundary |
 | `usage` (one per model call, root or subagent) | none on its own; aggregated into `usage` on the terminal event |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
@@ -513,48 +527,33 @@ When a route's [`reasoning`](/docs/reasoning-effort) asks the provider to show i
 
 ### Activity snapshots
 
-Activities use standard AG-UI framing and complete replacement snapshots. A root plan has the stable message id `b4:plan:${runId}`, activity type `b4.plan`, and content holding only the complete todo list. Todo status is one of `pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at run start. The first snapshot follows a valid root `plan_update`.
+Activities use standard AG-UI framing and complete replacement snapshots. The one activity B4.run emits is the plan: activity type `b4.plan`, content holding only the complete todo list, and a stable message id per owner — `b4:plan:${runId}` for the root agent and `b4:plan:${call_id}` for a subagent's own plan, which also carries that subagent's `subagentRunId`. Todo status is one of `pending`, `in_progress`, or `completed`. B4.run emits no seeded-plan activity at run start; the first snapshot follows a valid `plan_update`. Every event has `replace: true`, so later snapshots replace the same stable activity message. B4.run emits no activity deltas.
 
-Each subagent has the stable message id `b4:subagent:${call_id}` and activity type `b4.subagent`. Its content holds:
+Unknown capability chunks close any open text message and are then ignored. Activities are informational. Only the standard interrupt UI resolves or cancels permission requests.
 
-- The subagent's name and positive integer depth.
-- A `running`, `completed`, or `failed` status.
-- An optional current todo list.
-- Up to five recent child-tool name/status summaries, each with status `running`, `completed`, or `incomplete`.
-- The total observed tool count.
-- For a failed activity, an optional human-readable error capped at 400 characters.
+### Subagents
 
-Every event has `replace: true`, so later snapshots replace the same stable activity message.
+A subagent is presented the way AG-UI 1.0 defines it, not as an activity. When the `task` tool starts a child, the adapter emits `SUBAGENT_STARTED` with `subagentRunId` set to the `task` call's own tool-call id (`parentToolCallId` names that call; a nested child also carries `parentSubagentRunId`), the child's declared `name` and `description`. Everything the child then does — its assistant text, reasoning, tool calls and results, its plan snapshot — goes on the wire as the ordinary AG-UI events for those things, each tagged with that `subagentRunId`, so a client can show the child's full transcript or fold it away. The child's `final_message` ends it as `SUBAGENT_FINISHED { result, outcome: { type: "success" } }`; a thrown child ends it as `SUBAGENT_ERROR { message }`. The `task` call itself is an ordinary tool call with its own frames and result.
 
-The adapter validates the full internal identity `{ call_id, subagent, route_id, depth }` on every recognized child event. Only a child event whose identity matches the original `subagent.start` on all four fields can update its activity. `call_id` only forms the stable message id. `route_id` and child tool ids stay internal and never appear in public content. `subagent.message` is consumed without emitting anything.
+Every announced invocation closes before the run ends, as 1.0 requires. A permission interrupt raised inside a child suspends it: `SUBAGENT_FINISHED { outcome: { type: "suspended", interruptIds } }` names the interrupts it raised, the interrupt itself carries the child's `subagentRunId`, and a parent suspended only because its child did carries no `interruptIds`. The resumed run announces the same `subagentRunId` again — the id is the tool-call id, which a resume replays unchanged. A cancel closes an open child with `SUBAGENT_ERROR { code: "cancelled" }`; a stream that ends without the child's `end` closes it with `code: "unterminated"`. `RUN_ERROR` abandons open children, as the protocol says it does. A chunk for a child that was never announced in this run is dropped.
 
-Activities exclude child reasoning and prose, prompts, tool inputs, tool outputs, final child answers, route ids, and raw runtime ids. The content fields are an explicit allowlist. Unknown capability chunks close any open text message and are then ignored. B4.run emits no activity deltas and no raw child stream.
-
-Activities are informational. Only the standard interrupt UI resolves or cancels permission requests. The adapter infers no queued, waiting, cancelled, or parent-task correlation state.
+Root events never carry `subagentRunId`, and `RUN_STARTED`, `RUN_FINISHED` and `RUN_ERROR` never do. `GET /agui/{routeId}` advertises `multiAgent: { supported: true, delegation: true, handoffs: false, subagents: [{ name, description }] }` from the same subagent registry the `task` tool dispatches from, and omits the section for a route with no subagents.
 
 ### Canonical orchestration presentation
 
-B4.run presents its two built-in orchestration actions once. When a `writeTodos` call produced the `b4.plan` activity, or a `task` call produced the `b4.subagent` activity because delegation actually started, the adapter emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` for that call.
+B4.run presents its built-in planning action once. When a `writeTodos` call produced the `b4.plan` activity, the adapter emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same tool-call id as the model's call (`plan_update.tool_call_id`); that internal correlation decides the suppression, and it stays out of activity content. A subagent's own `writeTodos` is never suppressed: its plan snapshot and its tool frames both flow, tagged with the child's id.
 
-The chunk behind the activity carries the same tool-call id as the model's call (`plan_update.tool_call_id`, and the subagent's `call_id`). That internal correlation decides the suppression, and it stays out of activity content. Only `b4.subagent` exposes the id, inside its stable `messageId`.
+Every other tool is unchanged. `task`, `recall`, `searchCorpus`, `readDoc`, `writeFile`, `runBash`, and any application tool produce ordinary tool events.
 
-Every other tool is unchanged. `recall`, `searchCorpus`, `readDoc`, `writeFile`, `runBash`, and any application tool still produce ordinary tool events.
-
-The rule fails open. When the adapter can't prove the suppression is safe, the client sees the ordinary tool card. That covers:
-
-- A call with no tool-call id, or a colliding one.
-- A malformed activity payload.
-- A resolver failure that means `subagent.start` never arrives.
-- A result that arrives with no correlation.
-- Buffer limits.
-- A stream that ends early.
+The rule fails open. When the adapter can't prove the suppression is safe, the client sees the ordinary tool card. That covers a call with no tool-call id or a colliding one, a malformed plan payload, a result that arrives with no correlation, buffer limits, and a stream that ends early.
 
 At a permission interrupt that belongs to the held call, the adapter drops the held frames rather than flushing them. The resumed run presents the same call again under the same tool-call id, and the client merges the two into one card. Unrelated held calls still flush before the interrupt.
 
-<Callout type="warn" title="Activities are the only surface for these two tools">
-  A client with no activity renderer shows less for `writeTodos` and `task`
-  than a generic tool renderer used to. In React, pass `b4ActivityRenderers`
-  to CopilotKit's `renderActivityMessages`, as shown above.
+<Callout type="warn" title="Activities are the only surface for writeTodos">
+  A client with no activity renderer shows less for `writeTodos` than a generic
+  tool renderer used to. In React, pass `b4ActivityRenderers` to CopilotKit's
+  `renderActivityMessages`, as shown above. Subagents need no renderer
+  registration: mount `SubagentPanel` on the agent's event stream.
 </Callout>
 
 ### Inbound input

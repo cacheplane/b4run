@@ -15,9 +15,9 @@ while the package-owned browser test loads this page and proves it discovers
 `GET /api/copilotkit/info` without a legacy base-URL POST. Neither check calls a model.
 
 Scope: basic chat with the `/chat` route. B4.run's AG-UI adapter emits standard
-replacement `b4.plan` and `b4.subagent` activity snapshots when matching
-runtime chunks occur, and this client registers `b4ActivityRenderers` from
-`@b4run/ag-ui/react` so planning is presented rather than silent — the
+replacement `b4.plan` activity snapshots when the agent plans, and this client
+registers `b4ActivityRenderers` from `@b4run/ag-ui/react` so planning is
+presented rather than silent — the
 `/chat` route ships a `plan.md`, so the agent plans with `writeTodos`, and B4.run
 presents that only as an activity. It still drives only `/chat`, so it remains a
 transport-wiring example, not a coordinator UI.

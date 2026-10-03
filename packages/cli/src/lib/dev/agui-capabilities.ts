@@ -52,8 +52,14 @@
  *   — as it is on a boot that cannot load route modules. `state.memory` is
  *   omitted: whether an app
  *   wires long-term memory is tool wiring this handler cannot see.
- * - `multiAgent` is omitted: subagent tooling is app-wired, not
- *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).
+ * - `multiAgent` is `checkRouteSubagents`: the dispatchable members of the
+ *   same subagent registry the `task` tool is built from (explicit
+ *   registrations and `subagents/` convention routes, minus any the delegation
+ *   policy denies outright), each with its model-facing description. The
+ *   translator presents what `task` starts as `SUBAGENT_STARTED/FINISHED/ERROR`
+ *   with `subagentRunId` attribution, so `delegation` is true and `handoffs`
+ *   false (B4.run never transfers the conversation). Omitted when the route
+ *   has no subagents, and for every route that is not an `agent()` descriptor.
  *
  * AG-UI reads an omitted field as UNKNOWN, not unsupported, so a claim this
  * runtime cannot settle — what an agent route exporting a raw runnable does on
@@ -77,6 +83,8 @@ import {
   checkRouteClientToolsSupport,
   checkRouteReasoningSupport,
   checkRouteResponseFormatSupport,
+  checkRouteSubagents,
+  type RouteSubagentInfo,
 } from "../runtime/execute-route-core.js"
 import { type ApprovalGrantRuntime, grantsRefuseEveryResume } from "./approval-grants.js"
 import type { ClientToolRuntime } from "./client-tool-runtime.js"
@@ -116,7 +124,7 @@ export interface AgUiCapabilitiesRequestOptions {
   readonly appRoot: string
   /** The boot-resolved grant mode and store, as `POST`'s resume gate reads them. */
   readonly approvalGrants?: ApprovalGrantRuntime
-  readonly boot?: Pick<BootResolvedInstances, "bootFallbacks" | "config">
+  readonly boot?: Pick<BootResolvedInstances, "bootFallbacks" | "config" | "staticModules">
   /** The boot-resolved client tool store, as `POST` reads it. */
   readonly clientTools?: Pick<ClientToolRuntime, "store">
   readonly config?: B4Config
@@ -188,12 +196,23 @@ async function agentCapabilities(
   let isDescriptor: boolean
   let structuredOutput: boolean
   let streamsReasoning: boolean
+  let subagents: readonly RouteSubagentInfo[]
   try {
-    // All three preflights share one memoized module load.
+    // All four preflights share one memoized module load.
     isDescriptor = (await checkRouteClientToolsSupport(routeModule)).ok
     structuredOutput = (await checkRouteResponseFormatSupport(routeModule)).ok
     const reasoningSupport = await checkRouteReasoningSupport(routeModule)
     streamsReasoning = reasoningSupport.ok && reasoningSupport.streams
+    const subagentSupport = await checkRouteSubagents({
+      ...routeModule,
+      ...(options.registry.manifest !== undefined
+        ? { routeManifest: options.registry.manifest }
+        : {}),
+      ...(options.boot?.staticModules !== undefined
+        ? { staticModules: options.boot.staticModules }
+        : {}),
+    })
+    subagents = subagentSupport.ok ? subagentSupport.subagents : []
   } catch (error) {
     // With node fallbacks the load is the one `POST` would do, and its
     // failure is the route's — surfaced, never dressed up as a document.
@@ -225,6 +244,16 @@ async function agentCapabilities(
       // it does on its own is not this runtime's to claim.
       ...(isDescriptor ? { approvals } : {}),
     },
+    ...(subagents.length > 0
+      ? {
+          multiAgent: {
+            delegation: true,
+            handoffs: false,
+            subagents: subagents.map((subagent) => ({ ...subagent })),
+            supported: true,
+          },
+        }
+      : {}),
     output: { structuredOutput },
     reasoning: streamsReasoning ? STREAMED_REASONING : NO_REASONING,
     state: stateCapabilities(isDescriptor ? true : undefined),
