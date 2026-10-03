@@ -177,6 +177,87 @@ export function unsupportedResponseFormatMessage(provider: BuiltInModelProviderI
   )
 }
 
+/**
+ * What a route's model can take, as a content part: the one judgment behind
+ * both the run-time drop decision (`toLangChainContent`) and the `multimodal`
+ * section of `GET /agui/:routeId`. Read off LangChain's per-model `profile`
+ * (`@langchain/core` `ModelProfile`), every flag defaulting to `false`; a
+ * model with no profile — every `ollama` and `mistral` model, an unknown id
+ * elsewhere — falls back to a conservative per-provider table. `file` is a
+ * provider fact, not a profile one: whether its converter maps a `fileId`.
+ */
+export interface ModalitySupport {
+  readonly image: { readonly data: boolean; readonly url: boolean }
+  readonly pdf: boolean
+  readonly audio: boolean
+  readonly video: boolean
+  readonly toolResult: { readonly image: boolean; readonly pdf: boolean }
+  readonly file: boolean
+}
+
+/** Images inline or by URL, and nothing else: what every provider's converter handles. */
+export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
+  image: { data: true, url: true },
+  pdf: false,
+  audio: false,
+  video: false,
+  toolResult: { image: false, pdf: false },
+  file: false,
+}
+
+/** Providers whose LangChain converter maps a provider file handle (`fileId`). */
+export const FILE_HANDLE_PROVIDERS: readonly BuiltInModelProviderId[] = [
+  "openai",
+  "anthropic",
+  "google",
+]
+
+const PROVIDER_MODALITY_FALLBACK: Partial<Record<BuiltInModelProviderId, ModalitySupport>> = {
+  // `@langchain/ollama` base64-encodes `image_url` content and cannot pass a URL through.
+  ollama: { ...DEFAULT_MODALITY_SUPPORT, image: { data: true, url: false } },
+}
+
+interface ProfileFlags {
+  readonly imageInputs?: unknown
+  readonly imageUrlInputs?: unknown
+  readonly pdfInputs?: unknown
+  readonly audioInputs?: unknown
+  readonly videoInputs?: unknown
+  readonly imageToolMessage?: unknown
+  readonly pdfToolMessage?: unknown
+}
+
+function readProfile(model: unknown): ProfileFlags | undefined {
+  if (typeof model !== "object" || model === null) return undefined
+  const profile = (model as { readonly profile?: unknown }).profile
+  if (typeof profile !== "object" || profile === null || Object.keys(profile).length === 0) {
+    return undefined
+  }
+  return profile as ProfileFlags
+}
+
+export function resolveModalitySupport(
+  model: unknown,
+  provider: BuiltInModelProviderId,
+): ModalitySupport {
+  const file = FILE_HANDLE_PROVIDERS.includes(provider)
+  const profile = readProfile(model)
+  if (!profile) {
+    return { ...(PROVIDER_MODALITY_FALLBACK[provider] ?? DEFAULT_MODALITY_SUPPORT), file }
+  }
+  return {
+    image: { data: profile.imageInputs === true, url: profile.imageUrlInputs === true },
+    pdf: profile.pdfInputs === true,
+    audio: profile.audioInputs === true,
+    video: profile.videoInputs === true,
+    toolResult: {
+      image: profile.imageToolMessage === true,
+      pdf: profile.pdfToolMessage === true,
+    },
+    file,
+  }
+}
+
 interface WithConfig {
   readonly withConfig: (config: Record<string, unknown>) => unknown
 }

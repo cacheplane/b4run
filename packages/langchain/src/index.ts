@@ -13,11 +13,14 @@ export {
   streamAgent,
 } from "./agent-adapter.js"
 export { chainAdapter } from "./chain-adapter.js"
-export type { JsonSchemaResponseFormat } from "./chat-model-factory.js"
+export type { JsonSchemaResponseFormat, ModalitySupport } from "./chat-model-factory.js"
 export {
   createChatModel,
+  DEFAULT_MODALITY_SUPPORT,
+  FILE_HANDLE_PROVIDERS,
   JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS,
   providerPackages,
+  resolveModalitySupport,
   seedModelImporter,
   supportsJsonSchemaResponseFormat,
   unsupportedResponseFormatMessage,
