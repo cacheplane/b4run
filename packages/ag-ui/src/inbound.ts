@@ -1,9 +1,11 @@
-import { contentToText, type Message, type RunAgentInput } from "@ag-ui/core"
+import type { Message, RunAgentInput } from "@ag-ui/core"
+import { type B4MessageContent, isContentPart } from "@b4run/sdk"
 import { type B4ResumeRequest, fromAguiResume } from "./interrupts.js"
 
 export interface B4Message {
   readonly role: "user" | "assistant" | "system" | "developer" | "tool"
-  readonly content: string
+  /** Plain text, or the ordered content parts the client sent (AG-UI 1.0). */
+  readonly content: B4MessageContent
   readonly id?: string
   readonly toolCallId?: string
 }
@@ -18,21 +20,20 @@ export interface B4RunInput {
 type AguiToolMessage = Extract<Message, { role: "tool" }>
 
 /**
- * A message's text. 1.0 content is `string | ContentPart[]`; the text parts
- * concatenate in order via the SDK's own helper, after dropping anything that
- * is not an object so an unvalidated list cannot throw. Media parts carry no
- * text: the B4.run runtime refuses them at the envelope stage
- * (`multimodal_not_supported`) until it can carry them to the model; any
- * other caller sees them contribute nothing.
+ * A message's content. 1.0 content is `string | ContentPart[]`; a string is
+ * kept as is and a part list is kept as parts — the runtime decides what the
+ * model can take (`toLangChainContent`), so nothing is flattened here.
+ * Entries that are not valid parts are dropped, so an unvalidated list cannot
+ * throw downstream; a list with nothing left is empty text. Any other shape
+ * becomes its JSON, as before. Media parts are carried through; the runtime
+ * drops what the route's model cannot take and announces it.
  */
-function coerceContent(content: unknown): string {
+function coerceMessageContent(content: unknown): B4MessageContent {
   if (typeof content === "string") return content
   if (content === undefined || content === null) return ""
   if (Array.isArray(content)) {
-    const parts = content.filter(
-      (part): part is Record<string, unknown> => typeof part === "object" && part !== null,
-    )
-    return contentToText(parts as Parameters<typeof contentToText>[0])
+    const parts = content.filter(isContentPart)
+    return parts.length === 0 ? "" : parts
   }
   try {
     const json = JSON.stringify(content)
@@ -42,7 +43,7 @@ function coerceContent(content: unknown): string {
   }
 }
 
-function toB4ToolMessage(message: AguiToolMessage, content: string): B4Message {
+function toB4ToolMessage(message: AguiToolMessage, content: B4MessageContent): B4Message {
   return {
     role: "tool",
     content,
@@ -60,12 +61,12 @@ function toB4ToolMessage(message: AguiToolMessage, content: string): B4Message {
 function toB4Message(message: Message): B4Message | null {
   switch (message.role) {
     case "tool":
-      return toB4ToolMessage(message, coerceContent(message.content))
+      return toB4ToolMessage(message, coerceMessageContent(message.content))
     case "user":
     case "assistant":
     case "system":
     case "developer":
-      return { role: message.role, content: coerceContent(message.content), id: message.id }
+      return { role: message.role, content: coerceMessageContent(message.content), id: message.id }
     case "activity":
     case "reasoning":
       return null
