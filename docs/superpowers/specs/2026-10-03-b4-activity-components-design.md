@@ -108,8 +108,8 @@ Building blocks also exported for custom steps: `Disclosure`, `StepIcon`,
   `Ns`, `Nm Ms` (threadplane's format), and never claim `<1s` for an unknown
   duration.
 - **Merging.** Only consecutive calls of the same tool merge, and only when
-  done. The merged label comes from the tool's `display.group` (§4) or the
-  fallback "Used {tool} {n} times". `writeTodos` and `task` never merge.
+  done. The merged label comes from the client's label table for built-in tools or
+  the connector's `labels` overrides (§4), else "Used {tool} {n} times". `writeTodos` and `task` never merge.
 - **No spinner flash.** A step that settles within 300 ms never shows its
   running treatment.
 - **Hidden tools.** `writeTodos` renders as `PlanStep`, and `task` as
