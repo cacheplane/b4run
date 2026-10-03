@@ -646,6 +646,7 @@ export function AppShell({
           position and remount the empty state on every switch.
         */}
         <Transcript
+          agent={agent}
           threadKey={activeThreadId}
           messages={agent.messages}
           isRunning={agent.isRunning}

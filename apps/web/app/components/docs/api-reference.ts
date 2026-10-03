@@ -280,22 +280,21 @@ export const API_BEHAVIOR_CONTRACTS = [
     ],
   },
   {
-    id: "ag-ui.activities.subagent-privacy",
+    id: "ag-ui.subagents.lifecycle",
     ownerHref: "/docs/api/ag-ui",
     claim:
-      "A subagent snapshot exposes allowlisted progress only: name, depth, status, optional todos, at most five tool name/status summaries, the total tool count, and an error capped at 400 characters. It never includes child prompts, prose, tool inputs, tool outputs, final answers, route IDs, call IDs, or raw runtime IDs.",
+      "A subagent is announced with SUBAGENT_STARTED before any event is attributed to it, every event it produces carries its subagentRunId, and every announced invocation closes before RUN_FINISHED: with SUBAGENT_FINISHED on its result, suspended at an interrupt, or SUBAGENT_ERROR on failure, cancel, or a stream that ended first.",
     authorities: [
       {
         kind: "test-assertion",
-        file: "packages/ag-ui/test/activities.test.ts",
+        file: "packages/ag-ui/test/outbound.test.ts",
         testNames: [
-          "retains only the five newest tool summaries while counting each id once",
-          "completes once, marks running tools incomplete, and freezes terminal state",
-          "caps failure errors at 400 characters",
-          "consumes child messages and exposes only allowlisted public fields",
+          "start → SUBAGENT_STARTED hanging off the task call; end → FINISHED with the result; task frames flow",
+          "a child interrupt suspends the child, tags the interrupt, and text closes first",
+          "open children at done or stream end are closed with SUBAGENT_ERROR; a cancel too; RUN_ERROR abandons them",
         ],
         assertionFingerprint:
-          'expect ( snapshot ?. content ) . toMatchObject ( { tools : [ { name : "toolName2" , status : "running" } , { name : "toolName3" , status : "running" } , { name : "toolName4" , status : "running" } , { name : "toolName5" , status : "running" } , { name : "toolName6" , status : "running" } , ] , totalToolCount : 6 , } )\nexpect ( projector . project ( "subagent.tool_result" , { ... identity , id : "tool-1" } ) ) . toBeNull ( )\nexpect ( completed ?. content ) . toMatchObject ( { tools : [ { name : "toolName2" , status : "running" } , { name : "toolName3" , status : "running" } , { name : "toolName4" , status : "running" } , { name : "toolName5" , status : "running" } , { name : "toolName6" , status : "completed" } , ] , totalToolCount : 6 , } )\nexpect ( reinserted ?. content ) . toMatchObject ( { tools : [ { name : "toolName3" , status : "running" } , { name : "toolName4" , status : "running" } , { name : "toolName5" , status : "running" } , { name : "toolName6" , status : "completed" } , { name : "toolName1" , status : "running" } , ] , totalToolCount : 6 , } )\nexpect ( ActivitySnapshotEventSchema . parse ( reinserted ) ) . toEqual ( reinserted )\nexpect ( ended ?. content ) . toEqual ( { name : "researcher" , depth : 1 , status : "completed" , todos , tools : [ { name : "searchCorpus" , status : "incomplete" } , { name : "readDoc" , status : "completed" } , ] , totalToolCount : 2 , } )\nexpect ( JSON . stringify ( ended ) ) . not . toContain ( "private child answer" )\nexpect ( ActivitySnapshotEventSchema . parse ( ended ) ) . toEqual ( ended )\nexpect ( projector . project ( "subagent.end" , identity ) ) . toBeNull ( )\nexpect ( projector . project ( "subagent.start" , identity ) ) . toBeNull ( )\nexpect ( projector . project ( "subagent.tool_call" , { ... identity , id : "tool-late" , name : "lateTool" , } ) , ) . toBeNull ( )\nexpect ( projector . project ( "subagent.plan_update" , { ... identity , todos : [ ] } ) ) . toBeNull ( )\nexpect ( ended ?. content ) . toMatchObject ( { status : "failed" , error : "x" . repeat ( 400 ) , } )\nexpect ( ActivitySnapshotEventSchema . parse ( ended ) ) . toEqual ( ended )\nexpect ( projector . project ( "subagent.token" , { ... identity , content : "private child prose" , reasoning : "private reasoning" , } ) , ) . toBeNull ( )\nexpect ( Object . keys ( call ?. content ?? { } ) . sort ( ) ) . toEqual ( [ "depth" , "name" , "status" , "tools" , "totalToolCount" , ] )\nexpect ( Object . keys ( ended ?. content ?? { } ) . sort ( ) ) . toEqual ( [ "depth" , "name" , "status" , "tools" , "totalToolCount" , ] )\nexpect ( serializedContent ) . not . toContain ( privateValue )',
+          'expect ( kinds . slice ( 1 , 4 ) ) . toEqual ( [ EventType . TOOL_CALL_START , EventType . TOOL_CALL_ARGS , EventType . TOOL_CALL_END , ] )\nexpect ( out [ 4 ] ) . toEqual ( { type : EventType . SUBAGENT_STARTED , subagentRunId : CHILD . call_id , name : "researcher" , description : "Finds sources" , parentToolCallId : CHILD . call_id , } )\nexpect ( out [ 5 ] ) . toEqual ( { type : EventType . TEXT_MESSAGE_START , messageId : "msg-1" , role : "assistant" , subagentRunId : CHILD . call_id , } )\nexpect ( out [ 6 ] ) . toMatchObject ( { type : EventType . TEXT_MESSAGE_CONTENT , delta : "Reading" , subagentRunId : CHILD . call_id , } )\nexpect ( out [ 7 ] ) . toEqual ( { type : EventType . TEXT_MESSAGE_END , messageId : "msg-1" , subagentRunId : CHILD . call_id , } )\nexpect ( out [ 8 ] ) . toEqual ( { type : EventType . SUBAGENT_FINISHED , subagentRunId : CHILD . call_id , result : "found it" , outcome : { type : "success" } , } )\nexpect ( out [ 9 ] ) . toMatchObject ( { type : EventType . TOOL_CALL_RESULT , toolCallId : CHILD . call_id } )\nexpect ( out [ 9 ] ) . not . toHaveProperty ( "subagentRunId" )\nexpect ( kinds ) . not . toContain ( EventType . ACTIVITY_SNAPSHOT )\nexpect ( kinds . slice ( - 2 ) ) . toEqual ( [ EventType . SUBAGENT_FINISHED , EventType . RUN_FINISHED ] )\nexpect ( out . at ( - 2 ) ) . toEqual ( { type : EventType . SUBAGENT_FINISHED , subagentRunId : CHILD . call_id , outcome : { type : "suspended" , interruptIds : [ "i1" ] } , } )\nexpect ( out . at ( - 1 ) ) . toMatchObject ( { outcome : { type : "interrupt" , interrupts : [ { id : "i1" , toolCallId : CHILD . call_id , subagentRunId : CHILD . call_id } ] , } , } )\nexpect ( kinds . indexOf ( EventType . TEXT_MESSAGE_END ) ) . toBeLessThan ( kinds . indexOf ( EventType . SUBAGENT_FINISHED ) , )\nexpect ( out . at ( - 2 ) ) . toEqual ( { type : EventType . SUBAGENT_ERROR , subagentRunId : CHILD . call_id , message : "The run ended before the subagent finished." , code : "unterminated" , } )\nexpect ( out . at ( - 1 ) ) . toMatchObject ( { type : EventType . RUN_FINISHED } )\nexpect ( out . at ( - 2 ) ) . toEqual ( { type : EventType . SUBAGENT_ERROR , subagentRunId : CHILD . call_id , message : "The run was cancelled." , code : "cancelled" , } )\nexpect ( out . at ( - 1 ) ) . toMatchObject ( { outcome : { type : "cancelled" } } )\nexpect ( out . map ( ( e ) => e . type ) ) . not . toContain ( EventType . SUBAGENT_ERROR )\nexpect ( out . at ( - 1 ) ?. type ) . toBe ( EventType . RUN_ERROR )',
       },
     ],
   },
@@ -997,10 +996,8 @@ export const API_REQUIRED_CONTRACT_KEYS = [
   "@b4run/ag-ui#./sse:encodeAgUiEvent",
   "@b4run/ag-ui#./client:B4HttpAgent",
   "@b4run/ag-ui#.:B4_PLAN_ACTIVITY_TYPE",
-  "@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE",
   "@b4run/ag-ui#.:B4RunInput",
   "@b4run/ag-ui#.:B4PlanActivityContent",
-  "@b4run/ag-ui#.:B4SubagentActivityContent",
   "@b4run/ag-ui#.:B4UsageData",
   "@b4run/ag-ui#.:RunContext",
   "@b4run/ag-ui#.:ToAguiOptions",

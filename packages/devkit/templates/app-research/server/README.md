@@ -42,9 +42,10 @@ The **web UI** over this endpoint is the sibling [`web/`](../web) package — th
 B4.run Workbench: cited reports, generic tool cards, suggestion prompts, standard
 permission handling, and memory-candidate review. Start it with
 `npm run dev:web` from the app root. If you write your own client instead, do
-not hand-build the plan and researcher cards — `@b4run/ag-ui/react` ships
-them, so a React client passes `b4ActivityRenderers` to CopilotKit's
-`renderActivityMessages` and is done. That is what `web/` does, and the
+not hand-build the plan card or the subagent panel — `@b4run/ag-ui/react` ships
+them: a React client passes `b4ActivityRenderers` to CopilotKit's
+`renderActivityMessages` and mounts `SubagentPanel` from `useSubagentRuns(agent)`.
+That is what `web/` does, and the
 [Research assistant web UI](https://b4.run/docs/recipes/research-web-ui)
 recipe walks through building one.
 

@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest"
-import {
-  B4_PLAN_ACTIVITY_TYPE,
-  B4_SUBAGENT_ACTIVITY_TYPE,
-  type B4PlanActivityContent,
-  type B4SubagentActivityContent,
-} from "../src/index.js"
+import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../src/index.js"
 import { asToolCallData, asToolResultData, type B4AgentStreamChunk } from "../src/types.js"
 
 const planActivityContent = {
@@ -14,27 +9,11 @@ const planActivityContent = {
   ],
 } satisfies B4PlanActivityContent
 
-const subagentActivityContent = {
-  name: "researcher",
-  depth: 1,
-  status: "failed",
-  todos: planActivityContent.todos,
-  tools: [
-    { name: "searchCorpus", status: "completed" },
-    { name: "readDoc", status: "incomplete" },
-  ],
-  totalToolCount: 2,
-  error: "Source unavailable",
-} satisfies B4SubagentActivityContent
-
 const planActivityType: "b4.plan" = B4_PLAN_ACTIVITY_TYPE
-const subagentActivityType: "b4.subagent" = B4_SUBAGENT_ACTIVITY_TYPE
 
 test("exposes the activity content and literal constant types", () => {
   expect(planActivityContent.todos).toHaveLength(2)
-  expect(subagentActivityContent.tools).toHaveLength(2)
   expect(planActivityType).toBe("b4.plan")
-  expect(subagentActivityType).toBe("b4.subagent")
 })
 
 describe("B4AgentStreamChunk", () => {

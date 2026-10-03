@@ -52,9 +52,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `createCounterIdFactory` | Create deterministic IDs for tests and reproducible adapters. |
 | `createDefaultIdFactory` | Create unique runtime event IDs. |
 | `B4_PLAN_ACTIVITY_TYPE` | Identify B4.run plan activity snapshots as `b4.plan`. |
-| `B4_SUBAGENT_ACTIVITY_TYPE` | Identify B4.run subagent activity snapshots as `b4.subagent`. |
 | `B4PlanActivityContent` | Describe the complete public plan snapshot. |
-| `B4SubagentActivityContent` | Describe allowlisted subagent progress. |
 | `IdFactory` | Define event-ID generation. |
 | `B4Message` | Describe a normalized inbound message; `content` is text or AG-UI content parts. |
 | `B4RunInput` | Describe normalized B4.run run input. |
@@ -87,15 +85,20 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 | Export | Responsibility |
 |---|---|
-| `b4ActivityRenderers` | Register both built-in B4.run activity renderers with CopilotKit's `renderActivityMessages`. |
-| `b4PlanActivityRenderer` | Register only the plan activity renderer. |
-| `b4SubagentActivityRenderer` | Register only the subagent activity renderer. |
+| `b4ActivityRenderers` | Register B4.run's activity renderers (the plan) with CopilotKit's `renderActivityMessages`. |
+| `b4PlanActivityRenderer` | Register the plan activity renderer on its own. |
 | `PlanActivityCard` | Present one plan snapshot from its `content`. |
-| `SubagentActivityCard` | Present one subagent snapshot from its `content`. |
 | `ActivityChecklist` | Present a todo list from `todos`, truncated at `limit`. |
+| `useSubagentRuns` | Subscribe to an agent and keep the subagent tree of its current thread from `SUBAGENT_*` and attributed events. |
+| `reduceSubagentRuns` | The pure reducer behind `useSubagentRuns`, for non-React clients and tests. |
+| `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |
+| `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
+| `SubagentPanel` | Render the subagent tree: nested cards with each invocation's status, reasoning, prose, plan, tool calls and result. |
+| `SubagentEventSource` | The subscription seam `useSubagentRuns` needs from an agent. |
+| `SubagentRun` | Everything known about one subagent invocation. |
+| `SubagentRunsState` | The thread id and the invocations keyed by `subagentRunId`. |
+| `SubagentToolCall` | One tool call a subagent made, with its streamed arguments and result. |
 | `planActivityContentSchema` | Validate plan activity content in a custom renderer. |
-| `subagentActivityContentSchema` | Validate subagent activity content in a custom renderer. |
-| `SubagentActivityContentOutput` | Describe parsed subagent content, which admits an explicit `undefined` `todos`. |
 | `B4ActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
 | `B4ActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
 | `B4TodoRowProps` | Describe the props passed to a replacement `TodoRow`. |
@@ -104,7 +107,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 `b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit.
 
-`SubagentActivityContentOutput` is wider than `B4SubagentActivityContent` in one way: this package compiles with `exactOptionalPropertyTypes` and zod does not, so a parsed value can carry an explicit `todos: undefined`. `ActivityChecklist`, `PlanActivityCard`, and `SubagentActivityCard` all accept optional `classNames` and `components` props built from these two types. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+`ActivityChecklist` and `PlanActivityCard` accept optional `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and so does `SubagentPanel`, which renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
 
 ### `@b4run/ag-ui/react/styles.css`
 
@@ -134,10 +137,6 @@ Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work,
 export declare const B4_PLAN_ACTIVITY_TYPE: "b4.plan"
 ```
 
-```ts api-contract="@b4run/ag-ui#.:B4_SUBAGENT_ACTIVITY_TYPE"
-export declare const B4_SUBAGENT_ACTIVITY_TYPE: "b4.subagent"
-```
-
 ```ts api-contract="@b4run/ag-ui#.:B4PlanActivityContent"
 export interface B4PlanActivityContent {
   readonly todos: ReadonlyArray<{
@@ -147,28 +146,13 @@ export interface B4PlanActivityContent {
 }
 ```
 
-```ts api-contract="@b4run/ag-ui#.:B4SubagentActivityContent"
-export interface B4SubagentActivityContent {
-  readonly name: string
-  readonly depth: number
-  readonly status: "running" | "completed" | "failed"
-  readonly todos?: B4PlanActivityContent["todos"]
-  readonly tools: ReadonlyArray<{
-    readonly name: string
-    readonly status: "running" | "completed" | "incomplete"
-  }>
-  readonly totalToolCount: number
-  readonly error?: string
-}
-```
-
 #### Behavior contract `ag-ui.activities.plan-snapshot`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["plan activity does not flush an open text message"]}] */}
 A valid plan update becomes a complete replacement snapshot with activity type `b4.plan` and the stable message ID `b4:plan:<runId>` without breaking an open assistant text message.
 
-#### Behavior contract `ag-ui.activities.subagent-privacy`
-{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/activities.test.ts","testNames":["retains only the five newest tool summaries while counting each id once","completes once, marks running tools incomplete, and freezes terminal state","caps failure errors at 400 characters","consumes child messages and exposes only allowlisted public fields"]}] */}
-A subagent snapshot exposes allowlisted progress only: name, depth, status, optional todos, at most five tool name/status summaries, the total tool count, and an error capped at 400 characters. It never includes child prompts, prose, tool inputs, tool outputs, final answers, route IDs, call IDs, or raw runtime IDs.
+#### Behavior contract `ag-ui.subagents.lifecycle`
+{/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["start → SUBAGENT_STARTED hanging off the task call; end → FINISHED with the result; task frames flow","a child interrupt suspends the child, tags the interrupt, and text closes first","open children at done or stream end are closed with SUBAGENT_ERROR; a cancel too; RUN_ERROR abandons them"]}] */}
+A subagent is announced with `SUBAGENT_STARTED` before any event is attributed to it, every event it produces carries its `subagentRunId`, and every announced invocation closes before `RUN_FINISHED`: with `SUBAGENT_FINISHED` on its result, `suspended` at an interrupt, or `SUBAGENT_ERROR` on failure, cancel, or a stream that ended first.
 
 ### `ToAguiOptions`
 
