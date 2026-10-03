@@ -3,13 +3,14 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { ABANDONED_CLIENT_TOOL_RESULT, CLIENT_TOOL_UNAVAILABLE_RESULT } from "@b4run/core"
 import {
+  type ClientToolCallRecord,
   type ClientToolCallStore,
   createMemoryClientToolCallStore,
   createMemoryInterruptGrantStore,
 } from "@b4run/sdk"
 import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handler.ts"
 import {
@@ -101,6 +102,8 @@ async function fixtureApp(options: AppOptions = {}): Promise<string> {
     "src/app/echo/index.ts": ECHO_ROUTE,
     "src/app/mixed/index.ts": MIXED_ROUTE,
     "src/app/mixed/tools/deployProd.ts": DEPLOY_TOOL,
+    "src/app/plain/index.ts": PARK_ROUTE,
+    "src/app/plain/tools/deployProd.ts": DEPLOY_TOOL,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -1530,5 +1533,139 @@ describe("client tool boot settings and request bounds", () => {
     expect(response.status).toBe(413)
     const body = (await response.json()) as { error?: { details?: { code?: string } } }
     expect(body.error?.details?.code).toBe("payload_too_large")
+  })
+})
+
+describe("the tool-call record covers every tool call on a run with a store", () => {
+  it("a server tool call on an app with a store is recorded as a settled server row", async () => {
+    const store = createMemoryClientToolCallStore()
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    const appRoot = await fixtureApp({
+      store,
+      config: `export default { server: { agui: { clientTools: ["/park"], clientToolStore: globalThis.${STORE_KEY} } } }\n`,
+    })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    expect(finished(first.events)?.outcome).toEqual({ type: "success" })
+    const rows = await store.listForThread(threadId)
+    const server = rows.find((row) => row.toolCallId === "call_deploy")
+    expect(server).toMatchObject({
+      kind: "server",
+      toolName: "deployProd",
+      routeId: "/plain#agent",
+      runId: "run-1",
+    })
+    expect(server?.settledAt).not.toBeNull()
+    expect(await store.listOutstanding(threadId)).toEqual([])
+  })
+
+  it("an app with no store records nothing and runs unchanged", async () => {
+    await withModel([
+      { match: { userMessage: "hello", hasToolResult: true }, response: { content: "Done." } },
+      { match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } },
+    ])
+    const appRoot = await fixtureApp({ config: "export default {}\n" })
+    const handler = await createHandler(appRoot)
+    const threadId = `thread-${crypto.randomUUID()}`
+    const first = await run(
+      handler,
+      aguiRequest(threadId, "run-1", [USER_HELLO], { route: "/plain#agent", tools: [] }),
+    )
+    expect(first.status).toBe(200)
+    expect(await resolveClientToolCallStore(appRoot)).toBeUndefined()
+  })
+
+  it("pendingToolCallIds on a parking turn come from the record", async () => {
+    const t = await parkedRun([CALL_A, CALL_B])
+    expect(finished(t.first.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_a", "call_b"],
+    })
+    expect((await t.store.listOutstanding(t.threadId)).map((r) => r.toolCallId)).toEqual([
+      "call_a",
+      "call_b",
+    ])
+  })
+
+  it("a partial answer reports the still-open rows from the record", async () => {
+    const t = await parkedRun([CALL_A, CALL_B])
+    const second = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a", "call_b"]),
+        toolResult("m3", "call_a", "A"),
+      ]),
+    )
+    expect(finished(second.events)?.outcome).toEqual({
+      type: "success",
+      pendingToolCallIds: ["call_b"],
+    })
+  })
+
+  it("each run prunes the thread's closed rows older than the retention window, never open ones", async () => {
+    const store = createMemoryClientToolCallStore()
+    const t = await parkedRun([CALL_A], { store })
+    const stale = (toolCallId: string, over: Partial<ClientToolCallRecord>) =>
+      store.issue({
+        threadId: t.threadId,
+        toolCallId,
+        kind: "server",
+        interruptId: "",
+        toolName: "readFile",
+        runId: "run-0",
+        routeId: "/park#agent",
+        issuedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: null,
+        answeredAt: null,
+        result: null,
+        voidedAt: null,
+        settledAt: null,
+        ...over,
+      })
+    await stale("old_settled", { settledAt: "2026-01-01T00:00:01.000Z" })
+    await stale("old_open", {})
+    const second = await run(
+      t.handler,
+      aguiRequest(t.threadId, "run-2", [
+        USER_HELLO,
+        assistantCalls(["call_a"]),
+        toolResult("m3", "call_a", "A"),
+      ]),
+    )
+    expect(second.status).toBe(200)
+    const ids = (await store.listForThread(t.threadId)).map((r) => r.toolCallId)
+    expect(ids).not.toContain("old_settled")
+    expect(ids).toContain("old_open")
+  })
+
+  it("a prune failure is logged and the run continues", async () => {
+    const inner = createMemoryClientToolCallStore()
+    const store: ClientToolCallStore = {
+      ...inner,
+      prune: async () => {
+        throw new Error("prune down")
+      },
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const t = await parkedRun([CALL_A], { store })
+      expect(t.first.status).toBe(200)
+      expect(finished(t.first.events)?.outcome).toMatchObject({ type: "success" })
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not prune"),
+        expect.any(Error),
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

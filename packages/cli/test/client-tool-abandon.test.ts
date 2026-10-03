@@ -149,6 +149,8 @@ async function parkedThread(toolCalls: readonly ToolCallSpec[]) {
         kind: "client",
         settledAt: null,
       }),
+    issue: async () => {},
+    settle: async () => {},
   }
   const route = {
     appRoot,
