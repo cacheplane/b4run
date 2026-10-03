@@ -1,3 +1,5 @@
+import type { B4MessageContent } from "@b4run/sdk"
+import { decodeClientToolResult, encodeClientToolResult } from "@b4run/sdk"
 import type { PostgresStoreOptions } from "./options.js"
 import {
   assertIdentifier,
@@ -13,6 +15,9 @@ import { throwNoPool } from "./sql.js"
  * The client tool call contract, declared structurally here rather than
  * imported from `@b4run/sdk` (same rule as `interrupt-grants.ts`: this
  * package's `.d.ts` must not drag a consumer into another workspace package).
+Only the result's content type is imported: this package already depends on
+`@b4run/sdk` at run time for the result codec, so naming its
+`B4MessageContent` drags a consumer into nothing new.
  * Member for member identical to `@b4run/sdk`'s `ToolCallRecordKind`,
  * `ClientToolCallRecord`, `ClientToolCallAnswer`, `ClientToolCallSettle` and
  * `ClientToolCallStore`;
@@ -43,8 +48,11 @@ export interface ClientToolCallRecord {
   readonly expiresAt: string | null
   /** Client rows only. */
   readonly answeredAt: string | null
-  /** The client's result text, set together with `answeredAt`. Client rows only. */
-  readonly result: string | null
+  /**
+   * The client's result — text, or an ordered part list — set together with
+   * `answeredAt`. Client rows only.
+   */
+  readonly result: B4MessageContent | null
   /** Client rows only. */
   readonly voidedAt: string | null
   /** Server rows only: when the tool returned or threw. */
@@ -84,7 +92,7 @@ export interface ClientToolCallStore {
   answer(options: {
     readonly threadId: string
     readonly toolCallId: string
-    readonly result: string
+    readonly result: B4MessageContent
     readonly at: string
   }): Promise<ClientToolCallAnswer>
   /**
@@ -161,7 +169,10 @@ function rowToRecord(row: CallRow): ClientToolCallRecord {
     issuedAt: row.issued_at,
     expiresAt: row.expires_at ?? null,
     answeredAt: row.answered_at ?? null,
-    result: row.result ?? null,
+    // No schema migration (spec §3.2): `result` stays TEXT. Text is stored as
+    // itself and a part list as a self-describing envelope, so rows written
+    // before parts existed decode as the text they are.
+    result: decodeClientToolResult(row.result ?? null),
     voidedAt: row.voided_at ?? null,
     settledAt: row.settled_at ?? null,
   }
@@ -245,7 +256,8 @@ export function createPostgresClientToolCallStore(
           record.issuedAt,
           record.expiresAt,
           record.answeredAt,
-          record.result,
+          // TEXT column, envelope for parts (spec §3.2); `null` stays NULL.
+          record.result === null ? null : encodeClientToolResult(record.result),
           record.voidedAt,
           record.kind,
           record.settledAt,
@@ -291,7 +303,8 @@ export function createPostgresClientToolCallStore(
          WHERE thread_id = $3 AND tool_call_id = $4 AND kind = 'client'
            AND answered_at IS NULL AND voided_at IS NULL
          RETURNING ${COLUMNS}`,
-        [at, result, threadId, toolCallId],
+        // TEXT column, envelope for parts (spec §3.2).
+        [at, encodeClientToolResult(result), threadId, toolCallId],
       )
       const won = updated.rows[0]
       if (won) return { outcome: "answered", record: rowToRecord(won) }

@@ -164,6 +164,58 @@ describe.skipIf(!enabled)("postgres client tool call store against real Postgres
     })
   }, 60_000)
 
+  const parts = [
+    { type: "text", text: "panel opened" },
+    { type: "image", source: { type: "data", value: "iVBORw0KGgo=", mimeType: "image/png" } },
+  ] as const
+
+  test("a parts answer round-trips through get and listForThread (spec §3.2 envelope)", async () => {
+    await withStore(async (store) => {
+      await store.issue(call())
+      const answered = await store.answer({
+        threadId: "t-1",
+        toolCallId: "c-1",
+        result: parts,
+        at: AT,
+      })
+      expect(answered.outcome === "answered" && answered.record.result).toEqual(parts)
+      expect(await store.get("t-1", "c-1")).toMatchObject({ answeredAt: AT, result: parts })
+      expect((await store.listForThread("t-1"))[0]?.result).toEqual(parts)
+    })
+  }, 60_000)
+
+  test("an issued record carrying parts round-trips", async () => {
+    await withStore(async (store) => {
+      const record = call({ answeredAt: AT, result: parts })
+      await store.issue(record)
+      expect(await store.get("t-1", "c-1")).toEqual(record)
+    })
+  }, 60_000)
+
+  test("a text answer still reads back as text", async () => {
+    await withStore(async (store) => {
+      await store.issue(call())
+      await store.answer({ threadId: "t-1", toolCallId: "c-1", result: "red", at: AT })
+      expect((await store.get("t-1", "c-1"))?.result).toBe("red")
+    })
+  }, 60_000)
+
+  test("text that looks like the envelope but is not a valid part list reads back as that text", async () => {
+    await withStore(async (store) => {
+      const lookalikes = [
+        '{"$b4":"content-parts","parts":[{"type":"image"}]}',
+        '{"$b4":"content-parts","parts":"nope"}',
+        '{"$b4":"other","parts":[]}',
+        '{"$b4": not json',
+      ]
+      for (const [i, text] of lookalikes.entries()) {
+        await store.issue(call({ toolCallId: `look-${i}` }))
+        await store.answer({ threadId: "t-1", toolCallId: `look-${i}`, result: text, at: AT })
+        expect((await store.get("t-1", `look-${i}`))?.result).toBe(text)
+      }
+    })
+  }, 60_000)
+
   test("the same tool call id on another thread is unaffected", async () => {
     await withStore(async (store) => {
       await store.issue(call({ threadId: "t-1" }))
