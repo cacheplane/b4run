@@ -954,6 +954,111 @@ export function nonAgentReasoningMessage(routeId: string, kind: string): string 
   return `Route "${routeId}" is a ${kind} route; reasoning controls apply only to an agent() route's root model.`
 }
 
+/**
+ * The subagents an `agent()` route can dispatch, resolved exactly as
+ * `prepareRouteExecution` resolves them for the `task` tool: explicit
+ * registrations through the descriptor route index, convention routes under
+ * `subagents/`, each with its model-facing description. One function so
+ * `GET /agui/:routeId`'s `multiAgent` claim and the tool that honours it can
+ * never disagree.
+ */
+async function resolveRouteSubagentRegistry(options: {
+  readonly appRoot: string
+  readonly descriptor: Parameters<typeof resolveSubagentRegistry>[0]["descriptor"]
+  readonly fallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+  readonly routeManifest: RouteManifest | undefined
+  readonly staticModules: B4StaticModules | undefined
+}): Promise<readonly ResolvedSubagent[]> {
+  const { fallbacks } = options
+  const routeManifest =
+    options.routeManifest ??
+    (await requireFallbacks(fallbacks, "routeManifest").discoverRouteManifest(options.appRoot))
+  const staticMaps = options.staticModules
+    ? getCachedStaticDescriptorMaps(options.staticModules)
+    : undefined
+  const descriptorRouteIndex =
+    staticMaps?.descriptorRouteIndex ??
+    (await requireFallbacks(fallbacks, "subagent descriptor index").descriptorRouteIndex(
+      routeManifest,
+    ))
+  return resolveSubagentRegistry({
+    descriptor: options.descriptor,
+    descriptorRouteIndex,
+    parentRouteDir: pureDirname(options.routeFile),
+    parentRouteId: options.routeId,
+    routeManifest,
+    loadDescription: async (route) => {
+      if (staticMaps) {
+        const staticDescriptor = staticMaps.routeDescriptors.get(route.id)
+        return typeof staticDescriptor?.description === "string"
+          ? staticDescriptor.description
+          : "No description provided."
+      }
+      return await requireFallbacks(fallbacks, "subagent description").loadSubagentDescription(
+        route,
+      )
+    },
+  })
+}
+
+/** A subagent as `GET /agui/:routeId` advertises it (AG-UI `SubagentInfo`). */
+export interface RouteSubagentInfo {
+  readonly name: string
+  readonly description: string
+}
+
+/**
+ * The subagents a route can dispatch, for `GET /agui/:routeId`'s `multiAgent`
+ * section: the dispatchable members of the same registry the `task` tool is
+ * built from (a registration the delegation policy denies outright is not
+ * advertised). A chain/graph/workflow route or a raw runnable declares none;
+ * a registry that fails to resolve reports why, and the run surfaces it.
+ */
+export async function checkRouteSubagents(options: {
+  readonly appRoot: string
+  readonly bootFallbacks: RuntimeBootFallbacks | undefined
+  readonly routeFile: string
+  readonly routeId: string
+  readonly routeManifest?: RouteManifest
+  readonly staticModules?: B4StaticModules
+}): Promise<
+  { readonly ok: true; readonly subagents: readonly RouteSubagentInfo[] } | PreparedRouteError
+> {
+  const prepared = await getPreparedRouteModules(
+    { appRoot: options.appRoot, routeFile: options.routeFile, routeId: options.routeId },
+    options.bootFallbacks,
+  )
+  const normalized = prepared.module
+  if (normalized.kind !== "agent" || !isB4Agent(normalized.entry)) {
+    return {
+      ok: false,
+      message: `Route "${options.routeId}" declares no subagents: only an agent() descriptor route does.`,
+    }
+  }
+  try {
+    const registry = await resolveRouteSubagentRegistry({
+      appRoot: options.appRoot,
+      descriptor: normalized.entry,
+      fallbacks: options.bootFallbacks,
+      routeFile: options.routeFile,
+      routeId: options.routeId,
+      routeManifest: options.routeManifest,
+      staticModules: options.staticModules,
+    })
+    return {
+      ok: true,
+      subagents: dispatchableSubagents(registry).map(({ name, description }) => ({
+        name,
+        description,
+      })),
+    }
+  } catch (error) {
+    return { ok: false, message: formatErrorMessage(error) }
+  }
+}
+
 export interface PreparedRoute {
   readonly normalized: {
     readonly kind: "agent" | "chain" | "graph" | "workflow"
@@ -1372,30 +1477,16 @@ async function prepareRouteExecutionForInvocation(
     const staticMaps = options.staticModules
       ? getCachedStaticDescriptorMaps(options.staticModules)
       : undefined
-    const descriptorRouteIndex =
-      staticMaps?.descriptorRouteIndex ??
-      (await requireFallbacks(fallbacks, "subagent descriptor index").descriptorRouteIndex(
-        routeManifest,
-      ))
     let subagentRegistry: readonly ResolvedSubagent[]
     try {
-      subagentRegistry = await resolveSubagentRegistry({
+      subagentRegistry = await resolveRouteSubagentRegistry({
+        appRoot: options.appRoot,
         descriptor,
-        descriptorRouteIndex,
-        parentRouteDir: routeDir,
-        parentRouteId: options.routeId,
+        fallbacks,
+        routeFile: options.routeFile,
+        routeId: options.routeId,
         routeManifest,
-        loadDescription: async (route) => {
-          if (staticMaps) {
-            const staticDescriptor = staticMaps.routeDescriptors.get(route.id)
-            return typeof staticDescriptor?.description === "string"
-              ? staticDescriptor.description
-              : "No description provided."
-          }
-          return await requireFallbacks(fallbacks, "subagent description").loadSubagentDescription(
-            route,
-          )
-        },
+        staticModules: options.staticModules,
       })
     } catch (error) {
       return { message: formatErrorMessage(error), ok: false }
