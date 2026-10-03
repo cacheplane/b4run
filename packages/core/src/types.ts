@@ -142,6 +142,14 @@ export interface B4Config {
      */
     readonly grantTtlMs?: number
     /**
+     * How long, in milliseconds, a settled grant record (consumed or voided)
+     * is kept before the runtime deletes it. Default `604800000` (7 days).
+     * Outstanding grants are never deleted, however old. Must be a positive
+     * integer no greater than one year (`31536000000`); anything else fails
+     * the boot.
+     */
+    readonly grantRetentionMs?: number
+    /**
      * Where consumption is recorded. Defaults to the SQLite store beside the
      * checkpointer on node, and to an in-process store elsewhere — which is
      * NOT durable and NOT replica-safe, so a multi-replica deployment must

@@ -127,9 +127,10 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
 
       if (changes > 0) {
         const record = readRow(threadId, interruptId)
-        // Unreachable in practice: the UPDATE just matched this row, and there
-        // is no DELETE path on this table. Kept as a type-level floor rather
-        // than a non-null assertion, so a future deleter fails loudly.
+        // Reachable only by a `voidOutstanding` + `prune` racing a
+        // just-completed consume: prune deletes voided rows, so the row this
+        // UPDATE matched can be gone by the time it is re-read. `missing` is
+        // the honest answer for a row that no longer exists.
         if (!record) return { outcome: "missing" }
         return { outcome: "consumed", record }
       }
@@ -139,8 +140,9 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
       // AFTER the decision rather than before it.
       const record = readRow(threadId, interruptId)
       if (!record) return { outcome: "missing" }
-      // Voided wins over already-consumed when a row is somehow both: the SDK's
-      // memory store checks in this order, and staleness is the stronger
+      // A row is legitimately both once the thread has moved past a consumed
+      // prompt (`voidOutstanding` voids consumed rows too). Voided wins: the
+      // SDK's memory store checks in this order, and staleness is the stronger
       // complaint — "that proposal is gone" beats "that answer is in".
       if (record.voidedAt !== null) return { outcome: "voided", record }
       if (record.consumedAt !== null) return { outcome: "already_consumed", record }
@@ -151,9 +153,11 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
 
     async voidOutstanding({ threadId, keepInterruptIds, at }) {
       // One statement, and the engine's row count is the answer — the same
-      // reason `consume` is a conditional UPDATE. The `IS NULL` guards keep
-      // the sweep idempotent: a grant already voided keeps its original
-      // timestamp and is not counted twice.
+      // reason `consume` is a conditional UPDATE. The `voided_at IS NULL`
+      // guard keeps the sweep idempotent: a grant already voided keeps its
+      // original timestamp and is not counted twice. Consumed rows are NOT
+      // excluded: once the thread has moved past a consumed prompt its row is
+      // voided too, which is the only thing that lets `prune` delete it.
       //
       // SQL has no empty `NOT IN ()` — `NOT IN ()` is a syntax error, not a
       // vacuous-true predicate — so the empty keep-list is spelled as the
@@ -166,14 +170,28 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
         keepInterruptIds.length === 0
           ? `UPDATE interrupt_grants
                SET voided_at = ?
-             WHERE thread_id = ? AND consumed_at IS NULL AND voided_at IS NULL`
+             WHERE thread_id = ? AND voided_at IS NULL`
           : `UPDATE interrupt_grants
                SET voided_at = ?
              WHERE thread_id = ?
-               AND consumed_at IS NULL
                AND voided_at IS NULL
                AND interrupt_id NOT IN (${placeholders})`
       return changeCount(db.prepare(sql).run(at, threadId, ...keepInterruptIds).changes)
+    },
+
+    async prune({ before }) {
+      // Voided rows only. Outstanding rows are parked prompts, and a consumed
+      // row that was never voided is a prompt whose resume did not complete;
+      // either one with no row resumes ungated under approvals.grants
+      // "optional", so neither is ever deleted.
+      return changeCount(
+        db
+          .prepare(
+            `DELETE FROM interrupt_grants
+             WHERE voided_at IS NOT NULL AND voided_at < ?`,
+          )
+          .run(before).changes,
+      )
     },
   }
 }

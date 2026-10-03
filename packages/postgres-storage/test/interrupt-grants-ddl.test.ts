@@ -87,7 +87,10 @@ describe("INTERRUPT_GRANTS_MIGRATIONS", () => {
 describe("the statements the store issues", () => {
   it("names all nine columns in every INSERT", async () => {
     const { pool, sql } = recordingPool()
-    const store = createPostgresInterruptGrantStore({ pool, assumeMigrated: true })
+    const store = createPostgresInterruptGrantStore({
+      pool,
+      assumeMigrated: true,
+    })
     await store.issue({
       threadId: "t-1",
       interruptId: "i-1",
@@ -129,7 +132,11 @@ describe("the statements the store issues", () => {
     })
     await store.get("t-1", "i-1")
     await store.listForThread("t-1")
-    await store.voidOutstanding({ threadId: "t-1", keepInterruptIds: ["i-1"], at: "2026-09-18" })
+    await store.voidOutstanding({
+      threadId: "t-1",
+      keepInterruptIds: ["i-1"],
+      at: "2026-09-18",
+    })
     expect(sql).not.toHaveLength(0)
     for (const text of sql) {
       expect(text).not.toContain("t-1")
@@ -149,7 +156,10 @@ describe("the statements the store issues", () => {
 
   it("skips the migration pass entirely under assumeMigrated", async () => {
     const { pool, sql } = recordingPool()
-    await createPostgresInterruptGrantStore({ pool, assumeMigrated: true }).ready()
+    await createPostgresInterruptGrantStore({
+      pool,
+      assumeMigrated: true,
+    }).ready()
     expect(sql).toEqual([])
   })
 
@@ -162,5 +172,23 @@ describe("the statements the store issues", () => {
     // Its own component, so it versions independently of threads/permissions.
     expect(sql.some((text) => text.includes("b4_interrupt_grants_migrations"))).toBe(true)
     expect(sql.at(-1)).toBe("COMMIT")
+  })
+})
+
+describe("createPostgresInterruptGrantStore prune", () => {
+  it("is one DELETE over voided rows only", async () => {
+    const { pool, sql } = recordingPool()
+    const store = createPostgresInterruptGrantStore({
+      pool,
+      assumeMigrated: true,
+    })
+    expect(await store.prune({ before: "2026-09-18T12:00:00.000Z" })).toBe(0)
+    const statement = sql.find((text) => /DELETE FROM/i.test(text))
+    expect(statement).toBeDefined()
+    expect(normalize(statement ?? "")).toBe(
+      "DELETE FROM public.b4_interrupt_grants " +
+        'WHERE voided_at IS NOT NULL AND voided_at COLLATE "C" < $1 ' +
+        "RETURNING interrupt_id",
+    )
   })
 })

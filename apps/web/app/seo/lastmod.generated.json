@@ -137,9 +137,9 @@
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/approval-grants": {
-      "lastModified": "2026-10-01T20:40:30.000Z",
-      "sourceDigest": "d749c0c0d2225c558fe04ecf6c3564b4bfa6cfe02fecceb2dd33aa8b1bcd8737",
-      "recordDigest": "e3834e90a7b559f1d9336d737ae6334483de9a30b9b231e860838a4091f7bc01"
+      "lastModified": "2026-10-03T02:54:00.000Z",
+      "sourceDigest": "bad030e4cf09b7b0d24bc44c0f301d48312ec19617210f600cf265793e84ca9b",
+      "recordDigest": "2d86add80fe88da0a1f08b335ffcb703e81f560d7dcb261df957d1e4dc540f45"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
@@ -147,14 +147,14 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-10-02T05:29:35.000Z",
-      "sourceDigest": "e5d56b879fb5b9e1479d3b00f31948c465433d34286918fde5f48060ae9d218e",
-      "recordDigest": "8ee9ba23633c7d712027c30df675c5ffe1f56ece6557305891fc0836965b37df"
+      "lastModified": "2026-10-03T02:54:00.000Z",
+      "sourceDigest": "c39b1c52a46b2f44a68c29ccd0323adcebd72d721782ba32096be4ed483c2aa7",
+      "recordDigest": "af13ee1a7b3250cb6f852b1b3653dcfcfadbf4c1712269886b5edf98320639c8"
     },
     "/docs/configuration": {
-      "lastModified": "2026-10-02T05:03:07.000Z",
-      "sourceDigest": "aac3098319b28a867d68f3810632d3a4b2c87a1a792b1b535d9903173892b151",
-      "recordDigest": "19cb0278239a4266f630a1e07ffa5786d3a950410888a64c78bea781c9235c90"
+      "lastModified": "2026-10-03T02:54:00.000Z",
+      "sourceDigest": "547ca1ee4767e6b6a4d7ccf58ba00079aecbecfc0e969995e82db981ca4ac049",
+      "recordDigest": "18021cdf1c01ad81fd30485218b4403e4943a22a81fdb7a59a3591a708e4769b"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-29T18:42:00.000Z",

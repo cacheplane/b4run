@@ -33,6 +33,7 @@ import {
   isApprovalGrantShape,
   timingSafeHexEqual,
 } from "@b4run/sdk"
+import { resolvePositiveMs } from "./client-tool-runtime.js"
 import type { PendingInterrupt } from "./pending-interrupts.js"
 import { createRequestErrorBody } from "./server-errors.js"
 
@@ -48,6 +49,55 @@ export interface ApprovalGrantRuntime {
   readonly mode: ApprovalGrantMode
   readonly store?: InterruptGrantStore
   readonly ttlMs?: number
+  /** `approvals.grantRetentionMs`, resolved. See {@link pruneSettledGrants}. */
+  readonly retentionMs: number
+}
+
+/** An `approvals` setting that cannot be honored as written. */
+export class ApprovalGrantConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ApprovalGrantConfigError"
+  }
+}
+
+/** How long a settled (voided) grant record is kept by default: 7 days. */
+export const DEFAULT_APPROVAL_GRANT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+/** `approvals.grantRetentionMs`, validated; a mistyped value fails the boot. */
+export function resolveApprovalGrantRetentionMs(value: unknown): number {
+  return resolvePositiveMs(
+    "approvals.grantRetentionMs",
+    value,
+    DEFAULT_APPROVAL_GRANT_RETENTION_MS,
+    (message) => new ApprovalGrantConfigError(message),
+  )
+}
+
+const GRANT_STORE_METHODS = [
+  "issue",
+  "get",
+  "listForThread",
+  "consume",
+  "voidOutstanding",
+  "prune",
+] as const
+
+/** `approvals.grantStore`, shape-checked: absent, or an object with every store method. */
+export function validateInterruptGrantStore(value: unknown): InterruptGrantStore | undefined {
+  if (value === undefined) return undefined
+  const missing =
+    typeof value === "object" && value !== null
+      ? GRANT_STORE_METHODS.filter(
+          (method) => typeof (value as Record<string, unknown>)[method] !== "function",
+        )
+      : [...GRANT_STORE_METHODS]
+  if (missing.length > 0) {
+    throw new ApprovalGrantConfigError(
+      `approvals.grantStore must be an InterruptGrantStore; missing ${missing.join(", ")}.`,
+    )
+  }
+  return value as InterruptGrantStore
 }
 
 /**
@@ -389,23 +439,85 @@ export async function consumeGrants(args: {
  * Never allowed to fail a turn: voiding is a tightening, and a runtime that
  * refused to settle a turn because a bookkeeping UPDATE failed would trade a
  * replay window for an outage.
+ *
+ * The void covers every unvoided row of the thread not in `stillPending`,
+ * consumed rows included: a resume consumes its row before the resumed run
+ * executes, so a consumed row whose turn completed is voided here, while one
+ * whose resume did not complete is still pending, stays unvoided, and keeps
+ * its prompt gated.
+ *
+ * Also runs the hourly voided-grant sweep, so retention rides the same
+ * moment. Returns the void count alone; the sweep runs after the void, even a
+ * failed one.
  */
 export async function voidSupersededGrants(args: {
   readonly store?: InterruptGrantStore
   readonly threadId: string
   readonly stillPending: readonly string[]
+  /** `approvals.grantRetentionMs`, resolved. */
+  readonly retentionMs: number
   readonly now?: () => number
 }): Promise<number> {
   if (!args.store) return 0
+  const now = new Date((args.now ?? Date.now)())
+  let voided = 0
   try {
-    return await args.store.voidOutstanding({
+    voided = await args.store.voidOutstanding({
       threadId: args.threadId,
       keepInterruptIds: args.stillPending,
-      at: new Date((args.now ?? Date.now)()).toISOString(),
+      at: now.toISOString(),
     })
   } catch (error) {
     console.warn(`B4: could not void superseded approval grants for ${args.threadId}.`, error)
-    return 0
+  }
+  // A void failure is one thread's bookkeeping; retention is store-wide and
+  // should not be starved by it, and the sweep's own throttle bounds a second
+  // warning to once an hour.
+  await pruneSettledGrants(args.store, args.retentionMs, now)
+  return voided
+}
+
+/** Least time between two opportunistic sweeps of the same grant store: one hour. */
+export const APPROVAL_GRANT_PRUNE_INTERVAL_MS = 60 * 60 * 1000
+
+/** Last sweep per store (ms since epoch). Per process; a WeakMap so a store is never retained by it. */
+let lastGrantSweepAt = new WeakMap<InterruptGrantStore, number>()
+
+/** Test seam: forget every store's last sweep time. */
+export function __resetApprovalGrantPruneThrottleForTests(): void {
+  lastGrantSweepAt = new WeakMap()
+}
+
+/**
+ * Opportunistic retention for settled grant records, run by
+ * {@link voidSupersededGrants} wherever the runtime asserts "the thread moved
+ * on". Global, not per thread, so threads that never return are swept too.
+ * "Settled" means voided: only rows with `voidedAt` before the cutoff are
+ * deleted. A consumed grant is voided once its resumed turn completes; one
+ * whose resume did not complete is never pruned, because deleting it would
+ * leave its parked prompt with no row, and a parked prompt with no grant row
+ * resumes ungated under `approvals.grants: "optional"`. Outstanding rows are
+ * never deleted either, however old, for the same reason. At most once per
+ * {@link APPROVAL_GRANT_PRUNE_INTERVAL_MS} per store; the sweep time is
+ * recorded before the call, so a failed sweep is not retried until the
+ * interval elapses either, which bounds the warning to once an hour. Never
+ * throws. Returns the rows deleted, or `undefined` when nothing ran.
+ */
+export async function pruneSettledGrants(
+  store: InterruptGrantStore,
+  retentionMs: number,
+  now: Date,
+): Promise<number | undefined> {
+  const last = lastGrantSweepAt.get(store)
+  if (last !== undefined && now.getTime() - last < APPROVAL_GRANT_PRUNE_INTERVAL_MS) {
+    return undefined
+  }
+  lastGrantSweepAt.set(store, now.getTime())
+  try {
+    return await store.prune({ before: new Date(now.getTime() - retentionMs).toISOString() })
+  } catch (error) {
+    console.warn("B4: could not prune settled approval grants.", error)
+    return undefined
   }
 }
 

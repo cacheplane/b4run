@@ -1,6 +1,6 @@
 # CLI Reference
 
-B4.run ships a single `b4` binary with sixteen commands: `add`, `build`, `check`, `client-tools`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
+B4.run ships a single `b4` binary with seventeen commands: `add`, `approvals`, `build`, `check`, `client-tools`, `dev`, `docs`, `eval`, `inspect`, `memory`, `routes`, `run`, `start`, `test`, `threads`, `typegen`, and `verify`. Most commands read `b4.config.ts` from the current working directory or from `--cwd <path>`. `b4 dev` always uses the current working directory.
 
 ## Running the CLI
 
@@ -340,6 +340,33 @@ b4 add <url>           # fetch a third-party blueprint from any URL
 `b4 add` only prints the guide. Your agent applies the changes, and you review them. To use a self-hosted catalog, set `B4_BLUEPRINTS_URL`.
 
 See [Blueprints](/docs/blueprints) for authoring and catalog details.
+
+## `b4 approvals`
+
+`b4 approvals` manages the records behind
+[approval grants](/docs/approval-grants).
+
+```
+b4 approvals prune
+b4 approvals prune --retention <ms>
+```
+
+`prune` deletes grant records voided because the thread moved past the prompt
+longer ago than the retention window. A consumed grant is voided when its
+resumed turn completes; an outstanding grant, or a consumed grant whose resume
+never completed, is never deleted, however old. The window is
+[`approvals.grantRetentionMs`](/docs/configuration#approvals) (7 days by
+default); `--retention <ms>` overrides it for one pass. The runtime runs the
+same pass on its own, at most once an hour, so this is for cron or a one-off.
+It prints `pruned: <n>`. With grants on and no store file yet, it creates the
+default store file (`.b4/interrupt-grants.sqlite`) and prunes nothing; with
+grants off and no store file, it says so and exits cleanly.
+
+Flags:
+- `--retention <ms>`: retention window for this pass, a positive integer of at
+  most one year.
+- `--cwd <path>`: operate on a different app root. Give it before the
+  subcommand (`b4 approvals --cwd app prune`), as with `b4 memory`.
 
 ## `b4 docs`
 

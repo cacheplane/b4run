@@ -56,7 +56,12 @@ export class ClientToolConfigError extends Error {
  * would leave a config that reads as configured while the server ignores it.
  */
 export function resolveClientToolTtlMs(value: unknown): number {
-  return resolvePositiveMs("server.agui.clientToolTtlMs", value, DEFAULT_CLIENT_TOOL_TTL_MS)
+  return resolvePositiveMs(
+    "server.agui.clientToolTtlMs",
+    value,
+    DEFAULT_CLIENT_TOOL_TTL_MS,
+    (message) => new ClientToolConfigError(message),
+  )
 }
 
 /**
@@ -68,10 +73,22 @@ export function resolveClientToolRetentionMs(value: unknown): number {
     "server.agui.clientToolRetentionMs",
     value,
     DEFAULT_CLIENT_TOOL_RETENTION_MS,
+    (message) => new ClientToolConfigError(message),
   )
 }
 
-function resolvePositiveMs(key: string, value: unknown, fallback: number): number {
+/**
+ * A positive-integer-milliseconds config setting with a default: `undefined`
+ * yields `fallback`; anything else that is not a positive safe integer of at
+ * most {@link MAX_CLIENT_TOOL_TTL_MS} (one year) is handed to `fail`, whose
+ * error the caller throws so each feature reports its own error class.
+ */
+export function resolvePositiveMs(
+  key: string,
+  value: unknown,
+  fallback: number,
+  fail: (message: string) => Error,
+): number {
   if (value === undefined) return fallback
   if (
     typeof value !== "number" ||
@@ -79,7 +96,7 @@ function resolvePositiveMs(key: string, value: unknown, fallback: number): numbe
     value <= 0 ||
     value > MAX_CLIENT_TOOL_TTL_MS
   ) {
-    throw new ClientToolConfigError(
+    throw fail(
       `${key} must be a positive integer number of milliseconds no greater than ${MAX_CLIENT_TOOL_TTL_MS}; received ${describe(value)}.`,
     )
   }

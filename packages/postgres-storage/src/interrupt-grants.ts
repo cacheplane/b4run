@@ -45,7 +45,10 @@ export interface InterruptGrantRecord {
 /** The outcome of a conditional consume. See {@link PostgresInterruptGrantStore.consume}. */
 export type InterruptGrantConsumption =
   | { readonly outcome: "consumed"; readonly record: InterruptGrantRecord }
-  | { readonly outcome: "already_consumed"; readonly record: InterruptGrantRecord }
+  | {
+      readonly outcome: "already_consumed"
+      readonly record: InterruptGrantRecord
+    }
   | { readonly outcome: "voided"; readonly record: InterruptGrantRecord }
   | { readonly outcome: "missing" }
 
@@ -62,11 +65,34 @@ export interface InterruptGrantStore {
     readonly decision: string
     readonly at: string
   }): Promise<InterruptGrantConsumption>
+  /**
+   * Stamp `voided_at` on every unvoided grant for `threadId` — consumed ones
+   * included — whose `interruptId` is NOT in `keepInterruptIds`, i.e. every
+   * grant whose parked prompt the thread has moved past. A consumed grant is
+   * voided here once its resumed turn has completed, which is what later lets
+   * `prune` delete it; a consumed grant whose prompt is still parked (its
+   * resume failed) is never voided and never pruned. Returns how many were
+   * voided.
+   *
+   * This is the staleness half of #736, and it is what replaces a stored
+   * `checkpoint_id`: "the thread moved on" becomes a fact B4 asserts rather
+   * than a behavior it inherits from LangGraph advancing the checkpoint.
+   */
   voidOutstanding(args: {
     readonly threadId: string
     readonly keepInterruptIds: readonly string[]
     readonly at: string
   }): Promise<number>
+
+  /**
+   * Deletes voided rows whose `voidedAt` is before `before`. Nothing else is
+   * ever deleted: an outstanding row is a parked prompt, and a consumed row
+   * that was never voided is a prompt whose resume did not complete — under
+   * `approvals.grants: "optional"` a parked prompt with no row would resume
+   * ungated. Returns how many rows were deleted. `before` is an ISO-8601
+   * string compared as text.
+   */
+  prune(options: { readonly before: string }): Promise<number>
 }
 
 /** An interrupt-grant store that also owns Postgres lifecycle. */
@@ -275,9 +301,9 @@ export function createPostgresInterruptGrantStore(
         const existing = await selectOne(threadId, interruptId)
         if (!existing) return { outcome: "missing" }
         // Voided is checked before consumed, matching the memory store's
-        // ordering. The two are mutually exclusive in practice — the UPDATE
-        // that sets one requires the other to be NULL — but the order is
-        // pinned so the answer cannot depend on which store you asked.
+        // ordering. A row is legitimately both once the thread has moved past
+        // a consumed prompt (`voidOutstanding` voids consumed rows too), and
+        // voided wins: staleness is the stronger complaint.
         if (existing.voidedAt !== null) return { outcome: "voided", record: existing }
         if (existing.consumedAt !== null) return { outcome: "already_consumed", record: existing }
       }
@@ -301,14 +327,35 @@ export function createPostgresInterruptGrantStore(
       // thread has no pending interrupts left" must mean. An IN-list would
       // have degenerated to `IN ()`, a syntax error.
       //
+      // Consumed rows are NOT excluded: once the thread has moved past a
+      // consumed prompt its row is voided too, which is the only thing that
+      // lets `prune` delete it. `voided_at IS NULL` keeps the sweep idempotent.
+      //
       // The count comes from RETURNING rather than `rowCount`: `SqlPool` is
       // typed on `rows` alone so that a non-`pg` driver can satisfy it.
       const res = await pool.query<{ interrupt_id: string }>(
         `UPDATE ${table} SET voided_at = $1
-         WHERE thread_id = $2 AND consumed_at IS NULL AND voided_at IS NULL
+         WHERE thread_id = $2 AND voided_at IS NULL
            AND NOT (interrupt_id = ANY($3::text[]))
          RETURNING interrupt_id`,
         [at, threadId, [...keepInterruptIds]],
+      )
+      return res.rows.length
+    },
+
+    async prune({ before }) {
+      await ready()
+      // Voided rows only. Outstanding rows are parked prompts, and a consumed
+      // row that was never voided is a prompt whose resume did not complete;
+      // either one with no row resumes ungated under approvals.grants
+      // "optional", so neither is ever deleted. COLLATE "C" makes the
+      // ISO-8601 comparison byte-wise; the count comes from RETURNING because
+      // `SqlPool` exposes `rows` alone.
+      const res = await pool.query<{ interrupt_id: string }>(
+        `DELETE FROM ${table}
+         WHERE voided_at IS NOT NULL AND voided_at COLLATE "C" < $1
+         RETURNING interrupt_id`,
+        [before],
       )
       return res.rows.length
     },

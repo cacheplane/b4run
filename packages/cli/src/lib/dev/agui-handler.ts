@@ -33,6 +33,7 @@ import type { StreamChunk } from "../runtime/stream-types.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import {
   type ApprovalGrantRuntime,
+  DEFAULT_APPROVAL_GRANT_RETENTION_MS,
   gateResumeWithGrants,
   minterFor,
   voidSupersededGrants,
@@ -91,8 +92,8 @@ export interface AgUiFetchRequestOptions {
    *
    * Optional so direct callers (tests, embedders) keep their existing
    * behavior — and that optionality is safe HERE, unlike at the park site,
-   * because absence resolves to `{ mode: "off" }`, which is exactly the
-   * pre-grant path. The fail-closed decision lives at the park, not at the
+   * because absence resolves to mode `"off"` with the default retention,
+   * which is exactly the pre-grant path. The fail-closed decision lives at the park, not at the
    * handler.
    */
   readonly approvalGrants?: ApprovalGrantRuntime
@@ -377,7 +378,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     permissionsStore,
     registry,
     resumeClaims,
-    approvalGrants = { mode: "off" },
+    approvalGrants = { mode: "off", retentionMs: DEFAULT_APPROVAL_GRANT_RETENTION_MS },
     runRegistry,
     threadAccess,
     threadsStore,
@@ -1282,6 +1283,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                         ...(approvalGrants.store ? { store: approvalGrants.store } : {}),
                         threadId,
                         stillPending,
+                        retentionMs: approvalGrants.retentionMs,
                       })
                     },
                   }),
