@@ -24,13 +24,7 @@ export const DEFAULT_CLIENT_TOOL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
  * recorded.
  */
 export const MAX_CLIENT_TOOL_RESULT = 64 * 1024
-/**
- * The `POST /agui/:routeId` body ceiling. Larger than the other JSON
- * endpoints' 1 MiB because every AG-UI client resends the thread's entire
- * message history on every run; 8 MiB leaves room for a long conversation
- * while keeping one request from buffering without bound.
- */
-export const AGUI_BODY_MAX_BYTES = 8 * 1024 * 1024
+export { AGUI_BODY_MAX_BYTES } from "./request-limits.js"
 
 /** What the AG-UI handler needs to issue, match and answer client tool calls. */
 export interface ClientToolRuntime {

@@ -82,6 +82,7 @@ import {
   withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
+import { AGUI_BODY_MAX_BYTES } from "./request-limits.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
 import { errorStackOf, formatErrorChain } from "./runtime-error-report.js"
 import {
@@ -219,6 +220,22 @@ class UnboundThreadAccessManifestError extends Error {
         "thread endpoint ungated: re-run `b4 build` and deploy the whole build output together.",
     )
     this.name = "UnboundThreadAccessManifestError"
+  }
+}
+
+/** An Agent Protocol run body, bounded like the AG-UI one; a 413 when over the ceiling. */
+async function readRunBody(
+  request: Request,
+): Promise<
+  { readonly ok: true; readonly raw: string } | { readonly ok: false; readonly response: Response }
+> {
+  try {
+    return { ok: true, raw: await readBoundedText(request, AGUI_BODY_MAX_BYTES) }
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return { ok: false, response: payloadTooLarge(error) }
+    }
+    throw error
   }
 }
 
@@ -2556,7 +2573,9 @@ async function handleApStreamRequest(options: {
   // `interrupt()` in the turn mints against the same thread and store.
   const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
-  const rawBody = await request.text()
+  const read = await readRunBody(request)
+  if (!read.ok) return read.response
+  const rawBody = read.raw
   const parsedBody = parseJson(rawBody)
   if (!parsedBody.ok || !isRecord(parsedBody.value)) {
     return Response.json(createRequestErrorBody("Malformed request body"), {
@@ -2975,7 +2994,9 @@ async function handleApWaitRequest(options: {
   // `interrupt()` in the turn mints against the same thread and store.
   const approvalGrantMinter = minterFor(approvalGrants, threadId)
 
-  const rawBody = await request.text()
+  const read = await readRunBody(request)
+  if (!read.ok) return read.response
+  const rawBody = read.raw
   const parsedBody = parseJson(rawBody)
   if (!parsedBody.ok || !isRecord(parsedBody.value)) {
     return Response.json(createRequestErrorBody("Malformed request body"), {
@@ -3934,7 +3955,9 @@ async function handleResumeRequest(options: {
     })
   }
 
-  const rawBody = await request.text()
+  const read = await readRunBody(request)
+  if (!read.ok) return read.response
+  const rawBody = read.raw
   const parsedBody = parseJson(rawBody)
   if (!parsedBody.ok || !isB4ResumeBody(parsedBody.value)) {
     return Response.json(createRequestErrorBody("Malformed resume request body"), { status: 400 })
