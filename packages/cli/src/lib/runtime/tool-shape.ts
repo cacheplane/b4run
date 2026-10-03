@@ -5,8 +5,8 @@
  * the `@b4run/cli/fetch` graph (which the discoverer is not).
  */
 
-import type { WorkspaceFs } from "@b4run/sdk"
-import { describeError, errorDocsUrl } from "@b4run/sdk"
+import type { ToolDisplay, WorkspaceFs } from "@b4run/sdk"
+import { describeError, describeToolDisplayProblem, errorDocsUrl } from "@b4run/sdk"
 
 import { isRecord } from "./pure-utils.js"
 
@@ -31,6 +31,8 @@ export interface DiscoveredToolDefinition {
   readonly scope: ToolScope
   /** End the run on this tool's result; see `B4ToolDefinition.returnDirect`. */
   readonly returnDirect?: boolean
+  /** How a call reads to a person; see `ToolDisplay`. */
+  readonly display?: ToolDisplay
 }
 
 export function injectGeneratedSchemas(
@@ -86,6 +88,7 @@ export function normalizeToolModule(
     readonly description?: unknown
     readonly schema?: unknown
     readonly returnDirect?: unknown
+    readonly display?: unknown
   }
   const { filePath, name, scope } = meta
   const definition = toolModule.default
@@ -99,12 +102,23 @@ export function normalizeToolModule(
     )
   }
   const returnDirect = toolModule.returnDirect === true ? { returnDirect: true } : {}
+  if (toolModule.display !== undefined) {
+    const problem = describeToolDisplayProblem(toolModule.display)
+    if (problem !== undefined) {
+      throw new Error(
+        `Tool file ${filePath} exports display, but ${problem}.\n${toolShapeDocsFooter()}`,
+      )
+    }
+  }
+  const display =
+    toolModule.display !== undefined ? { display: toolModule.display as ToolDisplay } : {}
 
   if (typeof definition === "function") {
     return {
       ...(description ? { description } : {}),
       ...(schema ? { schema } : {}),
       ...returnDirect,
+      ...display,
       filePath,
       name,
       run: definition as DiscoveredToolDefinition["run"],
@@ -117,6 +131,7 @@ export function normalizeToolModule(
       ...(description ? { description } : {}),
       ...(schema ? { schema } : {}),
       ...returnDirect,
+      ...display,
       filePath,
       name,
       run: definition.run as DiscoveredToolDefinition["run"],

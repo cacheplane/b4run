@@ -1,3 +1,4 @@
+import type { ToolDisplay } from "@b4run/sdk"
 // `/web` — see the note on the same import in tool-converter.ts. The default
 // entry drags `node:async_hooks` into the edge bundle to infer a config this
 // module always passes explicitly.
@@ -33,6 +34,7 @@ interface SubagentTaskPlaceholder {
   readonly description?: string
   readonly name: string
   readonly schema?: unknown
+  readonly display?: ToolDisplay
 }
 
 interface B4SubagentStackEntry {

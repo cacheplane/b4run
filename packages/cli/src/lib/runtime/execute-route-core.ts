@@ -1726,6 +1726,7 @@ async function prepareRouteExecutionForInvocation(
             ...(overridable ? { overridable: true } : {}),
             run: t.run,
             ...(t.schema !== undefined ? { schema: t.schema } : {}),
+            ...(t.display !== undefined ? { display: t.display } : {}),
             scope: "route-local",
           } as DiscoveredToolDefinition)
         }

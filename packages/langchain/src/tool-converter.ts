@@ -11,7 +11,12 @@ import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 // AsyncLocalStorage instance the default entry installs as a side effect is
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
-import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } from "@b4run/sdk"
+import {
+  type B4ContentPart,
+  type BuiltInModelProviderId,
+  contentPartsText,
+  type ToolDisplay,
+} from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
@@ -48,6 +53,8 @@ interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** How a call reads to a person; evaluated per call and streamed as `b4.step`. */
+  readonly display?: ToolDisplay
   /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
   readonly returnDirect?: boolean
   /** The server-side stub of a client-provided tool; it records itself. Never issued as a server call. */
