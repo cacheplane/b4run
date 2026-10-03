@@ -321,14 +321,14 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
  * `test/client-tool-calls-ddl.test.ts`.
  *
  * 1. **A shipped migration is frozen.** Once a database has recorded
- *    `version = 1` (or 2) in the component's migrations table, `runMigrations` never
+ *    `version = 1` (or 2, or 3) in the component's migrations table, `runMigrations` never
  *    issues this statement against it again, so editing version 1 changes only
- *    what a virgin database gets. Versions 1 and 2 are both frozen now. Change
+ *    what a virgin database gets. Versions 1 to 3 are all frozen now. Change
  *    the shape by APPENDING the next version
- *    (`{ version: 3, up: (naming) => \`ALTER TABLE …\` }`).
+ *    (`{ version: 4, up: (naming) => \`ALTER TABLE …\` }`).
  *
  * 2. **No column default is load-bearing.** Migration 2's `DEFAULT 'client'`
- *    only backfills rows that predate `kind`; every INSERT names all thirteen
+ *    only backfills rows that predate `kind`; every INSERT names all fourteen
  *    columns.
  *
  * Timestamps are app-generated ISO-8601 `text`, as in the other tables. The
@@ -366,6 +366,14 @@ export const CLIENT_TOOL_CALLS_MIGRATIONS: readonly Migration[] = [
     up: (naming) => `
       ALTER TABLE ${qualify(naming, "client_tool_calls")} ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'client' CHECK (kind IN ('client', 'server'));
       ALTER TABLE ${qualify(naming, "client_tool_calls")} ADD COLUMN IF NOT EXISTS settled_at text;
+    `,
+  },
+  {
+    // The parent `task` link for a subagent's calls; null at the root and for
+    // every row that predates it. Nullable, no default, no CHECK.
+    version: 3,
+    up: (naming) => `
+      ALTER TABLE ${qualify(naming, "client_tool_calls")} ADD COLUMN IF NOT EXISTS parent_tool_call_id text;
     `,
   },
 ]
