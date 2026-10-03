@@ -38,6 +38,7 @@ export interface B4TextPart {
   readonly type: "text"
   readonly text: string
   readonly id?: string
+  /** Any non-null value; the protocol rejects `null`. */
   readonly metadata?: unknown
 }
 
@@ -47,12 +48,17 @@ export interface B4MediaPart {
   readonly type: B4MediaPartType
   readonly source: B4PartSource
   readonly id?: string
+  /** Any non-null value; the protocol rejects `null`. */
   readonly metadata?: unknown
 }
 
 export type B4ContentPart = B4TextPart | B4MediaPart
 
-/** What a user or tool message carries: plain text, or an ordered list of parts. */
+/**
+ * What a user or tool message carries: plain text, or an ordered list of parts.
+ * A consumer handing parts to the protocol or to LangChain should copy the
+ * readonly array (`[...parts]`) rather than cast it.
+ */
 export type B4MessageContent = string | readonly B4ContentPart[]
 
 const MEDIA_PART_TYPES: ReadonlySet<string> = new Set(["image", "audio", "video", "document"])
@@ -76,6 +82,7 @@ function isPartSource(value: unknown): value is B4PartSource {
 export function isContentPart(value: unknown): value is B4ContentPart {
   if (!isRecord(value) || typeof value.type !== "string") return false
   if (value.id !== undefined && typeof value.id !== "string") return false
+  if (value.metadata === null) return false
   if (value.type === "text") return typeof value.text === "string"
   return MEDIA_PART_TYPES.has(value.type) && isPartSource(value.source)
 }
