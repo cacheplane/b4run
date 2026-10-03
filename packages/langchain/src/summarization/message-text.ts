@@ -9,20 +9,36 @@ import type { BaseMessage } from "@langchain/core/messages"
  */
 export const MEDIA_TOKEN_ESTIMATE = 1_000
 
-const PLACEHOLDER_TYPES: ReadonlySet<string> = new Set(["image", "audio", "video", "file"])
+/**
+ * The block types that carry media bytes or a media reference. Only these are
+ * rendered as placeholders and charged `MEDIA_TOKEN_ESTIMATE`; any other
+ * non-text block (`tool_use`, `thinking`, `reasoning`, …) keeps its JSON text.
+ */
+const MEDIA_TYPES: ReadonlySet<string> = new Set([
+  "image",
+  "audio",
+  "video",
+  "file",
+  "document",
+  "image_url",
+])
 
 export interface MessageText {
-  /** Text blocks concatenated; each media block rendered as `[image]`/`[audio]`/`[video]`/`[file]`/`[media]`. */
+  /**
+   * Text blocks concatenated; each media block rendered as `[image]`/`[audio]`/
+   * `[video]`/`[file]`/`[document]` (legacy `image_url` as `[image]`); any other
+   * block JSON-stringified.
+   */
   readonly text: string
-  /** Number of non-text blocks rendered as placeholders. */
+  /** Number of media blocks rendered as placeholders. */
   readonly mediaCount: number
 }
 
 /**
  * A message's content as text for summarization: a string is returned as is;
- * a block list keeps its text blocks and renders every other block as a
- * placeholder, so neither the token counter nor the summarizer prompt ever
- * sees base64.
+ * a block list keeps its text blocks, renders each media block as a
+ * placeholder — so neither the token counter nor the summarizer prompt ever
+ * sees base64 — and JSON-stringifies every other block (tool use, reasoning).
  */
 export function messageContentText(content: BaseMessage["content"]): MessageText {
   if (typeof content === "string") return { text: content, mediaCount: 0 }
@@ -42,9 +58,13 @@ export function messageContentText(content: BaseMessage["content"]): MessageText
       text += typeof record.text === "string" ? record.text : ""
       continue
     }
-    mediaCount += 1
     const type = typeof record.type === "string" ? record.type : ""
-    text += PLACEHOLDER_TYPES.has(type) ? `[${type}]` : "[media]"
+    if (MEDIA_TYPES.has(type)) {
+      mediaCount += 1
+      text += `[${type === "image_url" ? "image" : type}]`
+      continue
+    }
+    text += JSON.stringify(block) ?? ""
   }
   return { text, mediaCount }
 }

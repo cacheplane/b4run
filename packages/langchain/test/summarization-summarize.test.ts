@@ -59,4 +59,27 @@ describe("defaultSummarize", () => {
     expect(seenPrompt).toContain("look at this[image]")
     expect(seenPrompt).not.toContain("AAAAAAAAAA")
   })
+
+  it("keeps tool_use and reasoning blocks' text in the prompt", async () => {
+    let seenPrompt = ""
+    await defaultSummarize({
+      messages: [
+        new AIMessage({
+          content: [
+            { type: "tool_use", id: "tu-1", name: "search", input: { q: "quokkas" } },
+            { type: "reasoning", reasoning: "think about marsupials" },
+          ],
+        }),
+      ],
+      model: "gpt-5-mini",
+      signal: new AbortController().signal,
+      invokeModel: async (prompt: string) => {
+        seenPrompt = prompt
+        return "summary"
+      },
+    })
+    expect(seenPrompt).toContain("quokkas")
+    expect(seenPrompt).toContain("think about marsupials")
+    expect(seenPrompt).not.toContain("[media]")
+  })
 })

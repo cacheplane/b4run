@@ -56,7 +56,6 @@ import {
 } from "@b4run/core"
 import {
   Command,
-  type DroppedPartsReport,
   defaultSummarize,
   defaultTokenCounter,
   executeAgentTurn,
@@ -763,12 +762,17 @@ export async function* streamResolvedRoute(
             // child's identity fields. The chunk also passes through
             // unchanged, so the AG-UI adapter can announce it on the stream.
             // The pointer names the assistant id, which is what
-            // `GET /agui/:routeId` looks routes up by.
-            console.warn(
-              formatDroppedPartsWarning(
-                droppedPartsReport(chunk.data, createRouteAssistantId(options.routeId, "agent")),
-              ),
-            )
+            // `GET /agui/:routeId` looks routes up by. A malformed report (no
+            // parts list) passes through silently, as in `executeAgentTurn`.
+            const report = pickDroppedPartsReport(chunk.data)
+            if (report) {
+              console.warn(
+                formatDroppedPartsWarning({
+                  ...report,
+                  routeId: createRouteAssistantId(options.routeId, "agent"),
+                }),
+              )
+            }
             yield { type: chunk.type, data: chunk.data }
             break
           }
@@ -2103,11 +2107,6 @@ async function invokeEntry(
   }
 
   throw new Error("Graph entry must be a function or expose invoke(input)")
-}
-
-/** The warning's report from a dropped-parts chunk's data, named for the route. */
-function droppedPartsReport(data: unknown, routeId: string): DroppedPartsReport {
-  return { ...(pickDroppedPartsReport(data) ?? { parts: [] }), routeId }
 }
 
 function extractRouteParamNames(routeId: string): string[] {
