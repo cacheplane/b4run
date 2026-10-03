@@ -1840,3 +1840,96 @@ describe("usage chunks", () => {
     ])
   })
 })
+
+describe("b4.step custom events", () => {
+  async function collectChunksFromEvents(events: readonly Record<string, unknown>[]) {
+    const entry = {
+      invoke: vi.fn(),
+      async *streamEvents() {
+        yield* events
+        yield {
+          event: "on_chain_end",
+          run_id: "root",
+          name: "LangGraph",
+          data: { output: {} },
+        }
+      },
+    }
+    const chunks = []
+    for await (const chunk of streamAgent({
+      checkpointer: new MemorySaver(),
+      entry: entry as never,
+      input: { question: "hi" },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      tools: [],
+    })) {
+      chunks.push(chunk)
+    }
+    return chunks
+  }
+
+  function childMetadata(input: { callId: string; name: string; routeId: string; depth: number }) {
+    return {
+      b4: {
+        subagent_stack: [{ callId: input.callId, name: input.name, routeId: input.routeId }],
+      },
+    }
+  }
+
+  test("becomes a root `step` chunk with its tool_call_id intact", async () => {
+    const chunks = await collectChunksFromEvents([
+      {
+        event: "on_custom_event",
+        run_id: "custom-step-1",
+        name: "b4.step",
+        data: { tool_call_id: "call_1", status: "running", icon: "search", label: "Searching" },
+      },
+    ])
+    expect(chunks).toContainEqual({
+      type: "step",
+      data: { tool_call_id: "call_1", status: "running", icon: "search", label: "Searching" },
+    })
+  })
+
+  test("becomes a `subagent.step` chunk carrying the child's identity AND its tool_call_id", async () => {
+    const chunks = await collectChunksFromEvents([
+      {
+        event: "on_custom_event",
+        run_id: "custom-step-2",
+        name: "b4.step",
+        data: { tool_call_id: "child_call_1", status: "completed", label: "Read a.md" },
+        metadata: childMetadata({
+          callId: "task-1",
+          name: "researcher",
+          routeId: "/r#researcher",
+          depth: 1,
+        }),
+      },
+    ])
+    expect(chunks).toContainEqual({
+      type: "subagent.step",
+      data: {
+        tool_call_id: "child_call_1",
+        status: "completed",
+        label: "Read a.md",
+        call_id: "task-1",
+        subagent: "researcher",
+        route_id: "/r#researcher",
+        depth: 1,
+      },
+    })
+  })
+
+  test("drops a b4.step without a tool_call_id", async () => {
+    const chunks = await collectChunksFromEvents([
+      {
+        event: "on_custom_event",
+        run_id: "custom-step-3",
+        name: "b4.step",
+        data: { status: "running" },
+      },
+    ])
+    expect(chunks.some((chunk) => chunk.type === "step")).toBe(false)
+  })
+})

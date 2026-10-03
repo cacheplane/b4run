@@ -998,6 +998,24 @@ function classifyStreamEvent(
       }
     }
     case "on_custom_event": {
+      if (event.name === "b4.step") {
+        // A step names the call it describes. Unlike `childData`, a child's
+        // step KEEPS its tool_call_id: since #914 a child's tool frames are
+        // public (tagged `subagentRunId`), so the id is the one the client
+        // already has for that call.
+        if (!isRecord(event.data) || typeof event.data.tool_call_id !== "string") break
+        return {
+          capturesFinalOutput: false,
+          child,
+          chunks: [
+            child
+              ? { type: "subagent.step", data: { ...event.data, ...childIdentity(child) } }
+              : { type: "step", data: event.data },
+          ],
+          finalOutput: undefined,
+          interrupts: [],
+        }
+      }
       if (event.name !== "b4.capability") break
       const payload = parseCapabilityEvent(event.data)
       if (!payload) break
