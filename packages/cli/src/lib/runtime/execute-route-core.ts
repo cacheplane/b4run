@@ -1847,6 +1847,7 @@ async function prepareRouteExecutionForInvocation(
           return {
             graph: withEpisodeRecording(graph, childPrepared),
             routeId: route.id,
+            routeKey: createRouteAssistantId(route.id, route.kind),
             ...(entry.description !== "" ? { description: entry.description } : {}),
           }
         },

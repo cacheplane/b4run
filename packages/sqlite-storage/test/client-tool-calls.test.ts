@@ -40,6 +40,7 @@ describe("createClientToolCallStore", () => {
       result: null,
       voidedAt: null,
       settledAt: null,
+      parentToolCallId: null,
       ...overrides,
     }
   }
@@ -362,15 +363,59 @@ describe("createClientToolCallStore", () => {
     await store.issue(serverCall())
     const db = new DatabaseSync(storePath())
     const row = db
-      .prepare("SELECT kind, settled_at FROM client_tool_calls WHERE tool_call_id = ?")
-      .get("call-s1") as { kind: string; settled_at: string | null }
+      .prepare(
+        "SELECT kind, settled_at, parent_tool_call_id FROM client_tool_calls WHERE tool_call_id = ?",
+      )
+      .get("call-s1") as {
+      kind: string
+      settled_at: string | null
+      parent_tool_call_id: string | null
+    }
     db.close()
-    expect(row).toEqual({ kind: "server", settled_at: null })
+    expect(row).toEqual({ kind: "server", settled_at: null, parent_tool_call_id: null })
   })
 
   it("rejects a record whose kind is neither client nor server", async () => {
     const store = newStore()
     await expect(store.issue(call({ kind: "other" as never }))).rejects.toThrow()
+  })
+
+  it("round-trips the parent task link", async () => {
+    const store = newStore()
+    await store.issue(serverCall({ toolCallId: "child", parentToolCallId: "call_task_1" }))
+    await store.issue(serverCall({ toolCallId: "root" }))
+    expect((await store.get("t-1", "child"))?.parentToolCallId).toBe("call_task_1")
+    expect((await store.get("t-1", "root"))?.parentToolCallId).toBeNull()
+  })
+
+  it("migration 3 reads a version-2 row's parent link as null", async () => {
+    const path = storePath()
+    const v2 = new DatabaseSync(path)
+    runMigrations(
+      v2,
+      CLIENT_TOOL_CALLS_MIGRATIONS.filter((m) => m.version <= 2),
+    )
+    v2.prepare(
+      `INSERT INTO client_tool_calls(thread_id, tool_call_id, kind, interrupt_id, tool_name, run_id, route_id, issued_at, expires_at, answered_at, result, voided_at, settled_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "t-1",
+      "legacy",
+      "server",
+      "",
+      "readFile",
+      "r0",
+      "/park#agent",
+      "2026-10-01T00:00:00.000Z",
+      null,
+      null,
+      null,
+      null,
+      "2026-10-01T00:00:01.000Z",
+    )
+    v2.close()
+    const store = newStore()
+    expect((await store.get("t-1", "legacy"))?.parentToolCallId).toBeNull()
   })
 
   describe("prune", () => {

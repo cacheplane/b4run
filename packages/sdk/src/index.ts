@@ -26,6 +26,7 @@ export type {
   ClientToolCallSettle,
   ClientToolCallStore,
   ClientToolRecorder,
+  ToolCallOrigin,
   ToolCallRecordKind,
 } from "./client-tool-calls.js"
 export {
