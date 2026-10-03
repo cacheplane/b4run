@@ -171,7 +171,11 @@ export function encodeClientToolResult(result: B4MessageContent): string {
   return JSON.stringify({ $b4: CLIENT_TOOL_RESULT_ENVELOPE, parts: result })
 }
 
-/** Inverse of {@link encodeClientToolResult}; `null` stays `null`. */
+/**
+ * Inverse of {@link encodeClientToolResult}; `null` stays `null`. A plain-text
+ * answer that is itself a valid envelope decodes as parts — harmless, since
+ * the client could have sent those parts directly.
+ */
 export function decodeClientToolResult(stored: string | null): B4MessageContent | null {
   if (stored === null || !stored.startsWith("{")) return stored
   try {
