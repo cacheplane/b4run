@@ -1,4 +1,5 @@
 import type { StreamTransformerInput } from "@b4run/core"
+import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
 import { type Command, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
 import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
@@ -664,5 +665,135 @@ describe("convertToolToLangChain tool-call id in the run context", () => {
     await tool.invoke({})
     expect(seen.ctx).toBeDefined()
     expect("toolCallId" in (seen.ctx ?? {})).toBe(false)
+  })
+})
+
+describe("convertToolToLangChain — the tool-call record", () => {
+  function recorder() {
+    const log: string[] = []
+    return {
+      log,
+      recorder: {
+        has: async () => false,
+        record: async () => {},
+        issue: async (call: { toolCallId: string; toolName: string }) => {
+          log.push(`issue:${call.toolName}:${call.toolCallId}`)
+        },
+        settle: async (toolCallId: string) => {
+          log.push(`settle:${toolCallId}`)
+        },
+      },
+    }
+  }
+  const call = { args: {}, id: "call_1", name: "probe", type: "tool_call" as const }
+  const configWith = (rec: unknown) => ({ configurable: { [CLIENT_TOOL_RECORDER_KEY]: rec } })
+
+  it("issues before the tool body and settles after it returns", async () => {
+    const { log, recorder: rec } = recorder()
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => {
+        log.push("run")
+        return "ok"
+      },
+    })
+    await tool.invoke(call, configWith(rec))
+    expect(log).toEqual(["issue:probe:call_1", "run", "settle:call_1"])
+  })
+
+  it("settles when the tool throws, and the error still propagates", async () => {
+    const { log, recorder: rec } = recorder()
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => {
+        throw new Error("boom")
+      },
+    })
+    await expect(tool.invoke(call, configWith(rec))).rejects.toThrow("boom")
+    expect(log).toEqual(["issue:probe:call_1", "settle:call_1"])
+  })
+
+  it("settles when the call is aborted mid-run", async () => {
+    const { log, recorder: rec } = recorder()
+    const controller = new AbortController()
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: (_input, ctx) =>
+        new Promise((_resolve, reject) => {
+          ctx.signal.addEventListener("abort", () => reject(new Error("aborted")))
+          controller.abort()
+        }),
+    })
+    await expect(
+      tool.invoke(call, { ...configWith(rec), signal: controller.signal }),
+    ).rejects.toThrow("aborted")
+    expect(log).toEqual(["issue:probe:call_1", "settle:call_1"])
+  })
+
+  it("skips a tool carrying the clientTool marker", async () => {
+    const { log, recorder: rec } = recorder()
+    const tool = convertToolToLangChain({
+      name: "client_openPanel",
+      schema: { type: "object", properties: {} },
+      clientTool: true,
+      run: async () => "ok",
+    })
+    await tool.invoke({ ...call, name: "client_openPanel" }, configWith(rec))
+    expect(log).toEqual([])
+  })
+
+  it("does nothing with no recorder, and nothing without a provider tool-call id", async () => {
+    const { log, recorder: rec } = recorder()
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => "ok",
+    })
+    await tool.invoke(call, { configurable: {} })
+    await tool.invoke({}, configWith(rec))
+    expect(log).toEqual([])
+  })
+
+  it("an issue failure fails the call before the tool body runs", async () => {
+    const { log, recorder: rec } = recorder()
+    rec.issue = async () => {
+      throw new Error("store down")
+    }
+    const tool = convertToolToLangChain({
+      name: "probe",
+      schema: { type: "object", properties: {} },
+      run: async () => {
+        log.push("run")
+        return "ok"
+      },
+    })
+    await expect(tool.invoke(call, configWith(rec))).rejects.toThrow("store down")
+    expect(log).toEqual([])
+  })
+
+  it("a settle failure is warned and swallowed; the result stands", async () => {
+    const { recorder: rec } = recorder()
+    rec.settle = async () => {
+      throw new Error("store down")
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const tool = convertToolToLangChain({
+        name: "probe",
+        schema: { type: "object", properties: {} },
+        run: async () => "ok",
+      })
+      const result = await tool.invoke(call, configWith(rec))
+      expect(result).toBeDefined()
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not settle tool call"),
+        expect.any(Error),
+      )
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

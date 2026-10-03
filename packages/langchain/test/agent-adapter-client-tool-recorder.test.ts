@@ -13,6 +13,8 @@ describe("streamAgent — client tool recorder injection", () => {
   const recorder: ClientToolRecorder = {
     has: async () => false,
     record: async () => {},
+    issue: async () => {},
+    settle: async () => {},
   }
 
   async function configFor(
