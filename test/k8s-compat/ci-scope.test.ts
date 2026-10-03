@@ -285,6 +285,7 @@ describe("CI workflow metadata scope", () => {
       "release-controller",
       "pack-smoke",
       "harness-verify",
+      "dependency-security-browser",
     ])
     expect(jobs.validate?.if).toBe("always()")
   })
