@@ -10,7 +10,7 @@ const ALL: ModalitySupport = {
   audio: true,
   video: true,
   toolResult: { image: true, pdf: true },
-  file: true,
+  file: { image: true, pdf: true },
 }
 
 const png = {
@@ -87,15 +87,45 @@ describe("toLangChainContent — user position", () => {
   })
 
   it("drops a file handle the provider cannot resolve, and a foreign provider's handle", () => {
-    expect(toLangChainContent([handle], { ...ALL, file: false }, "xai", "user").dropped).toEqual([
-      { index: 0, type: "image", source: "file", reason: "file_source_unsupported" },
-    ])
+    expect(
+      toLangChainContent([handle], { ...ALL, file: { image: false, pdf: false } }, "xai", "user")
+        .dropped,
+    ).toEqual([{ index: 0, type: "image", source: "file", reason: "file_source_unsupported" }])
     expect(toLangChainContent([handle], ALL, "anthropic", "user").dropped).toEqual([
       { index: 0, type: "image", source: "file", reason: "foreign_file_provider" },
     ])
     // No provider named: the route's provider is assumed to have minted it.
     const anon = { type: "image", source: { type: "file", value: "f" } } as const
     expect(toLangChainContent([anon], ALL, "anthropic", "user").dropped).toEqual([])
+  })
+
+  it("gates file handles per part type", () => {
+    const docHandle = {
+      type: "document",
+      source: { type: "file", value: "file_1", mimeType: "application/pdf" },
+    } as const
+    const { content, dropped } = toLangChainContent(
+      [handle, docHandle],
+      { ...ALL, file: { image: false, pdf: true } },
+      "openai",
+      "user",
+    )
+    expect(dropped).toEqual([
+      { index: 0, type: "image", source: "file", reason: "file_source_unsupported" },
+    ])
+    expect(content).toEqual([{ type: "file", fileId: "file_1", mimeType: "application/pdf" }])
+  })
+
+  it("emits the legacy image_url block for ollama and mistral only", () => {
+    expect(toLangChainContent([png], ALL, "ollama", "user").content).toEqual([
+      { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+    ])
+    expect(toLangChainContent([imgUrl], ALL, "mistral", "user").content).toEqual([
+      { type: "image_url", image_url: { url: "https://x.test/a.png" } },
+    ])
+    expect(toLangChainContent([png], ALL, "openai", "user").content).toEqual([
+      { type: "image", data: "AAAA", mimeType: "image/png" },
+    ])
   })
 
   it("a document is a PDF or nothing", () => {

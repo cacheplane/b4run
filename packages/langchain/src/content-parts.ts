@@ -44,13 +44,24 @@ export interface ConvertedContent {
 
 const PDF = "application/pdf"
 
+/**
+ * Providers whose converters accept only the legacy `image_url` block:
+ * `@langchain/ollama` dist/utils.js (throws on anything but text/image_url and
+ * decodes a base64 data URL) and `@langchain/mistralai` dist/chat_models.js
+ * (accepts only text/image_url).
+ */
+const LEGACY_IMAGE_URL_PROVIDERS: ReadonlySet<BuiltInModelProviderId> = new Set([
+  "ollama",
+  "mistral",
+])
+
 function supportsModality(
   part: Extract<B4ContentPart, { type: "image" | "audio" | "video" | "document" }>,
   support: ModalitySupport,
 ): boolean {
   switch (part.type) {
     case "image":
-      return support.image.data || support.image.url || support.file
+      return support.image.data || support.image.url || support.file.image
     case "audio":
       return support.audio
     case "video":
@@ -118,7 +129,13 @@ export function toLangChainContent(
       continue
     }
     if (part.source.type === "file") {
-      if (!support.file) {
+      const fileAllowed =
+        part.type === "image"
+          ? support.file.image
+          : part.type === "document"
+            ? support.file.pdf
+            : false
+      if (!fileAllowed) {
         drop("file_source_unsupported")
         continue
       }
@@ -136,6 +153,17 @@ export function toLangChainContent(
         drop("url_source_unsupported")
         continue
       }
+    }
+    if (
+      part.type === "image" &&
+      provider !== undefined &&
+      LEGACY_IMAGE_URL_PROVIDERS.has(provider)
+    ) {
+      const source = part.source
+      const url =
+        source.type === "data" ? `data:${source.mimeType};base64,${source.value}` : source.value
+      blocks.push({ type: "image_url", image_url: { url } })
+      continue
     }
     blocks.push(block(part.type === "document" ? "file" : part.type, part.source))
   }
