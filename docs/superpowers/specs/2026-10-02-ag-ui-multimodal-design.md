@@ -125,9 +125,21 @@ AP  POST /threads/:id/runs┘  (newest user message only)   └─ dropped[] →
   more: the drop decision needs the route's model, which by #883's rule is
   disclosed only after middleware.
 - `inbound.ts` `coerceContent` → `coerceMessageContent`: string → as is;
-  array → the parts, with non-object entries dropped (an unvalidated list
-  cannot throw) and text parts kept as parts, not concatenated; anything else
-  → `""` as today.
+  array → the parts, with any entry that is not a structurally valid part
+  dropped (`isContentPart`; an unvalidated list cannot throw — behind the
+  handler's schema parse the filter changes nothing, it protects direct
+  callers of `fromRunAgentInput`) and text parts kept as parts, not
+  concatenated; an array with nothing left → `""`; any other shape → its
+  JSON, as today.
+- Messages handed to LangChain are built with `contentBlocks:`, never
+  `content:`. `@langchain/core` 1.2's `isDataContentBlock` recognises only
+  legacy `source_type` blocks under `content:`; the standard blocks this
+  design emits are converted by the OpenAI package only when the message
+  carries `response_metadata.output_version: "v1"`, which `contentBlocks:`
+  sets. Under `content:` Chat Completions sends them raw (a 400 from the API)
+  and the Responses path drops them silently. Anthropic and Google convert
+  either way. A test runs real messages through
+  `convertMessagesToCompletionsMessageParams` to pin this.
 - The handler still forwards only the newest user message to the route
   (`agui-handler.ts` `newestUserMessage`); the checkpointer owns history. So
   media in resent history costs wire bytes, not model tokens.
@@ -165,7 +177,7 @@ In `packages/langchain/src/chat-model-factory.ts`, beside
 ```ts
 export interface ModalitySupport {
   readonly image: { readonly data: boolean; readonly url: boolean } // profile.imageInputs / imageUrlInputs
-  readonly pdf: boolean                                              // profile.pdfInputs
+  readonly pdf: { readonly data: boolean; readonly url: boolean }    // profile.pdfInputs, minus provider overrides
   readonly audio: boolean                                            // profile.audioInputs
   readonly video: boolean                                            // profile.videoInputs
   readonly toolResult: { readonly image: boolean; readonly pdf: boolean } // profile.imageToolMessage / pdfToolMessage
@@ -182,6 +194,14 @@ export function resolveModalitySupport(model: unknown, provider: BuiltInModelPro
   URL); `mistral` → `image.data` and `image.url`; every other provider →
   `image.data` and `image.url`. Audio, video, pdf and tool-result media are
   claimed only when a profile says so.
+- Provider overrides apply last, in both branches, for converter limits the
+  profile does not know about (verified by running real messages through the
+  installed converters): `openai`'s Chat Completions path — the one B4.run
+  uses; `useResponsesApi` is never set — maps a `file` block only from `data`
+  or `fileId` (a PDF URL vanishes silently) and reduces a tool message to its
+  text (media in a tool result never reaches the model, with no record). So
+  for `openai`: `pdf.url = false` and `toolResult = { image: false, pdf: false }`,
+  whatever gpt-5-mini's profile claims.
 - `file` is a provider fact, not a profile one, per part type, verified
   against the converters: `anthropic` maps a `fileId` for images and
   documents; `openai`'s Chat Completions path (the one B4.run uses) maps it
@@ -229,7 +249,13 @@ the form `ollama`'s converter decodes).
 A string input is returned as a string with no drops. A content array that
 ends up with no blocks at all becomes `""` (the run still proceeds; the model
 sees an empty user turn, which is what the client sent minus what it cannot
-use).
+use). In `position: "tool"`, an array whose surviving blocks are all text
+collapses to a string: `@langchain/ollama` throws on any non-string tool
+content, and a text-only block list carries nothing a string does not. A
+`document` `url` source is gated by `pdf.url` (reason `url_source_unsupported`),
+mirroring images. For `ollama`, a `url` image is dropped
+(`url_source_unsupported`) regardless of what a future profile claims: its
+converter decodes only base64 data URLs and would send `""` for anything else.
 
 ### 4.3 The `multimodal` capability section
 
