@@ -38,11 +38,13 @@
  *   (non-text blocks carry no token) and `packages/ag-ui/test/outbound.test.ts`
  *   (no chunk becomes `REASONING_*`).
  * - `state.snapshots` and `state.deltas` are `false` for every route: no
- *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is `true` for an `agent()` route, whose compiled
- *   graph embeds the boot checkpointer, and `false` for a chain, graph or
- *   workflow route, invoked once without one. A raw runnable is never handed
- *   the checkpointer, so whether it persists is its own code's to decide and
- *   the field is omitted — as it is on a boot that cannot load route modules. `state.memory` is omitted: whether an app
+ *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is
+ *   `true` for an `agent()` route, whose compiled graph embeds the boot
+ *   checkpointer, and `false` for a chain, graph or workflow route, invoked
+ *   once without one. A raw runnable is never handed the checkpointer, so
+ *   whether it persists is its own code's to decide and the field is omitted
+ *   — as it is on a boot that cannot load route modules. `state.memory` is
+ *   omitted: whether an app
  *   wires long-term memory is tool wiring this handler cannot see.
  * - `multiAgent` is omitted: subagent tooling is app-wired, not
  *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).

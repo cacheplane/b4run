@@ -35,7 +35,7 @@
 | 1 | Base and scope | Stack on #883 (`blove/agui-capabilities`). Ship the protobuf binding plus only the `reasoning`/`state` claims the current code already settles. #885 flips its own claims when it lands. |
 | 2 | Accept negotiation | Upstream's: `EventEncoder`'s negotiator. An `Accept` that admits `application/vnd.ag-ui.event+proto` with positive quality — explicitly, through `application/*`, or through `*/*` — selects the binary binding; anything else (including no header) is SSE. This is the spec's SHOULD; `@ag-ui/client` 1.0.1 sends `Accept: text/event-stream` explicitly, so CopilotKit is unaffected. |
 | 3 | `multiAgent` section | Omitted (UNKNOWN). Subagent tooling is app-wired, not route-declared, and no `SUBAGENT_*` event exists yet. #885 adds the section with the events. |
-| 4 | `state` section | `{ snapshots: false, deltas: false, persistentState: route.mode === "agent" }`. `memory` omitted: whether an app wires long-term memory is per-app tool wiring the handler cannot see. |
+| 4 | `state` section | `{ snapshots: false, deltas: false, persistentState }` where `persistentState` is `true` for an `agent()` descriptor route (its compiled graph embeds the boot checkpointer), `false` for a chain, graph or workflow route (invoked once without one), and omitted for an agent route exporting a raw runnable and for a boot that cannot load route modules — the raw runnable is never handed the checkpointer, so persistence is its own code's to decide (review refinement of the original "from `route.mode`" rule). `memory` omitted: whether an app wires long-term memory is per-app tool wiring the handler cannot see. |
 | 5 | `reasoning` section | `{ supported: false }` for every route: the translator has no `REASONING_*` branch and the langchain adapter's `chunkText` keeps only `text` blocks. |
 | 6 | CopilotKit runtime CI step | Becomes the fifth `validate` lane (PR 2). |
 | 7 | `@copilotkit/react-core` peer floor | Rises to `>=1.76.0` (PR 3). |
@@ -131,18 +131,21 @@ types; the flag itself is already fixed.
 - `TRANSPORT` becomes `{ streaming: true, httpBinary: true }`, advertised in
   the same commit that serves it.
 - Every route gains `reasoning: { supported: false }` — a documented
-  constant whose comment points at `toAguiEvents` (no `REASONING_*` branch)
-  and the adapter's `chunkText` (only `text` blocks survive). #885 flips it.
-- Every route gains `state: { snapshots: false, deltas: false,
-  persistentState }` where `persistentState` is `route.mode === "agent"`:
-  the checkpointer fact `interrupts` is already derived from. A chain, graph
-  or workflow route is invoked once without a checkpointer, so nothing
-  persists between its runs. `snapshots` and `deltas` are false because no
-  code emits `STATE_SNAPSHOT` or `STATE_DELTA`.
-- Neither new section reads the route module: `reasoning` is a fact about
-  the translator and `persistentState` about the registry's `mode`. So a
-  boot that cannot load route modules now answers `transport`, `reasoning`
-  and `state`, and still nothing that depends on the module.
+  constant pinned on both sides: `packages/langchain/test/model-message-framing.test.ts`
+  (non-text blocks carry no token) and a new `outbound.test.ts` case (no
+  chunk becomes `REASONING_*`). #885 flips it and the pin together.
+- Every route gains `state: { snapshots: false, deltas: false }` plus
+  `persistentState` where B4.run settles it: `true` for an `agent()`
+  descriptor route, whose compiled graph embeds the boot checkpointer;
+  `false` for a chain, graph or workflow route, invoked once without one;
+  omitted for an agent route exporting a raw runnable (the adapter never
+  hands it the checkpointer, so its own code decides) and for a boot that
+  cannot load route modules (it cannot tell the two apart). `snapshots` and
+  `deltas` are false because no code emits `STATE_SNAPSHOT` or
+  `STATE_DELTA`.
+- A boot that cannot load route modules answers `transport`, `reasoning`
+  and `state: { snapshots: false, deltas: false }` — the claims that need no
+  module — and nothing else.
 - The module comment's claim list grows by these entries and by the explicit
   omissions: `multiAgent`, `state.memory`, `transport.websocket`,
   `transport.resumable`, `transport.pushNotifications` — each with the
