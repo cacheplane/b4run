@@ -255,6 +255,7 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/ag-ui#.:B4RunInput",
   "@b4run/ag-ui#.:B4PlanActivityContent",
   "@b4run/ag-ui#.:B4SubagentActivityContent",
+  "@b4run/ag-ui#.:B4UsageData",
   "@b4run/ag-ui#.:RunContext",
   "@b4run/ag-ui#.:ToAguiOptions",
   "@b4run/ag-ui#.:fromRunAgentInput",
@@ -1078,7 +1079,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(121)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(122)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

@@ -21,9 +21,11 @@ import {
   asToolCallArgsData,
   asToolCallData,
   asToolResultData,
+  asUsageData,
   type B4AgentStreamChunk,
   type RunContext,
 } from "./types.js"
+import { createUsageCollector } from "./usage.js"
 
 /** The AG-UI events this mapper can emit. */
 export type AguiOutboundEvent =
@@ -91,6 +93,7 @@ export async function* toAguiEvents(
   const nextId = options.idFactory ?? createDefaultIdFactory()
   const activityProjector = createB4ActivityProjector(ctx.runId)
   const ledger = createOrchestrationLedger()
+  const usage = createUsageCollector()
   let openMessageId: string | null = null
   const identifiedMessages = new Map<string, string>()
   const pendingFallbackToolCallIds = new Map<string, string[]>()
@@ -160,6 +163,7 @@ export async function* toAguiEvents(
             threadId: ctx.threadId,
             runId: ctx.runId,
             outcome: { type: "interrupt", interrupts: pendingInterrupts },
+            ...usage.terminal(),
           }
           return
         }
@@ -305,6 +309,14 @@ export async function* toAguiEvents(
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
           break
         }
+        case "usage":
+        case "subagent.usage": {
+          // A child's model call is part of this run's usage (the run is the
+          // accounting boundary), so both spellings land in one collector.
+          const data = asUsageData(chunk.data)
+          if (data) usage.add(data)
+          break
+        }
         case "interrupt": {
           yield* flushAllText()
           yield* closeStreamedToolCalls()
@@ -314,6 +326,7 @@ export async function* toAguiEvents(
             yield {
               type: EventType.RUN_ERROR,
               message: "Malformed B4.run interrupt: missing interruptId",
+              ...usage.terminal(),
             }
             return
           }
@@ -338,6 +351,7 @@ export async function* toAguiEvents(
               ? { result: chunk.data }
               : {}),
             outcome: successOutcome(),
+            ...usage.terminal(),
           }
           return
         }
@@ -358,6 +372,7 @@ export async function* toAguiEvents(
         threadId: ctx.threadId,
         runId: ctx.runId,
         outcome: { type: "interrupt", interrupts: pendingInterrupts },
+        ...usage.terminal(),
       }
       return
     }
@@ -366,6 +381,7 @@ export async function* toAguiEvents(
       threadId: ctx.threadId,
       runId: ctx.runId,
       outcome: successOutcome(),
+      ...usage.terminal(),
     }
   } catch (err) {
     yield* flushAllText()
@@ -377,6 +393,7 @@ export async function* toAguiEvents(
         threadId: ctx.threadId,
         runId: ctx.runId,
         outcome: { type: "cancelled" },
+        ...usage.terminal(),
       }
       return
     }
@@ -389,6 +406,7 @@ export async function* toAguiEvents(
       type: EventType.RUN_ERROR,
       message: err instanceof Error ? err.message : String(err),
       ...(code !== undefined ? { code } : {}),
+      ...usage.terminal(),
     }
   }
 }

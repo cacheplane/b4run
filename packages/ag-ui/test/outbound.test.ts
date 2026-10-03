@@ -1436,3 +1436,110 @@ describe("1.0 null discipline", () => {
     expect(events.filter((event) => String(event.type).startsWith("REASONING"))).toEqual([])
   })
 })
+
+describe("usage", () => {
+  const CALL = {
+    provider: "openai",
+    model: "gpt-5-mini",
+    usage_metadata: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+  }
+  const ONE = {
+    provider: "openai",
+    model: "gpt-5-mini",
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+  }
+  const TWO = { ...ONE, inputTokens: 20, outputTokens: 10, totalTokens: 30 }
+
+  test("RUN_FINISHED success aggregates root and child calls", async () => {
+    const out = await collect([
+      { type: "usage", data: CALL },
+      { type: "subagent.usage", data: { ...CHILD, ...CALL } },
+      { type: "done", data: { ok: true } },
+    ])
+    expect(out.at(-1)).toEqual({
+      type: EventType.RUN_FINISHED,
+      threadId: CTX.threadId,
+      runId: CTX.runId,
+      result: { ok: true },
+      outcome: { type: "success" },
+      usage: [TWO],
+    })
+  })
+
+  test("the key is absent, never [], when no call reported usage", async () => {
+    const out = await collect([{ type: "token", data: "hi" }, { type: "done" }])
+    expect(out.at(-1)).not.toHaveProperty("usage")
+  })
+
+  test("a malformed usage payload is ignored", async () => {
+    const out = await collect([
+      { type: "usage", data: { provider: "openai" } },
+      { type: "usage", data: { usage_metadata: { nothing: true } } },
+      { type: "done" },
+    ])
+    expect(out.at(-1)).not.toHaveProperty("usage")
+  })
+
+  test("RUN_FINISHED interrupt carries usage", async () => {
+    const out = await collect([
+      { type: "usage", data: CALL },
+      { type: "interrupt", data: { interruptId: "i-1", kind: "tool", callId: "tc-9" } },
+      { type: "done" },
+    ])
+    expect(out.at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      outcome: { type: "interrupt" },
+      usage: [ONE],
+    })
+  })
+
+  test("RUN_FINISHED cancelled carries the usage accrued before the stop", async () => {
+    async function* stream(): AsyncIterable<B4AgentStreamChunk> {
+      yield { type: "usage", data: CALL }
+      throw new Error("aborted")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(stream(), CTX, {
+      idFactory: createCounterIdFactory(),
+      cancelled: () => true,
+    })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({
+      type: EventType.RUN_FINISHED,
+      threadId: CTX.threadId,
+      runId: CTX.runId,
+      outcome: { type: "cancelled" },
+      usage: [ONE],
+    })
+  })
+
+  test("RUN_ERROR carries the usage accrued before the failure", async () => {
+    async function* stream(): AsyncIterable<B4AgentStreamChunk> {
+      yield { type: "usage", data: CALL }
+      throw new Error("boom")
+    }
+    const out = []
+    for await (const ev of toAguiEvents(stream(), CTX, { idFactory: createCounterIdFactory() })) {
+      out.push(ev)
+    }
+    expect(out.at(-1)).toEqual({ type: EventType.RUN_ERROR, message: "boom", usage: [ONE] })
+  })
+
+  test("a stream that ends without done still reports usage", async () => {
+    const out = await collect([{ type: "usage", data: CALL }])
+    expect(out.at(-1)).toMatchObject({ type: EventType.RUN_FINISHED, usage: [ONE] })
+  })
+
+  test("usage chunks never open or close a text message", async () => {
+    const out = await collect([
+      { type: "token", data: "a" },
+      { type: "usage", data: CALL },
+      { type: "token", data: "b" },
+      { type: "done" },
+    ])
+    expect(out.filter((e) => e.type === EventType.TEXT_MESSAGE_START)).toHaveLength(1)
+  })
+})

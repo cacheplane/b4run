@@ -1606,3 +1606,123 @@ describe("logical-identity root tool projection", () => {
     ])
   })
 })
+
+describe("usage chunks", () => {
+  function streamOf(events: readonly Record<string, unknown>[]) {
+    return {
+      invoke: vi.fn(),
+      async *streamEvents() {
+        yield* events
+      },
+    }
+  }
+
+  async function collect(entry: { invoke: unknown; streamEvents: unknown }) {
+    const chunks = []
+    for await (const chunk of streamAgent({
+      checkpointer: new MemorySaver(),
+      entry: entry as never,
+      input: { question: "hi" },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      tools: [],
+    })) {
+      chunks.push(chunk)
+    }
+    return chunks
+  }
+
+  const USAGE = {
+    input_tokens: 120,
+    output_tokens: 30,
+    total_tokens: 150,
+    input_token_details: { cache_read: 100 },
+    output_token_details: { reasoning: 10 },
+  }
+
+  test("one usage chunk per on_chat_model_end, labelled from ls_provider/ls_model_name", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "ChatOpenAI",
+        metadata: { ls_provider: "OpenAI", ls_model_name: "gpt-5-mini" },
+        data: { output: { content: "hi", usage_metadata: USAGE } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "usage")).toEqual([
+      {
+        type: "usage",
+        data: { provider: "openai", model: "gpt-5-mini", usage_metadata: USAGE },
+      },
+    ])
+  })
+
+  test("a model call without usage_metadata emits no usage chunk", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "ChatOpenAI",
+        metadata: { ls_provider: "OpenAI", ls_model_name: "gpt-5-mini" },
+        data: { output: { content: "hi" } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.some((c) => c.type === "usage")).toBe(false)
+  })
+
+  test("labels are omitted when LangChain metadata lacks them", async () => {
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "model-1",
+        name: "model",
+        data: { output: { content: "hi", usage_metadata: { input_tokens: 1, output_tokens: 1 } } },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "usage")).toEqual([
+      { type: "usage", data: { usage_metadata: { input_tokens: 1, output_tokens: 1 } } },
+    ])
+  })
+
+  test("a subagent's model call is reported as subagent.usage with its identity", async () => {
+    const child = {
+      b4: {
+        subagent_stack: [{ callId: "c1", name: "researcher", routeId: "/research#researcher" }],
+      },
+    }
+    const entry = streamOf([
+      {
+        event: "on_chat_model_end",
+        run_id: "child-model-1",
+        name: "ChatOpenAI",
+        metadata: { ...child, ls_provider: "OpenAI", ls_model_name: "gpt-5-nano" },
+        data: {
+          output: { content: "child", usage_metadata: { input_tokens: 5, output_tokens: 2 } },
+        },
+      },
+      { event: "on_chain_end", run_id: "root", name: "LangGraph", data: { output: {} } },
+    ])
+    const chunks = await collect(entry)
+    expect(chunks.filter((c) => c.type === "subagent.usage")).toEqual([
+      {
+        type: "subagent.usage",
+        data: {
+          call_id: "c1",
+          subagent: "researcher",
+          route_id: "/research#researcher",
+          depth: 1,
+          provider: "openai",
+          model: "gpt-5-nano",
+          usage_metadata: { input_tokens: 5, output_tokens: 2 },
+        },
+      },
+    ])
+  })
+})

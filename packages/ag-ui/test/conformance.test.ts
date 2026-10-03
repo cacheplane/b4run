@@ -50,6 +50,14 @@ const TASK_TOOL_CALL_ID = childIdentity.call_id
 const CANNED: B4AgentStreamChunk[] = [
   { type: "token", data: "Researching" },
   {
+    type: "usage",
+    data: {
+      provider: "openai",
+      model: "gpt-5-mini",
+      usage_metadata: { input_tokens: 40, output_tokens: 12, total_tokens: 52 },
+    },
+  },
+  {
     type: "tool_call_args",
     data: { id: STREAMED_TOOL_CALL_ID, name: "draftReply", delta: '{"subject":"Agents",' },
   },
@@ -106,6 +114,15 @@ const CANNED: B4AgentStreamChunk[] = [
     },
   },
   { type: "subagent.start", data: childIdentity },
+  {
+    type: "subagent.usage",
+    data: {
+      ...childIdentity,
+      provider: "openai",
+      model: "gpt-5-nano",
+      usage_metadata: { input_tokens: 8, output_tokens: 3, total_tokens: 11 },
+    },
+  },
   {
     type: "subagent.plan_update",
     data: {
@@ -340,6 +357,20 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   expect(kinds).not.toContain(EventType.CUSTOM)
   expect(kinds).not.toContain(EventType.RAW)
   expect(kinds[kinds.length - 1]).toBe(EventType.RUN_FINISHED)
+  // Usage survives 1.0 enforcement intact: one entry per provider+model, the
+  // child's call included, the protocol's camelCase keys.
+  expect(events[events.length - 1]).toMatchObject({
+    usage: [
+      {
+        provider: "openai",
+        model: "gpt-5-mini",
+        inputTokens: 40,
+        outputTokens: 12,
+        totalTokens: 52,
+      },
+      { provider: "openai", model: "gpt-5-nano", inputTokens: 8, outputTokens: 3, totalTokens: 11 },
+    ],
+  })
 })
 
 it("the HTTP+protobuf binding passes 1.0 enforcement with the same events", async () => {
@@ -424,6 +455,14 @@ it("a client-tool park ends as success naming the pending call", async () => {
 
 it("a cancelled run ends with the cancelled outcome and no RUN_ERROR", async () => {
   async function* abortedAfterOneToken(): AsyncIterable<B4AgentStreamChunk> {
+    yield {
+      type: "usage",
+      data: {
+        provider: "openai",
+        model: "gpt-5-mini",
+        usage_metadata: { input_tokens: 4, output_tokens: 1 },
+      },
+    }
     yield { type: "token", data: "partial" }
     throw new Error("AG-UI request aborted")
   }
@@ -435,12 +474,13 @@ it("a cancelled run ends with the cancelled outcome and no RUN_ERROR", async () 
   expect(events[events.length - 1]).toMatchObject({
     type: EventType.RUN_FINISHED,
     outcome: { type: "cancelled" },
+    usage: [{ provider: "openai", model: "gpt-5-mini", inputTokens: 4, outputTokens: 1 }],
   })
 })
 
 it("an upstream error is RUN_ERROR with its code intact", async () => {
-  // biome-ignore lint/correctness/useYield: a stream that fails before its first chunk
   async function* failing(): AsyncIterable<B4AgentStreamChunk> {
+    yield { type: "usage", data: { usage_metadata: { input_tokens: 2, output_tokens: 0 } } }
     throw Object.assign(new Error("after rejected"), { code: "after_rejected" })
   }
   const { url } = await startCannedServer([{ stream: failing }])
@@ -453,6 +493,7 @@ it("an upstream error is RUN_ERROR with its code intact", async () => {
     type: EventType.RUN_ERROR,
     message: "after rejected",
     code: "after_rejected",
+    usage: [{ inputTokens: 2, outputTokens: 0 }],
   })
 })
 

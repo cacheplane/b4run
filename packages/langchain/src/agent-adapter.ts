@@ -709,6 +709,28 @@ function chunkText(content: unknown): string {
   return text
 }
 
+/**
+ * The `usage` chunk for one finished model call, or `undefined` when the
+ * provider reported nothing. Labels come from LangChain's standard run
+ * metadata (`ls_provider` is the chat-model class name minus `Chat`, so it is
+ * lower-cased to match B4.run's provider ids); the counts travel as the
+ * provider's own `usage_metadata`, untouched — the AG-UI mapper applies the
+ * protocol's accounting rules, and other transports pass the chunk through.
+ */
+function readUsageChunk(event: LangChainStreamEvent): Record<string, unknown> | undefined {
+  const output = event.data.output
+  if (!isRecord(output) || !isRecord(output.usage_metadata)) return undefined
+  const provider = event.metadata?.ls_provider
+  const model = event.metadata?.ls_model_name
+  return {
+    ...(typeof provider === "string" && provider !== ""
+      ? { provider: provider.toLowerCase() }
+      : {}),
+    ...(typeof model === "string" && model !== "" ? { model } : {}),
+    usage_metadata: output.usage_metadata,
+  }
+}
+
 function classifyStreamEvent(
   event: LangChainStreamEvent,
   toolRuns: SubagentToolRunContexts,
@@ -765,10 +787,21 @@ function classifyStreamEvent(
      * the wire as an identity by themselves when a logical id is available.
      */
     case "on_chat_model_end": {
-      if (child) break
+      const usage = readUsageChunk(event)
+      if (child) {
+        if (usage === undefined) break
+        return {
+          capturesFinalOutput: false,
+          child,
+          chunks: [{ type: "subagent.usage", data: { ...usage, ...childIdentity(child) } }],
+          finalOutput: undefined,
+          interrupts: [],
+        }
+      }
       const output = event.data.output as { tool_calls?: unknown } | undefined
       const calls = Array.isArray(output?.tool_calls) ? output.tool_calls : []
       const chunks: AgentStreamChunk[] = flushToolCallFragments(rootTools, event.run_id)
+      if (usage !== undefined) chunks.push({ type: "usage", data: usage })
       if (rootTools.textModelRunIds.delete(event.run_id)) {
         chunks.push({ type: "message_end", data: { messageId: event.run_id } })
       }
