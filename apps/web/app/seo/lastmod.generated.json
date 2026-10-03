@@ -43,8 +43,8 @@
     },
     "/docs/ag-ui": {
       "lastModified": "2026-10-03T18:00:01.000Z",
-      "sourceDigest": "3014eb21cf87e5b8c3f69dce637e172b6cd5a8cf313815725f84c113a378eb5b",
-      "recordDigest": "049ea68e4418654023aeab0bcd10a6bc624677998d0b7842827534c2bed68798"
+      "sourceDigest": "ce039cf3a7f8033864fea8ff2c54708d4df0b7a430183ce1ff5090a343eb2d7c",
+      "recordDigest": "c52e08e6bef8fd820cf6a5e6cc43adebd381fad44d2be7dcc67eb7a16659fa60"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -127,9 +127,9 @@
       "recordDigest": "b94b872602274973c52375889b3fce2a71bccfb96827418e7d46039a2502d3e5"
     },
     "/docs/api/testing": {
-      "lastModified": "2026-09-25T17:07:15.000Z",
-      "sourceDigest": "37712de45892b991db4d746ca4d28c18e71fc63fa4cac90c534d82c4d033b8fa",
-      "recordDigest": "40a14ae65b439832bfafa2de679abdbc8bb04d0fd3cbf187f03bc86d5e25f9f6"
+      "lastModified": "2026-10-03T17:44:41.000Z",
+      "sourceDigest": "231399627596a565c9a753d632f12dad0fb71517c02bc0dc1d0d5e28ed70000b",
+      "recordDigest": "990e0fcac23cf221cad23262fb92a8ed2db5a61453029f4856108dcd13fa7102"
     },
     "/docs/api/workspace": {
       "lastModified": "2026-09-25T19:33:48.000Z",
@@ -327,14 +327,14 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/research-assistant": {
-      "lastModified": "2026-09-23T04:00:19.000Z",
-      "sourceDigest": "b4647ecdfd45b92e2fd65bd39f8ae30cbdb70480376c5dd42b810d0caf72adf9",
-      "recordDigest": "e902fe948e7ef2419c896791fdbdb63ec7ad03f542777c690705e899a105722b"
+      "lastModified": "2026-10-03T17:44:41.000Z",
+      "sourceDigest": "062adfbd16bb4e5555e37071c75b5cd47bd8e6e89a427a385dc26b338ff69903",
+      "recordDigest": "094f28186cc75ed452620c8b360c6550d789893dc62a3016789466dc2555e4bb"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-10-03T15:53:26.000Z",
-      "sourceDigest": "2bc1588035fd1c7890c997f4698e962589a34e9c2453c97821bb56afe3dee3b0",
-      "recordDigest": "9c0e420269256aa7f68cf2e273c482fb11eb50d3b86baed731ca3de593a18663"
+      "lastModified": "2026-10-03T18:00:01.000Z",
+      "sourceDigest": "cb58f1bea5d510115e29f2af125c39bb789f5e845840f846fd3345ca95508d5c",
+      "recordDigest": "3511cdcfdf6b5f9bc6d8f7787f7d40567fe2473a50f479b6eaefab2769524d4b"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
