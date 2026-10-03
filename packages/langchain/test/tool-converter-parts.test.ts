@@ -2,7 +2,7 @@ import { ToolMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ModalitySupport } from "../src/chat-model-factory.ts"
-import { B4_CONTENT_PARTS_KEY, convertToolToLangChain } from "../src/tool-converter.ts"
+import { B4_CONTENT_PARTS_KEY, B4_STEP_KEY, convertToolToLangChain } from "../src/tool-converter.ts"
 
 vi.mock("@langchain/core/callbacks/dispatch/web", () => ({ dispatchCustomEvent: vi.fn() }))
 
@@ -37,6 +37,21 @@ beforeEach(() => {
 })
 
 describe("tool results with content parts", () => {
+  it("keeps the parts and the display step together in additional_kwargs", async () => {
+    const parts = [{ type: "text", text: "x" }]
+    const converted = convertToolToLangChain(
+      { ...tool(parts), display: { icon: "read", done: () => "Read it" } },
+      undefined,
+      undefined,
+      [],
+      [],
+      OPENAI,
+    )
+    const out = (await converted.invoke({}, config)) as ToolMessage
+    expect(out.additional_kwargs[B4_CONTENT_PARTS_KEY]).toEqual(parts)
+    expect(out.additional_kwargs[B4_STEP_KEY]).toEqual({ icon: "read", label: "Read it" })
+  })
+
   it("returns a ToolMessage whose content is the model-visible blocks and whose kwargs keep every part", async () => {
     const converted = convertToolToLangChain(
       tool([{ type: "text", text: "here" }, png]),

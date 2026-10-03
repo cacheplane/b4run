@@ -35,9 +35,17 @@ export interface ToolDisplay<TInput = any, TOutput = any> {
   readonly icon?: ToolDisplayIcon
   /** The sentence while the call runs, e.g. `Searching the corpus for “${query}”`. */
   readonly running?: (input: TInput) => string
-  /** The sentence once it returned, e.g. `Searched the corpus for “${query}”`. */
+  /**
+   * The sentence once it returned, e.g. `Searched the corpus for “${query}”`.
+   * `output` is the value the tool returned, exactly as returned — for a
+   * `{ result, state }` tool that is the wrapper object, not `result`.
+   */
   readonly done?: (input: TInput, output: TOutput) => string
-  /** What the call drew on, from its output. */
+  /**
+   * What the call drew on, from its output. `output` is the value the tool
+   * returned, exactly as returned — for a `{ result, state }` tool that is the
+   * wrapper object, not `result`.
+   */
   readonly sources?: (output: TOutput) => readonly ToolDisplaySource[]
 }
 

@@ -2,7 +2,7 @@ import type { StreamTransformerInput } from "@b4run/core"
 import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
 import { type Command, GraphInterrupt, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
-import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
+import { B4_STEP_KEY, convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
 
 const dispatchCustomEvent = vi.hoisted(() => vi.fn())
 
@@ -926,7 +926,10 @@ describe("convertToolToLangChain — the tool-call record", () => {
     }
     expect(result.content).toBe('{"content":"# Title"}')
     expect(result.tool_call_id).toBe("call_read_1")
-    expect(result.additional_kwargs.b4_step).toEqual({ icon: "read", label: "Read corpus/a.md" })
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      icon: "read",
+      label: "Read corpus/a.md",
+    })
   })
 
   test("a {result, state} tool with display keeps the Command and annotates its ToolMessage", async () => {
@@ -943,7 +946,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
     const update = (result as Command).update as {
       messages: { additional_kwargs: Record<string, unknown> }[]
     }
-    expect(update.messages[0]?.additional_kwargs.b4_step).toEqual({
+    expect(update.messages[0]?.additional_kwargs[B4_STEP_KEY]).toEqual({
       icon: "plan",
       label: "Updated the plan",
     })

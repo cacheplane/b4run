@@ -9,7 +9,7 @@
  */
 import { isCommand } from "@langchain/langgraph"
 import { describe, expect, it } from "vitest"
-import { convertToolToLangChain } from "../src/tool-converter.js"
+import { B4_STEP_KEY, convertToolToLangChain } from "../src/tool-converter.js"
 
 describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () => {
   it("surfaces capability events when the converted tool streams standalone", async () => {
@@ -125,6 +125,9 @@ describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () =
     )) as { content: unknown; tool_call_id: string; additional_kwargs: Record<string, unknown> }
     expect(message.tool_call_id).toBe("call_read_9")
     expect(message.content).toBe('"# Title"')
-    expect(message.additional_kwargs.b4_step).toEqual({ icon: "read", label: "Read corpus/a.md" })
+    expect(message.additional_kwargs[B4_STEP_KEY]).toEqual({
+      icon: "read",
+      label: "Read corpus/a.md",
+    })
   })
 })
