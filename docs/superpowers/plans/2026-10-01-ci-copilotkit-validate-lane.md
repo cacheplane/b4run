@@ -106,6 +106,15 @@ The rest of the string is byte-identical to the YAML's `run:` block with the lea
 
 The entry `"job": "validate", "stepIndex": 0, "step": "Require every validation lane"` has the same `"run"` string under `"value"`; make the identical `$LANE_4` substitution there.
 
+- [ ] **Step 2b: The non-release pins (found in execution)**
+
+Three test files outside the release suite also hard-code the lane set and are run by `pnpm test` (source-validate), not by `pnpm test:release-integrity`:
+- `scripts/release/test/release-integrity.test.mjs` — the `required` array in "required validate aggregates independent complete lanes and fails closed" gains `"dependency-security-browser"`; `checkout.with.ref` becomes `checkout.with?.ref` (the new job's Checkout has no `with:` block; the guard — no `ref` override — is unchanged).
+- `test/k8s-compat/ci-scope.test.ts` — the `jobs.validate?.needs` expectation gains `"dependency-security-browser"` last.
+- `test/k8s-compat/ci-prose-scope.test.ts` — `full` and `light` gain `LANE_4` (`"success"` / `"skipped"`), and the per-lane loop lists `"LANE_4"`; without it the gate script's `set -u` exits 2 on the unset variable.
+
+Run: `pnpm exec vitest --run --config test/k8s-compat/vitest.config.ts test/k8s-compat/ci-scope.test.ts test/k8s-compat/ci-prose-scope.test.ts` → PASS.
+
 - [ ] **Step 3: Verify the pins agree with the workflow**
 
 Run: `pnpm test:release-integrity && node --test scripts/release/test/workflow-contracts.test.mjs`
