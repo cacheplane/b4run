@@ -127,9 +127,10 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
 
       if (changes > 0) {
         const record = readRow(threadId, interruptId)
-        // Unreachable in practice: the UPDATE just matched this row, and there
-        // is no DELETE path on this table. Kept as a type-level floor rather
-        // than a non-null assertion, so a future deleter fails loudly.
+        // Reachable only by a `prune` racing a just-completed consume: prune
+        // deletes settled rows, so the row this UPDATE matched can be gone by
+        // the time it is re-read. `missing` is the honest answer for a row
+        // that no longer exists.
         if (!record) return { outcome: "missing" }
         return { outcome: "consumed", record }
       }
