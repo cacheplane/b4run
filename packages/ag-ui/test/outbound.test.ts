@@ -7,6 +7,8 @@ import { toAguiEvents, toolResultView } from "../src/outbound.js"
 import { encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
 
+const PERMISSION_RESPONSE = { type: "string", enum: ["once", "always", "deny"] }
+
 const CTX = { threadId: "th-1", runId: "rn-1" }
 const CHILD = {
   call_id: "call-1",
@@ -372,7 +374,7 @@ describe("toAguiEvents", () => {
             id: "perm-1",
             reason: "command",
             metadata: { interruptId: "perm-1", kind: "command" },
-            responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+            responseSchema: PERMISSION_RESPONSE,
           },
         ],
       },
@@ -400,13 +402,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
-              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+              responseSchema: PERMISSION_RESPONSE,
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
-              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+              responseSchema: PERMISSION_RESPONSE,
             },
           ],
         },
@@ -441,13 +443,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
-              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+              responseSchema: PERMISSION_RESPONSE,
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
-              responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+              responseSchema: PERMISSION_RESPONSE,
             },
           ],
         },

@@ -462,10 +462,8 @@ describe("streamAgent — interrupt propagation", () => {
 
   test("a child command interrupt that already names its tool call keeps both ids", async () => {
     const ChildState = Annotation.Root({ messages: Annotation<unknown[]>() })
-    let childSetupCount = 0
     const child = new StateGraph(ChildState)
       .addNode("setup", () => {
-        childSetupCount++
         return {}
       })
       .addNode("approval", () => {
@@ -509,7 +507,7 @@ describe("streamAgent — interrupt propagation", () => {
           tool_calls: [
             {
               args: { input: "Review", subagent: "researcher" },
-              id: "task-native-resume",
+              id: "task-both-ids",
               name: "task",
               type: "tool_call",
             },
@@ -542,7 +540,7 @@ describe("streamAgent — interrupt propagation", () => {
         interruptId: "child-permission",
         kind: "command",
         toolCallId: "child-call-9",
-        callId: "task-native-resume",
+        callId: "task-both-ids",
       },
     ])
   })

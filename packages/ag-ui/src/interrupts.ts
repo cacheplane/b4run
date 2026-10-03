@@ -83,10 +83,13 @@ export function toAguiInterrupt(data: unknown): B4AguiInterrupt | null {
   // `toolCallId` names the gated call itself. A root gate has only the
   // latter, a dispatch gate only the former (the task call IS the gated
   // call), and a child's own gate has both — then the task call is the
-  // AG-UI `subagentRunId` and the child's call is the `toolCallId`.
+  // AG-UI `subagentRunId` and the child's call is the `toolCallId`. Equal ids
+  // are a dispatch gate, not a child's gate.
   const toolCallId = envToolCallId ?? envCallId
   const subagentRunId =
-    envToolCallId !== undefined && envCallId !== undefined ? envCallId : undefined
+    envToolCallId !== undefined && envCallId !== undefined && envToolCallId !== envCallId
+      ? envCallId
+      : undefined
   const isPermission =
     env.type === "permission-request" ||
     (typeof env.kind === "string" && PERMISSION_KINDS.has(env.kind))

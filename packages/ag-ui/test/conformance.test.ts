@@ -39,6 +39,7 @@ const childIdentity = {
   depth: 1,
 } as const
 
+const PERMISSION_RESPONSE = { type: "string", enum: ["once", "always", "deny"] }
 const ORDINARY_TOOL_CALL_ID = "call_searchCorpus_0_0"
 const STREAMED_TOOL_CALL_ID = "call_draftReply_0_2"
 const STREAMED_ARGS = { subject: "Agents", body: "A short note about agents." }
@@ -561,6 +562,45 @@ it("reasoning open at an interrupt is closed before RUN_FINISHED, and the resume
   )
   expect(kinds.at(-1)).toBe(EventType.RUN_FINISHED)
   expect(agent.messages.filter((message) => message.role === "reasoning")).toHaveLength(2)
+})
+
+it("a child's two-id permission interrupt survives the 1.0 client with subagentRunId and responseSchema", async () => {
+  const { url } = await startCannedServer([
+    {
+      stream: () =>
+        toAsync([
+          { type: "subagent.start", data: childIdentity },
+          {
+            type: "interrupt",
+            data: {
+              interruptId: "perm-2",
+              type: "permission-request",
+              kind: "command",
+              callId: childIdentity.call_id,
+              toolCallId: "child-call-9",
+            },
+          },
+        ]),
+    },
+  ])
+  const { events } = await runThroughClient(url, { runId: "r1" })
+  expect(events.at(-2)).toMatchObject({
+    type: EventType.SUBAGENT_FINISHED,
+    subagentRunId: childIdentity.call_id,
+    outcome: { type: "suspended", interruptIds: ["perm-2"] },
+  })
+  const finished = events.at(-1) as {
+    type: string
+    outcome: { type: string; interrupts: Record<string, unknown>[] }
+  }
+  expect(finished.type).toBe(EventType.RUN_FINISHED)
+  expect(finished.outcome.type).toBe("interrupt")
+  expect(finished.outcome.interrupts[0]).toMatchObject({
+    id: "perm-2",
+    toolCallId: "child-call-9",
+    subagentRunId: childIdentity.call_id,
+    responseSchema: PERMISSION_RESPONSE,
+  })
 })
 
 it("a child interrupt suspends the subagent, tags the interrupt, and the resume re-announces it", async () => {

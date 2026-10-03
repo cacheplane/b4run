@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest"
 import { fromAguiResume, toAguiInterrupt } from "../src/interrupts.js"
 
+const PERMISSION_RESPONSE = { type: "string", enum: ["once", "always", "deny"] }
+
 describe("toAguiInterrupt", () => {
   test("preserves a subagent permission envelope as metadata", () => {
     const envelope = {
@@ -23,7 +25,7 @@ describe("toAguiInterrupt", () => {
       reason: "subagent",
       toolCallId: "task-1",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -38,7 +40,7 @@ describe("toAguiInterrupt", () => {
       id: "perm-1",
       reason: "command",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -55,7 +57,7 @@ describe("toAguiInterrupt", () => {
       message: "Approve?",
       toolCallId: "tc-9",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -66,7 +68,7 @@ describe("toAguiInterrupt", () => {
       reason: "tool",
       toolCallId: "call_task_0_2",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -78,7 +80,7 @@ describe("toAguiInterrupt", () => {
       toolCallId: "call-b",
       subagentRunId: "call-a",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -96,15 +98,27 @@ describe("toAguiInterrupt", () => {
       reason: "subagent",
       toolCallId: "call-task",
       metadata: envelope,
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
   test("a permission request advertises the once/always/deny answers", () => {
     const envelope = { interruptId: "perm-9", type: "permission-request", kind: "tool" }
     expect(toAguiInterrupt(envelope)).toMatchObject({
-      responseSchema: { type: "string", enum: ["once", "always", "deny"] },
+      responseSchema: PERMISSION_RESPONSE,
     })
+  })
+
+  test("equal callId and toolCallId is a dispatch gate with no subagentRunId", () => {
+    const envelope = {
+      interruptId: "perm-10",
+      kind: "subagent",
+      callId: "call-task",
+      toolCallId: "call-task",
+    }
+    const interrupt = toAguiInterrupt(envelope)
+    expect(interrupt).toMatchObject({ toolCallId: "call-task" })
+    expect(Object.hasOwn(interrupt as object, "subagentRunId")).toBe(false)
   })
 
   test("a non-permission interrupt has no responseSchema", () => {
