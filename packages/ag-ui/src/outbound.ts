@@ -77,12 +77,13 @@ function stringifyArgs(input: unknown): string {
 /**
  * A tool result's wire content. A part array (the tool returned parts, or a
  * ToolMessage kept them under `additional_kwargs.b4_content_parts` so the UI
- * sees every part even when the model saw only text) travels as parts;
- * anything else is text, as before.
+ * sees every part even when the model saw less) travels as parts; anything
+ * else is text, as before. `toolCallId` picks the right ToolMessage out of a
+ * `Command`-wrapped result.
  */
-function toResultContent(output: unknown): string | ContentPart[] {
+function toResultContent(output: unknown, toolCallId: string | undefined): string | ContentPart[] {
   if (isContentPartArray(output) && output.length > 0) return [...output]
-  const kept = keptParts(output)
+  const kept = keptParts(output, toolCallId)
   if (kept) return kept
   if (typeof output === "string") return output
   if (output === undefined || output === null) return ""
@@ -94,17 +95,54 @@ function toResultContent(output: unknown): string | ContentPart[] {
   }
 }
 
-/** `additional_kwargs.b4_content_parts` off a live ToolMessage or its serialized `kwargs` form. */
-function keptParts(output: unknown): ContentPart[] | undefined {
-  if (typeof output !== "object" || output === null) return undefined
-  const record = output as {
-    readonly additional_kwargs?: unknown
-    readonly kwargs?: { readonly additional_kwargs?: unknown }
+type Indexable = { readonly [key: string]: unknown }
+
+function asRecord(value: unknown): Indexable | undefined {
+  return typeof value === "object" && value !== null ? (value as Indexable) : undefined
+}
+
+/**
+ * The parts a tool result kept for the UI, or `undefined`. Two carriers:
+ *
+ * - A ToolMessage, live or serialized (`{ lc, type: "constructor", kwargs }`),
+ *   with `additional_kwargs.b4_content_parts`. Its `content` (blocks, with
+ *   `response_metadata.output_version`) is what the model saw and may be
+ *   narrower; the kept parts are preferred whenever present.
+ * - A LangGraph `Command` (a tool that returned `{ result, state }`), whose
+ *   `update.messages` holds that ToolMessage. Live and `JSON.stringify`d
+ *   Commands share this shape (`{ lg_name: "Command", update, goto }`); a
+ *   `kwargs.update` wrapper is accepted too. Among several ToolMessages
+ *   carrying parts, the one whose `tool_call_id` is this result's wins, else
+ *   the first.
+ */
+function keptParts(output: unknown, toolCallId: string | undefined): ContentPart[] | undefined {
+  const record = asRecord(output)
+  if (record === undefined) return undefined
+  const own = messageKeptParts(record)
+  if (own !== undefined) return own.parts
+  const update = asRecord(record.update) ?? asRecord(asRecord(record.kwargs)?.update)
+  const messages = update?.messages
+  if (!Array.isArray(messages)) return undefined
+  let first: ContentPart[] | undefined
+  for (const message of messages) {
+    const entry = messageKeptParts(asRecord(message))
+    if (entry === undefined) continue
+    if (toolCallId !== undefined && entry.toolCallId === toolCallId) return entry.parts
+    first ??= entry.parts
   }
-  const kwargs = record.additional_kwargs ?? record.kwargs?.additional_kwargs
-  if (typeof kwargs !== "object" || kwargs === null) return undefined
-  const parts = (kwargs as { readonly b4_content_parts?: unknown }).b4_content_parts
-  return isContentPartArray(parts) && parts.length > 0 ? [...parts] : undefined
+  return first
+}
+
+/** `additional_kwargs.b4_content_parts` off one live or serialized ToolMessage. */
+function messageKeptParts(
+  message: Indexable | undefined,
+): { readonly parts: ContentPart[]; readonly toolCallId: unknown } | undefined {
+  if (message === undefined) return undefined
+  const kwargs = asRecord(message.kwargs)
+  const additional = asRecord(message.additional_kwargs) ?? asRecord(kwargs?.additional_kwargs)
+  const parts = additional?.b4_content_parts
+  if (!isContentPartArray(parts) || parts.length === 0) return undefined
+  return { parts: [...parts], toolCallId: message.tool_call_id ?? kwargs?.tool_call_id }
 }
 
 /**
@@ -333,7 +371,7 @@ export async function* toAguiEvents(
             type: EventType.TOOL_CALL_RESULT,
             messageId,
             toolCallId,
-            content: toResultContent(tr.output),
+            content: toResultContent(tr.output, tr.id),
           }
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
           break

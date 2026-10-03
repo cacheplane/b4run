@@ -1650,6 +1650,91 @@ describe("content parts outbound", () => {
     expect(result.content).toEqual(parts)
   })
 
+  test("a live Command wrapping a ToolMessage emits the kept parts, not the stringified Command", async () => {
+    const parts = [{ type: "text", text: "chart" }, PNG_PART]
+    // The live shape `on_tool_end` hands over when a tool returns `{ result, state }`.
+    const command = {
+      lg_name: "Command",
+      lc_direct_tool_output: true,
+      update: {
+        messages: [
+          {
+            lc_serializable: true,
+            content: [{ type: "text", text: "chart" }],
+            additional_kwargs: { b4_content_parts: parts },
+            response_metadata: { output_version: "v1" },
+            type: "tool",
+            tool_call_id: "c1",
+          },
+        ],
+        notes: ["kept"],
+      },
+      goto: [],
+    }
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: command } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toMatchObject({ content: parts })
+    expect(() => ToolCallResultEventSchema.parse(result)).not.toThrow()
+  })
+
+  test("a serialized Command prefers the ToolMessage whose tool_call_id matches the result", async () => {
+    const other = [{ type: "text", text: "other" }]
+    const parts = [{ type: "text", text: "chart" }, PNG_PART]
+    const serializedToolMessage = (toolCallId: string, kept: unknown) => ({
+      lc: 1,
+      type: "constructor",
+      id: ["langchain_core", "messages", "ToolMessage"],
+      kwargs: {
+        content: [{ type: "text", text: "x" }],
+        tool_call_id: toolCallId,
+        additional_kwargs: { b4_content_parts: kept },
+        response_metadata: { output_version: "v1" },
+      },
+    })
+    // Exactly what JSON.stringify makes of a @langchain/langgraph Command.
+    const command = JSON.parse(
+      JSON.stringify({
+        lg_name: "Command",
+        update: {
+          messages: [
+            {
+              lc: 1,
+              type: "constructor",
+              id: ["langchain_core", "messages", "AIMessage"],
+              kwargs: { content: "hi" },
+            },
+            serializedToolMessage("someone-else", other),
+            serializedToolMessage("c1", parts),
+          ],
+        },
+        goto: [],
+      }),
+    )
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: command } },
+      { type: "tool_result", data: { id: "c9", name: "render", output: command } },
+      { type: "done", data: {} },
+    ])
+    const contents = events
+      .filter((e) => e.type === EventType.TOOL_CALL_RESULT)
+      .map((e) => (e as { content: unknown }).content)
+    // A match wins; with no match, the first ToolMessage carrying parts.
+    expect(contents).toEqual([parts, other])
+  })
+
+  test("a Command with no kept parts stays JSON text", async () => {
+    const command = { lg_name: "Command", update: { messages: [], notes: [] }, goto: [] }
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: command } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT) as { content: unknown }
+    expect(result.content).toBe(JSON.stringify(command))
+  })
+
   test("an empty part array and a non-part array stay JSON text", async () => {
     const events = await collect([
       { type: "tool_result", data: { id: "c1", name: "render", output: [] } },
