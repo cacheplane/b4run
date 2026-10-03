@@ -1,11 +1,10 @@
-import { B4_PLAN_ACTIVITY_TYPE, B4_SUBAGENT_ACTIVITY_TYPE } from "@b4run/ag-ui"
-import { planActivityContentSchema, subagentActivityContentSchema } from "@b4run/ag-ui/react"
+import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
+import { planActivityContentSchema } from "@b4run/ag-ui/react"
 import type { ComponentType } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { workbenchActivityRenderers } from "./activity-renderers"
 import { PlanCard } from "./PlanCard"
-import { SubagentCard } from "./SubagentCard"
 
 const PLAN_CONTENT = {
   todos: [
@@ -21,24 +20,6 @@ const PLAN_OVERFLOW_CONTENT = {
     status: "pending" as const,
   })),
 }
-
-const SUBAGENT_CONTENT = {
-  name: "researcher",
-  depth: 2,
-  status: "running",
-  todos: [{ content: "Summarize the findings", status: "pending" }],
-  tools: [{ name: "web_search", status: "completed" }],
-  totalToolCount: 3,
-} as const
-
-const FAILED_SUBAGENT_CONTENT = {
-  name: "researcher",
-  depth: 1,
-  status: "failed",
-  error: "The search backend refused the query",
-  tools: [{ name: "web_search", status: "incomplete" }],
-  totalToolCount: 1,
-} as const
 
 describe("workbench plan card", () => {
   test("keeps the package defaults and adds the workbench classes", () => {
@@ -66,39 +47,11 @@ describe("workbench plan card", () => {
   })
 })
 
-describe("workbench subagent card", () => {
-  test("keeps the package defaults and adds the workbench classes", () => {
-    const markup = renderToStaticMarkup(<SubagentCard content={SUBAGENT_CONTENT} />)
-    expect(markup).toContain("b4-activity tracking-tight")
-    expect(markup).toContain("b4-activity__badge uppercase tracking-wide")
-    expect(markup).toContain("b4-activity__section-label uppercase tracking-[0.08em]")
-    expect(markup).toContain("b4-activity__item-status whitespace-nowrap")
-  })
-
-  test("still renders the package's content, badge, and tool list", () => {
-    const markup = renderToStaticMarkup(<SubagentCard content={SUBAGENT_CONTENT} />)
-    expect(markup).toContain("researcher")
-    expect(markup).toContain("nested")
-    expect(markup).toContain("web_search")
-    expect(markup).toContain("3 tools")
-  })
-
-  test("styles a failed subagent's error and keeps its message", () => {
-    const markup = renderToStaticMarkup(<SubagentCard content={FAILED_SUBAGENT_CONTENT} />)
-    expect(markup).toContain("b4-activity__error border-l-2 pl-2")
-    expect(markup).toContain("The search backend refused the query")
-    expect(markup).toContain("b4-activity__item--incomplete")
-    // depth 1 is not nested, so the badge stays absent.
-    expect(markup).not.toContain("b4-activity__badge")
-  })
-})
-
 /**
  * The provider takes `ReactActivityMessageRenderer<any>[]`, which erases the
- * content type at that boundary: wiring both entries to `PlanCard`, or pairing
- * the plan schema with the subagent card, typechecks cleanly and simply renders
- * nothing at runtime. These tests are the only thing standing between that slip
- * and a silent blank transcript.
+ * content type at that boundary: pairing the plan schema with another card
+ * typechecks cleanly and simply renders nothing at runtime. These tests are the
+ * only thing standing between that slip and a silent blank transcript.
  */
 function renderEntry(entry: (typeof workbenchActivityRenderers)[number], content: unknown): string {
   // The provider passes `{ activityType, content, message, agent }`; both
@@ -108,31 +61,23 @@ function renderEntry(entry: (typeof workbenchActivityRenderers)[number], content
 }
 
 describe("workbench activity renderer registry", () => {
-  test("registers the package's two activity types, in order", () => {
+  test("registers the package's one activity type", () => {
     expect(workbenchActivityRenderers.map((entry) => entry.activityType)).toEqual([
       B4_PLAN_ACTIVITY_TYPE,
-      B4_SUBAGENT_ACTIVITY_TYPE,
     ])
   })
 
-  test("pairs each activity type with the package's matching schema", () => {
-    const [plan, subagent] = workbenchActivityRenderers
+  test("pairs the plan activity with the package's schema", () => {
+    const [plan] = workbenchActivityRenderers
     expect(plan?.content).toBe(planActivityContentSchema)
-    expect(subagent?.content).toBe(subagentActivityContentSchema)
   })
 
-  test("renders the workbench card that belongs to each entry", () => {
-    const [plan, subagent] = workbenchActivityRenderers
-    if (!plan || !subagent) throw new Error("expected two registered renderers")
+  test("renders the workbench plan card for the entry", () => {
+    const [plan] = workbenchActivityRenderers
+    if (!plan) throw new Error("expected the plan renderer")
 
     const planMarkup = renderEntry(plan, PLAN_CONTENT)
     expect(planMarkup).toContain("b4-activity__title font-medium")
     expect(planMarkup).toContain("1/2 complete")
-
-    // The badge and the tool list exist only on the subagent card, so these
-    // fail loudly if that entry is wired to `PlanCard`.
-    const subagentMarkup = renderEntry(subagent, SUBAGENT_CONTENT)
-    expect(subagentMarkup).toContain("b4-activity__badge uppercase tracking-wide")
-    expect(subagentMarkup).toContain("web_search")
   })
 })

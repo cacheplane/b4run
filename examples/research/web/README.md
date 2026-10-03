@@ -64,8 +64,8 @@ put back in front of the messages as a plan card.
 What a restore does **not** bring back is stated in the app itself, above the restored
 messages:
 
-> Restored from this conversation's saved history. Subagent cards from earlier runs
-> aren't saved — new ones appear as they run.
+> Restored from this conversation's saved history. Subagent activity from earlier runs
+> isn't saved — new runs show it as it happens.
 
 A thread with no checkpoint yet (a brand-new one) 404s, and that is treated as "nothing
 to restore", not an error — no error row appears.
@@ -150,11 +150,13 @@ The palette follows the OS light/dark setting. To pin one regardless, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>` — `theme.css` defines both
 branches.
 
-The plan and researcher cards are **not forks**. They are the packaged
-`@b4run/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
-customized through that package's `classNames` ladder. To change how they look, edit
-`app/components/PlanCard.tsx` (and `app/components/SubagentCard.tsx`) — validation,
-bounds, and layout stay in the package where they are tested. One constraint is worth
+The plan card and the subagent panel are **not forks**. They are the packaged
+`@b4run/ag-ui/react` components (`PlanActivityCard`, and `SubagentPanel` fed by
+`useSubagentRuns(agent)` from the agent's AG-UI `SUBAGENT_*` events), customized through
+that package's `classNames` ladder. To change how they look, edit
+`app/components/PlanCard.tsx` (and the `SubagentPanel` props in
+`app/components/Transcript.tsx`) — validation, bounds, and layout stay in the package
+where they are tested. One constraint is worth
 knowing before you add a class: a `classNames` entry can only set a property the package
 stylesheet leaves unset on that element, because the package's CSS is unlayered and
 Tailwind's utilities are not. `app/components/activity-renderers.tsx` states the rule and
