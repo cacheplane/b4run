@@ -132,8 +132,9 @@ covers the depth check, the resolver and `graph.invoke`, so:
 
 The bridge records only when `readCallId` found a provider id. Its `task-<uuid>` fallback is
 never recorded: it is drawn afresh on every re-execution, so a row keyed on it would be orphaned
-on each child park and, being unsettled, never pruned. The helper's empty-id rule handles this
-once the bridge passes `""` in that case.
+on each child park and, being unsettled, never pruned. The bridge keeps using the fallback id for
+its stream events as today; it hands the helper the provider id when one was found and `""`
+otherwise, and the helper's empty-id rule does the rest.
 
 The row is an ordinary server row — `toolName: "task"`, the parent route key and the AG-UI run id,
 `interruptId: ""` — so a `role: "tool"` message carrying a task id is dropped as a server row,
