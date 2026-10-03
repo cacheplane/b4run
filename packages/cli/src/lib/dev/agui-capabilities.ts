@@ -24,8 +24,24 @@
  *   accepts only once/always/deny and answers anything else with 400.
  * - `tools.parallelCalls` is `true` for an `agent()` route: the LangChain
  *   adapter pins `createAgent`'s v2 one-task-per-call execution.
- * - `transport.streaming` is `true` for every route: the handler only ever
- *   answers SSE, whatever the route can do.
+ * - `transport.streaming` and `transport.httpBinary` are `true` for every
+ *   route: the handler serves the SSE binding, and the HTTP+protobuf binding
+ *   whenever the request's `Accept` admits it (`@b4run/ag-ui/sse` owns the
+ *   rule; `agui-endpoint.test.ts` proves both). `websocket`, `resumable` and
+ *   `pushNotifications` are omitted: nothing serves them, and nothing
+ *   settles them as false either.
+ * - `reasoning.supported` is `false` for every route: `toAguiEvents` has no
+ *   `REASONING_*` branch, and the langchain adapter's `chunkText` keeps only
+ *   `text` blocks, so nothing reasoning-shaped reaches the wire. The claim
+ *   flips when the translator emits them (AG-UI sub-project 2).
+ * - `state.snapshots` and `state.deltas` are `false` for every route: no
+ *   code emits `STATE_SNAPSHOT` or `STATE_DELTA`. `state.persistentState` is
+ *   `route.mode === "agent"`, the same checkpointer fact as `interrupts`: a
+ *   chain, graph or workflow route is invoked once without one, so nothing
+ *   of it persists between runs. `state.memory` is omitted: whether an app
+ *   wires long-term memory is tool wiring this handler cannot see.
+ * - `multiAgent` is omitted: subagent tooling is app-wired, not
+ *   route-declared, and no `SUBAGENT_*` event exists yet (sub-project 2).
  *
  * AG-UI reads an omitted field as UNKNOWN, not unsupported, so a claim this
  * runtime cannot settle — what an agent route exporting a raw runnable does on
@@ -57,8 +73,21 @@ import type { RuntimeRegistry } from "./runtime-registry-core.js"
 import { createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
 
-/** The one transport this handler speaks, for every route. */
-const TRANSPORT: NonNullable<AgentCapabilities["transport"]> = { streaming: true }
+/** What the handler serves, for every route: SSE, and protobuf when asked. */
+const TRANSPORT: NonNullable<AgentCapabilities["transport"]> = {
+  httpBinary: true,
+  streaming: true,
+}
+
+/** Nothing reasoning-shaped reaches the wire from any route (module comment). */
+const REASONING: NonNullable<AgentCapabilities["reasoning"]> = { supported: false }
+
+/** No route emits state events; persistence is the checkpointer fact. */
+function stateCapabilities(
+  mode: RuntimeRegistry["entries"][number]["mode"],
+): NonNullable<AgentCapabilities["state"]> {
+  return { deltas: false, persistentState: mode === "agent", snapshots: false }
+}
 
 export interface AgUiCapabilitiesRequestOptions {
   readonly appRoot: string
@@ -112,6 +141,8 @@ export async function handleAgUiCapabilitiesRequest(
             supported: false,
           },
           output: { structuredOutput: false },
+          reasoning: REASONING,
+          state: stateCapabilities(route.mode),
           tools: { clientProvided: false, supported: false },
           transport: TRANSPORT,
         }
@@ -143,8 +174,9 @@ async function agentCapabilities(
     if (bootFallbacks) throw error
     // Without them, and without a static manifest seeding the module cache,
     // this runtime cannot read route modules here at all: nothing about the
-    // route is settled, so nothing is claimed — except how it is served.
-    return { transport: TRANSPORT }
+    // route is settled, so nothing the module settles is claimed — only what
+    // is true of every route and of its mode.
+    return { reasoning: REASONING, state: stateCapabilities(route.mode), transport: TRANSPORT }
   }
 
   const grants = options.approvalGrants
@@ -168,6 +200,8 @@ async function agentCapabilities(
       ...(isDescriptor ? { approvals } : {}),
     },
     output: { structuredOutput },
+    reasoning: REASONING,
+    state: stateCapabilities(route.mode),
     tools: {
       clientProvided,
       ...(isDescriptor ? { parallelCalls: true, supported: true } : {}),
