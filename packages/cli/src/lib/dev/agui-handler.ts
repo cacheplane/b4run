@@ -794,23 +794,27 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // (a client retrying a run that already resumed), or a forgery. It
       // carries no new user input, so there is no turn to run — re-running
       // the last user message would answer it twice. Same no-op as `partial`,
-      // which makes client retries idempotent.
-      return clientToolPartialResponse(
-        threadId,
-        input.runId,
-        request.headers.get("accept"),
-        await outstandingClientCallIds(clientToolRuntime.store, threadId),
-      )
+      // which makes client retries idempotent. Nothing is pending: this
+      // branch is reached only when the snapshot has no client park, so any
+      // open row on the thread is a stray or belongs to a run still in flight
+      // — never this request's to report.
+      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"), [])
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
       // the graph is not touched, and the run ends as an ordinary success so
-      // the client goes on to send the rest.
+      // the client goes on to send the rest. The pending ids are the
+      // snapshot's parks still open in the record: a stray open row that
+      // names no park here is not this request's to report.
       return clientToolPartialResponse(
         threadId,
         input.runId,
         request.headers.get("accept"),
-        await outstandingClientCallIds(clientToolRuntime.store, threadId),
+        await outstandingClientCallIds(
+          clientToolRuntime.store,
+          threadId,
+          clientToolCallIds(clientParks),
+        ),
       )
     }
 
@@ -1049,11 +1053,15 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // run on this thread interleaves: closed rows older than the retention
     // window go. Open rows are never eligible, so a parked call survives
     // until the TTL abandons it. A failure here never fails the run.
+    // Never shorter than the TTL: a row answered while its park is still
+    // resumable must survive until the resumed replay has re-read it.
     if (clientToolStore) {
       try {
         await clientToolStore.prune({
           threadId,
-          before: new Date(Date.now() - clientToolRuntime.retentionMs).toISOString(),
+          before: new Date(
+            Date.now() - Math.max(clientToolRuntime.retentionMs, clientToolRuntime.ttlMs),
+          ).toISOString(),
         })
       } catch (error) {
         console.warn(`B4: could not prune the tool-call record for ${threadId}.`, error)
@@ -1269,12 +1277,17 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 cancelled: () => run.cancelled || shutdownSignal.aborted,
                 // The client-tool parks this turn left open, from the record:
                 // asked when RUN_FINISHED is built, after every raw chunk has
-                // been consumed, so `sawInterrupt` is final. A turn that did
-                // not park has nothing pending (any stray row is voided right
-                // after, in the finally).
+                // been consumed, so `sawInterrupt` is final. Only rows this run
+                // issued (each carries its run id): a call resumed this turn
+                // is already answered, and a stray open row from another run
+                // is not this turn's park. A turn that did not park has
+                // nothing pending (any stray row is voided right after, in the
+                // finally).
                 pendingToolCallIds: async () =>
                   sawInterrupt && clientToolStore
-                    ? (await clientToolStore.listOutstanding(threadId)).map((row) => row.toolCallId)
+                    ? (await clientToolStore.listOutstanding(threadId))
+                        .filter((row) => row.runId === input.runId)
+                        .map((row) => row.toolCallId)
                     : [],
               },
             )) {
@@ -1692,13 +1705,19 @@ function withParkedClientTools(
   return rebuilt.length === 0 ? requested : [...requested, ...rebuilt]
 }
 
-/** The thread's open client-kind rows, by provider tool-call id, in issue order. */
+/**
+ * The thread's open client-kind rows among `allowed`, by provider tool-call
+ * id, in issue order.
+ */
 async function outstandingClientCallIds(
   store: ClientToolRuntime["store"],
   threadId: string,
+  allowed: ReadonlySet<string>,
 ): Promise<readonly string[]> {
   if (!store) return []
-  return (await store.listOutstanding(threadId)).map((row) => row.toolCallId)
+  return (await store.listOutstanding(threadId))
+    .filter((row) => allowed.has(row.toolCallId))
+    .map((row) => row.toolCallId)
 }
 
 /**
