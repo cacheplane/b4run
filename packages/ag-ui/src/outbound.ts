@@ -163,6 +163,16 @@ function readToolMessageFields(
   return { content: fields.content, status: fields.status }
 }
 
+/** A ToolMessage's text: a string as-is, content parts joined by their text parts. */
+function contentText(content: unknown): string {
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (isPlainObject(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
+      .join("")
+  }
+  return stringifyContent(content)
+}
+
 /** What a tool result looks like on the wire: the text the model saw, and whether the tool failed. */
 export interface ToolResultView {
   readonly content: string
@@ -177,22 +187,26 @@ export interface ToolResultView {
  * a bare value (tests, third-party producers) is serialized as before.
  */
 export function toolResultView(output: unknown): ToolResultView {
-  const direct = readToolMessageFields(output)
-  if (direct !== undefined) {
-    return { content: stringifyContent(direct.content), failed: direct.status === "error" }
-  }
-  if (
-    isPlainObject(output) &&
-    isPlainObject(output.update) &&
-    Array.isArray(output.update.messages)
-  ) {
-    const messages = output.update.messages
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const fields = readToolMessageFields(messages[index])
-      if (fields !== undefined) {
-        return { content: stringifyContent(fields.content), failed: fields.status === "error" }
+  try {
+    const direct = readToolMessageFields(output)
+    if (direct !== undefined) {
+      return { content: contentText(direct.content), failed: direct.status === "error" }
+    }
+    if (
+      isPlainObject(output) &&
+      isPlainObject(output.update) &&
+      Array.isArray(output.update.messages)
+    ) {
+      const messages = output.update.messages
+      for (let index = messages.length - 1; index >= 0; index--) {
+        const fields = readToolMessageFields(messages[index])
+        if (fields !== undefined) {
+          return { content: contentText(fields.content), failed: fields.status === "error" }
+        }
       }
     }
+  } catch {
+    // A hostile getter or Proxy must not escape the stream; serialize instead.
   }
   return { content: stringifyContent(output), failed: false }
 }

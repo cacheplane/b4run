@@ -3,7 +3,7 @@ import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/c
 import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
-import { toAguiEvents } from "../src/outbound.js"
+import { toAguiEvents, toolResultView } from "../src/outbound.js"
 import { encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
 
@@ -1684,5 +1684,74 @@ describe("subagents", () => {
       EventType.SUBAGENT_FINISHED,
       EventType.RUN_FINISHED,
     ])
+  })
+})
+
+describe("toolResultView", () => {
+  const live = (extra: Record<string, unknown>) => ({ tool_call_id: "c1", ...extra })
+
+  test("a live error ToolMessage is failed", () => {
+    expect(toolResultView(live({ content: "boom", status: "error" }))).toEqual({
+      content: "boom",
+      failed: true,
+    })
+  })
+
+  test("a serialized error ToolMessage is failed", () => {
+    expect(toolResultView({ kwargs: live({ content: "boom", status: "error" }) })).toEqual({
+      content: "boom",
+      failed: true,
+    })
+  })
+
+  test("a success ToolMessage is not failed", () => {
+    expect(toolResultView(live({ content: "ok", status: "success" }))).toEqual({
+      content: "ok",
+      failed: false,
+    })
+  })
+
+  test("bare values are serialized and not failed", () => {
+    expect(toolResultView("plain")).toEqual({ content: "plain", failed: false })
+    expect(toolResultView({ a: 1 })).toEqual({ content: '{"a":1}', failed: false })
+  })
+
+  test("a Command scan skips trailing non-ToolMessage entries", () => {
+    const command = {
+      update: { messages: [live({ content: "tool text" }), { content: "thinking", type: "ai" }] },
+    }
+    expect(toolResultView(command)).toEqual({ content: "tool text", failed: false })
+  })
+
+  test("a non-object kwargs falls back to the top-level fields", () => {
+    expect(toolResultView({ kwargs: 3, tool_call_id: "c1", content: "top" })).toEqual({
+      content: "top",
+      failed: false,
+    })
+  })
+
+  test("array content parts flatten to their text", () => {
+    const content = [
+      { type: "text", text: "a" },
+      { type: "image_url", image_url: "x" },
+      { type: "text", text: "b" },
+    ]
+    expect(toolResultView(live({ content })).content).toBe("ab")
+  })
+
+  test("a hostile getter does not escape the stream", async () => {
+    const hostile = {
+      get tool_call_id(): string {
+        throw new Error("hostile")
+      },
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "h1", name: "t", input: {} } },
+      { type: "tool_result", data: { id: "h1", name: "t", output: hostile } },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(true)
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(typeof (result as { content: unknown }).content).toBe("string")
   })
 })
