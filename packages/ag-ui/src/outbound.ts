@@ -1,5 +1,7 @@
 import type {
   ActivitySnapshotEvent,
+  ContentPart,
+  CustomEvent,
   Interrupt,
   RunErrorEvent,
   RunFinishedEvent,
@@ -13,6 +15,7 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
+import { isContentPartArray } from "@b4run/sdk"
 import { createB4ActivityProjector, isB4ActivityChunkType } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
@@ -40,6 +43,10 @@ export type AguiOutboundEvent =
   | ToolCallEndEvent
   | ToolCallResultEvent
   | ActivitySnapshotEvent
+  | CustomEvent
+
+/** The CUSTOM event name for the spec's lossy-downgrade warning. */
+export const B4_CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
 
 export interface ToAguiOptions {
   readonly idFactory?: IdFactory
@@ -67,7 +74,16 @@ function stringifyArgs(input: unknown): string {
   }
 }
 
-function stringifyContent(output: unknown): string {
+/**
+ * A tool result's wire content. A part array (the tool returned parts, or a
+ * ToolMessage kept them under `additional_kwargs.b4_content_parts` so the UI
+ * sees every part even when the model saw only text) travels as parts;
+ * anything else is text, as before.
+ */
+function toResultContent(output: unknown): string | ContentPart[] {
+  if (isContentPartArray(output) && output.length > 0) return [...output]
+  const kept = keptParts(output)
+  if (kept) return kept
   if (typeof output === "string") return output
   if (output === undefined || output === null) return ""
   try {
@@ -76,6 +92,19 @@ function stringifyContent(output: unknown): string {
   } catch {
     return String(output)
   }
+}
+
+/** `additional_kwargs.b4_content_parts` off a live ToolMessage or its serialized `kwargs` form. */
+function keptParts(output: unknown): ContentPart[] | undefined {
+  if (typeof output !== "object" || output === null) return undefined
+  const record = output as {
+    readonly additional_kwargs?: unknown
+    readonly kwargs?: { readonly additional_kwargs?: unknown }
+  }
+  const kwargs = record.additional_kwargs ?? record.kwargs?.additional_kwargs
+  if (typeof kwargs !== "object" || kwargs === null) return undefined
+  const parts = (kwargs as { readonly b4_content_parts?: unknown }).b4_content_parts
+  return isContentPartArray(parts) && parts.length > 0 ? [...parts] : undefined
 }
 
 /**
@@ -304,7 +333,7 @@ export async function* toAguiEvents(
             type: EventType.TOOL_CALL_RESULT,
             messageId,
             toolCallId,
-            content: stringifyContent(tr.output),
+            content: toResultContent(tr.output),
           }
           yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
           break
@@ -354,6 +383,16 @@ export async function* toAguiEvents(
             ...usage.terminal(),
           }
           return
+        }
+        case "content_parts_dropped": {
+          // CUSTOM ends an open chunk stream in its lane, so open text ends first.
+          yield* flushText()
+          yield* ledger.onPassthrough({
+            type: EventType.CUSTOM,
+            name: B4_CONTENT_PARTS_DROPPED_EVENT,
+            value: chunk.data,
+          })
+          break
         }
         default:
           yield* flushText()

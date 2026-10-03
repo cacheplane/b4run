@@ -1543,3 +1543,106 @@ describe("usage", () => {
     expect(out.filter((e) => e.type === EventType.TEXT_MESSAGE_START)).toHaveLength(1)
   })
 })
+
+const PNG_PART = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+
+describe("content parts outbound", () => {
+  test("a tool result that is a part array becomes ContentPart[] content", async () => {
+    const parts = [{ type: "text", text: "chart" }, PNG_PART]
+    const events = await collect([
+      { type: "tool_call", data: { id: "c1", name: "render", input: {} } },
+      { type: "tool_result", data: { id: "c1", name: "render", output: parts } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toEqual({
+      type: EventType.TOOL_CALL_RESULT,
+      messageId: "tr-1",
+      toolCallId: "c1",
+      content: parts,
+    })
+    expect(() => ToolCallResultEventSchema.parse(result)).not.toThrow()
+  })
+
+  test("a ToolMessage that kept its parts in kwargs emits them, not the model-visible blocks", async () => {
+    const parts = [{ type: "text", text: "chart" }, PNG_PART]
+    const toolMessage = {
+      lc: 1,
+      type: "constructor",
+      id: ["langchain_core", "messages", "ToolMessage"],
+      kwargs: {
+        content: [{ type: "text", text: "chart" }],
+        tool_call_id: "c1",
+        additional_kwargs: { b4_content_parts: parts },
+      },
+    }
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: toolMessage } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT) as { content: unknown }
+    expect(result.content).toEqual(parts)
+  })
+
+  test("a live ToolMessage's additional_kwargs parts win over its content", async () => {
+    const parts = [{ type: "text", text: "chart" }, PNG_PART]
+    const liveToolMessage = {
+      content: "chart",
+      tool_call_id: "c1",
+      additional_kwargs: { b4_content_parts: parts },
+    }
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: liveToolMessage } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT) as { content: unknown }
+    expect(result.content).toEqual(parts)
+  })
+
+  test("an empty part array and a non-part array stay JSON text", async () => {
+    const events = await collect([
+      { type: "tool_result", data: { id: "c1", name: "render", output: [] } },
+      { type: "tool_result", data: { id: "c2", name: "search", output: [{ path: "a.md" }] } },
+      { type: "done", data: {} },
+    ])
+    const contents = events
+      .filter((e) => e.type === EventType.TOOL_CALL_RESULT)
+      .map((e) => (e as { content: unknown }).content)
+    expect(contents).toEqual(["[]", '[{"path":"a.md"}]'])
+  })
+
+  test("content_parts_dropped becomes a vendor-prefixed CUSTOM event", async () => {
+    const data = {
+      provider: "openai",
+      model: "gpt-5-mini",
+      parts: [{ index: 1, type: "audio", source: "data", reason: "modality_unsupported" }],
+    }
+    const events = await collect([
+      { type: "content_parts_dropped", data },
+      { type: "token", data: "ok" },
+      { type: "done", data: {} },
+    ])
+    expect(events[1]).toEqual({
+      type: EventType.CUSTOM,
+      name: "b4.content_parts_dropped",
+      value: data,
+    })
+  })
+
+  test("content_parts_dropped ends open assistant text first", async () => {
+    const data = { provider: "openai", model: "gpt-5-mini", parts: [] }
+    const events = await collect([
+      { type: "token", data: "hi" },
+      { type: "content_parts_dropped", data },
+      { type: "done", data: {} },
+    ])
+    expect(events.map((e) => e.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_START,
+      EventType.TEXT_MESSAGE_CONTENT,
+      EventType.TEXT_MESSAGE_END,
+      EventType.CUSTOM,
+      EventType.RUN_FINISHED,
+    ])
+  })
+})

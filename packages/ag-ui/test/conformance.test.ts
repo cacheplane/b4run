@@ -43,6 +43,16 @@ const ORDINARY_TOOL_CALL_ID = "call_searchCorpus_0_0"
 const STREAMED_TOOL_CALL_ID = "call_draftReply_0_2"
 const STREAMED_ARGS = { subject: "Agents", body: "A short note about agents." }
 const PLAN_TOOL_CALL_ID = "call_writeTodos_0_1"
+const PARTS_TOOL_CALL_ID = "call_render_0_3"
+const PARTS_RESULT = [
+  { type: "text", text: "chart" },
+  { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } },
+]
+const DROPPED = {
+  provider: "openai",
+  model: "gpt-5-mini",
+  parts: [{ index: 0, type: "video", source: "url", reason: "modality_unsupported" }],
+}
 // The `task` call's id is the subagent's `call_id`: that is how a subagent
 // activity correlates back to the root tool call that started it.
 const TASK_TOOL_CALL_ID = childIdentity.call_id
@@ -85,6 +95,12 @@ const CANNED: B4AgentStreamChunk[] = [
       name: "searchCorpus",
       output: [{ path: "corpus/a.md" }],
     },
+  },
+  { type: "content_parts_dropped", data: DROPPED },
+  { type: "tool_call", data: { id: PARTS_TOOL_CALL_ID, name: "renderChart", input: {} } },
+  {
+    type: "tool_result",
+    data: { id: PARTS_TOOL_CALL_ID, name: "renderChart", output: PARTS_RESULT },
   },
   {
     type: "tool_call",
@@ -301,7 +317,7 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
     toolEvents
       .filter((event) => event.type === EventType.TOOL_CALL_START)
       .map((event) => event.toolCallName),
-  ).toEqual(["draftReply", "searchCorpus"])
+  ).toEqual(["draftReply", "searchCorpus", "renderChart"])
 
   // A streamed call reaches the client as several args deltas whose
   // concatenation is exactly the single delta a non-streamed call carries.
@@ -330,6 +346,23 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
     EventType.TOOL_CALL_RESULT,
   ])
 
+  // A tool that returned parts reaches the client with parts as its content,
+  // unflattened.
+  const partsFrames = toolEvents.filter((event) => event.toolCallId === PARTS_TOOL_CALL_ID)
+  expect(partsFrames.map((event) => event.type)).toEqual([
+    EventType.TOOL_CALL_START,
+    EventType.TOOL_CALL_ARGS,
+    EventType.TOOL_CALL_END,
+    EventType.TOOL_CALL_RESULT,
+  ])
+  expect(partsFrames[partsFrames.length - 1]).toMatchObject({ content: PARTS_RESULT })
+
+  // Parts the model could not take are announced, once, as a vendor CUSTOM event.
+  const customs = events.filter((event) => event.type === EventType.CUSTOM)
+  expect(customs).toEqual([
+    expect.objectContaining({ name: "b4.content_parts_dropped", value: DROPPED }),
+  ])
+
   const activities = events
     .filter((event) => event.type === EventType.ACTIVITY_SNAPSHOT)
     .map((event) => ActivitySnapshotEventSchema.parse(event))
@@ -354,7 +387,6 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   ).toBe("Researching done. [corpus/a.md]")
   expect(kinds).not.toContain(EventType.ACTIVITY_DELTA)
   expect(kinds).not.toContain(EventType.STATE_SNAPSHOT)
-  expect(kinds).not.toContain(EventType.CUSTOM)
   expect(kinds).not.toContain(EventType.RAW)
   expect(kinds[kinds.length - 1]).toBe(EventType.RUN_FINISHED)
   // Usage survives 1.0 enforcement intact: one entry per provider+model, the
