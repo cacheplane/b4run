@@ -36,4 +36,27 @@ describe("defaultSummarize", () => {
     // no "Existing running summary" preamble
     expect(seenPrompt).not.toContain("Existing running summary")
   })
+
+  it("renders media as a placeholder in the prompt, never its base64", async () => {
+    let seenPrompt = ""
+    const data = "A".repeat(200 * 1024)
+    await defaultSummarize({
+      messages: [
+        new HumanMessage({
+          content: [
+            { type: "text", text: "look at this" },
+            { type: "image", data, mimeType: "image/png" },
+          ],
+        }),
+      ],
+      model: "gpt-5-mini",
+      signal: new AbortController().signal,
+      invokeModel: async (prompt: string) => {
+        seenPrompt = prompt
+        return "summary"
+      },
+    })
+    expect(seenPrompt).toContain("look at this[image]")
+    expect(seenPrompt).not.toContain("AAAAAAAAAA")
+  })
 })

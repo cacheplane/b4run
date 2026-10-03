@@ -66,6 +66,7 @@ import {
   type OffloadFn,
   OffloadStore,
   offloadToolOutput,
+  pickDroppedPartsReport,
   type ResolvedSubagentGraph,
   type ResolvedSummarizationConfig,
   resolveProvider,
@@ -2104,26 +2105,9 @@ async function invokeEntry(
   throw new Error("Graph entry must be a function or expose invoke(input)")
 }
 
-/**
- * The warning's report from a `content_parts_dropped` chunk's data. A
- * subagent's chunk carries the child's identity fields (`call_id`,
- * `subagent`, `route_id`, `depth`) beside the report, so only the report's
- * own fields are picked out.
- */
+/** The warning's report from a dropped-parts chunk's data, named for the route. */
 function droppedPartsReport(data: unknown, routeId: string): DroppedPartsReport {
-  const record = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>
-  const text = (value: unknown): string | undefined =>
-    typeof value === "string" ? value : undefined
-  const provider = text(record.provider)
-  const model = text(record.model)
-  const toolCallId = text(record.toolCallId)
-  return {
-    ...(provider !== undefined ? { provider } : {}),
-    ...(model !== undefined ? { model } : {}),
-    routeId,
-    ...(toolCallId !== undefined ? { toolCallId } : {}),
-    parts: Array.isArray(record.parts) ? (record.parts as DroppedPartsReport["parts"]) : [],
-  }
+  return { ...(pickDroppedPartsReport(data) ?? { parts: [] }), routeId }
 }
 
 function extractRouteParamNames(routeId: string): string[] {

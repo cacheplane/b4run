@@ -62,6 +62,7 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `DroppedPartsReport` | Describe the parts dropped from one message, with the model and route they were judged against. |
 | `toLangChainContent` | Convert content parts to LangChain content blocks, dropping what the model cannot take. |
 | `formatDroppedPartsWarning` | Format the server-log warning that announces dropped parts. |
+| `pickDroppedPartsReport` | Pick the report fields off a `content_parts_dropped` or `subagent.content_parts_dropped` chunk's data. |
 | `providerPackages` | Map built-in provider IDs to integration packages. |
 | `seedModelImporter` | Install the process-global fallback provider importer. |
 | `inferProvider` | Re-export SDK provider inference. |

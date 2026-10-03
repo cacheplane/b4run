@@ -34,9 +34,9 @@ import { trackCheckpointWrites } from "./checkpoint-writes.js"
 import {
   type ConvertedContent,
   type DroppedPart,
-  type DroppedPartsReport,
   droppedPartsData,
   formatDroppedPartsWarning,
+  pickDroppedPartsReport,
   toLangChainContent,
   V1_RESPONSE_METADATA,
 } from "./content-parts.js"
@@ -1297,8 +1297,14 @@ export async function executeAgentTurn(options: AgentOptions): Promise<AgentTurn
     else if (chunk.type === "interrupt") parked = true
     // No stream to announce on: the spec's developer warning is the only signal.
     // (The streaming path logs from the CLI's chunk switch, never reached here.)
-    else if (chunk.type === "content_parts_dropped") {
-      console.warn(formatDroppedPartsWarning(chunk.data as DroppedPartsReport))
+    // A subagent's drop rides on `subagent.content_parts_dropped` beside the
+    // child's identity fields; the shared picker takes only the report.
+    else if (
+      chunk.type === "content_parts_dropped" ||
+      chunk.type === "subagent.content_parts_dropped"
+    ) {
+      const report = pickDroppedPartsReport(chunk.data)
+      if (report) console.warn(formatDroppedPartsWarning(report))
     }
   }
   return { output, parked }

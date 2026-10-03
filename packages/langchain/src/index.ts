@@ -31,7 +31,11 @@ export type {
   DropReason,
   LangChainContentBlock,
 } from "./content-parts.js"
-export { formatDroppedPartsWarning, toLangChainContent } from "./content-parts.js"
+export {
+  formatDroppedPartsWarning,
+  pickDroppedPartsReport,
+  toLangChainContent,
+} from "./content-parts.js"
 export { modelMaxRetries } from "./model-call-retry.js"
 export { inferProvider, resolveProvider } from "./model-provider-resolver.js"
 export type { OffloadStoreOptions } from "./offload/offload-store.js"

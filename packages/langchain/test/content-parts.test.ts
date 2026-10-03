@@ -2,7 +2,11 @@
 import type { B4ContentPart } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "../src/chat-model-factory.ts"
-import { formatDroppedPartsWarning, toLangChainContent } from "../src/content-parts.ts"
+import {
+  formatDroppedPartsWarning,
+  pickDroppedPartsReport,
+  toLangChainContent,
+} from "../src/content-parts.ts"
 
 const ALL: ModalitySupport = {
   image: { data: true, url: true },
@@ -274,5 +278,55 @@ describe("formatDroppedPartsWarning", () => {
     ).toBe(
       "B4: dropped 1 content part(s) the model cannot use (ollama/llama3): video/url (modality_unsupported).",
     )
+  })
+
+  it("names the tool result after the route", () => {
+    expect(
+      formatDroppedPartsWarning({
+        provider: "openai",
+        model: "gpt-5-mini",
+        routeId: "/chat",
+        toolCallId: "call-7",
+        parts: [{ index: 0, type: "video", source: "data", reason: "modality_unsupported" }],
+      }),
+    ).toBe(
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat in tool result call-7: video/data (modality_unsupported).",
+    )
+  })
+
+  it("names the tool result before the colon without a route", () => {
+    expect(
+      formatDroppedPartsWarning({
+        toolCallId: "call-7",
+        parts: [{ index: 0, type: "video", source: "data", reason: "modality_unsupported" }],
+      }),
+    ).toBe(
+      "B4: dropped 1 content part(s) the model cannot use (unknown/unknown) in tool result call-7: video/data (modality_unsupported).",
+    )
+  })
+})
+
+describe("pickDroppedPartsReport", () => {
+  it("picks only the report fields off a subagent chunk's data", () => {
+    const parts = [
+      { index: 0, type: "video", source: "data", reason: "tool_result_media_unsupported" },
+    ]
+    expect(
+      pickDroppedPartsReport({
+        provider: "openai",
+        model: "gpt-5-mini",
+        toolCallId: "child-1",
+        parts,
+        call_id: "task-1",
+        subagent: "researcher",
+        route_id: "/researcher",
+        depth: 1,
+      }),
+    ).toEqual({ provider: "openai", model: "gpt-5-mini", toolCallId: "child-1", parts })
+  })
+
+  it("returns undefined for data without a parts list", () => {
+    expect(pickDroppedPartsReport(undefined)).toBeUndefined()
+    expect(pickDroppedPartsReport({ provider: "openai" })).toBeUndefined()
   })
 })

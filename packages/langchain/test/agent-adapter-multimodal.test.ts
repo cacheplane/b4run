@@ -181,6 +181,50 @@ describe("multimodal user input", () => {
     expect(warning).toContain("openai/gpt-5-mini")
   })
 
+  it("the non-streaming path logs a subagent's drop too, once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    // A raw runnable whose event stream carries one child capability event:
+    // the adapter projects it to `subagent.content_parts_dropped`.
+    const entry = {
+      invoke: async () => ({}),
+      async *streamEvents() {
+        yield {
+          event: "on_custom_event",
+          name: "b4.capability",
+          run_id: "r-1",
+          metadata: {
+            b4: {
+              subagent_stack: [{ callId: "task-1", name: "researcher", routeId: "/researcher" }],
+            },
+          },
+          data: {
+            event: "content_parts_dropped",
+            data: {
+              provider: "openai",
+              model: "gpt-5-mini",
+              toolCallId: "child-call-1",
+              parts: [
+                {
+                  index: 0,
+                  type: "video",
+                  source: "data",
+                  reason: "tool_result_media_unsupported",
+                },
+              ],
+            },
+          },
+        }
+      },
+    }
+    await executeAgentTurn(options("hi", { entry }))
+    const drops = warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((m) => m.startsWith("B4: dropped"))
+    expect(drops).toEqual([
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) in tool result child-call-1: video/data (tool_result_media_unsupported).",
+    ])
+  })
+
   it("a malformed entry drops on its own instead of stringifying the whole list", async () => {
     const chunks = await run([
       { type: "text", text: "a" },

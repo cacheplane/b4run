@@ -238,7 +238,34 @@ export function droppedPartsData(
   }
 }
 
-/** The spec's developer warning: what was dropped, why, and on which route. */
+/**
+ * The report fields of a `content_parts_dropped` or
+ * `subagent.content_parts_dropped` chunk's data. A subagent's chunk carries the
+ * child's identity fields (`call_id`, `subagent`, `route_id`, `depth`) beside
+ * the report, so only the report's own fields are picked out. Every caller
+ * that logs a drop goes through this, so the paths cannot drift. Undefined
+ * when the data carries no parts list.
+ */
+export function pickDroppedPartsReport(
+  data: unknown,
+): Omit<DroppedPartsReport, "routeId"> | undefined {
+  if (typeof data !== "object" || data === null) return undefined
+  const record = data as Record<string, unknown>
+  if (!Array.isArray(record.parts)) return undefined
+  const text = (value: unknown): string | undefined =>
+    typeof value === "string" ? value : undefined
+  const provider = text(record.provider)
+  const model = text(record.model)
+  const toolCallId = text(record.toolCallId)
+  return {
+    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(toolCallId !== undefined ? { toolCallId } : {}),
+    parts: record.parts as DroppedPartsReport["parts"],
+  }
+}
+
+/** The spec's developer warning: what was dropped, why, on which route, and from which tool result. */
 export function formatDroppedPartsWarning(report: DroppedPartsReport): string {
   const model = `${report.provider ?? "unknown"}/${report.model ?? "unknown"}`
   const list = report.parts
@@ -246,5 +273,6 @@ export function formatDroppedPartsWarning(report: DroppedPartsReport): string {
     .join(", ")
   // Sub-project 3's PR 2 reintroduces a `GET /agui/:routeId` pointer once the `multimodal` section exists.
   const route = report.routeId !== undefined ? ` on route ${report.routeId}` : ""
-  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model})${route}: ${list}.`
+  const source = report.toolCallId !== undefined ? ` in tool result ${report.toolCallId}` : ""
+  return `B4: dropped ${report.parts.length} content part(s) the model cannot use (${model})${route}${source}: ${list}.`
 }

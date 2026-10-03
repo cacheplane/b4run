@@ -199,7 +199,7 @@ describe("content parts through the AG-UI handler", () => {
 
     expect(langchainMocks.streamAgent).toHaveBeenCalled()
     expect(drops).toEqual([
-      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent: video/data (tool_result_media_unsupported).",
+      "B4: dropped 1 content part(s) the model cannot use (openai/gpt-5-mini) on route /chat#agent in tool result child-call-1: video/data (tool_result_media_unsupported).",
     ])
   }, 30_000)
 })
