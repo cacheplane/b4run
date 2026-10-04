@@ -1,38 +1,45 @@
 /**
- * Entry point for the `@b4run/ag-ui/react` subpath.
+ * `@b4run/ag-ui/react` — the React activity kit.
  *
- * React and `@copilotkit/react-core` are OPTIONAL peer dependencies: importing
- * the root (`@b4run/ag-ui`) or `./sse` entry never loads this module, so a
- * server-only consumer installs nothing extra.
+ * React is an OPTIONAL peer dependency: importing the root (`@b4run/ag-ui`) or
+ * `./sse` never loads this module. This entry has no CopilotKit dependency;
+ * the CopilotKit connector lives at `@b4run/ag-ui/copilotkit`.
  *
- * Three layers, from drop-in to build-your-own:
+ * Components take plain props built by `@b4run/ag-ui/view` (`reduceTurns`) and
+ * render the DOM contract in the activity-components spec: `TurnActivity` for a
+ * turn, `ApprovalCard` for a parked interrupt, and the step rows and building
+ * blocks (`Disclosure`, `StepIcon`, `StatusText`, `Checklist`) for custom steps.
  *
- * 1. `b4ActivityRenderers` — the whole set, ready to pass to
- *    CopilotKit's `renderActivityMessages`. This is the one-line default.
- * 2. `b4PlanActivityRenderer` / `b4SubagentActivityRenderer` — the
- *    individual renderers, for clients that want only one of them or that mix
- *    them with their own.
- * 3. `PlanActivityCard`, `SubagentActivityCard`, `ActivityChecklist` plus the
- *    content schemas — plain React components taking `content`, and the
- *    validators behind the renderers, for clients presenting the same
- *    activities their own way (with or without CopilotKit).
- *
- * `cx` is exported for the eject rung. A copied card is not a clean drop-in:
- * each source carries two package-internal specifiers, and they resolve to
- * different entries — `../activities.js` to the package root, `./parts.js` and
- * `./schemas.js` to this one. Exporting `cx` (the only runtime value among
- * them) is what gives those rewrites somewhere to point. The README's rung-4
- * table lists every rewrite per file.
- *
- * The activity type constants and content types (`B4_PLAN_ACTIVITY_TYPE`,
- * `B4PlanActivityContent`, …) live on the root entry and are not re-exported
- * here. The one type this entry does own is `SubagentActivityContentOutput`:
- * the parsed subagent shape, which admits an explicit `undefined` `todos` that
- * the published exact-optional type does not. It is the parameter type of both
- * `SubagentActivityCard` and `b4SubagentActivityRenderer.render`.
+ * Deprecated, removed in a later release once the research example adopts the
+ * kit: `PlanActivityCard`, `ActivityChecklist`, `SubagentPanel`, the
+ * `classNames`/`components` slots and `cx`.
  */
+
+/** @deprecated Legacy card; removed when the research example adopts `TurnActivity`. */
 export { ActivityChecklist } from "./ActivityChecklist.js"
+export {
+  ApprovalCard,
+  type ApprovalCardProps,
+  type ApprovalDecision,
+  approvalPayload,
+  scopeLine,
+} from "./activity/ApprovalCard.js"
+export { Disclosure, type DisclosureProps, useDisclosure } from "./activity/Disclosure.js"
+export { formatDuration, type SummaryLine, summaryLine } from "./activity/format.js"
+export { Chevron, StepIcon } from "./activity/icons.js"
+export { Checklist, PlanStep, type PlanStepProps } from "./activity/PlanStep.js"
+export { ReasoningStep } from "./activity/ReasoningStep.js"
+export { SourceChips, type SourceChipsProps } from "./activity/SourceChips.js"
+export { StatusText } from "./activity/StatusText.js"
+export { Step, type StepProps, type StepRenderer, type StepRenderers } from "./activity/Step.js"
+export { StepDetail, type StepDetailProps } from "./activity/StepDetail.js"
+export { StepGroup, type StepGroupProps } from "./activity/StepGroup.js"
+export { SubagentStep, type SubagentStepProps } from "./activity/SubagentStep.js"
+export { TurnActivity, type TurnActivityProps } from "./activity/TurnActivity.js"
+export { useElapsed, useLive } from "./activity/useLive.js"
+/** @deprecated Legacy card; removed when the research example adopts `TurnActivity`. */
 export { PlanActivityCard } from "./PlanActivityCard.js"
+/** @deprecated Legacy customization slots; the kit is styled through `@layer b4-activity` and tokens. */
 export {
   type B4ActivityClassNames,
   type B4ActivityComponents,
@@ -40,7 +47,7 @@ export {
   type B4ToolRowProps,
   cx,
 } from "./parts.js"
-export { b4ActivityRenderers, b4PlanActivityRenderer } from "./renderers.js"
+/** @deprecated Legacy card; removed when the research example adopts `SubagentStep`. */
 export { SubagentPanel } from "./SubagentPanel.js"
 export { planActivityContentSchema } from "./schemas.js"
 export {
