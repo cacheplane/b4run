@@ -50,6 +50,19 @@ function fold(chunks: readonly B4AgentStreamChunk[], clock = fixedClock()): Prom
   return foldStream(toAsync(chunks), clock)
 }
 
+/** Continue folding a later run (its own ctx) into an existing view through the translator. */
+async function foldInto(
+  view: TurnsView,
+  chunks: readonly B4AgentStreamChunk[],
+  ctx: { threadId: string; runId: string },
+  clock: () => number,
+): Promise<TurnsView> {
+  let next = view
+  const stream = toAguiEvents(toAsync(chunks), ctx, { idFactory: createCounterIdFactory() })
+  for await (const event of stream) next = reduceTurns(next, event as BaseEvent, { now: clock })
+  return next
+}
+
 /** Fold hand-written AG-UI events (no translator) with a deterministic clock. */
 function foldEvents(events: readonly BaseEvent[], clock = fixedClock()): TurnsView {
   let view = EMPTY_TURNS
@@ -704,6 +717,175 @@ describe("reduceTurns", () => {
     expect(
       reduceTurns(started, { type: EventType.RUN_STARTED, threadId: 42, runId: "2" } as BaseEvent),
     ).toBe(started)
+  })
+
+  it("resets the args of a call the resumed run re-presents, so they are not doubled", async () => {
+    const clock = fixedClock()
+    const gated: B4AgentStreamChunk = {
+      type: "tool_call",
+      data: { id: "c1", name: "runBash", input: { command: "node x" } },
+    }
+    const paused = await fold(
+      [
+        gated,
+        {
+          type: "interrupt",
+          data: {
+            interruptId: "perm-1",
+            type: "permission-request",
+            kind: "command",
+            toolCallId: "c1",
+            detail: { command: "node x" },
+          },
+        },
+      ],
+      clock,
+    )
+    expect(paused.turns[0]?.steps[0]).toMatchObject({
+      status: "awaiting",
+      args: '{"command":"node x"}',
+    })
+    const view = await foldInto(
+      paused,
+      [
+        gated,
+        { type: "tool_result", data: { id: "c1", name: "runBash", output: "ran" } },
+        { type: "done", data: {} },
+      ],
+      { threadId: CTX.threadId, runId: "rn-2" },
+      clock,
+    )
+    expect(view.turns).toHaveLength(1)
+    expect(view.turns[0]?.steps).toHaveLength(1)
+    expect(view.turns[0]?.steps[0]).toMatchObject({
+      status: "done",
+      args: '{"command":"node x"}',
+      result: "ran",
+    })
+    expect(view.turns[0]?.approvals).toEqual([])
+  })
+
+  it("replays an earlier run by restarting the view from that turn", () => {
+    const run = (runId: string): BaseEvent[] => [
+      { type: EventType.RUN_STARTED, threadId: "a", runId } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId,
+        outcome: { type: "success" },
+      } as BaseEvent,
+    ]
+    const two = foldEvents([...run("1"), ...run("2")])
+    expect(two.turns.map((t) => t.runId)).toEqual(["1", "2"])
+    const lastAgain = reduceTurns(two, run("2")[0] as BaseEvent)
+    expect(lastAgain.turns.map((t) => [t.runId, t.status])).toEqual([
+      ["1", "done"],
+      ["2", "working"],
+    ])
+    const firstAgain = reduceTurns(two, run("1")[0] as BaseEvent)
+    expect(firstAgain.turns.map((t) => [t.runId, t.status])).toEqual([["1", "working"]])
+  })
+
+  it("follows an explicit resuming flag over the awaiting heuristic", () => {
+    const awaiting = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId: "1",
+        outcome: { type: "interrupt", interrupts: [{ id: "i", reason: "custom" }] },
+      } as BaseEvent,
+    ])
+    const next = { type: EventType.RUN_STARTED, threadId: "a", runId: "2" } as BaseEvent
+    expect(reduceTurns(awaiting, next, { resuming: false }).turns.map((t) => t.runId)).toEqual([
+      "1",
+      "2",
+    ])
+    const done = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId: "1",
+        outcome: { type: "success" },
+      } as BaseEvent,
+    ])
+    const glued = reduceTurns(done, next, { resuming: true })
+    expect(glued.turns.map((t) => [t.runId, t.status])).toEqual([["2", "working"]])
+  })
+
+  describe("never throws on malformed input", () => {
+    const empty = EMPTY_TURNS
+    const midRun = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+    ])
+    const midTool = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.TOOL_CALL_START, toolCallId: "t1", toolCallName: "recall" } as BaseEvent,
+      { type: EventType.TOOL_CALL_END, toolCallId: "t1" } as BaseEvent,
+    ])
+    const bases: Array<[string, TurnsView]> = [
+      ["empty", empty],
+      ["mid-run", midRun],
+      ["mid-tool", midTool],
+    ]
+    const result = (content: unknown) =>
+      ({ type: EventType.TOOL_CALL_RESULT, messageId: "m", toolCallId: "t1", content }) as BaseEvent
+    const finished = (outcome: unknown) =>
+      ({ type: EventType.RUN_FINISHED, threadId: "a", runId: "1", outcome }) as BaseEvent
+    const shapes: Array<[string, unknown, boolean]> = [
+      ["result content missing", result(undefined), false],
+      ["result content null", result(null), false],
+      ["result content number", result(5), false],
+      ["result content [null]", result([null]), false],
+      ["interrupts missing", finished({ type: "interrupt" }), false],
+      ["interrupts null", finished({ type: "interrupt", interrupts: null }), false],
+      ["interrupts [null]", finished({ type: "interrupt", interrupts: [null] }), false],
+      [
+        "pendingToolCallIds non-array",
+        finished({ type: "success", pendingToolCallIds: "x" }),
+        false,
+      ],
+      ["null event", null, true],
+      ["number event", 42, true],
+      ["string event", "RUN_STARTED", true],
+      [
+        "args delta non-string",
+        { type: EventType.TOOL_CALL_ARGS, toolCallId: "t1", delta: 3 },
+        true,
+      ],
+      [
+        "text delta non-string",
+        { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta: null },
+        true,
+      ],
+      [
+        "reasoning delta non-string",
+        { type: EventType.REASONING_MESSAGE_CONTENT, messageId: "m", delta: {} },
+        true,
+      ],
+    ]
+    for (const [base, state] of bases) {
+      for (const [name, event, identity] of shapes) {
+        it(`${name} from ${base}`, () => {
+          let next: TurnsView | undefined
+          expect(() => {
+            next = reduceTurns(state, event as BaseEvent)
+          }).not.toThrow()
+          if (identity) expect(next).toBe(state)
+        })
+      }
+    }
+
+    it("reads the text parts of a result and treats other content as empty", () => {
+      const parts = reduceTurns(
+        midTool,
+        result([{ type: "text", text: "a" }, null, { type: "image" }]),
+      )
+      expect(parts.turns[0]?.steps[0]).toMatchObject({ status: "done", result: "a" })
+      const number = reduceTurns(midTool, result(5))
+      expect(number.turns[0]?.steps[0]).toMatchObject({ status: "done", result: "" })
+    })
   })
 
   it("is a pure function of the events: replaying yields a deep-equal view", async () => {

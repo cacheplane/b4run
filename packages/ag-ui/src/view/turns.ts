@@ -72,7 +72,11 @@ export interface ReasoningStep {
   readonly kind: "reasoning"
   /** The span's id (`REASONING_START`), or the message's when no span framed it. */
   readonly id: string
-  /** The reasoning message currently streaming inside the span, when it has its own id. */
+  /**
+   * The reasoning message currently streaming inside the span, when it has
+   * its own id. Routing only; renderers should ignore it. Overwritten when a
+   * span carries a second message.
+   */
   readonly messageId?: string
   readonly text: string
   readonly status: "streaming" | "done"
@@ -128,6 +132,14 @@ export interface ReduceTurnsOptions {
   readonly now?: () => number
   /** Tools whose frames the view drops entirely (in addition to `writeTodos`, which becomes the plan). */
   readonly hiddenTools?: readonly string[]
+  /**
+   * Whether a same-thread `RUN_STARTED` continues the last turn. The wire
+   * carries no resume signal, so a connector that knows (it just sent a
+   * `resume`) should say: `true` glues the run onto the awaiting turn, `false`
+   * never glues and appends a turn. Undefined falls back on the heuristic:
+   * glue when the last turn is `awaiting`.
+   */
+  readonly resuming?: boolean
 }
 
 export const EMPTY_TURNS: TurnsView = { turns: [] }
@@ -229,8 +241,19 @@ function containsOwner(turn: TurnView, owner: string): boolean {
 /**
  * The turn as the run that answers its interrupts continues it: the user
  * decided, so the approvals are gone, gated steps run again (the resumed run
- * re-executes or skips the call and its result annotates the step by id), and
- * paused subagents and their turns work again. History stays.
+ * re-presents the call under the same id and its result annotates the step),
+ * and paused subagents and their turns work again. History stays.
+ *
+ * The wire carries no resume signal. Gluing is backed by the server's policy
+ * that an awaiting thread answers only a resume (`409 resume_required`), so
+ * the next run on it is the resume — unless this view is stale (the approval
+ * was answered elsewhere), when the next turn is glued onto the old one; a
+ * connector that knows better passes `resuming: false`.
+ *
+ * A deny: the gated call is never re-executed, so no result arrives and the
+ * step settles as `failed` at `RUN_FINISHED`. A B4 permission deny instead
+ * returns the denial text as the call's result, so that step reads `done`
+ * (a dedicated label for it is a server-side follow-up).
  */
 function resumeTurn(turn: TurnView, runId: string): TurnView {
   const steps = turn.steps.map((step): StepView => {
@@ -288,16 +311,23 @@ function newestOpenReasoning(turn: TurnView): ReasoningStep | undefined {
   return undefined
 }
 
-function approvalOf(interrupt: Interrupt): ApprovalView {
-  const metadata = (interrupt.metadata ?? {}) as Record<string, unknown>
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** The approval an interrupt shows, or undefined for an entry that is not one (`[null]`, a string, no id). */
+function approvalOf(value: unknown): ApprovalView | undefined {
+  if (!isRecord(value) || typeof value.id !== "string") return undefined
+  const interrupt = value as unknown as Interrupt
+  const metadata = isRecord(interrupt.metadata) ? interrupt.metadata : {}
   const detail = metadata.detail
-  const schema = interrupt.responseSchema as { enum?: unknown } | undefined
+  const schema = isRecord(interrupt.responseSchema) ? interrupt.responseSchema : undefined
   return {
     interruptId: interrupt.id,
-    kind: interrupt.reason,
+    kind: typeof interrupt.reason === "string" ? interrupt.reason : "interrupt",
     detail:
       typeof detail === "object" && detail !== null ? (detail as Record<string, unknown>) : {},
-    ...(interrupt.message !== undefined ? { message: interrupt.message } : {}),
+    ...(typeof interrupt.message === "string" ? { message: interrupt.message } : {}),
     ...(typeof metadata.grant === "string" ? { grant: metadata.grant } : {}),
     offersAlways: Array.isArray(schema?.enum) && schema.enum.includes("always"),
   }
@@ -388,6 +418,7 @@ export function reduceTurns(
   event: BaseEvent,
   options: ReduceTurnsOptions = {},
 ): TurnsView {
+  if (typeof event !== "object" || event === null) return state
   const now = options.now ?? Date.now
   const rawOwner = (event as { subagentRunId?: unknown }).subagentRunId
   const owner = typeof rawOwner === "string" ? rawOwner : undefined
@@ -397,12 +428,16 @@ export function reduceTurns(
       const { threadId, runId } = event as { threadId?: unknown; runId?: unknown }
       if (typeof threadId !== "string" || typeof runId !== "string") return state
       if (threadId !== state.threadId) return { threadId, turns: [newTurn(runId, now())] }
+      // A run already shown is a replay from its start: it re-delivers that
+      // run and everything after it, so the view restarts there. A reattach
+      // to a resumed turn's runId rebuilds only the post-resume half.
       const replayed = state.turns.findIndex((turn) => turn.runId === runId)
       if (replayed !== -1) {
-        return { threadId, turns: replaceAt(state.turns, replayed, newTurn(runId, now())) }
+        return { threadId, turns: [...state.turns.slice(0, replayed), newTurn(runId, now())] }
       }
       const last = state.turns.at(-1)
-      if (last?.status === "awaiting") {
+      const resuming = options.resuming ?? last?.status === "awaiting"
+      if (last !== undefined && resuming) {
         return {
           threadId,
           turns: replaceAt(state.turns, state.turns.length - 1, resumeTurn(last, runId)),
@@ -418,13 +453,16 @@ export function reduceTurns(
         updateOwner(state.turns, undefined, (turn) => {
           if (outcome?.type === "interrupt") {
             let next: TurnView = { ...turn, status: "awaiting" }
-            for (const interrupt of outcome.interrupts) next = attachInterrupt(next, interrupt)
+            const interrupts: readonly unknown[] = Array.isArray(outcome.interrupts)
+              ? outcome.interrupts
+              : []
+            for (const interrupt of interrupts) next = attachInterrupt(next, interrupt)
             return next
           }
-          const keepOpen =
-            outcome?.type === "success" && outcome.pendingToolCallIds !== undefined
-              ? new Set(outcome.pendingToolCallIds)
-              : NONE
+          const pending = outcome?.type === "success" ? outcome.pendingToolCallIds : undefined
+          const keepOpen = Array.isArray(pending)
+            ? new Set(pending.filter((id): id is string => typeof id === "string"))
+            : NONE
           return {
             ...settleOpen(turn, at, keepOpen),
             status: outcome?.type === "cancelled" ? "stopped" : "done",
@@ -547,7 +585,11 @@ export function reduceTurns(
             }
             return { ...turn, steps: [...turn.steps, plan] }
           }
-          if (turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)) return turn
+          if (turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)) {
+            // The resumed run re-presents a gated call under the same id and
+            // streams its arguments again: start them over, keep the rest.
+            return mapStep(turn, toolCallId, (s) => (s.args === "" ? s : { ...s, args: "" }))
+          }
           const tool: ToolStep = {
             kind: "tool",
             id: toolCallId,
@@ -562,7 +604,7 @@ export function reduceTurns(
     }
     case EventType.TOOL_CALL_ARGS: {
       const { toolCallId, delta } = event as ToolCallArgsEvent
-      if (delta === "") return state
+      if (typeof delta !== "string" || delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
@@ -583,10 +625,19 @@ export function reduceTurns(
     }
     case EventType.TOOL_CALL_RESULT: {
       const { toolCallId, content } = event as ToolCallResultEvent
+      // A string, or the text parts of a parts array; anything else reads as empty.
       const result =
         typeof content === "string"
           ? content
-          : content.map((part) => (part.type === "text" ? part.text : "")).join("")
+          : Array.isArray(content)
+            ? content
+                .map((part) =>
+                  isRecord(part) && part.type === "text" && typeof part.text === "string"
+                    ? part.text
+                    : "",
+                )
+                .join("")
+            : ""
       const at = now()
       return withTurns(
         state,
@@ -664,7 +715,7 @@ export function reduceTurns(
     }
     case EventType.REASONING_MESSAGE_CONTENT: {
       const { messageId, delta } = event as ReasoningMessageContentEvent
-      if (delta === "") return state
+      if (typeof delta !== "string" || delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) => {
@@ -684,6 +735,9 @@ export function reduceTurns(
       )
     }
     case EventType.REASONING_END: {
+      // Closes the span by its id, or by its current message's id when a
+      // producer ends the span before (or instead of) the message: tolerant
+      // on purpose, since either shape leaves nothing more to stream.
       const { messageId } = event as ReasoningEndEvent
       const at = now()
       return withTurns(
@@ -700,7 +754,8 @@ export function reduceTurns(
     case EventType.TEXT_MESSAGE_START: {
       // A new message after an earlier one starts on its own line; the
       // translator opens a new message at each tool call, so this is the
-      // break a step put in the prose.
+      // break a step put in the prose. Messages interleaved by id (which the
+      // translator never does) read as "A\nBA2": accepted, this is a summary.
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
@@ -710,7 +765,7 @@ export function reduceTurns(
     }
     case EventType.TEXT_MESSAGE_CONTENT: {
       const { delta } = event as TextMessageContentEvent
-      if (delta === "") return state
+      if (typeof delta !== "string" || delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) => ({ ...turn, text: turn.text + delta })),
@@ -778,11 +833,13 @@ function sameToolStep(a: ToolStep, b: ToolStep): boolean {
 }
 
 /** Put an interrupt on the step it names (pausing the subagents above it), or on the turn. */
-function attachInterrupt(turn: TurnView, interrupt: Interrupt): TurnView {
-  const approval = approvalOf(interrupt)
-  const owner = interrupt.subagentRunId
+function attachInterrupt(turn: TurnView, entry: unknown): TurnView {
+  const approval = approvalOf(entry)
+  if (approval === undefined) return turn
+  const interrupt = entry as Interrupt
+  const owner = typeof interrupt.subagentRunId === "string" ? interrupt.subagentRunId : undefined
+  const toolCallId = typeof interrupt.toolCallId === "string" ? interrupt.toolCallId : undefined
   const place = (target: TurnView): TurnView => {
-    const toolCallId = interrupt.toolCallId
     if (
       toolCallId !== undefined &&
       target.steps.some((s) => s.kind === "tool" && s.id === toolCallId)
