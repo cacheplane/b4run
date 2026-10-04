@@ -761,9 +761,70 @@ function assertSafeResearchJourney(
   for (const activity of events.filter((event) => event.type === "ACTIVITY_SNAPSHOT")) {
     expect(JSON.stringify(activity.content)).not.toMatch(/call_[A-Za-z]+_\d+_\d+/)
   }
+  // The only CUSTOM events are `b4.step` labels for the root's displayed tool
+  // calls: recall, task and writeFile each carry one running and one completed
+  // step, and each completed step precedes its call's TOOL_CALL_RESULT
+  // (LangChain emits the custom event before on_tool_end). The suppressed root
+  // writeTodos call has no step, and the template's own tools export no display.
+  const rootCallId = (toolCallName: string): unknown =>
+    events.find(
+      (event) =>
+        event.type === "TOOL_CALL_START" &&
+        event.toolCallName === toolCallName &&
+        event.subagentRunId === undefined,
+    )?.toolCallId
+  const customEvents = events.filter((event) => event.type === "CUSTOM")
+  expect(customEvents.every((event) => event.name === "b4.step")).toBe(true)
+  expect(customEvents.every((event) => event.subagentRunId === undefined)).toBe(true)
+  expect(customEvents.map((event) => event.value)).toEqual([
+    {
+      toolCallId: rootCallId("recall"),
+      status: "running",
+      icon: "memory",
+      label: "Recalling “agent architectures report preferences”",
+    },
+    {
+      toolCallId: rootCallId("recall"),
+      status: "completed",
+      icon: "memory",
+      label: "Checked memory, nothing relevant",
+    },
+    {
+      toolCallId: "call_task_0_2",
+      status: "running",
+      icon: "agent",
+      label: `Asking researcher to ${SUBQUESTION}`,
+    },
+    {
+      toolCallId: "call_task_0_2",
+      status: "completed",
+      icon: "agent",
+      label: "Heard back from researcher",
+    },
+    {
+      toolCallId: rootCallId("writeFile"),
+      status: "running",
+      icon: "write",
+      label: "Saving reports/agent-architectures.md",
+    },
+    {
+      toolCallId: rootCallId("writeFile"),
+      status: "completed",
+      icon: "write",
+      label: "Saved reports/agent-architectures.md",
+    },
+  ])
+  for (const completed of customEvents.filter(
+    (event) => (event.value as { status?: unknown }).status === "completed",
+  )) {
+    const toolCallId = (completed.value as { toolCallId: unknown }).toolCallId
+    const resultIndex = events.findIndex(
+      (event) => event.type === "TOOL_CALL_RESULT" && event.toolCallId === toolCallId,
+    )
+    expect(resultIndex).toBeGreaterThan(events.indexOf(completed))
+  }
   const kinds = events.map((event) => event.type)
   expect(kinds).not.toContain("ACTIVITY_DELTA")
-  expect(kinds).not.toContain("CUSTOM")
   expect(kinds).not.toContain("RAW")
   expect(kinds).not.toContain("STATE_SNAPSHOT")
 }
