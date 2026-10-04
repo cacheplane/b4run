@@ -61,8 +61,8 @@ describe("TurnActivity", () => {
         }),
       ],
     })
-    render(<TurnActivity turn={working} now={now} />)
-    const root = screen.getByTestId("turn")
+    const { container } = render(<TurnActivity turn={working} now={now} />)
+    const root = container.querySelector("section.b4-turn") as HTMLElement
     expect(root.getAttribute("data-state")).toBe("working")
     expect(root.getAttribute("data-expanded")).toBe("true")
     const summary = screen.getByRole("button", { expanded: true, name: /Searching the corpus/ })
@@ -93,7 +93,7 @@ describe("TurnActivity", () => {
         now={zero}
       />,
     )
-    expect(markup).toContain('<section class="b4-turn" data-state="done" data-testid="turn">')
+    expect(markup).toContain('<section class="b4-turn" data-state="done">')
     expect(markup).toContain(
       '<span class="b4-turn__text">Worked for 1m 12s</span><span class="b4-turn__time">· 2 steps</span>',
     )
@@ -107,8 +107,9 @@ describe("TurnActivity", () => {
     const live = turn({ status: "working", endedAt: undefined })
     const now1 = () => 1000
     const now2 = () => 2000
-    const { rerender } = render(<TurnActivity turn={live} now={now1} />)
-    expect(screen.getByTestId("turn").getAttribute("data-expanded")).toBe("true")
+    const { container, rerender } = render(<TurnActivity turn={live} now={now1} />)
+    const root = () => container.querySelector("section.b4-turn") as HTMLElement
+    expect(root().getAttribute("data-expanded")).toBe("true")
     rerender(
       <TurnActivity
         turn={turn({
@@ -121,8 +122,8 @@ describe("TurnActivity", () => {
         now={now2}
       />,
     )
-    expect(screen.getByTestId("turn").getAttribute("data-state")).toBe("failed")
-    expect(screen.getByTestId("turn").getAttribute("data-expanded")).toBeNull()
+    expect(root().getAttribute("data-state")).toBe("failed")
+    expect(root().getAttribute("data-expanded")).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /Worked for/ }))
     expect(
       screen.getByText("Couldn't read plan.md").closest("li")?.getAttribute("data-expanded"),
@@ -162,5 +163,32 @@ describe("TurnActivity", () => {
       />,
     )
     expect(paused).toContain(">researcher · paused<")
+  })
+
+  test("a running nested turn reads like any turn: the active step's label shimmers and the time ticks", () => {
+    const now = () => 5_000
+    const markup = renderToStaticMarkup(
+      <TurnActivity
+        turn={turn({
+          status: "working",
+          endedAt: undefined,
+          steps: [
+            tool("a"),
+            tool("b", {
+              name: "readDoc",
+              status: "running",
+              settledAt: undefined,
+              label: "Reading a.md",
+              startedAt: 100,
+            }),
+          ],
+        })}
+        now={now}
+        nested={{ name: "researcher", status: "running" }}
+      />,
+    )
+    expect(markup).toContain('<span class="b4-turn__text" data-live="true">Reading a.md</span>')
+    expect(markup).toContain('<span class="b4-turn__time">· 5s</span>')
+    expect(markup).not.toContain("data-testid")
   })
 })

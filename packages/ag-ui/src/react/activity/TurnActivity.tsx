@@ -25,18 +25,24 @@ export interface TurnActivityProps {
 const defaultNow = () => Date.now()
 const isLive = (turn: TurnView) => turn.status === "working" || turn.status === "awaiting"
 
-/** The summary of a subagent's own turn: "researcher · paused", "researcher finished · 5 steps". */
+/**
+ * The summary of a subagent's own turn. While the subagent runs it reads like
+ * any turn (spec §3.1: the active step's label, the elapsed tick); once it
+ * pauses or settles it names the subagent: "researcher · paused",
+ * "researcher finished · 5 steps", "researcher failed · boom".
+ */
 function nestedSummary(
   turn: TurnView,
   nested: NonNullable<TurnActivityProps["nested"]>,
+  sampled: number,
 ): SummaryLine {
   const n = countSteps(turn)
   const steps = `· ${n} step${n === 1 ? "" : "s"}`
   switch (nested.status) {
+    case "running":
+      return summaryLine(turn, sampled)
     case "paused":
       return { text: `${nested.name} · paused`, meta: "", live: false }
-    case "running":
-      return { text: `${nested.name} · working`, meta: "", live: false }
     case "failed":
       return {
         text: `${nested.name} failed`,
@@ -58,7 +64,7 @@ export function TurnActivity({
 }: TurnActivityProps): ReactElement {
   const live = isLive(turn)
   const sampled = useElapsed(live, now)
-  const line = nested ? nestedSummary(turn, nested) : summaryLine(turn, sampled)
+  const line = nested ? nestedSummary(turn, nested, sampled) : summaryLine(turn, sampled)
   // Mirrors `autoOpen`, so the first (static) render already carries
   // `data-expanded`; a turn settled at mount ("restored") starts folded.
   const [expanded, setExpanded] = useState(live)
@@ -69,7 +75,6 @@ export function TurnActivity({
       className="b4-turn"
       data-state={turn.status}
       {...(expanded ? { "data-expanded": "true" } : {})}
-      data-testid="turn"
     >
       <Disclosure
         className="b4-turn__summary"
