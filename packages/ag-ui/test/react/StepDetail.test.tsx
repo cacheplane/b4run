@@ -49,7 +49,7 @@ describe("SourceChips", () => {
           { title: "evil", href: "javascript:alert(1)" },
           { title: "data", href: "data:text/html,hi" },
           { title: "mail", href: "mailto:a@b.test" },
-          { title: "local", href: "/docs/a.md" },
+          { title: "local", href: "/files/a.md" },
         ]}
         limit={4}
       />,
@@ -59,7 +59,7 @@ describe("SourceChips", () => {
     expect(markup).toContain('<span class="b4-chip">evil</span>')
     expect(markup).toContain('<span class="b4-chip">data</span>')
     expect(markup).toContain('href="mailto:a@b.test"')
-    expect(markup).toContain('href="/docs/a.md"')
+    expect(markup).toContain('href="/files/a.md"')
     expect(markup.match(/<a /g)).toHaveLength(2)
   })
 })
