@@ -592,6 +592,12 @@ importers:
       '@copilotkit/react-core':
         specifier: 1.76.0
         version: 1.76.0(@cfworker/json-schema@4.1.1)(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+      '@testing-library/dom':
+        specifier: 10.4.1
+        version: 10.4.1
+      '@testing-library/react':
+        specifier: 16.3.2
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@types/node':
         specifier: 26.1.2
         version: 26.1.2
@@ -601,6 +607,9 @@ importers:
       '@types/react-dom':
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
+      jsdom:
+        specifier: 30.0.1
+        version: 30.0.1
       react:
         specifier: 19.2.8
         version: 19.2.8

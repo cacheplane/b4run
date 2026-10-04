@@ -1,5 +1,5 @@
 "use client"
-import { b4ActivityRenderers } from "@b4run/ag-ui/react"
+import { b4ActivityRenderers } from "@b4run/ag-ui/copilotkit"
 import { CopilotKit, CopilotSidebar } from "@copilotkit/react-core/v2"
 import { DemoSuggestions } from "./components/DemoSuggestions"
 import { PermissionInterrupt } from "./components/PermissionInterrupt"
@@ -20,7 +20,7 @@ import { PermissionInterrupt } from "./components/PermissionInterrupt"
 //   planning ONLY as an activity — no generic tool frames. CopilotKit renders nothing
 //   for an activity it has no renderer for, so without `b4ActivityRenderers` the user
 //   would see the agent go silent while it plans. (Subagents are not activities; a
-//   client that drives a delegating route renders them with `SubagentPanel`.)
+//   client that drives a delegating route renders them with the activity kit's `SubagentStep`.)
 export default function Home() {
   return (
     <CopilotKit

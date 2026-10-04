@@ -1037,6 +1037,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/ag-ui:./client", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./view", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./copilotkit", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
   ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/memory:./browse", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1352,6 +1353,16 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/langchain:.",
 ])
 
+// Browser bundles only: the barrel imports CSS through CopilotKit, so plain Node
+// cannot import it and no edge or Node guard applies.
+const BROWSER_ONLY_API_ADDRESSES = new Set(["import:@b4run/ag-ui:./copilotkit"])
+
+function expectedApiRuntime(address) {
+  if (EDGE_SAFE_API_ADDRESSES.has(address)) return "edge-safe"
+  if (BROWSER_ONLY_API_ADDRESSES.has(address)) return "browser-only"
+  return "node-only"
+}
+
 function expectedApiGuardIds(address) {
   if (address.startsWith("operated:")) {
     return ["node-operated-bundle", "browser-operated-negative-control"]
@@ -1368,6 +1379,7 @@ function expectedApiGuardIds(address) {
       ...(DEPENDENCY_FREE_API_ADDRESSES.has(address) ? ["dependency-free-import-graph"] : []),
     ]
   }
+  if (BROWSER_ONLY_API_ADDRESSES.has(address)) return ["browser-import-bundle"]
   return ["node-import-bundle", "browser-import-negative-control"]
 }
 
@@ -1433,7 +1445,7 @@ function analyzeApiReferenceRegistry({ pages = [], artifacts = [] }) {
     const guardIds = expectedApiGuardIds(expected[0])
     return [
       ...expected,
-      guardIds ? (EDGE_SAFE_API_ADDRESSES.has(expected[0]) ? "edge-safe" : "node-only") : null,
+      guardIds ? expectedApiRuntime(expected[0]) : null,
       DEPENDENCY_FREE_API_ADDRESSES.has(expected[0])
         ? "dependency-free"
         : guardIds && expected[0].startsWith("import:")
@@ -4248,15 +4260,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 51 || new Set(artifactAddresses).size !== 51) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 51 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 52 || new Set(artifactAddresses).size !== 52) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 52 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 47 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 48 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 47 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 48 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(
