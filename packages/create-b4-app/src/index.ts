@@ -178,7 +178,12 @@ function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error('Missing value for "--template"')
       }
 
-      template = value
+      template = value === "research" ? "navlog" : value
+      if (value === "research") {
+        process.stderr.write(
+          'The "research" template id is deprecated and now scaffolds "navlog"; pass --template navlog.\n',
+        )
+      }
       continue
     }
 
@@ -209,7 +214,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
   if (!targetDir) {
     throw new Error(
-      "Usage: create-b4-app <target-directory> [--template basic|research] [--mode external|internal] [--dist-tag latest]",
+      "Usage: create-b4-app <target-directory> [--template basic|navlog] [--mode external|internal] [--dist-tag latest]",
     )
   }
 

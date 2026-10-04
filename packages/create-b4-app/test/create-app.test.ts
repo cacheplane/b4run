@@ -278,6 +278,26 @@ describe("create-b4-app", () => {
     expect(stdout).not.toContain("export OPENAI_API_KEY")
   })
 
+  test("accepts the deprecated research template id as an alias for navlog", async () => {
+    const tempRoot = await createTrackedTempDir("create-b4-app-alias-", tempDirs)
+    const targetDir = join(tempRoot, "alias-app")
+    const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+
+    const exitCode = await withMockedPlatform("linux", () =>
+      run([targetDir, "--mode", "internal", "--template", "research"]),
+    )
+    const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
+    const stderr = stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
+
+    expect(exitCode).toBe(0)
+    await assertExists(join(targetDir, "server/src/app/navlog/index.ts"))
+    expect(stdout).toContain("✔ Created alias-app (navlog template)")
+    expect(stderr).toContain(
+      'The "research" template id is deprecated and now scaffolds "navlog"; pass --template navlog.',
+    )
+  })
+
   test("prints safe PowerShell research activation steps on Windows", async () => {
     const tempRoot = await createTrackedTempDir("create-b4-app-internal-", tempDirs)
     const targetDir = join(tempRoot, "hello b4's $HOME $(noop); `noop`")
