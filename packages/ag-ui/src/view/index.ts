@@ -4,6 +4,15 @@
  * React, no CopilotKit. `./react` builds on it; so can an Angular client.
  */
 export type { B4StepEventValue, B4StepStatus } from "../step.js"
+export {
+  BUILT_IN_GROUP_LABELS,
+  type GroupedStep,
+  groupSteps,
+  type StepGroup,
+  type StepLabelOverride,
+  type StepLabelOverrides,
+  stepLabel,
+} from "./labels.js"
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, readStepEvent } from "./step.js"
 export {
   EMPTY_SUBAGENT_RUNS,

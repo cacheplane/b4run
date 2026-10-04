@@ -20,7 +20,7 @@ it("exports the framework-free view surface", () => {
 it("imports nothing from React", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     Promise.all(
-      ["index.ts", "subagent-runs.ts", "step.ts", "turns.ts"].map((file) =>
+      ["index.ts", "labels.ts", "subagent-runs.ts", "step.ts", "turns.ts"].map((file) =>
         fs.readFile(new URL(`../../src/view/${file}`, import.meta.url), "utf8"),
       ),
     ),
