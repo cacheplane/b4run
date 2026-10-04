@@ -13,10 +13,12 @@ describe("StepIcon", () => {
       expect(markup).toContain('stroke="currentColor"')
     }
   })
-  test("an unknown name falls back to the generic tool glyph", () => {
-    expect(renderToStaticMarkup(<StepIcon name="nope" />)).toBe(
-      renderToStaticMarkup(<StepIcon name="tool" />),
-    )
+  test("an unknown name falls back to the generic tool glyph, including Object.prototype keys", () => {
+    const generic = renderToStaticMarkup(<StepIcon name="tool" />)
+    expect(renderToStaticMarkup(<StepIcon name="nope" />)).toBe(generic)
+    expect(renderToStaticMarkup(<StepIcon name="constructor" />)).toBe(generic)
+    expect(renderToStaticMarkup(<StepIcon name="toString" />)).toBe(generic)
+    expect(renderToStaticMarkup(<StepIcon name={undefined} />)).toBe(generic)
   })
   test("the chevron is 12px and aria-hidden", () => {
     const markup = renderToStaticMarkup(<Chevron />)

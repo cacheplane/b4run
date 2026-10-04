@@ -63,6 +63,15 @@ describe("ApprovalCard", () => {
       "deployProd({env:'prod'})",
     )
     expect(approvalPayload({ foo: 1, suggestedPattern: "p" })).toBe('{\n  "foo": 1\n}')
+    expect(approvalPayload({})).toBe("No details")
+    expect(approvalPayload({ suggestedPattern: "p" })).toBe("No details")
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    expect(approvalPayload(cyclic)).toBe("No details")
+    expect(approvalPayload({ big: 1n })).toBe("No details")
+    expect(scopeLine("tool", {})).toBe(
+      "“Always allow” applies to every call of this tool, for this app.",
+    )
     expect(scopeLine("tool", { suggestedPattern: "deployProd" })).toBe(
       "“Always allow” applies to every call of deployProd, for this app.",
     )
@@ -102,5 +111,79 @@ describe("ApprovalCard", () => {
     expect(card.getAttribute("data-state")).toBe("failed")
     expect(screen.getByText("Couldn't send your decision: network down")).toBeTruthy()
     expect((screen.getByRole("button", { name: "Deny" }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  test("Always allow and Deny dispatch their decisions", () => {
+    const onDecide = vi.fn()
+    render(
+      <ApprovalCard
+        approval={approval()}
+        agent="The agent"
+        label="run a command"
+        onDecide={onDecide}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Always allow" }))
+    expect(onDecide).toHaveBeenLastCalledWith("always")
+    expect(screen.getByRole("alert").getAttribute("data-state")).toBe("deciding")
+  })
+
+  test("Deny dispatches deny", () => {
+    const onDecide = vi.fn()
+    render(
+      <ApprovalCard
+        approval={approval()}
+        agent="The agent"
+        label="run a command"
+        onDecide={onDecide}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Deny" }))
+    expect(onDecide).toHaveBeenCalledWith("deny")
+  })
+
+  test("a synchronous throw from onDecide lands as a failed state with the message", async () => {
+    const onDecide = vi.fn(() => {
+      throw new Error("not connected")
+    })
+    render(
+      <ApprovalCard
+        approval={approval()}
+        agent="The agent"
+        label="run a command"
+        onDecide={onDecide}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    const card = screen.getByRole("alert")
+    expect(card.getAttribute("data-state")).toBe("failed")
+    expect(card.getAttribute("aria-busy")).toBeNull()
+    expect(screen.getByText("Couldn't send your decision: not connected")).toBeTruthy()
+  })
+
+  test("a resolved decision keeps the card deciding and busy until the connector replaces it", async () => {
+    const onDecide = vi.fn(() => Promise.resolve())
+    render(
+      <ApprovalCard
+        approval={approval()}
+        agent="The agent"
+        label="run a command"
+        onDecide={onDecide}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }))
+    const card = screen.getByRole("alert")
+    expect(card.getAttribute("aria-busy")).toBe("true")
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(card.getAttribute("data-state")).toBe("deciding")
+    expect(card.getAttribute("aria-busy")).toBe("true")
+    expect((screen.getByRole("button", { name: "Allow once" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
   })
 })

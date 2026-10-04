@@ -1,7 +1,7 @@
-import { type ReactElement, useMemo, useState } from "react"
+import { type ReactElement, useMemo } from "react"
 import { groupSteps, type StepLabelOverrides } from "../../view/labels.js"
 import type { TurnView } from "../../view/turns.js"
-import { Disclosure } from "./Disclosure.js"
+import { Disclosure, useDisclosure } from "./Disclosure.js"
 import { countSteps, type SummaryLine, summaryLine } from "./format.js"
 import { PlanStep } from "./PlanStep.js"
 import { ReasoningStep } from "./ReasoningStep.js"
@@ -35,12 +35,13 @@ function nestedSummary(
   turn: TurnView,
   nested: NonNullable<TurnActivityProps["nested"]>,
   sampled: number,
+  labels: StepLabelOverrides | undefined,
 ): SummaryLine {
   const n = countSteps(turn)
   const steps = `· ${n} step${n === 1 ? "" : "s"}`
   switch (nested.status) {
     case "running":
-      return summaryLine(turn, sampled)
+      return summaryLine(turn, sampled, labels)
     case "paused":
       return { text: `${nested.name} · paused`, meta: "", live: false }
     case "failed":
@@ -64,23 +65,24 @@ export function TurnActivity({
 }: TurnActivityProps): ReactElement {
   const live = isLive(turn)
   const sampled = useElapsed(live, now)
-  const line = nested ? nestedSummary(turn, nested, sampled) : summaryLine(turn, sampled)
-  // Mirrors `autoOpen`, so the first (static) render already carries
-  // `data-expanded`; a turn settled at mount ("restored") starts folded.
-  const [expanded, setExpanded] = useState(live)
+  const line = nested
+    ? nestedSummary(turn, nested, sampled, labels)
+    : summaryLine(turn, sampled, labels)
+  // Open while live, folded once settled; a turn settled at mount ("restored")
+  // starts folded. No key: a turn that becomes live again is automation's.
+  const { open, toggle } = useDisclosure(live, live)
   const grouped = useMemo(() => groupSteps(turn.steps, labels), [turn.steps, labels])
 
   return (
     <section
       className="b4-turn"
       data-state={turn.status}
-      {...(expanded ? { "data-expanded": "true" } : {})}
+      {...(open ? { "data-expanded": "true" } : {})}
     >
       <Disclosure
         className="b4-turn__summary"
-        autoOpen={live}
-        live={live}
-        onOpenChange={setExpanded}
+        open={open}
+        onToggle={toggle}
         summary={
           <>
             <span className="b4-turn__text" {...(line.live ? { "data-live": "true" } : {})}>

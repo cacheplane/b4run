@@ -3,57 +3,65 @@ import { Chevron } from "./icons.js"
 
 /**
  * Open/closed per spec §3.1: automation decides until the user toggles, and
- * the user's choice holds until the item becomes live again.
+ * the user's choice holds until the item becomes live again — where "again"
+ * means a *different* presentation of it. Pass `resetKey` (a step's
+ * `startedAt`) so a call that goes awaiting → running under the same key
+ * never closes what the user opened; the choice is cleared only when the
+ * item is live under a key it has not been live under before. Without a key,
+ * every rise of `live` clears the choice.
  */
 export function useDisclosure(
   autoOpen: boolean,
   live: boolean,
+  resetKey?: unknown,
 ): { open: boolean; toggle: () => void } {
   const [manual, setManual] = useState<boolean | undefined>(undefined)
   const wasLive = useRef(live)
+  const lastKey = useRef(resetKey)
   useEffect(() => {
-    if (live && !wasLive.current) setManual(undefined)
+    const rose = live && !wasLive.current
     wasLive.current = live
-  }, [live])
+    if (!live) return
+    const changed = resetKey === undefined ? rose : resetKey !== lastKey.current
+    if (!changed) return
+    lastKey.current = resetKey
+    setManual(undefined)
+  }, [live, resetKey])
   const open = manual ?? autoOpen
   const toggle = useCallback(() => setManual(!open), [open])
   return { open, toggle }
 }
 
 export interface DisclosureProps {
-  readonly autoOpen: boolean
-  readonly live: boolean
+  readonly open: boolean
+  readonly onToggle: () => void
   /** Class of the toggle button (`b4-turn__summary`, `b4-step__line`). */
   readonly className: string
   readonly summary: ReactNode
   /** Rendered only while open. */
   readonly children: ReactNode
-  /** Extra attributes for the button (data-state and the like). */
-  readonly buttonProps?: Readonly<Record<string, string | undefined>>
   /** Wrapper around the panel (`b4-step__detail`, `b4-step__children`); defaults to a fragment. */
   readonly panelClassName?: string
-  /** When set, the parent reads the open state (for `data-expanded`). */
-  readonly onOpenChange?: (open: boolean) => void
 }
 
-/** A `<button aria-expanded>` plus its panel; 24px+ tall through CSS (spec §5.5). */
+/**
+ * A controlled `<button aria-expanded>` plus its panel; 24px+ tall through
+ * CSS (spec §5.5). The parent owns `open` (see {@link useDisclosure}) so its
+ * `data-expanded` and this button never disagree, even for one commit.
+ */
 export function Disclosure(props: DisclosureProps): ReactElement {
-  const { open, toggle } = useDisclosure(props.autoOpen, props.live)
-  const { onOpenChange } = props
-  useEffect(() => onOpenChange?.(open), [open, onOpenChange])
   return (
     <>
       <button
         type="button"
         className={props.className}
-        aria-expanded={open}
-        onClick={toggle}
-        {...props.buttonProps}
+        aria-expanded={props.open}
+        onClick={props.onToggle}
       >
         <Chevron />
         {props.summary}
       </button>
-      {open ? (
+      {props.open ? (
         props.panelClassName ? (
           <div className={props.panelClassName}>{props.children}</div>
         ) : (

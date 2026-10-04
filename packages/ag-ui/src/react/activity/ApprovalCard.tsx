@@ -15,15 +15,19 @@ export interface ApprovalCardProps {
 const text = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() !== "" ? value : undefined
 
-/** `detail.argsPreview`, else the command, else the detail as JSON without the scope hint. */
+/**
+ * `detail.argsPreview`, else the command, else the detail as JSON without the
+ * scope hint; "No details" when nothing is left or it cannot be serialised.
+ */
 export function approvalPayload(detail: Readonly<Record<string, unknown>>): string {
   const preview = text(detail.argsPreview) ?? text(detail.command)
   if (preview !== undefined) return preview
   const { suggestedPattern: _omit, ...rest } = detail
   try {
-    return JSON.stringify(rest, null, 2)
+    const json = JSON.stringify(rest, null, 2)
+    return json === undefined || json === "{}" ? "No details" : json
   } catch {
-    return String(rest)
+    return "No details"
   }
 }
 
@@ -31,10 +35,11 @@ export function approvalPayload(detail: Readonly<Record<string, unknown>>): stri
 export function scopeLine(kind: string, detail: Readonly<Record<string, unknown>>): string {
   if (detail.scope === "thread") return "“Always allow” applies in this conversation only."
   const pattern = text(detail.suggestedPattern)
-  if (kind === "command" || pattern === undefined) {
-    return "“Always allow” applies to this exact command, for this app."
-  }
-  return `“Always allow” applies to every call of ${pattern}, for this app.`
+  if (kind === "command") return "“Always allow” applies to this exact command, for this app."
+  if (pattern !== undefined)
+    return `“Always allow” applies to every call of ${pattern}, for this app.`
+  if (kind === "tool") return "“Always allow” applies to every call of this tool, for this app."
+  return "“Always allow” applies to this exact command, for this app."
 }
 
 /** The approval card (spec §3.2): one per pending interrupt, after the turn's activity. */

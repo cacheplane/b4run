@@ -75,6 +75,22 @@ describe("summaryLine", () => {
       live: true,
     })
   })
+  test("the active label goes through stepLabel: overrides win, an unlabelled step reads Using x…", () => {
+    const t = turn({
+      status: "working",
+      endedAt: undefined,
+      steps: [tool({ id: "a", name: "searchCorpus", status: "running", settledAt: undefined })],
+    })
+    expect(summaryLine(t, 400).text).toBe("Using searchCorpus…")
+    expect(summaryLine(t, 400, { searchCorpus: { running: () => "Looking things up" } }).text).toBe(
+      "Looking things up",
+    )
+    const labelled = turn({ ...t, steps: [{ ...(t.steps[0] as ToolStep), label: "Searching" }] })
+    expect(summaryLine(labelled, 400).text).toBe("Searching")
+    expect(
+      summaryLine(labelled, 400, { searchCorpus: { running: () => "Looking things up" } }).text,
+    ).toBe("Looking things up")
+  })
   test("awaiting reads Waiting for your approval", () => {
     expect(summaryLine(turn({ status: "awaiting", endedAt: undefined }), 38_000)).toEqual({
       text: "Waiting for your approval",
@@ -100,12 +116,21 @@ describe("summaryLine", () => {
     )
     expect(summaryLine(turn({ steps: [tool({ id: "a", name: "x" })] }), 0).meta).toBe("· 1 step")
   })
-  test("stopped reads Stopped after d; an unknown duration drops the time", () => {
+  test("stopped reads Stopped after d, or just Stopped when the duration is unknown", () => {
     expect(summaryLine(turn({ status: "stopped", endedAt: 41_000 }), 0)).toEqual({
       text: "Stopped after 41s",
       meta: "",
       live: false,
     })
+    expect(
+      summaryLine(turn({ status: "stopped", endedAt: undefined, startedAt: 5000 }), 0),
+    ).toEqual({
+      text: "Stopped",
+      meta: "",
+      live: false,
+    })
+  })
+  test("done with an unknown duration reads Worked and drops the time", () => {
     expect(summaryLine(turn({ status: "done", endedAt: undefined, startedAt: 5000 }), 0).text).toBe(
       "Worked",
     )
@@ -113,7 +138,7 @@ describe("summaryLine", () => {
 })
 
 describe("counts and labels", () => {
-  test("countSteps counts nested subagent steps and groups as one each", () => {
+  test("countSteps counts a subagent as one step plus each of its nested steps", () => {
     const nested = turn({
       steps: [tool({ id: "n1", name: "readDoc" }), tool({ id: "n2", name: "readDoc" })],
     })

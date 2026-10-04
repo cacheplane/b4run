@@ -1,4 +1,4 @@
-import type { ReactElement } from "react"
+import { type ReactElement, useMemo } from "react"
 
 /** JSON pretty-printed with two spaces; anything else (or invalid JSON) as-is. Never throws. */
 export function prettyValue(text: string): string {
@@ -10,6 +10,14 @@ export function prettyValue(text: string): string {
   }
 }
 
+/** A step's inputs or output longer than this is cut; a tool can return megabytes. */
+export const MAX_DETAIL_CHARS = 20_000
+
+/** `text`, or its first `MAX_DETAIL_CHARS` characters followed by a "… (truncated)" line. */
+export function capDetail(text: string): string {
+  return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}\n… (truncated)` : text
+}
+
 export interface StepDetailProps {
   readonly args: string
   readonly result?: string | undefined
@@ -17,8 +25,11 @@ export interface StepDetailProps {
 
 /** A step's Inputs and Output (spec §3 `StepDetail`); CSS caps it at 250px with scroll. */
 export function StepDetail({ args, result }: StepDetailProps): ReactElement {
-  const inputs = prettyValue(args)
-  const output = result === undefined ? "" : prettyValue(result)
+  const inputs = useMemo(() => capDetail(prettyValue(args)), [args])
+  const output = useMemo(
+    () => (result === undefined ? "" : capDetail(prettyValue(result))),
+    [result],
+  )
   const empty = inputs.trim() === "" && output.trim() === ""
   return (
     <div className="b4-step__detail">

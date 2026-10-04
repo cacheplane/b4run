@@ -7,6 +7,10 @@ export interface SourceChipsProps {
   readonly limit?: number
 }
 
+/** Sources come off the wire: only web, mail and same-origin paths become links. */
+const SAFE_HREF = /^(?:https?:\/\/|mailto:|\/)/i
+export const isSafeHref = (href: string): boolean => SAFE_HREF.test(href)
+
 /** File or URL chips from a step's `sources` (spec §3), with "+N" overflow. */
 export function SourceChips({ sources, limit = 3 }: SourceChipsProps): ReactElement | null {
   if (sources.length === 0) return null
@@ -17,7 +21,7 @@ export function SourceChips({ sources, limit = 3 }: SourceChipsProps): ReactElem
       {shown.map((source, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: Sources carry no stable id and two may share a title; the list is never reordered.
         <li key={`${source.title}:${index}`}>
-          {source.href ? (
+          {source.href && isSafeHref(source.href) ? (
             <a className="b4-chip" href={source.href} target="_blank" rel="noreferrer">
               {source.title}
             </a>

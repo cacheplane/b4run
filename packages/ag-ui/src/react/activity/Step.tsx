@@ -1,7 +1,7 @@
-import { type ReactElement, type ReactNode, useState } from "react"
+import type { ReactElement, ReactNode } from "react"
 import { type StepLabelOverrides, stepLabel } from "../../view/labels.js"
 import type { ToolStep } from "../../view/turns.js"
-import { Disclosure } from "./Disclosure.js"
+import { Disclosure, useDisclosure } from "./Disclosure.js"
 import { StepIcon } from "./icons.js"
 import { SourceChips } from "./SourceChips.js"
 import { StatusText } from "./StatusText.js"
@@ -39,22 +39,21 @@ export function Step({ step, labels, renderStep, now }: StepProps): ReactElement
   const live = useLive(step, now)
   const state = step.status === "running" && !live ? "pending" : step.status
   const failed = step.status === "failed"
-  // Mirrors `autoOpen` so the first (static) render of a failed step already
-  // carries `data-expanded`; `onOpenChange` keeps it in sync after clicks.
-  const [expanded, setExpanded] = useState(failed)
+  // Keyed by `startedAt`: the same call going awaiting → running keeps what
+  // the user opened; a re-presented call hands control back to automation.
+  const { open, toggle } = useDisclosure(failed, live, step.startedAt)
   const custom = customRenderer(renderStep, step.name)
   return (
     <li
       className="b4-step"
       data-state={state}
       data-kind="tool"
-      {...(expanded ? { "data-expanded": "true" } : {})}
+      {...(open ? { "data-expanded": "true" } : {})}
     >
       <Disclosure
         className="b4-step__line"
-        autoOpen={failed}
-        live={live}
-        onOpenChange={setExpanded}
+        open={open}
+        onToggle={toggle}
         summary={
           <>
             <StepIcon name={failed ? "alert" : step.icon} />

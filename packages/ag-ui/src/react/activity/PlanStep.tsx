@@ -1,7 +1,7 @@
-import { type ReactElement, useState } from "react"
+import type { ReactElement } from "react"
 import type { B4PlanActivityContent } from "../../activities.js"
 import type { PlanStep as PlanStepView } from "../../view/turns.js"
-import { Disclosure } from "./Disclosure.js"
+import { Disclosure, useDisclosure } from "./Disclosure.js"
 import { planProgress } from "./format.js"
 import { StepIcon } from "./icons.js"
 import { StatusText } from "./StatusText.js"
@@ -76,19 +76,18 @@ export interface PlanStepProps {
 /** "Made a plan · 2 of 4 done" with the checklist (spec §3 `PlanStep`). Updates in place. */
 export function PlanStep({ step, live }: PlanStepProps): ReactElement {
   const { done, total } = planProgress(step.todos)
-  const [expanded, setExpanded] = useState(live)
+  const { open, toggle } = useDisclosure(live, live, step.startedAt)
   return (
     <li
       className="b4-step"
       data-state={live ? "running" : "done"}
       data-kind="plan"
-      {...(expanded ? { "data-expanded": "true" } : {})}
+      {...(open ? { "data-expanded": "true" } : {})}
     >
       <Disclosure
         className="b4-step__line"
-        autoOpen={live}
-        live={live}
-        onOpenChange={setExpanded}
+        open={open}
+        onToggle={toggle}
         panelClassName="b4-step__children"
         summary={
           <>

@@ -1,7 +1,7 @@
-import { type ReactElement, useState } from "react"
+import type { ReactElement } from "react"
 import type { StepLabelOverrides } from "../../view/labels.js"
 import type { SubagentStep as SubagentStepView } from "../../view/turns.js"
-import { Disclosure } from "./Disclosure.js"
+import { Disclosure, useDisclosure } from "./Disclosure.js"
 import { countSteps } from "./format.js"
 import { StepIcon } from "./icons.js"
 import { StatusText } from "./StatusText.js"
@@ -24,7 +24,7 @@ const STATE = { running: "running", paused: "awaiting", done: "done", failed: "f
 export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProps): ReactElement {
   const live = step.status === "running" || step.status === "paused"
   const autoOpen = live || step.status === "failed"
-  const [expanded, setExpanded] = useState(autoOpen)
+  const { open, toggle } = useDisclosure(autoOpen, live, step.startedAt)
   const steps = countSteps(step.turn)
   const text = live ? (
     <>
@@ -48,13 +48,12 @@ export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProp
       className="b4-step"
       data-state={STATE[step.status]}
       data-kind="subagent"
-      {...(expanded ? { "data-expanded": "true" } : {})}
+      {...(open ? { "data-expanded": "true" } : {})}
     >
       <Disclosure
         className="b4-step__line"
-        autoOpen={autoOpen}
-        live={live}
-        onOpenChange={setExpanded}
+        open={open}
+        onToggle={toggle}
         panelClassName="b4-step__children"
         summary={
           <>

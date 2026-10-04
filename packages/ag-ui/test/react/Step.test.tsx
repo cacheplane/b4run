@@ -119,4 +119,36 @@ describe("Step", () => {
     expect(screen.getByTestId("t").textContent).toBe("3 hits")
     expect(screen.queryByText("Inputs")).toBeNull()
   })
+
+  test("a step opened while awaiting stays open when the same call starts running", () => {
+    const awaiting = tool({
+      id: "a",
+      name: "x",
+      status: "awaiting",
+      startedAt: 0,
+      settledAt: undefined,
+    })
+    const { rerender } = render(<Step step={awaiting} now={now} />)
+    fireEvent.click(screen.getByRole("button"))
+    expect(screen.getByRole("listitem").getAttribute("data-expanded")).toBe("true")
+    rerender(<Step step={{ ...awaiting, status: "running" }} now={now} />)
+    expect(screen.getByRole("listitem").getAttribute("data-state")).toBe("running")
+    expect(screen.getByRole("listitem").getAttribute("data-expanded")).toBe("true")
+  })
+
+  test("a call that restarts (new startedAt) while running hands the disclosure back to automation", () => {
+    const running = tool({
+      id: "a",
+      name: "x",
+      status: "running",
+      startedAt: 0,
+      settledAt: undefined,
+    })
+    const { rerender } = render(<Step step={running} now={now} />)
+    fireEvent.click(screen.getByRole("button"))
+    expect(screen.getByRole("listitem").getAttribute("data-expanded")).toBe("true")
+    rerender(<Step step={{ ...running, startedAt: 5_000 }} now={now} />)
+    expect(screen.getByRole("listitem").getAttribute("data-state")).toBe("running")
+    expect(screen.getByRole("listitem").getAttribute("data-expanded")).toBeNull()
+  })
 })

@@ -83,9 +83,15 @@ const GLYPHS: Readonly<Record<string, ReactElement>> = {
   check: <path d="m3.5 8.5 2.8 2.8 6.2-6.6" {...STROKE} strokeWidth={1.5} />,
 }
 
-/** A step's glyph. Unknown names draw the generic `tool` glyph. */
+/**
+ * A step's glyph. Unknown names draw the generic `tool` glyph; the own-key
+ * lookup keeps a wire name like `constructor` off `Object.prototype`.
+ */
 export function StepIcon({ name }: { readonly name: string | undefined }): ReactElement {
-  const glyph = (name !== undefined && GLYPHS[name]) || (GLYPHS.tool as ReactElement)
+  const glyph =
+    name !== undefined && Object.hasOwn(GLYPHS, name)
+      ? (GLYPHS[name] as ReactElement)
+      : (GLYPHS.tool as ReactElement)
   return (
     <svg
       className="b4-step__icon"

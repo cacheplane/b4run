@@ -1,4 +1,5 @@
 import type { B4PlanActivityContent } from "../../activities.js"
+import { type StepLabelOverrides, stepLabel } from "../../view/labels.js"
 import type { ReasoningStep, StepView, ToolStep, TurnView } from "../../view/turns.js"
 
 /**
@@ -45,28 +46,34 @@ export interface SummaryLine {
   readonly live: boolean
 }
 
-/** The newest running tool step's label, searching nested turns too. */
-function activeLabel(turn: TurnView): string | undefined {
-  let best: { startedAt: number; label: string } | undefined
+/**
+ * The newest running tool step, searching nested turns too, worded through
+ * `stepLabel` so the app's overrides and the "Using x…" fallback apply.
+ */
+function activeLabel(turn: TurnView, labels: StepLabelOverrides | undefined): string | undefined {
+  let best: ToolStep | undefined
   const visit = (t: TurnView) => {
     for (const step of t.steps) {
-      if (isTool(step) && step.status === "running" && step.label) {
-        if (best === undefined || step.startedAt >= best.startedAt)
-          best = { startedAt: step.startedAt, label: step.label }
+      if (isTool(step) && step.status === "running") {
+        if (best === undefined || step.startedAt >= best.startedAt) best = step
       } else if (step.kind === "subagent") visit(step.turn)
     }
   }
   visit(turn)
-  return best?.label
+  return best === undefined ? undefined : stepLabel(best, labels)
 }
 
 /** The summary line for a turn at time `now` (spec §3.1). */
-export function summaryLine(turn: TurnView, now: number): SummaryLine {
+export function summaryLine(
+  turn: TurnView,
+  now: number,
+  labels?: StepLabelOverrides | undefined,
+): SummaryLine {
   const elapsed = formatDuration((turn.endedAt ?? now) - turn.startedAt)
   const tick = elapsed === undefined ? "" : `· ${elapsed}`
   switch (turn.status) {
     case "working":
-      return { text: activeLabel(turn) ?? "Working", meta: tick, live: true }
+      return { text: activeLabel(turn, labels) ?? "Working", meta: tick, live: true }
     case "awaiting":
       return { text: "Waiting for your approval", meta: tick, live: false }
     case "stopped":
