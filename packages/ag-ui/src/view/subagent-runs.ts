@@ -58,7 +58,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function readPlan(content: unknown): B4PlanActivityContent["todos"] | undefined {
+/** A `b4.plan` snapshot's todos, or undefined unless every entry is well-formed. */
+export function readPlan(content: unknown): B4PlanActivityContent["todos"] | undefined {
   if (!isRecord(content) || !Array.isArray(content.todos)) return undefined
   const todos: Array<B4PlanActivityContent["todos"][number]> = []
   for (const todo of content.todos) {

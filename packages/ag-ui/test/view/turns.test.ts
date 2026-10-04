@@ -406,6 +406,306 @@ describe("reduceTurns", () => {
     expect(reduceTurns(started, step("ghost", "running", "Hm"))).toBe(started)
   })
 
+  it("resumes the awaiting turn on the next run of the same thread: one turn, no approvals", async () => {
+    const clock = fixedClock()
+    const run1 = await fold(
+      [
+        { type: "tool_call", data: { id: CHILD.call_id, name: "task", input: {} } },
+        { type: "subagent.start", data: CHILD },
+        { type: "subagent.tool_call", data: { ...CHILD, id: "k1", name: "readDoc", input: {} } },
+        {
+          type: "subagent.tool_result",
+          data: { ...CHILD, id: "k1", name: "readDoc", output: "t" },
+        },
+        {
+          type: "subagent.tool_call",
+          data: { ...CHILD, id: "k2", name: "runBash", input: { command: "node x" } },
+        },
+        {
+          type: "interrupt",
+          data: {
+            interruptId: "perm-1",
+            type: "permission-request",
+            kind: "command",
+            callId: CHILD.call_id,
+            toolCallId: "k2",
+            detail: { command: "node x" },
+          },
+        },
+      ],
+      clock,
+    )
+    expect(run1.turns[0]?.status).toBe("awaiting")
+    let view = run1
+    const resumed: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "th-1", runId: "rn-2" } as BaseEvent,
+      {
+        type: EventType.SUBAGENT_STARTED,
+        subagentRunId: CHILD.call_id,
+        name: "researcher",
+        parentToolCallId: CHILD.call_id,
+      } as BaseEvent,
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        messageId: "m",
+        toolCallId: "k2",
+        content: "ran",
+        subagentRunId: CHILD.call_id,
+      } as BaseEvent,
+      {
+        type: EventType.SUBAGENT_FINISHED,
+        subagentRunId: CHILD.call_id,
+        outcome: { type: "success" },
+      } as BaseEvent,
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        messageId: "m2",
+        toolCallId: CHILD.call_id,
+        content: "done",
+      } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "th-1",
+        runId: "rn-2",
+        outcome: { type: "success" },
+      } as BaseEvent,
+    ]
+    for (const event of resumed) view = reduceTurns(view, event, { now: clock })
+    expect(view.turns).toHaveLength(1)
+    const turn = view.turns[0]
+    expect(turn).toMatchObject({ runId: "rn-2", status: "done", approvals: [] })
+    expect(turn?.startedAt).toBe(run1.turns[0]?.startedAt)
+    const subagent = turn?.steps[0] as SubagentStep
+    expect(subagent).toMatchObject({ status: "done" })
+    expect(subagent.turn).toMatchObject({ status: "done", approvals: [] })
+    expect(subagent.turn.steps.map((s) => s.id)).toEqual(["k1", "k2"])
+    const gated = subagent.turn.steps[1] as ToolStep
+    expect(gated).toMatchObject({ status: "done", result: "ran" })
+    expect(gated.approval).toBeUndefined()
+  })
+
+  it("resets a turn in place when its RUN_STARTED is replayed from the start", async () => {
+    const once = await fold(RUN, fixedClock())
+    const clock = fixedClock()
+    let view = EMPTY_TURNS
+    for (let pass = 0; pass < 2; pass++) {
+      const events = toAguiEvents(toAsync(RUN), CTX, { idFactory: createCounterIdFactory() })
+      for await (const event of events) view = reduceTurns(view, event as BaseEvent, { now: clock })
+      if (pass === 0) clock() // the second pass starts one tick later; only timing may differ
+    }
+    expect(view.turns).toHaveLength(1)
+    const strip = (v: TurnsView) =>
+      JSON.parse(
+        JSON.stringify(v).replace(/"(startedAt|updatedAt|settledAt|endedAt)":\d+/g, '"$1":0'),
+      )
+    expect(strip(view)).toEqual(strip(once))
+  })
+
+  it("settles an open subagent's nested turn as failed on RUN_ERROR, carrying the error", async () => {
+    const view = await foldStream(
+      thenThrow([
+        { type: "tool_call", data: { id: CHILD.call_id, name: "task", input: {} } },
+        { type: "subagent.start", data: CHILD },
+        { type: "subagent.tool_call", data: { ...CHILD, id: "k1", name: "readDoc", input: {} } },
+      ]),
+    )
+    const subagent = view.turns[0]?.steps[0] as SubagentStep
+    expect(subagent).toMatchObject({ status: "failed", error: "boom" })
+    expect(subagent.turn).toMatchObject({ status: "failed", error: "boom" })
+    expect(subagent.turn.endedAt).toBeDefined()
+    expect(subagent.turn.steps[0]).toMatchObject({ status: "failed" })
+    expect(view.turns[0]?.failed).toBe(2)
+  })
+
+  it("counts a child's failed step on the root before the subagent finishes", () => {
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.SUBAGENT_STARTED, subagentRunId: CHILD.call_id, name: "r" } as BaseEvent,
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "k1",
+        toolCallName: "readDoc",
+        subagentRunId: CHILD.call_id,
+      } as BaseEvent,
+      {
+        type: EventType.CUSTOM,
+        name: "b4.step",
+        value: { toolCallId: "k1", status: "failed" },
+        subagentRunId: CHILD.call_id,
+      } as BaseEvent,
+    ])
+    const subagent = view.turns[0]?.steps[0] as SubagentStep
+    expect(subagent.status).toBe("running")
+    expect(subagent.turn.failed).toBe(1)
+    expect(view.turns[0]?.failed).toBe(1)
+  })
+
+  it("pauses every ancestor and marks each nested turn awaiting at depth 2", () => {
+    const GRANDCHILD = "call-grand"
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.SUBAGENT_STARTED, subagentRunId: CHILD.call_id, name: "r" } as BaseEvent,
+      {
+        type: EventType.SUBAGENT_STARTED,
+        subagentRunId: GRANDCHILD,
+        name: "g",
+        parentSubagentRunId: CHILD.call_id,
+      } as BaseEvent,
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "g1",
+        toolCallName: "runBash",
+        subagentRunId: GRANDCHILD,
+      } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId: "1",
+        outcome: {
+          type: "interrupt",
+          interrupts: [{ id: "i", reason: "command", toolCallId: "g1", subagentRunId: GRANDCHILD }],
+        },
+      } as BaseEvent,
+    ])
+    const child = view.turns[0]?.steps[0] as SubagentStep
+    const grand = child.turn.steps[0] as SubagentStep
+    expect(view.turns[0]?.status).toBe("awaiting")
+    expect(child).toMatchObject({ status: "paused" })
+    expect(child.turn.status).toBe("awaiting")
+    expect(grand).toMatchObject({ status: "paused" })
+    expect(grand.turn.status).toBe("awaiting")
+    expect(grand.turn.steps[0]).toMatchObject({ status: "awaiting" })
+  })
+
+  it("routes reasoning content by messageId across interleaved spans", () => {
+    const content = (messageId: string, delta: string): BaseEvent =>
+      ({ type: EventType.REASONING_MESSAGE_CONTENT, messageId, delta }) as BaseEvent
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.REASONING_START, messageId: "ma" } as BaseEvent,
+      { type: EventType.REASONING_START, messageId: "mb" } as BaseEvent,
+      content("ma", "A1"),
+      content("mb", "B1"),
+      content("ma", "A2"),
+      { type: EventType.REASONING_END, messageId: "ma" } as BaseEvent,
+    ])
+    const steps = view.turns[0]?.steps ?? []
+    expect(steps.map((s) => (s.kind === "reasoning" ? s.text : ""))).toEqual(["A1A2", "B1"])
+    expect(steps[0]).toMatchObject({ status: "done" })
+    expect(steps[1]).toMatchObject({ status: "streaming" })
+  })
+
+  it("streams a reasoning message inside its span rather than opening a second step", async () => {
+    const view = await fold([
+      { type: "reasoning", data: "think" },
+      { type: "reasoning", data: " more" },
+      { type: "token", data: "answer" },
+      { type: "done", data: {} },
+    ])
+    const reasoning = view.turns[0]?.steps.filter((s) => s.kind === "reasoning") ?? []
+    expect(reasoning).toHaveLength(1)
+    expect(reasoning[0]).toMatchObject({ text: "think more", status: "done" })
+  })
+
+  it("separates text messages split by a tool call with one newline", async () => {
+    const view = await fold([
+      { type: "token", data: "Let me look." },
+      { type: "tool_call", data: { id: "c1", name: "searchCorpus", input: {} } },
+      { type: "tool_result", data: { id: "c1", name: "searchCorpus", output: "x" } },
+      { type: "token", data: "Found it." },
+      { type: "done", data: {} },
+    ])
+    expect(view.turns[0]?.text).toBe("Let me look.\nFound it.")
+  })
+
+  it("drops the frames of hidden tools", async () => {
+    let view = EMPTY_TURNS
+    const stream = toAguiEvents(
+      toAsync([
+        { type: "tool_call", data: { id: "c1", name: "think", input: {} } },
+        { type: "tool_result", data: { id: "c1", name: "think", output: "x" } },
+        { type: "done", data: {} },
+      ]),
+      CTX,
+      { idFactory: createCounterIdFactory() },
+    )
+    for await (const event of stream) {
+      view = reduceTurns(view, event as BaseEvent, { now: fixedClock(), hiddenTools: ["think"] })
+    }
+    expect(view.turns[0]?.steps).toEqual([])
+    expect(view.turns[0]?.status).toBe("done")
+  })
+
+  it("keeps a child's plan on the child's turn", async () => {
+    const view = await fold([
+      { type: "tool_call", data: { id: CHILD.call_id, name: "task", input: {} } },
+      { type: "subagent.start", data: CHILD },
+      {
+        type: "subagent.plan_update",
+        data: { ...CHILD, tool_call_id: "k9", todos: [{ content: "read", status: "pending" }] },
+      },
+    ])
+    const subagent = view.turns[0]?.steps[0] as SubagentStep
+    expect(subagent.turn.steps).toEqual([
+      expect.objectContaining({ kind: "plan", todos: [{ content: "read", status: "pending" }] }),
+    ])
+    expect(view.turns[0]?.steps.filter((s) => s.kind === "plan")).toEqual([])
+  })
+
+  it("ignores a malformed plan snapshot", () => {
+    const started = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+    ])
+    const next = reduceTurns(started, {
+      type: EventType.ACTIVITY_SNAPSHOT,
+      messageId: "p",
+      activityType: "b4.plan",
+      replace: true,
+      content: { todos: [{ content: "x", status: "weird" }] },
+    } as BaseEvent)
+    expect(next).toBe(started)
+  })
+
+  it("passes the grant through on an approval", () => {
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId: "1",
+        outcome: {
+          type: "interrupt",
+          interrupts: [
+            { id: "i", reason: "tool", metadata: { grant: "g-1", detail: { tool: "x" } } },
+          ],
+        },
+      } as BaseEvent,
+    ])
+    expect(view.turns[0]?.approvals[0]).toMatchObject({ grant: "g-1", detail: { tool: "x" } })
+  })
+
+  it("returns the same state for events that change nothing", () => {
+    const started = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.TOOL_CALL_START, toolCallId: "t1", toolCallName: "recall" } as BaseEvent,
+      step("t1", "running", "Recalling"),
+    ])
+    expect(reduceTurns(started, step("t1", "running", "Recalling"))).toBe(started)
+    expect(
+      reduceTurns(started, {
+        type: EventType.TOOL_CALL_ARGS,
+        toolCallId: "t1",
+        delta: "",
+      } as BaseEvent),
+    ).toBe(started)
+    expect(
+      reduceTurns(started, { type: EventType.REASONING_END, messageId: "nope" } as BaseEvent),
+    ).toBe(started)
+    expect(
+      reduceTurns(started, { type: EventType.RUN_STARTED, threadId: 42, runId: "2" } as BaseEvent),
+    ).toBe(started)
+  })
+
   it("is a pure function of the events: replaying yields a deep-equal view", async () => {
     const a = await fold(RUN, fixedClock())
     const b = await fold(RUN, fixedClock())

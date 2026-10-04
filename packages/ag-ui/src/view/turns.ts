@@ -4,10 +4,10 @@ import type {
   Interrupt,
   ReasoningEndEvent,
   ReasoningMessageContentEvent,
+  ReasoningMessageStartEvent,
   ReasoningStartEvent,
   RunErrorEvent,
   RunFinishedEvent,
-  RunStartedEvent,
   SubagentErrorEvent,
   SubagentFinishedEvent,
   SubagentStartedEvent,
@@ -18,17 +18,17 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
+import type { ToolDisplaySource } from "@b4run/sdk"
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
 import type { B4StepEventValue } from "../step.js"
 import { readStepEvent } from "./step.js"
+import { readPlan } from "./subagent-runs.js"
 
 export type StepStatus = "pending" | "running" | "done" | "failed" | "awaiting"
 export type TurnStatus = "working" | "awaiting" | "done" | "failed" | "stopped"
 
-export interface StepSource {
-  readonly title: string
-  readonly href?: string
-}
+/** A source a step cites: the SDK's `ToolDisplaySource`, as `b4.step` carries it. */
+export type StepSource = ToolDisplaySource
 
 /** A parked interrupt, as a chat shows it. */
 export interface ApprovalView {
@@ -70,7 +70,10 @@ export interface PlanStep {
 
 export interface ReasoningStep {
   readonly kind: "reasoning"
+  /** The span's id (`REASONING_START`), or the message's when no span framed it. */
   readonly id: string
+  /** The reasoning message currently streaming inside the span, when it has its own id. */
+  readonly messageId?: string
   readonly text: string
   readonly status: "streaming" | "done"
   readonly startedAt: number
@@ -95,12 +98,18 @@ export interface SubagentStep {
 export type StepView = ToolStep | PlanStep | ReasoningStep | SubagentStep
 
 export interface TurnView {
+  /** The run this turn is on; a resumed turn takes the resuming run's id. */
   readonly runId: string
   readonly status: TurnStatus
   readonly startedAt: number
   readonly endedAt?: number
   readonly steps: readonly StepView[]
-  /** The assistant's prose for this turn (root) or the child's (nested). */
+  /**
+   * The assistant's prose for this turn (root) or the child's (nested), as a
+   * plain-text summary input — not a transcript. Messages are concatenated;
+   * a message that begins after an earlier one (the translator starts a new
+   * message at each tool call) is separated from it by one `"\n"`.
+   */
   readonly text: string
   /** Interrupts that named no step. */
   readonly approvals: readonly ApprovalView[]
@@ -123,7 +132,7 @@ export interface ReduceTurnsOptions {
 
 export const EMPTY_TURNS: TurnsView = { turns: [] }
 
-type Attributed = BaseEvent & { readonly subagentRunId?: string }
+const NONE: ReadonlySet<string> = new Set()
 
 /** `Array.prototype.with` for an ES2022 lib. */
 function replaceAt<T>(items: readonly T[], index: number, value: T): readonly T[] {
@@ -152,24 +161,20 @@ function updateOwner(
   return next === root ? turns : [...turns.slice(0, last), next]
 }
 
+/**
+ * Update the nested turn of the subagent `owner`, wherever it is, recounting
+ * failures on every turn along the path so the root's `failed` reflects a
+ * child's failed step as soon as it happens. Unchanged turns keep identity.
+ */
 function updateNested(
   turn: TurnView,
   owner: string,
   update: (turn: TurnView) => TurnView,
 ): TurnView {
-  let changed = false
-  const steps = turn.steps.map((step) => {
-    if (step.kind !== "subagent") return step
-    if (step.id === owner) {
-      changed = true
-      return { ...step, turn: update(step.turn) }
-    }
-    const nested = updateNested(step.turn, owner, update)
-    if (nested === step.turn) return step
-    changed = true
-    return { ...step, turn: nested }
+  return mapSubagent(turn, owner, (step) => {
+    const nested = update(step.turn)
+    return nested === step.turn ? step : { ...step, turn: nested }
   })
-  return changed ? { ...turn, steps } : turn
 }
 
 /**
@@ -186,8 +191,10 @@ function mapSubagent(
   const steps = turn.steps.map((step) => {
     if (step.kind !== "subagent") return step
     if (step.id === id) {
+      const next = update(step)
+      if (next === step) return step
       changed = true
-      return update(step)
+      return next
     }
     const nested = mapSubagent(step.turn, id, update)
     if (nested === step.turn) return step
@@ -197,12 +204,16 @@ function mapSubagent(
   return changed ? withFailedCount({ ...turn, steps }) : turn
 }
 
-/** Also mark every subagent on the path to `owner` as `paused`. */
+/** Mark every subagent on the path to `owner` as `paused` and its nested turn `awaiting`. */
 function pauseAncestors(turn: TurnView, owner: string): TurnView {
   const steps = turn.steps.map((step) => {
     if (step.kind !== "subagent") return step
     if (step.id === owner || containsOwner(step.turn, owner)) {
-      return { ...step, status: "paused" as const, turn: pauseAncestors(step.turn, owner) }
+      return {
+        ...step,
+        status: "paused" as const,
+        turn: { ...pauseAncestors(step.turn, owner), status: "awaiting" as const },
+      }
     }
     return step
   })
@@ -213,6 +224,31 @@ function containsOwner(turn: TurnView, owner: string): boolean {
   return turn.steps.some(
     (step) => step.kind === "subagent" && (step.id === owner || containsOwner(step.turn, owner)),
   )
+}
+
+/**
+ * The turn as the run that answers its interrupts continues it: the user
+ * decided, so the approvals are gone, gated steps run again (the resumed run
+ * re-executes or skips the call and its result annotates the step by id), and
+ * paused subagents and their turns work again. History stays.
+ */
+function resumeTurn(turn: TurnView, runId: string): TurnView {
+  const steps = turn.steps.map((step): StepView => {
+    switch (step.kind) {
+      case "tool": {
+        if (step.status !== "awaiting") return step
+        const { approval: _, ...rest } = step
+        return { ...rest, status: "running" }
+      }
+      case "subagent":
+        return step.status === "paused"
+          ? { ...step, status: "running", turn: resumeTurn(step.turn, step.turn.runId) }
+          : step
+      default:
+        return step
+    }
+  })
+  return { ...turn, runId, status: "working", steps, approvals: [] }
 }
 
 function mapStep(turn: TurnView, id: string, update: (step: ToolStep) => ToolStep): TurnView {
@@ -227,10 +263,29 @@ function mapStep(turn: TurnView, id: string, update: (step: ToolStep) => ToolSte
   return changed ? { ...turn, steps } : turn
 }
 
-function readTodos(content: unknown): B4PlanActivityContent["todos"] | undefined {
-  if (typeof content !== "object" || content === null) return undefined
-  const todos = (content as { todos?: unknown }).todos
-  return Array.isArray(todos) ? (todos as B4PlanActivityContent["todos"]) : undefined
+function mapReasoning(
+  turn: TurnView,
+  match: (step: ReasoningStep) => boolean,
+  update: (step: ReasoningStep) => ReasoningStep,
+): TurnView {
+  let changed = false
+  const steps = turn.steps.map((step) => {
+    if (step.kind !== "reasoning" || !match(step)) return step
+    const next = update(step)
+    if (next === step) return step
+    changed = true
+    return next
+  })
+  return changed ? { ...turn, steps } : turn
+}
+
+/** The newest reasoning span still streaming, for content whose id no span claims. */
+function newestOpenReasoning(turn: TurnView): ReasoningStep | undefined {
+  for (let index = turn.steps.length - 1; index >= 0; index--) {
+    const step = turn.steps[index]
+    if (step?.kind === "reasoning" && step.status === "streaming") return step
+  }
+  return undefined
 }
 
 function approvalOf(interrupt: Interrupt): ApprovalView {
@@ -251,9 +306,15 @@ function approvalOf(interrupt: Interrupt): ApprovalView {
 /**
  * Running or pending work never settles on its own: the turn ending settles
  * it as failed — except the calls in `keepOpen`, which the client itself still
- * owes a result for (`pendingToolCallIds`) and which stay as they are.
+ * owes a result for (`pendingToolCallIds`) and which stay as they are. An open
+ * subagent's nested turn ends failed too, carrying `error` when there is one.
  */
-function settleOpen(turn: TurnView, at: number, keepOpen: ReadonlySet<string>): TurnView {
+function settleOpen(
+  turn: TurnView,
+  at: number,
+  keepOpen: ReadonlySet<string>,
+  error?: string,
+): TurnView {
   const steps = turn.steps.map((step): StepView => {
     switch (step.kind) {
       case "tool":
@@ -264,7 +325,13 @@ function settleOpen(turn: TurnView, at: number, keepOpen: ReadonlySet<string>): 
         return step.status === "streaming" ? { ...step, status: "done", settledAt: at } : step
       case "subagent":
         return step.status === "running"
-          ? { ...step, status: "failed", settledAt: at, turn: settleOpen(step.turn, at, keepOpen) }
+          ? {
+              ...step,
+              status: "failed",
+              settledAt: at,
+              ...(error !== undefined ? { error } : {}),
+              turn: failTurn(step.turn, at, keepOpen, error),
+            }
           : step
       default:
         return step
@@ -273,7 +340,20 @@ function settleOpen(turn: TurnView, at: number, keepOpen: ReadonlySet<string>): 
   return { ...turn, steps, failed: countFailed(steps) }
 }
 
-const NONE: ReadonlySet<string> = new Set()
+/** A turn ended by failure: its open work settled, status failed, with the error when known. */
+function failTurn(
+  turn: TurnView,
+  at: number,
+  keepOpen: ReadonlySet<string>,
+  error?: string,
+): TurnView {
+  return {
+    ...settleOpen(turn, at, keepOpen, error),
+    status: "failed",
+    endedAt: at,
+    ...(error !== undefined ? { error } : {}),
+  }
+}
 
 function countFailed(steps: readonly StepView[]): number {
   let failed = 0
@@ -293,12 +373,15 @@ function withFailedCount(turn: TurnView): TurnView {
  * Fold one AG-UI event into the turns of a thread. Pure given `now`: the same
  * events in the same order yield a deep-equal view, live, replayed or
  * restored. Root events land on the last turn; an event tagged
- * `subagentRunId` lands on that subagent's nested turn, however deep.
+ * `subagentRunId` lands on that subagent's nested turn, however deep. A run
+ * that answers the last turn's interrupts continues that turn; a `RUN_STARTED`
+ * for a run already shown (a replay from the start) resets that turn in place.
  *
- * A call's `b4.step` and `TOOL_CALL_RESULT` may arrive in either order and
- * neither downgrades the other: a `completed` or `failed` step never reverts
- * to running, a later result never erases a done label, and re-applying a
- * settled call's events changes nothing.
+ * A call's `b4.step` and `TOOL_CALL_RESULT` may arrive in either order: a
+ * `completed` or `failed` step never reverts to running, a later result never
+ * erases a done label, and re-applying a settled call's `completed` step and
+ * identical result changes nothing. An event that changes nothing returns
+ * `state` itself.
  */
 export function reduceTurns(
   state: TurnsView,
@@ -306,15 +389,26 @@ export function reduceTurns(
   options: ReduceTurnsOptions = {},
 ): TurnsView {
   const now = options.now ?? Date.now
-  const owner = (event as Attributed).subagentRunId
+  const rawOwner = (event as { subagentRunId?: unknown }).subagentRunId
+  const owner = typeof rawOwner === "string" ? rawOwner : undefined
 
   switch (event.type) {
     case EventType.RUN_STARTED: {
-      const { threadId, runId } = event as RunStartedEvent
-      const turn = newTurn(runId, now())
-      return threadId === state.threadId
-        ? { threadId, turns: [...state.turns, turn] }
-        : { threadId, turns: [turn] }
+      const { threadId, runId } = event as { threadId?: unknown; runId?: unknown }
+      if (typeof threadId !== "string" || typeof runId !== "string") return state
+      if (threadId !== state.threadId) return { threadId, turns: [newTurn(runId, now())] }
+      const replayed = state.turns.findIndex((turn) => turn.runId === runId)
+      if (replayed !== -1) {
+        return { threadId, turns: replaceAt(state.turns, replayed, newTurn(runId, now())) }
+      }
+      const last = state.turns.at(-1)
+      if (last?.status === "awaiting") {
+        return {
+          threadId,
+          turns: replaceAt(state.turns, state.turns.length - 1, resumeTurn(last, runId)),
+        }
+      }
+      return { threadId, turns: [...state.turns, newTurn(runId, now())] }
     }
     case EventType.RUN_FINISHED: {
       const { outcome } = event as RunFinishedEvent
@@ -344,12 +438,7 @@ export function reduceTurns(
       const at = now()
       return withTurns(
         state,
-        updateOwner(state.turns, undefined, (turn) => ({
-          ...settleOpen(turn, at, NONE),
-          status: "failed",
-          endedAt: at,
-          error: message,
-        })),
+        updateOwner(state.turns, undefined, (turn) => failTurn(turn, at, NONE, message)),
       )
     }
     case EventType.SUBAGENT_STARTED: {
@@ -415,12 +504,7 @@ export function reduceTurns(
             status: "failed",
             error: failed.message,
             settledAt: at,
-            turn: {
-              ...settleOpen(step.turn, at, NONE),
-              status: "failed",
-              endedAt: at,
-              error: failed.message,
-            },
+            turn: failTurn(step.turn, at, NONE, failed.message),
           })),
         ),
       )
@@ -447,8 +531,12 @@ export function reduceTurns(
         updateOwner(state.turns, owner, (turn) => {
           if (toolCallName === "writeTodos") {
             // The plan presents this call; keep its place with an empty plan
-            // until the snapshot arrives (root frames are usually suppressed
-            // upstream, so this mostly matters for a child's plan).
+            // until the snapshot arrives. For the root agent the ledger
+            // suppresses these frames when a `b4.plan` snapshot correlates
+            // with the call, so they usually reach the view only for a child's
+            // plan — or when the root call produced no snapshot (it threw).
+            // Then the view shows an empty plan and no failure: the call's
+            // result and `failed` step find no tool step to annotate.
             if (turn.steps.some((s) => s.kind === "plan")) return turn
             const plan: PlanStep = {
               kind: "plan",
@@ -474,6 +562,7 @@ export function reduceTurns(
     }
     case EventType.TOOL_CALL_ARGS: {
       const { toolCallId, delta } = event as ToolCallArgsEvent
+      if (delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
@@ -516,7 +605,7 @@ export function reduceTurns(
     case EventType.ACTIVITY_SNAPSHOT: {
       const { activityType, content, messageId } = event as ActivitySnapshotEvent
       if (activityType !== B4_PLAN_ACTIVITY_TYPE) return state
-      const todos = readTodos(content)
+      const todos = readPlan(content)
       if (todos === undefined) return state
       const at = now()
       return withTurns(
@@ -551,34 +640,46 @@ export function reduceTurns(
       const at = now()
       return withTurns(
         state,
+        updateOwner(state.turns, owner, (turn) => openReasoning(turn, messageId, at)),
+      )
+    }
+    case EventType.REASONING_MESSAGE_START: {
+      // A message inside an open span streams into that span; a message no
+      // span framed (another producer's shape) is a span of its own.
+      const { messageId } = event as ReasoningMessageStartEvent
+      const at = now()
+      return withTurns(
+        state,
         updateOwner(state.turns, owner, (turn) => {
-          const reasoning: ReasoningStep = {
-            kind: "reasoning",
-            id: messageId,
-            text: "",
-            status: "streaming",
-            startedAt: at,
-          }
-          return { ...turn, steps: [...turn.steps, reasoning] }
+          if (turn.steps.some((s) => s.kind === "reasoning" && s.id === messageId)) return turn
+          const span = newestOpenReasoning(turn)
+          if (span === undefined) return openReasoning(turn, messageId, at)
+          return mapReasoning(
+            turn,
+            (s) => s === span,
+            (s) => (s.messageId === messageId ? s : { ...s, messageId }),
+          )
         }),
       )
     }
     case EventType.REASONING_MESSAGE_CONTENT: {
-      const { delta } = event as ReasoningMessageContentEvent
+      const { messageId, delta } = event as ReasoningMessageContentEvent
+      if (delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) => {
-          // Content belongs to the newest open reasoning span of this owner.
-          for (let index = turn.steps.length - 1; index >= 0; index--) {
-            const s = turn.steps[index]
-            if (s?.kind === "reasoning" && s.status === "streaming") {
-              return {
-                ...turn,
-                steps: replaceAt(turn.steps, index, { ...s, text: s.text + delta }),
-              }
-            }
-          }
-          return turn
+          // Content belongs to the span (or message) with its id; only an
+          // unknown id falls back on this owner's newest open span.
+          const known = turn.steps.some(
+            (s) => s.kind === "reasoning" && (s.id === messageId || s.messageId === messageId),
+          )
+          const target = known ? undefined : newestOpenReasoning(turn)
+          if (!known && target === undefined) return turn
+          return mapReasoning(
+            turn,
+            (s) => (known ? s.id === messageId || s.messageId === messageId : s === target),
+            (s) => ({ ...s, text: s.text + delta }),
+          )
         }),
       )
     }
@@ -587,18 +688,29 @@ export function reduceTurns(
       const at = now()
       return withTurns(
         state,
-        updateOwner(state.turns, owner, (turn) => ({
-          ...turn,
-          steps: turn.steps.map((s) =>
-            s.kind === "reasoning" && s.id === messageId && s.status === "streaming"
-              ? { ...s, status: "done", settledAt: at }
-              : s,
+        updateOwner(state.turns, owner, (turn) =>
+          mapReasoning(
+            turn,
+            (s) => s.status === "streaming" && (s.id === messageId || s.messageId === messageId),
+            (s) => ({ ...s, status: "done", settledAt: at }),
           ),
-        })),
+        ),
+      )
+    }
+    case EventType.TEXT_MESSAGE_START: {
+      // A new message after an earlier one starts on its own line; the
+      // translator opens a new message at each tool call, so this is the
+      // break a step put in the prose.
+      return withTurns(
+        state,
+        updateOwner(state.turns, owner, (turn) =>
+          turn.text === "" || turn.text.endsWith("\n") ? turn : { ...turn, text: `${turn.text}\n` },
+        ),
       )
     }
     case EventType.TEXT_MESSAGE_CONTENT: {
       const { delta } = event as TextMessageContentEvent
+      if (delta === "") return state
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) => ({ ...turn, text: turn.text + delta })),
@@ -609,32 +721,60 @@ export function reduceTurns(
   }
 }
 
+function openReasoning(turn: TurnView, id: string, at: number): TurnView {
+  if (turn.steps.some((s) => s.kind === "reasoning" && s.id === id)) return turn
+  const reasoning: ReasoningStep = {
+    kind: "reasoning",
+    id,
+    text: "",
+    status: "streaming",
+    startedAt: at,
+  }
+  return { ...turn, steps: [...turn.steps, reasoning] }
+}
+
 /**
  * Merge a `b4.step` into its tool step. `running` only lifts a pending step;
  * `completed` settles it (the result, before or after, keeps that time);
  * `failed` wins over everything. Labels, icons and sources always take the
  * newest value, whatever the status. A step for a call this turn never saw
- * framed (e.g. frames suppressed upstream) has nothing to annotate.
+ * framed (e.g. frames suppressed upstream) has nothing to annotate. A step
+ * that changes nothing keeps the tool step's identity.
  */
 function applyStep(turn: TurnView, step: B4StepEventValue, at: number): TurnView {
-  const patch = {
-    ...(step.icon !== undefined ? { icon: step.icon } : {}),
-    ...(step.label !== undefined ? { label: step.label } : {}),
-    ...(step.sources !== undefined ? { sources: step.sources } : {}),
-  }
   const next = mapStep(turn, step.toolCallId, (s) => {
-    switch (step.status) {
-      case "running":
-        return { ...s, ...patch, status: s.status === "pending" ? "running" : s.status }
-      case "completed":
-        return s.status === "failed"
-          ? { ...s, ...patch }
-          : { ...s, ...patch, status: "done", settledAt: s.settledAt ?? at }
-      case "failed":
-        return { ...s, ...patch, status: "failed", settledAt: s.settledAt ?? at }
+    const status: StepStatus =
+      step.status === "failed"
+        ? "failed"
+        : step.status === "completed"
+          ? s.status === "failed"
+            ? s.status
+            : "done"
+          : s.status === "pending"
+            ? "running"
+            : s.status
+    const settles = status === "done" || status === "failed"
+    const patched: ToolStep = {
+      ...s,
+      ...(step.icon !== undefined ? { icon: step.icon } : {}),
+      ...(step.label !== undefined ? { label: step.label } : {}),
+      ...(step.sources !== undefined ? { sources: step.sources } : {}),
+      status,
+      ...(settles ? { settledAt: s.settledAt ?? at } : {}),
     }
+    return sameToolStep(s, patched) ? s : patched
   })
   return step.status === "failed" ? withFailedCount(next) : next
+}
+
+function sameToolStep(a: ToolStep, b: ToolStep): boolean {
+  return (
+    a.status === b.status &&
+    a.settledAt === b.settledAt &&
+    a.icon === b.icon &&
+    a.label === b.label &&
+    a.sources === b.sources
+  )
 }
 
 /** Put an interrupt on the step it names (pausing the subagents above it), or on the turn. */
