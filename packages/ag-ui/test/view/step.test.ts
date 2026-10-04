@@ -27,4 +27,15 @@ describe("readStepEvent", () => {
   it("rejects an unknown status", () => {
     expect(readStepEvent(custom("b4.step", { toolCallId: "t1", status: "weird" }))).toBeUndefined()
   })
+
+  it("drops invalid optional fields", () => {
+    const base = { toolCallId: "t1", status: "completed" }
+    expect(readStepEvent(custom("b4.step", { ...base, label: 42 }))).toEqual(base)
+    expect(readStepEvent(custom("b4.step", { ...base, icon: "sparkle" }))).toEqual(base)
+    expect(
+      readStepEvent(
+        custom("b4.step", { ...base, sources: [{ title: "" }, { title: "a.md", href: 1 }, "x"] }),
+      ),
+    ).toEqual({ ...base, sources: [{ title: "a.md" }] })
+  })
 })

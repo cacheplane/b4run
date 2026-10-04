@@ -4,6 +4,7 @@ import * as view from "../../src/view/index.ts"
 it("exports the framework-free view surface", () => {
   expect(Object.keys(view).sort()).toEqual([
     "B4_STEP_EVENT_NAME",
+    "B4_STEP_STATUSES",
     "BUILT_IN_GROUP_LABELS",
     "EMPTY_SUBAGENT_RUNS",
     "EMPTY_TURNS",
