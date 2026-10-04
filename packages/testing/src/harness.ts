@@ -15,7 +15,7 @@ import {
 } from "@b4run/cli/runtime"
 import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
-import type { B4ToolContext } from "@b4run/sdk"
+import type { B4ContentPart, B4ToolContext } from "@b4run/sdk"
 import { type Aimock, createAimock } from "./aimock-runner.js"
 import type { FixtureSet, ScriptBuilder } from "./fixture-builder.js"
 import { recordingsToFixtures } from "./record-fixtures.js"
@@ -49,7 +49,7 @@ function systemPromptFromRequests(
 export interface AgentHarnessRunInfo {
   readonly threadId: string
   /** The user message for `run()`; absent for `resume()`. */
-  readonly input?: string
+  readonly input?: string | readonly B4ContentPart[]
   /** The interrupt resolutions for `resume()`; absent for `run()`. */
   readonly resume?: readonly B4ResumeEntry[]
 }
@@ -111,7 +111,10 @@ async function resolveMiddlewareContext(
 
 export interface AgentHarness {
   readonly baseUrl: string
-  run(opts: { input: string; fixtures?: FixtureSet | ScriptBuilder }): Promise<AgentRunResult>
+  run(opts: {
+    input: string | readonly B4ContentPart[]
+    fixtures?: FixtureSet | ScriptBuilder
+  }): Promise<AgentRunResult>
   resume(opts: {
     resume: readonly B4ResumeEntry[]
     fixtures?: FixtureSet | ScriptBuilder
@@ -206,7 +209,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
   /** Core drive helper — runs a single turn and merges systemPrompt. */
   async function drive(driveOpts: {
     fixtures?: FixtureSet | ScriptBuilder
-    input?: string
+    input?: string | readonly B4ContentPart[]
     resume?: readonly B4ResumeEntry[]
   }): Promise<AgentRunResult> {
     // In live and record modes, fixtures are proxied to the upstream — skip registration.

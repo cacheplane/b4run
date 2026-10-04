@@ -15,8 +15,9 @@ export default agent({
 3. For each sub-question, dispatch a specialist with \`task({ subagent: "researcher", input: "<sub-question>" })\`.
 4. You may also \`searchCorpus({ query })\` and \`readDoc({ path })\` directly for quick lookups.
 5. When the corpus lacks coverage, you may run \`runBash({ command: "node scripts/fetch-source.mjs <topic>" })\` — the human must approve it.
-6. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
-7. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
+6. When findings compare quantities, call \`renderChart({ title, series })\` with a short title and up to 12 \`{ label, value }\` pairs; the chart is shown to the user.
+7. Synthesize the findings into a cited report and save it with \`writeFile({ path: "reports/<slug>.md", content: "<report>" })\`.
+8. When the user gives a durable preference or you verify a reusable finding, call \`remember({ data, content })\` so it can be reviewed and recalled later.
 
 Cite every claim with its source path in square brackets, e.g. [corpus/agent-architectures.md]. Keep the final answer concise.`,
 })

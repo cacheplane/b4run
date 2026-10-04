@@ -56,6 +56,41 @@ it("searches the corpus and writes a cited answer", async () => {
   expectFinalMessage(run).toContain("[corpus/")
 }, 60_000)
 
+it("renders a chart whose image reaches the UI while the model sees its summary", async () => {
+  h.reset()
+  const series = [
+    { label: "A", value: 3 },
+    { label: "B", value: 1 },
+  ]
+  const run = await h.run({
+    input: "Compare mentions of A and B",
+    fixtures: script()
+      .user("Compare mentions of A and B")
+      .callsTool("renderChart", { title: "Mentions", series })
+      .replies("Here is the chart."),
+  })
+  expectToolCalled(run, "renderChart")
+  const summary = 'Chart "Mentions": A 3, B 1.'
+  // `toolResults[].content` is the model-facing ToolMessage content: gpt-5-mini
+  // takes no image in a tool message, so only the summary reaches the model.
+  expect(run.toolResults.find((t) => t.name === "renderChart")?.content).toBe(summary)
+  // The full parts ride on the ToolMessage's `additional_kwargs.b4_content_parts`
+  // for the UI (read off a live or a serialized message).
+  type KeptParts = { name?: unknown; additional_kwargs?: { b4_content_parts?: unknown } }
+  const toolMessage = run.messages
+    .map((m) => (m.kwargs ?? m) as KeptParts)
+    .find((m) => m.name === "renderChart")
+  const parts = toolMessage?.additional_kwargs?.b4_content_parts
+  expect(parts).toEqual([
+    { type: "text", text: summary },
+    {
+      type: "image",
+      source: { type: "data", value: expect.any(String), mimeType: "image/svg+xml" },
+    },
+  ])
+  expectFinalMessage(run).toContain("chart")
+}, 60_000)
+
 it("recalls seeded durable research preferences", async () => {
   h.reset()
   await seedMemory({ path: memoryDb }, [

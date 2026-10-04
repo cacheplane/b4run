@@ -11,6 +11,7 @@ declare module "b4:routes" {
   export interface B4RouteTools {
     "/research": {
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
+      readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
       readonly searchCorpus: (input: Parameters<typeof import("../src/tools/searchCorpus.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/searchCorpus.js").default>>>;
       readonly writeTodos: (input: { todos: ReadonlyArray<{ content: string; status: "pending" | "in_progress" | "completed" }> }) => Promise<{ todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }>;
       readonly readSkill: (input: { name: string }) => Promise<string>;
@@ -25,6 +26,7 @@ declare module "b4:routes" {
     };
     "/research/subagents/researcher": {
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
+      readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
       readonly searchCorpus: (input: Parameters<typeof import("../src/tools/searchCorpus.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/searchCorpus.js").default>>>;
       readonly readFile: (input: { path: string; startLine?: number | null; endLine?: number | null }) => Promise<string>;
       readonly writeFile: (input: { path: string; content: string }) => Promise<string>;

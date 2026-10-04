@@ -413,6 +413,9 @@ importers:
       '@b4run/ag-ui':
         specifier: workspace:*
         version: link:../../../packages/ag-ui
+      '@b4run/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
       '@copilotkit/react-core':
         specifier: 1.76.0
         version: 1.76.0(@cfworker/json-schema@4.1.1)(@types/mdast@4.0.4)(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(graphql@16.14.2)(micromark-util-types@2.0.2)(micromark@4.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.6.5)

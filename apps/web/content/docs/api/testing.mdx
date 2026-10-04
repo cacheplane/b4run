@@ -122,7 +122,10 @@ export interface AgentHarnessOptions {
 ```ts api-contract="@b4run/testing#.:AgentHarness"
 export interface AgentHarness {
   readonly baseUrl: string
-  run(opts: { input: string; fixtures?: FixtureSet | ScriptBuilder }): Promise<AgentRunResult>
+  run(opts: {
+    input: string | readonly B4ContentPart[]
+    fixtures?: FixtureSet | ScriptBuilder
+  }): Promise<AgentRunResult>
   resume(opts: {
     resume: readonly B4ResumeEntry[]
     fixtures?: FixtureSet | ScriptBuilder
@@ -214,6 +217,8 @@ The default is 64 dimensions.
 AgentHarness reset starts a fresh scenario and clears prior fixtures; close is idempotent and async disposal delegates to it.
 
 ### Harness and fixture lifecycle
+
+`run({ input })` sends one user message: a string, or a list of content parts (`B4ContentPart[]` from `@b4run/sdk`) for a turn that carries an image or other media.
 
 Fixtures accumulate until `reset()`, and the first match wins. `reset()` starts a new harness thread and replaces fixtures, but it does not erase every application store. Live and record are separate modes. `getRecordedFixtures()` returns only the latest run. The standalone `record()` helper spawns the aimock CLI and is not harness record mode.
 
