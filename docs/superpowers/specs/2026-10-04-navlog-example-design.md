@@ -43,8 +43,8 @@ In scope:
   phone layout.
 - Deployment: Railway service, Vercel project, Postgres stores, token guard,
   proxy guards, spend controls.
-- One framework change: `@b4run/cli` exports the runtime request listener so
-  an application entry point can wrap it.
+- One framework change: `serve()` in `@b4run/cli` gains a `guard` option so an
+  application entry point can authenticate the whole service.
 - Docs: two recipe pages rewritten and moved; touched pages updated.
 
 Out of scope for this series: IFR planning, weight and balance, non-standard
