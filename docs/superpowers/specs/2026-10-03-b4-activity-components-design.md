@@ -84,7 +84,7 @@ and renders the DOM contract in §5.6.
 | `StepGroup` | Consecutive calls of the same tool, merged: "Searched the corpus 2 times". Opens to the individual steps. | same as `Step`, worst state wins |
 | `StepDetail` | The step's **Inputs** and **Output** (pretty JSON or text), capped at 250px with scroll. | — |
 | `PlanStep` | "Made a plan · 2 of 4 done" with an SVG checklist. Updates in place. | running only while the run is active; settles when it ends |
-| `ReasoningStep` | "Thinking…", "Thought for 4s", "Thought for 9s · 3 steps", "Show reasoning" (no duration), "3 steps" (no step timing). Opens to the reasoning text. | streaming · done · encrypted (not openable) |
+| `ReasoningStep` | "Thinking…", "Thought for 4s", "Show reasoning" (no duration). Opens to the reasoning text. | streaming · done · encrypted (not openable) |
 | `SubagentStep` | "Asked researcher to <task description>" with the child's own `TurnActivity` nested in a soft grey block. Folds to "researcher finished · 5 steps". Replaces the `task` tool call that started it. | running · paused · done · failed |
 | `ApprovalCard` | "<agent> wants to <label>", the reason, the payload, buttons, the scope line. | awaiting · deciding · failed-to-send |
 | `SourceChips` | File or URL chips from a step's `sources`, "+N" overflow. | — |
@@ -96,8 +96,9 @@ Building blocks also exported for custom steps: `Disclosure`, `StepIcon`,
 ### 3.1 Behavior rules
 
 - **Open and closed.** `TurnActivity` is open while working or awaiting, and
-  folds when the turn settles. Steps start closed. A failed step opens
-  itself. A manual toggle wins until that item becomes live again. Restored
+  folds when the turn settles. Tool steps start closed; the plan, a
+  streaming reasoning span and a running subagent are open while live. A
+  failed step opens itself. A manual toggle wins until that item becomes live again. Restored
   turns start folded. Nothing closes while the user has it open to read
   (reasoning in particular).
 - **Summary line.** While working it shows the active step's running label;
@@ -249,7 +250,9 @@ white and fails 4.5:1 for small text. `#16a34a` stays acceptable for icons
 
 Dark follows the host, not the OS: `.dark` or `[data-theme="dark"]` on an
 ancestor. `data-b4-theme="light" | "dark" | "auto"` overrides, and `auto`
-follows `prefers-color-scheme`. Fixes the failure where an OS in dark mode
+follows `prefers-color-scheme`. The attribute goes on the root element
+(`:root`) or, for `.dark`/`[data-theme="dark"]`, on the element that carries
+that class or attribute. Fixes the failure where an OS in dark mode
 painted near-white text on a light chat.
 
 ### 5.4 Motion
@@ -277,15 +280,21 @@ Both frameworks render the same classes and attributes; the stylesheet and
 the tests target only these:
 
 ```
-.b4-turn[data-state=working|awaiting|done|failed|stopped][data-expanded]
-  button.b4-turn__summary[aria-expanded]
+section.b4-turn[data-state=working|awaiting|done|failed|stopped][data-expanded]
+  button.b4-turn__summary[aria-expanded] > .b4-chevron .b4-turn__text[data-live] .b4-turn__time
   ol.b4-turn__steps
     li.b4-step[data-state=pending|running|done|failed|awaiting][data-kind=tool|plan|reasoning|subagent|group]
-      button.b4-step__line[aria-expanded]  > .b4-step__icon .b4-step__text .b4-step__meta
-      .b4-step__detail | .b4-step__children | .b4-step__sources
+      button.b4-step__line[aria-expanded]  > .b4-step__icon .b4-step__text .b4-step__meta .b4-chevron
+      span.b4-step__line.b4-step__line--static   (encrypted reasoning; not a button)
+      .b4-step__detail > .b4-step__detail-label  .b4-step__code | .b4-step__detail-empty
+      .b4-step__reasoning | .b4-step__children | .b4-step__sources
+        .b4-chip  .b4-chip--more
+      .b4-checklist > .b4-checklist__item[data-status] > .b4-checklist__box .b4-checklist__text
 .b4-approval[data-state=awaiting|deciding|failed]
   .b4-approval__title .b4-approval__reason .b4-approval__payload
-  .b4-approval__actions > button×3   .b4-approval__scope
+  .b4-approval__actions > .b4-approval__button--primary .b4-approval__button--secondary .b4-approval__button--text
+  .b4-approval__scope  .b4-approval__error
+.b4-visually-hidden[role=status]
 ```
 
 The stylesheet ships as `@b4run/ag-ui/react/styles.css` and is shared by the
@@ -330,10 +339,13 @@ whether live, replayed or restored. It owns:
 
 ### 6.2 CopilotKit (React) connector
 
-- `<B4Activity agent={agent} labels? hiddenTools? renderStep? />` registers
-  the plan activity renderer, a wildcard tool renderer, and `useInterrupt`
-  (in-chat by default; `renderInChat={false}` returns the cards for a host
-  with its own transcript).
+- `<B4Activity agentId? labels? hiddenTools? renderStep? renderInChat? />`
+  hides CopilotKit's generic tool rows with a wildcard `useRenderTool`,
+  registers `useInterrupt` (in-chat by default; `renderInChat={false}`
+  renders the cards after its children for a host with its own transcript),
+  and provides the turns to `useB4ChatSlots`. It does not register the plan
+  activity renderer: the plan renders as `PlanStep` inside `TurnActivity`,
+  and registering it would show the plan twice.
 - `useB4ChatSlots()` returns props spread onto `<CopilotChat>`:
   - `messageView.transformMessages` merges a turn's consecutive
     tool-call-only assistant messages into one, so one `TurnActivity`
@@ -426,3 +438,9 @@ group).
 - Editing the plan before a run starts.
 - Grouping steps by plan item (direction C's timeline).
 - assistant-ui connector code (§6.4 is design only).
+- Reasoning step counts ("Thought for 9s · 3 steps", "3 steps"): they need a
+  per-span step count the view does not carry.
+- The decided-call suffix ("· allowed once", "· always allowed", "· denied")
+  on the gated step's sentence: the reducer clears the approval on resume;
+  the connector that sent the decision will annotate the step in
+  sub-project 2b.

@@ -21,6 +21,10 @@ function B4ToolCallsView({
   ) : null
 }
 
+// An assistant message carrying both text and tool calls is not merged by
+// `mergeTurnMessages` and would render a second `TurnActivity` under its text.
+// B4's translator never sets `parentMessageId`, so CopilotKit always emits
+// separate tool-only rows and the case does not arise.
 const hasText = (content: unknown): boolean =>
   (typeof content === "string" && content.trim() !== "") ||
   (Array.isArray(content) &&

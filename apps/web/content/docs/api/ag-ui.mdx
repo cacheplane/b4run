@@ -144,7 +144,7 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `TurnActivityProps` | Props for `TurnActivity`: the turn, label overrides, step renderers, the clock, and whether it is a subagent's turn. |
 | `Step` | One tool call as a sentence with its icon and meta; opens to `StepDetail`. |
 | `StepProps` | Props for `Step`: the tool step, label overrides, step renderers and the clock. |
-| `StepRenderer` | A per-tool replacement for a step's row, given the `ToolStep`. |
+| `StepRenderer` | A per-tool replacement for a step's detail panel (the `StepDetail` it opens to), given the `ToolStep`; the sentence line stays. |
 | `StepRenderers` | Step renderers keyed by tool name. |
 | `StepGroup` | Consecutive done calls of one tool, merged; opens to the individual steps. |
 | `StepGroupProps` | Props for `StepGroup`: the group, label overrides, step renderers and the clock. |
@@ -203,13 +203,13 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 | Export | Responsibility |
 |---|---|
 | `B4Activity` | Provider around your chat: hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt (in the chat by default; `renderInChat={false}` renders them after its children for a host with its own transcript), and keeps the thread's turns current from the agent's events. Supports `approvals.grants: "off"` today. |
-| `B4ActivityProps` | Props for `B4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep`, the clock and children. |
+| `B4ActivityProps` | Props for `B4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep`, `renderInChat`, the clock and children. |
 | `useB4ChatSlots` | Props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows. |
 | `B4ChatSlots` | The `messageView` slots `useB4ChatSlots` returns: `transformMessages` and `assistantMessage`. |
-| `useB4Turns` | The agent's thread as turns (`reduceTurns`), plus `markResuming()` to call before sending a resume. |
+| `useB4Turns` | The agent's thread as turns (`reduceTurns`), plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed. |
 | `UseB4TurnsOptions` | Options for `useB4Turns`: the clock and the tools whose frames the view drops. |
-| `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView` and `markResuming`. |
-| `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, subagent messages dropped. |
+| `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView`, `markResuming` and `clearResuming`. |
+| `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
 | `b4ActivityRenderers` | CopilotKit `renderActivityMessages` for hosts not using `B4Activity`: the legacy plan card. Moved here from `./react`. |
 | `b4PlanActivityRenderer` | The plan renderer alone. Moved here from `./react`. |
 

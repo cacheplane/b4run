@@ -113,7 +113,7 @@ export default function Page() {
 
 - `B4Activity` wraps your chat: it hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt, and keeps the thread's turns current from the agent's events; `labels`, `hiddenTools` and `renderStep` reword, hide or re-render steps per tool.
 - `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows.
-- `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume, for a host with its own transcript.
+- `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed, for a host with its own transcript.
 
 `b4ActivityRenderers` and `b4PlanActivityRenderer` moved here from `./react`.
 
@@ -169,19 +169,22 @@ import "@b4run/ag-ui/react/styles.css"
 
 Palette tokens are the one case worth care. Your `:root` block now wins in dark
 mode too, so a single hard-coded colour applies to BOTH themes — pick values
-that work in each, or scope them the way the sheet does:
+that work in each, or scope them the way the sheet does, on the host's dark
+selectors:
 
 ```css
 :root {
   --b4-activity-running: #6d28d9;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-b4-theme="light"]) {
-    --b4-activity-running: #a78bfa;
-  }
+.dark,
+[data-theme="dark"],
+:root[data-b4-theme="dark"] {
+  --b4-activity-running: #a78bfa;
 }
 ```
+
+Dark does not follow the OS unless the root carries `data-b4-theme="auto"`; add a `prefers-color-scheme` block only if you set that.
 
 The design tokens are `--b4-activity-` plus `surface`, `surface-alt`, `border`, `text`, `muted`, `running`, `running-bg`, `complete`, `failed`, `failed-bg`, `primary`, `on-primary`, `radius`, `radius-card`, `radius-pill`, and `font-mono`; the legacy geometry tokens `gap`, `font-size`, `margin`, `padding`, `header-weight` and `badge-bg` remain until the legacy cards go. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette until you point it elsewhere — `transparent`, plus a border through `classNames.badge`, gives an outline chip.
 

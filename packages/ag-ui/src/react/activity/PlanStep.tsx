@@ -51,7 +51,7 @@ export function Checklist({
                 <path
                   d="m3.5 7.2 2.3 2.3 4.7-5"
                   fill="none"
-                  stroke="var(--b4-activity-on-primary)"
+                  stroke="var(--b4-activity-on-primary, #fff)"
                   strokeWidth="1.6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
