@@ -262,9 +262,10 @@ secret, else 401 before the runtime sees it. The Dockerfile command runs the
 compiled entry. Locally, without `DATABASE_URL`, the example keeps its SQLite
 defaults through `b4 dev`.
 
-This needs one framework change (PR 1): `@b4run/cli` exports the runtime
-request listener (today internal to `serve()`), so an entry point can wrap it.
-`serve()` itself is unchanged. The embedding docs page gains one paragraph.
+This needs one framework change (PR 1): `serve()` in `@b4run/cli` gains a
+`guard` option that runs ahead of every request and may answer it, so an entry
+point authenticates the whole service without re-implementing `serve()`'s
+shutdown. The embedding docs page gains one paragraph.
 
 `src/auth.ts` and `src/thread-access.ts` are activated from their `.example`
 files: the principal is the visitor id the proxy forwards, so one visitor
@@ -336,11 +337,12 @@ PR. No CI deploy lane in this series.
 
 Each PR is green on its own.
 
-1. **CLI listener export.** The seam from 6.2, its test, one embedding doc
+1. **`serve()` guard.** The seam from 6.2, its tests, one embedding doc
    paragraph, changeset.
 2. **Mechanical rename.** `research` to `navlog` across example, template,
-   package names, template id and alias, docs slugs and the eight pinned
-   places. No content change beyond names.
+   package names, template id and alias, and every literal identifier in docs;
+   recipe slugs and the eight pinned places move with the content in PR 6. No
+   content change beyond names.
 3. **Server retheme.** Sections 4 and 7 server parts, template mirror.
 4. **Web retheme.** Section 5 and its tests, template mirror.
 5. **Deployment.** Section 6: `main.ts`, proxy guards, `railway.json`, Vercel
