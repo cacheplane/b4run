@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { z } from "zod"
-import { createMemoryMarker } from "../../src/capabilities/built-in/memory.js"
+import { createMemoryMarker, MEMORY_DISPLAY } from "../../src/capabilities/built-in/memory.js"
 
 function fakeStore() {
   const rows: any[] = []
@@ -123,6 +123,7 @@ describe("memory capability", () => {
     const store = fakeStore()
     const c = await createMemoryMarker().load("/r", baseCtx(store))
     const remember = c.tools!.find((t) => t.name === "remember")!
+    expect(remember.display).toBe(MEMORY_DISPLAY.remember)
     await remember.run(
       { data: { subject: "billing", predicate: "escalate", value: "500" }, content: "esc" },
       { signal: new AbortController().signal },
@@ -163,6 +164,7 @@ describe("memory capability", () => {
     })
     const c = await createMemoryMarker().load("/r", baseCtx(store))
     const recall = c.tools!.find((t) => t.name === "recall")!
+    expect(recall.display).toBe(MEMORY_DISPLAY.recall)
     const out = (await recall.run({ query: "x" }, { signal: new AbortController().signal })) as {
       result: string
     }

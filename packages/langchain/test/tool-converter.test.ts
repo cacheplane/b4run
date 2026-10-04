@@ -2,7 +2,7 @@ import type { StreamTransformerInput } from "@b4run/core"
 import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
 import { type Command, GraphInterrupt, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
-import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
+import { B4_STEP_KEY, convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
 
 const dispatchCustomEvent = vi.hoisted(() => vi.fn())
 
@@ -849,5 +849,116 @@ describe("convertToolToLangChain — the tool-call record", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  test("dispatches a running step before the body and a completed step after it, with labels", async () => {
+    const order: string[] = []
+    dispatchCustomEvent.mockImplementation(async (name: string, payload: unknown) => {
+      order.push(
+        `${name}:${(payload as { status?: string }).status ?? (payload as { event?: string }).event}`,
+      )
+    })
+    const converted = convertToolToLangChain({
+      name: "searchCorpus",
+      display: {
+        icon: "search",
+        running: (input: { query: string }) => `Searching the corpus for “${input.query}”`,
+        done: (input: { query: string }, output: { path: string }[]) =>
+          `Searched the corpus for “${input.query}” (${output.length} hits)`,
+        sources: (output: { path: string }[]) => output.map((hit) => ({ title: hit.path })),
+      },
+      run: async () => {
+        order.push("run")
+        return [{ path: "corpus/a.md" }]
+      },
+    })
+    const config = { configurable: {}, toolCall: { id: "call_search_1" } }
+    await converted.func({ query: "agents" }, undefined, config)
+    expect(order).toEqual(["b4.step:running", "run", "b4.step:completed"])
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      "b4.step",
+      {
+        tool_call_id: "call_search_1",
+        status: "running",
+        icon: "search",
+        label: "Searching the corpus for “agents”",
+      },
+      expect.anything(),
+    )
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      "b4.step",
+      {
+        tool_call_id: "call_search_1",
+        status: "completed",
+        icon: "search",
+        label: "Searched the corpus for “agents” (1 hits)",
+        sources: [{ title: "corpus/a.md" }],
+      },
+      expect.anything(),
+    )
+  })
+
+  test("a tool without display dispatches no step and returns what it did before", async () => {
+    const converted = convertToolToLangChain({ name: "plain", run: async () => "ok" })
+    const result = await converted.func({}, undefined, {
+      configurable: {},
+      toolCall: { id: "c1" },
+    } as never)
+    expect(result).toBe('"ok"')
+    expect(dispatchCustomEvent).not.toHaveBeenCalled()
+  })
+
+  test("a tool with display returns a ToolMessage carrying the step in additional_kwargs", async () => {
+    const converted = convertToolToLangChain({
+      name: "readDoc",
+      display: { icon: "read", done: (input: { path: string }) => `Read ${input.path}` },
+      run: async () => ({ content: "# Title" }),
+    })
+    const result = (await converted.func({ path: "corpus/a.md" }, undefined, {
+      configurable: {},
+      toolCall: { id: "call_read_1" },
+    } as never)) as {
+      content: unknown
+      tool_call_id: string
+      additional_kwargs: Record<string, unknown>
+    }
+    expect(result.content).toBe('{"content":"# Title"}')
+    expect(result.tool_call_id).toBe("call_read_1")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      icon: "read",
+      label: "Read corpus/a.md",
+    })
+  })
+
+  test("a {result, state} tool with display keeps the Command and annotates its ToolMessage", async () => {
+    const converted = convertToolToLangChain({
+      name: "savePlan",
+      display: { icon: "plan", done: () => "Updated the plan" },
+      run: async () => ({ result: "saved", state: { todos: [] } }),
+    })
+    const result = await converted.func({}, undefined, {
+      configurable: {},
+      toolCall: { id: "call_plan_1" },
+    } as never)
+    expect(isCommand(result)).toBe(true)
+    const update = (result as Command).update as {
+      messages: { additional_kwargs: Record<string, unknown> }[]
+    }
+    expect(update.messages[0]?.additional_kwargs[B4_STEP_KEY]).toEqual({
+      icon: "plan",
+      label: "Updated the plan",
+    })
+  })
+
+  test("without a provider tool-call id no step is dispatched (nothing to attach it to)", async () => {
+    const converted = convertToolToLangChain({
+      name: "searchCorpus",
+      display: { running: () => "Searching" },
+      run: async () => "ok",
+    })
+    await converted.func({}, undefined, { configurable: {} })
+    expect(dispatchCustomEvent).not.toHaveBeenCalled()
   })
 })

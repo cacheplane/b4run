@@ -49,7 +49,7 @@ describe("createOrchestrationLedger", () => {
     const callFrames = frames("call_a", "searchCorpus")
     expect(ledger.onToolCall("call_a", "searchCorpus", callFrames)).toEqual(callFrames)
     const toolResult = result("call_a")
-    expect(ledger.onToolResult("call_a", "searchCorpus", toolResult)).toEqual([toolResult])
+    expect(ledger.onToolResult("call_a", "searchCorpus", [toolResult])).toEqual([toolResult])
   })
 
   test("holds a writeTodos call until its plan activity commits suppression", () => {
@@ -59,7 +59,7 @@ describe("createOrchestrationLedger", () => {
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
-    expect(ledger.onToolResult("call_w", "writeTodos", result("call_w"))).toEqual([])
+    expect(ledger.onToolResult("call_w", "writeTodos", [result("call_w")])).toEqual([])
   })
 
   test("falls back when the result arrives with no correlation", () => {
@@ -67,7 +67,7 @@ describe("createOrchestrationLedger", () => {
     const callFrames = frames("call_t", "writeTodos")
     expect(ledger.onToolCall("call_t", "writeTodos", callFrames)).toEqual([])
     const toolResult = result("call_t")
-    expect(ledger.onToolResult("call_t", "writeTodos", toolResult)).toEqual([
+    expect(ledger.onToolResult("call_t", "writeTodos", [toolResult])).toEqual([
       ...callFrames,
       toolResult,
     ])
@@ -99,7 +99,7 @@ describe("createOrchestrationLedger", () => {
       [],
     )
     const toolResult = result("call_w")
-    expect(ledger.onToolResult("call_w", "writeTodos", toolResult)).toEqual([
+    expect(ledger.onToolResult("call_w", "writeTodos", [toolResult])).toEqual([
       ...callFrames,
       planActivity,
       toolResult,
@@ -111,7 +111,7 @@ describe("createOrchestrationLedger", () => {
     const callFrames = frames("call_w", "writeTodos")
     expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
     const toolResult = result("call_w")
-    expect(ledger.onToolResult("call_w", "somethingElse", toolResult)).toEqual([])
+    expect(ledger.onToolResult("call_w", "somethingElse", [toolResult])).toEqual([])
     expect(ledger.settle()).toEqual([...callFrames, toolResult])
   })
 
@@ -122,9 +122,9 @@ describe("createOrchestrationLedger", () => {
     expect(
       ledger.onActivity(planActivity, { toolCallId: "call_w", toolName: "writeTodos" }),
     ).toEqual([planActivity])
-    expect(ledger.onToolResult("call_w", "writeTodos", result("call_w"))).toEqual([])
+    expect(ledger.onToolResult("call_w", "writeTodos", [result("call_w")])).toEqual([])
     const second = result("call_w", "again")
-    expect(ledger.onToolResult("call_w", "writeTodos", second)).toEqual([second])
+    expect(ledger.onToolResult("call_w", "writeTodos", [second])).toEqual([second])
   })
 
   test("parallel candidates drain only a resolved prefix", () => {
@@ -194,7 +194,7 @@ describe("createOrchestrationLedger", () => {
     const duplicate = frames("call_w", "writeTodos", '{"second":true}')
     expect(ledger.onToolCall("call_w", "writeTodos", duplicate)).toEqual(duplicate)
     const toolResult = result("call_w")
-    expect(ledger.onToolResult("call_w", "writeTodos", toolResult)).toEqual([toolResult])
+    expect(ledger.onToolResult("call_w", "writeTodos", [toolResult])).toEqual([toolResult])
   })
 
   test("exceeds MAX_TRACKED_CALLS", () => {
@@ -262,7 +262,7 @@ describe("createOrchestrationLedger", () => {
     const big = text("y".repeat(MAX_RETAINED_CHARS + 1))
     expect(ledger.onPassthrough(big)).toEqual([...heldFrames, big])
     // The suppressed id is still remembered, so its result is still dropped.
-    expect(ledger.onToolResult("call_w1", "writeTodos", result("call_w1"))).toEqual([])
+    expect(ledger.onToolResult("call_w1", "writeTodos", [result("call_w1")])).toEqual([])
     const after = frames("call_after", "writeTodos")
     expect(ledger.onToolCall("call_after", "writeTodos", after)).toEqual(after)
   })
@@ -277,7 +277,7 @@ describe("createOrchestrationLedger", () => {
       expect(ledger.onActivity(planActivity, { toolCallId: id, toolName: "writeTodos" })).toEqual([
         planActivity,
       ])
-      expect(ledger.onToolResult(id, "writeTodos", result(id))).toEqual([])
+      expect(ledger.onToolResult(id, "writeTodos", [result(id)])).toEqual([])
     }
     // A third candidate must now see a pristine budget: exactly
     // MAX_DEFERRED_EVENTS held events are still held, and one more trips.
@@ -302,7 +302,7 @@ describe("createOrchestrationLedger", () => {
     const second = frames("", "writeTodos", '{"second":true}')
     expect(ledger.onToolCall("", "writeTodos", second)).toEqual(second)
     const toolResult = result("")
-    expect(ledger.onToolResult("", "writeTodos", toolResult)).toEqual([toolResult])
+    expect(ledger.onToolResult("", "writeTodos", [toolResult])).toEqual([toolResult])
     // Suppression is still available to a properly identified call.
     expect(ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))).toEqual([])
   })
@@ -316,5 +316,39 @@ describe("createOrchestrationLedger", () => {
     expect(ledger.settle()).toEqual([...callFrames, between])
     expect(ledger.settle()).toEqual([])
     expect(ledger.settle("call_w")).toEqual([])
+  })
+  describe("onToolStep", () => {
+    const step = (id: string): AguiOutboundEvent => ({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: id, status: "running" },
+    })
+
+    test("drops the step of a suppressed call", () => {
+      const ledger = createOrchestrationLedger()
+      ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))
+      ledger.onActivity(activity("m"), { toolCallId: "call_w", toolName: "writeTodos" })
+      expect(ledger.onToolStep("call_w", step("call_w"))).toEqual([])
+    })
+
+    test("holds the step behind an unresolved candidate and releases it in order", () => {
+      const ledger = createOrchestrationLedger()
+      const callFrames = frames("call_w", "writeTodos")
+      expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
+      const held = step("call_w")
+      expect(ledger.onToolStep("call_w", held)).toEqual([])
+      const toolResult = result("call_w")
+      expect(ledger.onToolResult("call_w", "writeTodos", [toolResult])).toEqual([
+        ...callFrames,
+        held,
+        toolResult,
+      ])
+    })
+
+    test("passes an unrelated step straight through", () => {
+      const ledger = createOrchestrationLedger()
+      const other = step("call_x")
+      expect(ledger.onToolStep("call_x", other)).toEqual([other])
+    })
   })
 })

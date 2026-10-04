@@ -156,6 +156,13 @@ import { scenarios } from "@b4run/sdk/testing"
 | `B4ToolContext` | Provide context to a B4.run tool. |
 | `WorkspaceFs` | Define the workspace filesystem contract exposed to tools. |
 | `WorkspaceContext` | Supply trusted managed workspace identity, provenance, and permission-bound initial reads. |
+| `ToolDisplay` | Describe how a tool call reads to a person (icon, running/done labels, sources). |
+| `ToolDisplayIcon` | Name one of the fixed step icons. |
+| `ToolDisplaySource` | Describe a file, URL or record a call drew on. |
+| `TOOL_DISPLAY_ICONS` | List the fixed step icon names. |
+| `TOOL_DISPLAY_LABEL_MAX` | Cap a step label's length. |
+| `describeToolDisplayProblem` | Name what is wrong with a `display` export, or nothing. |
+| `isToolDisplayIcon` | Narrow a string to a step icon name. |
 
 ### `@b4run/sdk/pure`
 

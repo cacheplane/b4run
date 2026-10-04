@@ -1,3 +1,5 @@
+import type { ToolDisplay } from "@b4run/sdk"
+
 // `/web` — see the note on the same import in tool-converter.ts. The default
 // entry drags `node:async_hooks` into the edge bundle to infer a config this
 // module always passes explicitly.
@@ -7,6 +9,7 @@ import { DynamicStructuredTool } from "@langchain/core/tools"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { z } from "zod"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
+import { describeDone, describeRunning, dispatchStep } from "./tool-display.js"
 
 export interface ResolvedSubagentGraph {
   readonly routeId: string
@@ -33,6 +36,7 @@ interface SubagentTaskPlaceholder {
   readonly description?: string
   readonly name: string
   readonly schema?: unknown
+  readonly display?: ToolDisplay
 }
 
 interface B4SubagentStackEntry {
@@ -68,7 +72,15 @@ export function convertSubagentTaskToLangChain(
       // The enclosing context's origin — the stack as this task sees it, not
       // including the entry it is about to push for its own child.
       const origin = readCallOrigin(liveConfig)
-      return recordToolCall(
+      const display = providerCallId !== undefined ? tool.display : undefined
+      if (display !== undefined && providerCallId !== undefined) {
+        await dispatchStep(liveConfig, {
+          tool_call_id: providerCallId,
+          status: "running",
+          ...describeRunning(display, input, tool.name),
+        })
+      }
+      const result = await recordToolCall(
         liveConfig,
         { toolCallId: providerCallId ?? "", toolName: tool.name, ...(origin ? { origin } : {}) },
         async () => {
@@ -151,6 +163,14 @@ export function convertSubagentTaskToLangChain(
           return finalText
         },
       )
+      if (display !== undefined && providerCallId !== undefined) {
+        await dispatchStep(liveConfig, {
+          tool_call_id: providerCallId,
+          status: "completed",
+          ...describeDone(display, input, result, tool.name),
+        })
+      }
+      return result
     },
   })
 }

@@ -108,8 +108,8 @@ Building blocks also exported for custom steps: `Disclosure`, `StepIcon`,
   `Ns`, `Nm Ms` (threadplane's format), and never claim `<1s` for an unknown
   duration.
 - **Merging.** Only consecutive calls of the same tool merge, and only when
-  done. The merged label comes from the tool's `display.group` (§4) or the
-  fallback "Used {tool} {n} times". `writeTodos` and `task` never merge.
+  done. The merged label comes from the client's label table for built-in tools or
+  the connector's `labels` overrides (§4), else "Used {tool} {n} times". `writeTodos` and `task` never merge.
 - **No spinner flash.** A step that settles within 300 ms never shows its
   running treatment.
 - **Hidden tools.** `writeTodos` renders as `PlanStep`, and `task` as
@@ -153,7 +153,6 @@ export const display = {
   icon: "search",
   running: (args: { query: string }) => `Searching the corpus for “${args.query}”`,
   done: (args: { query: string }) => `Searched the corpus for “${args.query}”`,
-  group: (n: number) => `Searched the corpus ${n} times`,
   sources: (result: Array<{ path: string }>) => result.map((r) => ({ title: r.path })),
 } satisfies ToolDisplay
 ```
@@ -162,7 +161,9 @@ export const display = {
   `memory`, `plan`, `agent`, `think`, `tool` (default). Icons ship as inline
   SVG; apps can swap the set.
 - Every field is optional. The fallbacks are "Using {tool}…", "Used
-  {tool}", "Used {tool} {n} times" and no sources.
+  {tool}" and no sources. Grouped-step labels ("Searched the corpus 2 times")
+  are a client concern: the view core's label table for built-in tools, plus
+  the connector's `labels` overrides.
 - Labels are plain text, never HTML. A label longer than 120 characters is
   truncated with "…". A label function that throws falls back to the default
   and logs once per tool.
@@ -180,17 +181,21 @@ For every tool call, the server evaluates the labels and emits an AG-UI
 
 ```ts
 { type: "CUSTOM", name: "b4.step", value: {
-  toolCallId, icon, running, done?, sources?, subagentRunId?
+  toolCallId, status: "running" | "completed" | "failed", icon?, label?, sources?
 } }
 ```
 
-- `running` is emitted with `TOOL_CALL_START` and the args. `done` and
-  `sources` are emitted after `TOOL_CALL_RESULT`.
-- The labels are stored with the tool-call record in the checkpoint, so a
-  restored thread replays the same sentences.
-- Clients that don't know `b4.step` ignore it.
-- `group` is not sent per call; the client keeps the last-seen `group`
-  template per tool.
+- `running` goes out as the call starts (before `TOOL_CALL_RESULT`), with
+  `icon` and the running `label`; `completed` goes out as the call returns, just before the result, with the done `label` and `sources`; `failed` follows an error result, for every
+  tool, display or not. A subagent's step carries `subagentRunId`.
+- The done payload is stored on the checkpointed `ToolMessage` as
+  `additional_kwargs.b4_step` (for tools run through the converter; the `task`
+  tool's message does not carry it yet), so `GET /threads/:id/state` carries it for a
+  restored thread. (The tool-call record is opt-in and pruned, so it is not
+  the durable home.)
+- B4.run's vendor events share the `b4.` prefix (`b4.step`,
+  `b4.content_parts_dropped`); a client that doesn't know a name ignores it.
+- Grouped-step labels are computed on the client (see §4's fallbacks).
 
 **Client override.** The connector accepts `labels: { [tool]: Partial<ToolDisplay> }`.
 Client fields win over server fields for that tool. This is how an app

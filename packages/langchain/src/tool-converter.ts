@@ -11,7 +11,12 @@ import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 // AsyncLocalStorage instance the default entry installs as a side effect is
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
-import { type B4ContentPart, type BuiltInModelProviderId, contentPartsText } from "@b4run/sdk"
+import {
+  type B4ContentPart,
+  type BuiltInModelProviderId,
+  contentPartsText,
+  type ToolDisplay,
+} from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
@@ -27,6 +32,7 @@ import {
   V1_RESPONSE_METADATA,
 } from "./content-parts.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
+import { describeDone, describeRunning, dispatchStep, type StepPayload } from "./tool-display.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
@@ -48,6 +54,8 @@ interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** How a call reads to a person; evaluated per call and streamed as `b4.step`. */
+  readonly display?: ToolDisplay
   /** End the run on this tool's successful result; see the core `B4ToolDefinition`. */
   readonly returnDirect?: boolean
   /** The server-side stub of a client-provided tool; it records itself. Never issued as a server call. */
@@ -70,6 +78,9 @@ export interface ToolResultModality {
 
 /** The `additional_kwargs` key under which a ToolMessage keeps every part the tool returned, for the UI. */
 export const B4_CONTENT_PARTS_KEY = "b4_content_parts"
+
+/** The `additional_kwargs` key under which a ToolMessage keeps its display step, for replay. */
+export const B4_STEP_KEY = "b4_step"
 
 export function convertToolToLangChain(
   tool: B4ToolDefinition,
@@ -119,6 +130,15 @@ export function convertToolToLangChain(
         tool.clientTool === true
           ? undefined
           : { toolCallId, toolName: tool.name, ...(origin ? { origin } : {}) }
+      // A step is only worth streaming when a client can attach it to a call.
+      const display = toolCallId !== "" ? tool.display : undefined
+      if (display !== undefined) {
+        await dispatchStep(liveConfig, {
+          tool_call_id: toolCallId,
+          status: "running",
+          ...describeRunning(display, input, tool.name),
+        })
+      }
       const body = async () => {
         const rawResult = await tool.run(input, {
           ...(middlewareContext ? { middleware: middlewareContext } : {}),
@@ -127,6 +147,8 @@ export function convertToolToLangChain(
           ...(Object.keys(params).length > 0 ? { params } : {}),
           ...(toolCallId !== "" ? { toolCallId } : {}),
         })
+        const step: StepPayload | undefined =
+          display !== undefined ? describeDone(display, input, rawResult, tool.name) : undefined
         const { content, stateUpdates } = unwrapToolResult(rawResult)
         let finalContent: string | readonly LangChainContentBlock[]
         let partsForUi: readonly B4ContentPart[] | undefined
@@ -165,12 +187,20 @@ export function convertToolToLangChain(
           }
         }
 
+        // With a display, the step rides on the checkpointed ToolMessage too, so a
+        // restored thread can tell the same story without the stream. LangChain's
+        // ToolNode returns a ToolMessage a tool returns as-is.
         const toolMessage = (): ToolMessage =>
           new ToolMessage({
             tool_call_id: toolCallId,
             name: tool.name,
-            ...(partsForUi !== undefined
-              ? { additional_kwargs: { [B4_CONTENT_PARTS_KEY]: partsForUi } }
+            ...(partsForUi !== undefined || step !== undefined
+              ? {
+                  additional_kwargs: {
+                    ...(partsForUi !== undefined ? { [B4_CONTENT_PARTS_KEY]: partsForUi } : {}),
+                    ...(step !== undefined ? { [B4_STEP_KEY]: step } : {}),
+                  },
+                }
               : {}),
             // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
             ...(typeof finalContent === "string"
@@ -183,7 +213,7 @@ export function convertToolToLangChain(
 
         const convertedResult = stateUpdates
           ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
-          : partsForUi !== undefined
+          : partsForUi !== undefined || step !== undefined
             ? toolMessage()
             : finalContent
 
@@ -207,6 +237,10 @@ export function convertToolToLangChain(
           } catch {
             // Capability events are secondary; preserve the successful tool result.
           }
+        }
+
+        if (display !== undefined && step !== undefined) {
+          await dispatchStep(liveConfig, { tool_call_id: toolCallId, status: "completed", ...step })
         }
 
         return convertedResult

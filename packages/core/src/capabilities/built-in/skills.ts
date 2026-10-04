@@ -1,7 +1,14 @@
+import type { ToolDisplay } from "@b4run/sdk"
 import { pureJoin } from "@b4run/sdk/pure"
 import { z } from "zod"
 import type { CapabilityMarker, MarkerFs, PromptFragment } from "../types.js"
 import { parseFrontmatter } from "./frontmatter.js"
+
+export const READ_SKILL_DISPLAY = {
+  icon: "read",
+  running: (input: { name: string }) => `Loading the ${input.name} skill`,
+  done: (input: { name: string }) => `Loaded the ${input.name} skill`,
+} satisfies ToolDisplay
 
 const SKILLS_DIR = "skills"
 const SKILL_FILE = "SKILL.md"
@@ -39,6 +46,7 @@ export function createSkillsMarker(): CapabilityMarker {
         name: "readSkill",
         description: "Load the full instructions for a named skill.",
         schema: READ_SKILL_INPUT,
+        display: READ_SKILL_DISPLAY,
         run: async (input: unknown) => {
           const { name } = READ_SKILL_INPUT.parse(input)
           const found = skills.find((s) => s.name === name)

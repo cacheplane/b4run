@@ -355,6 +355,8 @@ export interface B4ToolDefinition {
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
+  /** How a call of this tool reads to a person; see `ToolDisplay` in `@b4run/sdk`. */
+  readonly display?: import("@b4run/sdk").ToolDisplay
   /**
    * End the run on this tool's successful result instead of handing control
    * back to the model for another turn. For an agent whose answer is what the

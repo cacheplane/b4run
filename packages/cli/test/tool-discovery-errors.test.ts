@@ -96,4 +96,50 @@ describe("tool discovery error messages", () => {
     )
     await expect(discover()).rejects.toThrow(/b4\.run\/docs\/tools/)
   })
+
+  it("keeps a valid display export on the definition", async () => {
+    writeTool(
+      "search.ts",
+      `export const display = {
+        icon: "search",
+        running: (input) => "Searching for " + input.query,
+        done: (input, output) => "Found " + output.length + " results",
+      }
+      export default async (input) => [input.query]`,
+    )
+    const [tool] = await discover()
+    expect(tool?.display?.icon).toBe("search")
+    expect(tool?.display?.running?.({ query: "agents" })).toBe("Searching for agents")
+  })
+
+  it("rejects a display export with an unknown icon, naming the field and the code", async () => {
+    writeTool(
+      "search.ts",
+      `export const display = { icon: "sparkle" }
+      export default async () => "ok"`,
+    )
+    await expect(discover()).rejects.toThrow(/exports display, but display\.icon must be one of/)
+    await expect(discover()).rejects.toThrow(/B4_E5002/)
+  })
+
+  it("rejects a display export whose label is not a function", async () => {
+    writeTool(
+      "search.ts",
+      `export const display = { running: "Searching" }
+      export default async () => "ok"`,
+    )
+    await expect(discover()).rejects.toThrow(
+      /display\.running must be a function \(got "Searching"\)/,
+    )
+  })
+
+  it("keeps a display export when the default export is a { run } object", async () => {
+    writeTool(
+      "search.ts",
+      `export const display = { icon: "search" }
+      export default { run: async () => "ok" }`,
+    )
+    const [tool] = await discover()
+    expect(tool?.display?.icon).toBe("search")
+  })
 })

@@ -1,6 +1,16 @@
+import type { ToolDisplay } from "@b4run/sdk"
 import { z } from "zod"
 import { dispatchableSubagents } from "../../subagents/registry.js"
 import type { CapabilityMarker, PromptFragment } from "../types.js"
+
+const firstLine = (text: string) => text.split("\n", 1)[0] ?? text
+
+export const TASK_DISPLAY = {
+  icon: "agent",
+  running: (input: { subagent: string; input: string }) =>
+    `Asking ${input.subagent} to ${firstLine(input.input)}`,
+  done: (input: { subagent: string }) => `Heard back from ${input.subagent}`,
+} satisfies ToolDisplay
 
 const SUBAGENTS_PROMPT_HEADER = `# Subagents
 
@@ -28,6 +38,7 @@ export function createSubagentsMarker(): CapabilityMarker {
       const names = dispatchable.map(({ name }) => name) as [string, ...string[]]
       const task = {
         name: "task",
+        display: TASK_DISPLAY,
         description:
           "Dispatch a sub-task to a specialized subagent. See the # Subagents section of your system prompt for available agents and when to use each.",
         schema: z.object({

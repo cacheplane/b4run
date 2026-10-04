@@ -1,3 +1,5 @@
+import { isToolDisplayIcon, type ToolDisplayIcon, type ToolDisplaySource } from "@b4run/sdk"
+
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
   readonly threadId: string
@@ -93,6 +95,39 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
     id: typeof data.id === "string" ? data.id : undefined,
     name: data.name,
     output: data.output,
+  }
+}
+
+/** The `step` chunk the langchain adapter forwards from a `b4.step` custom event. */
+export interface B4StepData {
+  readonly tool_call_id: string
+  readonly status: "running" | "completed" | "failed"
+  readonly icon?: ToolDisplayIcon | undefined
+  readonly label?: string | undefined
+  readonly sources?: ReadonlyArray<ToolDisplaySource> | undefined
+}
+
+const STEP_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed"])
+
+/** Validates and narrows a `step` chunk's `data`. Returns null if malformed. */
+export function asStepData(data: unknown): B4StepData | null {
+  if (!isRecord(data)) return null
+  if (typeof data.tool_call_id !== "string" || data.tool_call_id === "") return null
+  if (typeof data.status !== "string" || !STEP_STATUSES.has(data.status)) return null
+  const sources = Array.isArray(data.sources)
+    ? data.sources.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.title !== "string" || entry.title === "") return []
+        return [
+          { title: entry.title, ...(typeof entry.href === "string" ? { href: entry.href } : {}) },
+        ]
+      })
+    : undefined
+  return {
+    tool_call_id: data.tool_call_id,
+    status: data.status as B4StepData["status"],
+    ...(isToolDisplayIcon(data.icon) ? { icon: data.icon } : {}),
+    ...(typeof data.label === "string" && data.label !== "" ? { label: data.label } : {}),
+    ...(sources !== undefined ? { sources } : {}),
   }
 }
 

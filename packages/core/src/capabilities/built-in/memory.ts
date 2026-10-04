@@ -1,3 +1,4 @@
+import type { ToolDisplay } from "@b4run/sdk"
 import { sha1Hex } from "@b4run/sdk/pure"
 import { z } from "zod"
 import { readRuntimeEnv } from "../../runtime-env.js"
@@ -10,6 +11,26 @@ import type {
   PromptFragment,
 } from "../types.js"
 import { resolveTimeExpr } from "./time-expr.js"
+
+/** What `recall` returns when nothing matches; the display reads it too. */
+const NO_MEMORIES = "(no memories found)"
+
+export const MEMORY_DISPLAY = {
+  recall: {
+    icon: "memory",
+    running: (input: { query?: string }) =>
+      input.query ? `Recalling “${input.query}”` : "Checking memory",
+    done: (_input: unknown, output: unknown) => {
+      const result = (output as { result?: unknown } | undefined)?.result
+      return result === NO_MEMORIES ? "Checked memory, nothing relevant" : "Checked memory"
+    },
+  },
+  remember: {
+    icon: "memory",
+    running: () => "Remembering this",
+    done: () => "Remembered this",
+  },
+} satisfies Record<string, ToolDisplay>
 
 const DEFAULT_SEMANTIC_IDENTITY = ["subject", "predicate"] as const
 
@@ -109,6 +130,7 @@ export function createMemoryMarker(): CapabilityMarker {
         name: "recall",
         description: "Recall typed long-term memories by keyword/kind/tags.",
         schema: recallSchema,
+        display: MEMORY_DISPLAY.recall,
         run: async (input: unknown) => {
           const q = (input ?? {}) as {
             query?: string
@@ -122,7 +144,7 @@ export function createMemoryMarker(): CapabilityMarker {
           // instead of passing an out-of-contract string to the store.
           let kind: MemoryKindLike | undefined
           if (q.kind) {
-            if (!isMemoryKind(q.kind)) return { result: "(no memories found)" }
+            if (!isMemoryKind(q.kind)) return { result: NO_MEMORIES }
             kind = q.kind
           }
           const now = mem.now()
@@ -178,7 +200,7 @@ export function createMemoryMarker(): CapabilityMarker {
           // Wrap in {result} so the langchain bridge uses the string verbatim as
           // the ToolMessage content; a bare string hits unwrapToolResult's
           // JSON.stringify path, quoting it and escaping the newlines below.
-          if (rows.length === 0) return { result: "(no memories found)" }
+          if (rows.length === 0) return { result: NO_MEMORIES }
           return {
             result: rows.map((r) => `${r.id}: ${r.content}`).join("\n"),
           }
@@ -189,6 +211,7 @@ export function createMemoryMarker(): CapabilityMarker {
         name: "remember",
         description: "Store a typed long-term memory for later recall.",
         schema: rememberSchema,
+        display: MEMORY_DISPLAY.remember,
         run: async (input: unknown, ctx?: { readonly toolCallId?: string }) => {
           const inp = (input ?? {}) as {
             data?: unknown

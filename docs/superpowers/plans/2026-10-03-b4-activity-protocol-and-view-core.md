@@ -2343,8 +2343,8 @@ const RUN: B4AgentStreamChunk[] = [
   { type: "reasoning", data: "search first" },
   { type: "tool_call", data: { id: "c1", name: "recall", input: { query: "agents" } } },
   { type: "step", data: { tool_call_id: "c1", status: "running", icon: "memory", label: "Recalling “agents”" } },
-  { type: "tool_result", data: { id: "c1", name: "recall", output: "(no memories found)" } },
   { type: "step", data: { tool_call_id: "c1", status: "completed", icon: "memory", label: "Checked memory" } },
+  { type: "tool_result", data: { id: "c1", name: "recall", output: "(no memories found)" } },
   { type: "tool_call", data: { id: "c2", name: "writeTodos", input: { todos: [] } } },
   { type: "plan_update", data: { tool_call_id: "c2", todos: [{ content: "search", status: "in_progress" }] } },
   { type: "tool_result", data: { id: "c2", name: "writeTodos", output: "ok" } },
@@ -2486,6 +2486,23 @@ describe("reduceTurns", () => {
     expect(errored.turns[0]?.steps[0]).toMatchObject({ status: "failed" })
   })
 
+  it("merges repeated running steps for one call into a single step and never downgrades done", async () => {
+    // LangGraph re-executes a resumed tool node, so the converter dispatches a
+    // second `running` for the same tool_call_id before `completed`.
+    const view = await fold([
+      { type: "tool_call", data: { id: "r1", name: "searchCorpus", input: { query: "a" } } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Searching" } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Searching again" } },
+      { type: "tool_result", data: { id: "r1", name: "searchCorpus", output: "ok" } },
+      { type: "step", data: { tool_call_id: "r1", status: "completed", label: "Searched" } },
+      { type: "step", data: { tool_call_id: "r1", status: "running", label: "Late running" } },
+      { type: "done", data: {} },
+    ])
+    const tools = view.turns[0]?.steps.filter((step) => step.kind === "tool") ?? []
+    expect(tools).toHaveLength(1)
+    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Late running" })
+  })
+
   it("starts over on a different thread and appends a turn on the same one", () => {
     const first = reduceTurns(EMPTY_TURNS, { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent)
     const second = reduceTurns(first, { type: EventType.RUN_STARTED, threadId: "a", runId: "2" } as BaseEvent)
@@ -2519,6 +2536,8 @@ Run: `pnpm --filter @b4run/ag-ui exec vitest run test/view/turns.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `turns.ts`**
+
+The reducer must accept `completed` before or after `TOOL_CALL_RESULT`; neither event downgrades the other's label.
 
 `packages/ag-ui/src/view/turns.ts`:
 

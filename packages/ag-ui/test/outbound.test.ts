@@ -689,6 +689,71 @@ describe("orchestration suppression", () => {
     ])
   })
 
+  test("a suppressed writeTodos result takes its failed step with it", async () => {
+    const events = await collect([
+      {
+        type: "tool_call",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", input: { todos: TODOS } },
+      },
+      { type: "plan_update", data: { todos: TODOS, tool_call_id: "call_writeTodos_0_1" } },
+      {
+        type: "tool_result",
+        data: {
+          id: "call_writeTodos_0_1",
+          name: "writeTodos",
+          output: {
+            status: "error",
+            content: "boom",
+            name: "writeTodos",
+            tool_call_id: "call_writeTodos_0_1",
+          },
+        },
+      },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+    expect(events.some((event) => event.type === EventType.TOOL_CALL_RESULT)).toBe(false)
+  })
+
+  test("steps of a suppressed writeTodos call are dropped with it", async () => {
+    const events = await collect([
+      {
+        type: "tool_call",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", input: { todos: TODOS } },
+      },
+      { type: "step", data: { tool_call_id: "call_writeTodos_0_1", status: "running" } },
+      { type: "plan_update", data: { todos: TODOS, tool_call_id: "call_writeTodos_0_1" } },
+      { type: "step", data: { tool_call_id: "call_writeTodos_0_1", status: "completed" } },
+      {
+        type: "tool_result",
+        data: { id: "call_writeTodos_0_1", name: "writeTodos", output: "ok" },
+      },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+  })
+
+  test("steps of an uncorrelated writeTodos call emit in source order with its frames", async () => {
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_writeTodos_0_2", name: "writeTodos", input: {} } },
+      { type: "step", data: { tool_call_id: "call_writeTodos_0_2", status: "running" } },
+      { type: "step", data: { tool_call_id: "call_writeTodos_0_2", status: "completed" } },
+      {
+        type: "tool_result",
+        data: { id: "call_writeTodos_0_2", name: "writeTodos", output: "ok" },
+      },
+      { type: "done", data: {} },
+    ])
+    const kinds = events.map((event) => event.type)
+    const start = kinds.indexOf(EventType.TOOL_CALL_START)
+    const running = kinds.indexOf(EventType.CUSTOM)
+    const result = kinds.indexOf(EventType.TOOL_CALL_RESULT)
+    expect(start).toBeGreaterThanOrEqual(0)
+    expect(start).toBeLessThan(running)
+    expect(kinds.filter((kind) => kind === EventType.CUSTOM)).toHaveLength(2)
+    expect(running).toBeLessThan(result)
+  })
+
   test("a dropped-parts CUSTOM queues behind a held writeTodos call, in source order", async () => {
     const dropped = { provider: "openai", model: "gpt-5-mini", parts: [] }
     const custom = { type: EventType.CUSTOM, name: "b4.content_parts_dropped", value: dropped }
@@ -2045,5 +2110,165 @@ describe("toolResultView", () => {
     expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(true)
     const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
     expect(typeof (result as { content: unknown }).content).toBe("string")
+  })
+  test("a step chunk becomes CUSTOM b4.step keyed by the call, root and child alike", async () => {
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_s_1", name: "searchCorpus", input: { query: "a" } } },
+      {
+        type: "step",
+        data: {
+          tool_call_id: "call_s_1",
+          status: "running",
+          icon: "search",
+          label: "Searching for “a”",
+        },
+      },
+      {
+        type: "step",
+        data: {
+          tool_call_id: "call_s_1",
+          status: "completed",
+          icon: "search",
+          label: "Searched for “a”",
+          sources: [{ title: "corpus/a.md" }],
+        },
+      },
+      {
+        type: "tool_result",
+        data: { id: "call_s_1", name: "searchCorpus", output: [{ path: "corpus/a.md" }] },
+      },
+      { type: "tool_call", data: { id: CHILD.call_id, name: "task", input: {} } },
+      { type: "subagent.start", data: CHILD },
+      { type: "subagent.tool_call", data: { ...CHILD, id: "child_1", name: "readDoc", input: {} } },
+      {
+        type: "subagent.step",
+        data: { ...CHILD, tool_call_id: "child_1", status: "running", label: "Reading a.md" },
+      },
+      { type: "subagent.end", data: { ...CHILD, final_message: "done" } },
+      { type: "done", data: {} },
+    ])
+    const custom = events.filter((event) => event.type === EventType.CUSTOM)
+    expect(custom).toEqual([
+      {
+        type: EventType.CUSTOM,
+        name: "b4.step",
+        value: {
+          toolCallId: "call_s_1",
+          status: "running",
+          icon: "search",
+          label: "Searching for “a”",
+        },
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "b4.step",
+        value: {
+          toolCallId: "call_s_1",
+          status: "completed",
+          icon: "search",
+          label: "Searched for “a”",
+          sources: [{ title: "corpus/a.md" }],
+        },
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "b4.step",
+        subagentRunId: CHILD.call_id,
+        value: { toolCallId: "child_1", status: "running", label: "Reading a.md" },
+      },
+    ])
+    const runningAt = events.findIndex(
+      (event) =>
+        event.type === EventType.CUSTOM &&
+        event.value.toolCallId === "call_s_1" &&
+        event.value.status === "running",
+    )
+    const resultAt = events.findIndex(
+      (event) => event.type === EventType.TOOL_CALL_RESULT && event.toolCallId === "call_s_1",
+    )
+    const completedAt = events.findIndex(
+      (event) =>
+        event.type === EventType.CUSTOM &&
+        event.value.toolCallId === "call_s_1" &&
+        event.value.status === "completed",
+    )
+    expect(runningAt).toBeGreaterThanOrEqual(0)
+    expect(runningAt).toBeLessThan(completedAt)
+    expect(completedAt).toBeLessThan(resultAt)
+  })
+
+  test("a step emits whether it arrives before or after its result", async () => {
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_o_1", name: "searchCorpus", input: {} } },
+      { type: "step", data: { tool_call_id: "call_o_1", status: "running", label: "Searching" } },
+      { type: "tool_result", data: { id: "call_o_1", name: "searchCorpus", output: "x" } },
+      { type: "step", data: { tool_call_id: "call_o_1", status: "completed", label: "Searched" } },
+      { type: "done", data: {} },
+    ])
+    const statuses = events
+      .filter((event) => event.type === EventType.CUSTOM)
+      .map((event) => (event as { value: { status: string } }).value.status)
+    expect(statuses).toEqual(["running", "completed"])
+  })
+
+  test("an error ToolMessage result is followed by a failed step for the same call", async () => {
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_e_1", name: "readDoc", input: {} } },
+      {
+        type: "tool_result",
+        data: {
+          id: "call_e_1",
+          name: "readDoc",
+          output: {
+            status: "error",
+            content: "ENOENT: corpus/x.md",
+            name: "readDoc",
+            tool_call_id: "call_e_1",
+          },
+        },
+      },
+      { type: "done", data: {} },
+    ])
+    const resultIndex = events.findIndex((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(events[resultIndex]).toMatchObject({ content: "ENOENT: corpus/x.md" })
+    expect(events[resultIndex + 1]).toEqual({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: "call_e_1", status: "failed" },
+    })
+  })
+
+  test("a step with an empty call id is ignored", async () => {
+    const events = await collect([
+      { type: "step", data: { tool_call_id: "", status: "running" } },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+  })
+
+  test("an unknown icon is dropped but the step survives", async () => {
+    const events = await collect([
+      {
+        type: "step",
+        data: { tool_call_id: "c", status: "running", icon: "sparkle", label: "Working" },
+      },
+      { type: "done", data: {} },
+    ])
+    const step = events.find((event) => event.type === EventType.CUSTOM)
+    expect(step).toEqual({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: "c", status: "running", label: "Working" },
+    })
+    expect((step as { value: object }).value).not.toHaveProperty("icon")
+  })
+
+  test("a malformed step chunk is ignored", async () => {
+    const events = await collect([
+      { type: "step", data: { status: "running" } },
+      { type: "step", data: { tool_call_id: "c", status: "exploded" } },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
   })
 })

@@ -28,8 +28,10 @@ import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
 import { createOrchestrationLedger } from "./orchestration-ledger.js"
+import { B4_STEP_EVENT_NAME, type B4StepEventValue } from "./step.js"
 import { asSubagentEndData, asSubagentStartData, unwrapSubagentChunk } from "./subagent-chunks.js"
 import {
+  asStepData,
   asToolCallArgsData,
   asToolCallData,
   asToolResultData,
@@ -148,13 +150,17 @@ function stringifyArgs(input: unknown): string {
  * else is text, as before. `toolCallId` picks the right ToolMessage out of a
  * `Command`-wrapped result.
  */
-function toResultContent(output: unknown, toolCallId: string | undefined): string | ContentPart[] {
+function toResultContent(
+  output: unknown,
+  toolCallId: string | undefined,
+  view: ToolResultView,
+): string | ContentPart[] {
   if (isContentPartArray(output) && output.length > 0) return [...output]
   const kept = keptParts(output, toolCallId)
   if (kept) return kept
   // No parts kept: the text the model saw (a ToolMessage's content, a
   // Command's last ToolMessage, or a bare value serialized).
-  return toolResultView(output).content
+  return view.content
 }
 
 /** A bare value as result text: a string as-is, null/undefined empty, else JSON. */
@@ -303,6 +309,10 @@ function newOwnerState(): OwnerState {
 /** A child's event carries its owner; root events are never tagged (never `null`). */
 function tag<E extends AguiOutboundEvent>(owner: Owner, event: E): E {
   return owner === undefined ? event : { ...event, subagentRunId: owner }
+}
+
+function stepEvent(owner: Owner, value: B4StepEventValue): CustomEvent {
+  return tag(owner, { type: EventType.CUSTOM, name: B4_STEP_EVENT_NAME, value })
 }
 
 /**
@@ -682,17 +692,42 @@ export async function* toAguiEvents(
           tr.id === undefined ? state.pendingFallbackToolCallIds.get(tr.name) : undefined
         const toolCallId = tr.id ?? pending?.shift() ?? nextId("toolCall")
         if (pending?.length === 0) state.pendingFallbackToolCallIds.delete(tr.name)
+        const view = toolResultView(tr.output)
         const resultEvent: ToolCallResultEvent = tag(owner, {
           type: EventType.TOOL_CALL_RESULT,
           messageId: nextId("toolResult"),
           toolCallId,
-          content: toResultContent(tr.output, tr.id),
+          content: toResultContent(tr.output, tr.id, view),
         })
+        // A tool that threw: say so on the step, since the result's text alone
+        // cannot tell an error from an answer. The step shares the result's
+        // fate in the ledger (a suppressed result suppresses it too).
+        const events: AguiOutboundEvent[] = [
+          resultEvent,
+          ...(view.failed ? [stepEvent(owner, { toolCallId, status: "failed" })] : []),
+        ]
         if (owner === undefined) {
-          yield* ledger.onToolResult(tr.id, tr.name, resultEvent)
+          yield* ledger.onToolResult(tr.id, tr.name, events)
         } else {
-          yield* ledger.onPassthrough(resultEvent)
+          for (const event of events) yield* ledger.onPassthrough(event)
         }
+        break
+      }
+      case "step": {
+        // No flushText, unlike `content_parts_dropped`: a step describes a call the text already yielded to.
+        const step = asStepData(chunk.data)
+        if (!step) break
+        const event = stepEvent(owner, {
+          toolCallId: step.tool_call_id,
+          status: step.status,
+          ...(step.icon !== undefined ? { icon: step.icon } : {}),
+          ...(step.label !== undefined ? { label: step.label } : {}),
+          ...(step.sources !== undefined ? { sources: step.sources } : {}),
+        })
+        // A root step shares its call's fate in the ledger; a child's never waits.
+        yield* owner === undefined
+          ? ledger.onToolStep(step.tool_call_id, event)
+          : ledger.onPassthrough(event)
         break
       }
       case "plan_update": {

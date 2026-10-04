@@ -1,4 +1,5 @@
 import type { PermissionsStore } from "@b4run/permissions"
+import type { ToolDisplay } from "@b4run/sdk"
 import { POSIX_SEP, pureJoin, pureRelative, pureResolve } from "@b4run/sdk/pure"
 import type { BackendContext, ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { z } from "zod"
@@ -6,6 +7,37 @@ import { z } from "zod"
 import { gateBashOp } from "../permission-gate.js"
 import type { B4ToolDefinition, CapabilityMarker } from "../types.js"
 import { createWorkspaceFs } from "../workspace-fs.js"
+
+const firstLine = (command: string) => command.split("\n", 1)[0] ?? command
+
+/** How each workspace tool's call reads to a person. */
+export const WORKSPACE_DISPLAY = {
+  readFile: {
+    icon: "read",
+    running: (input: { path: string }) => `Reading ${input.path}`,
+    done: (input: { path: string }) => `Read ${input.path}`,
+  },
+  writeFile: {
+    icon: "write",
+    running: (input: { path: string }) => `Saving ${input.path}`,
+    done: (input: { path: string }) => `Saved ${input.path}`,
+  },
+  editFile: {
+    icon: "write",
+    running: (input: { path: string }) => `Editing ${input.path}`,
+    done: (input: { path: string }) => `Edited ${input.path}`,
+  },
+  listDir: {
+    icon: "read",
+    running: (input: { path: string }) => `Listing ${input.path}`,
+    done: (input: { path: string }) => `Listed ${input.path}`,
+  },
+  runBash: {
+    icon: "run",
+    running: (input: { command: string }) => `Running ${firstLine(input.command)}`,
+    done: (input: { command: string }) => `Ran ${firstLine(input.command)}`,
+  },
+} satisfies Record<string, ToolDisplay>
 
 const WORKSPACE_DIRNAME = "workspace"
 
@@ -236,6 +268,7 @@ function buildWorkspaceTools(
       "applies to the whole file even when a range is requested.",
     schema: READ_FILE_INPUT,
     overridable: true,
+    display: WORKSPACE_DISPLAY.readFile,
     run: async (input, ctx) => {
       const parsed = READ_FILE_INPUT.parse(input)
       const { path } = parsed
@@ -273,6 +306,7 @@ function buildWorkspaceTools(
       "prefer editFile: rewriting a large file in full risks truncating it.",
     schema: WRITE_FILE_INPUT,
     overridable: true,
+    display: WORKSPACE_DISPLAY.writeFile,
     run: async (input, ctx) => {
       const { path, content } = WRITE_FILE_INPUT.parse(input)
       const result = await handleFor(ctx.signal).writeFile(path, content)
@@ -289,6 +323,7 @@ function buildWorkspaceTools(
       "size cap (256 KiB by default) cannot be edited, and non-UTF-8 files are refused.",
     schema: EDIT_FILE_INPUT,
     overridable: true,
+    display: WORKSPACE_DISPLAY.editFile,
     run: async (input, ctx) => {
       const { path, oldText, newText, replaceAll } = EDIT_FILE_INPUT.parse(input)
       // Both halves go through the same permission-gated handle as readFile
@@ -312,6 +347,7 @@ function buildWorkspaceTools(
     description: "List entries in a workspace directory.",
     schema: LIST_DIR_INPUT,
     overridable: true,
+    display: WORKSPACE_DISPLAY.listDir,
     run: async (input, ctx) => {
       const { path } = LIST_DIR_INPUT.parse(input)
       return [...(await handleFor(ctx.signal).listDir(path))]
@@ -322,6 +358,7 @@ function buildWorkspaceTools(
     description: "Run a shell command inside the workspace.",
     schema: RUN_BASH_INPUT,
     overridable: true,
+    display: WORKSPACE_DISPLAY.runBash,
     run: async (input, ctx) => {
       const { command } = RUN_BASH_INPUT.parse(input)
       const gate = await gateBashOp(permissions, command, {
