@@ -178,9 +178,27 @@ describe("serve guard", () => {
       errorSpy.mockRestore()
     }
   })
+
   test("a guard that resolves false through a promise lets the request through", async () => {
     const handle = await startServe(undefined, { guard: () => Promise.resolve(false) })
     expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
+  })
+
+  test("a guard that writes headers and returns false fails the request instead of hanging", {
+    timeout: 5000,
+  }, async () => {
+    const handle = await startServe(undefined, {
+      guard: (_request, response) => {
+        response.writeHead(200)
+        response.flushHeaders()
+        return false
+      },
+    })
+    // The flushed headers reach the client, so fetch itself may resolve; the
+    // destroyed socket then fails the body (or fetch) rather than hanging.
+    await expect(
+      fetch(new URL("/healthz", handle.url)).then((response) => response.text()),
+    ).rejects.toThrow()
   })
 
   test("a guard that rejects answers 500", async () => {
@@ -199,7 +217,6 @@ describe("serve guard", () => {
 
   test("a client that disconnects during an async guard is never dispatched", async () => {
     const paths: string[] = []
-    let entered = false
     let markEntered: () => void = () => undefined
     const enteredPromise = new Promise<void>((resolve) => {
       markEntered = resolve
@@ -210,7 +227,6 @@ describe("serve guard", () => {
     })
     const handle = await startServe(recordingFallback(paths), {
       guard: async (_request, response) => {
-        entered = true
         markEntered()
         await once(response, "close")
         markSettled()
@@ -227,7 +243,6 @@ describe("serve guard", () => {
     await settledPromise
     // Let the guard chain run its continuation before asserting.
     await new Promise((resolve) => setImmediate(resolve))
-    expect(entered).toBe(true)
     expect(paths).toEqual([])
   })
 })

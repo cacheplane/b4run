@@ -135,13 +135,13 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
     void Promise.resolve()
       .then(() => fallback(request, response))
       .catch((error: unknown) => {
-        failFallback(response, error)
+        failRequest(response, error, "Request handler failed")
       })
   }
 
-  // A request waiting in the guard is not counted in the runtime's active
-  // requests, so close() during the wait dispatches into a closed runtime,
-  // which answers the closed-runtime response.
+  // A request waiting in the guard is not counted as active in the runtime, so
+  // a close() during the wait is not drained; runtime-owned paths then answer
+  // the closed-runtime response.
   const server = createServer((request, response) => {
     if (guard === undefined) {
       dispatch(request, response)
@@ -150,11 +150,17 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
     void Promise.resolve()
       .then(() => guard(request, response))
       .then((handled) => {
+        if (!handled && response.headersSent && !response.writableEnded) {
+          // A guard that wrote headers and returned false is misuse; fail it
+          // loudly rather than leave the request hanging.
+          response.destroy()
+          return
+        }
         if (handled || response.destroyed || response.writableEnded || response.headersSent) return
         dispatch(request, response)
       })
       .catch((error: unknown) => {
-        failGuard(response, error)
+        failRequest(response, error, "Request guard failed")
       })
   })
 
@@ -222,26 +228,16 @@ function pathnameOf(requestUrl: string | undefined): string {
   }
 }
 
-function failFallback(response: ServerResponse, error: unknown): void {
+function failRequest(response: ServerResponse, error: unknown, message: string): void {
   console.error(error instanceof Error ? error.stack : error)
   if (response.headersSent) {
-    // The fallback already committed to a status; the only honest signal left
+    // The handler already committed to a status; the only honest signal left
     // is a truncated body.
     response.destroy()
     return
   }
   response.writeHead(500, { "content-type": "application/json" })
-  response.end(JSON.stringify({ error: "Request handler failed" }))
-}
-
-function failGuard(response: ServerResponse, error: unknown): void {
-  console.error(error instanceof Error ? error.stack : error)
-  if (response.headersSent) {
-    response.destroy()
-    return
-  }
-  response.writeHead(500, { "content-type": "application/json" })
-  response.end(JSON.stringify({ error: "Request guard failed" }))
+  response.end(JSON.stringify({ error: message }))
 }
 
 /**
