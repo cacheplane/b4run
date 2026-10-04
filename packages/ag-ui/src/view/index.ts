@@ -1,0 +1,15 @@
+/**
+ * `@b4run/ag-ui/view`: the framework-free half of the client. Pure reducers
+ * and selectors over AG-UI events — what a chat shows for a turn — with no
+ * React, no CopilotKit. `./react` builds on it; so can an Angular client.
+ */
+export type { B4StepEventValue, B4StepStatus } from "../step.js"
+export { B4_STEP_EVENT_NAME, readStepEvent } from "./step.js"
+export {
+  EMPTY_SUBAGENT_RUNS,
+  isSubagentMessage,
+  reduceSubagentRuns,
+  type SubagentRun,
+  type SubagentRunsState,
+  type SubagentToolCall,
+} from "./subagent-runs.js"
