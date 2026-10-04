@@ -24,9 +24,16 @@ function B4ToolCallsView({
 const hasText = (content: unknown): boolean =>
   (typeof content === "string" && content.trim() !== "") ||
   (Array.isArray(content) &&
-    content.some(
-      (p) => typeof p === "object" && p !== null && (p as { type?: unknown }).type === "text",
-    ))
+    content.some((p) => {
+      const part = p as { type?: unknown; text?: unknown }
+      return (
+        typeof part === "object" &&
+        part !== null &&
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        part.text.trim() !== ""
+      )
+    }))
 
 // `SlotValue<typeof CopilotChatAssistantMessage>` requires the component's
 // namespace statics; Object.assign copies them onto the wrapper (spike finding).

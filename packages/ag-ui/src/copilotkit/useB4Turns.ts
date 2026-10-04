@@ -18,6 +18,8 @@ export interface UseB4TurnsResult {
    * the awaiting turn instead of guessing (`ReduceTurnsOptions.resuming`).
    */
   readonly markResuming: () => void
+  /** Forget a `markResuming()` whose resume never went out (the request failed). */
+  readonly clearResuming: () => void
 }
 
 /**
@@ -55,5 +57,8 @@ export function useB4Turns(
   const markResuming = useCallback(() => {
     resuming.current = true
   }, [])
-  return { turns, markResuming }
+  const clearResuming = useCallback(() => {
+    resuming.current = false
+  }, [])
+  return { turns, markResuming, clearResuming }
 }

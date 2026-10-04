@@ -332,7 +332,8 @@ whether live, replayed or restored. It owns:
 
 - `<B4Activity agent={agent} labels? hiddenTools? renderStep? />` registers
   the plan activity renderer, a wildcard tool renderer, and `useInterrupt`
-  (`renderInChat: false`).
+  (in-chat by default; `renderInChat={false}` returns the cards for a host
+  with its own transcript).
 - `useB4ChatSlots()` returns props spread onto `<CopilotChat>`:
   - `messageView.transformMessages` merges a turn's consecutive
     tool-call-only assistant messages into one, so one `TurnActivity`

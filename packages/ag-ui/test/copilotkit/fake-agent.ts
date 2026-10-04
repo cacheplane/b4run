@@ -6,6 +6,11 @@ type Handler = (payload: { event: BaseEvent }) => void
 export class FakeAgent {
   private handlers: Handler[] = []
 
+  /** How many subscriptions are live. */
+  get subscribers(): number {
+    return this.handlers.length
+  }
+
   subscribe(subscriber: { onEvent?: Handler }): { unsubscribe: () => void } {
     const handler = subscriber.onEvent
     if (handler) this.handlers.push(handler)

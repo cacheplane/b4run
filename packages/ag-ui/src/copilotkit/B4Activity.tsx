@@ -34,6 +34,12 @@ export interface B4ActivityProps {
   readonly renderStep?: StepRenderers | undefined
   /** The clock; defaults to `Date.now`. Inject in tests. */
   readonly now?: (() => number) | undefined
+  /**
+   * `true` (default): CopilotKit places the approval cards inside
+   * `<CopilotChat>`, after the messages. `false`: the cards render here,
+   * after `children`, for a host with its own transcript and no `<CopilotChat>`.
+   */
+  readonly renderInChat?: boolean | undefined
   readonly children?: ReactNode
 }
 
@@ -77,11 +83,12 @@ function approvalOf(interrupt: Interrupt): ApprovalView {
     typeof metadata.detail === "object" && metadata.detail !== null ? metadata.detail : {}
   ) as Record<string, unknown>
   const schema = interrupt.responseSchema as { enum?: unknown } | undefined
+  const message = interrupt.message ?? metadata.message
   return {
     interruptId: interrupt.id,
     kind: typeof metadata.kind === "string" ? metadata.kind : interrupt.reason,
     detail,
-    ...(typeof metadata.message === "string" ? { message: metadata.message } : {}),
+    ...(typeof message === "string" ? { message } : {}),
     ...(typeof metadata.grant === "string" ? { grant: metadata.grant } : {}),
     offersAlways: Array.isArray(schema?.enum) && schema.enum.includes("always"),
   }
@@ -92,7 +99,17 @@ const lowerFirst = (s: string): string => (s.length > 0 ? `${s[0]?.toLowerCase()
 /**
  * Drives a stock `<CopilotChat>` with B4.run's activity kit (spec §6.2): hides
  * CopilotKit's generic tool rows, renders one `ApprovalCard` per parked
- * interrupt in the chat, and provides the thread's turns to `useB4ChatSlots`.
+ * interrupt, and provides the thread's turns to `useB4ChatSlots`.
+ *
+ * CopilotKit has ONE interrupt slot: another `useInterrupt` with the default
+ * `renderInChat` anywhere in the same app replaces B4's cards. Wildcard
+ * `useRenderTool({ name: "*" })` registrations are last-wins and never
+ * removed, so do not also call `useDefaultRenderTool()`.
+ *
+ * Grants: CopilotKit's `resolve(payload)` carries only the decision, so the
+ * interrupt's `grant` (`ApprovalView.grant`, kept for the view) is never
+ * echoed on resume. The connector supports `approvals.grants: "off"` today;
+ * with `"optional"` or `"required"` the server answers the resume with 409.
  *
  * The card's title is "<agent> wants to <label>", where the label is the gated
  * step's running label with its first letter lower-cased, verbatim. Tool
@@ -106,15 +123,21 @@ export function B4Activity({
   hiddenTools,
   renderStep,
   now = Date.now,
+  renderInChat = true,
   children,
 }: B4ActivityProps): ReactElement {
   const { agent } = useAgent(agentId !== undefined ? { agentId } : {})
-  const { turns, markResuming } = useB4Turns(agent, { now, hiddenTools })
+  const { turns, markResuming, clearResuming } = useB4Turns(agent, { now, hiddenTools })
   useRenderTool({ name: "*", render: () => null, ...(agentId !== undefined ? { agentId } : {}) }, [
     agentId,
   ])
-  useInterrupt({
+  // CopilotKit memoises the interrupt element on `[pending, result, resolve,
+  // cancel]`: the cards are built from the turns and labels current when the
+  // interrupt arrived (the same event that parks the turn), and a later
+  // `labels` change does not re-render an open card.
+  const cards = useInterrupt<never, boolean>({
     ...(agentId !== undefined ? { agentId } : {}),
+    renderInChat,
     render: ({ interrupts, resolve, cancel }) => (
       <>
         {interrupts.map((interrupt) => {
@@ -135,8 +158,14 @@ export function B4Activity({
             : "continue"
           const onDecide = async (decision: ApprovalDecision) => {
             markResuming()
-            if (decision === "deny") await cancel(interrupt.id)
-            else await resolve(decision, interrupt.id)
+            try {
+              if (decision === "deny") await cancel(interrupt.id)
+              else await resolve(decision, interrupt.id)
+            } catch (cause) {
+              // No resume went out; the next RUN_STARTED must not glue onto this turn.
+              clearResuming()
+              throw cause
+            }
           }
           return (
             <ApprovalCard
@@ -155,7 +184,12 @@ export function B4Activity({
     () => ({ turns, labels, renderStep, now }),
     [turns, labels, renderStep, now],
   )
-  return <Context.Provider value={value}>{children}</Context.Provider>
+  return (
+    <Context.Provider value={value}>
+      {children}
+      {renderInChat ? null : (cards ?? null)}
+    </Context.Provider>
+  )
 }
 
 /** The turn that owns any of these tool call ids, searching nested turns. */
