@@ -2343,8 +2343,8 @@ const RUN: B4AgentStreamChunk[] = [
   { type: "reasoning", data: "search first" },
   { type: "tool_call", data: { id: "c1", name: "recall", input: { query: "agents" } } },
   { type: "step", data: { tool_call_id: "c1", status: "running", icon: "memory", label: "Recalling “agents”" } },
-  { type: "tool_result", data: { id: "c1", name: "recall", output: "(no memories found)" } },
   { type: "step", data: { tool_call_id: "c1", status: "completed", icon: "memory", label: "Checked memory" } },
+  { type: "tool_result", data: { id: "c1", name: "recall", output: "(no memories found)" } },
   { type: "tool_call", data: { id: "c2", name: "writeTodos", input: { todos: [] } } },
   { type: "plan_update", data: { tool_call_id: "c2", todos: [{ content: "search", status: "in_progress" }] } },
   { type: "tool_result", data: { id: "c2", name: "writeTodos", output: "ok" } },
@@ -2536,6 +2536,8 @@ Run: `pnpm --filter @b4run/ag-ui exec vitest run test/view/turns.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement `turns.ts`**
+
+The reducer must accept `completed` before or after `TOOL_CALL_RESULT`; neither event downgrades the other's label.
 
 `packages/ag-ui/src/view/turns.ts`:
 

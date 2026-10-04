@@ -510,7 +510,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
 | `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the error text the model receives (a `b4.step` event with `status: "failed"` follows it; see [Step events](#step-events)) |
-| `step` (from a tool's `display`) | `CUSTOM { name: "b4.step", value: { toolCallId, status: "running" \| "completed", icon?, label?, sources? } }`, before the call's result for `running` and after it for `completed` (`failed` comes from the `tool_result` row above); a child's step is tagged `subagentRunId` |
+| `step` (from a tool's `display`) | `CUSTOM { name: "b4.step", value: { toolCallId, status: "running" \| "completed", icon?, label?, sources? } }`, `running` as the call starts and `completed` as it returns, both before the call's `TOOL_CALL_RESULT` (`failed` comes from the `tool_result` row above); a child's step is tagged `subagentRunId` |
 | `tool_call` and `tool_result` for a `writeTodos` call whose plan activity was emitted | none (the activity is the whole presentation) |
 | `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` — `b4:plan:${runId}` for the root agent, `b4:plan:${call_id}` tagged `subagentRunId` for a subagent's plan |
 | `subagent.start` | `SUBAGENT_STARTED { subagentRunId: call_id, name, description?, parentToolCallId: call_id, parentSubagentRunId? }` |
@@ -552,9 +552,9 @@ Root events never carry `subagentRunId`, and `RUN_STARTED`, `RUN_FINISHED` and `
 
 ### Step events
 
-A tool that exports [`display`](/docs/tools#describing-a-call-to-people) tells the chat what each call means. The runtime emits one `CUSTOM` event named `b4.step` as the call starts (`status: "running"`, with `icon` and the running `label`) and one as it returns (`status: "completed"`, with the done `label` and any `sources`). A tool that threw gets a `status: "failed"` step after its `TOOL_CALL_RESULT`, whether or not it has a `display`. Every step names its call in `value.toolCallId`; a subagent's step carries `subagentRunId`.
+A tool that exports [`display`](/docs/tools#describing-a-call-to-people) tells the chat what each call means. The runtime emits one `CUSTOM` event named `b4.step` as the call starts (`status: "running"`, with `icon` and the running `label`) and one as it returns, just before its `TOOL_CALL_RESULT` (`status: "completed"`, with the done `label` and any `sources`). A tool that threw gets a `status: "failed"` step after its `TOOL_CALL_RESULT`, whether or not it has a `display`. Every step names its call in `value.toolCallId`; a subagent's step carries `subagentRunId`.
 
-B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload also rides on the checkpointed tool message as `additional_kwargs.b4_step`, so `GET /threads/:id/state` replays the labels for a restored thread.
+B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload is also stored on the checkpointed tool message as `additional_kwargs.b4_step` (for tools run through the converter; the `task` tool's message does not carry it yet), so `GET /threads/:id/state` replays the labels for a restored thread.
 
 ### Canonical orchestration presentation
 

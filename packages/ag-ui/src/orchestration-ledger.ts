@@ -46,6 +46,13 @@ export interface OrchestrationLedger {
     name: string,
     events: readonly AguiOutboundEvent[],
   ): AguiOutboundEvent[]
+  /**
+   * A root tool call's `b4.step`. It shares its call's fate: dropped when the
+   * call is suppressed, held with the call's frames while the call is an
+   * unresolved candidate (so it is dropped on suppression or emitted in order
+   * on release), and otherwise a plain passthrough.
+   */
+  onToolStep(toolCallId: string | undefined, event: AguiOutboundEvent): AguiOutboundEvent[]
   onPassthrough(event: AguiOutboundEvent): AguiOutboundEvent[]
   settle(interruptToolCallId?: string): AguiOutboundEvent[]
 }
@@ -230,6 +237,20 @@ export function createOrchestrationLedger(): OrchestrationLedger {
       // Resolving without touching `frames` is the fallback: they will emit.
       if (candidate !== undefined && candidate.name === name) unresolved.delete(id)
       return route(events)
+    },
+
+    onToolStep(toolCallId, event) {
+      if (toolCallId !== undefined && toolCallId !== "") {
+        if (suppressed.has(toolCallId)) return []
+        const candidate = unresolved.get(toolCallId)
+        if (candidate !== undefined) {
+          candidate.frames = [...candidate.frames, event]
+          hold([event])
+          if (!overBounds()) return []
+          return failOpen({ forgetSuppressed: false })
+        }
+      }
+      return route([event])
     },
 
     onPassthrough(event) {

@@ -3,10 +3,12 @@ import { z } from "zod"
 import { dispatchableSubagents } from "../../subagents/registry.js"
 import type { CapabilityMarker, PromptFragment } from "../types.js"
 
+const firstLine = (text: string) => text.split("\n", 1)[0] ?? text
+
 export const TASK_DISPLAY = {
   icon: "agent",
   running: (input: { subagent: string; input: string }) =>
-    `Asking ${input.subagent} to ${input.input}`,
+    `Asking ${input.subagent} to ${firstLine(input.input)}`,
   done: (input: { subagent: string }) => `Heard back from ${input.subagent}`,
 } satisfies ToolDisplay
 

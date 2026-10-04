@@ -186,11 +186,11 @@ For every tool call, the server evaluates the labels and emits an AG-UI
 ```
 
 - `running` goes out as the call starts (before `TOOL_CALL_RESULT`), with
-  `icon` and the running `label`; `completed` goes out after the result with
-  the done `label` and `sources`; `failed` follows an error result, for every
+  `icon` and the running `label`; `completed` goes out as the call returns, just before the result, with the done `label` and `sources`; `failed` follows an error result, for every
   tool, display or not. A subagent's step carries `subagentRunId`.
 - The done payload is stored on the checkpointed `ToolMessage` as
-  `additional_kwargs.b4_step`, so `GET /threads/:id/state` carries it for a
+  `additional_kwargs.b4_step` (for tools run through the converter; the `task`
+  tool's message does not carry it yet), so `GET /threads/:id/state` carries it for a
   restored thread. (The tool-call record is opt-in and pruned, so it is not
   the durable home.)
 - B4.run's vendor events share the `b4.` prefix (`b4.step`,

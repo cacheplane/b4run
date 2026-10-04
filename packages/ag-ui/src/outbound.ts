@@ -714,17 +714,20 @@ export async function* toAguiEvents(
         break
       }
       case "step": {
+        // No flushText, unlike `content_parts_dropped`: a step describes a call the text already yielded to.
         const step = asStepData(chunk.data)
         if (!step) break
-        yield* ledger.onPassthrough(
-          stepEvent(owner, {
-            toolCallId: step.tool_call_id,
-            status: step.status,
-            ...(step.icon !== undefined ? { icon: step.icon } : {}),
-            ...(step.label !== undefined ? { label: step.label } : {}),
-            ...(step.sources !== undefined ? { sources: step.sources } : {}),
-          }),
-        )
+        const event = stepEvent(owner, {
+          toolCallId: step.tool_call_id,
+          status: step.status,
+          ...(step.icon !== undefined ? { icon: step.icon } : {}),
+          ...(step.label !== undefined ? { label: step.label } : {}),
+          ...(step.sources !== undefined ? { sources: step.sources } : {}),
+        })
+        // A root step shares its call's fate in the ledger; a child's never waits.
+        yield* owner === undefined
+          ? ledger.onToolStep(step.tool_call_id, event)
+          : ledger.onPassthrough(event)
         break
       }
       case "plan_update": {

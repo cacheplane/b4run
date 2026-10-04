@@ -1,4 +1,4 @@
-import { isToolDisplayIcon, type ToolDisplayIcon } from "@b4run/sdk"
+import { isToolDisplayIcon, type ToolDisplayIcon, type ToolDisplaySource } from "@b4run/sdk"
 
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
@@ -104,7 +104,7 @@ export interface B4StepData {
   readonly status: "running" | "completed" | "failed"
   readonly icon?: ToolDisplayIcon | undefined
   readonly label?: string | undefined
-  readonly sources?: ReadonlyArray<{ readonly title: string; readonly href?: string }> | undefined
+  readonly sources?: ReadonlyArray<ToolDisplaySource> | undefined
 }
 
 const STEP_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed"])
@@ -116,7 +116,7 @@ export function asStepData(data: unknown): B4StepData | null {
   if (typeof data.status !== "string" || !STEP_STATUSES.has(data.status)) return null
   const sources = Array.isArray(data.sources)
     ? data.sources.flatMap((entry) => {
-        if (!isRecord(entry) || typeof entry.title !== "string") return []
+        if (!isRecord(entry) || typeof entry.title !== "string" || entry.title === "") return []
         return [
           { title: entry.title, ...(typeof entry.href === "string" ? { href: entry.href } : {}) },
         ]
@@ -126,7 +126,7 @@ export function asStepData(data: unknown): B4StepData | null {
     tool_call_id: data.tool_call_id,
     status: data.status as B4StepData["status"],
     ...(isToolDisplayIcon(data.icon) ? { icon: data.icon } : {}),
-    ...(typeof data.label === "string" ? { label: data.label } : {}),
+    ...(typeof data.label === "string" && data.label !== "" ? { label: data.label } : {}),
     ...(sources !== undefined ? { sources } : {}),
   }
 }

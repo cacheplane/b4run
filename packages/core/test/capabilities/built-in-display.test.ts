@@ -36,6 +36,9 @@ describe("built-in tool display", () => {
     expect(TASK_DISPLAY.running?.({ subagent: "researcher", input: "summarize ReAct" })).toBe(
       "Asking researcher to summarize ReAct",
     )
+    expect(TASK_DISPLAY.running?.({ subagent: "researcher", input: "one\ntwo" })).toBe(
+      "Asking researcher to one",
+    )
     expect(TASK_DISPLAY.done?.({ subagent: "researcher" })).toBe("Heard back from researcher")
     expect(TASK_DISPLAY.icon).toBe("agent")
   })

@@ -317,4 +317,38 @@ describe("createOrchestrationLedger", () => {
     expect(ledger.settle()).toEqual([])
     expect(ledger.settle("call_w")).toEqual([])
   })
+  describe("onToolStep", () => {
+    const step = (id: string): AguiOutboundEvent => ({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: id, status: "running" },
+    })
+
+    test("drops the step of a suppressed call", () => {
+      const ledger = createOrchestrationLedger()
+      ledger.onToolCall("call_w", "writeTodos", frames("call_w", "writeTodos"))
+      ledger.onActivity(activity("m"), { toolCallId: "call_w", toolName: "writeTodos" })
+      expect(ledger.onToolStep("call_w", step("call_w"))).toEqual([])
+    })
+
+    test("holds the step behind an unresolved candidate and releases it in order", () => {
+      const ledger = createOrchestrationLedger()
+      const callFrames = frames("call_w", "writeTodos")
+      expect(ledger.onToolCall("call_w", "writeTodos", callFrames)).toEqual([])
+      const held = step("call_w")
+      expect(ledger.onToolStep("call_w", held)).toEqual([])
+      const toolResult = result("call_w")
+      expect(ledger.onToolResult("call_w", "writeTodos", [toolResult])).toEqual([
+        ...callFrames,
+        held,
+        toolResult,
+      ])
+    })
+
+    test("passes an unrelated step straight through", () => {
+      const ledger = createOrchestrationLedger()
+      const other = step("call_x")
+      expect(ledger.onToolStep("call_x", other)).toEqual([other])
+    })
+  })
 })

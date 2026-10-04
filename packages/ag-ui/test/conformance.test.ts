@@ -102,14 +102,6 @@ const CANNED: B4AgentStreamChunk[] = [
     },
   },
   {
-    type: "tool_result",
-    data: {
-      id: ORDINARY_TOOL_CALL_ID,
-      name: "searchCorpus",
-      output: [{ path: "corpus/a.md" }],
-    },
-  },
-  {
     type: "step",
     data: {
       tool_call_id: ORDINARY_TOOL_CALL_ID,
@@ -117,6 +109,14 @@ const CANNED: B4AgentStreamChunk[] = [
       icon: "search",
       label: "Searched the corpus for “agents”",
       sources: [{ title: "corpus/a.md" }],
+    },
+  },
+  {
+    type: "tool_result",
+    data: {
+      id: ORDINARY_TOOL_CALL_ID,
+      name: "searchCorpus",
+      output: [{ path: "corpus/a.md" }],
     },
   },
   { type: "content_parts_dropped", data: DROPPED },
