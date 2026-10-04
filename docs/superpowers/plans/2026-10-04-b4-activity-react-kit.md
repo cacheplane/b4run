@@ -19,6 +19,7 @@
 - **Package facts:** `packages/ag-ui/vitest.config.ts` is `environment: "node"` — interaction tests opt in per file with `// @vitest-environment jsdom`. Existing React tests use `renderToStaticMarkup`. `jsdom@30.0.1`, `@testing-library/react@16.3.2` and `@testing-library/dom@10.4.1` are already in `pnpm-lock.yaml` (other packages), so adding them as devDependencies pulls nothing new. `axe-core` is not in the lockfile and is NOT added here (DOM-contract assertions cover §5.5; the Playwright keyboard pass is sub-project 2b, with the research example). `package.json#build` copies only `src/react/styles.css` to `dist/react/`; a new CSS file needs its own copy line. `./react` is registered `node-only`/`application` (not edge-safe) in `scripts/check-docs.mjs` and `apps/web/app/components/docs/api-reference.ts`; the new `./copilotkit` entry is registered the same way. Registry count pins: `ARTIFACT_REGISTRY.length` 51 → 52 and imports 47 → 48 (`check-docs.mjs` ≈ `:4251-4260`, `api-reference.test.ts:714`). The docs inventory (`scripts/lib/docs-api-inventory.mjs`) diffs the `### \`@b4run/ag-ui/<subpath>\`` export tables in `apps/web/content/docs/api/ag-ui.mdx` against the SOURCE barrel both ways: every export needs a row, every row needs an export. `scripts/readme-contracts.test.mjs:270-305` pins README headings `## React renderers`, the word `b4ActivityRenderers`, and `**Rung 1 — tokens.**` … `**Rung 4 — eject.**` — keep all of them in this sub-project. `packages/cli/test/api-reference-compatibility.test.ts` imports every `node-only` address under plain Node (`assertNodeImport`) and requires a browser-negative violation (`assertBrowserImportNegative`), which React's `process.env.NODE_ENV` provides.
 - **Consumers to keep compiling:** `examples/chat/web/app/page.tsx:2` imports `b4ActivityRenderers` from `./react` → `./copilotkit`. `examples/research/web` (and its byte-identical twin `packages/devkit/templates/app-research/web`, enforced by `packages/devkit/test/templates.test.ts:496-549`) imports only `planActivityContentSchema`, `PlanActivityCard`, `B4ActivityClassNames`, `SubagentPanel`, `useSubagentRuns`, `SubagentEventSource` — all retained here, so neither tree changes in this sub-project.
 - **Banned wording** (`scripts/check-docs.mjs` `forbiddenContent`, `test/security-dependencies/brand-migration.test.ts`): no retired product name (also not inside other words), no other chat product's class or token names, no "byte-identical", "auto-registered", `openai:gpt…`. Say "another framework" or "Angular"; the values in §5.1 are the host chat's, the names are B4's.
+- **Fixture helpers and `exactOptionalPropertyTypes`.** A test helper typed `Partial<ToolStep>` rejects an override like `{ settledAt: undefined }`. Where a fixture must clear an optional field, type the override loosely and cast once: `type Loose<T> = { [K in keyof T]?: T[K] | undefined }` and `const tool = (o: Loose<ToolStep> & { id: string; name: string }): ToolStep => ({ ...base, ...o } as ToolStep)`. The test code below uses this pattern wherever an `undefined` override appears.
 - **Commit trailer:** every commit ends with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Never bare `biome check --write` at the repo root; format from `packages/ag-ui` with `npx biome check --write --config-path ../config-biome/biome.json <paths>`.
 
 ## File structure
@@ -155,25 +156,11 @@ import {
 } from "../../src/react/activity/format.js"
 import type { ToolStep, TurnView } from "../../src/view/turns.js"
 
-const tool = (o: Partial<ToolStep> & { id: string; name: string }): ToolStep => ({
-  kind: "tool",
-  status: "done",
-  args: "",
-  startedAt: 0,
-  settledAt: 1000,
-  ...o,
-})
-const turn = (o: Partial<TurnView>): TurnView => ({
-  runId: "r",
-  status: "done",
-  startedAt: 0,
-  endedAt: 72_000,
-  steps: [],
-  text: "",
-  approvals: [],
-  failed: 0,
-  ...o,
-})
+type Loose<T> = { [K in keyof T]?: T[K] | undefined }
+const tool = (o: Loose<ToolStep> & { id: string; name: string }): ToolStep =>
+  ({ kind: "tool", status: "done", args: "", startedAt: 0, settledAt: 1000, ...o }) as ToolStep
+const turn = (o: Loose<TurnView>): TurnView =>
+  ({ runId: "r", status: "done", startedAt: 0, endedAt: 72_000, steps: [], text: "", approvals: [], failed: 0, ...o }) as TurnView
 
 describe("formatDuration", () => {
   test("uses <1s, Ns, Nm Ms and never claims <1s for unknown", () => {
@@ -904,14 +891,9 @@ import { describe, expect, test } from "vitest"
 import { Step } from "../../src/react/activity/Step.js"
 import type { ToolStep } from "../../src/view/turns.js"
 
-const tool = (o: Partial<ToolStep> & { id: string; name: string }): ToolStep => ({
-  kind: "tool",
-  status: "done",
-  args: '{"query":"a"}',
-  startedAt: 0,
-  settledAt: 1000,
-  ...o,
-})
+type Loose<T> = { [K in keyof T]?: T[K] | undefined }
+const tool = (o: Loose<ToolStep> & { id: string; name: string }): ToolStep =>
+  ({ kind: "tool", status: "done", args: '{"query":"a"}', startedAt: 0, settledAt: 1000, ...o }) as ToolStep
 const now = () => 10_000
 
 describe("Step", () => {
@@ -1344,8 +1326,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { TurnActivity } from "../../src/react/activity/TurnActivity.js"
 import type { ToolStep, TurnView } from "../../src/view/turns.js"
 
-const tool = (id: string, o: Partial<ToolStep> = {}): ToolStep => ({ kind: "tool", id, name: "searchCorpus", status: "done", args: "", startedAt: 0, settledAt: 500, label: "Searched the corpus", icon: "search", ...o })
-const turn = (o: Partial<TurnView>): TurnView => ({ runId: "r", status: "done", startedAt: 0, endedAt: 72_000, steps: [tool("a"), tool("b")], text: "", approvals: [], failed: 0, ...o })
+type Loose<T> = { [K in keyof T]?: T[K] | undefined }
+const tool = (id: string, o: Loose<ToolStep> = {}): ToolStep =>
+  ({ kind: "tool", id, name: "searchCorpus", status: "done", args: "", startedAt: 0, settledAt: 500, label: "Searched the corpus", icon: "search", ...o }) as ToolStep
+const turn = (o: Loose<TurnView>): TurnView =>
+  ({ runId: "r", status: "done", startedAt: 0, endedAt: 72_000, steps: [tool("a"), tool("b")], text: "", approvals: [], failed: 0, ...o }) as TurnView
 
 describe("TurnActivity", () => {
   beforeEach(() => vi.useFakeTimers())
@@ -1420,7 +1405,9 @@ import type { SubagentStep as View, ToolStep, TurnView } from "../../src/view/tu
 
 const tool = (id: string): ToolStep => ({ kind: "tool", id, name: "readDoc", status: "done", args: "", startedAt: 0, settledAt: 5, label: "Read a.md" })
 const nested = (status: TurnView["status"]): TurnView => ({ runId: "c", status, startedAt: 0, ...(status === "working" || status === "awaiting" ? {} : { endedAt: 9000 }), steps: [tool("n1"), tool("n2")], text: "", approvals: [], failed: 0 })
-const sub = (o: Partial<View>): View => ({ kind: "subagent", id: "s", name: "researcher", description: "summarize ReAct", status: "done", startedAt: 0, settledAt: 9000, turn: nested("done"), ...o })
+type Loose<T> = { [K in keyof T]?: T[K] | undefined }
+const sub = (o: Loose<View>): View =>
+  ({ kind: "subagent", id: "s", name: "researcher", description: "summarize ReAct", status: "done", startedAt: 0, settledAt: 9000, turn: nested("done"), ...o }) as View
 
 describe("SubagentStep", () => {
   test("running reads Asked researcher to …, is open, and nests the child's activity", () => {

@@ -2,9 +2,9 @@ import { isValidElement, type ReactElement, type ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE } from "../../src/activities.js"
+import { b4ActivityRenderers } from "../../src/copilotkit/renderers.js"
 import { ActivityChecklist } from "../../src/react/ActivityChecklist.js"
 import { PlanActivityCard } from "../../src/react/PlanActivityCard.js"
-import { b4ActivityRenderers } from "../../src/react/renderers.js"
 import { planActivityContentSchema } from "../../src/react/schemas.js"
 
 describe("plan schema", () => {

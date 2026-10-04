@@ -5,7 +5,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { build, type Metafile, type Plugin } from "esbuild"
+import { build, type Loader, type Metafile, type Plugin } from "esbuild"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import type tsTypes from "../../core/node_modules/typescript/lib/typescript.js"
 import type {
@@ -91,6 +91,7 @@ const GUARD_IDS = [
   "dependency-free-import-graph",
   "node-import-bundle",
   "browser-import-negative-control",
+  "browser-import-bundle",
   "node-operated-bundle",
   "browser-operated-negative-control",
 ] as const
@@ -101,7 +102,7 @@ interface ImportArtifact {
   readonly packageName: string
   readonly subpath: string
   readonly surfaceKind: "typescript-runtime"
-  readonly runtime: "edge-safe" | "node-only"
+  readonly runtime: "edge-safe" | "node-only" | "browser-only"
   readonly purity: "dependency-free" | "not-claimed"
   readonly guardIds: readonly GuardId[]
 }
@@ -228,6 +229,7 @@ async function bundleSpecifier(options: {
   readonly conditions: readonly string[]
   readonly define?: Record<string, string>
   readonly external?: readonly string[]
+  readonly loader?: Record<string, Loader>
   readonly metafile?: boolean
   readonly platform: "browser" | "neutral" | "node"
   readonly plugins?: readonly Plugin[]
@@ -240,6 +242,7 @@ async function bundleSpecifier(options: {
     ...(options.define ? { define: options.define } : {}),
     external: [...(options.external ?? [])],
     format: "esm",
+    ...(options.loader ? { loader: options.loader } : {}),
     logLevel: "silent",
     mainFields: ["module", "main"],
     metafile: options.metafile ?? false,
@@ -976,6 +979,23 @@ async function assertBrowserImportNegative(artifact: ImportArtifact): Promise<vo
   ).toBeGreaterThan(0)
 }
 
+// A browser-only surface needs a bundler: its graph imports CSS (CopilotKit's
+// `index.css`), which plain Node refuses with ERR_UNKNOWN_FILE_EXTENSION, so the
+// guard is that a browser bundle resolves. There is no Node import and no
+// negative control.
+async function assertBrowserImportBundle(artifact: ImportArtifact): Promise<void> {
+  await expect(
+    bundleSpecifier({
+      conditions: ["b4-static-provider-imports", "workerd", "worker", "browser", "import"],
+      external: FULL_GRAPH_EXTERNALS,
+      loader: { ".css": "empty" },
+      platform: "browser",
+      specifier: packageSpecifier(artifact),
+    }),
+    addressFor(artifact),
+  ).resolves.toBeDefined()
+}
+
 async function assertNodeOperated(artifact: OperatedArtifact): Promise<void> {
   const target = await operatedTarget(artifact)
   const source = await readFile(target, "utf8")
@@ -1104,6 +1124,7 @@ const GUARD_HANDLERS: Record<GuardId, GuardHandler> = {
   "node-import-bundle": (artifact) => assertNodeImport(artifact as ImportArtifact),
   "browser-import-negative-control": (artifact) =>
     assertBrowserImportNegative(artifact as ImportArtifact),
+  "browser-import-bundle": (artifact) => assertBrowserImportBundle(artifact as ImportArtifact),
   "node-operated-bundle": (artifact) => assertNodeOperated(artifact as OperatedArtifact),
   "browser-operated-negative-control": (artifact) =>
     assertBrowserOperatedNegative(artifact as OperatedArtifact),
@@ -1491,6 +1512,22 @@ describe("API reference compatibility guards", () => {
         .map((input) => resolve(packageFixtureRoot, input))
         .filter((input) => !input.startsWith(workspaceRootDirectory)),
     ).toEqual([])
+  })
+
+  it("pins the AG-UI React kit and CopilotKit connector runtime boundaries", async () => {
+    const artifacts = await loadRuntimeArtifacts()
+    const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
+
+    expect(byAddress.get("import:@b4run/ag-ui:./react")).toMatchObject({
+      runtime: "node-only",
+      purity: "not-claimed",
+      guardIds: ["node-import-bundle", "browser-import-negative-control"],
+    })
+    expect(byAddress.get("import:@b4run/ag-ui:./copilotkit")).toMatchObject({
+      runtime: "browser-only",
+      purity: "not-claimed",
+      guardIds: ["browser-import-bundle"],
+    })
   })
 
   it("pins the Sandbox and SQLite Storage Node runtime boundaries", async () => {

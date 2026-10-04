@@ -1,275 +1,601 @@
 /*
- * B4.run activity cards — default appearance.
+ * B4.run activity components — default appearance.
  *
  * Import once in your app:
  *   import "@b4run/ag-ui/react/styles.css"
  *
- * Rung 1 of the customization ladder: override any token below in your own CSS
- * to restyle without touching markup. Every selector here is scoped to the
- * `b4-activity` prefix, so this sheet cannot affect the rest of your app.
+ * Every rule sits in `@layer b4-activity`, so any unlayered app CSS wins
+ * without specificity games. Override the `--b4-activity-*` tokens in your own
+ * `:root` to retheme; the three token blocks are `:where()`-wrapped (specificity
+ * 0,0,0) so a plain `:root { --b4-activity-text: … }` always wins.
  *
- * All three token blocks are wrapped in `:where()`, which zeroes their
- * specificity to (0,0,0). A consumer's own plain `:root { --b4-activity-*: ... }`
- * therefore wins in every theme and regardless of which sheet the browser parses
- * first — without it, the two dark blocks sit at (0,2,0) and rung 1 is only true
- * in light mode.
- *
- * All three or none. Wrapping only the dark blocks is the tempting edit and it
- * silently breaks dark mode: the light block would then be the most specific of
- * the three and render a light card under a dark system theme. Internal
- * precedence is preserved because the three stay equal-specificity, and source
- * order already runs light -> media-dark -> explicit-dark.
+ * Dark follows the HOST, not the OS: `.dark` or `[data-theme="dark"]` on an
+ * ancestor. `data-b4-theme="light" | "dark" | "auto"` on an ancestor overrides;
+ * `auto` follows `prefers-color-scheme`.
  */
-
-:where(:root) {
-  --b4-activity-surface: #ffffff;
-  --b4-activity-border: #e4e4e7;
-  --b4-activity-text: #18181b;
-  --b4-activity-muted: #71717a;
-  --b4-activity-running: #2563eb;
-  --b4-activity-complete: #16a34a;
-  --b4-activity-failed: #9f1239;
-  --b4-activity-radius: 10px;
-  --b4-activity-gap: 8px;
-  --b4-activity-font-size: 13px;
-  /*
-   * Geometry and weight are palette-independent, so they also live only here:
-   * the dark blocks below change colors and nothing else.
-   */
-  --b4-activity-margin: 6px 0;
-  --b4-activity-padding: 8px 10px;
-  --b4-activity-header-weight: 600;
-}
-
-@media (prefers-color-scheme: dark) {
-  :where(:root:not([data-b4-theme="light"])) {
-    --b4-activity-surface: #141519;
-    --b4-activity-border: #26272d;
-    --b4-activity-text: #e4e6eb;
-    --b4-activity-muted: #8b909c;
-    --b4-activity-running: #60a5fa;
-    --b4-activity-complete: #4ade80;
-    --b4-activity-failed: #fb7185;
+@layer b4-activity {
+  :where(:root) {
+    --b4-activity-surface: #fff;
+    --b4-activity-surface-alt: rgb(249 249 249);
+    --b4-activity-border: rgb(229 229 229);
+    --b4-activity-text: rgb(28 28 28);
+    --b4-activity-muted: rgb(115 115 115);
+    --b4-activity-running: #b45309;
+    --b4-activity-running-bg: #fffbeb;
+    --b4-activity-complete: #15803d;
+    --b4-activity-failed: #b91c1c;
+    --b4-activity-failed-bg: #fef2f2;
+    --b4-activity-primary: rgb(28 28 28);
+    --b4-activity-on-primary: #fff;
+    --b4-activity-radius: 8px;
+    --b4-activity-radius-card: 16px;
+    --b4-activity-radius-pill: 9999px;
+    --b4-activity-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* Legacy card geometry (removed with the legacy cards). */
+    --b4-activity-gap: 8px;
+    --b4-activity-font-size: 13px;
+    --b4-activity-margin: 6px 0;
+    --b4-activity-padding: 8px 10px;
+    --b4-activity-header-weight: 600;
   }
-}
 
-:where(:root[data-b4-theme="dark"]) {
-  --b4-activity-surface: #141519;
-  --b4-activity-border: #26272d;
-  --b4-activity-text: #e4e6eb;
-  --b4-activity-muted: #8b909c;
-  --b4-activity-running: #60a5fa;
-  --b4-activity-complete: #4ade80;
-  --b4-activity-failed: #fb7185;
-}
+  @media (prefers-color-scheme: dark) {
+    :where(:root[data-b4-theme="auto"]) {
+      --b4-activity-surface: rgb(17 17 17);
+      --b4-activity-surface-alt: rgb(44 44 44);
+      --b4-activity-border: rgb(45 45 45);
+      --b4-activity-text: rgb(245 245 245);
+      --b4-activity-muted: rgb(160 160 160);
+      --b4-activity-running: #fbbf24;
+      --b4-activity-running-bg: rgb(45 35 21);
+      --b4-activity-complete: #4ade80;
+      --b4-activity-failed: #fca5a5;
+      --b4-activity-failed-bg: rgb(45 21 21);
+      --b4-activity-primary: #fff;
+      --b4-activity-on-primary: rgb(28 28 28);
+    }
+  }
 
-.b4-activity {
-  background: var(--b4-activity-surface);
-  border: 1px solid var(--b4-activity-border);
-  border-radius: var(--b4-activity-radius);
-  color: var(--b4-activity-text);
-  font-size: var(--b4-activity-font-size);
-  margin: var(--b4-activity-margin);
-  padding: var(--b4-activity-padding);
-}
+  :where(:root[data-b4-theme="dark"]),
+  :where(.dark:not([data-b4-theme="light"])),
+  :where([data-theme="dark"]:not([data-b4-theme="light"])) {
+    --b4-activity-surface: rgb(17 17 17);
+    --b4-activity-surface-alt: rgb(44 44 44);
+    --b4-activity-border: rgb(45 45 45);
+    --b4-activity-text: rgb(245 245 245);
+    --b4-activity-muted: rgb(160 160 160);
+    --b4-activity-running: #fbbf24;
+    --b4-activity-running-bg: rgb(45 35 21);
+    --b4-activity-complete: #4ade80;
+    --b4-activity-failed: #fca5a5;
+    --b4-activity-failed-bg: rgb(45 21 21);
+    --b4-activity-primary: #fff;
+    --b4-activity-on-primary: rgb(28 28 28);
+  }
 
-.b4-activity__header {
-  cursor: pointer;
-  font-weight: var(--b4-activity-header-weight);
-  list-style: none;
-}
+  /* ---- Turn ---------------------------------------------------------- */
+  .b4-turn {
+    color: var(--b4-activity-text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .b4-turn__summary,
+  .b4-step__line {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 26px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--b4-activity-muted);
+    cursor: pointer;
+    text-align: left;
+  }
+  .b4-turn__text {
+    color: var(--b4-activity-muted);
+  }
+  .b4-turn__text[data-live="true"] {
+    animation: b4-shimmer 2.2s linear infinite;
+  }
+  .b4-turn[data-state="working"] .b4-turn__text[data-live="true"] {
+    background: linear-gradient(
+      90deg,
+      rgb(110 110 110) 0%,
+      rgb(205 205 205) 50%,
+      rgb(110 110 110) 100%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  @keyframes b4-shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+  .b4-turn__time,
+  .b4-step__meta {
+    color: var(--b4-activity-muted);
+    opacity: 0.75;
+  }
+  .b4-chevron {
+    flex: none;
+    color: var(--b4-activity-muted);
+    transition: transform 200ms;
+  }
+  [aria-expanded="true"] > .b4-chevron {
+    transform: rotate(90deg);
+  }
+  .b4-turn__steps {
+    list-style: none;
+    margin: 6px 0 2px 5px;
+    padding: 0 0 0 18px;
+    border-left: 1px solid var(--b4-activity-border);
+  }
 
-.b4-activity__header::-webkit-details-marker {
-  display: none;
-}
+  /* ---- Step ---------------------------------------------------------- */
+  .b4-step {
+    padding: 5px 0;
+  }
+  .b4-step__line {
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--b4-activity-text);
+    opacity: 0.8;
+  }
+  .b4-step__line--static {
+    cursor: default;
+  }
+  .b4-step[data-state="running"] > .b4-step__line {
+    opacity: 1;
+  }
+  .b4-step[data-state="pending"] > .b4-step__line {
+    opacity: 0.6;
+  }
+  .b4-step__icon {
+    flex: none;
+    margin-top: 3px;
+    color: var(--b4-activity-muted);
+  }
+  .b4-step[data-state="awaiting"] > .b4-step__line .b4-step__icon {
+    color: var(--b4-activity-running);
+  }
+  .b4-step[data-state="failed"] > .b4-step__line {
+    color: var(--b4-activity-failed);
+    opacity: 1;
+  }
+  .b4-step[data-state="running"] > .b4-step__line .b4-step__icon {
+    color: var(--b4-activity-text);
+  }
+  .b4-step__text b {
+    font-weight: 500;
+    color: var(--b4-activity-text);
+  }
+  .b4-step__detail,
+  .b4-step__children {
+    margin: 6px 0 0 26px;
+  }
+  .b4-step__detail {
+    max-height: 250px;
+    overflow: auto;
+    font-size: 12.5px;
+  }
+  .b4-step__detail-label {
+    margin: 6px 0 2px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--b4-activity-muted);
+  }
+  .b4-step__detail-empty,
+  .b4-step__reasoning {
+    margin: 0;
+    color: var(--b4-activity-muted);
+    white-space: pre-wrap;
+  }
+  .b4-step__code {
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--b4-activity-surface-alt);
+    font-family: var(--b4-activity-font-mono);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .b4-step[data-state="failed"] .b4-step__code {
+    background: var(--b4-activity-failed-bg);
+    color: var(--b4-activity-failed);
+  }
+  .b4-step__children > .b4-turn {
+    border-radius: 12px;
+    background: var(--b4-activity-surface-alt);
+    padding: 8px 12px;
+    font-size: 13.5px;
+  }
+  .b4-step__children > .b4-turn > .b4-turn__steps {
+    margin-left: 4px;
+  }
 
-/*
- * A real element, not a `::before`. A pseudo-element has no `classNames` key, so
- * the disclosure marker was the one visible part of the card rung 2 could not
- * reach, and Chrome exposes generated content to the accessibility tree, which
- * put the glyph inside the summary's accessible name. A span carrying
- * `aria-hidden` fixes both.
- *
- * Tailwind's `before:` variants were never a substitute: the variant always
- * emits `content: var(--tw-content)`, whose initial value is empty, so a class
- * written to merely recolor the marker deletes it instead.
- */
-.b4-activity__marker {
-  color: var(--b4-activity-muted);
-  display: inline-block;
-  margin-right: var(--b4-activity-gap);
-  transition: transform 0.1s ease-in-out;
-}
+  /* ---- Sources, checklist ------------------------------------------- */
+  .b4-step__sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    margin: 6px 0 0 26px;
+    padding: 0;
+  }
+  .b4-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 10px;
+    border: 1px solid var(--b4-activity-border);
+    border-radius: var(--b4-activity-radius-pill);
+    background: var(--b4-activity-surface);
+    color: var(--b4-activity-text);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .b4-chip--more {
+    color: var(--b4-activity-muted);
+  }
+  .b4-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 13.5px;
+  }
+  .b4-checklist__item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .b4-checklist__box {
+    flex: none;
+    color: var(--b4-activity-muted);
+  }
+  .b4-checklist__item[data-status="completed"] .b4-checklist__box,
+  .b4-checklist__item[data-status="in_progress"] .b4-checklist__box {
+    color: var(--b4-activity-primary);
+  }
+  .b4-checklist__item[data-status="completed"] .b4-checklist__text {
+    color: var(--b4-activity-muted);
+    text-decoration: line-through;
+  }
+  .b4-checklist__item[data-status="pending"] .b4-checklist__text {
+    color: var(--b4-activity-muted);
+  }
 
-.b4-activity[open] > .b4-activity__header > .b4-activity__marker {
-  transform: rotate(90deg);
-}
+  /* ---- Approval card ------------------------------------------------- */
+  .b4-approval {
+    margin: 12px 0 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--b4-activity-border);
+    border-radius: var(--b4-activity-radius-card);
+    background: var(--b4-activity-surface);
+    color: var(--b4-activity-text);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 5%);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .b4-approval__title {
+    margin: 0 0 4px;
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+  .b4-approval__reason {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--b4-activity-muted);
+  }
+  .b4-approval__payload {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--b4-activity-surface-alt);
+    font-family: var(--b4-activity-font-mono);
+    font-size: 12.5px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .b4-approval__actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .b4-approval__button {
+    padding: 6px 15px;
+    border: 1px solid transparent;
+    border-radius: var(--b4-activity-radius-pill);
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--b4-activity-text);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .b4-approval__button:disabled {
+    cursor: progress;
+    opacity: 0.6;
+  }
+  .b4-approval__button--primary {
+    background: var(--b4-activity-primary);
+    color: var(--b4-activity-on-primary);
+  }
+  .b4-approval__button--secondary {
+    border-color: var(--b4-activity-border);
+  }
+  .b4-approval__button--text {
+    margin-left: auto;
+    color: var(--b4-activity-muted);
+  }
+  .b4-approval__scope {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--b4-activity-muted);
+  }
+  .b4-approval__error {
+    margin: 8px 0 0;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: var(--b4-activity-failed-bg);
+    color: var(--b4-activity-failed);
+    font-size: 13px;
+  }
 
-.b4-activity__title {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
+  /* ---- Accessibility and motion -------------------------------------- */
+  .b4-turn__summary:focus-visible,
+  .b4-step__line:focus-visible,
+  .b4-approval__button:focus-visible {
+    outline: 2px solid var(--b4-activity-primary);
+    outline-offset: 2px;
+    border-radius: var(--b4-activity-radius);
+  }
+  .b4-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* Matches the working-state gradient's specificity (0,4,0), or `background: none`
+       loses and the text stays a static gradient with `color: transparent`. */
+    .b4-turn__text[data-live="true"],
+    .b4-turn[data-state="working"] .b4-turn__text[data-live="true"] {
+      animation: none;
+      background: none;
+      color: var(--b4-activity-text);
+    }
+    .b4-chevron {
+      transition: none;
+    }
+  }
 
-.b4-activity__meta {
-  color: var(--b4-activity-muted);
-  font-weight: 400;
-}
+  /* ---- Legacy cards (PlanActivityCard, ActivityChecklist, SubagentPanel) —
+     removed in sub-project 2b. Rules below are today's, moved into the layer. */
+  .b4-activity {
+    background: var(--b4-activity-surface);
+    border: 1px solid var(--b4-activity-border);
+    border-radius: var(--b4-activity-radius);
+    color: var(--b4-activity-text);
+    font-size: var(--b4-activity-font-size);
+    margin: var(--b4-activity-margin);
+    padding: var(--b4-activity-padding);
+  }
 
-.b4-activity__badge {
+  .b4-activity__header {
+    cursor: pointer;
+    font-weight: var(--b4-activity-header-weight);
+    list-style: none;
+  }
+
+  .b4-activity__header::-webkit-details-marker {
+    display: none;
+  }
+
   /*
-   * The default lives HERE, as a fallback, not as a `:root` declaration.
-   * A custom property whose value contains `var()` is substituted at
-   * computed-value time on the element that DECLARES it, so
-   * `--b4-activity-badge-bg: var(--b4-activity-border)` on `:root` would
-   * freeze the badge to the root's border colour. A subtree that re-points
-   * `--b4-activity-border` would then recolour the card and leave the chip
-   * behind. The fallback form resolves on the badge itself, so the chip
-   * follows whichever border colour is in force wherever it renders.
+   * A real element, not a `::before`. A pseudo-element has no `classNames` key, so
+   * the disclosure marker was the one visible part of the card rung 2 could not
+   * reach, and Chrome exposes generated content to the accessibility tree, which
+   * put the glyph inside the summary's accessible name. A span carrying
+   * `aria-hidden` fixes both.
+   *
+   * Tailwind's `before:` variants were never a substitute: the variant always
+   * emits `content: var(--tw-content)`, whose initial value is empty, so a class
+   * written to merely recolor the marker deletes it instead.
    */
-  background: var(--b4-activity-badge-bg, var(--b4-activity-border));
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 400;
-  margin-left: 6px;
-  padding: 1px 5px;
-}
+  .b4-activity__marker {
+    color: var(--b4-activity-muted);
+    display: inline-block;
+    margin-right: var(--b4-activity-gap);
+    transition: transform 0.1s ease-in-out;
+  }
 
-/*
- * Two classes, one rule. `__section` is a card's labelled region; `__checklist`
- * is `ActivityChecklist`'s own wrapper. They shared a class until the subagent
- * card started nesting one inside the other, at which point a consumer's plain
- * `.b4-activity__section` rule matched three elements, two of them nested.
- */
-.b4-activity__section,
-.b4-activity__checklist {
-  margin-top: var(--b4-activity-gap);
-}
+  .b4-activity[open] > .b4-activity__header > .b4-activity__marker {
+    transform: rotate(90deg);
+  }
 
-.b4-activity__section-label {
-  color: var(--b4-activity-muted);
-  font-size: 11px;
-  font-weight: 600;
-}
+  .b4-activity__title {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 
-.b4-activity__list {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-}
+  .b4-activity__meta {
+    color: var(--b4-activity-muted);
+    font-weight: 400;
+  }
 
-/*
- * `flex-wrap` is load-bearing. The subagent tool row appends its args and
- * result as flex siblings of the label, and a long result's max-content basis
- * made the row's free space negative — so the label's `flex: 1` (basis 0) had
- * nothing to grow into and laid out at zero width, which Playwright reports as
- * hidden. Wrapping puts args/result on their own full-width lines (below), so
- * the label line always has free space.
- */
-.b4-activity__item {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--b4-activity-gap);
-  margin-top: 4px;
-}
+  .b4-activity__badge {
+    /*
+     * The default lives HERE, as a fallback, not as a `:root` declaration.
+     * A custom property whose value contains `var()` is substituted at
+     * computed-value time on the element that DECLARES it, so
+     * `--b4-activity-badge-bg: var(--b4-activity-border)` on `:root` would
+     * freeze the badge to the root's border colour. A subtree that re-points
+     * `--b4-activity-border` would then recolour the card and leave the chip
+     * behind. The fallback form resolves on the badge itself, so the chip
+     * follows whichever border colour is in force wherever it renders.
+     */
+    background: var(--b4-activity-badge-bg, var(--b4-activity-border));
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 400;
+    margin-left: 6px;
+    padding: 1px 5px;
+  }
 
-.b4-activity__item-glyph {
-  color: var(--b4-activity-muted);
-}
+  /*
+   * Two classes, one rule. `__section` is a card's labelled region; `__checklist`
+   * is `ActivityChecklist`'s own wrapper. They shared a class until the subagent
+   * card started nesting one inside the other, at which point a consumer's plain
+   * `.b4-activity__section` rule matched three elements, two of them nested.
+   */
+  .b4-activity__section,
+  .b4-activity__checklist {
+    margin-top: var(--b4-activity-gap);
+  }
 
-.b4-activity__item--running .b4-activity__item-glyph {
-  color: var(--b4-activity-running);
-}
+  .b4-activity__section-label {
+    color: var(--b4-activity-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
 
-.b4-activity__item--completed .b4-activity__item-glyph {
-  color: var(--b4-activity-complete);
-}
+  .b4-activity__list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+  }
 
-.b4-activity__item--incomplete .b4-activity__item-glyph {
-  color: var(--b4-activity-failed);
-}
+  /*
+   * `flex-wrap` is load-bearing. The subagent tool row appends its args and
+   * result as flex siblings of the label, and a long result's max-content basis
+   * made the row's free space negative — so the label's `flex: 1` (basis 0) had
+   * nothing to grow into and laid out at zero width, which Playwright reports as
+   * hidden. Wrapping puts args/result on their own full-width lines (below), so
+   * the label line always has free space.
+   */
+  .b4-activity__item {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--b4-activity-gap);
+    margin-top: 4px;
+  }
 
-.b4-activity__item--in_progress .b4-activity__item-glyph {
-  color: var(--b4-activity-running);
-}
+  .b4-activity__item-glyph {
+    color: var(--b4-activity-muted);
+  }
 
-.b4-activity__item--pending .b4-activity__item-glyph {
-  color: var(--b4-activity-muted);
-}
+  .b4-activity__item--running .b4-activity__item-glyph {
+    color: var(--b4-activity-running);
+  }
 
-.b4-activity__item-label {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
+  .b4-activity__item--completed .b4-activity__item-glyph {
+    color: var(--b4-activity-complete);
+  }
 
-.b4-activity__item-status {
-  color: var(--b4-activity-muted);
-  font-size: 11px;
-}
+  .b4-activity__item--incomplete .b4-activity__item-glyph {
+    color: var(--b4-activity-failed);
+  }
 
-.b4-activity__overflow {
-  color: var(--b4-activity-muted);
-  font-size: 12px;
-  margin-top: 5px;
-}
+  .b4-activity__item--in_progress .b4-activity__item-glyph {
+    color: var(--b4-activity-running);
+  }
 
-.b4-activity__error {
-  color: var(--b4-activity-failed);
-  margin-top: var(--b4-activity-gap);
-  overflow-wrap: anywhere;
-}
+  .b4-activity__item--pending .b4-activity__item-glyph {
+    color: var(--b4-activity-muted);
+  }
 
-/* The subagent tree (`SubagentPanel`): nested cards, the child's prose and
-   reasoning, and a tool row's streamed arguments and result. */
-.b4-activity__children {
-  display: flex;
-  flex-direction: column;
-  gap: var(--b4-activity-gap);
-  margin-top: var(--b4-activity-gap);
-}
+  .b4-activity__item-label {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 
-.b4-activity__children--root {
-  margin-top: 0;
-}
+  .b4-activity__item-status {
+    color: var(--b4-activity-muted);
+    font-size: 11px;
+  }
 
-.b4-activity__description {
-  color: var(--b4-activity-muted);
-  margin: 4px 0 0;
-}
+  .b4-activity__overflow {
+    color: var(--b4-activity-muted);
+    font-size: 12px;
+    margin-top: 5px;
+  }
 
-.b4-activity__reasoning {
-  color: var(--b4-activity-muted);
-  font-style: italic;
-  margin: 4px 0 0;
-  white-space: pre-wrap;
-}
+  .b4-activity__error {
+    color: var(--b4-activity-failed);
+    margin-top: var(--b4-activity-gap);
+    overflow-wrap: anywhere;
+  }
 
-.b4-activity__text {
-  margin: var(--b4-activity-gap) 0 0;
-  white-space: pre-wrap;
-}
+  /* The subagent tree (`SubagentPanel`): nested cards, the child's prose and
+     reasoning, and a tool row's streamed arguments and result. */
+  .b4-activity__children {
+    display: flex;
+    flex-direction: column;
+    gap: var(--b4-activity-gap);
+    margin-top: var(--b4-activity-gap);
+  }
 
-.b4-activity__result {
-  color: var(--b4-activity-complete);
-  margin: var(--b4-activity-gap) 0 0;
-  white-space: pre-wrap;
-}
+  .b4-activity__children--root {
+    margin-top: 0;
+  }
 
-.b4-activity--failed > .b4-activity__header {
-  color: var(--b4-activity-failed);
-}
+  .b4-activity__description {
+    color: var(--b4-activity-muted);
+    margin: 4px 0 0;
+  }
 
-.b4-activity--suspended > .b4-activity__header {
-  color: var(--b4-activity-running);
-}
+  .b4-activity__reasoning {
+    color: var(--b4-activity-muted);
+    font-style: italic;
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+  }
 
-.b4-activity__item-args,
-.b4-activity__item-result {
-  color: var(--b4-activity-muted);
-  display: block;
-  flex-basis: 100%;
-  font-size: 0.92em;
-  margin-top: 2px;
-  overflow-wrap: anywhere;
+  .b4-activity__text {
+    margin: var(--b4-activity-gap) 0 0;
+    white-space: pre-wrap;
+  }
+
+  .b4-activity__result {
+    color: var(--b4-activity-complete);
+    margin: var(--b4-activity-gap) 0 0;
+    white-space: pre-wrap;
+  }
+
+  .b4-activity--failed > .b4-activity__header {
+    color: var(--b4-activity-failed);
+  }
+
+  .b4-activity--suspended > .b4-activity__header {
+    color: var(--b4-activity-running);
+  }
+
+  .b4-activity__item-args,
+  .b4-activity__item-result {
+    color: var(--b4-activity-muted);
+    display: block;
+    flex-basis: 100%;
+    font-size: 0.92em;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+  }
 }

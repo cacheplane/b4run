@@ -1,0 +1,11 @@
+/**
+ * `@b4run/ag-ui/copilotkit` — the CopilotKit (React) connector for B4.run's
+ * activity kit. `react` and `@copilotkit/react-core` (>=1.76, the v2 API) are
+ * optional peer dependencies of `@b4run/ag-ui`; this is the only entry that
+ * imports CopilotKit.
+ */
+export { B4Activity, type B4ActivityProps } from "./B4Activity.js"
+export { mergeTurnMessages } from "./messages.js"
+export { b4ActivityRenderers, b4PlanActivityRenderer } from "./renderers.js"
+export { type B4ChatSlots, useB4ChatSlots } from "./useB4ChatSlots.js"
+export { type UseB4TurnsOptions, type UseB4TurnsResult, useB4Turns } from "./useB4Turns.js"

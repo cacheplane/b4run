@@ -1,7 +1,7 @@
 import type { ReactActivityMessageRenderer } from "@copilotkit/react-core/v2"
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
-import { PlanActivityCard } from "./PlanActivityCard.js"
-import { planActivityContentSchema } from "./schemas.js"
+import { PlanActivityCard } from "../react/PlanActivityCard.js"
+import { planActivityContentSchema } from "../react/schemas.js"
 
 export const b4PlanActivityRenderer = {
   activityType: B4_PLAN_ACTIVITY_TYPE,

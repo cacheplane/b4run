@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-04T00:57:57.000Z",
-      "sourceDigest": "01c5d46b3208c923d5bb11b370a0ea6176e8af97b5bca256fe4797b08165e222",
-      "recordDigest": "ef598b4716ccb5620a00baed63b4952b981b7f7eec98934b23bf65d00f40ec85"
+      "lastModified": "2026-10-04T04:09:03.000Z",
+      "sourceDigest": "bd0440c69a6345d71b33f03558d5f65cd1d3ae4b4edc4811ce989ccd4a34e4bb",
+      "recordDigest": "4ce597ff3215510bf8260b270460bf28f7e6d1721b2103777c1cbc361a8a17fc"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -52,14 +52,14 @@
       "recordDigest": "9a2f56470ff04b657f58469496322427159324ac53712215c98689d69f8a2926"
     },
     "/docs/api": {
-      "lastModified": "2026-10-04T00:57:57.000Z",
-      "sourceDigest": "c57bfc8dff8430ea0607815e9002093ea44d13461e20138a927429f7b6b8e1b8",
-      "recordDigest": "24f3ce05d01d9db009cf798debe8f2aa616be0749297d94d8059671e12c55642"
+      "lastModified": "2026-10-04T04:09:03.000Z",
+      "sourceDigest": "1728c6896535f006e20bfcb622320eeda061a295f9cb1ea578e09124e6757d79",
+      "recordDigest": "7e39e81b651afa5340678c1084553f25db0ec28ecac96c68bdba8bcdb662b9f9"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-04T01:10:48.000Z",
-      "sourceDigest": "4ccda0aca8ce1e2224eb845c14d10fc935823d3b217819f3304d56e5a2fd9d7d",
-      "recordDigest": "9141d69f6bd00657d60bfb5130fa5211d68e2e2ed39a18b74f3e8c1f22366ee3"
+      "lastModified": "2026-10-04T04:24:36.000Z",
+      "sourceDigest": "c22ddf7dd0ec517cacae3b310cf6a9dfab988f90fc00848bdd3416bedc1b9d6c",
+      "recordDigest": "408b7daabb22c80a86a7e4d12a392890dc01890bf09c401065b53d139dce6467"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:46:18.000Z",
@@ -427,9 +427,9 @@
       "recordDigest": "ccb0cf59b18052e3f54bf58237543c04718b16585241444407531150319d36f0"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-10-03T21:12:13.000Z",
-      "sourceDigest": "3eb8fe8103d4911f75c191efc3ba7eeca2c5ff69b5bb6b3399b524495ec2faae",
-      "recordDigest": "6df47b2541598bd2a0fa50183336ee671dd6f052d5ae3fedc4737ac952345d08"
+      "lastModified": "2026-10-04T04:24:36.000Z",
+      "sourceDigest": "f4d868cc0e98d81c4b28d51c492a717de4da32a4914eda0ded10d5dfa5689cc4",
+      "recordDigest": "11f47aa2765176efaccf67fb0809853452bd5ee064ee021195345b78b990307c"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-24T01:19:36.000Z",
