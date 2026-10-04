@@ -4,7 +4,13 @@ import type { AddressInfo } from "node:net"
 import { isRuntimeOwnedPath } from "../runtime-routes.js"
 import { createRuntimeRequestListener, type StartRuntimeServerOptions } from "./runtime-server.js"
 
-/** A Node request handler, i.e. what `createServer` takes. */
+/**
+ * A Node request handler, i.e. what `createServer` takes.
+ *
+ * The fallback may receive a `request.url` that does not parse as a URL (for
+ * example `//`), since the runtime split degrades to the raw target rather
+ * than rejecting it.
+ */
 export type ServeFallback = (
   request: IncomingMessage,
   response: ServerResponse,

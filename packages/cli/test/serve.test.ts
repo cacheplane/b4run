@@ -1,3 +1,4 @@
+import { once } from "node:events"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { Agent, get } from "node:http"
@@ -198,9 +199,21 @@ describe("serve guard", () => {
 
   test("a client that disconnects during an async guard is never dispatched", async () => {
     const paths: string[] = []
+    let entered = false
+    let markEntered: () => void = () => undefined
+    const enteredPromise = new Promise<void>((resolve) => {
+      markEntered = resolve
+    })
+    let markSettled: () => void = () => undefined
+    const settledPromise = new Promise<void>((resolve) => {
+      markSettled = resolve
+    })
     const handle = await startServe(recordingFallback(paths), {
-      guard: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50))
+      guard: async (_request, response) => {
+        entered = true
+        markEntered()
+        await once(response, "close")
+        markSettled()
         return false
       },
     })
@@ -208,9 +221,13 @@ describe("serve guard", () => {
     const pending = fetch(new URL("/app", handle.url), { signal: controller.signal }).catch(
       () => undefined,
     )
-    setTimeout(() => controller.abort(), 5)
+    await enteredPromise
+    controller.abort()
     await pending
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await settledPromise
+    // Let the guard chain run its continuation before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(entered).toBe(true)
     expect(paths).toEqual([])
   })
 })
@@ -221,19 +238,25 @@ describe("serve dispatch errors", () => {
     const handle = await startServe(recordingFallback(paths))
     const port = Number(new URL(handle.url).port)
 
-    const raw = await new Promise<string>((resolve, reject) => {
-      const socket = connect(port, "127.0.0.1", () => {
-        socket.write("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-      })
-      let data = ""
-      socket.on("data", (chunk) => {
-        data += chunk.toString()
-      })
-      socket.on("end", () => resolve(data))
-      socket.on("error", reject)
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     })
+    let raw: string
+    try {
+      raw = await new Promise<string>((resolve, reject) => {
+        let data = ""
+        socket.on("data", (chunk) => {
+          data += chunk.toString()
+        })
+        socket.on("end", () => resolve(data))
+        socket.on("close", () => resolve(data))
+        socket.on("error", reject)
+      })
+    } finally {
+      socket.destroy()
+    }
 
-    expect(raw).toContain("200")
+    expect(raw.startsWith("HTTP/1.1 200")).toBe(true)
     expect(paths).toEqual(["//"])
     expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
   })
