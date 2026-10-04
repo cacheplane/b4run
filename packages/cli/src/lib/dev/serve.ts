@@ -10,6 +10,18 @@ export type ServeFallback = (
   response: ServerResponse,
 ) => void | Promise<void>
 
+/**
+ * A handler that runs before every request, runtime-owned or not.
+ *
+ * Return `true` when the guard answered the request itself (a 401, a 429, a
+ * redirect) and nothing else should run. Return `false` to let the request
+ * continue to the runtime or the fallback. May be async.
+ */
+export type ServeGuard = (
+  request: IncomingMessage,
+  response: ServerResponse,
+) => boolean | Promise<boolean>
+
 export interface ServeOptions extends StartRuntimeServerOptions {
   /**
    * Everything the runtime does not own.
@@ -21,6 +33,16 @@ export interface ServeOptions extends StartRuntimeServerOptions {
    * own.
    */
   readonly fallback?: ServeFallback
+  /**
+   * Runs ahead of the runtime/fallback split for every request.
+   *
+   * The place for what the whole process requires of a caller before any
+   * route runs: an internal token the proxy in front injects, an origin
+   * check, a rate limit. Health checks included — exempt `/healthz` inside
+   * the guard when the platform's probe carries no credentials. A guard that
+   * throws answers 500 and the request goes no further.
+   */
+  readonly guard?: ServeGuard
   /**
    * Handle SIGINT and SIGTERM by running the ordered shutdown. Defaults to
    * `true`: this is an entry point, not a component embedded in a larger host.
@@ -84,6 +106,7 @@ export async function shutdownServe(targets: ServeShutdownTargets): Promise<void
 export async function serve(options: ServeOptions): Promise<ServeHandle> {
   const {
     fallback,
+    guard,
     installSignalHandlers = true,
     onListening = defaultOnListening,
     ...runtimeOptions
@@ -91,7 +114,7 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
 
   const runtime = await createRuntimeRequestListener(runtimeOptions)
 
-  const server = createServer((request, response) => {
+  const dispatch = (request: IncomingMessage, response: ServerResponse): void => {
     if (fallback === undefined || isRuntimeOwnedPath(pathnameOf(request.url))) {
       runtime.listener(request, response)
       return
@@ -99,6 +122,21 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
     void Promise.resolve(fallback(request, response)).catch((error: unknown) => {
       failFallback(response, error)
     })
+  }
+
+  const server = createServer((request, response) => {
+    if (guard === undefined) {
+      dispatch(request, response)
+      return
+    }
+    void Promise.resolve()
+      .then(() => guard(request, response))
+      .then((handled) => {
+        if (!handled) dispatch(request, response)
+      })
+      .catch((error: unknown) => {
+        failGuard(response, error)
+      })
   })
 
   try {
@@ -168,6 +206,16 @@ function failFallback(response: ServerResponse, error: unknown): void {
   }
   response.writeHead(500, { "content-type": "application/json" })
   response.end(JSON.stringify({ error: "Request handler failed" }))
+}
+
+function failGuard(response: ServerResponse, error: unknown): void {
+  console.error(error instanceof Error ? error.stack : error)
+  if (response.headersSent) {
+    response.destroy()
+    return
+  }
+  response.writeHead(500, { "content-type": "application/json" })
+  response.end(JSON.stringify({ error: "Request guard failed" }))
 }
 
 /**

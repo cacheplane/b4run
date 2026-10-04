@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import { VERCEL_RUNTIME_ROUTE_SRC } from "../src/lib/build/targets/vercel-compose.js"
-import { serve, shutdownServe } from "../src/lib/dev/serve.js"
+import { type ServeGuard, serve, shutdownServe } from "../src/lib/dev/serve.js"
 import {
   isRuntimeOwnedPath,
   RUNTIME_ROUTE_SEGMENTS,
@@ -97,6 +97,84 @@ describe("serve route split", () => {
 
     expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
     expect((await fetch(new URL("/not-a-runtime-route", handle.url))).status).toBe(404)
+  })
+})
+
+describe("serve guard", () => {
+  test("runs before the split and sees runtime-owned and fallback paths alike", async () => {
+    const guarded: string[] = []
+    const fallbackPaths: string[] = []
+    const handle = await startServe(recordingFallback(fallbackPaths), {
+      guard: (request) => {
+        guarded.push(request.url ?? "")
+        return false
+      },
+    })
+
+    const health = await fetch(new URL("/healthz", handle.url))
+    expect(health.status).toBe(200)
+    const other = await fetch(new URL("/app/page?x=1", handle.url))
+    expect(await other.text()).toBe("fallback")
+
+    expect(guarded).toEqual(["/healthz", "/app/page?x=1"])
+    expect(fallbackPaths).toEqual(["/app/page?x=1"])
+  })
+
+  test("a guard that answers the request stops it reaching the runtime or the fallback", async () => {
+    const fallbackPaths: string[] = []
+    const handle = await startServe(recordingFallback(fallbackPaths), {
+      guard: (request, response) => {
+        if (request.headers["x-internal-token"] === "secret") return false
+        response.writeHead(401, { "content-type": "application/json" })
+        response.end(JSON.stringify({ error: "unauthorized" }))
+        return true
+      },
+    })
+
+    const denied = await fetch(new URL("/healthz", handle.url))
+    expect(denied.status).toBe(401)
+    expect(await denied.json()).toEqual({ error: "unauthorized" })
+
+    const allowed = await fetch(new URL("/healthz", handle.url), {
+      headers: { "x-internal-token": "secret" },
+    })
+    expect(allowed.status).toBe(200)
+
+    const deniedFallback = await fetch(new URL("/app", handle.url))
+    expect(deniedFallback.status).toBe(401)
+    expect(fallbackPaths).toEqual([])
+  })
+
+  test("an async guard is awaited", async () => {
+    const handle = await startServe(undefined, {
+      guard: async (_request, response) => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        response.writeHead(403)
+        response.end()
+        return true
+      },
+    })
+
+    const response = await fetch(new URL("/healthz", handle.url))
+    expect(response.status).toBe(403)
+  })
+
+  test("a guard that throws answers 500 and never reaches the runtime", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(undefined, {
+        guard: () => {
+          throw new Error("guard exploded")
+        },
+      })
+
+      const response = await fetch(new URL("/healthz", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request guard failed" })
+      expect(errorSpy).toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })
 
@@ -221,6 +299,7 @@ async function startServe(
     readonly onListening?: (url: string) => void
     /** Omit `installSignalHandlers` entirely, to exercise the default. */
     readonly defaultSignalHandlers?: boolean
+    readonly guard?: ServeGuard
   } = {},
 ) {
   const appRoot = await createFixtureApp({
@@ -236,6 +315,7 @@ async function startServe(
     onListening: overrides.onListening ?? (() => undefined),
     port: 0,
     ...(fallback ? { fallback } : {}),
+    ...(overrides.guard ? { guard: overrides.guard } : {}),
   })
   handles.push(handle)
   return handle
