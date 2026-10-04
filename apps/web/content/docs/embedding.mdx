@@ -68,13 +68,16 @@ await serve({
   guard: (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname
     if (pathname === "/healthz") return false
-    if (request.headers["x-internal-token"] === process.env.B4_INTERNAL_TOKEN) return false
+    const token = process.env.B4_INTERNAL_TOKEN
+    if (token !== undefined && request.headers["x-internal-token"] === token) return false
     response.writeHead(401, { "content-type": "application/json" })
     response.end(JSON.stringify({ error: "unauthorized" }))
     return true
   },
 })
 ```
+
+With the token unset, every request except the health check is refused, which is the failure you want to notice at deploy time rather than an open service.
 
 The guard sees the raw Node request, so it covers surfaces `src/middleware.ts` never sees: middleware is a route-execution hook, while the thread-management, memory and workspace surfaces reach the runtime without it. See [Security Architecture](/docs/security-architecture) for which gate owns what.
 
