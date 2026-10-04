@@ -50,6 +50,10 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
+    "./copilotkit": {
+      "types": "./dist/copilotkit/index.d.ts",
+      "default": "./dist/copilotkit/index.js"
+    },
     "./react/styles.css": "./dist/react/styles.css"
   },
   "publishConfig": {
