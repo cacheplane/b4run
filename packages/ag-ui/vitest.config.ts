@@ -5,5 +5,6 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     passWithNoTests: true,
+    setupFiles: ["test/setup.ts"],
   },
 })
