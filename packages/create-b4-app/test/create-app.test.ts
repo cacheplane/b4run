@@ -181,10 +181,7 @@ describe("create-b4-app", () => {
       readonly scripts: Record<string, string>
     }
 
-    const researchRoute = await readFile(
-      join(targetDir, "server/src/app/navlog/index.ts"),
-      "utf8",
-    )
+    const researchRoute = await readFile(join(targetDir, "server/src/app/navlog/index.ts"), "utf8")
 
     expect(rootManifest.name).toBe("hello-b4")
     expect(rootManifest.workspaces).toEqual(["server", "web"])
