@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { Agent, get } from "node:http"
+import { connect } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -172,6 +173,80 @@ describe("serve guard", () => {
       expect(response.status).toBe(500)
       expect(await response.json()).toEqual({ error: "Request guard failed" })
       expect(errorSpy).toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+  test("a guard that resolves false through a promise lets the request through", async () => {
+    const handle = await startServe(undefined, { guard: () => Promise.resolve(false) })
+    expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
+  })
+
+  test("a guard that rejects answers 500", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(undefined, {
+        guard: () => Promise.reject(new Error("nope")),
+      })
+      const response = await fetch(new URL("/healthz", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request guard failed" })
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  test("a client that disconnects during an async guard is never dispatched", async () => {
+    const paths: string[] = []
+    const handle = await startServe(recordingFallback(paths), {
+      guard: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return false
+      },
+    })
+    const controller = new AbortController()
+    const pending = fetch(new URL("/app", handle.url), { signal: controller.signal }).catch(
+      () => undefined,
+    )
+    setTimeout(() => controller.abort(), 5)
+    await pending
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(paths).toEqual([])
+  })
+})
+
+describe("serve dispatch errors", () => {
+  test("a `//` request target does not throw and reaches the fallback", async () => {
+    const paths: string[] = []
+    const handle = await startServe(recordingFallback(paths))
+    const port = Number(new URL(handle.url).port)
+
+    const raw = await new Promise<string>((resolve, reject) => {
+      const socket = connect(port, "127.0.0.1", () => {
+        socket.write("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+      })
+      let data = ""
+      socket.on("data", (chunk) => {
+        data += chunk.toString()
+      })
+      socket.on("end", () => resolve(data))
+      socket.on("error", reject)
+    })
+
+    expect(raw).toContain("200")
+    expect(paths).toEqual(["//"])
+    expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
+  })
+
+  test("a fallback that throws synchronously answers 500", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(() => {
+        throw new Error("sync boom")
+      })
+      const response = await fetch(new URL("/app", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request handler failed" })
     } finally {
       errorSpy.mockRestore()
     }

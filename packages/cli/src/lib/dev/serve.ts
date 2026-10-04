@@ -16,6 +16,10 @@ export type ServeFallback = (
  * Return `true` when the guard answered the request itself (a 401, a 429, a
  * redirect) and nothing else should run. Return `false` to let the request
  * continue to the runtime or the fallback. May be async.
+ *
+ * A guard that writes any part of the response must return `true`. A guard
+ * must not consume the request body unless it answers the request. Calling
+ * `setHeader` alone and returning `false` is fine.
  */
 export type ServeGuard = (
   request: IncomingMessage,
@@ -38,8 +42,11 @@ export interface ServeOptions extends StartRuntimeServerOptions {
    *
    * The place for what the whole process requires of a caller before any
    * route runs: an internal token the proxy in front injects, an origin
-   * check, a rate limit. Health checks included — exempt `/healthz` inside
-   * the guard when the platform's probe carries no credentials. A guard that
+   * check, a rate limit. Health checks included — to exempt the health path,
+   * compare the parsed pathname exactly
+   * (`new URL(request.url ?? "/", "http://localhost").pathname === "/healthz"`),
+   * never with a prefix match on the raw url: the runtime routes on the
+   * normalized path, and `/healthz/../threads` normalizes to `/threads`. A guard that
    * throws answers 500 and the request goes no further.
    */
   readonly guard?: ServeGuard
@@ -119,11 +126,16 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
       runtime.listener(request, response)
       return
     }
-    void Promise.resolve(fallback(request, response)).catch((error: unknown) => {
-      failFallback(response, error)
-    })
+    void Promise.resolve()
+      .then(() => fallback(request, response))
+      .catch((error: unknown) => {
+        failFallback(response, error)
+      })
   }
 
+  // A request waiting in the guard is not counted in the runtime's active
+  // requests, so close() during the wait dispatches into a closed runtime,
+  // which answers the closed-runtime response.
   const server = createServer((request, response) => {
     if (guard === undefined) {
       dispatch(request, response)
@@ -132,7 +144,8 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
     void Promise.resolve()
       .then(() => guard(request, response))
       .then((handled) => {
-        if (!handled) dispatch(request, response)
+        if (handled || response.destroyed || response.writableEnded || response.headersSent) return
+        dispatch(request, response)
       })
       .catch((error: unknown) => {
         failGuard(response, error)
@@ -193,7 +206,14 @@ function defaultOnListening(url: string): void {
 
 /** The request's pathname, with the query string and any absolute-form host removed. */
 function pathnameOf(requestUrl: string | undefined): string {
-  return new URL(requestUrl ?? "/", "http://localhost").pathname
+  const raw = requestUrl ?? "/"
+  try {
+    return new URL(raw, "http://localhost").pathname
+  } catch {
+    // e.g. `//`, which Node accepts as a request target but URL rejects.
+    const query = raw.indexOf("?")
+    return query === -1 ? raw : raw.slice(0, query)
+  }
 }
 
 function failFallback(response: ServerResponse, error: unknown): void {
