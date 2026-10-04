@@ -1,4 +1,5 @@
 import { isToolDisplayIcon, type ToolDisplayIcon, type ToolDisplaySource } from "@b4run/sdk"
+import { B4_STEP_STATUSES, type B4StepStatus } from "./step.js"
 
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
@@ -101,13 +102,13 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
 /** The `step` chunk the langchain adapter forwards from a `b4.step` custom event. */
 export interface B4StepData {
   readonly tool_call_id: string
-  readonly status: "running" | "completed" | "failed"
+  readonly status: B4StepStatus
   readonly icon?: ToolDisplayIcon | undefined
   readonly label?: string | undefined
   readonly sources?: ReadonlyArray<ToolDisplaySource> | undefined
 }
 
-const STEP_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed"])
+const STEP_STATUSES: ReadonlySet<string> = new Set<string>(B4_STEP_STATUSES)
 
 /** Validates and narrows a `step` chunk's `data`. Returns null if malformed. */
 export function asStepData(data: unknown): B4StepData | null {

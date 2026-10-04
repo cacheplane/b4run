@@ -21,6 +21,12 @@ A client that runs a B4.run route over HTTP, such as a CopilotKit runtime, impor
 import { B4HttpAgent } from "@b4run/ag-ui/client"
 ```
 
+A client in any framework folds the event stream into turns with the reducers from the `./view` subpath:
+
+```ts
+import { reduceTurns } from "@b4run/ag-ui/view"
+```
+
 In a React client, and only there, import the renderers from the `./react` subpath:
 
 ```tsx
@@ -34,6 +40,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 | `@b4run/ag-ui` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/sse` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/client` | edge-safe | not-claimed | integration | supported |
+| `@b4run/ag-ui/view` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
@@ -41,7 +48,7 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 
 The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
-`@b4run/ag-ui/react` is the client entry. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
+`@b4run/ag-ui/view` is the framework-free client entry: pure reducers over AG-UI events with no React dependency. `@b4run/ag-ui/react` is the React client entry built on it. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
 
 ## Public exports
 
@@ -81,6 +88,45 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 |---|---|
 | `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. |
 
+### `@b4run/ag-ui/view`
+
+The framework-free half of the client: pure reducers and selectors over AG-UI events, with no React and no CopilotKit. `./react` builds on it; so can any other framework.
+
+| Export | Responsibility |
+|---|---|
+| `reduceTurns` | Fold one AG-UI event into the turns of a thread: steps in order, nested subagent turns, the plan, reasoning, prose, and approvals attached to the calls they gate. Pure given `now`; an event that changes nothing returns the same state. |
+| `EMPTY_TURNS` | The initial turns state. |
+| `TurnsView` | The thread id and its turns. |
+| `TurnView` | One turn: its run id, status, timing, steps, prose, unattached approvals, error and failure count (nested subagents included). |
+| `StepView` | A tool, plan, reasoning or subagent step. |
+| `ToolStep` | One tool call with its streamed args, result, `b4.step` icon, label and sources, timing and approval. |
+| `PlanStep` | The plan as its latest snapshot of todos. |
+| `ReasoningStep` | One reasoning span and its text, streaming or done. |
+| `SubagentStep` | A subagent invocation holding its nested turn. |
+| `ApprovalView` | A parked interrupt as a chat shows it: kind, detail, message, the grant to echo on resume, and whether "Always allow" is offered. |
+| `StepSource` | A source a step cites; an alias of the SDK's `ToolDisplaySource`, as `b4.step` carries it. |
+| `StepStatus` | `pending`, `running`, `done`, `failed` or `awaiting`. |
+| `TurnStatus` | `working`, `awaiting`, `done`, `failed` or `stopped`. |
+| `ReduceTurnsOptions` | Inject the clock, name tools whose frames the view drops, and say whether a same-thread run resumes the awaiting turn (`resuming`). |
+| `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"; never throws, never echoes raw arguments, at most 120 characters. |
+| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
+| `StepLabelOverride` | Client-side wording for one tool: reword, localize, or label a group. |
+| `StepLabelOverrides` | Overrides keyed by tool name. |
+| `StepGroup` | A run of merged tool steps and its label. |
+| `GroupedStep` | A step or a group. |
+| `BUILT_IN_GROUP_LABELS` | Group wording for B4.run's built-in tools; apps extend it through overrides. |
+| `B4_STEP_EVENT_NAME` | The AG-UI `CUSTOM` event name a tool call's human-readable step travels as (`b4.step`). |
+| `B4_STEP_STATUSES` | The statuses a step can carry; the one source for every validator. |
+| `B4StepEventValue` | A `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
+| `B4StepStatus` | `running`, `completed` or `failed`. |
+| `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
+| `reduceSubagentRuns` | The pure subagent-tree reducer (also re-exported from `./react`). |
+| `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |
+| `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
+| `SubagentRun` | Everything known about one subagent invocation. |
+| `SubagentRunsState` | The thread id and the invocations keyed by `subagentRunId`. |
+| `SubagentToolCall` | One tool call a subagent made, with its streamed arguments and result. |
+
 ### `@b4run/ag-ui/react`
 
 | Export | Responsibility |
@@ -90,14 +136,14 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | `PlanActivityCard` | Present one plan snapshot from its `content`. |
 | `ActivityChecklist` | Present a todo list from `todos`, truncated at `limit`. |
 | `useSubagentRuns` | Subscribe to an agent and keep the subagent tree of its current thread from `SUBAGENT_*` and attributed events. |
-| `reduceSubagentRuns` | The pure reducer behind `useSubagentRuns`, for non-React clients and tests. |
-| `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |
-| `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
+| `reduceSubagentRuns` | Re-export of the pure reducer from `@b4run/ag-ui/view`. |
+| `EMPTY_SUBAGENT_RUNS` | Re-export of the initial subagent-tree state from `@b4run/ag-ui/view`. |
+| `isSubagentMessage` | Re-export from `@b4run/ag-ui/view`: narrow a transcript message to one a subagent produced. |
 | `SubagentPanel` | Render the subagent tree: nested cards with each invocation's status, reasoning, prose, plan, tool calls and result. |
 | `SubagentEventSource` | The subscription seam `useSubagentRuns` needs from an agent. |
-| `SubagentRun` | Everything known about one subagent invocation. |
-| `SubagentRunsState` | The thread id and the invocations keyed by `subagentRunId`. |
-| `SubagentToolCall` | One tool call a subagent made, with its streamed arguments and result. |
+| `SubagentRun` | Re-export from `@b4run/ag-ui/view`: everything known about one subagent invocation. |
+| `SubagentRunsState` | Re-export from `@b4run/ag-ui/view`: the thread id and the invocations keyed by `subagentRunId`. |
+| `SubagentToolCall` | Re-export from `@b4run/ag-ui/view`: one tool call a subagent made, with its streamed arguments and result. |
 | `planActivityContentSchema` | Validate plan activity content in a custom renderer. |
 | `B4ActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
 | `B4ActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
