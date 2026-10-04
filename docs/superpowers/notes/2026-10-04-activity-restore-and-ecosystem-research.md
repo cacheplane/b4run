@@ -368,7 +368,7 @@ Read-only survey of `/Users/blove/repos/angular-agent-framework` (threadplane,
 HEAD `79aabe3fd`) against the B4 worktree spec
 `docs/superpowers/specs/2026-10-03-b4-activity-components-design.md`.
 All paths below are absolute; `TP` = `/Users/blove/repos/angular-agent-framework`,
-`B4` = `/Users/blove/repos/dawn/.claude/worktrees/vibrant-blackburn-42f930`.
+`B4` = `<b4run worktree>`.
 
 ---
 
