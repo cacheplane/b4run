@@ -1,5 +1,29 @@
 # @dawn-example/research-web
 
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [c8b0675]
+- Updated dependencies [919eae4]
+- Updated dependencies [6b7f152]
+- Updated dependencies [2c33a3f]
+- Updated dependencies [ed43d4f]
+- Updated dependencies [2d07889]
+- Updated dependencies [f13a243]
+- Updated dependencies [5caad96]
+- Updated dependencies [0cd999a]
+- Updated dependencies [0b33206]
+- Updated dependencies [31c2633]
+- Updated dependencies [61e5922]
+- Updated dependencies [b61e133]
+- Updated dependencies [91726d5]
+- Updated dependencies [bbd4a0c]
+- Updated dependencies [9547137]
+- Updated dependencies [bbc7871]
+  - @b4run/ag-ui@0.13.2
+  - @b4run/sdk@0.13.2
+
 ## 0.0.23
 
 ### Patch Changes

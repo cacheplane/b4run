@@ -1,5 +1,23 @@
 # @dawn-example/chat-web
 
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [c8b0675]
+- Updated dependencies [919eae4]
+- Updated dependencies [6b7f152]
+- Updated dependencies [ed43d4f]
+- Updated dependencies [2d07889]
+- Updated dependencies [f13a243]
+- Updated dependencies [5caad96]
+- Updated dependencies [0cd999a]
+- Updated dependencies [0b33206]
+- Updated dependencies [31c2633]
+- Updated dependencies [91726d5]
+- Updated dependencies [bbc7871]
+  - @b4run/ag-ui@0.13.2
+
 ## 0.0.23
 
 ### Patch Changes

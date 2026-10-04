@@ -1,5 +1,15 @@
 # create-dawn-ai-app
 
+## 0.13.2
+
+### Patch Changes
+
+- c4238e1: The research template's web client renders media parts (images, audio, video, documents) in user messages and beside tool cards, shows a notice for each part the model did not receive (`b4.content_parts_dropped`), restores media when it hydrates a thread, and offers an image attachment when the route's capability document says its model takes images. The research server ships `renderChart`, a tool that returns a text summary and an inline SVG bar chart. `@b4run/testing`'s agent harness `run({ input })` accepts a list of content parts as well as a string.
+- 0b33206: **Breaking:** subagents are presented with AG-UI 1.0's `SUBAGENT_STARTED/FINISHED/ERROR` events and `subagentRunId` attribution; the `b4.subagent` activity is removed. `toAguiEvents` announces a subagent when the `task` tool starts it (`subagentRunId` is the `task` tool-call id; `parentToolCallId`, `parentSubagentRunId` and `description` are carried), tags the child's text, reasoning, tool calls, results, usage and plan with that id, and closes every announced invocation before the run ends — `SUBAGENT_FINISHED { result }` on success, `{ outcome: suspended, interruptIds }` at a child's interrupt (the interrupt carries the child's `subagentRunId`), `SUBAGENT_ERROR` on failure, cancel (`code: "cancelled"`) or a stream that ended first (`code: "unterminated"`). The `task` call is an ordinary tool call again. Removed: `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`, `SubagentActivityCard`, `b4SubagentActivityRenderer`, `subagentActivityContentSchema`, `SubagentActivityContentOutput`; `b4ActivityRenderers` holds the plan renderer only. New in `@b4run/ag-ui/react`: `useSubagentRuns(agent)`, `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `isSubagentMessage`, `SubagentPanel` and the `SubagentRun` types. `GET /agui/:routeId` advertises `multiAgent: { supported, delegation, handoffs: false, subagents: [{ name, description }] }` from the subagent registry the `task` tool dispatches from. The research example, the research scaffold and the chat web client render subagents with the panel.
+- Updated dependencies [c4238e1]
+- Updated dependencies [0b33206]
+  - @b4run/devkit@0.13.2
+
 ## 0.13.1
 
 ### Patch Changes
