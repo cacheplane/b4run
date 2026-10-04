@@ -58,9 +58,26 @@ export function isToolDisplayIcon(value: unknown): value is ToolDisplayIcon {
   return typeof value === "string" && (TOOL_DISPLAY_ICONS as readonly string[]).includes(value)
 }
 
-/** A bad value for an error message: strings quoted, everything else by type. */
+const DESCRIBE_VALUE_MAX = 60
+
+/**
+ * A bad value for an error message: strings quoted (control characters,
+ * quotes and backslashes escaped, long values cut), everything else by type.
+ * The result is prose for a person, never code.
+ */
 function describeValue(value: unknown): string {
-  if (typeof value === "string") return JSON.stringify(value)
+  if (typeof value === "string") {
+    const shown =
+      value.length > DESCRIBE_VALUE_MAX ? `${value.slice(0, DESCRIBE_VALUE_MAX)}…` : value
+    let escaped = ""
+    for (const char of shown) {
+      const code = char.codePointAt(0) ?? 0
+      if (char === "\\" || char === '"') escaped += `\\${char}`
+      else if (code < 0x20 || code === 0x7f) escaped += `\\u${code.toString(16).padStart(4, "0")}`
+      else escaped += char
+    }
+    return `"${escaped}"`
+  }
   if (value === null) return "null"
   return typeof value
 }
