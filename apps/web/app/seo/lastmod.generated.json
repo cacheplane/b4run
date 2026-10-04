@@ -57,9 +57,9 @@
       "recordDigest": "7e39e81b651afa5340678c1084553f25db0ec28ecac96c68bdba8bcdb662b9f9"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-04T04:14:34.000Z",
-      "sourceDigest": "3021365910e6d48d4eca0f8d567e092357593c90acdce55c47317952c6ec00e5",
-      "recordDigest": "2ba48971ff2ff0517c3869a501841a66aa3af82867518633245105a32fc5b0bf"
+      "lastModified": "2026-10-04T04:24:36.000Z",
+      "sourceDigest": "c22ddf7dd0ec517cacae3b310cf6a9dfab988f90fc00848bdd3416bedc1b9d6c",
+      "recordDigest": "408b7daabb22c80a86a7e4d12a392890dc01890bf09c401065b53d139dce6467"
     },
     "/docs/api/cli": {
       "lastModified": "2026-09-25T17:46:18.000Z",
@@ -427,9 +427,9 @@
       "recordDigest": "ccb0cf59b18052e3f54bf58237543c04718b16585241444407531150319d36f0"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-10-04T04:09:03.000Z",
-      "sourceDigest": "10ef9ea115a9454bb4360c4a8dd4c9e4c45578a286e4cbf7f5ac9c5af1507746",
-      "recordDigest": "a50b4b25f58e5934cc117a2f4a6793b99d5bad25707c23f4499a5da7e6e565c1"
+      "lastModified": "2026-10-04T04:24:36.000Z",
+      "sourceDigest": "f4d868cc0e98d81c4b28d51c492a717de4da32a4914eda0ded10d5dfa5689cc4",
+      "recordDigest": "11f47aa2765176efaccf67fb0809853452bd5ee064ee021195345b78b990307c"
     },
     "/docs/workspace": {
       "lastModified": "2026-09-24T01:19:36.000Z",
