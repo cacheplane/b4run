@@ -71,6 +71,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/ag-ui", "./client"],
   ["@b4run/ag-ui", "./view"],
   ["@b4run/ag-ui", "./react"],
+  ["@b4run/ag-ui", "./copilotkit"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
   ["@b4run/memory", "./namespace"],
@@ -575,6 +576,9 @@ describe("artifact registry", { timeout: 30_000 }, () => {
 
         if (artifact.runtime === "edge-safe") {
           expect(artifact.guardIds).toContain("edge-import-bundle")
+        } else if (artifact.runtime === "browser-only") {
+          expect(artifact.kind).toBe("import")
+          expect(artifact.guardIds).toEqual(["browser-import-bundle"])
         } else if (artifact.kind === "import") {
           expect(artifact.guardIds).toContain("node-import-bundle")
         } else {
@@ -711,7 +715,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(47)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(48)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
@@ -850,7 +854,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("keeps runtime and purity claims applicable to runtime TypeScript imports", () => {
     for (const artifact of ARTIFACT_REGISTRY) {
       if (artifact.kind === "import" && artifact.surfaceKind === "typescript-runtime") {
-        expect(["node-only", "edge-safe"]).toContain(artifact.runtime)
+        expect(["node-only", "edge-safe", "browser-only"]).toContain(artifact.runtime)
         expect(["dependency-free", "not-claimed"]).toContain(artifact.purity)
       } else if (artifact.kind === "operated") {
         expect(["node-only", "edge-safe"]).toContain(artifact.runtime)

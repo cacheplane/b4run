@@ -445,19 +445,31 @@ browser
 
 CopilotKit's sidebar uses the literal agent id `default` when none is supplied, so the example registers the B4.run route under that key. See `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
-The client renders the plan card by passing the adapter's renderer array to CopilotKit, and the subagent tree by mounting `SubagentPanel` on the agent's event stream:
+The client shows what the agent did by wrapping a stock `<CopilotChat>` in the activity connector from `@b4run/ag-ui/copilotkit`:
 
 ```tsx
 import "@b4run/ag-ui/react/styles.css"
-import { CopilotKit } from "@copilotkit/react-core/v2"
-import { b4ActivityRenderers } from "@b4run/ag-ui/react"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import { CopilotChat, CopilotKit } from "@copilotkit/react-core/v2"
 
-<CopilotKit
-  runtimeUrl="/api/copilotkit"
-  useSingleEndpoint={false}
-  renderActivityMessages={b4ActivityRenderers}
->
+function Chat() {
+  return <CopilotChat {...useB4ChatSlots()} />
+}
+
+export default function Page() {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
+      <B4Activity>
+        <Chat />
+      </B4Activity>
+    </CopilotKit>
+  )
+}
 ```
+
+Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the research example does this in a later release.
+
+Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 
 ```tsx
 import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
@@ -472,7 +484,7 @@ function Subagents() {
 
 `useSubagentRuns` subscribes to the agent and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations — each with its name, status, tool calls, plan, reasoning, prose and result — which `SubagentPanel` renders nested, with the same stylesheet and customization ladder as the plan card. The stylesheet import gives both B4.run's default look in light and dark mode. Without it, they still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components`. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
 
-React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the plan renderer, card and schema individually, and `reduceSubagentRuns` — the pure reducer behind the hook — for a client that presents the activities or the subagent tree its own way. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
 

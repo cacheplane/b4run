@@ -10,7 +10,12 @@ export type ImportSurfaceKind =
   | "metadata"
   | "style-asset"
 export type OperatedArtifactKind = "executable" | "operated-application"
-export type RuntimeCompatibility = "node-only" | "edge-safe"
+/**
+ * `edge-safe` passes the edge-safety guard; `node-only` imports under plain Node
+ * and fails it; `browser-only` needs a bundler (it imports CSS or other
+ * non-JavaScript assets) and is never imported by plain Node or an edge runtime.
+ */
+export type RuntimeCompatibility = "node-only" | "edge-safe" | "browser-only"
 export type ApiReferenceAudience =
   | "application"
   | "integration"
@@ -26,6 +31,7 @@ export const API_REFERENCE_GUARD_IDS = [
   "dependency-free-import-graph",
   "node-import-bundle",
   "browser-import-negative-control",
+  "browser-import-bundle",
   "node-operated-bundle",
   "browser-operated-negative-control",
 ] as const
@@ -1118,11 +1124,13 @@ function runtimeImport(
           "edge-import-bundle",
           ...(purity === "dependency-free" ? (["dependency-free-import-graph"] as const) : []),
         ]
-      : [
-          "node-import-bundle",
-          "browser-import-negative-control",
-          ...(purity === "dependency-free" ? (["dependency-free-import-graph"] as const) : []),
-        ]
+      : runtime === "browser-only"
+        ? ["browser-import-bundle"]
+        : [
+            "node-import-bundle",
+            "browser-import-negative-control",
+            ...(purity === "dependency-free" ? (["dependency-free-import-graph"] as const) : []),
+          ]
   return {
     kind: "import",
     packageName,
@@ -1213,6 +1221,7 @@ export const ARTIFACT_REGISTRY = [
   runtimeImport("@b4run/ag-ui", "./client", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./view", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./react", "detailed", "node-only", "application"),
+  runtimeImport("@b4run/ag-ui", "./copilotkit", "detailed", "browser-only", "application"),
   staticImport(
     "@b4run/ag-ui",
     "./react/styles.css",
@@ -1419,6 +1428,7 @@ export const PACKAGE_CATALOG = [
       importAddress("@b4run/ag-ui", "./client"),
       importAddress("@b4run/ag-ui", "./view"),
       importAddress("@b4run/ag-ui", "./react"),
+      importAddress("@b4run/ag-ui", "./copilotkit"),
       importAddress("@b4run/ag-ui", "./react/styles.css"),
     ],
     "integration",
@@ -1696,7 +1706,7 @@ const AUDIENCES = new Set<ApiReferenceAudience>([
   "internal",
 ])
 const STABILITIES = new Set<ApiReferenceStability>(["supported", "low-level", "internal"])
-const RUNTIMES = new Set<RuntimeCompatibility>(["node-only", "edge-safe"])
+const RUNTIMES = new Set<RuntimeCompatibility>(["node-only", "edge-safe", "browser-only"])
 const PURITIES = new Set<RuntimePurity>(["dependency-free", "not-claimed"])
 const GUARD_IDS = new Set<ApiReferenceGuardId>(API_REFERENCE_GUARD_IDS)
 const STATIC_SURFACES = new Set<StaticImportArtifact["surfaceKind"]>([
@@ -1850,9 +1860,13 @@ function validateGuardIds(artifact: RuntimeImportArtifact | OperatedArtifact): v
       ? ["node-operated-bundle", "browser-operated-negative-control"]
       : artifact.runtime === "edge-safe"
         ? ["edge-import-bundle"]
-        : ["node-import-bundle", "browser-import-negative-control"]
+        : artifact.runtime === "browser-only"
+          ? ["browser-import-bundle"]
+          : ["node-import-bundle", "browser-import-negative-control"]
   const applicableGuardIds =
-    artifact.kind === "import" && artifact.purity === "dependency-free"
+    artifact.kind === "import" &&
+    artifact.purity === "dependency-free" &&
+    artifact.runtime !== "browser-only"
       ? ([...allowedGuardIds, "dependency-free-import-graph"] as const)
       : allowedGuardIds
   for (const guardId of artifact.guardIds) {
