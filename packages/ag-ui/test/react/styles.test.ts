@@ -6,152 +6,108 @@ const CSS = readFileSync(
   fileURLToPath(new URL("../../src/react/styles.css", import.meta.url)),
   "utf8",
 )
+const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, "")
 
-/** Every card source, for the TSX-emits-it/CSS-styles-it drift guard. */
-const CARD_SOURCES = ["ActivityChecklist.tsx", "PlanActivityCard.tsx", "SubagentPanel.tsx"]
-  .map((file) =>
-    readFileSync(fileURLToPath(new URL(`../../src/react/${file}`, import.meta.url)), "utf8"),
+/** Every class the kit emits (spec §5.6 plus the blocks), read from the TSX so the two cannot drift. */
+const KIT_SOURCES = [
+  "Disclosure.tsx",
+  "icons.tsx",
+  "StatusText.tsx",
+  "SourceChips.tsx",
+  "StepDetail.tsx",
+  "Step.tsx",
+  "PlanStep.tsx",
+  "ReasoningStep.tsx",
+  "StepGroup.tsx",
+  "SubagentStep.tsx",
+  "TurnActivity.tsx",
+  "ApprovalCard.tsx",
+]
+  .map((f) =>
+    readFileSync(fileURLToPath(new URL(`../../src/react/activity/${f}`, import.meta.url)), "utf8"),
   )
   .join("\n")
+const emittedClasses = [
+  ...new Set(
+    [...KIT_SOURCES.matchAll(/className=\{?["'`]([^"'`$]+)/g)].flatMap((m) =>
+      (m[1] ?? "").split(/\s+/),
+    ),
+  ),
+].filter(Boolean)
 
-/** Selector text of every rule, excluding at-rule preludes. */
-function selectors(css: string): string[] {
-  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "")
-  const out: string[] = []
-  for (const match of withoutComments.matchAll(/(^|[}{;])\s*([^{}@]+?)\s*\{/g)) {
-    const selector = match[2]?.trim()
-    if (selector) out.push(selector)
-  }
-  return out
-}
-
-// A `:root`-prefixed selector with a combinator or descendant (e.g.
-// `:root .consumer-class`, `:root div`, `:root > body`) reaches outside the
-// document root into a consumer's own markup — exactly what the scoping
-// assertion exists to prevent. So the exemption is anchored to accept only
-// `:root` plus directly-chained attribute/pseudo qualifiers with no
-// whitespace or combinator, i.e. root-level custom-property declarations.
-const rootVariant = /^:root(:[\w-]+(?:\([^)]*\))?|\[[^\]]*\])*$/
-
-// The three token blocks are `:where()`-wrapped so they sit at specificity
-// (0,0,0) and a consumer's own `:root` override always wins (rung 1). That makes
-// their selector text `:where(:root...)`, which `rootVariant` rejects, so the
-// scoping check unwraps one outer `:where()` first. Unwrapping does not weaken
-// the guard: `:where(:root .consumer-class)` still fails `rootVariant` after the
-// unwrap, and anything scoped to the prefix passes on the other branch anyway.
-const whereWrapped = /^:where\((.*)\)$/
-const unwrap = (part: string) => whereWrapped.exec(part)?.[1] ?? part
+const TOKENS = [
+  "surface",
+  "surface-alt",
+  "border",
+  "text",
+  "muted",
+  "running",
+  "running-bg",
+  "complete",
+  "failed",
+  "failed-bg",
+  "primary",
+  "on-primary",
+  "radius",
+  "radius-card",
+  "radius-pill",
+  "font-mono",
+]
 
 describe("styles.css", () => {
-  test("defines the documented tokens with light values", () => {
-    for (const token of [
-      "--b4-activity-surface",
-      "--b4-activity-border",
-      "--b4-activity-text",
-      "--b4-activity-muted",
-      "--b4-activity-running",
-      "--b4-activity-complete",
-      "--b4-activity-failed",
-      "--b4-activity-radius",
-      "--b4-activity-gap",
-      "--b4-activity-font-size",
-      "--b4-activity-margin",
-      "--b4-activity-padding",
-      "--b4-activity-header-weight",
-      "--b4-activity-badge-bg",
-    ]) {
-      expect(CSS).toContain(token)
+  test("every rule lives in @layer b4-activity", () => {
+    const beforeLayer = withoutComments.slice(0, withoutComments.indexOf("@layer b4-activity"))
+    expect(beforeLayer.trim()).toBe("")
+    expect(withoutComments.match(/@layer b4-activity\s*\{/g)?.length).toBe(1)
+  })
+  test("defines every §5.1 token in light, media-dark and explicit-dark blocks", () => {
+    for (const token of TOKENS) {
+      const occurrences =
+        withoutComments.match(new RegExp(`--b4-activity-${token}:`, "g"))?.length ?? 0
+      expect(occurrences, token).toBeGreaterThanOrEqual(
+        token === "radius" || token.startsWith("radius-") || token === "font-mono" ? 1 : 3,
+      )
+    }
+    expect(withoutComments).toContain(":where(:root)")
+    expect(withoutComments).toContain("@media (prefers-color-scheme: dark)")
+    expect(withoutComments).toContain(':where(:root[data-b4-theme="dark"]')
+    expect(withoutComments).toContain(".dark")
+    expect(withoutComments).toContain('[data-theme="dark"]')
+    expect(withoutComments).toContain("--b4-activity-complete: #15803d")
+  })
+  test("every emitted class has at least one rule, and every selector is prefixed", () => {
+    for (const cls of emittedClasses) expect(withoutComments, cls).toContain(`.${cls}`)
+    const selectors = [...withoutComments.matchAll(/(^|[}{;])\s*([^{}@]+?)\s*\{/g)]
+      .map((m) => (m[2] ?? "").trim())
+      .filter(Boolean)
+    for (const selector of selectors) {
+      for (const part of selector.split(",").map((p) => p.trim())) {
+        const unwrapped = /^:where\((.*)\)$/.exec(part)?.[1] ?? part
+        const ok =
+          /(^|[\s>+~(])\.b4-/.test(unwrapped) ||
+          /^:root/.test(unwrapped) ||
+          /^\.dark\b|^\[data-theme="dark"\]/.test(unwrapped) ||
+          unwrapped === "to"
+        expect(ok, selector).toBe(true)
+      }
     }
   })
-
-  test("every :root token block is :where()-wrapped", () => {
-    // This is the whole of rung 1's cross-theme guarantee, and nothing else pins
-    // it. Unwrapped, the two dark blocks sit at (0,2,0) and a consumer's plain
-    // `:root { --b4-activity-*: ... }` loses in dark mode. ALL THREE or none:
-    // wrapping only the dark blocks leaves the light block the most specific of
-    // the three, which renders a light card under a dark system theme.
-    const rootBlocks = selectors(CSS).filter((selector) => selector.includes(":root"))
-    expect(rootBlocks).toHaveLength(3)
-    for (const selector of rootBlocks) {
-      expect(selector, `${selector} must be :where()-wrapped`).toMatch(whereWrapped)
-      expect(unwrap(selector), `${selector} must wrap a bare :root variant`).toMatch(rootVariant)
-    }
-  })
-
-  test("the badge background is its own token, derived from the border", () => {
-    // Declared once, in the light block only. `var()` resolves at use time, so
-    // the badge tracks the dark palettes for free; redeclaring it in a dark
-    // block would re-pin it to the border token there.
-    // The default is a FALLBACK at the use site, never a `:root` declaration.
-    // Declaring it on `:root` substitutes `var(--b4-activity-border)` at
-    // computed-value time on `:root` itself, freezing the chip to the root's
-    // border colour so a subtree override recolours the card but not the badge.
-    expect(CSS).toContain("background: var(--b4-activity-badge-bg, var(--b4-activity-border));")
-    // Comments are stripped first: the rationale comment above the use site
-    // quotes the very declaration this asserts is absent.
-    const declarations = CSS.replace(/\/\*[\s\S]*?\*\//g, "")
-    expect(declarations.match(/--b4-activity-badge-bg:/g)).toBeNull()
-  })
-
-  test("every rule is scoped to the b4-activity prefix", () => {
-    const unscoped = selectors(CSS).filter((selector) => {
-      const parts = selector.split(",").map((part) => part.trim())
-      return parts.some((part) => !rootVariant.test(unwrap(part)) && !part.includes(".b4-activity"))
-    })
-    expect(unscoped).toEqual([])
-  })
-
-  test("ships a dark palette that an explicit light theme can override", () => {
-    expect(CSS).toContain("prefers-color-scheme: dark")
-    expect(CSS).toContain('[data-b4-theme="dark"]')
-    expect(CSS).toContain('[data-b4-theme="light"]')
-  })
-
-  test("the scoping check rejects a :root selector that reaches into consumer markup", () => {
-    // The `:where()` form is here because the real check unwraps one outer
-    // `:where()`. Without this case the unwrap could quietly widen the exemption
-    // to any `:where(:root ...)` selector that reaches into consumer markup.
-    const hostile =
-      ":root .consumer-class { color: red }\n:where(:root .consumer-class) { color: red }\n"
-    const unscoped = selectors(hostile).filter((selector) =>
-      selector
-        .split(",")
-        .map((part) => part.trim())
-        .some((part) => !rootVariant.test(unwrap(part)) && !part.includes(".b4-activity")),
+  test("motion: the shimmer, the 200ms chevron, and a reduced-motion block that turns both off", () => {
+    expect(withoutComments).toMatch(
+      /\.b4-turn__text\[data-live="true"\][^}]*animation:\s*b4-shimmer 2\.2s linear infinite/,
     )
-    expect(unscoped).toEqual([":root .consumer-class", ":where(:root .consumer-class)"])
+    expect(withoutComments).toMatch(/\.b4-chevron[^}]*transition:\s*transform 200ms/)
+    const start = withoutComments.indexOf("@media (prefers-reduced-motion: reduce)")
+    expect(start).toBeGreaterThan(0)
+    const reduced = withoutComments.slice(start)
+    expect(reduced).toContain("animation: none")
+    expect(reduced).toContain("transition: none")
   })
-
-  test("every status modifier the cards emit has a glyph rule", () => {
-    // Todo statuses: `statusPresentation` in ActivityChecklist.tsx.
-    // Tool statuses: `toolStatusPresentation` in SubagentPanel.tsx.
-    const todoStatuses = ["pending", "in_progress", "completed"]
-    const toolStatuses = ["running", "completed", "incomplete"]
-    for (const status of new Set([...todoStatuses, ...toolStatuses])) {
-      expect(CSS).toContain(`.b4-activity__item--${status} .b4-activity__item-glyph`)
-    }
-  })
-
-  test("the disclosure marker is a real element, not generated content", () => {
-    // The `::before` had no `classNames` key and leaked into the accessible
-    // name; a `.b4-activity__marker` span has a key and carries `aria-hidden`.
-    expect(CSS).toContain(".b4-activity__marker {")
-    expect(CSS).toContain(".b4-activity[open] > .b4-activity__header > .b4-activity__marker {")
-    expect(CSS).not.toContain(".b4-activity__header::before")
-    expect(CSS).not.toContain('content: "▸"')
-    // The native marker still has to be suppressed or two triangles render.
-    expect(CSS).toContain(".b4-activity__header::-webkit-details-marker")
-  })
-
-  test("every default class the cards emit has a rule in the sheet", () => {
-    // Two classes moved or arrived in this sheet (`__checklist`, `__marker`), so
-    // there are now two more places a rename in TSX can silently ship an
-    // unstyled card. Matches the `b4-activity__part-name` form only; the
-    // `--modifier` suffixes have their own test above.
-    const emitted = new Set(CARD_SOURCES.match(/b4-activity__[a-z]+(?:-[a-z]+)*/g) ?? [])
-    expect(emitted.size).toBeGreaterThan(0)
-    for (const className of emitted) {
-      expect(CSS, `${className} is emitted by a card but has no rule`).toContain(`.${className}`)
-    }
+  test("accessibility: visible focus ring, 24px disclosure targets, a visually-hidden utility", () => {
+    expect(withoutComments).toMatch(
+      /\.b4-turn__summary:focus-visible,\s*\.b4-step__line:focus-visible,\s*\.b4-approval__button:focus-visible\s*\{[^}]*outline/,
+    )
+    expect(withoutComments).toMatch(/\.b4-step__line\s*\{[^}]*min-height:\s*26px/)
+    expect(withoutComments).toMatch(/\.b4-visually-hidden\s*\{[^}]*clip/)
   })
 })

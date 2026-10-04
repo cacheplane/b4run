@@ -27,10 +27,16 @@ A client in any framework folds the event stream into turns with the reducers fr
 import { reduceTurns } from "@b4run/ag-ui/view"
 ```
 
-In a React client, and only there, import the renderers from the `./react` subpath:
+In a React client, and only there, import the activity kit from the `./react` subpath:
 
 ```tsx
-import { b4ActivityRenderers } from "@b4run/ag-ui/react"
+import { ApprovalCard, TurnActivity } from "@b4run/ag-ui/react"
+```
+
+A CopilotKit chat connects the kit through the `./copilotkit` subpath, which is the only entry that imports `@copilotkit/react-core`:
+
+```tsx
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
 ```
 
 ## Compatibility and audience
@@ -42,13 +48,14 @@ import { b4ActivityRenderers } from "@b4run/ag-ui/react"
 | `@b4run/ag-ui/client` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/view` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
+| `@b4run/ag-ui/copilotkit` | browser-only | not-claimed | application | supported |
 | `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
 
 `@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer. Runtime validators (`RunAgentInputSchema`, `AgentCapabilitiesSchema`, `*EventSchema`) live at `@ag-ui/core/schemas` in 1.0; import types from `@ag-ui/core`.
 
 The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
-`@b4run/ag-ui/view` is the framework-free client entry: pure reducers over AG-UI events with no React dependency. `@b4run/ag-ui/react` is the React client entry built on it. It ships CopilotKit renderers for B4.run's built-in orchestration activities. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value.
+`@b4run/ag-ui/view` is the framework-free client entry: pure reducers over AG-UI events with no React dependency. `@b4run/ag-ui/react` is the React activity kit built on it: `TurnActivity`, `ApprovalCard` and the step rows take the view core's props and render one turn in plain language. `@b4run/ag-ui/copilotkit` connects the kit to a stock CopilotKit chat. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither; only `./copilotkit` imports CopilotKit. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The `./react` entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value. The `./copilotkit` entry is recorded as `browser-only`: CopilotKit's bundle imports its own CSS, so plain Node cannot load it either. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime.
 
 ## Public exports
 
@@ -129,51 +136,102 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 
 ### `@b4run/ag-ui/react`
 
+The React activity kit. Components are pure functions of the `TurnView`/`StepView` props `@b4run/ag-ui/view` builds; interaction state (open/closed, elapsed time, the 300 ms no-flash rule) lives in the hooks next to them.
+
 | Export | Responsibility |
 |---|---|
-| `b4ActivityRenderers` | Register B4.run's activity renderers (the plan) with CopilotKit's `renderActivityMessages`. |
-| `b4PlanActivityRenderer` | Register the plan activity renderer on its own. |
-| `PlanActivityCard` | Present one plan snapshot from its `content`. |
-| `ActivityChecklist` | Present a todo list from `todos`, truncated at `limit`. |
-| `useSubagentRuns` | Subscribe to an agent and keep the subagent tree of its current thread from `SUBAGENT_*` and attributed events. |
+| `TurnActivity` | The summary line plus the step list for one turn, nested for subagents: working, awaiting, done, failed or stopped. |
+| `TurnActivityProps` | Props for `TurnActivity`: the turn, label overrides, step renderers, the clock, and whether it is a subagent's turn. |
+| `Step` | One tool call as a sentence with its icon and meta; opens to `StepDetail`. |
+| `StepProps` | Props for `Step`: the tool step, label overrides, step renderers and the clock. |
+| `StepRenderer` | A per-tool replacement for a step's detail panel (the `StepDetail` it opens to), given the `ToolStep`; the sentence line stays. |
+| `StepRenderers` | Step renderers keyed by tool name. |
+| `StepGroup` | Consecutive done calls of one tool, merged; opens to the individual steps. |
+| `StepGroupProps` | Props for `StepGroup`: the group, label overrides, step renderers and the clock. |
+| `StepDetail` | A step's Inputs and Output, pretty JSON or text. |
+| `StepDetailProps` | Props for `StepDetail`: the args text and the optional result text. |
+| `PlanStep` | "Made a plan · 2 of 4 done" with the checklist; updates in place. |
+| `PlanStepProps` | Props for `PlanStep`: the plan step and whether the owning turn is live. |
+| `ReasoningStep` | "Thinking…", "Thought for 4s" or "Show reasoning"; opens to the text. |
+| `SubagentStep` | "Asked researcher to …" with the child's own activity nested; folds to "researcher finished · N steps". |
+| `SubagentStepProps` | Props for `SubagentStep`: the subagent step, label overrides, step renderers and the clock. |
+| `ApprovalCard` | A parked interrupt: who wants what, why, the payload, Allow once / Always allow / Deny on one row, and the scope line. |
+| `ApprovalCardProps` | Props for `ApprovalCard`: the approval, the agent's name, the gated step's label and the decision callback. |
+| `ApprovalDecision` | `once`, `always` or `deny`. |
+| `SourceChips` | File or URL chips from a step's sources, with "+N" overflow. |
+| `SourceChipsProps` | Props for `SourceChips`: the sources and the chip limit before overflow. |
+| `Disclosure` | A `button[aria-expanded]` and its panel, following the open/closed rule. |
+| `DisclosureProps` | Props for `Disclosure`: open state, toggle, the button class, the summary and the panel. |
+| `useDisclosure` | The open/closed rule: automation decides until the user toggles; the user wins until the item is live again. |
+| `StepIcon` | The glyph for a `ToolDisplayIcon` name (16px, `currentColor`). |
+| `Chevron` | The disclosure chevron. |
+| `StatusText` | The muted "· meta" fragment after a sentence. |
+| `Checklist` | The plan's SVG checklist. |
+| `summaryLine` | The summary sentence and meta for a turn at a given time. |
+| `SummaryLine` | A summary line: its text, its muted meta, and whether it shows the running treatment. |
+| `formatDuration` | `<1s`, `Ns`, `Nm Ms`; undefined for an unknown duration. |
+| `approvalPayload` | The payload an approval card shows: args preview, command, or detail JSON. |
+| `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |
+| `useLive` | Whether a running step shows its running treatment (after 300 ms). |
+| `useElapsed` | A clock re-sampled once a second while active. |
+| `useSubagentRuns` | Fold the agent's events into the subagent tree (`SubagentRunsState`). |
 | `reduceSubagentRuns` | Re-export of the pure reducer from `@b4run/ag-ui/view`. |
-| `EMPTY_SUBAGENT_RUNS` | Re-export of the initial subagent-tree state from `@b4run/ag-ui/view`. |
-| `isSubagentMessage` | Re-export from `@b4run/ag-ui/view`: narrow a transcript message to one a subagent produced. |
-| `SubagentPanel` | Render the subagent tree: nested cards with each invocation's status, reasoning, prose, plan, tool calls and result. |
+| `EMPTY_SUBAGENT_RUNS` | Re-export from `@b4run/ag-ui/view`. |
+| `isSubagentMessage` | Re-export from `@b4run/ag-ui/view`. |
 | `SubagentEventSource` | The subscription seam `useSubagentRuns` needs from an agent. |
 | `SubagentRun` | Re-export from `@b4run/ag-ui/view`: everything known about one subagent invocation. |
 | `SubagentRunsState` | Re-export from `@b4run/ag-ui/view`: the thread id and the invocations keyed by `subagentRunId`. |
 | `SubagentToolCall` | Re-export from `@b4run/ag-ui/view`: one tool call a subagent made, with its streamed arguments and result. |
-| `planActivityContentSchema` | Validate plan activity content in a custom renderer. |
-| `B4ActivityClassNames` | Name the per-part classes a card appends to its defaults (customization rung 2). |
-| `B4ActivityComponents` | Name the leaf slots (`TodoRow`, `ToolRow`) a card lets a consumer replace (customization rung 3). |
-| `B4TodoRowProps` | Describe the props passed to a replacement `TodoRow`. |
-| `B4ToolRowProps` | Describe the props passed to a replacement `ToolRow`. |
-| `cx` | Join a package default class with an optional consumer class (customization rung 4: what an ejected card imports in place of its internal `./parts.js` path). |
+| `planActivityContentSchema` | Zod schema for the `b4.plan` activity content. |
+| `PlanActivityCard` | Deprecated legacy plan card; removed when the research example adopts `TurnActivity`. |
+| `ActivityChecklist` | Deprecated legacy checklist; removed with `PlanActivityCard`. |
+| `SubagentPanel` | Deprecated legacy subagent tree; removed when the research example adopts `SubagentStep`. |
+| `B4ActivityClassNames` | Deprecated: the per-part classes the legacy cards append to their defaults (customization rung 2). |
+| `B4ActivityComponents` | Deprecated: the leaf slots (`TodoRow`, `ToolRow`) the legacy cards let a consumer replace (customization rung 3). |
+| `B4TodoRowProps` | Deprecated: the props passed to a replacement `TodoRow`. |
+| `B4ToolRowProps` | Deprecated: the props passed to a replacement `ToolRow`. |
+| `cx` | Deprecated class joiner for the legacy cards' `classNames` slots. |
 
-`b4ActivityRenderers` is the drop-in default. Use an individual renderer to register only one card or to mix it with your own. The cards are plain React components and don't need CopilotKit.
+`TurnActivity` is the drop-in: give it a `TurnView` from `reduceTurns` and it renders the turn. The kit components are plain React and don't need CopilotKit; the CopilotKit connector is `@b4run/ag-ui/copilotkit`.
 
-`ActivityChecklist` and `PlanActivityCard` accept optional `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and so does `SubagentPanel`, which renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for rung 1 and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for a runnable example of every rung.
+Deprecated: `ActivityChecklist`, `PlanActivityCard` and `SubagentPanel` still accept the `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and `SubagentPanel` still renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. They go away once the research example adopts the kit. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for the tokens and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for the legacy ladder.
+
+### `@b4run/ag-ui/copilotkit`
+
+The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the activity kit.
+
+| Export | Responsibility |
+|---|---|
+| `B4Activity` | Provider around your chat: hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt (in the chat by default; `renderInChat={false}` renders them after its children for a host with its own transcript), and keeps the thread's turns current from the agent's events. Supports `approvals.grants: "off"` today. |
+| `B4ActivityProps` | Props for `B4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep`, `renderInChat`, the clock and children. |
+| `useB4ChatSlots` | Props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows. |
+| `B4ChatSlots` | The `messageView` slots `useB4ChatSlots` returns: `transformMessages` and `assistantMessage`. |
+| `useB4Turns` | The agent's thread as turns (`reduceTurns`), plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed. |
+| `UseB4TurnsOptions` | Options for `useB4Turns`: the clock and the tools whose frames the view drops. |
+| `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView`, `markResuming` and `clearResuming`. |
+| `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
+| `b4ActivityRenderers` | CopilotKit `renderActivityMessages` for hosts not using `B4Activity`: the legacy plan card. Moved here from `./react`. |
+| `b4PlanActivityRenderer` | The plan renderer alone. Moved here from `./react`. |
 
 ### `@b4run/ag-ui/react/styles.css`
 
-This subpath is the activity cards' default stylesheet. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
+This subpath is the activity kit's default stylesheet. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
 
 ```ts
 import "@b4run/ag-ui/react/styles.css"
 ```
 
-The sheet is optional, and the cards render without it. Every rule that styles an element is scoped to the `b4-activity` prefix, so it can't restyle the rest of your application.
+The sheet is optional, and the components render without it. Every rule sits in `@layer b4-activity`, so any unlayered app CSS wins, and every rule that styles an element is scoped to the `b4-` prefix, so it can't restyle the rest of your application.
 
-The sheet also declares `--b4-activity-*` custom properties on `:root`. To restyle the cards, override these properties in your own CSS:
+The sheet also declares `--b4-activity-*` design tokens on `:root`. To restyle the kit, override these properties in your own CSS:
 
-- `--b4-activity-surface`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`
-- `--b4-activity-running`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-badge-bg`
-- `--b4-activity-radius`, `--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, and `--b4-activity-header-weight`
+- `--b4-activity-surface`, `--b4-activity-surface-alt`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`
+- `--b4-activity-running`, `--b4-activity-running-bg`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-failed-bg`, `--b4-activity-primary`, `--b4-activity-on-primary`
+- `--b4-activity-radius`, `--b4-activity-radius-card`, `--b4-activity-radius-pill`, and `--b4-activity-font-mono`
 
-`--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette unless you point it elsewhere.
+The legacy geometry tokens (`--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, `--b4-activity-header-weight`) and `--b4-activity-badge-bg` remain until the legacy cards go.
 
-Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. A dark palette applies under `prefers-color-scheme: dark`. Set `data-b4-theme="light"` or `data-b4-theme="dark"` on the root element to pin one (the selectors match only `:root`). All three token blocks are wrapped in `:where()`, so they carry no specificity and your own `:root` override wins in every theme, whatever the stylesheet order.
+Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. Dark mode follows the host, not the OS: the dark palette applies under a `.dark` or `[data-theme="dark"]` ancestor, or when `data-b4-theme="dark"` is set on the root element. `data-b4-theme="light"` pins light, and `data-b4-theme="auto"` follows `prefers-color-scheme` instead. The token blocks are wrapped in `:where()`, so your own `:root` override wins in every theme.
 
 ## Key contracts
 
