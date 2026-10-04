@@ -165,8 +165,9 @@ export const display = {
   are a client concern: the view core's label table for built-in tools, plus
   the connector's `labels` overrides.
 - Labels are plain text, never HTML. A label longer than 120 characters is
-  truncated with "…". A label function that throws falls back to the default
-  and logs once per tool.
+  truncated with "…". A label function that throws falls back to the default;
+  the server logs once per tool, the pure view core stays silent and the
+  connector or component layer owns any warning.
 - Built-in tools ship labels: `readFile`, `writeFile`, `editFile`,
   `listDir`, `runBash`, `recall`, `remember`, `task`, `writeTodos`, plus the
   capability tools.
@@ -197,9 +198,14 @@ For every tool call, the server evaluates the labels and emits an AG-UI
   `b4.content_parts_dropped`); a client that doesn't know a name ignores it.
 - Grouped-step labels are computed on the client (see §4's fallbacks).
 
-**Client override.** The connector accepts `labels: { [tool]: Partial<ToolDisplay> }`.
-Client fields win over server fields for that tool. This is how an app
-rewords or localizes a label.
+**Client override.** The connector accepts `labels: { [tool]: StepLabelOverride }`
+(`running(args)`, `done(args, result)`, `group(count)`, `icon`). Client fields
+win over server fields for that tool: `stepLabel` tries the override first,
+then the server's `b4.step` label, then the "Using X…"/"Used X" fallback.
+This is how an app rewords or localizes a label a built-in tool ships with.
+The decision shown on a decided call ("· allowed once", "· denied") comes
+from the connector that sent the resume, not from `TurnsView`: the reducer
+clears the approval when the turn resumes.
 
 ## 5. Visual spec
 
@@ -317,10 +323,10 @@ whether live, replayed or restored. It owns:
 - approvals: each `Interrupt` attaches to its step by `toolCallId`
   (AG-UI 1.0 `Interrupt.toolCallId`, filled by `toAguiInterrupt`), with the
   paused state propagated to every ancestor subagent,
-- merging, the 300 ms spinner threshold, open/closed defaults,
-- tool output: renders `TOOL_CALL_RESULT.content` as-is; a compatibility
-  branch unwraps a serialized LangChain `ToolMessage` from servers older than
-  sub-project 1 and is removed in a later release.
+- merging through `groupSteps`; the 300 ms spinner threshold and open/closed
+  defaults are component state in the React and Angular kits, not view state,
+- tool output: renders `TOOL_CALL_RESULT.content` as-is (sub-project 1 made
+  the clean content the wire contract, so there is no unwrapping branch).
 
 ### 6.2 CopilotKit (React) connector
 
@@ -362,7 +368,7 @@ No code ships.
 
 | Situation | Behavior |
 |---|---|
-| Malformed `b4.plan` or `b4.step` payload | That piece is dropped; the step falls back to default labels; a dev-mode console warning. |
+| Malformed `b4.plan` or `b4.step` payload | That piece is dropped; the step falls back to default labels; the connector may warn in dev mode, the view core never logs. |
 | Unparseable args or output | Raw text in `StepDetail`; never a crash. |
 | Label function throws (server) | Default label; logged once per tool. |
 | Interrupt without `toolCallId` | The card still renders; the activity shows "Waiting for your approval" without marking a step. |

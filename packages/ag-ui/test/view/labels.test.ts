@@ -7,10 +7,23 @@ function tool(partial: Partial<ToolStep> & { id: string; name: string }): ToolSt
 }
 
 describe("stepLabel", () => {
-  it("prefers the server label, then the override, then the fallback", () => {
+  it("prefers the override, then the server label, then the fallback", () => {
     expect(stepLabel(tool({ id: "1", name: "searchCorpus", label: "Searched the corpus" }))).toBe(
       "Searched the corpus",
     )
+    expect(
+      stepLabel(
+        tool({ id: "1", name: "readFile", label: "Read notes.md", args: '{"path":"notes.md"}' }),
+        {
+          readFile: { done: (args) => `Leyó ${(args as { path: string }).path}` },
+        },
+      ),
+    ).toBe("Leyó notes.md")
+    expect(
+      stepLabel(tool({ id: "1", name: "readFile", label: "Read notes.md" }), {
+        readFile: { done: () => "" },
+      }),
+    ).toBe("Read notes.md")
     expect(
       stepLabel(tool({ id: "1", name: "searchCorpus", args: '{"query":"a"}' }), {
         searchCorpus: { done: (args) => `Looked for ${(args as { query: string }).query}` },

@@ -64,13 +64,13 @@ function truncate(label: string): string {
 }
 
 /**
- * The sentence for a tool step: the server's `b4.step` label, else the
- * app's override for that tool (given parsed args), else "Using X…" /
- * "Used X". Never throws, never echoes raw arguments, and never returns more
- * than 120 characters.
+ * The sentence for a tool step: the app's override for that tool (given
+ * parsed args) wins, else the server's `b4.step` label, else "Using X…" /
+ * "Used X". Client wording wins so an app can reword or localize a label a
+ * built-in tool ships with. Never throws, never echoes raw arguments, and
+ * never returns more than 120 characters.
  */
 export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): string {
-  if (step.label) return truncate(step.label)
   const override = lookup(overrides, step.name)
   const live = step.status === "pending" || step.status === "running" || step.status === "awaiting"
   if (override !== undefined) {
@@ -80,6 +80,7 @@ export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): s
       : override.done && tryLabel(() => override.done?.(args, step.result) ?? "")
     if (produced) return truncate(produced)
   }
+  if (step.label) return truncate(step.label)
   return live ? `Using ${step.name}…` : `Used ${step.name}`
 }
 

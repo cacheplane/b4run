@@ -107,9 +107,9 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `StepSource` | A source a step cites; an alias of the SDK's `ToolDisplaySource`, as `b4.step` carries it. |
 | `StepStatus` | `pending`, `running`, `done`, `failed` or `awaiting`. |
 | `TurnStatus` | `working`, `awaiting`, `done`, `failed` or `stopped`. |
-| `ReduceTurnsOptions` | Inject the clock and name tools whose frames the view drops. |
-| `stepLabel` | The sentence for a tool step: the server's `b4.step` label, else the app's override, else "Using X…"/"Used X"; never throws, never echoes raw arguments, at most 120 characters. |
-| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label; running, failed and awaiting steps never join. |
+| `ReduceTurnsOptions` | Inject the clock, name tools whose frames the view drops, and say whether a same-thread run resumes the awaiting turn (`resuming`). |
+| `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"; never throws, never echoes raw arguments, at most 120 characters. |
+| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
 | `StepLabelOverride` | Client-side wording for one tool: reword, localize, or label a group. |
 | `StepLabelOverrides` | Overrides keyed by tool name. |
 | `StepGroup` | A run of merged tool steps and its label. |
