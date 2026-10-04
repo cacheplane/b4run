@@ -3601,3 +3601,99 @@ Open a small docs-only PR for the findings (same `gh pr create` shape as above, 
 **Placeholder scan:** no TBD/TODO; every code step shows its code; the RUN_ERROR test names its `thenThrow` helper; the agent-adapter test names the two helpers it needs and where their shapes come from.
 
 **Type consistency:** `StepEventData` (langchain) ↔ `B4StepData` (ag-ui types, snake_case `tool_call_id`) ↔ `B4StepEventValue` (wire, camelCase `toolCallId`) are three deliberate layers; Task 11's `step` case maps the second to the third. `ToolStep.status` uses `done`, matching `StepStatus`; `B4StepStatus` uses `completed` on the wire, and `applyStep` maps it. `offersAlways` reads `responseSchema.enum`, which Task 3 sets.
+
+## Spike findings (2026-10-04)
+
+Run locally against the research example (`@copilotkit/react-core` 1.76.0, `@ag-ui/core`/`@ag-ui/client` 1.0.1, Next 16.3.3) on branch `blove/ag-ui-view-entry` with `pnpm build` done. Nothing committed; `examples/research/web/app/page.tsx` restored afterwards (`git status` clean under `examples/`). Three live OpenAI runs: one corpus research run (Step 2/3), two turns on the gate thread (Step 4: the agent first asked for confirmation in prose, so a second user turn was needed to make it call `runBash`).
+
+### The four answers
+
+1. **`toolCallsView` slot — reached, but the merge does not apply.** `[spike toolCallsView: N calls]` rendered once per assistant message with **N = 1 every time** (19 tool-only rows), plus `N = 0` under each text-bearing assistant message (the slot is invoked unconditionally; the stock `CopilotChatToolCallsView` just returns `null` when there are no tool calls). The `transformMessages` merge never fired because the list it receives interleaves `role: "tool"` result messages between the tool-only assistant messages (`assistant → tool → assistant → tool …`), so two tool-only assistant messages are never adjacent. Server-side the thread held 38 messages: 1 Human, 19 AIMessageChunk (18 tool-only with exactly one tool call each, 1 final text), 18 ToolMessage. A merge has to skip/drop the intervening tool messages (and tool-call cards still find their results in the full list, per the `transformMessages` docstring), or merge by turn rather than adjacency.
+
+2. **`toolbarVisible` works per message.** Tool-only rows rendered **no** toolbar buttons; text rows rendered `Copy` + `CopilotKit Inspector (local only)` (the stock toolbar only shows thumbs/read-aloud/regenerate when their handlers are passed). Toolbar hidden under all 19 tool-only rows, present under all 3 text rows, live and after reload.
+
+3. **Restored thread matches the live run.** Reloading `/?thread=<id>` after the run finished rendered the same 22 assistant rows (19 × `1 calls`, 3 × `0 calls`), the user message, and all three text blocks, with identical toolbar placement. Restore goes through `POST /api/copilotkit/agent/default/connect`, which B4 answers by replaying the recorded AG-UI event stream (RUN_STARTED … RUN_FINISHED per run), not by reading LangGraph state. Note the client's 22 assistant messages vs the server's 19 AIMessageChunks: the extra 3 are the `task` subagents' `TEXT_MESSAGE_*` events (carrying `subagentRunId`), which CopilotKit 1.76 renders as top-level assistant messages (the "Two-sentence summary" / "Plan-and-execute is…" blocks were subagent answers, the last block was the root agent's final answer). A `b4.subagent`-aware view must fold those by `subagentRunId`.
+
+4. **Pending interrupt after reload — CopilotKit DOES restore it.** With the thread parked (`GET /threads/<id>` → `status: "interrupted"`, `GET /threads/<id>/state` → `next: ["__interrupt__"]`, last message an `AIMessageChunk` with `runBash {"command":"node scripts/fetch-source.mjs https://example.org/paper"}`), a full page reload at `/?thread=<id>` with
+   `useInterrupt({ render: ({ interrupts }) => <pre>{JSON.stringify(interrupts.map((i) => i.id))}</pre>, renderInChat: false })`
+   rendered **`["perm-1791077061351-3d2sg5"]` immediately after reload**, before any new run. Mechanism: the `connect` replay ends with the parked run's `RUN_FINISHED` carrying `outcome: { type: "interrupt", interrupts: [...] }`, and CopilotKit re-derives its open-interrupt set from that. So the sub-project 2 connector does **not** need to read `/threads/:id/state` to seed `reduceTurns` with parked interrupts, *provided the view is fed the same connect/replay stream*. `/threads/:id/state` is not a usable source anyway: it has **no `interrupts` field** — only `next: ["__interrupt__"]` and the pending `tools` task in `values.__pregel_tasks` (no `interrupts` on the task either). The parked interrupt's full shape is only in the replayed `RUN_FINISHED`.
+   - Stock `CopilotChat` rendered **no approval UI** for the parked gate (buttons on the page: only `Copy` / `CopilotKit Inspector`); the run simply ended with the tool-only row showing `1 calls` and the composer back in idle (send arrow, no stop button).
+   - Thread left clean by `DELETE http://127.0.0.1:3002/threads/<id>` (204; subsequent GET 404). The resume POST was not exercised.
+
+### Exact prop form that typechecked
+
+The plan's literal form **failed** `pnpm --filter @b4-example/research-web typecheck`:
+
+```
+app/page.tsx(64,45): error TS2322: Type '(props: CopilotChatAssistantMessageProps) => Element' is not assignable to type 'SlotValue<typeof CopilotChatAssistantMessage> | undefined'.
+  Type '(props: CopilotChatAssistantMessageProps) => Element' is missing the following properties from type 'typeof CopilotChatAssistantMessage': MarkdownRenderer, Toolbar, ToolbarButton, CopyButton, and 5 more.
+```
+
+Cause: `SlotValue<C> = C | string | Partial<React.ComponentProps<C>>` and the slot is typed `SlotValue<typeof CopilotChatAssistantMessage>`; `typeof` carries the namespace statics (`MarkdownRenderer`, `Toolbar`, `ToolbarButton`, `CopyButton`, `InspectorButton`, `ThumbsUpButton`, `ThumbsDownButton`, `ReadAloudButton`, `RegenerateButton`), so a plain function component does not structurally match. The partial-props branch cannot express a per-message `toolbarVisible`. Moving `assistantMessage` up to `chatView` (the plan's alternative) would not help: `chatView` is the one slot typed `SlotValue<React.ComponentType<CopilotChatViewProps>>` ("static namespace members are not required"), but its nested `messageView.assistantMessage` is still `SlotValue<typeof CopilotChatAssistantMessage>`.
+
+**This form typechecked clean** (and `messageView={{ transformMessages, assistantMessage }}` as partial props on `CopilotChat` was accepted — no need to go via `chatView`):
+
+```tsx
+import {
+  CopilotChat,
+  CopilotChatAssistantMessage,
+  type CopilotChatAssistantMessageProps,
+  CopilotKit,
+  type Message,
+  useDefaultRenderTool,
+  useInterrupt,
+} from "@copilotkit/react-core/v2"
+
+function SpikeToolCallsView({ message }: { message: { toolCalls?: unknown[] } }) {
+  return <div data-spike="toolcalls">[spike toolCallsView: {message.toolCalls?.length ?? 0} calls]</div>
+}
+
+// Object.assign copies the namespace statics onto the wrapper so it satisfies
+// `SlotValue<typeof CopilotChatAssistantMessage>` without a cast.
+const SpikeAssistantMessage = Object.assign(
+  function SpikeAssistantMessage(props: CopilotChatAssistantMessageProps) {
+    const hasText = typeof props.message.content === "string" && props.message.content.trim() !== ""
+    return <CopilotChatAssistantMessage {...props} toolbarVisible={hasText} toolCallsView={SpikeToolCallsView} />
+  },
+  CopilotChatAssistantMessage,
+)
+
+// ...
+<CopilotChat
+  {...(threadId !== undefined ? { threadId } : {})}
+  messageView={{ transformMessages, assistantMessage: SpikeAssistantMessage }}
+/>
+```
+
+`SpikeToolCallsView` typed with a loose `{ message: { toolCalls?: unknown[] } }` was accepted for `toolCallsView` (the slot type is `SlotValue<typeof CopilotChatToolCallsView>`, and that function has no namespace statics, so a plain component works there). The `useInterrupt` call with `renderInChat: false` returned `React.ReactElement | null` as typed and was rendered inside a sibling component mounted under `<CopilotKit>`; typecheck clean.
+
+### Console warnings seen
+
+None from CopilotKit. Browser console across all runs/reloads contained only: React DevTools info line, `[HMR] connected`, `[Fast Refresh] rebuilding/done`, and `Lit is in dev mode. Not recommended for production!` (from `@copilotkit/web-inspector`). No "must be a stable" warning (the `useCallback`-wrapped `transformMessages` satisfied the docstring's stability requirement). Zero console errors. One `POST /agent/default/connect` per reload shows `net::ERR_ABORTED` immediately followed by a successful duplicate — React StrictMode double-mount, not a defect.
+
+### CopilotKit 1.76 / @ag-ui 1.0.1 type details for a connector author
+
+Source of truth: `examples/research/web/node_modules/@copilotkit/react-core/dist/copilotkit-B90cY0Zg.d.mts` (the v2 bundle; `dist/v2/index.d.mts` only re-exports with mangled aliases, e.g. `Mn as CopilotChatAssistantMessage`, `Nn as CopilotChatAssistantMessageProps`, `un as CopilotChat`, `Q as useDefaultRenderTool`, `H as useInterrupt`, `Ja as Message`).
+
+- `type SlotValue<C extends React.ComponentType<any>> = C | string | Partial<React.ComponentProps<C>>`
+- `type WithSlots<S, Rest> = { [K in keyof S]?: SlotValue<S[K]> } & { children?: (props: SlotElements<S> & Rest) => ReactNode } & Omit<Rest, "children">`
+- `CopilotChatProps = Omit<CopilotChatViewProps, "messages" | "isRunning" | "suggestions" | …> & { agentId?; threadId?; labels?: Partial<CopilotChatLabels>; inspectorTools?; chatView?: SlotValue<React.ComponentType<CopilotChatViewProps>>; isModalDefaultOpen?; attachments?: AttachmentsConfig; onError?; … }`
+- `CopilotChatViewProps = WithSlots<{ messageView: typeof CopilotChatMessageView; scrollView: typeof CopilotChatView.ScrollView; input: typeof CopilotChatInput; suggestionView: typeof CopilotChatSuggestionView }, { messages?; autoScroll?; isRunning?; welcomeScreen?: SlotValue<React.FC<WelcomeScreenProps>> | boolean; onSubmitMessage?; onStop?; … }>`
+- `CopilotChatMessageViewProps = Omit<WithSlots<{ assistantMessage: typeof CopilotChatAssistantMessage; userMessage: typeof CopilotChatUserMessage; reasoningMessage: typeof CopilotChatReasoningMessage; cursor: typeof CopilotChatMessageView.Cursor; intelligenceIndicator: typeof IntelligenceIndicatorView }, { isRunning?: boolean; messages?: Message[]; transformMessages?: (messages: Message[]) => Message[] } & React.HTMLAttributes<HTMLDivElement>>, "children"> & { children?: (props: { isRunning; messages; messageElements: ReactElement[]; interruptElement: ReactElement | null }) => ReactElement }`
+  - `transformMessages` docstring: receives the list after duplicate ids are merged; row keys/virtualization/rendering work off the returned list; tool-call cards still look up results in the full list; "pass a stable function (e.g. `useCallback`) or it reruns on every render".
+- `CopilotChatAssistantMessageProps = WithSlots<{ markdownRenderer; toolbar; copyButton; inspectorButton; thumbsUpButton; thumbsDownButton; readAloudButton; regenerateButton; toolCallsView: typeof CopilotChatToolCallsView }, { onThumbsUp?; onThumbsDown?; onReadAloud?; onRegenerate?; message: AssistantMessage; messages?: Message[]; isRunning?: boolean; isLatest?: boolean; additionalToolbarItems?: ReactNode; toolbarVisible?: boolean } & React.HTMLAttributes<HTMLDivElement>>`
+  - `isLatest` is passed by the message view "because the rendered list can differ from `messages` when `transformMessages` drops, replaces or reorders messages".
+- `CopilotChatToolCallsViewProps = { message: AssistantMessage; messages?: Message[] }`; `CopilotChatToolCallsView(...) => JSX.Element | null`. Only one `toolCallsView` is rendered per assistant message, and it is rendered even when `message.toolCalls` is empty/undefined.
+- `AssistantMessage` / `Message` here come from `@ag-ui/core` 1.0.1 (`AssistantMessage.content` is `string | ContentPart[] | undefined`, hence the `typeof === "string"` guard); the `Message` the v2 index exports is `@ag-ui/client`'s re-export of the same type.
+- `useDefaultRenderTool(config?: { render?: (props: DefaultRenderProps) => ReactElement | null }, deps?) => void`
+- `useInterrupt<TResult = never, TRenderInChat extends boolean | undefined = undefined>(config: UseInterruptConfig<any, TResult, TRenderInChat>): UseInterruptReturn<TRenderInChat>` where `UseInterruptReturn<false> = ReactElement | null`, `UseInterruptReturn<true | undefined> = void`. Config: `render: (props: InterruptRenderProps) => ReactElement`, `handler?`, `enabled?: (event: InterruptEvent) => boolean`, `agentId?`, `renderInChat?`.
+- `InterruptRenderProps = { event: InterruptEvent; interrupt: Interrupt | null; interrupts: Interrupt[]; result; resolve: InterruptResolveFn; cancel: InterruptCancelFn }` (`Interrupt` from `@ag-ui/client` 1.0.1). Docstring: supports the AG-UI standard flow (`RUN_FINISHED` with `outcome.type === "interrupt"`) and the legacy `on_interrupt` custom event; resuming "addresses the targeted interrupt and, once every open interrupt is addressed, submits a single spec `resume` array via `copilotkit.runAgent`".
+- B4's parked permission interrupt as it appears in the replayed `RUN_FINISHED.outcome.interrupts[0]`:
+  `{ id: "perm-…", reason: "command", toolCallId: "call_…", responseSchema: { type: "string", enum: ["once","always","deny"] }, metadata: { interruptId, type: "permission-request", kind: "command", toolCallId, detail: { command: "node scripts/fetch-source.mjs https://example.org/paper", suggestedPattern: "node scripts/fetch-source.mjs" } } }`.
+- Replay facts for the connector: `connect` replays every recorded run of the thread in order, each bracketed by `RUN_STARTED` (with the full `input`) and `RUN_FINISHED` (`outcome: {type:"success"}` + `result` for finished runs, `outcome: {type:"interrupt", interrupts:[…]}` and no `result` for the parked one). `CUSTOM name:"b4.step"` events, `ACTIVITY_SNAPSHOT activityType:"b4.plan"`, `SUBAGENT_STARTED`/`SUBAGENT_FINISHED`, and subagent-scoped `TOOL_CALL_*`/`TEXT_MESSAGE_*` (with `subagentRunId`) are all replayed verbatim.
+
+### Deviations from the plan's script
+
+- Step 2 prompt was used verbatim and did produce tool calls (recall, writeTodos, searchCorpus×3, readDoc×2, readFile, task×2, readSkill, writeFile, remember, writeTodos×6).
+- Step 4 prompt was used verbatim; the agent did not call `runBash` on the first turn — it wrote a prose confirmation request (following the route's "the human must approve it" instruction). A second user turn ("Yes, fetch. Run node scripts/fetch-source.mjs now via runBash. Short summary, no saving.") produced the `runBash` call and the park. Both turns are on the same thread, so the restore observations cover a two-turn thread.
+- The thread used for Step 3 (`ebdc0797-…`) was left idle in `.b4/threads.sqlite` (gitignored); the parked thread (`f816cd6d-…`) was deleted.
