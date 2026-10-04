@@ -367,6 +367,8 @@ No code ships.
 | Label function throws (server) | Default label; logged once per tool. |
 | Interrupt without `toolCallId` | The card still renders; the activity shows "Waiting for your approval" without marking a step. |
 | Stream ends with work open | Running steps → failed ("didn't finish"); subagents → failed with `cancelled` or `unterminated`; plan settles; summary "Stopped after {d}". |
+| Stream ends with calls handed to the client | A `RUN_FINISHED` that lists `pendingToolCallIds` leaves those steps as they are: the client still owes their results, so they are not abandoned work. |
+| A resumed run after an approval | The same turn continues (Working → Needs approval → Working → Done): approvals clear, paused steps and subagents resume. The wire carries no resume signal; the reducer treats a same-thread run over an awaiting turn as a resume, backed by the server's `409 resume_required` policy, and a connector that knows better passes `resuming`. |
 | Decision fails to send | The card stays, buttons re-enable, inline error text. |
 
 ## 8. Testing
