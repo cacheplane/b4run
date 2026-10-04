@@ -71,6 +71,33 @@ describe("stepLabel", () => {
     expect(seen).toBeUndefined()
   })
 
+  it("treats an empty server label as absent", () => {
+    expect(stepLabel(tool({ id: "1", name: "x", label: "" }))).toBe("Used x")
+    expect(stepLabel(tool({ id: "1", name: "x", label: "" }), { x: { done: () => "Did x" } })).toBe(
+      "Did x",
+    )
+  })
+
+  it("looks overrides up by own key only", () => {
+    expect(stepLabel(tool({ id: "1", name: "toString" }))).toBe("Used toString")
+    expect(stepLabel(tool({ id: "1", name: "constructor", status: "running" }))).toBe(
+      "Using constructor…",
+    )
+    expect(
+      stepLabel(tool({ id: "1", name: "hasOwnProperty" }), { other: { done: () => "no" } }),
+    ).toBe("Used hasOwnProperty")
+  })
+
+  it("cuts at 120 code points without splitting a surrogate pair", () => {
+    const emoji = "😀".repeat(130)
+    const cut = stepLabel(tool({ id: "1", name: "x", label: emoji }))
+    expect([...cut]).toHaveLength(120)
+    expect(cut).toBe(`${"😀".repeat(119)}…`)
+    expect(cut).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
+    )
+  })
+
   it("cuts a label longer than 120 characters with an ellipsis", () => {
     const long = "x".repeat(200)
     expect(stepLabel(tool({ id: "1", name: "x", label: long }))).toBe(`${"x".repeat(119)}…`)
@@ -122,6 +149,59 @@ describe("groupSteps", () => {
       groupSteps(two, { searchCorpus: { group: (n) => `Searched the corpus ${n} times` } })[0],
     ).toMatchObject({
       label: "Searched the corpus 2 times",
+    })
+  })
+
+  it("falls back when a group override throws or returns nothing", () => {
+    const two = (name: string): StepView[] => [tool({ id: "1", name }), tool({ id: "2", name })]
+    const boom = () => {
+      throw new Error("boom")
+    }
+    expect(groupSteps(two("readFile"), { readFile: { group: boom } })[0]).toMatchObject({
+      label: "Read 2 files",
+    })
+    expect(groupSteps(two("zap"), { zap: { group: boom } })[0]).toMatchObject({
+      label: "Used zap 2 times",
+    })
+    expect(groupSteps(two("zap"), { zap: { group: () => "" } })[0]).toMatchObject({
+      label: "Used zap 2 times",
+    })
+    expect(
+      groupSteps(two("readFile"), { readFile: { group: () => 42 as unknown as string } })[0],
+    ).toMatchObject({
+      label: "Read 2 files",
+    })
+  })
+
+  it("never reaches prototype keys through a tool name", () => {
+    expect(
+      groupSteps([tool({ id: "1", name: "toString" }), tool({ id: "2", name: "toString" })])[0],
+    ).toMatchObject({
+      kind: "group",
+      label: "Used toString 2 times",
+    })
+    expect(
+      groupSteps([
+        tool({ id: "1", name: "constructor" }),
+        tool({ id: "2", name: "constructor" }),
+      ])[0],
+    ).toMatchObject({ kind: "group", label: "Used constructor 2 times" })
+  })
+
+  it.each([
+    ["readFile", "Read 2 files"],
+    ["writeFile", "Saved 2 files"],
+    ["editFile", "Edited 2 files"],
+    ["listDir", "Listed 2 directories"],
+    ["runBash", "Ran 2 commands"],
+    ["recall", "Checked memory 2 times"],
+    ["remember", "Remembered 2 things"],
+    ["readSkill", "Loaded 2 skills"],
+  ])("labels two %s calls as %s", (name, label) => {
+    expect(Object.keys(BUILT_IN_GROUP_LABELS)).toHaveLength(8)
+    expect(groupSteps([tool({ id: "1", name }), tool({ id: "2", name })])[0]).toMatchObject({
+      kind: "group",
+      label,
     })
   })
 
