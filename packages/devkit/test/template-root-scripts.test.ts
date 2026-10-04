@@ -9,7 +9,7 @@ interface RootManifest {
 const rootManifest = (): RootManifest =>
   JSON.parse(
     readFileSync(
-      fileURLToPath(new URL("../templates/app-research/package.json.template", import.meta.url)),
+      fileURLToPath(new URL("../templates/app-navlog/package.json.template", import.meta.url)),
       "utf8",
     ),
   ) as RootManifest

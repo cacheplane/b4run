@@ -15,10 +15,10 @@ pnpm add -D @b4run/devkit
 ```ts
 import { resolveTemplateDir } from "@b4run/devkit"
 
-const templateDir = await resolveTemplateDir("research")
+const templateDir = await resolveTemplateDir("navlog")
 ```
 
-`resolveTemplateDir` accepts B4.run's supported `basic` and `research` template names and verifies that the bundled template directory exists.
+`resolveTemplateDir` accepts B4.run's supported `basic` and `navlog` template names and verifies that the bundled template directory exists.
 
 ## Runtime and stability
 

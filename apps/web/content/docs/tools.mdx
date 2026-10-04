@@ -60,8 +60,8 @@ A top-level agent sees every tool available to it by default: its own `tools/*.t
 
 Here's a route that gets everything except the shell:
 
-```ts title="src/app/research/index.ts"
-// src/app/research/index.ts: top route, everything except shell
+```ts title="src/app/navlog/index.ts"
+// src/app/navlog/index.ts: top route, everything except shell
 export default agent({ model: "gpt-5", systemPrompt: "…", tools: { deny: ["runBash"] } })
 ```
 
@@ -73,7 +73,7 @@ A subagent gets the shared `src/tools/*` plus its own route-local `tools/*.ts`. 
 
 Since shared tools reach children by default, deny any sensitive one a child shouldn't have:
 
-```ts title="src/app/research/subagents/researcher/index.ts"
+```ts title="src/app/navlog/subagents/researcher/index.ts"
 // deployProd is authored in src/tools/, so deny it explicitly for this child.
 export default agent({
   model: "gpt-5-mini",

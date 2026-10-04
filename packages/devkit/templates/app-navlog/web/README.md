@@ -1,6 +1,6 @@
 # {{appName}} — web
 
-The B4.run Workbench: the browser client for the `server/` package's `/research`
+The B4.run Workbench: the browser client for the `server/` package's `/navlog`
 agent. It is a [CopilotKit](https://docs.copilotkit.ai) v2 app
 (`@copilotkit/react-core/v2` + `@copilotkit/runtime`) on Next.js and React that
 talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).

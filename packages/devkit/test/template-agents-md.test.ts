@@ -2,13 +2,13 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-const templates = ["app-basic", "app-research"] as const
+const templates = ["app-basic", "app-navlog"] as const
 
 /**
- * Where each template's app tree starts. `app-research` is an npm workspace,
+ * Where each template's app tree starts. `app-navlog` is an npm workspace,
  * so its agent app — and everything scanned here — lives under `server/`.
  */
-const appRoot = (name: string): string => (name === "app-research" ? `${name}/server` : name)
+const appRoot = (name: string): string => (name === "app-navlog" ? `${name}/server` : name)
 
 describe("scaffold AGENTS.md", () => {
   for (const name of templates) {

@@ -17,7 +17,7 @@ import { afterAll, beforeAll, expect, it } from "vitest"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const memoryDb = join(appRoot, ".b4", "memory.sqlite")
-const memoryNamespace = `workspace=${basename(appRoot)}|route=/research`
+const memoryNamespace = `workspace=${basename(appRoot)}|route=/navlog`
 function cleanMemoryDb() {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(`${memoryDb}${suffix}`, { force: true })
 }
@@ -35,7 +35,7 @@ async function runCli(args: readonly string[]) {
 }
 
 beforeAll(cleanMemoryDb)
-const h = await createAgentHarness({ appRoot, route: "/research#agent" })
+const h = await createAgentHarness({ appRoot, route: "/navlog#agent" })
 afterAll(async () => {
   await h.close()
   cleanMemoryDb()

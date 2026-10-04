@@ -443,13 +443,13 @@ describe("local Mermaid UI compatibility harness", () => {
   it("resolves the complete example-local UI chain and patched versions", () => {
     const receipts = [
       resolveUiDependencyReceipt("examples/chat/web"),
-      resolveUiDependencyReceipt("examples/research/web"),
+      resolveUiDependencyReceipt("examples/navlog/web"),
     ]
     expect(receipts).toMatchObject([
       { app: "@b4-example/chat-web" },
-      { app: "@b4-example/research-web" },
+      { app: "@b4-example/navlog-web" },
     ])
-    for (const importerName of ["examples/chat/web", "examples/research/web"] as const) {
+    for (const importerName of ["examples/chat/web", "examples/navlog/web"] as const) {
       expect(lockUiDependencyChain(importerName)).toEqual({
         dompurify: "3.4.13",
         mermaid: "11.16.1",

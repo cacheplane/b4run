@@ -93,19 +93,19 @@ the sandbox test seeds a corpus document there before running the same tools.
 
 | Capability | File | What it shows |
 |---|---|---|
-| Agent route | `src/app/research/index.ts` | the research coordinator |
+| Agent route | `src/app/navlog/index.ts` | the research coordinator |
 | Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `b4 typegen` writes their generated types |
-| Subagents | `src/app/research/subagents/researcher/` | dispatched via `task({ subagent, input })` |
-| Planning | `src/app/research/plan.md` | seeded checklist becomes the thread's todos |
+| Subagents | `src/app/navlog/subagents/researcher/` | dispatched via `task({ subagent, input })` |
+| Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Offloading | `b4.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` |
-| Skills | `src/app/research/skills/` | `cite-sources`, `synthesize-findings` |
+| Skills | `src/app/navlog/skills/` | `cite-sources`, `synthesize-findings` |
 | HITL permissions | `b4.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
 | Workspace | `workspace/` | corpus + report output behind a path-jail |
 | Docker sandbox | `b4.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@b4run/sandbox` |
 | Persistence | (default) | threads survive a restart (SQLite) |
-| Tests | `test/research.test.ts` | `createAgentHarness` + `script()` |
-| Evals | `src/app/research/evals/` | `defineEval` + scorers + a gate |
+| Tests | `test/navlog.test.ts` | `createAgentHarness` + `script()` |
+| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
 
 ## Memory review
 
@@ -137,7 +137,7 @@ This is a starter — extend the parts you want and delete the rest:
   workspace execution, and seed any files the sandbox needs during the run.
 - **Enable summarization:** uncomment the `summarization` block in
   `b4.config.ts` once your threads get long.
-- **Throw it away:** delete `src/app/research/` and start from a single
+- **Throw it away:** delete `src/app/navlog/` and start from a single
   `index.ts` — the toolchain (`typegen`/`check`/`build`/`test`/`eval`) still works.
 
 When enabling Docker for ordinary development or deployment, set

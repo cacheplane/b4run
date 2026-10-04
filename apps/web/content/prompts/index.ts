@@ -15,7 +15,7 @@ const SCAFFOLD = `Help me build my first B4.run agent. B4.run is the TypeScript 
    cd my-agent
    npm install
    \`\`\`
-   This creates the default \`basic\` template: one package with a \`/hello\` agent in \`src/app/hello/index.ts\` and one typed \`greet\` tool in \`src/app/hello/tools/greet.ts\`. Pass \`-- --template research\` instead for the larger research assistant with subagents, planning, memory, and a web UI.
+   This creates the default \`basic\` template: one package with a \`/hello\` agent in \`src/app/hello/index.ts\` and one typed \`greet\` tool in \`src/app/hello/tools/greet.ts\`. Pass \`-- --template navlog\` instead for the larger research assistant with subagents, planning, memory, and a web UI.
 
 2. Walk me through the two files. Explain:
    - \`index.ts\` default-exports \`agent({ model, systemPrompt })\`.
@@ -142,7 +142,7 @@ Reference: https://b4.run/llms.txt
 
 const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right style for the route kind:
 
-1. For an agent route like the research scaffold's \`/research#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
+1. For an agent route like the research scaffold's \`/navlog#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
 
    \`\`\`ts
    import { fileURLToPath } from "node:url"
@@ -150,7 +150,7 @@ const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right sty
    import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
 
    const appRoot = fileURLToPath(new URL("..", import.meta.url))
-   const h = await createAgentHarness({ appRoot, route: "/research#agent" })
+   const h = await createAgentHarness({ appRoot, route: "/navlog#agent" })
    afterAll(async () => {
      await h.close()
    })
@@ -192,7 +192,7 @@ const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right sty
    \`\`\`ts
    import { scenarios } from "@b4run/sdk/testing"
 
-   export default scenarios("/research").scenario("uses a controlled corpus result", (s) =>
+   export default scenarios("/navlog").scenario("uses a controlled corpus result", (s) =>
      s
        .input({ messages: [{ role: "user", content: "Research B4.run" }] })
        .mockTool("searchCorpus", async ({ query }) => [
@@ -274,7 +274,7 @@ const DEPLOY = `Help me choose and deploy the right B4.run build target. B4.run 
 
    export default config({ build: { targets: ["langsmith"] } })
    \`\`\`
-   This emits \`.b4/build/langgraph.json\` and per-route entries keyed by \`<routeId>#<kind>\`, such as \`/research#agent\`. These are generated graphs, not the B4.run HTTP server: B4.run middleware, AG-UI, and the sandbox manager are absent. The generated config currently sets \`node_version: "22"\`, while B4.run packages require Node >=24. Treat that as an unresolved compatibility mismatch and confirm the platform can run the required Node version before deployment.
+   This emits \`.b4/build/langgraph.json\` and per-route entries keyed by \`<routeId>#<kind>\`, such as \`/navlog#agent\`. These are generated graphs, not the B4.run HTTP server: B4.run middleware, AG-UI, and the sandbox manager are absent. The generated config currently sets \`node_version: "22"\`, while B4.run packages require Node >=24. Treat that as an unresolved compatibility mismatch and confirm the platform can run the required Node version before deployment.
 
 4. Build the selected target only after verification and tests pass:
    \`\`\`

@@ -6,7 +6,7 @@ This recipe covers the application wiring. For the endpoint, events, threading, 
 
 ## What you'll build
 
-The demo lives in `examples/research`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
+The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
 - **Thread rail:** "New conversation" plus the list of threads, each titled from its first user message.
 - **Chat + report:** streamed markdown output and citations in the app's own transcript.
@@ -28,7 +28,7 @@ The Workbench also reviews durable memory. A small panel reaches B4.run through 
 <Step title="Configure the server">
 
 ```bash
-cd examples/research/server
+cd examples/navlog/server
 cp .env.example .env   # set OPENAI_API_KEY here, not in the web app
 ```
 
@@ -37,7 +37,7 @@ cp .env.example .env   # set OPENAI_API_KEY here, not in the web app
 <Step title="Start both apps">
 
 ```bash
-cd examples/research
+cd examples/navlog
 pnpm install
 pnpm dev          # B4.run server on :3002, web client on :3010
 ```
@@ -54,7 +54,7 @@ The Next.js runtime route registers a `B4HttpAgent`, an AG-UI `HttpAgent` that a
 
 <CodeGroup>
 
-```ts title="examples/research/web/app/api/copilotkit/[...path]/route.ts"
+```ts title="examples/navlog/web/app/api/copilotkit/[...path]/route.ts"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
 
@@ -62,7 +62,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3002"
-const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/research#agent")}`
+const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
@@ -75,7 +75,7 @@ export const GET = handler
 export const POST = handler
 ```
 
-```tsx title="examples/research/web/app/page.tsx"
+```tsx title="examples/navlog/web/app/page.tsx"
 // Excerpt: the provider tree. Thread state and its handlers live in the same
 // file, over `app/lib/thread-source.ts`.
 <CopilotKit
@@ -123,19 +123,19 @@ Dropping the sidebar has two consequences you'll want to handle if you build you
 - **Run failures need a subscription.** `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the sidebar used to do for you.
 - **The permission gate needs `renderInChat: false`.** The default (`true`) publishes the element into `<CopilotChat>`/`<CopilotSidebar>`. With neither mounted, the gate renders nowhere: the run parks with no approve or deny UI, no error, and green tests. With it set, `useInterrupt` returns the element and `Transcript` places it at the end of the message list.
 
-Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/research/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`.
+Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`.
 
 The same seam restores history when you switch threads. CopilotKit's own replay path (`connectAgent`) only runs inside `<CopilotChat>`, which this app leaves out. So the shell reads `GET /threads/:id/state` through the proxy and maps the checkpoint's LangChain envelopes into the shapes the transcript already renders (`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come back. Subagent activity cards from earlier runs aren't checkpointed, so they don't, and the app says so in a line above the restored messages.
 
 The same seam also carries `GET /threads/:id/pending_interrupts`, which lets a permission prompt survive a reload. `useInterrupt` only gets its state from live run events, so after a reload the server is still holding the gate and nothing on screen says so. `app/components/HydratedInterrupts.tsx` asks for the parked interrupts and reports their count upward, so the composer stays blocked until one is answered.
 
-To restyle the app, edit `examples/research/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
+To restyle the app, edit `examples/navlog/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
 
 ## Attach an image
 
 The attach control appears only when the route's model takes an image. `AppShell` reads that from the route's [capability document](/docs/ag-ui#capabilities):
 
-```tsx title="examples/research/web/app/components/AppShell.tsx"
+```tsx title="examples/navlog/web/app/components/AppShell.tsx"
 const capabilities = useCapabilities()
 const canAttachImages = capabilities?.multimodal?.input?.image === true
 ```
@@ -144,7 +144,7 @@ There is no browser call to make here. In the browser, the agent is CopilotKit's
 
 The composer reads a picked file as an inline `image` part, with the bytes and `mimeType` split out of the `data:` URL and the filename in `metadata`. On send, the shell puts the text first and adds the message itself:
 
-```tsx title="examples/research/web/app/components/AppShell.tsx"
+```tsx title="examples/navlog/web/app/components/AppShell.tsx"
 const content: string | B4ContentPart[] =
   parts.length > 0
     ? [...(text.length > 0 ? [{ type: "text" as const, text }] : []), ...parts]
@@ -180,7 +180,7 @@ A user image the adapter dropped is a different case. It never reached the model
 
 The research server ships `renderChart` (`server/src/tools/renderChart.ts`). Given a title and up to 12 `{ label, value }` pairs, it returns two parts: a one-line text summary and an inline SVG bar chart.
 
-```ts title="examples/research/server/src/tools/renderChart.ts"
+```ts title="examples/navlog/server/src/tools/renderChart.ts"
 return [
   { type: "text", text: summary },
   { type: "image", source: { type: "data", value: base64(svg), mimeType: "image/svg+xml" } },
@@ -217,7 +217,7 @@ The cards carry no inline styles, so without that import they render as bare mar
 
 `b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Its renderer is keyed by the adapter's own activity-type constant and validates the activity content with a strict runtime schema, so it rejects a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
 
-The example passes its own `workbenchActivityRenderers`, from `examples/research/web/app/components/activity-renderers.tsx`. It wraps the packaged `PlanActivityCard` and passes the packaged content schema, adding only per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
+The example passes its own `workbenchActivityRenderers`, from `examples/navlog/web/app/components/activity-renderers.tsx`. It wraps the packaged `PlanActivityCard` and passes the packaged content schema, adding only per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
 
 Subagents are not activities. The transcript (`app/components/Transcript.tsx`) calls `useSubagentRuns(agent)` on the `useAgent()` instance and mounts the packaged `SubagentPanel` on the result: the hook subscribes to the agent's event stream and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations, and the panel renders them nested — name, status, reasoning, prose, plan, tool calls with arguments and results, and the final result or error. The same `classNames` rule applies to the panel.
 
@@ -266,7 +266,7 @@ That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function l
 
 `app/components/MemoryPanel.tsx` renders the candidates in the thread rail with Approve and Delete on each. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
 
-```tsx title="examples/research/web/app/components/MemoryPanel.tsx"
+```tsx title="examples/navlog/web/app/components/MemoryPanel.tsx"
 useEffect(() => {
   const controller = new AbortController()
   void load(controller.signal)

@@ -23,7 +23,7 @@ import { useRenderTool } from "@copilotkit/react-core/v2"
 //   `parameters`, while sibling prop-based renderer APIs use `args`.
 //
 // With no agentId, this binds to CopilotKit's default agent id ("default"),
-// which the runtime route registers as our B4.run /research agent — same as
+// which the runtime route registers as our B4.run /navlog agent — same as
 // every other CopilotKit hook in this app.
 
 /** The three states `useRenderTool` reports a call in. */

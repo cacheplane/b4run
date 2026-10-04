@@ -11,15 +11,15 @@ offline.
 ```bash
 pnpm install                 # from the repo root
 pnpm build                   # build B4.run packages before commands that use dist
-pnpm --filter @b4-example/research-server exec b4 typegen  # write generated types
-pnpm --filter @b4-example/research-server check   # validate routes, tools, and config
-pnpm --filter @b4-example/research-server test    # harness tests, offline (replay fixtures)
-pnpm --filter @b4-example/research-server eval     # quality evals, offline (replay fixtures)
-pnpm --filter @b4-example/research-server memory:list
+pnpm --filter @b4-example/navlog-server exec b4 typegen  # write generated types
+pnpm --filter @b4-example/navlog-server check   # validate routes, tools, and config
+pnpm --filter @b4-example/navlog-server test    # harness tests, offline (replay fixtures)
+pnpm --filter @b4-example/navlog-server eval     # quality evals, offline (replay fixtures)
+pnpm --filter @b4-example/navlog-server memory:list
 ```
 
 To run against a real model, set `OPENAI_API_KEY` and add `--live`
-(e.g. `pnpm --filter @b4-example/research-server eval -- --live`). The offline
+(e.g. `pnpm --filter @b4-example/navlog-server eval -- --live`). The offline
 path uses recorded fixtures, so tests and evals are deterministic and need no
 API key.
 
@@ -28,7 +28,7 @@ API key.
 The current Next.js/CopilotKit client streams cited research, renders generic
 tool calls, handles standard permission interrupts, offers suggestion prompts,
 and reviews memory candidates. After the root install and build above, run from
-`examples/research`:
+`examples/navlog`:
 
 ```bash
 cp server/.env.example server/.env   # add a real OPENAI_API_KEY
@@ -41,7 +41,7 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 To dogfood the Docker sandbox, start Docker and run:
 
 ```bash
-pnpm --filter @b4-example/research-server test:sandbox:docker
+pnpm --filter @b4-example/navlog-server test:sandbox:docker
 ```
 
 The normal test path uses the local `workspace/` so the bundled corpus works
@@ -52,19 +52,19 @@ the sandbox test seeds a corpus document there before running the same tools.
 
 | Capability | File | What it shows |
 |---|---|---|
-| Agent route | `src/app/research/index.ts` | the research coordinator |
+| Agent route | `src/app/navlog/index.ts` | the research coordinator |
 | Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `b4 typegen` writes their generated types |
-| Subagents | `src/app/research/subagents/researcher/` | dispatched via `task({ subagent, input })` |
-| Planning | `src/app/research/plan.md` | seeded checklist becomes the thread's todos |
+| Subagents | `src/app/navlog/subagents/researcher/` | dispatched via `task({ subagent, input })` |
+| Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Offloading | `b4.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` |
-| Skills | `src/app/research/skills/` | `cite-sources`, `synthesize-findings` |
+| Skills | `src/app/navlog/skills/` | `cite-sources`, `synthesize-findings` |
 | HITL permissions | `b4.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
 | Workspace | `workspace/` | corpus + report output behind a path-jail |
 | Docker sandbox | `b4.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@b4run/sandbox` |
 | Persistence | (default) | threads survive a restart (SQLite) |
-| Tests | `test/research.test.ts` | `createAgentHarness` + `script()` |
-| Evals | `src/app/research/evals/` | `defineEval` + scorers + a gate |
+| Tests | `test/navlog.test.ts` | `createAgentHarness` + `script()` |
+| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
 
 ## Memory review
 
@@ -72,8 +72,8 @@ This app uses candidate memory writes. When the agent calls `remember`, the
 memory is saved for review instead of becoming active immediately.
 
 ```bash
-pnpm --filter @b4-example/research-server memory:list
-pnpm --filter @b4-example/research-server memory:approve -- <memory-id>
+pnpm --filter @b4-example/navlog-server memory:list
+pnpm --filter @b4-example/navlog-server memory:approve -- <memory-id>
 ```
 
 The tests show both paths: seeding an active memory with `seedMemory`, and

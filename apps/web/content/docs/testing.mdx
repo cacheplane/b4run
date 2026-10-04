@@ -63,10 +63,10 @@ export default scenarios("/support/[tenant]").scenario("custom assert", (s) =>
 
 Use `.mockTool()` when an in-process scenario should replace an external or nondeterministic application tool while keeping the rest of the route real. Tool names, parameters, and awaited return values come from the generated route types:
 
-```ts title="src/app/research/run.test.ts"
+```ts title="src/app/navlog/run.test.ts"
 import { scenarios } from "@b4run/sdk/testing"
 
-export default scenarios("/research").scenario("uses a controlled search result", (s) =>
+export default scenarios("/navlog").scenario("uses a controlled search result", (s) =>
   s
     .input({ messages: [{ role: "user", content: "Research B4.run" }] })
     .mockTool("searchWeb", async ({ query }) => ({

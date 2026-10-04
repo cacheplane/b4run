@@ -136,7 +136,7 @@ describe("create-b4-app", () => {
 
     const scaffoldResult = await runCommand(
       "pnpm",
-      ["exec", "create-b4-app", targetDir, "--template", "research", "--dist-tag", "next"],
+      ["exec", "create-b4-app", targetDir, "--template", "navlog", "--dist-tag", "next"],
       installDir,
     )
     expect(scaffoldResult.code).toBe(0)
@@ -151,15 +151,15 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, "server/package.json"))
     await assertExists(join(targetDir, "server/b4.config.ts"))
     await assertExists(join(targetDir, "server/.env.example"))
-    await assertExists(join(targetDir, "server/src/app/research/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/state.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/plan.md"))
+    await assertExists(join(targetDir, "server/src/app/navlog/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/state.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/plan.md"))
     await assertExists(join(targetDir, "server/src/tools/searchCorpus.ts"))
     await assertExists(join(targetDir, "server/src/tools/readDoc.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/subagents/researcher/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/skills/cite-sources/SKILL.md"))
-    await assertExists(join(targetDir, "server/src/app/research/evals/research-quality.eval.ts"))
-    await assertExists(join(targetDir, "server/test/research.test.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/researcher/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/skills/cite-sources/SKILL.md"))
+    await assertExists(join(targetDir, "server/src/app/navlog/evals/navlog-quality.eval.ts"))
+    await assertExists(join(targetDir, "server/test/navlog.test.ts"))
     await assertExists(join(targetDir, "server/workspace/AGENTS.md"))
     await assertExists(join(targetDir, "server/workspace/corpus/agent-architectures.md"))
     await assertExists(join(targetDir, "server/workspace/scripts/fetch-source.mjs"))
@@ -182,7 +182,7 @@ describe("create-b4-app", () => {
     }
 
     const researchRoute = await readFile(
-      join(targetDir, "server/src/app/research/index.ts"),
+      join(targetDir, "server/src/app/navlog/index.ts"),
       "utf8",
     )
 
@@ -234,9 +234,9 @@ describe("create-b4-app", () => {
         "  npx b4 inspect --cwd server  # memory Inspector (browser UI), in a third terminal",
       ].join("\n"),
     )
-    expect(scaffoldResult.stdout).toContain("✔ Created hello-b4 (research template)")
+    expect(scaffoldResult.stdout).toContain("✔ Created hello-b4 (navlog template)")
     expect(scaffoldResult.stdout).toContain("See README.md for the full tour")
-    expect(scaffoldResult.stdout).not.toContain("--template research")
+    expect(scaffoldResult.stdout).not.toContain("--template navlog")
     expect(scaffoldResult.stdout).not.toContain("docs/recipes/research-web-ui")
     expect(scaffoldResult.stdout).not.toContain("npm run check")
     expect(scaffoldResult.stdout).not.toContain("npm test")
@@ -250,7 +250,7 @@ describe("create-b4-app", () => {
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
     const exitCode = await withMockedPlatform("linux", () =>
-      run([targetDir, "--mode", "internal", "--template", "research"]),
+      run([targetDir, "--mode", "internal", "--template", "navlog"]),
     )
     const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
 
@@ -285,7 +285,7 @@ describe("create-b4-app", () => {
     const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 
     const exitCode = await withMockedPlatform("win32", () =>
-      run([targetDir, "--mode", "internal", "--template", "research"]),
+      run([targetDir, "--mode", "internal", "--template", "navlog"]),
     )
     const stdout = stdoutWrite.mock.calls.map(([chunk]) => String(chunk)).join("")
 
@@ -337,7 +337,7 @@ describe("create-b4-app", () => {
 
     const targetDir = join(tempRoot, "hello-b4")
 
-    const exitCode = await run([targetDir, "--mode", "internal", "--template", "research"])
+    const exitCode = await run([targetDir, "--mode", "internal", "--template", "navlog"])
 
     expect(exitCode).toBe(0)
 
@@ -367,15 +367,15 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, ".npmrc"))
     await assertExists(join(targetDir, "pnpm-workspace.yaml"))
     await assertExists(join(targetDir, "server/.env.example"))
-    await assertExists(join(targetDir, "server/src/app/research/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/state.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/plan.md"))
+    await assertExists(join(targetDir, "server/src/app/navlog/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/state.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/plan.md"))
     await assertExists(join(targetDir, "server/src/tools/searchCorpus.ts"))
     await assertExists(join(targetDir, "server/src/tools/readDoc.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/subagents/researcher/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/research/skills/cite-sources/SKILL.md"))
-    await assertExists(join(targetDir, "server/src/app/research/evals/research-quality.eval.ts"))
-    await assertExists(join(targetDir, "server/test/research.test.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/researcher/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/skills/cite-sources/SKILL.md"))
+    await assertExists(join(targetDir, "server/src/app/navlog/evals/navlog-quality.eval.ts"))
+    await assertExists(join(targetDir, "server/test/navlog.test.ts"))
     await assertExists(join(targetDir, "server/workspace/AGENTS.md"))
     await assertExists(join(targetDir, "server/workspace/corpus/agent-architectures.md"))
     await assertExists(join(targetDir, "server/workspace/scripts/fetch-source.mjs"))
@@ -407,7 +407,7 @@ describe("create-b4-app", () => {
         "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
         "",
         "Want the full deep-research assistant with a web UI instead?",
-        "  npm create b4-app@latest <new-directory> -- --template research",
+        "  npm create b4-app@latest <new-directory> -- --template navlog",
       ].join("\n"),
     )
     expect(stdout).toContain("✔ Created hello-b4 (basic template)")
@@ -424,7 +424,7 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, "src/app/hello/tools/greet.ts"))
     await assertExists(join(targetDir, "test/agent.test.ts"))
     await expect(
-      access(join(targetDir, "src/app/research/index.ts"), constants.F_OK),
+      access(join(targetDir, "src/app/navlog/index.ts"), constants.F_OK),
     ).rejects.toThrow()
   })
 
@@ -469,7 +469,7 @@ describe("create-b4-app", () => {
     const targetDir = join(tempRoot, "hello-b4")
     const repoRoot = resolve(import.meta.dirname, "../../..")
 
-    const exitCode = await run([targetDir, "--mode", "internal", "--template", "research"])
+    const exitCode = await run([targetDir, "--mode", "internal", "--template", "navlog"])
 
     expect(exitCode).toBe(0)
 

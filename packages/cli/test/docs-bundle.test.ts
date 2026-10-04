@@ -188,7 +188,7 @@ describe("current AG-UI documentation", () => {
       "packages/cli/docs",
       "apps/web/content/docs",
       "examples/chat",
-      "examples/research",
+      "examples/navlog",
     ]
     const staleReferences = roots.flatMap((root) =>
       currentDocumentationFiles(join(repoRoot, root)).flatMap((file) => {

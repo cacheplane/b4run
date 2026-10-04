@@ -85,7 +85,7 @@ Output:
 
 ```
 Discovered 2 B4.run routes in /path/to/app
-/research -> src/app/research/index.ts
+/navlog -> src/app/navlog/index.ts
 /admin/users -> src/app/(internal)/admin/users/index.ts
 ```
 
@@ -190,14 +190,14 @@ This is what the `node` build target's generated `Dockerfile` runs (`CMD ["node"
 `b4 run` invokes one route, reading JSON from stdin and writing JSON to stdout.
 
 ```
-echo '{"messages":[{"role":"user","content":"Hello"}]}' | b4 run '/research'
+echo '{"messages":[{"role":"user","content":"Hello"}]}' | b4 run '/navlog'
 ```
 
 Flags:
 - `--cwd <path>`: operate on a different app root.
 - `--url <url>`: run against a live dev server rather than the in-process runtime.
 
-The route argument can be the route id (`/research`) or its entry file (`src/app/research/index.ts`). Dynamic segment values come from the JSON input. With `--url`, `b4 run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
+The route argument can be the route id (`/navlog`) or its entry file (`src/app/navlog/index.ts`). Dynamic segment values come from the JSON input. With `--url`, `b4 run` POSTs to `/threads/<t-cli-uuid>/runs/wait` with `{ route: "<routeId>#<kind>", input }`.
 
 Without `--url`, `b4 run` regenerates the `.b4/` typegen output first, so a tool you just added or changed is bound with its current input schema. You don't need to run `b4 typegen` yourself. If regeneration fails, for example because a tool's input type can't be resolved, `b4 run` prints a warning on stderr and runs the route with the schemas already on disk.
 

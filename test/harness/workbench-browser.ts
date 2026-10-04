@@ -64,7 +64,7 @@ const DEFAULT_JOURNEY: WorkbenchBrowserJourney = {
 /**
  * The key the Workbench persists its thread list under, and the title
  * truncation `touch()` applies before writing a title — see
- * packages/devkit/templates/app-research/web/app/lib/thread-source.ts
+ * packages/devkit/templates/app-navlog/web/app/lib/thread-source.ts
  * (STORAGE_KEY, MAX_TITLE_LENGTH ~ line 115). Nothing imports that file (it
  * ships inside the scaffolded app, not this repo's dependency graph), so keep
  * both constants and the normalisation rule in step with it by hand.

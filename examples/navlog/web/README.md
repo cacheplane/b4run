@@ -1,9 +1,9 @@
 # B4.run Workbench — the research example's web client
 
 A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
-`@copilotkit/runtime/v2`) that talks to B4.run's `/research` agent over AG-UI. Its
+`@copilotkit/runtime/v2`) that talks to B4.run's `/navlog` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
-`B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/research#agent` endpoint. It is a
+`B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
 workbench rather than a chat widget: the app renders its own transcript and composer
 instead of mounting `CopilotSidebar`, so the plan and researcher activity cards appear
 inline in the conversation.
@@ -35,7 +35,7 @@ a legacy base-URL POST.
 browser
   → /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
     → B4HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
-      → live /research agent
+      → live /navlog agent
         → AG-UI event stream back to the browser
 ```
 
@@ -50,7 +50,7 @@ browser
   `renderActivityMessages={workbenchActivityRenderers}` and a 100 ms render throttle.
 
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
-(`"default"`), which the runtime route registers as the B4.run `/research` agent — same
+(`"default"`), which the runtime route registers as the B4.run `/navlog` agent — same
 pattern as `examples/chat/web`, no per-component wiring needed.
 
 ## Thread history
@@ -120,7 +120,7 @@ This demo needs a real model API key. There is no keyless or mock demo mode.
 ```bash
 pnpm install
 pnpm build                           # build the B4.run packages this app uses through dist
-cd examples/research
+cd examples/navlog
 cp server/.env.example server/.env   # set OPENAI_API_KEY here — the server needs it, not this app
 pnpm dev                             # server on :3002, web on :3010
 # open http://localhost:3010
@@ -132,7 +132,7 @@ it to `web/.env` if your server listens elsewhere.
 `pnpm --filter @b4run/ag-ui test` renders the cards on the server and checks their
 schemas and bounds. Here, `typecheck` / `build` verify the CopilotKit/AG-UI wiring
 compiles and the Next.js app builds. The repository's packaged research activation
-proves the deterministic wire path. `pnpm --filter @b4-example/research-web
+proves the deterministic wire path. `pnpm --filter @b4-example/navlog-web
 test:e2e` drives the real page in a browser to verify V2 transport selection. None of
 these checks exercises a live model; this client intentionally has no demo/mock mode.
 
@@ -164,7 +164,7 @@ what it puts out of reach.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/research-web test` runs 15 test files: the proxy route and
+`pnpm --filter @b4-example/navlog-web test` runs 15 test files: the proxy route and
 its allowlist, the thread source, the checkpoint hydrator, the transcript mapping, the
 renderer registry, the thread rail, the composer, the connect screen, the memory panel,
 the tool-call card, all three permission surfaces (`PermissionPrompt`,

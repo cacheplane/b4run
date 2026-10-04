@@ -5,7 +5,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3002"
-const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/research#agent")}`
+const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({

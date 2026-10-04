@@ -486,7 +486,7 @@ function Subagents() {
 
 React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
-For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/research/web`](https://github.com/cacheplane/b4run/tree/main/examples/research/web) implementation.
+For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
 
 ## Adapter API
 

@@ -1,5 +1,5 @@
 {
-  "name": "@b4-example/research-server",
+  "name": "@b4-example/navlog-server",
   "private": true,
   "version": "0.0.32",
   "type": "module",

@@ -47,7 +47,7 @@
         "$TURBO_ROOT$/apps/web/app/components/docs/nav.ts",
         "$TURBO_ROOT$/packages/ag-ui/README.md",
         "$TURBO_ROOT$/examples/chat/**",
-        "$TURBO_ROOT$/examples/research/**",
+        "$TURBO_ROOT$/examples/navlog/**",
         "!$TURBO_ROOT$/examples/*/**/node_modules/**",
         "!$TURBO_ROOT$/examples/*/**/.b4/**",
         "!$TURBO_ROOT$/examples/*/**/.next/**",
@@ -111,8 +111,8 @@
         "$TURBO_ROOT$/apps/web/package.json",
         "$TURBO_ROOT$/examples/chat/web/next.config.mjs",
         "$TURBO_ROOT$/examples/chat/web/package.json",
-        "$TURBO_ROOT$/examples/research/web/next.config.mjs",
-        "$TURBO_ROOT$/examples/research/web/package.json"
+        "$TURBO_ROOT$/examples/navlog/web/next.config.mjs",
+        "$TURBO_ROOT$/examples/navlog/web/package.json"
       ]
     },
     "@b4run/sandbox#test": {

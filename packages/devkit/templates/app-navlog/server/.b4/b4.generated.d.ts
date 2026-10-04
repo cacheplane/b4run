@@ -1,15 +1,15 @@
 /// <reference path="./scenarios.generated.d.ts" />
 
 declare module "b4:routes" {
-  export type B4RoutePath = "/research" | "/research/subagents/researcher";
+  export type B4RoutePath = "/navlog" | "/navlog/subagents/researcher";
 
   export interface B4RouteParams {
-  "/research": {};
-  "/research/subagents/researcher": {};
+  "/navlog": {};
+  "/navlog/subagents/researcher": {};
   }
 
   export interface B4RouteTools {
-    "/research": {
+    "/navlog": {
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
       readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
       readonly searchCorpus: (input: Parameters<typeof import("../src/tools/searchCorpus.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/searchCorpus.js").default>>>;
@@ -21,10 +21,10 @@ declare module "b4:routes" {
       readonly editFile: (input: { path: string; oldText: string; newText: string; replaceAll?: boolean | null }) => Promise<string>;
       readonly listDir: (input: { path?: string }) => Promise<string[]>;
       readonly runBash: (input: { command: string }) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
-      readonly remember: (input: { data: import("zod").infer<(typeof import("../src/app/research/memory").default)["schema"]>; content: string; tags?: string[]; confidence?: number }) => Promise<string>;
+      readonly remember: (input: { data: import("zod").infer<(typeof import("../src/app/navlog/memory").default)["schema"]>; content: string; tags?: string[]; confidence?: number }) => Promise<string>;
       readonly recall: (input: { query?: string; kind?: "semantic" | "episodic" | "procedural" | "reflection"; tags?: string[]; limit?: number; since?: string; until?: string }) => Promise<string>;
     };
-    "/research/subagents/researcher": {
+    "/navlog/subagents/researcher": {
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
       readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
       readonly searchCorpus: (input: Parameters<typeof import("../src/tools/searchCorpus.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/searchCorpus.js").default>>>;
@@ -39,7 +39,7 @@ declare module "b4:routes" {
   export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
 
   export interface B4RouteState {
-    "/research": {
+    "/navlog": {
       readonly context: string;
     };
   }

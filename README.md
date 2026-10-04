@@ -111,7 +111,7 @@ The [homepage](https://b4.run) shows one real recorded repair; the
 [evaluation report](./docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md)
 retains the failed attempts too.
 
-- [Research assistant](./examples/research/README.md)
+- [Research assistant](./examples/navlog/README.md)
 - [Chat and workspace assistant](./examples/chat/README.md)
 - [Memory-backed agent](./examples/memory/README.md)
 - [Routes and workflows guide](https://b4.run/docs/routes)
@@ -176,8 +176,8 @@ compiles the TypeScript project. That scaffold does not define `npm start`; use
 
 Current repository source scaffolds the smaller `basic` template, a single
 `/hello` agent, by default. Its research template is a two-package workspace
-with a server and the B4.run Workbench, selected with `--template research`
-(`npm create b4-app@latest my-agent -- --template research`). These commands
+with a server and the B4.run Workbench, selected with `--template navlog`
+(`npm create b4-app@latest my-agent -- --template navlog`). These commands
 apply to a research scaffold generated from current repository source, not the
 published `@latest` package:
 

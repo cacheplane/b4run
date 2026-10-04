@@ -34,7 +34,7 @@ describe("ConnectScreen", () => {
   test("keeps the commands context-neutral, so the template's copy of this file stays byte-equal", () => {
     const html = render()
     expect(html).not.toContain("pnpm")
-    expect(html).not.toContain("examples/research")
+    expect(html).not.toContain("examples/navlog")
   })
 
   test("reminds the reader the server needs a real API key", () => {

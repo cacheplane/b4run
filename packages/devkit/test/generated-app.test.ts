@@ -66,7 +66,7 @@ describe("generated app helper", () => {
       const generatedApp = await createGeneratedApp({
         appName: "sample-research-app",
         artifactRoot,
-        template: "research",
+        template: "navlog",
       })
 
       // The research template is a two-package npm workspace. Only the
@@ -101,7 +101,7 @@ describe("generated app helper", () => {
         "utf8",
       )
       const prompt = await readFile(
-        resolve(generatedApp.appRoot, "server/src/app/research/index.ts"),
+        resolve(generatedApp.appRoot, "server/src/app/navlog/index.ts"),
         "utf8",
       )
       const generatedTypes = await readFile(
@@ -111,7 +111,7 @@ describe("generated app helper", () => {
       const rootReadme = await readFile(resolve(generatedApp.appRoot, "README.md"), "utf8")
       const readme = await readFile(resolve(generatedApp.appRoot, "server/README.md"), "utf8")
       const researchTest = await readFile(
-        resolve(generatedApp.appRoot, "server/test/research.test.ts"),
+        resolve(generatedApp.appRoot, "server/test/navlog.test.ts"),
         "utf8",
       )
       const sandboxTest = await readFile(
@@ -192,7 +192,7 @@ describe("generated app helper", () => {
       // The corpus tools are shared at `server/src/tools/`, never route-local.
       await expect(
         access(
-          resolve(generatedApp.appRoot, "server/src/app/research/tools/readDoc.ts"),
+          resolve(generatedApp.appRoot, "server/src/app/navlog/tools/readDoc.ts"),
           constants.F_OK,
         ),
       ).rejects.toThrow()

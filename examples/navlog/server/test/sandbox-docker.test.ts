@@ -25,7 +25,7 @@ it.skipIf(!enabled)(
     vi.stubEnv("B4_SANDBOX_SCOPE", `research-test-${randomUUID()}`)
     await rm(hostSandboxOnlyPath, { force: true })
 
-    const h = await createAgentHarness({ appRoot, route: "/research#agent" })
+    const h = await createAgentHarness({ appRoot, route: "/navlog#agent" })
     try {
       const run = await h.run({
         input: "Seed and search the sandbox corpus for agent architectures.",

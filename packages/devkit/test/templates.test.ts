@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest"
 import { resolveTemplateDir, TEMPLATE_NAMES } from "../src/templates.js"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
-const serverExampleRoot = resolve(repoRoot, "examples/research/server")
-const webExampleRoot = resolve(repoRoot, "examples/research/web")
+const serverExampleRoot = resolve(repoRoot, "examples/navlog/server")
+const webExampleRoot = resolve(repoRoot, "examples/navlog/web")
 
 const SERVER_PARITY_ROOTS = [
   ".env.example",
@@ -297,18 +297,18 @@ async function pathExists(path: string): Promise<boolean> {
 
 describe("template registry", () => {
   it("registers the research template", () => {
-    expect(TEMPLATE_NAMES).toContain("research")
+    expect(TEMPLATE_NAMES).toContain("navlog")
   })
 
   it("resolves the research template directory", async () => {
-    const dir = await resolveTemplateDir("research")
-    expect(dir.endsWith("templates/app-research")).toBe(true)
+    const dir = await resolveTemplateDir("navlog")
+    expect(dir.endsWith("templates/app-navlog")).toBe(true)
   })
 })
 
-describe("research template parity with examples/research/server", () => {
+describe("research template parity with examples/navlog/server", () => {
   it("keeps the complete research behavior tree in byte-for-byte parity", async () => {
-    const templateServerRoot = join(await resolveTemplateDir("research"), "server")
+    const templateServerRoot = join(await resolveTemplateDir("navlog"), "server")
     expect(
       await compareParityTrees(serverExampleRoot, templateServerRoot, SERVER_PARITY_SCOPE),
     ).toEqual({
@@ -320,7 +320,7 @@ describe("research template parity with examples/research/server", () => {
   })
 
   it("compares a non-empty server tree on both sides", async () => {
-    const templateServerRoot = join(await resolveTemplateDir("research"), "server")
+    const templateServerRoot = join(await resolveTemplateDir("navlog"), "server")
     const counts = await countComparedParityPaths(
       serverExampleRoot,
       templateServerRoot,
@@ -493,9 +493,9 @@ describe("research template parity with examples/research/server", () => {
   })
 })
 
-describe("research template parity with examples/research/web", () => {
+describe("research template parity with examples/navlog/web", () => {
   it("keeps the complete research web tree in byte-for-byte parity", async () => {
-    const templateWebRoot = join(await resolveTemplateDir("research"), "web")
+    const templateWebRoot = join(await resolveTemplateDir("navlog"), "web")
     expect(await compareParityTrees(webExampleRoot, templateWebRoot, WEB_PARITY_SCOPE)).toEqual({
       contentDriftedPaths: [],
       missingTemplatePaths: [],
@@ -505,7 +505,7 @@ describe("research template parity with examples/research/web", () => {
   })
 
   it("compares a non-empty web tree on both sides", async () => {
-    const templateWebRoot = join(await resolveTemplateDir("research"), "web")
+    const templateWebRoot = join(await resolveTemplateDir("navlog"), "web")
     const counts = await countComparedParityPaths(webExampleRoot, templateWebRoot, WEB_PARITY_SCOPE)
 
     expect(counts.exampleFiles).toBeGreaterThan(40)
@@ -513,7 +513,7 @@ describe("research template parity with examples/research/web", () => {
   })
 
   it("normalizes every template-suffixed web path onto an existing example path", async () => {
-    const templateWebRoot = join(await resolveTemplateDir("research"), "web")
+    const templateWebRoot = join(await resolveTemplateDir("navlog"), "web")
     const templateSuffixedPaths = await collectTemplateSuffixedPaths(templateWebRoot)
 
     expect(templateSuffixedPaths.filter((path) => path.endsWith(".test.ts.template"))).toHaveLength(

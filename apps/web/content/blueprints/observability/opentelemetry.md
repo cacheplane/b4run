@@ -209,7 +209,7 @@ OpenTelemetry and other tracing integrations are independent. `b4 dev` enables L
 
    ```bash
    echo '{"messages":[{"role":"user","content":"Hello"}]}' \
-     | npx b4 run /research --url http://127.0.0.1:8000
+     | npx b4 run /navlog --url http://127.0.0.1:8000
    ```
 
 4. In the observability backend, find a trace whose service name matches `OTEL_SERVICE_NAME`. The preload check alone does not prove export; the backend trace does.

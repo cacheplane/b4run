@@ -374,7 +374,7 @@ describe("runTypegen", () => {
     expect(stateJson).toEqual([{ name: "context", reducer: "replace", default: "" }])
   })
 
-  test.each(["app-basic", "app-research"] as const)(
+  test.each(["app-basic", "app-navlog"] as const)(
     "keeps the %s template declaration pair in sync with typegen",
     async (templateName) => {
       // The research template is an npm workspace: its B4.run app (routes, tools,
@@ -383,7 +383,7 @@ describe("runTypegen", () => {
       // out of `installTemplateTypegenDependencies`.
       const templateRoot = join(repoRoot, "packages", "devkit", "templates", templateName)
       const templateDir =
-        templateName === "app-research" ? join(templateRoot, "server") : templateRoot
+        templateName === "app-navlog" ? join(templateRoot, "server") : templateRoot
       const trackedPaths = generatedDeclarationFiles.map((fileName) =>
         join(templateDir, ".b4", fileName),
       )

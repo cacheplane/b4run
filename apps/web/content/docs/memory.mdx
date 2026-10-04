@@ -10,7 +10,7 @@ Memory lets an agent use what it learned in earlier threads. B4.run has three me
 
 Start with the prompt files for small, reviewed context. When records need a schema, governance, retention, or retrieval, the smallest useful `memory.ts` is:
 
-```ts title="src/app/research/memory.ts"
+```ts title="src/app/navlog/memory.ts"
 import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
@@ -56,12 +56,12 @@ See [Workspace Filesystem](/docs/workspace) for controlled `writeFile` access an
 For stable context that applies to one agent route, place `memory.md` beside its `index.ts`:
 
 ```text
-src/app/research/
+src/app/navlog/
   index.ts
   memory.md
 ```
 
-```md title="src/app/research/memory.md"
+```md title="src/app/navlog/memory.md"
 # Research Route Memory
 
 - Every claim in a report must carry an inline citation to a source you read.
