@@ -1211,6 +1211,7 @@ export const ARTIFACT_REGISTRY = [
   runtimeImport("@b4run/ag-ui", ".", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./sse", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./client", "detailed", "edge-safe", "integration"),
+  runtimeImport("@b4run/ag-ui", "./view", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./react", "detailed", "node-only", "application"),
   staticImport(
     "@b4run/ag-ui",
@@ -1416,6 +1417,7 @@ export const PACKAGE_CATALOG = [
       importAddress("@b4run/ag-ui", "."),
       importAddress("@b4run/ag-ui", "./sse"),
       importAddress("@b4run/ag-ui", "./client"),
+      importAddress("@b4run/ag-ui", "./view"),
       importAddress("@b4run/ag-ui", "./react"),
       importAddress("@b4run/ag-ui", "./react/styles.css"),
     ],

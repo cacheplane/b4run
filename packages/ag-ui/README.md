@@ -199,11 +199,23 @@ Three keys are easy to confuse. `section` is a card's labelled region and exists
 
 `B4PlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and the `SubagentRun` types come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
 
+## Framework-free view
+
+`@b4run/ag-ui/view` is the half of the client with no React: `reduceTurns(view, event)` folds AG-UI events into the turns of a thread — tool steps with their `b4.step` labels, the plan, reasoning, nested subagent turns, and approvals attached to the calls they gate — and `stepLabel`/`groupSteps` turn steps into sentences. `./react` builds on it; an Angular client can too.
+
+```ts
+import { EMPTY_TURNS, reduceTurns } from "@b4run/ag-ui/view"
+
+let view = EMPTY_TURNS
+for (const event of events) view = reduceTurns(view, event)
+```
+
 ## Runtime and stability
 
 - `@b4run/ag-ui` is a supported, edge-safe integration surface.
 - `@b4run/ag-ui/sse` is a supported, edge-safe integration surface.
 - `@b4run/ag-ui/client` is a supported, edge-safe integration surface.
+- `@b4run/ag-ui/view` is a supported, edge-safe integration surface with no React dependency.
 - `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other entries never load it.
 - `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
