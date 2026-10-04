@@ -324,7 +324,9 @@ function buildWorkspaceTools(
     overridable: true,
     run: async (input, ctx) => {
       const { command } = RUN_BASH_INPUT.parse(input)
-      const gate = await gateBashOp(permissions, command)
+      const gate = await gateBashOp(permissions, command, {
+        ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
+      })
       if (!gate.allowed) {
         throw new Error(gate.reason)
       }

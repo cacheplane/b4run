@@ -14,6 +14,11 @@ export type PathOperation = "readFile" | "writeFile" | "listDir"
 
 export type GateResult = { allowed: true } | { allowed: false; reason: string; code?: B4ErrorCode }
 
+/** The model's id for the tool call a gate is deciding; absent outside a model tool call. */
+export interface GateCallOptions {
+  readonly toolCallId?: string | undefined
+}
+
 /** Prefix a denial reason with its error code when the tool result is returned to the model. */
 export function codedReason(gate: { reason: string; code?: B4ErrorCode }): string {
   return gate.code ? `[${gate.code}] ${gate.reason}` : gate.reason
@@ -24,7 +29,7 @@ export async function gatePathOp(
   operation: PathOperation,
   absPath: string,
   workspaceRoot: string,
-  opts?: { readonly interruptCapable?: boolean },
+  opts?: { readonly interruptCapable?: boolean } & GateCallOptions,
 ): Promise<GateResult> {
   // If permissions store is absent, allow (legacy behavior — capability used without permissions context).
   if (!permissions) return { allowed: true }
@@ -63,6 +68,7 @@ export async function gatePathOp(
     kind: "path",
     operation,
     path: absPath,
+    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
   if (result === "deny") {
@@ -74,6 +80,7 @@ export async function gatePathOp(
 export async function gateBashOp(
   permissions: PermissionsStore | undefined,
   command: string,
+  opts?: GateCallOptions,
 ): Promise<GateResult> {
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
@@ -89,6 +96,7 @@ export async function gateBashOp(
   const result = await emitPermissionInterrupt({
     kind: "command",
     command,
+    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
   if (result === "deny") {
@@ -107,7 +115,7 @@ export async function gateToolOp(
   permissions: PermissionsStore | undefined,
   toolName: string,
   argsPreview: string,
-  opts?: { readonly interruptCapable?: boolean },
+  opts?: { readonly interruptCapable?: boolean } & GateCallOptions,
 ): Promise<GateResult> {
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
@@ -142,6 +150,7 @@ export async function gateToolOp(
     kind: "tool",
     toolName,
     argsPreview,
+    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
   if (result === "deny") {
@@ -255,6 +264,7 @@ export interface MemorySupersedeDetail {
 export async function gateMemorySupersede(
   permissions: PermissionsStore | undefined,
   detail: MemorySupersedeDetail,
+  opts?: GateCallOptions,
 ): Promise<GateResult> {
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
@@ -270,6 +280,7 @@ export async function gateMemorySupersede(
   const result = await emitPermissionInterrupt({
     kind: "memory",
     ...detail,
+    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
   if (result === "deny") {
@@ -320,7 +331,11 @@ export function wrapToolWithApproval<
   return {
     ...tool,
     run: async (input: unknown, context: C) => {
-      const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), opts)
+      const toolCallId = (context as { readonly toolCallId?: string }).toolCallId
+      const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
+        ...opts,
+        ...(toolCallId ? { toolCallId } : {}),
+      })
       if (!gate.allowed) return codedReason(gate)
       return tool.run(input, context)
     },
@@ -382,7 +397,10 @@ export function wrapToolWithConstraint<
         verdict !== null &&
         (verdict as { approve?: unknown }).approve === true
       ) {
-        const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input))
+        const toolCallId = (context as { readonly toolCallId?: string }).toolCallId
+        const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
+          ...(toolCallId ? { toolCallId } : {}),
+        })
         if (!gate.allowed) return codedReason(gate)
         return tool.run(input, context)
       }
@@ -397,9 +415,26 @@ export function wrapToolWithConstraint<
 // site, so a `kind: "tool"` call without toolName is a compile error rather
 // than a silently blank interrupt payload.
 type InterruptArgs =
-  | { kind: "command"; command: string; permissions: PermissionsStore }
-  | { kind: "path"; operation: PathOperation; path: string; permissions: PermissionsStore }
-  | { kind: "tool"; toolName: string; argsPreview: string; permissions: PermissionsStore }
+  | {
+      kind: "command"
+      command: string
+      toolCallId?: string | undefined
+      permissions: PermissionsStore
+    }
+  | {
+      kind: "path"
+      operation: PathOperation
+      path: string
+      toolCallId?: string | undefined
+      permissions: PermissionsStore
+    }
+  | {
+      kind: "tool"
+      toolName: string
+      argsPreview: string
+      toolCallId?: string | undefined
+      permissions: PermissionsStore
+    }
   | {
       kind: "subagent"
       callId: string
@@ -419,6 +454,7 @@ type InterruptArgs =
       oldId: string
       oldContent: string
       newContent: string
+      toolCallId?: string | undefined
       permissions: PermissionsStore
     }
 
@@ -439,6 +475,11 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "
     type: "permission-request" as const,
     kind: args.kind,
     ...(args.kind === "subagent" ? { callId: args.callId, threadId: args.threadId } : {}),
+    // The model's id for the gated call, so a client can show the prompt on
+    // the call it belongs to. A subagent dispatch gate names its call as
+    // `callId` instead (the two coexist on a child's own gate: `callId` is the
+    // task call, `toolCallId` the child's call).
+    ...("toolCallId" in args && args.toolCallId ? { toolCallId: args.toolCallId } : {}),
     detail:
       args.kind === "command"
         ? { command: args.command, suggestedPattern }

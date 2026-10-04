@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest"
 import { fromAguiResume, toAguiInterrupt } from "../src/interrupts.js"
 
+const PERMISSION_RESPONSE = { type: "string", enum: ["once", "always", "deny"] }
+
 describe("toAguiInterrupt", () => {
   test("preserves a subagent permission envelope as metadata", () => {
     const envelope = {
@@ -23,6 +25,7 @@ describe("toAguiInterrupt", () => {
       reason: "subagent",
       toolCallId: "task-1",
       metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -37,6 +40,7 @@ describe("toAguiInterrupt", () => {
       id: "perm-1",
       reason: "command",
       metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -53,6 +57,7 @@ describe("toAguiInterrupt", () => {
       message: "Approve?",
       toolCallId: "tc-9",
       metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -63,6 +68,7 @@ describe("toAguiInterrupt", () => {
       reason: "tool",
       toolCallId: "call_task_0_2",
       metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
     })
   })
 
@@ -72,8 +78,53 @@ describe("toAguiInterrupt", () => {
       id: "perm-4",
       reason: "tool",
       toolCallId: "call-b",
+      subagentRunId: "call-a",
       metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
     })
+  })
+
+  test("a root gate carries toolCallId and no subagentRunId", () => {
+    const envelope = { interruptId: "perm-7", kind: "command", toolCallId: "call-c" }
+    const interrupt = toAguiInterrupt(envelope)
+    expect(interrupt).toMatchObject({ toolCallId: "call-c" })
+    expect(Object.hasOwn(interrupt as object, "subagentRunId")).toBe(false)
+  })
+
+  test("a subagent dispatch gate keeps callId as the toolCallId with no subagentRunId", () => {
+    const envelope = { interruptId: "perm-8", kind: "subagent", callId: "call-task" }
+    expect(toAguiInterrupt(envelope)).toEqual({
+      id: "perm-8",
+      reason: "subagent",
+      toolCallId: "call-task",
+      metadata: envelope,
+      responseSchema: PERMISSION_RESPONSE,
+    })
+  })
+
+  test("a permission request advertises the once/always/deny answers", () => {
+    const envelope = { interruptId: "perm-9", type: "permission-request", kind: "tool" }
+    expect(toAguiInterrupt(envelope)).toMatchObject({
+      responseSchema: PERMISSION_RESPONSE,
+    })
+  })
+
+  test("equal callId and toolCallId is a dispatch gate with no subagentRunId", () => {
+    const envelope = {
+      interruptId: "perm-10",
+      kind: "subagent",
+      callId: "call-task",
+      toolCallId: "call-task",
+    }
+    const interrupt = toAguiInterrupt(envelope)
+    expect(interrupt).toMatchObject({ toolCallId: "call-task" })
+    expect(Object.hasOwn(interrupt as object, "subagentRunId")).toBe(false)
+  })
+
+  test("a non-permission interrupt has no responseSchema", () => {
+    const envelope = { interruptId: "x-1", kind: "custom" }
+    const interrupt = toAguiInterrupt(envelope)
+    expect(Object.hasOwn(interrupt as object, "responseSchema")).toBe(false)
   })
 
   test("omits toolCallId when neither callId nor toolCallId is present", () => {

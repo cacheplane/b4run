@@ -86,6 +86,7 @@ data: {
   "interruptId": "perm-ghi789",
   "type": "permission-request",
   "kind": "tool",
+  "toolCallId": "call_deploy_1",
   "detail": {
     "toolName": "deployProd",
     "argsPreview": "{\"env\":\"prod\",\"version\":\"1.4.2\"}",
@@ -95,6 +96,8 @@ data: {
 ```
 
 `detail.argsPreview` is a display-only JSON preview of the call's arguments (truncated around 500 characters). The human sees it, but it's never matched against or persisted. `detail.suggestedPattern` is always the tool name itself.
+
+`toolCallId` is the model's id for the gated call, so a client can show the prompt on that call. Command and memory gates carry it too; path gates don't carry it yet.
 
 ### Decisions are name-level
 
@@ -230,6 +233,7 @@ data: {
   "interruptId": "perm-abc123",
   "type": "permission-request",
   "kind": "command",
+  "toolCallId": "call_bash_1",
   "detail": {
     "command": "node scripts/fetch-source.mjs https://example.com/api",
     "suggestedPattern": "node scripts/fetch-source.mjs"
@@ -304,7 +308,7 @@ curl -N http://127.0.0.1:2024/threads/$THREAD/runs/stream \
   -d '{"input":{"messages":[{"role":"user","content":"fetch the API docs"}]},"route":"/research#agent"}'
 # ...SSE output...
 # event: interrupt
-# data: {"interruptId":"perm-abc123","type":"permission-request","kind":"command","detail":{"command":"node scripts/fetch-source.mjs ...","suggestedPattern":"node scripts/fetch-source.mjs"}}
+# data: {"interruptId":"perm-abc123","type":"permission-request","kind":"command","toolCallId":"call_bash_1","detail":{"command":"node scripts/fetch-source.mjs ...","suggestedPattern":"node scripts/fetch-source.mjs"}}
 
 # 3. Resume with a decision
 curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \

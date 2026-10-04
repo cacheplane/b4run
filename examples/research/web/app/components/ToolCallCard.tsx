@@ -71,24 +71,20 @@ function parseArgs(parameters: unknown): Record<string, unknown> {
 }
 
 /**
- * Unwrap a tool result. Same live-stream-only contract as `parseArgs`.
+ * Tidy a tool result. Same live-stream-only contract as `parseArgs`.
  *
- * On the AG-UI stream a result arrives as a serialized LangChain `ToolMessage`
- * (`{ lc, type, id: [...], kwargs: { content } }`), so pull out the content and
- * show the tool's actual output rather than LangChain internals. Anything that
- * is not that envelope — including plain non-JSON text — passes through
- * untouched. The checkpoint path is already unwrapped by `app/lib/hydrate.ts`;
- * see the note above.
+ * On the AG-UI stream `TOOL_CALL_RESULT.content` is the tool's output text, the
+ * same text the model saw. A tool that returned JSON is pretty-printed; plain
+ * text passes through untouched. The checkpoint path is already unwrapped by
+ * `app/lib/hydrate.ts`; see the note above.
  */
 function parseResult(result: string | undefined): string | undefined {
   if (!result) return undefined
   try {
-    const parsed = JSON.parse(result) as { kwargs?: { content?: unknown } }
-    const content = parsed?.kwargs?.content
-    if (typeof content === "string") return content
-    if (content != null) return JSON.stringify(content, null, 2)
+    const parsed: unknown = JSON.parse(result)
+    if (parsed !== null && typeof parsed === "object") return JSON.stringify(parsed, null, 2)
   } catch {
-    // Not JSON — show it as-is.
+    // Not JSON: show it as-is.
   }
   return result
 }
@@ -143,11 +139,11 @@ const STATUS: Record<ToolCallStatus, { readonly glyph: string; readonly label: s
  * `complete` stays MUTED, and does not take `--b4-activity-complete`, because
  * green would claim an outcome the wire never conveys. CopilotKit's `status` is
  * a lifecycle: a tool that threw still arrives here as `"complete"`, and this
- * card sees only the result string — the `ToolMessage`'s own success/error flag
- * (`kwargs.status`) is dropped upstream (see `app/lib/hydrate.ts`, which drops
- * it deliberately to keep the live and restored paths at parity). Reading it in
- * `parseResult` would be a behavior change to a frozen function; if outcome is
- * ever worth showing, it belongs in a follow-up that changes both paths at once.
+ * card sees only the result string, because the wire carries the tool's output
+ * text and not the `ToolMessage`'s success/error flag (see `app/lib/hydrate.ts`, which drops
+ * it deliberately to keep the live and restored paths at parity). The status is
+ * not derived from the result text; if outcome is ever worth showing, it
+ * belongs in a follow-up that changes both paths at once.
  * Until then a muted ✓ means "finished", which is all we know.
  */
 const STATUS_GLYPH_CLASS: Record<ToolCallStatus, string> = {

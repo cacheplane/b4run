@@ -152,6 +152,13 @@ function toResultContent(output: unknown, toolCallId: string | undefined): strin
   if (isContentPartArray(output) && output.length > 0) return [...output]
   const kept = keptParts(output, toolCallId)
   if (kept) return kept
+  // No parts kept: the text the model saw (a ToolMessage's content, a
+  // Command's last ToolMessage, or a bare value serialized).
+  return toolResultView(output).content
+}
+
+/** A bare value as result text: a string as-is, null/undefined empty, else JSON. */
+function stringifyContent(output: unknown): string {
   if (typeof output === "string") return output
   if (output === undefined || output === null) return ""
   try {
@@ -160,6 +167,76 @@ function toResultContent(output: unknown, toolCallId: string | undefined): strin
   } catch {
     return String(output)
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * A ToolMessage's fields, whether the value is the live instance (fields on
+ * the object) or its serialized form (fields under `kwargs`). Anything
+ * without a string `tool_call_id` is not a ToolMessage.
+ */
+function readToolMessageFields(
+  value: unknown,
+): { readonly content: unknown; readonly status: unknown } | undefined {
+  if (!isPlainObject(value)) return undefined
+  const fields = isPlainObject(value.kwargs) ? value.kwargs : value
+  if (typeof fields.tool_call_id !== "string") return undefined
+  return { content: fields.content, status: fields.status }
+}
+
+/** A ToolMessage's text: a string as-is, content parts joined by their text parts. */
+function contentText(content: unknown): string {
+  if (Array.isArray(content)) {
+    const texts: string[] = []
+    for (const part of content) {
+      if (isPlainObject(part) && part.type === "text" && typeof part.text === "string") {
+        texts.push(part.text)
+      }
+    }
+    return texts.join(" ")
+  }
+  return stringifyContent(content)
+}
+
+/** What a tool result looks like on the wire: the text the model saw, and whether the tool failed. */
+export interface ToolResultView {
+  readonly content: string
+  readonly failed: boolean
+}
+
+/**
+ * The adapter forwards LangGraph's `on_tool_end` output unchanged: a
+ * ToolMessage for a string-returning tool, a Command whose `update.messages`
+ * ends in one for a `{result, state}` tool, or the error ToolMessage for a
+ * tool that threw. The protocol wants the tool's output, so unwrap all three;
+ * a bare value (tests, third-party producers) is serialized as before.
+ */
+export function toolResultView(output: unknown): ToolResultView {
+  try {
+    const direct = readToolMessageFields(output)
+    if (direct !== undefined) {
+      return { content: contentText(direct.content), failed: direct.status === "error" }
+    }
+    if (
+      isPlainObject(output) &&
+      isPlainObject(output.update) &&
+      Array.isArray(output.update.messages)
+    ) {
+      const messages = output.update.messages
+      for (let index = messages.length - 1; index >= 0; index--) {
+        const fields = readToolMessageFields(messages[index])
+        if (fields !== undefined) {
+          return { content: contentText(fields.content), failed: fields.status === "error" }
+        }
+      }
+    }
+  } catch {
+    // A hostile getter or Proxy must not escape the stream; serialize instead.
+  }
+  return { content: stringifyContent(output), failed: false }
 }
 
 type Indexable = { readonly [key: string]: unknown }
@@ -373,7 +450,7 @@ export async function* toAguiEvents(
       closed.add(open.callId)
       if (reason.kind === "interrupt") {
         const interruptIds = reason.interrupts
-          .filter((interrupt) => interrupt.toolCallId === open.callId)
+          .filter((interrupt) => (interrupt.subagentRunId ?? interrupt.toolCallId) === open.callId)
           .map((interrupt) => interrupt.id)
         yield* ledger.onPassthrough({
           type: EventType.SUBAGENT_FINISHED,
@@ -413,11 +490,12 @@ export async function* toAguiEvents(
       runId: ctx.runId,
       outcome: {
         type: "interrupt",
-        interrupts: pendingInterrupts.map((interrupt) =>
-          interrupt.toolCallId !== undefined && suspended.has(interrupt.toolCallId)
-            ? { ...interrupt, subagentRunId: interrupt.toolCallId }
-            : interrupt,
-        ),
+        interrupts: pendingInterrupts.map((interrupt) => {
+          const run = interrupt.subagentRunId ?? interrupt.toolCallId
+          return run !== undefined && suspended.has(run) && interrupt.subagentRunId === undefined
+            ? { ...interrupt, subagentRunId: run }
+            : interrupt
+        }),
       },
       ...usage.terminal(),
     }

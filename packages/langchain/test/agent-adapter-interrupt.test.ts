@@ -459,4 +459,89 @@ describe("streamAgent — interrupt propagation", () => {
     expect(output.messages?.at(-1)?.content).toBe("approved:once")
     expect(childSetupCount).toBe(1)
   })
+
+  test("a child command interrupt that already names its tool call keeps both ids", async () => {
+    const ChildState = Annotation.Root({ messages: Annotation<unknown[]>() })
+    const child = new StateGraph(ChildState)
+      .addNode("setup", () => {
+        return {}
+      })
+      .addNode("approval", () => {
+        const decision = interrupt({
+          interruptId: "child-permission",
+          kind: "command",
+          toolCallId: "child-call-9",
+        })
+        return { messages: [new AIMessage(`approved:${decision}`)] }
+      })
+      .addEdge(START, "setup")
+      .addEdge("setup", "approval")
+      .addEdge("approval", END)
+      .compile()
+    const task = convertSubagentTaskToLangChain(
+      {
+        name: "task",
+        description: "Delegate.",
+        schema: z.object({ subagent: z.string(), input: z.string() }),
+      },
+      async () => ({
+        ok: true,
+        child: {
+          routeId: "/parent/subagents/researcher",
+          routeKey: "/parent/subagents/researcher#agent",
+          graph: child,
+        },
+      }),
+    )
+    const checkpointer = new MemorySaver()
+    const RootState = Annotation.Root({ messages: Annotation<unknown[]>() })
+    const root = new StateGraph(RootState)
+      .addNode("tools", new ToolNode([task]))
+      .addEdge(START, "tools")
+      .addEdge("tools", END)
+      .compile({ checkpointer })
+    const toolInput = {
+      messages: [
+        new AIMessage({
+          content: "",
+          tool_calls: [
+            {
+              args: { input: "Review", subagent: "researcher" },
+              id: "task-both-ids",
+              name: "task",
+              type: "tool_call",
+            },
+          ],
+        }),
+      ],
+    }
+    const entry = {
+      invoke: root.invoke.bind(root),
+      streamEvents: (input: unknown, config: Record<string, unknown>) =>
+        root.streamEvents(input instanceof Command ? input : toolInput, {
+          ...config,
+          version: "v2",
+        }),
+    }
+    const first = []
+    for await (const chunk of streamAgent({
+      checkpointer,
+      entry,
+      input: { messages: [{ role: "user", content: "Review" }] },
+      routeParamNames: [],
+      signal: new AbortController().signal,
+      threadId: "child-both-ids-thread",
+      tools: [],
+    })) {
+      first.push(chunk)
+    }
+    expect(first.filter(({ type }) => type === "interrupt").map(({ data }) => data)).toEqual([
+      {
+        interruptId: "child-permission",
+        kind: "command",
+        toolCallId: "child-call-9",
+        callId: "task-both-ids",
+      },
+    ])
+  })
 })

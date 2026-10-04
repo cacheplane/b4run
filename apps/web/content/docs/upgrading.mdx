@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### AG-UI `TOOL_CALL_RESULT.content` is the tool's output
+
+Landed in the first release after **0.13.1**. Action required only if an AG-UI client parsed `TOOL_CALL_RESULT.content` as a serialized LangChain `ToolMessage` (`{ lc, type, id, kwargs: { content } }`).
+
+`content` is now the text the model received: the tool's return value, or the error text for a tool that threw. Drop any `kwargs.content` unwrapping, and parse JSON only if your tool returns JSON. Permission interrupts also gain `toolCallId`, `subagentRunId` for a child's tool, command or memory gate, and `responseSchema` (`once`/`always`/`deny`); these are additive. See [AG-UI](/docs/ag-ui#inbound-input).
+
 ### Subagents are AG-UI `SUBAGENT_*` events, not a `b4.subagent` activity
 
 Landed in the first release after **0.13.1**. Action required for AG-UI clients that rendered the `b4.subagent` activity.

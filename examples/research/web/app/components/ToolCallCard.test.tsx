@@ -24,14 +24,9 @@ function render(props: Parameters<typeof ToolCallView>[0]): string {
   return renderToStaticMarkup(<ToolCallView {...props} />)
 }
 
-/** A tool result exactly as the live AG-UI stream carries it. */
+/** A tool result as the live AG-UI stream carries it: the tool's output text. */
 function toolMessage(content: string): string {
-  return JSON.stringify({
-    lc: 1,
-    type: "constructor",
-    id: ["langchain_core", "messages", "ToolMessage"],
-    kwargs: { content, tool_call_id: "call_1" },
-  })
+  return content
 }
 
 describe("tool call arguments", () => {
@@ -86,7 +81,7 @@ describe("tool call arguments", () => {
 })
 
 describe("tool call results", () => {
-  test("unwraps a LangChain ToolMessage envelope to its content", () => {
+  test("shows the tool's output text, not LangChain internals", () => {
     const markup = render({
       name: "readDoc",
       status: "complete",
@@ -96,6 +91,16 @@ describe("tool call results", () => {
     expect(markup).toContain("the document body")
     expect(markup).not.toContain("langchain_core")
     expect(markup).not.toContain("tool_call_id")
+  })
+
+  test("pretty-prints a JSON result", () => {
+    const markup = render({
+      name: "readDoc",
+      status: "complete",
+      parameters: {},
+      result: '{"a":1}',
+    })
+    expect(markup).toContain("&quot;a&quot;: 1")
   })
 
   test("passes a plain non-JSON result through unchanged", () => {

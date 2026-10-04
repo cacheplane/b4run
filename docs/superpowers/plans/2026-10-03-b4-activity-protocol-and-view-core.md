@@ -609,7 +609,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 In the same file's interrupt section (after the `resume?: Array<…>` block, before "## Response schema"), add:
 
 ```
-Each interrupt names the tool call it gates in `toolCallId`. A gate raised inside a subagent also carries `subagentRunId` (the `task` call that started it), and a permission prompt carries `responseSchema: { type: "string", enum: ["once", "always", "deny"] }` so a client knows what a resolved payload may say.
+A permission interrupt names the tool call it gates in `toolCallId`. Inside a subagent, a tool, command or memory gate also carries `subagentRunId`, the `task` call that started that subagent (see [Subagents](#subagents)). A path gate inside a subagent, or a gate whose model call had no id, gets the enclosing `task` call as its `toolCallId` instead. A path gate at the root carries no `toolCallId` yet. A permission prompt carries `responseSchema: { type: "string", enum: ["once", "always", "deny"] }`, so a client knows what a resolved payload may say.
 ```
 
 `apps/web/content/docs/permissions.mdx`, the tool interrupt payload sample (line ~85) gains a line after `"kind": "tool",`:
@@ -621,7 +621,7 @@ Each interrupt names the tool call it gates in `toolCallId`. A gate raised insid
 and after the `detail.argsPreview …` paragraph add:
 
 ```
-`toolCallId` is the model's id for the gated call, so a client can show the prompt on that call. Command and memory gates carry it too; path gates will in a later release.
+`toolCallId` is the model's id for the gated call, so a client can show the prompt on that call. Command and memory gates carry it too; path gates don't carry it yet.
 ```
 
 `apps/web/content/docs/api/ag-ui.mdx`, the `B4AguiInterrupt` row (line 61) becomes:
@@ -640,7 +640,7 @@ and after the `detail.argsPreview …` paragraph add:
 "@b4run/core": patch
 ---
 
-AG-UI `TOOL_CALL_RESULT.content` now carries the tool's output — the text the model received — instead of the serialized LangChain `ToolMessage`. Permission interrupts name the tool call they gate (`toolCallId`; command, tool and memory gates), a gate raised inside a subagent also carries `subagentRunId`, and every permission prompt advertises its answers as `responseSchema: { enum: ["once", "always", "deny"] }`.
+AG-UI `TOOL_CALL_RESULT.content` now carries the tool's output — the text the model received — instead of the serialized LangChain `ToolMessage`. Permission interrupts name the tool call they gate (`toolCallId`; command, tool and memory gates), a tool, command or memory gate raised inside a subagent also carries `subagentRunId`, and every permission prompt advertises its answers as `responseSchema: { type: "string", enum: ["once", "always", "deny"] }`.
 ```
 
 - [ ] **Step 3: Run the gates that read these files**

@@ -3,9 +3,11 @@ import { ActivitySnapshotEventSchema, ToolCallResultEventSchema } from "@ag-ui/c
 import { describe, expect, test } from "vitest"
 import { B4_PLAN_ACTIVITY_TYPE } from "../src/activities.ts"
 import { createCounterIdFactory } from "../src/ids.js"
-import { toAguiEvents } from "../src/outbound.js"
+import { toAguiEvents, toolResultView } from "../src/outbound.js"
 import { encodeAgUiEvent } from "../src/sse.js"
 import type { B4AgentStreamChunk } from "../src/types.js"
+
+const PERMISSION_RESPONSE = { type: "string", enum: ["once", "always", "deny"] }
 
 const CTX = { threadId: "th-1", runId: "rn-1" }
 const CHILD = {
@@ -101,8 +103,9 @@ describe("toAguiEvents", () => {
   })
 
   test("a failing tool's error ToolMessage reaches TOOL_CALL_RESULT under the same toolCallId", async () => {
-    // What @b4run/langchain emits for a thrown tool: the serialized error
-    // ToolMessage the model receives, keyed by the model's tool-call id.
+    // What @b4run/langchain emits for a thrown tool: the error ToolMessage the
+    // model receives, keyed by the model's tool-call id. The wire carries the
+    // text the model saw, never the serialized message object.
     const errorToolMessage = {
       lc: 1,
       type: "constructor",
@@ -127,9 +130,56 @@ describe("toAguiEvents", () => {
       type: EventType.TOOL_CALL_RESULT,
       messageId: "tr-1",
       toolCallId: "call_stmt_1",
-      content: JSON.stringify(errorToolMessage),
+      content: "Error: kaboom\n Please fix your mistakes.",
     })
-    expect(JSON.parse((result as { content: string }).content).kwargs.status).toBe("error")
+  })
+
+  test("a live ToolMessage instance shape yields its content, not its fields", async () => {
+    // The adapter forwards LangGraph's `on_tool_end` output unserialized: a
+    // ToolMessage whose own properties are the fields (no `kwargs` wrapper).
+    const liveToolMessage = {
+      content: "(no memories found)",
+      status: "success",
+      name: "recall",
+      tool_call_id: "call_recall_1",
+      additional_kwargs: {},
+      response_metadata: {},
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_recall_1", name: "recall", input: { query: "x" } } },
+      {
+        type: "tool_result",
+        data: { id: "call_recall_1", name: "recall", output: liveToolMessage },
+      },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toMatchObject({ toolCallId: "call_recall_1", content: "(no memories found)" })
+  })
+
+  test("a Command output yields the content of its last ToolMessage", async () => {
+    const command = {
+      update: {
+        todos: [{ content: "a", status: "pending" }],
+        messages: [
+          {
+            content: '{"todos":[{"content":"a","status":"pending"}]}',
+            name: "writeTodos",
+            tool_call_id: "call_plan_1",
+          },
+        ],
+      },
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_plan_1", name: "savePlan", input: {} } },
+      { type: "tool_result", data: { id: "call_plan_1", name: "savePlan", output: command } },
+      { type: "done", data: {} },
+    ])
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(result).toMatchObject({
+      toolCallId: "call_plan_1",
+      content: '{"todos":[{"content":"a","status":"pending"}]}',
+    })
   })
 
   test.each([
@@ -320,7 +370,12 @@ describe("toAguiEvents", () => {
       outcome: {
         type: "interrupt",
         interrupts: [
-          { id: "perm-1", reason: "command", metadata: { interruptId: "perm-1", kind: "command" } },
+          {
+            id: "perm-1",
+            reason: "command",
+            metadata: { interruptId: "perm-1", kind: "command" },
+            responseSchema: PERMISSION_RESPONSE,
+          },
         ],
       },
     })
@@ -347,11 +402,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
+              responseSchema: PERMISSION_RESPONSE,
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
+              responseSchema: PERMISSION_RESPONSE,
             },
           ],
         },
@@ -386,11 +443,13 @@ describe("toAguiEvents", () => {
               id: "perm-1",
               reason: "command",
               metadata: { interruptId: "perm-1", kind: "command" },
+              responseSchema: PERMISSION_RESPONSE,
             },
             {
               id: "perm-2",
               reason: "tool",
               metadata: { interruptId: "perm-2", kind: "tool" },
+              responseSchema: PERMISSION_RESPONSE,
             },
           ],
         },
@@ -1785,7 +1844,15 @@ describe("subagents", () => {
     const out = await collect([
       START,
       token("asking"),
-      { type: "interrupt", data: { interruptId: "i1", kind: "tool", callId: CHILD.call_id } },
+      {
+        type: "interrupt",
+        data: {
+          interruptId: "i1",
+          kind: "tool",
+          callId: CHILD.call_id,
+          toolCallId: "child-call-9",
+        },
+      },
       { type: "done" },
     ])
     const kinds = out.map((e) => e.type)
@@ -1798,12 +1865,32 @@ describe("subagents", () => {
     expect(out.at(-1)).toMatchObject({
       outcome: {
         type: "interrupt",
-        interrupts: [{ id: "i1", toolCallId: CHILD.call_id, subagentRunId: CHILD.call_id }],
+        interrupts: [{ id: "i1", toolCallId: "child-call-9", subagentRunId: CHILD.call_id }],
       },
     })
     expect(kinds.indexOf(EventType.TEXT_MESSAGE_END)).toBeLessThan(
       kinds.indexOf(EventType.SUBAGENT_FINISHED),
     )
+  })
+
+  test("a root gate's interrupt names its call and no subagent", async () => {
+    const out = await collect([
+      START,
+      {
+        type: "interrupt",
+        data: { interruptId: "r2", kind: "command", toolCallId: "call-root-1" },
+      },
+      { type: "done" },
+    ])
+    expect(out.at(-2)).toEqual({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: CHILD.call_id,
+      outcome: { type: "suspended" },
+    })
+    const interrupt = (out.at(-1) as { outcome: { interrupts: Record<string, unknown>[] } }).outcome
+      .interrupts[0]
+    expect(interrupt).toMatchObject({ id: "r2", toolCallId: "call-root-1" })
+    expect(interrupt).not.toHaveProperty("subagentRunId")
   })
 
   test("a parent suspended only because its child interrupted carries no interruptIds; deepest closes first", async () => {
@@ -1889,5 +1976,74 @@ describe("subagents", () => {
       EventType.SUBAGENT_FINISHED,
       EventType.RUN_FINISHED,
     ])
+  })
+})
+
+describe("toolResultView", () => {
+  const live = (extra: Record<string, unknown>) => ({ tool_call_id: "c1", ...extra })
+
+  test("a live error ToolMessage is failed", () => {
+    expect(toolResultView(live({ content: "boom", status: "error" }))).toEqual({
+      content: "boom",
+      failed: true,
+    })
+  })
+
+  test("a serialized error ToolMessage is failed", () => {
+    expect(toolResultView({ kwargs: live({ content: "boom", status: "error" }) })).toEqual({
+      content: "boom",
+      failed: true,
+    })
+  })
+
+  test("a success ToolMessage is not failed", () => {
+    expect(toolResultView(live({ content: "ok", status: "success" }))).toEqual({
+      content: "ok",
+      failed: false,
+    })
+  })
+
+  test("bare values are serialized and not failed", () => {
+    expect(toolResultView("plain")).toEqual({ content: "plain", failed: false })
+    expect(toolResultView({ a: 1 })).toEqual({ content: '{"a":1}', failed: false })
+  })
+
+  test("a Command scan skips trailing non-ToolMessage entries", () => {
+    const command = {
+      update: { messages: [live({ content: "tool text" }), { content: "thinking", type: "ai" }] },
+    }
+    expect(toolResultView(command)).toEqual({ content: "tool text", failed: false })
+  })
+
+  test("a non-object kwargs falls back to the top-level fields", () => {
+    expect(toolResultView({ kwargs: 3, tool_call_id: "c1", content: "top" })).toEqual({
+      content: "top",
+      failed: false,
+    })
+  })
+
+  test("array content parts flatten to their text", () => {
+    const content = [
+      { type: "text", text: "a" },
+      { type: "image_url", image_url: "x" },
+      { type: "text", text: "b" },
+    ]
+    expect(toolResultView(live({ content })).content).toBe("a b")
+  })
+
+  test("a hostile getter does not escape the stream", async () => {
+    const hostile = {
+      get tool_call_id(): string {
+        throw new Error("hostile")
+      },
+    }
+    const events = await collect([
+      { type: "tool_call", data: { id: "h1", name: "t", input: {} } },
+      { type: "tool_result", data: { id: "h1", name: "t", output: hostile } },
+      { type: "done", data: {} },
+    ])
+    expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(true)
+    const result = events.find((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(typeof (result as { content: unknown }).content).toBe("string")
   })
 })

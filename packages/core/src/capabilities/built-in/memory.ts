@@ -189,7 +189,7 @@ export function createMemoryMarker(): CapabilityMarker {
         name: "remember",
         description: "Store a typed long-term memory for later recall.",
         schema: rememberSchema,
-        run: async (input: unknown) => {
+        run: async (input: unknown, ctx?: { readonly toolCallId?: string }) => {
           const inp = (input ?? {}) as {
             data?: unknown
             content?: string
@@ -319,16 +319,20 @@ export function createMemoryMarker(): CapabilityMarker {
               // is the one write that gates: the agent is contradicting a prior
               // belief. ADDs/idempotent UPDATEs above never reach the gate.
               if (mem.writes === "ask") {
-                const gate = await gateMemorySupersede(permissions, {
-                  namespace: mem.namespace,
-                  // Human-readable display form for the prompt — deliberately NOT
-                  // the `identityKey` match key above (which JSON.stringifies to
-                  // stay unambiguous); do not merge the two.
-                  identity: identityKeys.map((k) => String(data[k] ?? "")).join(" / "),
-                  oldId: target.id,
-                  oldContent: target.content,
-                  newContent: content,
-                })
+                const gate = await gateMemorySupersede(
+                  permissions,
+                  {
+                    namespace: mem.namespace,
+                    // Human-readable display form for the prompt — deliberately NOT
+                    // the `identityKey` match key above (which JSON.stringifies to
+                    // stay unambiguous); do not merge the two.
+                    identity: identityKeys.map((k) => String(data[k] ?? "")).join(" / "),
+                    oldId: target.id,
+                    oldContent: target.content,
+                    newContent: content,
+                  },
+                  { ...(ctx?.toolCallId ? { toolCallId: ctx.toolCallId } : {}) },
+                )
                 if (!gate.allowed) {
                   return {
                     result:
