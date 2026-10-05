@@ -57,9 +57,9 @@
       "recordDigest": "7e39e81b651afa5340678c1084553f25db0ec28ecac96c68bdba8bcdb662b9f9"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-05T16:01:42.000Z",
-      "sourceDigest": "445673aa55c70eeb936e09556f0ac331a85a84835622983eb50f3fab64451b24",
-      "recordDigest": "eef667711d0d80bc3b51fec6404ef9d3622f0750e59056432a40b860755e400e"
+      "lastModified": "2026-10-05T16:47:27.000Z",
+      "sourceDigest": "76526f02b30ac4ad6fbfb02aacef268dad580c4f0109910e90649e74e59fecab",
+      "recordDigest": "7d1d13cf5a714c5bf306c5187e84b3d0c6b7d546dc410d0446d588d52c74e3e3"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-04T22:35:08.000Z",
@@ -67,9 +67,9 @@
       "recordDigest": "23faebffe6f6f87f50cb7bf921ea0b9a8adacd54ae8ccc8650fe6406b7195a51"
     },
     "/docs/api/core": {
-      "lastModified": "2026-09-30T21:52:21.000Z",
-      "sourceDigest": "8650c275ad21c38d79f2555da3fe4d3017bf4bc363e89a53a79955e3c9986969",
-      "recordDigest": "f0d3d2d832076e29165ba2db0fd427d13da03043f4d22671ad32b0b6c3e93772"
+      "lastModified": "2026-10-05T16:47:12.000Z",
+      "sourceDigest": "5470b273d2862c22d9f50b3c3b61262e302085bbebc82d89523b8cea309af9f8",
+      "recordDigest": "ef28824cccf19ccdf8bb43475d4276aaf5f212cbab4b2bc360d0bec9567ee833"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-05T03:20:13.000Z",
-      "sourceDigest": "c864c1e7d05fd33c1b6e4275622593b0aace3e37c2ada42473efb1f67fc94437",
-      "recordDigest": "4c690bc4fa23f8667d1dfe2c99d784c3bf88b8ff32a25efff013aa185c1dc47d"
+      "lastModified": "2026-10-05T16:57:29.000Z",
+      "sourceDigest": "c69de536fe6dc043256331b322c606d9408f1cb4bb799c3588cec00e12c4d5ae",
+      "recordDigest": "dde67ff7abfc8f41e5a32833cfe344ab0a3c6b28832c0305a0fb116197324bcf"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
