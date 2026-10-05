@@ -1,16 +1,18 @@
-# Research workspace memory
+# Navlog workspace memory
 
 B4.run injects this file into the agent's system prompt every turn. Use it for
-durable research conventions; the agent updates it with
+durable flight-planning conventions; the agent updates it with
 `writeFile({ path: "AGENTS.md", content: "..." })` when it learns something
 worth keeping across sessions.
 
 ## House style
 
-- Cite every factual claim with its source path in square brackets, e.g.
-  `[corpus/agent-architectures.md]`.
-- Prefer the bundled corpus. Only request an external fetch when the corpus
-  lacks coverage — and expect the human to approve it.
-- Write the final report to `reports/<slug>.md` in the workspace.
-- Keep reports skimmable: a two-sentence answer first, then cited supporting
-  points, then a short Sources list.
+- Every performance number comes from a POH table the performance subagent
+  read; cite it as the figure, e.g. `[poh/cruise-performance.md, Figure 5-7]`.
+- Weather comes from the live tools, never from memory. Quote the raw METAR
+  and TAF the brief is based on.
+- Never do navigation arithmetic yourself. `computeNavlog` owns distance,
+  course, wind correction, groundspeed, time and fuel.
+- Present the navlog and the brief first. File a flight plan only when the
+  pilot asks, and expect the human to approve it.
+- Save the navlog as `reports/<departure>-<destination>.md` in the workspace.

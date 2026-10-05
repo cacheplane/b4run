@@ -1,12 +1,12 @@
-# B4.run Workbench — the research example's web client
+# B4.run Workbench — the navlog example's web client
 
 A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/navlog` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
 workbench rather than a chat widget: the app renders its own transcript and composer
-instead of mounting `CopilotSidebar`, so the plan and researcher activity cards appear
-inline in the conversation.
+instead of mounting `CopilotSidebar`, so the plan card and the `weather` and
+`performance` subagent cards appear inline in the conversation.
 
 The live app uses a real model; there is no aimock/demo mode. Its browser test is
 model-free and proves the page discovers `GET /api/copilotkit/info` instead of sending
@@ -24,7 +24,8 @@ a legacy base-URL POST.
 - **Memory panel** (in the rail, `app/components/MemoryPanel.tsx`) — the candidates the
   agent proposed with `remember()`, with Approve and Delete on each.
 - **Transcript** (`app/components/Transcript.tsx`) — user and assistant messages,
-  with plan / researcher activity cards, tool cards, permission approvals, and run
+  with the plan card, the `weather` / `performance` subagent cards, tool cards, the
+  `fileFlightPlan` approval, and run
   errors inline in message order. Before the first message it shows an empty state with
   clickable suggestions.
 - **Composer** (`app/components/Composer.tsx`) — send, and stop while a run is in
@@ -131,7 +132,7 @@ it to `web/.env` if your server listens elsewhere.
 
 `pnpm --filter @b4run/ag-ui test` renders the cards on the server and checks their
 schemas and bounds. Here, `typecheck` / `build` verify the CopilotKit/AG-UI wiring
-compiles and the Next.js app builds. The repository's packaged research activation
+compiles and the Next.js app builds. The repository's packaged navlog activation
 proves the deterministic wire path. `pnpm --filter @b4-example/navlog-web
 test:e2e` drives the real page in a browser to verify V2 transport selection. None of
 these checks exercises a live model; this client intentionally has no demo/mock mode.
@@ -176,7 +177,7 @@ The model-free `test:e2e` browser test proves the V2 transport begins with
 `GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`. The connect
 screen, its auto-recovery, the empty state, thread hydration including the new-thread
 404, and every proxy allow/reject case were also verified by hand in a real browser
-against a real server. A full research run — streaming, activity cards, the permission
+against a real server. A full planning run — streaming, activity cards, the approval
 gate live and across a reload, memory candidates appearing and superseding — needs a
 real `OPENAI_API_KEY` and has not been exercised in this repo; those paths are covered
 by unit tests only.

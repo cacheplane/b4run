@@ -59,19 +59,65 @@ const ACTIVATION_CLEANUP_RESERVE_MS = 30_000
 // `npm run build` measured 16.1-23.1s against that same 180s budget — so this
 // is the only override.
 const WORKSPACE_INSTALL_TIMEOUT_MS = 600_000
-const SAFE_PROMPT = "What are common agent architectures? Write a short cited report."
-const SUBQUESTION = "Identify common agent architectures and cite the corpus."
-const CHILD_REPLY =
-  "ReAct and plan-and-execute are common agent architectures. [corpus/agent-architectures.md]"
-const GATED_PROMPT =
-  "The corpus has nothing on quantum computing — run the external fetch script for it with runBash."
-const FETCH_COMMAND = "node scripts/fetch-source.mjs quantum computing"
+// The three Workbench suggestions send these exact texts (DemoSuggestions.tsx);
+// W8 reuses the PLAN and FILE fixtures below for them.
+const PLAN_PROMPT =
+  "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), and save the navlog."
+const FILE_PROMPT =
+  "Plan KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), then file the flight plan."
+const PERF_INPUT =
+  "KSTP and KRST, 4500 ft, 2400 RPM: takeoff, landing, cruise row and climb figures"
+// Hermetic: the waypoints and the wind are inline, so no journey reaches
+// aviationweather.gov. Elevations are feet (the FAA records give meters).
+const NAVLOG_INPUT = {
+  aircraft: { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 },
+  altitudeFt: 4500,
+  departureTimeUtc: "2026-10-06T14:00:00Z",
+  waypoints: [
+    {
+      id: "KSTP",
+      lat: 44.9346,
+      lon: -93.0603,
+      elevationFt: 705,
+      magneticVariationDeg: 0,
+      kind: "airport",
+    },
+    {
+      id: "KRST",
+      lat: 43.9083,
+      lon: -92.49,
+      elevationFt: 1317,
+      magneticVariationDeg: 0,
+      kind: "airport",
+    },
+  ],
+  winds: [{ dirDegTrue: 320, speedKt: 20, tempC: 5 }],
+} as const
+// computeNavlog's own flight plan for NAVLOG_INPUT (33 min en route, 50 gal at
+// 7.025 GPH is 7 h 07 min of endurance).
+const FLIGHT_PLAN = {
+  item7: "N738ZU",
+  item8: "VG",
+  item9: "C172/L",
+  item10: "SG/C",
+  item13: "KSTP1400",
+  item15: "N0110VFR DCT",
+  item16: "KRST0033",
+  item18: "DOF/261006",
+  item19: "E/0707 P/1",
+} as const
+const FLIGHT_PLAN_PATH = "flight-plans/261006-KSTP-KRST.txt"
 const BUILT_PROMPT = "Built artifact environment smoke."
-const GATED_REPLY = "Fetched external context after approval."
 const BUILT_REPLY = "built-env-smoke-ok"
-const FETCH_STDOUT =
-  'No external source configured for "quantum computing". Edit workspace/scripts/fetch-source.mjs to fetch real content.\n'
-// The web hop's own journeys. Dedicated prompts, not SAFE_PROMPT/GATED_PROMPT:
+// The plan fixture's final reply. Named because W8 matches it on screen with
+// `{ exact: true }` — a dropped citation or changed punctuation there is a
+// 45-second wait on text that is visibly rendered.
+const PLAN_REPLY =
+  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+const PERF_REPLY =
+  "Cruise 2400 RPM at 4500 ft: 64% BHP, 110 KTAS, 7.1 GPH [poh/cruise-performance.md, Figure 5-7]."
+const FILE_REPLY = `Recorded the flight plan at ${FLIGHT_PLAN_PATH}. It was not transmitted.`
+// The web hop's own journeys. Dedicated prompts, not PLAN_PROMPT/FILE_PROMPT:
 // they keep the three direct journeys' aimock accounting untouched and remove
 // any dependence on whether an aimock fixture is consumed or reusable.
 const WEB_PROMPT = "Web hop smoke: outline the workbench check."
@@ -79,25 +125,20 @@ const WEB_REPLY = "Workbench reached the B4.run server through the CopilotKit ru
 const WEB_TODOS = [
   { content: "Confirm the web client reaches the B4.run server", status: "completed" },
 ]
-const WEB_GATED_PROMPT = "Web hop gate: run the external fetch script for the workbench check."
-const WEB_FETCH_COMMAND = "node scripts/fetch-source.mjs workbench hop"
-const WEB_GATED_REPLY = "Fetched external context after approval through the web client."
+const WEB_GATED_PROMPT = "Web hop gate: record the flight plan for the workbench check."
+const WEB_GATED_REPLY = "Recorded the flight plan after approval through the web client."
 // W7's own journey. Distinct from every other registered prompt — aimock matches
 // userMessage as a substring and breaks ties by registration order, so a prompt
-// that is a prefix of another (DEMO_PROMPT ⊂ SAFE_PROMPT) is a latent collision.
-const BROWSER_PROMPT = "Workbench gate: summarize the corpus on agent architectures."
-const BROWSER_REPLY = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
-// The safe root fixture's final reply. Named because W8 matches it on screen
-// with `{ exact: true }` — a dropped citation or changed punctuation there is a
-// 45-second wait on text that is visibly rendered.
-const RESEARCH_REPLY =
-  "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]"
-// W8's third journey. The Workbench's "Teach it a preference" suggestion sends
+// that is a prefix of another is a latent collision.
+const BROWSER_PROMPT = "Workbench gate: compute the navlog for KSTP to KRST."
+const BROWSER_REPLY = PLAN_REPLY
+// W8's third journey. The Workbench's "Teach it the aircraft" suggestion sends
 // this exact text; memory is in candidate mode in the template, so the
 // remember() call below becomes a row in the memory panel.
-const TEACH_PROMPT = "Remember that I prefer concise, cited reports."
-const TEACH_CONTENT = "User prefers concise, cited reports."
-const TEACH_REPLY = "Noted — I'll keep reports concise and cited."
+const TEACH_PROMPT =
+  "My airplane is N738ZU, a Cessna 172N. I cruise at 2400 RPM with 50 gallons usable."
+const TEACH_CONTENT = "N738ZU is a Cessna 172N, cruise 2400 RPM, 50 gal usable"
+const TEACH_REPLY = "Remembered: N738ZU is a 172N, cruise 2400 RPM, 50 gallons usable."
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
@@ -106,17 +147,23 @@ const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
 // module graph compiled AND the proxy reached a B4.run server.
 const WEB_READY_PATH = "/api/b4/memory/candidates"
 const todos = [
-  { content: "Restate the question and list the sub-questions to research", status: "completed" },
-  { content: "Search the corpus for each sub-question", status: "in_progress" },
-  { content: "Read the most relevant documents in full", status: "pending" },
-  { content: "Synthesize a cited report and write it to the workspace", status: "pending" },
+  {
+    content: "Recall the aircraft profile and parse the route, altitude and departure time",
+    status: "completed",
+  },
+  { content: "Brief the weather and look up POH performance", status: "in_progress" },
+  { content: "Compute the navlog and save it to the workspace", status: "pending" },
+  { content: "Brief the pilot and file only on request", status: "pending" },
 ]
-const report = `# Common agent architectures
+// computeNavlog's legs for NAVLOG_INPUT, as the saved navlog table.
+const report = `# KSTP to KRST
 
-- ReAct interleaves reasoning with tool use.
-- Plan-and-execute separates planning from execution.
+| Leg | MH | GS | Dist | ETE | Fuel |
+|---|---|---|---|---|---|
+| KSTP-KRST climb | 158 | 80 | 8 | 6 | 2.3 |
+| KSTP-KRST cruise | 161 | 129 | 58 | 27 | 3.2 |
 
-[corpus/agent-architectures.md]
+[poh/cruise-performance.md, Figure 5-7]
 `
 
 type AgUiEvent = Record<string, unknown>
@@ -133,32 +180,31 @@ interface AgUiTranscriptRecorder {
   registerServerUrl(url: string): void
 }
 
-function createSafeResearchFixtures() {
+function createPlanFixtures() {
   const root = script()
-    .user(SAFE_PROMPT)
-    .callsTool("recall", { query: "agent architectures report preferences" })
+    .user(PLAN_PROMPT)
+    .callsTool("recall", { query: "aircraft profile and pilot preferences" })
     .callsTool("writeTodos", { todos })
-    .callsTool("task", { subagent: "researcher", input: SUBQUESTION })
-    .callsTool("searchCorpus", { query: "agent architectures" })
-    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-    .callsTool("writeFile", { path: "reports/agent-architectures.md", content: report })
-    .replies(RESEARCH_REPLY)
+    .callsTool("task", { subagent: "performance", input: PERF_INPUT })
+    .callsTool("computeNavlog", NAVLOG_INPUT)
+    .callsTool("writeFile", { path: "reports/KSTP-KRST.md", content: report })
+    .replies(PLAN_REPLY)
     .build()
   const child = script()
-    .user(SUBQUESTION)
-    .callsTool("searchCorpus", { query: "agent architectures" })
-    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-    .replies(CHILD_REPLY)
+    .user(PERF_INPUT)
+    .callsTool("readDoc", { path: "poh/cruise-performance.md" })
+    .replies(PERF_REPLY)
     .build()
   return [...root, ...child]
 }
 
 function createGatedAndBuiltFixtures() {
   return [
+    // A live run plans before filing; a scripted one need not, so the gate is the first turn.
     ...script()
-      .user(GATED_PROMPT)
-      .callsTool("runBash", { command: FETCH_COMMAND })
-      .replies(GATED_REPLY)
+      .user(FILE_PROMPT)
+      .callsTool("fileFlightPlan", { flightPlan: FLIGHT_PLAN })
+      .replies(FILE_REPLY)
       .build(),
     ...script().user(BUILT_PROMPT).replies(BUILT_REPLY).build(),
   ]
@@ -173,7 +219,7 @@ function createWebHopFixtures() {
       .build(),
     ...script()
       .user(WEB_GATED_PROMPT)
-      .callsTool("runBash", { command: WEB_FETCH_COMMAND })
+      .callsTool("fileFlightPlan", { flightPlan: FLIGHT_PLAN })
       .replies(WEB_GATED_REPLY)
       .build(),
   ]
@@ -182,8 +228,7 @@ function createWebHopFixtures() {
 function createBrowserFixtures() {
   return script()
     .user(BROWSER_PROMPT)
-    .callsTool("searchCorpus", { query: "agent architectures" })
-    .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
+    .callsTool("computeNavlog", NAVLOG_INPUT)
     .replies(BROWSER_REPLY)
     .build()
 }
@@ -192,7 +237,7 @@ function createTeachFixture() {
   return script()
     .user(TEACH_PROMPT)
     .callsTool("remember", {
-      data: { subject: "user", predicate: "prefers", value: "concise, cited reports" },
+      data: { subject: "aircraft", predicate: "profile", value: "N738ZU 172N 2400 RPM 50 gal" },
       content: TEACH_CONTENT,
     })
     .replies(TEACH_REPLY)
@@ -297,12 +342,11 @@ function correlateRootToolCalls(events: readonly AgUiEvent[]): Map<string, unkno
   expect(starts.map(({ event }) => event.toolCallName)).toEqual([
     "recall",
     "task",
-    "searchCorpus",
-    "readDoc",
+    "computeNavlog",
     "writeFile",
   ])
   const childStarts = allStarts.filter(({ event }) => event.subagentRunId !== undefined)
-  expect(childStarts.map(({ event }) => event.toolCallName)).toEqual(["searchCorpus", "readDoc"])
+  expect(childStarts.map(({ event }) => event.toolCallName)).toEqual(["readDoc"])
   expect(new Set(childStarts.map(({ event }) => event.subagentRunId))).toEqual(
     new Set(["call_task_0_2"]),
   )
@@ -664,12 +708,12 @@ function assertSafeResearchJourney(
   const parsedArgsByName = correlateRootToolCalls(events)
   // `task` is an ordinary tool call again, so its arguments reach the wire;
   // `writeTodos` presents only as the plan activity.
-  expect(parsedArgsByName.get("task")).toEqual({ subagent: "researcher", input: SUBQUESTION })
+  expect(parsedArgsByName.get("task")).toEqual({ subagent: "performance", input: PERF_INPUT })
   expect(parsedArgsByName.has("writeTodos")).toBe(false)
-  expect(parsedArgsByName.get("searchCorpus")).toEqual({ query: "agent architectures" })
+  expect(parsedArgsByName.get("computeNavlog")).toEqual(NAVLOG_INPUT)
   const assistantText = reconstructAssistantText(events)
-  expect(assistantText).toContain("[corpus/agent-architectures.md]")
-  expect(assistantText).not.toContain(CHILD_REPLY)
+  expect(assistantText).toContain("[poh/cruise-performance.md, Figure 5-7]")
+  expect(assistantText).not.toContain(PERF_REPLY)
   // The child's prose is on the wire, attributed to it — and only there.
   const childText = events
     .filter(
@@ -677,7 +721,7 @@ function assertSafeResearchJourney(
     )
     .map((event) => String(event.delta))
     .join("")
-  expect(childText).toContain(CHILD_REPLY)
+  expect(childText).toContain(PERF_REPLY)
 
   // The subagent's lifecycle: announced before anything is attributed to it,
   // closed with its result before the run ends.
@@ -688,12 +732,12 @@ function assertSafeResearchJourney(
   expect(finished).toBeGreaterThan(started)
   expect(events[started]).toMatchObject({
     subagentRunId: "call_task_0_2",
-    name: "researcher",
+    name: "performance",
     parentToolCallId: "call_task_0_2",
   })
   expect(events[finished]).toMatchObject({
     subagentRunId: "call_task_0_2",
-    result: CHILD_REPLY,
+    result: PERF_REPLY,
     outcome: { type: "success" },
   })
   // Everything attributed to the child lies strictly between its lifecycle events.
@@ -739,13 +783,12 @@ function assertSafeResearchJourney(
 
   const serializedActivityContent = JSON.stringify(activities.map((activity) => activity.content))
   for (const privateValue of [
-    SUBQUESTION,
-    CHILD_REPLY,
+    PERF_INPUT,
+    PERF_REPLY,
     report,
-    "corpus/agent-architectures.md",
+    "poh/cruise-performance.md",
     "call_task_0_2",
-    "call_searchCorpus_0_0",
-    "call_readDoc_0_1",
+    "call_readDoc_0_0",
     '"call_id"',
     '"route_id"',
     '"id"',
@@ -761,11 +804,12 @@ function assertSafeResearchJourney(
   for (const activity of events.filter((event) => event.type === "ACTIVITY_SNAPSHOT")) {
     expect(JSON.stringify(activity.content)).not.toMatch(/call_[A-Za-z]+_\d+_\d+/)
   }
-  // The only CUSTOM events are `b4.step` labels for the root's displayed tool
-  // calls: recall, task and writeFile each carry one running and one completed
-  // step, and each completed step precedes its call's TOOL_CALL_RESULT
-  // (LangChain emits the custom event before on_tool_end). The suppressed root
-  // writeTodos call has no step, and the template's own tools export no display.
+  // The only CUSTOM events are `b4.step` labels for displayed tool calls: at the
+  // root, recall, task, computeNavlog and writeFile each carry one running and
+  // one completed step; in the performance child, readDoc does, tagged with the
+  // child's subagentRunId like the rest of its frames. Each completed step
+  // precedes its call's TOOL_CALL_RESULT (LangChain emits the custom event
+  // before on_tool_end). The suppressed root writeTodos call has no step.
   const rootCallId = (toolCallName: string): unknown =>
     events.find(
       (event) =>
@@ -775,13 +819,36 @@ function assertSafeResearchJourney(
     )?.toolCallId
   const customEvents = events.filter((event) => event.type === "CUSTOM")
   expect(customEvents.every((event) => event.name === "b4.step")).toBe(true)
-  expect(customEvents.every((event) => event.subagentRunId === undefined)).toBe(true)
-  expect(customEvents.map((event) => event.value)).toEqual([
+  const childReadDocId = events.find(
+    (event) =>
+      event.type === "TOOL_CALL_START" &&
+      event.toolCallName === "readDoc" &&
+      event.subagentRunId === "call_task_0_2",
+  )?.toolCallId
+  const childSteps = customEvents.filter((event) => event.subagentRunId !== undefined)
+  expect(childSteps.every((event) => event.subagentRunId === "call_task_0_2")).toBe(true)
+  expect(childSteps.map((event) => event.value)).toEqual([
+    {
+      toolCallId: childReadDocId,
+      status: "running",
+      icon: "read",
+      label: "Reading poh/cruise-performance.md",
+    },
+    {
+      toolCallId: childReadDocId,
+      status: "completed",
+      icon: "read",
+      label: "Read poh/cruise-performance.md",
+      sources: [],
+    },
+  ])
+  const rootSteps = customEvents.filter((event) => event.subagentRunId === undefined)
+  expect(rootSteps.map((event) => event.value)).toEqual([
     {
       toolCallId: rootCallId("recall"),
       status: "running",
       icon: "memory",
-      label: "Recalling “agent architectures report preferences”",
+      label: "Recalling “aircraft profile and pilot preferences”",
     },
     {
       toolCallId: rootCallId("recall"),
@@ -793,25 +860,41 @@ function assertSafeResearchJourney(
       toolCallId: "call_task_0_2",
       status: "running",
       icon: "agent",
-      label: `Asking researcher to ${SUBQUESTION}`,
+      label: `Asking performance to ${PERF_INPUT}`,
     },
     {
       toolCallId: "call_task_0_2",
       status: "completed",
       icon: "agent",
-      label: "Heard back from researcher",
+      label: "Heard back from performance",
+    },
+    {
+      toolCallId: rootCallId("computeNavlog"),
+      status: "running",
+      icon: "tool",
+      label: "Computing the navlog for 1 leg",
+    },
+    {
+      toolCallId: rootCallId("computeNavlog"),
+      status: "completed",
+      icon: "tool",
+      label: "Computed the navlog: 66 nm, 33 min, 5.5 gal, reserve 380 min",
+      sources: [
+        { title: "Figure 5-6 (poh/time-fuel-distance-to-climb.md)" },
+        { title: "Figure 5-7 (poh/cruise-performance.md)" },
+      ],
     },
     {
       toolCallId: rootCallId("writeFile"),
       status: "running",
       icon: "write",
-      label: "Saving reports/agent-architectures.md",
+      label: "Saving reports/KSTP-KRST.md",
     },
     {
       toolCallId: rootCallId("writeFile"),
       status: "completed",
       icon: "write",
-      label: "Saved reports/agent-architectures.md",
+      label: "Saved reports/KSTP-KRST.md",
     },
   ])
   for (const completed of customEvents.filter(
@@ -869,21 +952,21 @@ function assertGatedResearchInterrupt(
   ) {
     throw new Error("Gated AG-UI permission interrupt omitted its id or metadata")
   }
-  expect(interruptRecord.reason).toBe("command")
+  expect(interruptRecord.reason).toBe("tool")
   expect(metadata).toMatchObject({
     interruptId,
     type: "permission-request",
-    kind: "command",
-    detail: { command: FETCH_COMMAND },
+    kind: "tool",
+    detail: { toolName: "fileFlightPlan" },
   })
 
   const starts = events.filter((event) => event.type === "TOOL_CALL_START")
-  expect(starts.map((event) => event.toolCallName)).toEqual(["runBash"])
+  expect(starts.map((event) => event.toolCallName)).toEqual(["fileFlightPlan"])
   const toolCallId = starts[0]?.toolCallId
   if (typeof toolCallId !== "string") {
-    throw new Error("Gated runBash start omitted its tool-call id")
+    throw new Error("Gated fileFlightPlan start omitted its tool-call id")
   }
-  expect(toolCallId).toBe("call_runBash_0_0")
+  expect(toolCallId).toBe("call_fileFlightPlan_0_0")
   const correlated = events.filter((event) => event.toolCallId === toolCallId)
   const argEvents = correlated.filter((event) => event.type === "TOOL_CALL_ARGS")
   expect(argEvents.length).toBeGreaterThan(0)
@@ -895,14 +978,14 @@ function assertGatedResearchInterrupt(
   const encodedArgs = argEvents
     .map((event) => {
       if (typeof event.delta !== "string") {
-        throw new Error("Gated runBash args delta was not a string")
+        throw new Error("Gated fileFlightPlan args delta was not a string")
       }
       return event.delta
     })
     .join("")
   // The re-keyed projection announces root tool calls from the model turn,
   // so ARGS carry the model's parsed args directly (no ToolNode {input} wrapper).
-  expect(JSON.parse(encodedArgs)).toEqual({ command: FETCH_COMMAND })
+  expect(JSON.parse(encodedArgs)).toEqual({ flightPlan: FLIGHT_PLAN })
   expect(events.filter((event) => event.type === "TOOL_CALL_RESULT")).toEqual([])
   expect(
     events.filter(
@@ -923,10 +1006,10 @@ function assertResumedGatedJourney(
   assertSuccessfulTerminal(events, ids)
 
   const starts = events.filter((event) => event.type === "TOOL_CALL_START")
-  expect(starts.map((event) => event.toolCallName)).toEqual(["runBash"])
+  expect(starts.map((event) => event.toolCallName)).toEqual(["fileFlightPlan"])
   const toolCallId = starts[0]?.toolCallId
   if (typeof toolCallId !== "string") {
-    throw new Error("Resumed runBash start omitted its tool-call id")
+    throw new Error("Resumed fileFlightPlan start omitted its tool-call id")
   }
   expect(toolCallId).toBe(gatedToolCallId)
   const correlated = events.filter((event) => event.toolCallId === toolCallId)
@@ -941,33 +1024,33 @@ function assertResumedGatedJourney(
   const encodedArgs = argEvents
     .map((event) => {
       if (typeof event.delta !== "string") {
-        throw new Error("Resumed runBash args delta was not a string")
+        throw new Error("Resumed fileFlightPlan args delta was not a string")
       }
       return event.delta
     })
     .join("")
   // No ToolNode {input} wrapper: tool input types resolve through the app's
-  // tsconfig (#759), so runBash's schema is `{ command }` and the resumed
-  // call replays the model's parsed args as-is, matching the gated run.
-  expect(JSON.parse(encodedArgs)).toEqual({ command: FETCH_COMMAND })
+  // tsconfig (#759), so fileFlightPlan's schema is `{ flightPlan }` and the
+  // resumed call replays the model's parsed args as-is, matching the gated run.
+  expect(JSON.parse(encodedArgs)).toEqual({ flightPlan: FLIGHT_PLAN })
 
   const toolResult = correlated.find((event) => event.type === "TOOL_CALL_RESULT")
   if (toolResult === undefined || typeof toolResult.content !== "string") {
-    throw new Error("Resumed runBash omitted its string tool result")
+    throw new Error("Resumed fileFlightPlan omitted its string tool result")
   }
   // The wire carries the tool's output — the text the model saw — not the
-  // serialized ToolMessage, so the resumed runBash result parses straight to
-  // the command's result.
+  // serialized ToolMessage, so the resumed fileFlightPlan result parses
+  // straight to the tool's JSON.
   expect(JSON.parse(toolResult.content)).toEqual({
-    stdout: FETCH_STDOUT,
-    stderr: "",
-    exitCode: 0,
+    status: "recorded",
+    path: FLIGHT_PLAN_PATH,
+    transmitted: false,
   })
   const resultIndex = events.indexOf(toolResult)
   const firstTextIndex = events.findIndex((event) => event.type === "TEXT_MESSAGE_CONTENT")
   expect(resultIndex).toBeGreaterThanOrEqual(0)
   expect(firstTextIndex).toBeGreaterThan(resultIndex)
-  expect(reconstructAssistantText(events)).toBe(GATED_REPLY)
+  expect(reconstructAssistantText(events)).toBe(FILE_REPLY)
   expectNoActivitySnapshots(events)
 }
 
@@ -1040,18 +1123,18 @@ function assertWebGatedInterrupt(events: readonly AgUiEvent[]): {
   if (typeof interruptId !== "string") {
     throw new Error("Web gated permission interrupt omitted its id")
   }
-  expect(interruptRecord.reason).toBe("command")
+  expect(interruptRecord.reason).toBe("tool")
   expect(interruptRecord.metadata).toMatchObject({
     type: "permission-request",
-    kind: "command",
-    detail: { command: WEB_FETCH_COMMAND },
+    kind: "tool",
+    detail: { toolName: "fileFlightPlan" },
   })
 
   const starts = events.filter((event) => event.type === "TOOL_CALL_START")
-  expect(starts.map((event) => event.toolCallName)).toEqual(["runBash"])
+  expect(starts.map((event) => event.toolCallName)).toEqual(["fileFlightPlan"])
   const toolCallId = starts[0]?.toolCallId
   if (typeof toolCallId !== "string") {
-    throw new Error("Web gated runBash start omitted its tool-call id")
+    throw new Error("Web gated fileFlightPlan start omitted its tool-call id")
   }
   expect(events.filter((event) => event.type === "TOOL_CALL_RESULT")).toEqual([])
   expect(events.filter((event) => event.type === "TEXT_MESSAGE_CONTENT")).toEqual([])
@@ -1073,12 +1156,12 @@ function assertWebResumedJourney(events: readonly AgUiEvent[], gatedToolCallId: 
   expect(events.at(-1)).toEqual(finished[0])
 
   const starts = events.filter((event) => event.type === "TOOL_CALL_START")
-  expect(starts.map((event) => event.toolCallName)).toEqual(["runBash"])
+  expect(starts.map((event) => event.toolCallName)).toEqual(["fileFlightPlan"])
   expect(starts[0]?.toolCallId).toBe(gatedToolCallId)
   const correlated = events.filter((event) => event.toolCallId === gatedToolCallId)
   const result = correlated.find((event) => event.type === "TOOL_CALL_RESULT")
   if (result === undefined) {
-    throw new Error("Resumed web runBash omitted its tool result")
+    throw new Error("Resumed web fileFlightPlan omitted its tool result")
   }
   const resultIndex = events.indexOf(result)
   const firstTextIndex = events.findIndex((event) => event.type === "TEXT_MESSAGE_CONTENT")
@@ -1340,12 +1423,12 @@ test("activates the research scaffold (--template navlog) through the complete n
 
     aimock = await createAimock({ fixtures: [] })
     const registeredFixtures = [
-      ...createSafeResearchFixtures(),
+      ...createPlanFixtures(),
       ...createGatedAndBuiltFixtures(),
       ...createWebHopFixtures(),
       // W7: the Workbench's own journey, driven from a real browser.
       ...createBrowserFixtures(),
-      // W8's third journey; the other two reuse SAFE_PROMPT and GATED_PROMPT.
+      // W8's third journey; the other two reuse PLAN_PROMPT and FILE_PROMPT.
       ...createTeachFixture(),
     ]
     aimock.addFixtures(registeredFixtures)
@@ -1547,7 +1630,6 @@ test("activates the research scaffold (--template navlog) through the complete n
       eval: "b4 eval",
       build: "b4 build",
       start: "node --env-file-if-exists=.env .b4/build/server.mjs",
-      "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
       "memory:list": "b4 memory list",
       "memory:approve": "b4 memory approve",
     })
@@ -1590,7 +1672,7 @@ test("activates the research scaffold (--template navlog) through the complete n
         agUiRecorder.registerServerUrl(url)
         const safeJourney = await postAgui({
           baseUrl: url,
-          messages: [{ id: safeMessageId, role: "user", content: SAFE_PROMPT }],
+          messages: [{ id: safeMessageId, role: "user", content: PLAN_PROMPT }],
           recorder: agUiRecorder,
           runId: safeRunId,
           signal: lifecycleSignal,
@@ -1605,7 +1687,7 @@ test("activates the research scaffold (--template navlog) through the complete n
         const gatedJournalStart = activeAimock.getRequests().length
         const gatedJourney = await postAgui({
           baseUrl: url,
-          messages: [{ id: gatedMessageId, role: "user", content: GATED_PROMPT }],
+          messages: [{ id: gatedMessageId, role: "user", content: FILE_PROMPT }],
           recorder: agUiRecorder,
           runId: gatedRunId,
           signal: lifecycleSignal,
@@ -1701,7 +1783,9 @@ test("activates the research scaffold (--template navlog) through the complete n
               readonly values?: unknown
             }
             expect(JSON.stringify(threadState.config)).toContain(safeThreadId)
-            expect(JSON.stringify(threadState.values)).toContain("[corpus/agent-architectures.md]")
+            expect(JSON.stringify(threadState.values)).toContain(
+              "[poh/cruise-performance.md, Figure 5-7]",
+            )
             // 403 (refused) and 404 (no checkpoint) stay distinguishable, which
             // is the distinction the proxy route argues for — and it is what
             // makes the 200 above evidence rather than coincidence.
@@ -1798,8 +1882,8 @@ test("activates the research scaffold (--template navlog) through the complete n
             // W7 — the Workbench, in a real browser. Everything above proves the
             // web tier over HTTP; this proves the page renders, sends, streams,
             // settles, persists the thread, and restores it after a reload —
-            // the README recording's journey, now required. The +3 is the
-            // browser fixture's two tool turns plus its reply, the browser's
+            // the README recording's journey, now required. The +2 is the
+            // browser fixture's computeNavlog turn plus its reply, the browser's
             // only path to a model being the B4 server behind the CopilotKit
             // route. `chromium` comes from the preflight import at the top of
             // this test rather than a second one here.
@@ -1808,7 +1892,7 @@ test("activates the research scaffold (--template navlog) through the complete n
               {
                 webUrl,
                 prompt: BROWSER_PROMPT,
-                tools: ["searchCorpus", "readDoc"],
+                tools: ["computeNavlog"],
                 answer: BROWSER_REPLY,
                 // Repo-relative, not the harness's os.tmpdir() artifact root:
                 // harness-verify uploads only `artifacts/testing/`, so a
@@ -1821,13 +1905,13 @@ test("activates the research scaffold (--template navlog) through the complete n
             expect(browserResult.threadId).toMatch(
               /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
             )
-            expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 3)
+            expect(activeAimock.getRequests()).toHaveLength(browserJournalStart + 2)
 
             // W8 — the three empty-state suggestions, in the same browser. Each
             // starts a new conversation, so each is its own thread and its own
-            // exact journal delta: Research = 10 (the root fixture's 7 turns plus
-            // the researcher subagent's 3), Gate = 2 (the runBash turn, then the
-            // resumed reply after Allow once), Teach = 2 (remember + reply).
+            // exact journal delta: Plan = 8 (the root fixture's 6 turns plus the
+            // performance subagent's 2), File = 2 (the fileFlightPlan turn, then
+            // the resumed reply after Allow once), Teach = 2 (remember + reply).
             // The activity cards, the permission gate and the memory panel are
             // the surfaces a template or CopilotKit bump breaks first.
             const suggestionsJournalStart = activeAimock.getRequests().length
@@ -1835,15 +1919,15 @@ test("activates the research scaffold (--template navlog) through the complete n
               {
                 webUrl,
                 screenshotDir: dirname(browserScreenshotPath),
-                fetchCommand: FETCH_COMMAND,
-                gatedReply: GATED_REPLY,
-                researchReply: RESEARCH_REPLY,
+                approvalToolName: "fileFlightPlan",
+                gatedReply: FILE_REPLY,
+                planReply: PLAN_REPLY,
                 teachContent: TEACH_CONTENT,
                 signal: lifecycleSignal,
               },
               { chromium },
             )
-            expect(activeAimock.getRequests()).toHaveLength(suggestionsJournalStart + 14)
+            expect(activeAimock.getRequests()).toHaveLength(suggestionsJournalStart + 12)
 
             return { webInterruptId: webInterrupt.interruptId }
           },
@@ -1907,9 +1991,15 @@ test("activates the research scaffold (--template navlog) through the complete n
 
     const transcriptAfterStart = await readFile(commandsTranscriptPath, "utf8")
     assertRecordedServerExit(transcriptAfterStart, { appRoot, script: "start" })
-    const reportPath = join(appRoot, "server/workspace/reports/agent-architectures.md")
+    const reportPath = join(appRoot, "server/workspace/reports/KSTP-KRST.md")
     await expect(access(reportPath, constants.F_OK)).resolves.toBeUndefined()
-    await expect(readFile(reportPath, "utf8")).resolves.toContain("[corpus/agent-architectures.md]")
+    await expect(readFile(reportPath, "utf8")).resolves.toContain(
+      "[poh/cruise-performance.md, Figure 5-7]",
+    )
+    // The approved fileFlightPlan wrote its FPL message into the workspace.
+    await expect(
+      readFile(join(appRoot, "server/workspace", FLIGHT_PLAN_PATH), "utf8"),
+    ).resolves.toContain("(FPL-N738ZU-VG")
 
     const sanitizedAgUiTranscript = await readFile(agUiTranscriptPath, "utf8")
     expect(() => JSON.parse(sanitizedAgUiTranscript)).not.toThrow()
@@ -2010,7 +2100,7 @@ test("activates the research scaffold (--template navlog) through the complete n
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,
         `Browser screenshot (if W7 failed): ${browserScreenshotPath}`,
-        `Browser screenshots (if W8 failed): ${join(dirname(browserScreenshotPath), "workbench-browser-research.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-gate.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-teach.png")}`,
+        `Browser screenshots (if W8 failed): ${join(dirname(browserScreenshotPath), "workbench-browser-plan.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-gate.png")}, ${join(dirname(browserScreenshotPath), "workbench-browser-teach.png")}`,
         // Vitest's JSON reporter drops `cause`, so CI would otherwise see only
         // the paths above and never the failure that produced them.
         ...flattenCause(cause),

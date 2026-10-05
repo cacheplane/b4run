@@ -1,241 +1,180 @@
-import { rmSync } from "node:fs"
-import { basename, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { run as runB4Cli } from "@b4run/cli"
-import type { FixtureSet } from "@b4run/testing"
-import {
-  createAgentHarness,
-  expectFinalMessage,
-  expectInterrupt,
-  expectOffloaded,
-  expectSubagent,
-  expectToolCalled,
-  script,
-  seedMemory,
-} from "@b4run/testing"
-import { afterAll, beforeAll, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
+import { computeNavlog, type NavlogInput } from "../src/lib/navlog.ts"
 
-const appRoot = fileURLToPath(new URL("..", import.meta.url))
-const memoryDb = join(appRoot, ".b4", "memory.sqlite")
-const memoryNamespace = `workspace=${basename(appRoot)}|route=/navlog`
-function cleanMemoryDb() {
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(`${memoryDb}${suffix}`, { force: true })
+const base: NavlogInput = {
+  aircraft: { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 },
+  altitudeFt: 4500,
+  departureTimeUtc: "2026-10-05T14:00:00Z",
+  waypoints: [
+    {
+      id: "KSTP",
+      lat: 44.9346,
+      lon: -93.0603,
+      elevationFt: 705,
+      magneticVariationDeg: 0,
+      kind: "airport",
+    },
+    {
+      id: "KRST",
+      lat: 43.9083,
+      lon: -92.49,
+      elevationFt: 1317,
+      magneticVariationDeg: 0,
+      kind: "airport",
+    },
+  ],
+  winds: [{ dirDegTrue: 320, speedKt: 20, tempC: 5 }],
 }
 
-async function runCli(args: readonly string[]) {
-  const stdout: string[] = []
-  const stderr: string[] = []
-  const code = await runB4Cli(args, {
-    stderr: (message) => stderr.push(message),
-    stdout: (message) => stdout.push(message),
+describe("computeNavlog", () => {
+  it("splits the first leg into a climb segment and a cruise segment", () => {
+    const log = computeNavlog(base)
+    expect(log.legs.map((leg) => leg.segment)).toEqual(["climb", "cruise"])
+    expect(log.legs[0]?.from).toBe("KSTP")
+    expect(log.legs[1]?.to).toBe("KRST")
+    // Figure 5-6 from KSTP (705 ft: 1 min, 0.2 gal, 1 nm) to 4500 ft (7 min, 1.4 gal, 9 nm):
+    // 6 min, 1.2 gal, 8 nm, plus 1.1 gal start/taxi/takeoff on the climb segment.
+    expect(log.legs[0]?.distanceNm).toBe(8)
+    expect(log.legs[0]?.eteMin).toBe(6)
+    expect(log.legs[0]?.fuelGal).toBeCloseTo(2.3, 5)
   })
-  expect(stderr.join("")).toBe("")
-  expect(code).toBe(0)
-  return stdout.join("")
-}
-
-beforeAll(cleanMemoryDb)
-const h = await createAgentHarness({ appRoot, route: "/navlog#agent" })
-afterAll(async () => {
-  await h.close()
-  cleanMemoryDb()
+  it("flies the climb row at the table's zero-wind groundspeed, no wind correction", () => {
+    const climb = computeNavlog(base).legs[0]
+    expect(climb?.segment).toBe("climb")
+    expect(climb?.wca).toBe(0)
+    expect(climb?.trueHeading).toBe(climb?.trueCourse)
+    expect(climb?.magneticHeading).toBe(climb?.magneticCourse)
+    expect(climb?.tasKt).toBe(72)
+    expect(climb?.groundspeedKt).toBe(Math.round(8 / (6 / 60)))
+    expect(climb?.wind).toEqual({ dir: 320, kt: 20 })
+  })
+  it("carries the climb into the next leg when the first leg is shorter", () => {
+    const fix = {
+      id: "FIX6S",
+      lat: 44.9346 - 6 / 60,
+      lon: -93.0603,
+      magneticVariationDeg: 0,
+      kind: "fix" as const,
+    }
+    const [kstp, krst] = base.waypoints
+    if (!kstp || !krst) throw new Error("base waypoints")
+    const log = computeNavlog({
+      ...base,
+      altitudeFt: 8500,
+      waypoints: [kstp, fix, krst],
+      winds: [
+        { dirDegTrue: 320, speedKt: 20 },
+        { dirDegTrue: 320, speedKt: 20 },
+      ],
+    })
+    // Figure 5-6 from 705 ft (1 min, 0.2 gal, 1 nm) to 8500 ft (16 min, 3.0 gal, 21 nm):
+    // 15 min, 2.8 gal, 20 nm.
+    const climbNm = 20
+    expect(log.legs.map((leg) => `${leg.from}-${leg.to}:${leg.segment}`)).toEqual([
+      "KSTP-FIX6S:climb",
+      "FIX6S-KRST:climb",
+      "FIX6S-KRST:cruise",
+    ])
+    expect(log.legs[0]?.distanceNm).toBe(6)
+    expect(log.legs[1]?.distanceNm).toBe(climbNm - 6)
+    expect((log.legs[0]?.eteMin ?? 0) + (log.legs[1]?.eteMin ?? 0)).toBe(15)
+    expect((log.legs[0]?.fuelGal ?? 0) + (log.legs[1]?.fuelGal ?? 0)).toBeCloseTo(2.8 + 1.1, 5)
+    expect(log.totals.eteMin).toBe(log.legs.reduce((sum, leg) => sum + leg.eteMin, 0))
+  })
+  it("drops a climb sliver that rounds to nothing instead of printing a zero row", () => {
+    // A field at sea level climbs to 8500 ft in 16 min, 3.0 gal, 21 nm (Figure 5-6);
+    // a first leg of 20.7 nm leaves 0.3 nm of climb, which rounds to 0 nm, 0 min, 0.0 gal.
+    const [kstp, krst] = base.waypoints
+    if (!kstp || !krst) throw new Error("base waypoints")
+    const seaLevelField = { ...kstp, elevationFt: 0 }
+    const fix = {
+      id: "FIX21S",
+      lat: kstp.lat - 20.7 / (3440.065 * (Math.PI / 180)),
+      lon: kstp.lon,
+      magneticVariationDeg: 0,
+      kind: "fix" as const,
+    }
+    const log = computeNavlog({
+      ...base,
+      altitudeFt: 8500,
+      waypoints: [seaLevelField, fix, krst],
+      winds: [
+        { dirDegTrue: 320, speedKt: 20 },
+        { dirDegTrue: 320, speedKt: 20 },
+      ],
+    })
+    expect(log.legs.map((leg) => `${leg.from}-${leg.to}:${leg.segment}`)).toEqual([
+      "KSTP-FIX21S:climb",
+      "FIX21S-KRST:cruise",
+    ])
+    expect(log.legs[0]?.distanceNm).toBe(21)
+    for (const leg of log.legs) {
+      expect(leg.distanceNm + leg.eteMin + leg.fuelGal).toBeGreaterThan(0)
+    }
+  })
+  it("uses the Figure 5-7 cruise row at the pressure altitude and RPM", () => {
+    const log = computeNavlog(base)
+    expect(log.aircraft.tasKt).toBeCloseTo(109.75, 2) // 4500 ft between 110 (4000) and 109.5 (5000)
+    expect(log.aircraft.gph).toBeCloseTo(7.025, 3)
+  })
+  it("applies the wind triangle to the cruise segment", () => {
+    const log = computeNavlog(base)
+    const cruise = log.legs[1]
+    expect(cruise?.wind).toEqual({ dir: 320, kt: 20 })
+    expect(cruise?.groundspeedKt).toBeGreaterThan(cruise?.tasKt ?? 0) // quartering tailwind on a SSE course
+    expect(cruise?.wca).toBeGreaterThan(0)
+    expect(cruise?.magneticHeading).toBeGreaterThan(cruise?.magneticCourse ?? 0)
+  })
+  it("accumulates distance, time, fuel and ETA across legs", () => {
+    const log = computeNavlog(base)
+    const total = log.legs.reduce((sum, leg) => sum + leg.distanceNm, 0)
+    expect(log.totals.distanceNm).toBeCloseTo(total, 5)
+    expect(log.totals.eteMin).toBe(log.legs.reduce((sum, leg) => sum + leg.eteMin, 0))
+    expect(log.legs.at(-1)?.remainingNm).toBe(0)
+    expect(log.legs.at(-1)?.fuelRemainingGal).toBeCloseTo(50 - log.totals.fuelGal, 5)
+    expect(log.legs[0]?.etaUtc).toBe("2026-10-05T14:06:00.000Z")
+  })
+  it("reports the reserve in minutes at cruise burn and flags under 45", () => {
+    const log = computeNavlog(base)
+    expect(log.totals.reserveMin).toBe(
+      Math.round((log.totals.fuelRemainingGal / log.aircraft.gph) * 60),
+    )
+    expect(log.totals.reserveOk).toBe(true)
+    const thirsty = computeNavlog({ ...base, aircraft: { ...base.aircraft, usableFuelGal: 8 } })
+    expect(thirsty.totals.reserveOk).toBe(false)
+  })
+  it("applies magnetic variation per leg from the departure waypoint of that leg", () => {
+    const log = computeNavlog({
+      ...base,
+      waypoints: [
+        { ...base.waypoints[0]!, magneticVariationDeg: 2 },
+        { ...base.waypoints[1]!, magneticVariationDeg: -3 },
+      ],
+    })
+    expect(log.legs[0]?.variation).toBe(2)
+    expect(log.legs[0]?.magneticCourse).toBeCloseTo(log.legs[0]!.trueCourse - 2, 5)
+  })
+  it("rejects fewer than two waypoints and a winds array of the wrong length", () => {
+    expect(() => computeNavlog({ ...base, waypoints: [base.waypoints[0]!] })).toThrow(
+      /at least two waypoints/,
+    )
+    expect(() => computeNavlog({ ...base, winds: [] })).toThrow(/one wind entry per leg/)
+  })
+  it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
+    for (const departureTimeUtc of ["1500Z tomorrow", "2026-10-06T09:00:00-05:00", "2026-10-06"]) {
+      expect(() => computeNavlog({ ...base, departureTimeUtc })).toThrow(
+        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "${departureTimeUtc}"`,
+      )
+    }
+  })
+  it("resolves a 1400Z departure to its next occurrence from now", () => {
+    const now = () => Date.parse("2026-10-06T15:00:00Z")
+    const log = computeNavlog({ ...base, departureTimeUtc: "1400Z" }, now)
+    expect(log.departureTimeUtc).toBe("2026-10-07T14:00:00.000Z")
+    expect(log.legs[0]?.etaUtc).toBe("2026-10-07T14:06:00.000Z")
+  })
+  it("names its POH sources", () => {
+    const log = computeNavlog(base)
+    expect(log.sources.map((s) => s.figure)).toEqual(["Figure 5-6", "Figure 5-7"])
+  })
 })
-
-it("searches the corpus and writes a cited answer", async () => {
-  h.reset()
-  const run = await h.run({
-    input: "What are common agent architectures?",
-    fixtures: script()
-      .user("What are common agent architectures?")
-      .callsTool("searchCorpus", { query: "agent architectures" })
-      .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-      .replies("ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"),
-  })
-  expectToolCalled(run, "searchCorpus")
-  expectToolCalled(run, "readDoc")
-  expectFinalMessage(run).toContain("[corpus/")
-}, 60_000)
-
-it("renders a chart whose image reaches the UI while the model sees its summary", async () => {
-  h.reset()
-  const series = [
-    { label: "A", value: 3 },
-    { label: "B", value: 1 },
-  ]
-  const run = await h.run({
-    input: "Compare mentions of A and B",
-    fixtures: script()
-      .user("Compare mentions of A and B")
-      .callsTool("renderChart", { title: "Mentions", series })
-      .replies("Here is the chart."),
-  })
-  expectToolCalled(run, "renderChart")
-  const summary = 'Chart "Mentions": A 3, B 1.'
-  // `toolResults[].content` is the model-facing ToolMessage content: gpt-5-mini
-  // takes no image in a tool message, so only the summary reaches the model.
-  expect(run.toolResults.find((t) => t.name === "renderChart")?.content).toBe(summary)
-  // The full parts ride on the ToolMessage's `additional_kwargs.b4_content_parts`
-  // for the UI (read off a live or a serialized message).
-  type KeptParts = { name?: unknown; additional_kwargs?: { b4_content_parts?: unknown } }
-  const toolMessage = run.messages
-    .map((m) => (m.kwargs ?? m) as KeptParts)
-    .find((m) => m.name === "renderChart")
-  const parts = toolMessage?.additional_kwargs?.b4_content_parts
-  expect(parts).toEqual([
-    { type: "text", text: summary },
-    {
-      type: "image",
-      source: { type: "data", value: expect.any(String), mimeType: "image/svg+xml" },
-    },
-  ])
-  expectFinalMessage(run).toContain("chart")
-}, 60_000)
-
-it("recalls seeded durable research preferences", async () => {
-  h.reset()
-  await seedMemory({ path: memoryDb }, [
-    {
-      id: "memory_report_style",
-      namespace: memoryNamespace,
-      content: "The user prefers concise executive summaries before detailed research findings.",
-      data: { subject: "user", predicate: "prefers-report-style", value: "concise-summary-first" },
-      tags: ["preference"],
-    },
-  ])
-  const run = await h.run({
-    input: "Research agent architectures with my preferences in mind.",
-    fixtures: script()
-      .user("Research agent architectures with my preferences in mind.")
-      .callsTool("recall", { query: "concise executive summaries" })
-      .replies("I will lead with a concise executive summary."),
-  })
-  expectToolCalled(run, "recall")
-  expect(String(run.toolResults.find((t) => t.name === "recall")?.content ?? "")).toContain(
-    "concise executive summaries",
-  )
-  expectFinalMessage(run).toContain("concise")
-}, 60_000)
-
-it("stores durable findings as reviewable memory candidates", async () => {
-  h.reset()
-  const run = await h.run({
-    input: "Remember that I want every research report to include primary sources.",
-    fixtures: script()
-      .user("Remember that I want every research report to include primary sources.")
-      .callsTool("remember", {
-        data: {
-          subject: "user",
-          predicate: "prefers-source-quality",
-          value: "primary-sources",
-        },
-        content: "The user wants every research report to include primary sources.",
-      })
-      .replies("Saved as a memory candidate for review."),
-  })
-  expectToolCalled(run, "remember")
-  expectFinalMessage(run).toContain("candidate")
-}, 60_000)
-
-it("approves a memory candidate through the CLI and recalls it in a fresh thread", async () => {
-  h.reset()
-  const stored = await h.run({
-    input: "Remember that I prefer source appendices in research reports.",
-    fixtures: script()
-      .user("Remember that I prefer source appendices in research reports.")
-      .callsTool("remember", {
-        data: {
-          subject: "user",
-          predicate: "prefers-report-appendix",
-          value: "source-appendix",
-        },
-        content: "The user prefers source appendices in research reports.",
-      })
-      .replies("Saved as a memory candidate for review."),
-  })
-  expectToolCalled(stored, "remember")
-
-  const list = await runCli(["memory", "--cwd", appRoot, "list"])
-  expect(list).toContain("source appendices")
-  const id = list.match(/^(memory_[a-f0-9]+) \[candidate\].*source appendices/m)?.[1]
-  expect(id).toBeDefined()
-
-  const approved = await runCli(["memory", "--cwd", appRoot, "approve", id ?? ""])
-  expect(approved).toContain(`approved ${id} (activated)`)
-
-  h.reset()
-  const recalled = await h.run({
-    input: "What report appendix preference should you remember?",
-    fixtures: script()
-      .user("What report appendix preference should you remember?")
-      .callsTool("recall", { query: "source appendices" })
-      .replies("You prefer source appendices in research reports."),
-  })
-  expectToolCalled(recalled, "recall")
-  expect(String(recalled.toolResults.find((t) => t.name === "recall")?.content ?? "")).toContain(
-    "source appendices",
-  )
-}, 60_000)
-
-it("dispatches the researcher subagent with access to shared corpus tools", async () => {
-  h.reset()
-  const subQuestion = "What are common agent architectures?"
-  const run = await h.run({
-    input: "Research agent architectures",
-    fixtures: script()
-      .user("Research agent architectures")
-      .callsTool("task", { subagent: "researcher", input: subQuestion })
-      .replies("Done — see the cited summary.")
-      .user(subQuestion)
-      .callsTool("searchCorpus", { query: "agent architectures" })
-      .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-      .replies("ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"),
-  })
-  expectSubagent(run, "researcher").called().calledTool("searchCorpus").calledTool("readDoc")
-}, 60_000)
-
-it("offloads a large readDoc result", async () => {
-  h.reset()
-  const fixtures: FixtureSet = [
-    {
-      match: { turnIndex: 0, hasToolResult: false },
-      response: {
-        toolCalls: [
-          {
-            id: "call_read_big_1",
-            name: "readDoc",
-            arguments: { path: "corpus/context-windows-and-offloading.md" },
-          },
-        ],
-      },
-    },
-    { match: { hasToolResult: true }, response: { content: "Summarized the offloaded document." } },
-  ]
-  const run = await h.run({
-    input: "Summarize the context-windows document.",
-    fixtures,
-  })
-  expectOffloaded(run, "readDoc")
-  expectFinalMessage(run).toContain("Summarized")
-}, 60_000)
-
-it("gates the external fetch behind a permission prompt, then resumes", async () => {
-  h.reset()
-  const run = await h.run({
-    input: "Fetch external context on context windows",
-    fixtures: script()
-      .user("Fetch external context on context windows")
-      .callsTool("runBash", { command: "node scripts/fetch-source.mjs context windows" })
-      .replies("Fetched external context."),
-  })
-  expectInterrupt(run).ofKind("command").withDetail({
-    command: "node scripts/fetch-source.mjs context windows",
-  })
-  const resumed = await h.resume({
-    resume: run.interrupts.map((entry) => ({
-      interruptId: entry.interruptId,
-      status: "resolved" as const,
-      payload: "once",
-    })),
-  })
-  expectToolCalled(resumed, "runBash")
-}, 60_000)

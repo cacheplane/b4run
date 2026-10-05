@@ -4,7 +4,7 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 
 ## Project Shape
 
-- **`b4.config.ts`** at the B4.run app root. Every path below is relative to that root: the project root in a single-package app such as the default basic scaffold, and the `server/` package in an app scaffolded from the research template. Supported keys include:
+- **`b4.config.ts`** at the B4.run app root. Every path below is relative to that root: the project root in a single-package app such as the default basic scaffold, and the `server/` package in an app scaffolded from the navlog template. Supported keys include:
   - `appDir`: route directory root; defaults to `src/app`.
   - `backends`: custom filesystem and exec backends for workspace tools.
   - `permissions`: mode plus allow/deny maps for tool and workspace gates.
@@ -147,7 +147,7 @@ The `RouteTools<"/navlog">` lookup uses the route's pathname as the key. These k
 - `b4 typegen`: regenerate `.b4/b4.generated.d.ts` and per-route `tools.json` / `state.json`.
 - `b4 verify`: full integrity check across app, routes, typegen, deps. Preferred CI gate.
 - `echo '{"messages":[{"role":"user","content":"Say hello to Ada"}]}' | b4 run /hello`: execute the default basic scaffold route.
-- `echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | b4 run /navlog`: execute the research scaffold route.
+- `echo '{"messages":[{"role":"user","content":"Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z."}]}' | b4 run /navlog`: execute the navlog scaffold route.
 
 ## Agent Protocol
 
@@ -168,7 +168,7 @@ Run and stream bodies require a route key and optional input:
 {
   "route": "/navlog#agent",
   "input": {
-    "messages": [{ "role": "user", "content": "What are common agent architectures?" }]
+    "messages": [{ "role": "user", "content": "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z." }]
   }
 }
 ```

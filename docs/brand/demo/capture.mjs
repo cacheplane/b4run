@@ -425,7 +425,7 @@ function createCommandAdapter({ repoRoot, parentEnvironment }) {
             "--mode",
             "internal",
             "--template",
-            "research",
+            "navlog",
           ],
           { cwd: repoRoot, env: environment, signal },
         ),
@@ -1126,11 +1126,11 @@ export async function captureDemo({
     assertCommandSucceeded(testResult, "generated npm test")
     const rawTestLog = [testResult.stdout, testResult.stderr].filter(Boolean).join("\n")
     if (
-      !rawTestLog.includes("searches the corpus and writes a cited answer") ||
+      !rawTestLog.includes("splits the first leg into a climb segment and a cruise segment") ||
       !/(?:Tests?\s+.*passed|\d+\s+passed)/i.test(rawTestLog)
     ) {
       throw new Error(
-        "Generated npm test output did not contain the named research scenario and passing summary",
+        "Generated npm test output did not contain the named navlog test and passing summary",
       )
     }
     const normalizedTestLog = normalizeLog(rawTestLog, {
@@ -1181,8 +1181,8 @@ export async function captureDemo({
 
     const [primarySource, secondarySource] = await racePhase("read generated source", () =>
       Promise.all([
-        adapters.filesystem.readFile(join(appRoot, "server/src/app/research/index.ts"), "utf8"),
-        adapters.filesystem.readFile(join(appRoot, "server/src/tools/searchCorpus.ts"), "utf8"),
+        adapters.filesystem.readFile(join(appRoot, "server/src/app/navlog/index.ts"), "utf8"),
+        adapters.filesystem.readFile(join(appRoot, "server/src/tools/computeNavlog.ts"), "utf8"),
       ]),
     )
     const authorHtml = renderStage({
@@ -1196,7 +1196,7 @@ export async function captureDemo({
         throw new Error(`Author compositor is missing ${generatedPath}`)
       }
     }
-    if (!authorHtml.includes("export default agent({") || !authorHtml.includes("searchCorpus")) {
+    if (!authorHtml.includes("export default agent({") || !authorHtml.includes("computeNavlog")) {
       throw new Error("Author compositor is missing the canonical B4.run source")
     }
     const testHtml = renderStage({ act: "test", testLog: normalizedTestLog })
