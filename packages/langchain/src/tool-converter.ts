@@ -15,6 +15,7 @@ import {
   type B4ContentPart,
   type BuiltInModelProviderId,
   contentPartsText,
+  type GateDecision,
   isToolDenial,
   type ToolDisplay,
 } from "@b4run/sdk"
@@ -58,6 +59,12 @@ interface B4ToolDefinition {
        * model tool call.
        */
       readonly toolCallId?: string
+      /**
+       * Receives how a permission gate answered this call (`once`, `always`,
+       * `deny`) when one ran interactively; the runtime persists it on the
+       * call's step. Absent outside the runtime's converter.
+       */
+      readonly onGateDecision?: (decision: GateDecision) => void
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown

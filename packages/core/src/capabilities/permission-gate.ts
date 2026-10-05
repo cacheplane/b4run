@@ -9,6 +9,7 @@ import {
   type B4ErrorCode,
   type ConstraintContext,
   type ConstraintPredicate,
+  type GateDecision,
   toolDenial,
 } from "@b4run/sdk"
 import { POSIX_SEP } from "@b4run/sdk/pure"
@@ -17,7 +18,14 @@ import { mintGrantForPark } from "./approval-grants.js"
 
 export type PathOperation = "readFile" | "writeFile" | "listDir"
 
-export type GateResult = { allowed: true } | { allowed: false; reason: string; code?: B4ErrorCode }
+/**
+ * A gate's answer. `decision` is present only when a human answered an
+ * interactive prompt (`once` / `always` / `deny`); a static allow or deny
+ * rule, bypass mode, and the fail-closed paths carry none.
+ */
+export type GateResult =
+  | { allowed: true; decision?: GateDecision }
+  | { allowed: false; reason: string; code?: B4ErrorCode; decision?: GateDecision }
 
 /** The model's id for the tool call a gate is deciding; absent outside a model tool call. */
 export interface GateCallOptions {
@@ -50,12 +58,12 @@ export async function gatePathOp(
   if (insideWorkspace) return { allowed: true }
 
   // Outside workspace: consult the store.
-  const decision = permissions.match(operation, absPath)
-  if (decision === "allow") return { allowed: true }
-  if (decision === "deny") {
+  const rule = permissions.match(operation, absPath)
+  if (rule === "allow") return { allowed: true }
+  if (rule === "deny") {
     return { allowed: false, reason: `Permission denied by user: ${absPath}` }
   }
-  // decision === "unknown"
+  // rule === "unknown"
   if (permissions.mode === "non-interactive") {
     return { allowed: false, reason: `Permission denied (fail-closed): ${absPath}` }
   }
@@ -69,17 +77,17 @@ export async function gatePathOp(
     }
   }
   // Interactive: emit LangGraph interrupt and await user decision.
-  const result = await emitPermissionInterrupt({
+  const decision = await emitPermissionInterrupt({
     kind: "path",
     operation,
     path: absPath,
     ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
-  if (result === "deny") {
-    return { allowed: false, reason: `Permission denied by user: ${absPath}` }
+  if (decision === "deny") {
+    return { allowed: false, reason: `Permission denied by user: ${absPath}`, decision }
   }
-  return { allowed: true }
+  return { allowed: true, decision }
 }
 
 export async function gateBashOp(
@@ -90,24 +98,24 @@ export async function gateBashOp(
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
 
-  const decision = permissions.match("bash", command)
-  if (decision === "allow") return { allowed: true }
-  if (decision === "deny") {
+  const rule = permissions.match("bash", command)
+  if (rule === "allow") return { allowed: true }
+  if (rule === "deny") {
     return { allowed: false, reason: `Permission denied by user: ${command}` }
   }
   if (permissions.mode === "non-interactive") {
     return { allowed: false, reason: `Permission denied (fail-closed): ${command}` }
   }
-  const result = await emitPermissionInterrupt({
+  const decision = await emitPermissionInterrupt({
     kind: "command",
     command,
     ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
-  if (result === "deny") {
-    return { allowed: false, reason: `Permission denied by user: ${command}` }
+  if (decision === "deny") {
+    return { allowed: false, reason: `Permission denied by user: ${command}`, decision }
   }
-  return { allowed: true }
+  return { allowed: true, decision }
 }
 
 /**
@@ -125,9 +133,9 @@ export async function gateToolOp(
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
 
-  const decision = permissions.match("tool", toolName)
-  if (decision === "allow") return { allowed: true }
-  if (decision === "deny") {
+  const rule = permissions.match("tool", toolName)
+  if (rule === "allow") return { allowed: true }
+  if (rule === "deny") {
     return {
       allowed: false,
       reason: `Permission denied by user: tool ${toolName}`,
@@ -151,21 +159,22 @@ export async function gateToolOp(
       code: "B4_E3001",
     }
   }
-  const result = await emitPermissionInterrupt({
+  const decision = await emitPermissionInterrupt({
     kind: "tool",
     toolName,
     argsPreview,
     ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
-  if (result === "deny") {
+  if (decision === "deny") {
     return {
       allowed: false,
       reason: `Permission denied by user: tool ${toolName}`,
       code: "B4_E3001",
+      decision,
     }
   }
-  return { allowed: true }
+  return { allowed: true, decision }
 }
 
 export interface SubagentGateRequest {
@@ -188,9 +197,9 @@ export async function gateSubagentOp(
 
   const suggestedPattern = subagentPermissionPattern(request.parentRouteId, request.subagentName)
   if (permissions) {
-    const decision = permissions.match("subagent", suggestedPattern)
-    if (decision === "allow") return { allowed: true }
-    if (decision === "deny") {
+    const rule = permissions.match("subagent", suggestedPattern)
+    if (rule === "allow") return { allowed: true }
+    if (rule === "deny") {
       return {
         allowed: false,
         reason: `Permission denied by user: subagent ${request.subagentName}`,
@@ -222,7 +231,7 @@ export async function gateSubagentOp(
     }
   }
 
-  const result = await emitPermissionInterrupt({
+  const decision = await emitPermissionInterrupt({
     kind: "subagent",
     callId: request.callId,
     parentRouteId: request.parentRouteId,
@@ -234,14 +243,15 @@ export async function gateSubagentOp(
     threadId: request.threadId,
     permissions,
   })
-  if (result === "deny") {
+  if (decision === "deny") {
     return {
       allowed: false,
       reason: `Permission denied by user: subagent ${request.subagentName}`,
       code: "B4_E3002",
+      decision,
     }
   }
-  return { allowed: true }
+  return { allowed: true, decision }
 }
 
 export interface MemorySupersedeDetail {
@@ -274,24 +284,24 @@ export async function gateMemorySupersede(
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
 
-  const decision = permissions.match("memory", `${detail.namespace}|`)
-  if (decision === "allow") return { allowed: true }
-  if (decision === "deny") {
+  const rule = permissions.match("memory", `${detail.namespace}|`)
+  if (rule === "allow") return { allowed: true }
+  if (rule === "deny") {
     return { allowed: false, reason: `approval denied for this route's memory overwrites` }
   }
   // unknown + headless → allow through (ask ≡ auto without a human).
   if (permissions.mode === "non-interactive") return { allowed: true }
 
-  const result = await emitPermissionInterrupt({
+  const decision = await emitPermissionInterrupt({
     kind: "memory",
     ...detail,
     ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
-  if (result === "deny") {
-    return { allowed: false, reason: `approval denied` }
+  if (decision === "deny") {
+    return { allowed: false, reason: `approval denied`, decision }
   }
-  return { allowed: true }
+  return { allowed: true, decision }
 }
 
 /** Best-effort display preview of a tool call's args. Never matched or persisted. */
@@ -344,10 +354,22 @@ export function wrapToolWithApproval<
         ...opts,
         ...(toolCallId ? { toolCallId } : {}),
       })
+      reportGateDecision(context, gate)
       if (!gate.allowed) return toolDenial(codedReason(gate))
       return tool.run(input, context)
     },
   }
+}
+
+/**
+ * Hand a human's answer to the run context so the runtime can persist it on
+ * the call's step. Static rules carry no decision and report nothing.
+ */
+function reportGateDecision(context: unknown, gate: GateResult): void {
+  if (gate.decision === undefined) return
+  ;(context as { readonly onGateDecision?: (decision: GateDecision) => void }).onGateDecision?.(
+    gate.decision,
+  )
 }
 
 const CONSTRAINT_FAILED_REASON =
@@ -409,6 +431,7 @@ export function wrapToolWithConstraint<
         const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
           ...(toolCallId ? { toolCallId } : {}),
         })
+        reportGateDecision(context, gate)
         if (!gate.allowed) return toolDenial(codedReason(gate))
         return tool.run(input, context)
       }
@@ -466,7 +489,7 @@ type InterruptArgs =
       permissions: PermissionsStore
     }
 
-async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "deny"> {
+async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecision> {
   const interruptId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const suggestedPattern =
     args.kind === "command"
@@ -541,11 +564,7 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "
   // unexported internal, which is the worse bargain at the one site that must
   // stay obviously correct.
   const grant = await mintGrantForPark(interruptId)
-  const decision = interrupt(grant === undefined ? payload : { ...payload, grant }) as
-    | "once"
-    | "always"
-    | "deny"
-  if (decision === "deny") return "deny"
+  const decision = interrupt(grant === undefined ? payload : { ...payload, grant }) as GateDecision
   if (decision === "always") {
     const tool =
       args.kind === "command"
@@ -559,5 +578,5 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<"allow" | "
               : args.operation
     await args.permissions.addAllow(tool, suggestedPattern)
   }
-  return "allow"
+  return decision
 }

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createPermissionsStore } from "@b4run/permissions/node"
-import { isToolDenial } from "@b4run/sdk"
+import { type GateDecision, isToolDenial } from "@b4run/sdk"
 import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
@@ -280,13 +280,14 @@ describe("gateSubagentOp", () => {
   }
 
   it.each([
-    ["once", { allowed: true }],
+    ["once", { allowed: true, decision: "once" }],
     [
       "deny",
       {
         allowed: false,
         code: "B4_E3002",
         reason: "Permission denied by user: subagent writer",
+        decision: "deny",
       },
     ],
   ] as const)("resumes an interactive %s decision", async (decision, expected) => {
@@ -342,7 +343,7 @@ describe("gateSubagentOp", () => {
 
   it("persists always for only the exact parent/name edge", async () => {
     const { permissions, result } = await interruptCase("always")
-    expect(result).toEqual({ allowed: true })
+    expect(result).toEqual({ allowed: true, decision: "always" })
     expect(permissions.match("subagent", pattern)).toBe("allow")
     expect(permissions.match("subagent", JSON.stringify(["/parent", "writer-extra"]))).toBe(
       "unknown",
@@ -680,5 +681,123 @@ describe("gateMemorySupersede", () => {
   it("allows through on unknown in non-interactive mode (ask ≡ auto headless)", async () => {
     const permissions = await store("non-interactive")
     expect((await gateMemorySupersede(permissions, detail)).allowed).toBe(true)
+  })
+})
+
+describe("gate decisions reach the tool context", () => {
+  let appRoot: string
+  beforeEach(() => {
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-decision-test-"))
+  })
+  afterEach(() => {
+    rmSync(appRoot, { recursive: true, force: true })
+  })
+
+  interface DecisionContext {
+    readonly signal: AbortSignal
+    readonly toolCallId?: string
+    readonly onGateDecision?: (decision: GateDecision) => void
+  }
+  interface DecisionTool {
+    readonly name: string
+    readonly run: (input: unknown, context: DecisionContext) => Promise<unknown> | unknown
+  }
+
+  async function interactiveStore(config?: {
+    allow?: Record<string, readonly string[]>
+    deny?: Record<string, readonly string[]>
+  }) {
+    const permissions = createPermissionsStore({
+      appRoot,
+      config: config
+        ? { version: 1, allow: config.allow ?? {}, deny: config.deny ?? {} }
+        : undefined,
+      mode: "interactive",
+    })
+    await permissions.load()
+    return permissions
+  }
+
+  /** Park the wrapped tool's call in a graph, answer it with `decision`, return the result. */
+  async function parkAndResume(
+    wrapped: DecisionTool,
+    context: DecisionContext,
+    decision: GateDecision,
+  ) {
+    const State = Annotation.Root({ result: Annotation<unknown>() })
+    const graph = new StateGraph(State)
+      .addNode("call", async () => ({ result: await wrapped.run({ env: "prod" }, context) }))
+      .addEdge(START, "call")
+      .addEdge("call", END)
+      .compile({ checkpointer: new MemorySaver() })
+    const config = { configurable: { checkpoint_ns: "", thread_id: `t-${decision}` } }
+    await graph.invoke({}, config)
+    expect((await graph.getState(config)).tasks[0]?.interrupts).toHaveLength(1)
+    const resumed = await graph.invoke(new Command({ resume: decision }), config)
+    return resumed.result
+  }
+
+  it.each(["once", "always", "deny"] as const)(
+    "wrapToolWithApproval reports an interactive %s decision",
+    async (decision) => {
+      const decisions: GateDecision[] = []
+      const context: DecisionContext = {
+        signal: new AbortController().signal,
+        toolCallId: "call_1",
+        onGateDecision: (d) => decisions.push(d),
+      }
+      const wrapped = wrapToolWithApproval<DecisionContext, DecisionTool>(
+        { name: "deployProd", run: async () => "deployed" },
+        await interactiveStore(),
+      )
+      const result = await parkAndResume(wrapped, context, decision)
+      if (decision === "deny") {
+        expect(isToolDenial(result)).toBe(true)
+      } else {
+        expect(result).toBe("deployed")
+      }
+      expect(decisions).toEqual([decision])
+    },
+  )
+
+  it("wrapToolWithConstraint reports the decision when the predicate escalates", async () => {
+    const decisions: GateDecision[] = []
+    const context: DecisionContext = {
+      signal: new AbortController().signal,
+      onGateDecision: (d) => decisions.push(d),
+    }
+    const wrapped = wrapToolWithConstraint<DecisionContext, DecisionTool>(
+      { name: "deployProd", run: async () => "deployed" },
+      async () => ({ approve: true }),
+      await interactiveStore(),
+      "/route",
+    )
+    expect(await parkAndResume(wrapped, context, "once")).toBe("deployed")
+    expect(decisions).toEqual(["once"])
+  })
+
+  it("a static allow or deny rule reports nothing", async () => {
+    const decisions: GateDecision[] = []
+    const context: DecisionContext = {
+      signal: new AbortController().signal,
+      onGateDecision: (d) => decisions.push(d),
+    }
+    const allowed = wrapToolWithApproval<DecisionContext, DecisionTool>(
+      { name: "x", run: async () => 1 },
+      await interactiveStore({ allow: { tool: ["x"] } }),
+    )
+    expect(await allowed.run({}, context)).toBe(1)
+    const denied = wrapToolWithApproval<DecisionContext, DecisionTool>(
+      { name: "y", run: async () => 1 },
+      await interactiveStore({ deny: { tool: ["y"] } }),
+    )
+    expect(isToolDenial(await denied.run({}, context))).toBe(true)
+    expect(decisions).toEqual([])
+  })
+
+  it("the gate result itself carries the decision only when a human answered", async () => {
+    const permissions = await interactiveStore({ allow: { tool: ["x"] } })
+    expect(await gateToolOp(permissions, "x", "{}")).toEqual({ allowed: true })
+    expect(await gateToolOp(undefined, "x", "{}")).toEqual({ allowed: true })
   })
 })
