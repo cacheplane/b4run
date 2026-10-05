@@ -14,15 +14,21 @@ it("exports the framework-free view surface", () => {
     "reduceSubagentRuns",
     "reduceTurns",
     "stepLabel",
+    "turnsFromState",
   ])
 })
 
 it("imports nothing from React", async () => {
   const source = await import("node:fs/promises").then((fs) =>
     Promise.all(
-      ["index.ts", "labels.ts", "subagent-runs.ts", "step.ts", "turns.ts"].map((file) =>
-        fs.readFile(new URL(`../../src/view/${file}`, import.meta.url), "utf8"),
-      ),
+      [
+        "index.ts",
+        "labels.ts",
+        "subagent-runs.ts",
+        "step.ts",
+        "turns.ts",
+        "turns-from-state.ts",
+      ].map((file) => fs.readFile(new URL(`../../src/view/${file}`, import.meta.url), "utf8")),
     ),
   )
   for (const text of source) expect(text).not.toMatch(/from "react"|@copilotkit/)
