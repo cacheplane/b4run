@@ -340,11 +340,16 @@ function parallelSubagentRoot(
   })
   const dispatch =
     (callId: string, input: string) => async (_state: unknown, config: RunnableConfig) => ({
+      // The task tool returns a ToolMessage; the channel keeps its text.
       results: [
-        await task.func({ input, subagent: "researcher" }, undefined, {
-          ...config,
-          toolCall: { id: callId },
-        } as RunnableConfig),
+        String(
+          (
+            (await task.func({ input, subagent: "researcher" }, undefined, {
+              ...config,
+              toolCall: { id: callId },
+            } as RunnableConfig)) as { content: unknown }
+          ).content,
+        ),
       ],
     })
   return new StateGraph(RootState)
