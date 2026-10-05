@@ -17,9 +17,11 @@ export interface WeatherBrief {
   readonly note: string
 }
 
-/** The subset of a subagent run this selector reads (from `useSubagentRuns`). */
+/**
+ * The subset of a subagent run this selector reads: a `SubagentRun` from
+ * `useSubagentRuns(agent).runs.values()`, in start order.
+ */
 export interface SubagentRunLike {
-  readonly id: string
   readonly name: string
   readonly status: string
   readonly result?: unknown

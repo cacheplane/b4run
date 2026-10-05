@@ -47,6 +47,17 @@ const contentText = (content: unknown): string => {
   return ""
 }
 
+/** The latest assistant prose in the thread, for the sheet's brief. */
+export function lastAssistantText(messages: readonly MessageLike[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== "assistant") continue
+    const text = contentText(message.content).trim()
+    if (text.length > 0) return text
+  }
+  return ""
+}
+
 /** The most recent `computeNavlog` result in the thread, or null. */
 export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
   const callIds = new Set<string>()

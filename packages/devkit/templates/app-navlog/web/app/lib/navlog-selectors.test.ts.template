@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { latestNavlog, parseNavlog } from "./navlog-selectors"
+import { lastAssistantText, latestNavlog, parseNavlog } from "./navlog-selectors"
 import { SAMPLE_NAVLOG } from "./navlog-types"
 
 const toolCall = (id: string, name: string) => ({
@@ -59,5 +59,22 @@ describe("latestNavlog", () => {
   test("is null with no navlog, and ignores a call whose result has not arrived", () => {
     expect(latestNavlog([toolCall("c1", "computeNavlog")])).toBeNull()
     expect(latestNavlog([])).toBeNull()
+  })
+})
+
+describe("lastAssistantText", () => {
+  test("picks the last non-empty assistant message", () => {
+    const messages = [
+      { id: "a1", role: "assistant", content: "First plan." },
+      { id: "u1", role: "user", content: "Again?" },
+      { id: "a2", role: "assistant", content: [{ type: "text", text: "Second plan." }] },
+      toolCall("c1", "computeNavlog"),
+      toolResult("c1", JSON.stringify(SAMPLE_NAVLOG)),
+    ]
+    expect(lastAssistantText(messages)).toBe("Second plan.")
+  })
+  test("is empty when no assistant has spoken", () => {
+    expect(lastAssistantText([{ id: "u1", role: "user", content: "hi" }])).toBe("")
+    expect(lastAssistantText([])).toBe("")
   })
 })
