@@ -14,18 +14,19 @@ import {
  * `{ exact: true }`, so a shortened copy here would let a locator that can
  * never match look proven.
  */
-const RESEARCH_REPLY =
-  "I wrote a short report covering ReAct and plan-and-execute architectures. [corpus/agent-architectures.md]"
-const FETCH_COMMAND = "node scripts/fetch-source.mjs quantum computing"
-const GATED_REPLY = "Fetched external context after approval."
-const TEACH_CONTENT = "Brian prefers concise, code-first answers"
+const PLAN_REPLY =
+  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+const APPROVAL_TOOL_NAME = "fileFlightPlan"
+const GATED_REPLY =
+  "Recorded the flight plan at flight-plans/261006-KSTP-KRST.txt. It was not transmitted."
+const TEACH_CONTENT = "N738ZU is a Cessna 172N, cruise 2400 RPM, 50 gal usable"
 
 const baseOptions: SuggestionJourneyOptions = {
   webUrl: "http://127.0.0.1:4712",
   screenshotDir: "/tmp/shots",
-  fetchCommand: FETCH_COMMAND,
+  approvalToolName: APPROVAL_TOOL_NAME,
   gatedReply: GATED_REPLY,
-  researchReply: RESEARCH_REPLY,
+  planReply: PLAN_REPLY,
   teachContent: TEACH_CONTENT,
 }
 
@@ -99,9 +100,12 @@ function fakeBrowser(
     const base = baseDesc(desc)
     return (
       overrides.countFor?.(base) ??
-      // The one locator the journey expects to find NOTHING: writeFile must not
-      // be rendered inside an activity card's <details>.
-      (base.includes("details") && base.includes("writeFile") ? 0 : 1)
+      // The locators the journey expects to find NOTHING: the root tools,
+      // computeNavlog and writeFile, must not be rendered inside an activity
+      // card's <details>.
+      (base.includes("details") && (base.includes("writeFile") || base.includes("computeNavlog"))
+        ? 0
+        : 1)
     )
   }
 
@@ -243,37 +247,39 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
  */
 const GOLDEN_CALLS: readonly string[] = [
   "open",
-  // Research a topic
+  // Plan a flight
   'click page > button="+ New conversation"',
-  "click page > button=/^Research a topic/",
+  "click page > button=/^Plan a flight/",
   "complete",
   'waitFor:visible page > main > details | hasText="Plan · 1/4 complete" .first',
   'count page > main > details | hasText="Plan · 1/4 complete"',
-  'waitFor:visible page > main > details | hasText="researcher · completed" .first',
-  'count page > main > details | hasText="researcher · completed"',
-  'waitFor:visible page > main > details | hasText="researcher · completed" > text=/researcher · completed · 2 tools/',
-  'click page > main > details | hasText="researcher · completed" > summary',
-  'waitFor:visible page > main > details[open] | hasText="researcher · completed"',
-  'waitFor:visible page > main > details | hasText="researcher · completed" > label=Subagent tools > text="searchCorpus"',
-  'waitFor:visible page > main > details | hasText="researcher · completed" > label=Subagent tools > text="readDoc"',
+  'waitFor:visible page > main > details | hasText="performance · completed" .first',
+  'count page > main > details | hasText="performance · completed"',
+  'waitFor:visible page > main > details | hasText="performance · completed" > text=/performance · completed · 1 tool/',
+  'click page > main > details | hasText="performance · completed" > summary',
+  'waitFor:visible page > main > details[open] | hasText="performance · completed"',
+  'waitFor:visible page > main > details | hasText="performance · completed" > label=Subagent tools > text="readDoc"',
+  'waitFor:visible page > main > text="computeNavlog" .first',
+  'count page > main > text="computeNavlog"',
+  'count page > main > details > text="computeNavlog"',
   'waitFor:visible page > main > text="writeFile" .first',
   'count page > main > text="writeFile"',
   'count page > main > details > text="writeFile"',
-  `waitFor:visible page > main > text=${JSON.stringify(RESEARCH_REPLY)} .first`,
-  `count page > main > text=${JSON.stringify(RESEARCH_REPLY)}`,
-  // Trigger a permission prompt
+  `waitFor:visible page > main > text=${JSON.stringify(PLAN_REPLY)} .first`,
+  `count page > main > text=${JSON.stringify(PLAN_REPLY)}`,
+  // File the plan
   'click page > button="+ New conversation"',
-  "click page > button=/^Trigger a permission prompt/",
-  `waitFor:visible page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} .first`,
-  `count page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
-  `click page > alert | hasText=${JSON.stringify(FETCH_COMMAND)} > button="Allow once"`,
-  `waitFor:hidden page > alert | hasText=${JSON.stringify(FETCH_COMMAND)}`,
+  "click page > button=/^File the plan/",
+  `waitFor:visible page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)} .first`,
+  `count page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)}`,
+  `click page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)} > button="Allow once"`,
+  `waitFor:hidden page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)}`,
   "complete",
   `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(GATED_REPLY)}`,
-  // Teach it a preference
+  // Teach it the aircraft
   'click page > button="+ New conversation"',
-  "click page > button=/^Teach it a preference/",
+  "click page > button=/^Teach it the aircraft/",
   "complete",
   `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
   "waitForResponse",
@@ -304,11 +310,11 @@ describe("runWorkbenchSuggestionJourneys", () => {
     )
     expect(starts).toEqual([
       'click page > button="+ New conversation"',
-      "click page > button=/^Research a topic/",
+      "click page > button=/^Plan a flight/",
       'click page > button="+ New conversation"',
-      "click page > button=/^Trigger a permission prompt/",
+      "click page > button=/^File the plan/",
       'click page > button="+ New conversation"',
-      "click page > button=/^Teach it a preference/",
+      "click page > button=/^Teach it the aircraft/",
     ])
   })
 
@@ -319,16 +325,16 @@ describe("runWorkbenchSuggestionJourneys", () => {
       countFor: (desc) => (desc.includes('button="+ New conversation"') ? 0 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Research a topic: locator\.click: Timeout 45000ms/)
+    expect(rejection.message).toMatch(/^Plan a flight: locator\.click: Timeout 45000ms/)
     expect(rejection.message).toContain('button="+ New conversation"')
   })
 
   it("fails when a suggestion button is missing", async () => {
     const { deps } = fakeBrowser({
-      countFor: (desc) => (desc.includes("Teach it a preference") ? 0 : undefined),
+      countFor: (desc) => (desc.includes("Teach it the aircraft") ? 0 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Teach it a preference: locator\.click: Timeout 45000ms/)
+    expect(rejection.message).toMatch(/^Teach it the aircraft: locator\.click: Timeout 45000ms/)
   })
 
   it("fails when a second plan card is rendered in the same thread", async () => {
@@ -336,19 +342,19 @@ describe("runWorkbenchSuggestionJourneys", () => {
       countFor: (desc) => (desc.includes("Plan · 1/4 complete") ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Research a topic: expected exactly one plan card/)
+    expect(rejection.message).toMatch(/^Plan a flight: expected exactly one plan card/)
     expect(rejection.message).toContain("found 2")
   })
 
-  it("fails when a second researcher subagent card is rendered", async () => {
+  it("fails when a second performance subagent card is rendered", async () => {
     const { deps } = fakeBrowser({
       countFor: (desc) =>
-        desc.includes("researcher · completed") && desc.endsWith('"researcher · completed"')
+        desc.includes("performance · completed") && desc.endsWith('"performance · completed"')
           ? 2
           : undefined,
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/expected exactly one researcher subagent card/)
+    expect(rejection.message).toMatch(/expected exactly one performance subagent card/)
   })
 
   it("fails when the assistant reply is rendered twice", async () => {
@@ -356,10 +362,10 @@ describe("runWorkbenchSuggestionJourneys", () => {
     // so a second match means a second MESSAGE — the duplicate-emit regression
     // a `.last()` here would have hidden.
     const { deps } = fakeBrowser({
-      countFor: (desc) => (desc.includes(RESEARCH_REPLY) ? 2 : undefined),
+      countFor: (desc) => (desc.includes(PLAN_REPLY) ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Research a topic: expected exactly one assistant reply/)
+    expect(rejection.message).toMatch(/^Plan a flight: expected exactly one assistant reply/)
     expect(rejection.message).toContain("found 2")
   })
 
@@ -368,9 +374,7 @@ describe("runWorkbenchSuggestionJourneys", () => {
       countFor: (desc) => (desc.includes(GATED_REPLY) ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(
-      /^Trigger a permission prompt: expected exactly one gated reply/,
-    )
+    expect(rejection.message).toMatch(/^File the plan: expected exactly one gated reply/)
   })
 
   it("fails when writeFile is rendered inside an activity card", async () => {
@@ -379,6 +383,15 @@ describe("runWorkbenchSuggestionJourneys", () => {
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
     expect(rejection.message).toMatch(/expected no writeFile inside an activity card/)
+  })
+
+  it("fails when computeNavlog is rendered inside an activity card", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) =>
+        desc.includes("details") && desc.includes("computeNavlog") ? 1 : undefined,
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/expected no computeNavlog inside an activity card/)
   })
 
   it("watches for the approve POST specifically, turning down the reject POST", async () => {
@@ -392,7 +405,7 @@ describe("runWorkbenchSuggestionJourneys", () => {
       ],
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Teach it a preference: Timeout waiting for a matching/)
+    expect(rejection.message).toMatch(/^Teach it the aircraft: Timeout waiting for a matching/)
   })
 
   it("fails when the approve response does not carry the candidate as an active record", async () => {
@@ -412,7 +425,7 @@ describe("runWorkbenchSuggestionJourneys", () => {
   it("fails when the approved candidate is still listed over HTTP", async () => {
     const { deps } = fakeBrowser({ candidates: [{ content: TEACH_CONTENT }] })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Teach it a preference: approved candidate is still listed/)
+    expect(rejection.message).toMatch(/^Teach it the aircraft: approved candidate is still listed/)
   })
 
   it("rejects a teachContent longer than the panel's label limit, before launching", async () => {
@@ -444,7 +457,7 @@ describe("runWorkbenchSuggestionJourneys", () => {
       },
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Trigger a permission prompt: the gate never resolved/)
+    expect(rejection.message).toMatch(/^File the plan: the gate never resolved/)
     expect(calls).toContain("screenshot /tmp/shots/workbench-browser-gate.png")
     expect(calls).not.toContain("screenshot /tmp/shots/workbench-browser-teach.png")
   })
@@ -452,19 +465,19 @@ describe("runWorkbenchSuggestionJourneys", () => {
   it("stops the run when the first journey fails, never reaching the second suggestion", async () => {
     const { calls, deps } = fakeBrowser({
       onCall: (call) => {
-        if (call.includes(RESEARCH_REPLY)) throw new Error("the report never rendered")
+        if (call.includes(PLAN_REPLY)) throw new Error("the report never rendered")
       },
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Research a topic: the report never rendered/)
-    expect(calls.some((call) => call.includes("Trigger a permission prompt"))).toBe(false)
-    expect(calls).toContain("screenshot /tmp/shots/workbench-browser-research.png")
+    expect(rejection.message).toMatch(/^Plan a flight: the report never rendered/)
+    expect(calls.some((call) => call.includes("File the plan"))).toBe(false)
+    expect(calls).toContain("screenshot /tmp/shots/workbench-browser-plan.png")
   })
 
   it("reports a console error from the first journey against that journey", async () => {
     const fake = fakeBrowser()
     let emitted = false
-    // The first run completion is the research journey's; emit there so the
+    // The first run completion is the plan journey's; emit there so the
     // error is collected well before the gate and teach journeys run.
     vi.mocked(fake.journey.waitForWorkbenchRunCompletion).mockImplementation(async () => {
       if (!emitted) {
@@ -473,9 +486,9 @@ describe("runWorkbenchSuggestionJourneys", () => {
       }
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, fake.deps))
-    expect(rejection.message).toMatch(/^Research a topic: Workbench console errors/)
+    expect(rejection.message).toMatch(/^Plan a flight: Workbench console errors/)
     expect(rejection.message).toContain("Hydration failed")
-    expect(fake.calls).toContain("screenshot /tmp/shots/workbench-browser-research.png")
-    expect(fake.calls.some((call) => call.includes("Teach it a preference"))).toBe(false)
+    expect(fake.calls).toContain("screenshot /tmp/shots/workbench-browser-plan.png")
+    expect(fake.calls.some((call) => call.includes("Teach it the aircraft"))).toBe(false)
   })
 })

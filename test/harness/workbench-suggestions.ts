@@ -1,9 +1,9 @@
 /**
  * W8, the Workbench suggestion journeys: click each of the three empty-state
  * suggestions in a real browser and assert what the scaffolded Workbench draws
- * back — the plan and subagent cards, the permission gate resolving through
- * `Allow once`, and a remembered preference appearing in the memory panel and
- * surviving approval.
+ * back — the plan and subagent cards, the fileFlightPlan approval resolving
+ * through `Allow once`, and a remembered aircraft profile appearing in the
+ * memory panel and surviving approval.
  *
  * The browser session itself — launch, console-error collection, abort race,
  * screenshot, cleanup — is the shared seam in `workbench-page.ts`. W7 lives in
@@ -33,9 +33,10 @@ export interface SuggestionJourneyOptions {
   readonly webUrl: string
   /** Directory for per-journey failure screenshots (`workbench-browser-<key>.png`). */
   readonly screenshotDir: string
-  readonly fetchCommand: string
+  /** The tool whose approval gate the "File the plan" journey resolves. */
+  readonly approvalToolName: string
   readonly gatedReply: string
-  readonly researchReply: string
+  readonly planReply: string
   readonly teachContent: string
   readonly signal?: AbortSignal
 }
@@ -147,12 +148,12 @@ async function startSuggestion(page: Page, title: string): Promise<void> {
     .click({ timeout: LOCATOR_TIMEOUT_MS })
 }
 
-async function researchJourney(
+async function planJourney(
   page: Page,
   options: SuggestionJourneyOptions,
   journey: SuggestionJourneyHelpers,
 ): Promise<void> {
-  await startSuggestion(page, "Research a topic")
+  await startSuggestion(page, "Plan a flight")
   await journey.waitForWorkbenchRunCompletion(page)
   const main = page.getByRole("main")
   // Substring matches, never { exact: true }: every card summary begins with the
@@ -163,9 +164,9 @@ async function researchJourney(
     main.locator("details").filter({ hasText: "Plan · 1/4 complete" }),
     "plan card",
   )
-  const subagentCard = main.locator("details").filter({ hasText: "researcher · completed" })
-  await expectExactlyOne(subagentCard, "researcher subagent card")
-  await subagentCard.getByText(/researcher · completed · 2 tools/).waitFor(VISIBLE)
+  const subagentCard = main.locator("details").filter({ hasText: "performance · completed" })
+  await expectExactlyOne(subagentCard, "performance subagent card")
+  await subagentCard.getByText(/performance · completed · 1 tool/).waitFor(VISIBLE)
   // The subagent card collapses the moment its subagent finishes
   // (open={content.status === "running"}), so the tools list is in the DOM but
   // hidden. Expanding it is the only way to see the list — and is itself a real
@@ -174,23 +175,28 @@ async function researchJourney(
   // Assert the DISCLOSURE, not just its consequence. If the card ever ships
   // already-open, the click above collapses it and the tool waits below would
   // read as "the tools never rendered" instead of "the open state flipped".
-  await main.locator("details[open]").filter({ hasText: "researcher · completed" }).waitFor(VISIBLE)
+  await main
+    .locator("details[open]")
+    .filter({ hasText: "performance · completed" })
+    .waitFor(VISIBLE)
   const tools = subagentCard.getByLabel("Subagent tools")
-  await tools.getByText("searchCorpus", { exact: true }).waitFor(VISIBLE)
   await tools.getByText("readDoc", { exact: true }).waitFor(VISIBLE)
-  // `writeFile` is a ROOT tool call, so it renders as a plain ToolCallCard and
-  // must NOT appear inside any activity card's <details>. Asserting both halves
-  // is what distinguishes "the root ran writeFile" from "some subagent did".
-  await expectExactlyOne(main.getByText("writeFile", { exact: true }), "writeFile tool card")
-  await expectNone(
-    main.locator("details").getByText("writeFile", { exact: true }),
-    "writeFile inside an activity card",
-  )
+  // `computeNavlog` and `writeFile` are ROOT tool calls, so each renders as a
+  // plain ToolCallCard and must NOT appear inside any activity card's
+  // <details>. Asserting both halves is what distinguishes "the root ran it"
+  // from "some subagent did".
+  for (const rootTool of ["computeNavlog", "writeFile"]) {
+    await expectExactlyOne(main.getByText(rootTool, { exact: true }), `${rootTool} tool card`)
+    await expectNone(
+      main.locator("details").getByText(rootTool, { exact: true }),
+      `${rootTool} inside an activity card`,
+    )
+  }
   // Exactly one, not `.last()`: Playwright's text engine drops an ancestor whose
   // child also matches, so ONE message — however deeply the markdown renderer
   // nests it — counts 1. A count of 2 therefore means two messages, which is
   // precisely the AG-UI duplicate-emit bug `.last()` would have hidden.
-  await expectExactlyOne(main.getByText(options.researchReply, { exact: true }), "assistant reply")
+  await expectExactlyOne(main.getByText(options.planReply, { exact: true }), "assistant reply")
 }
 
 async function gateJourney(
@@ -198,17 +204,17 @@ async function gateJourney(
   options: SuggestionJourneyOptions,
   journey: SuggestionJourneyHelpers,
 ): Promise<void> {
-  await startSuggestion(page, "Trigger a permission prompt")
-  // InterruptCard puts role="alert" on the wrapper and renders the command
-  // inside it, so the filter matches the card that holds this command.
-  const alert = page.getByRole("alert").filter({ hasText: options.fetchCommand })
-  await expectExactlyOne(alert, "permission gate for this command")
+  await startSuggestion(page, "File the plan")
+  // PermissionPrompt puts role="alert" on the wrapper and renders the gated
+  // tool's name inside it, so the filter matches the card for this tool.
+  const alert = page.getByRole("alert").filter({ hasText: options.approvalToolName })
+  await expectExactlyOne(alert, "approval gate for this tool")
   await alert
     .getByRole("button", { name: "Allow once", exact: true })
     .click({ timeout: LOCATOR_TIMEOUT_MS })
   await alert.waitFor(HIDDEN)
   await journey.waitForWorkbenchRunCompletion(page)
-  // Exactly one: see the research journey's reply — a nested message still
+  // Exactly one: see the plan journey's reply — a nested message still
   // counts 1, so 2 means the reply was emitted twice.
   await expectExactlyOne(
     page.getByRole("main").getByText(options.gatedReply, { exact: true }),
@@ -221,7 +227,7 @@ async function teachJourney(
   options: SuggestionJourneyOptions,
   journey: SuggestionJourneyHelpers,
 ): Promise<void> {
-  await startSuggestion(page, "Teach it a preference")
+  await startSuggestion(page, "Teach it the aircraft")
   await journey.waitForWorkbenchRunCompletion(page)
   // The panel reloads on the agent's onRunFinishedEvent, so no reload is needed;
   // it renders null when empty, so this locator resolves only once a candidate
@@ -292,9 +298,9 @@ async function teachJourney(
  * loop, so a fourth suggestion cannot silently fall through to the last case.
  */
 const JOURNEYS = [
-  { key: "research", title: "Research a topic", run: researchJourney },
-  { key: "gate", title: "Trigger a permission prompt", run: gateJourney },
-  { key: "teach", title: "Teach it a preference", run: teachJourney },
+  { key: "plan", title: "Plan a flight", run: planJourney },
+  { key: "gate", title: "File the plan", run: gateJourney },
+  { key: "teach", title: "Teach it the aircraft", run: teachJourney },
 ] as const satisfies readonly {
   readonly key: string
   readonly title: string
@@ -337,8 +343,8 @@ export async function runWorkbenchSuggestionJourneys(
         current = next
         try {
           await next.run(page, options, journey)
-          // Per journey, not once at the end: a console error from the research
-          // journey must not be reported against "Teach it a preference" with a
+          // Per journey, not once at the end: a console error from the plan
+          // journey must not be reported against "Teach it the aircraft" with a
           // screenshot of the memory panel.
           if (errors.length > 0) throw new Error(`Workbench console errors:\n${errors.join("\n")}`)
         } catch (error) {
