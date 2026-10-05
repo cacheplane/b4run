@@ -1,5 +1,5 @@
 import type { StreamTransformerInput } from "@b4run/core"
-import { CLIENT_TOOL_RECORDER_KEY } from "@b4run/sdk"
+import { CLIENT_TOOL_RECORDER_KEY, toolDenial } from "@b4run/sdk"
 import { type Command, GraphInterrupt, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
 import { B4_STEP_KEY, convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
@@ -898,6 +898,66 @@ describe("convertToolToLangChain — the tool-call record", () => {
       },
       expect.anything(),
     )
+  })
+
+  test("a denied call completes with the icon only — no done label or sources — and the model still reads the reason", async () => {
+    const reason = "[B4_E3001] Permission denied by user: tool searchCorpus"
+    const converted = convertToolToLangChain({
+      name: "searchCorpus",
+      display: {
+        icon: "search",
+        running: (input: { query: string }) => `Searching the corpus for “${input.query}”`,
+        done: (input: { query: string }, output: unknown) =>
+          `Searched the corpus for “${input.query}” (${(output as string).length} hits)`,
+        sources: (output: unknown) => [{ title: String(output) }],
+      },
+      // What wrapToolWithApproval / wrapToolWithConstraint return for a blocked call.
+      run: async () => toolDenial(reason),
+    })
+    const config = { configurable: {}, toolCall: { id: "call_search_denied" } }
+    const result = (await converted.func({ query: "agents" }, undefined, config as never)) as {
+      content: unknown
+      additional_kwargs: Record<string, unknown>
+    }
+    expect(dispatchCustomEvent).toHaveBeenCalledTimes(2)
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      "b4.step",
+      { tool_call_id: "call_search_denied", status: "completed", icon: "search" },
+      expect.anything(),
+    )
+    expect(result.content).toBe(reason)
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({ icon: "search" })
+  })
+
+  test("a denied call on a display without an icon still completes, with an empty step", async () => {
+    const converted = convertToolToLangChain({
+      name: "deployProd",
+      display: { done: () => "Deployed to production" },
+      run: async () => toolDenial("Permission denied by user: tool deployProd"),
+    })
+    const config = { configurable: {}, toolCall: { id: "call_deploy_denied" } }
+    const result = (await converted.func({}, undefined, config as never)) as { content: unknown }
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      "b4.step",
+      { tool_call_id: "call_deploy_denied", status: "completed" },
+      expect.anything(),
+    )
+    expect(result.content).toBe("Permission denied by user: tool deployProd")
+  })
+
+  test("a denied call on a tool without display returns the reason as plain string content", async () => {
+    const converted = convertToolToLangChain({
+      name: "plain",
+      run: async () => toolDenial("Blocked: nope"),
+    })
+    const result = await converted.func({}, undefined, {
+      configurable: {},
+      toolCall: { id: "call_plain_denied" },
+    } as never)
+    expect(result).toBe("Blocked: nope")
+    expect(dispatchCustomEvent).not.toHaveBeenCalled()
   })
 
   test("a tool without display dispatches no step and returns what it did before", async () => {

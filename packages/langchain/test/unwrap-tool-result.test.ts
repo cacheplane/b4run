@@ -1,7 +1,15 @@
+import { toolDenial } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 import { unwrapToolResult } from "../src/unwrap-tool-result.js"
 
 describe("unwrapToolResult", () => {
+  it("unwraps a branded denial to its reason verbatim — the model sees the same text as before", () => {
+    expect(unwrapToolResult(toolDenial("[B4_E3001] Permission denied by user: tool x"))).toEqual({
+      content: "[B4_E3001] Permission denied by user: tool x",
+      stateUpdates: undefined,
+    })
+  })
+
   it("treats a string as plain — content is JSON-stringified", () => {
     expect(unwrapToolResult("hello")).toEqual({
       content: JSON.stringify("hello"),

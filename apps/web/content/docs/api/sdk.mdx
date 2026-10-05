@@ -163,6 +163,10 @@ import { scenarios } from "@b4run/sdk/testing"
 | `TOOL_DISPLAY_LABEL_MAX` | Cap a step label's length. |
 | `describeToolDisplayProblem` | Name what is wrong with a `display` export, or nothing. |
 | `isToolDisplayIcon` | Narrow a string to a step icon name. |
+| `ToolDenial` | Describe a denied tool call's result: the reason the model receives, branded. |
+| `TOOL_DENIAL` | Name the symbol key that brands a denied tool call's result. |
+| `toolDenial` | Brand a denial reason as a tool result; the model still reads the reason as plain text. |
+| `isToolDenial` | Tell a denied tool call's result from a successful one. |
 
 ### `@b4run/sdk/pure`
 

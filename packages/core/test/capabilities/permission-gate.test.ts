@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createPermissionsStore } from "@b4run/permissions/node"
+import { isToolDenial } from "@b4run/sdk"
 import { Annotation, Command, END, MemorySaver, START, StateGraph } from "@langchain/langgraph"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-
 import {
   type GateResult,
   gateMemorySupersede,
@@ -14,6 +14,18 @@ import {
   wrapToolWithApproval,
   wrapToolWithConstraint,
 } from "../../src/capabilities/permission-gate.js"
+
+/**
+ * A denied call's result is branded (`toolDenial`); the model-facing text is
+ * `result`. Asserting through this helper also proves the brand is present —
+ * an unbranded string fails here instead of passing by `String()` coercion.
+ */
+function denialReason(value: unknown): string {
+  if (!isToolDenial(value)) {
+    throw new Error(`expected a branded denial, got ${JSON.stringify(value)}`)
+  }
+  return value.result
+}
 
 describe("gatePathOp interrupt suppression", () => {
   let appRoot: string
@@ -390,7 +402,7 @@ describe("wrapToolWithApproval", () => {
     )
     const result = await wrapped.run({}, { signal })
     expect(ran).toBe(false)
-    expect(String(result)).toMatch(/denied.*deployProd/i)
+    expect(denialReason(result)).toMatch(/denied.*deployProd/i)
   })
 
   it("fails closed (as a result string) in non-interactive mode", async () => {
@@ -404,7 +416,7 @@ describe("wrapToolWithApproval", () => {
       { name: "x", run: async (_input: unknown, _context: unknown) => "ran" },
       permissions,
     )
-    expect(String(await wrapped.run({}, { signal }))).toMatch(/fail-closed/)
+    expect(denialReason(await wrapped.run({}, { signal }))).toMatch(/fail-closed/)
   })
 
   it("prefixes the denial tool result with the [B4_E3001] code", async () => {
@@ -418,7 +430,7 @@ describe("wrapToolWithApproval", () => {
       { name: "deployProd", run: async (_input: unknown, _context: unknown) => "ran" },
       permissions,
     )
-    const result = String(await wrapped.run({}, { signal }))
+    const result = denialReason(await wrapped.run({}, { signal }))
     expect(result.startsWith("[B4_E3001] ")).toBe(true)
     // The original reason is preserved after the code prefix.
     expect(result).toMatch(/denied.*deployProd/i)
@@ -462,7 +474,7 @@ describe("wrapToolWithConstraint", () => {
     )
     const result = await wrapped.run({ env: "prod" }, runCtx)
     expect(ran).toBe(false)
-    expect(String(result)).toBe("prod not allowed here")
+    expect(denialReason(result)).toBe("prod not allowed here")
   })
 
   it("passes toolName/routeId and live threadId/params to the predicate", async () => {
@@ -515,7 +527,7 @@ describe("wrapToolWithConstraint", () => {
     )
     const result = await wrapped.run({}, runCtx)
     expect(ran).toBe(false)
-    expect(String(result)).toMatch(/constraint check failed/i)
+    expect(denialReason(result)).toMatch(/constraint check failed/i)
   })
 
   it("awaits an async predicate", async () => {
@@ -526,7 +538,7 @@ describe("wrapToolWithConstraint", () => {
       undefined,
       "/ops#agent",
     )
-    expect(String(await wrapped.run({}, runCtx))).toBe("async denied")
+    expect(denialReason(await wrapped.run({}, runCtx))).toBe("async denied")
   })
 
   it("{approve} escalates through gateToolOp — pre-approved tool runs", async () => {
@@ -572,7 +584,7 @@ describe("wrapToolWithConstraint", () => {
     )
     const result = await wrapped.run({ env: "prod" }, runCtx)
     expect(ran).toBe(false)
-    expect(String(result)).toMatch(/denied.*deployProd/i)
+    expect(denialReason(result)).toMatch(/denied.*deployProd/i)
   })
 
   it("fails closed on an off-contract verdict (false / undefined / {approve:false})", async () => {
@@ -590,7 +602,7 @@ describe("wrapToolWithConstraint", () => {
       const wrapped = wrapToolWithConstraint(tool, bad as never, undefined, "/ops#agent")
       const result = await wrapped.run({}, { signal: new AbortController().signal })
       expect(ran).toBe(false)
-      expect(String(result)).toMatch(/constraint check failed/i)
+      expect(denialReason(result)).toMatch(/constraint check failed/i)
     }
   })
 })

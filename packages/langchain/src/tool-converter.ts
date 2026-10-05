@@ -15,6 +15,7 @@ import {
   type B4ContentPart,
   type BuiltInModelProviderId,
   contentPartsText,
+  isToolDenial,
   type ToolDisplay,
 } from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
@@ -32,7 +33,13 @@ import {
   V1_RESPONSE_METADATA,
 } from "./content-parts.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
-import { describeDone, describeRunning, dispatchStep, type StepPayload } from "./tool-display.js"
+import {
+  describeDenied,
+  describeDone,
+  describeRunning,
+  dispatchStep,
+  type StepPayload,
+} from "./tool-display.js"
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
@@ -147,8 +154,15 @@ export function convertToolToLangChain(
           ...(Object.keys(params).length > 0 ? { params } : {}),
           ...(toolCallId !== "" ? { toolCallId } : {}),
         })
+        // A denied call (tools.approve / tools.constrain) returns its reason as
+        // the result the model reads; the step must not describe that as work
+        // done, so the `done` label and `sources` are skipped for it.
         const step: StepPayload | undefined =
-          display !== undefined ? describeDone(display, input, rawResult, tool.name) : undefined
+          display === undefined
+            ? undefined
+            : isToolDenial(rawResult)
+              ? describeDenied(display)
+              : describeDone(display, input, rawResult, tool.name)
         const { content, stateUpdates } = unwrapToolResult(rawResult)
         let finalContent: string | readonly LangChainContentBlock[]
         let partsForUi: readonly B4ContentPart[] | undefined

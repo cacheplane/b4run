@@ -114,6 +114,16 @@ export function describeDone(
   }
 }
 
+/**
+ * The step as a denied call returns: the icon alone. The denial text is the
+ * model's result, not a thing the tool did, so `done` and `sources` are never
+ * asked to describe it — they would read it as output (a "48 hits" label for a
+ * 48-character reason).
+ */
+export function describeDenied(display: ToolDisplay): StepPayload {
+  return display.icon !== undefined ? { icon: display.icon } : {}
+}
+
 /** Stream one step over LangChain's custom-event channel; a failure never fails the tool. */
 export async function dispatchStep(
   config: RunnableConfig | undefined,
