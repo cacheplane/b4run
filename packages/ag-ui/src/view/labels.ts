@@ -5,7 +5,10 @@ export interface StepLabelOverride {
   /** Passed through to renderers; the view core itself does not read it. */
   readonly icon?: string
   readonly running?: (args: unknown) => string
-  /** Also runs for a failed step, with the error text as `result`. */
+  /**
+   * Also runs for a failed step, with the error text as `result`. Never runs
+   * for a denied step: the call did nothing to describe.
+   */
   readonly done?: (args: unknown, result: string | undefined) => string
   readonly group?: (count: number) => string
 }
@@ -66,11 +69,16 @@ function truncate(label: string): string {
 /**
  * The sentence for a tool step: the app's override for that tool (given
  * parsed args) wins, else the server's `b4.step` label, else "Using X…" /
- * "Used X". Client wording wins so an app can reword or localize a label a
- * built-in tool ships with. Never throws, never echoes raw arguments, and
- * never returns more than 120 characters.
+ * "Used X". A denied step reads "Denied X" unless the server labelled it: no
+ * override runs, because the call did nothing an override could describe.
+ * Client wording wins so an app can reword or localize a label a built-in
+ * tool ships with. Never throws, never echoes raw arguments, and never
+ * returns more than 120 characters.
  */
 export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): string {
+  if (step.status === "denied") {
+    return step.label ? truncate(step.label) : `Denied ${step.name}`
+  }
   const override = lookup(overrides, step.name)
   const live = step.status === "pending" || step.status === "running" || step.status === "awaiting"
   if (override !== undefined) {
@@ -95,7 +103,7 @@ export type GroupedStep = StepView | StepGroup
 
 /**
  * Consecutive done calls of one tool, two or more, folded into a group with a
- * summary label ("Read 2 files"). Running, failed and awaiting steps never
+ * summary label ("Read 2 files"). Running, failed, denied and awaiting steps never
  * join a group, and `task`/`writeTodos` never do. A group override that
  * throws or returns nothing falls back to the built-in or default wording.
  * Steps that are not grouped

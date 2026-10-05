@@ -167,6 +167,10 @@
     color: var(--b4-activity-failed);
     opacity: 1;
   }
+  .b4-step[data-state="denied"] > .b4-step__line {
+    color: var(--b4-activity-muted);
+    opacity: 1;
+  }
   .b4-step[data-state="running"] > .b4-step__line .b4-step__icon {
     color: var(--b4-activity-text);
   }

@@ -7,6 +7,15 @@ function tool(partial: Partial<ToolStep> & { id: string; name: string }): ToolSt
 }
 
 describe("stepLabel", () => {
+  it("reads a denied step as Denied x, or the server's label, and never runs an override", () => {
+    const denied = tool({ id: "1", name: "searchCorpus", status: "denied", args: '{"query":"a"}' })
+    expect(stepLabel(denied)).toBe("Denied searchCorpus")
+    expect(stepLabel(denied, { searchCorpus: { done: () => "Searched" } })).toBe(
+      "Denied searchCorpus",
+    )
+    expect(stepLabel({ ...denied, label: "Search was blocked" })).toBe("Search was blocked")
+  })
+
   it("prefers the override, then the server label, then the fallback", () => {
     expect(stepLabel(tool({ id: "1", name: "searchCorpus", label: "Searched the corpus" }))).toBe(
       "Searched the corpus",

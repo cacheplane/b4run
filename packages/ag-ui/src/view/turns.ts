@@ -24,7 +24,7 @@ import type { B4StepEventValue } from "../step.js"
 import { readStepEvent } from "./step.js"
 import { readPlan } from "./subagent-runs.js"
 
-export type StepStatus = "pending" | "running" | "done" | "failed" | "awaiting"
+export type StepStatus = "pending" | "running" | "done" | "failed" | "denied" | "awaiting"
 export type TurnStatus = "working" | "awaiting" | "done" | "failed" | "stopped"
 
 /** A source a step cites: the SDK's `ToolDisplaySource`, as `b4.step` carries it. */
@@ -643,10 +643,15 @@ export function reduceTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
           mapStep(turn, toolCallId, (s) => {
-            if (s.result === result && (s.status === "done" || s.status === "failed")) return s
-            // A `failed` step already said how this ended; a `completed` one
-            // already settled it, so its time stands.
-            return s.status === "failed"
+            if (
+              s.result === result &&
+              (s.status === "done" || s.status === "failed" || s.status === "denied")
+            ) {
+              return s
+            }
+            // A `failed` or `denied` step already said how this ended; a
+            // `completed` one already settled it, so its time stands.
+            return s.status === "failed" || s.status === "denied"
               ? { ...s, result }
               : { ...s, result, status: "done", settledAt: s.settledAt ?? at }
           }),
@@ -790,27 +795,35 @@ function openReasoning(turn: TurnView, id: string, at: number): TurnView {
 
 /**
  * Merge a `b4.step` into its tool step. `running` only lifts a pending step;
- * `completed` settles it (the result, before or after, keeps that time);
- * `failed` wins over everything. Labels, icons and sources always take the
- * newest value, whatever the status. A step for a call this turn never saw
- * framed (e.g. frames suppressed upstream) has nothing to annotate. A step
- * that changes nothing keeps the tool step's identity.
+ * `completed` and `denied` settle it (the result, before or after, keeps that
+ * time); `failed` wins over everything. Labels, icons and sources always take
+ * the newest value, whatever the status — except that `denied` drops the
+ * running label and sources it does not replace: a call a gate blocked never
+ * did what "Searching the corpus…" says, and the server sends no done label
+ * for it. A denial is not a failure: the policy or the user answered, nothing
+ * threw, so it never counts toward `turn.failed`. A step for a call this turn
+ * never saw framed (e.g. frames suppressed upstream) has nothing to annotate.
+ * A step that changes nothing keeps the tool step's identity.
  */
 function applyStep(turn: TurnView, step: B4StepEventValue, at: number): TurnView {
   const next = mapStep(turn, step.toolCallId, (s) => {
     const status: StepStatus =
       step.status === "failed"
         ? "failed"
-        : step.status === "completed"
+        : step.status === "completed" || step.status === "denied"
           ? s.status === "failed"
             ? s.status
-            : "done"
+            : step.status === "denied"
+              ? "denied"
+              : "done"
           : s.status === "pending"
             ? "running"
             : s.status
-    const settles = status === "done" || status === "failed"
+    const settles = status === "done" || status === "failed" || status === "denied"
+    const { label: _label, sources: _sources, ...bare } = s
+    const base: ToolStep = step.status === "denied" ? bare : s
     const patched: ToolStep = {
-      ...s,
+      ...base,
       ...(step.icon !== undefined ? { icon: step.icon } : {}),
       ...(step.label !== undefined ? { label: step.label } : {}),
       ...(step.sources !== undefined ? { sources: step.sources } : {}),

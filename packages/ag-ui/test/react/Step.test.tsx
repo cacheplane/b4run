@@ -81,6 +81,35 @@ describe("Step", () => {
     expect(old).toContain('data-state="running"')
   })
 
+  test("a denied step reads Denied x with its own icon, a denied meta, and stays closed", () => {
+    const denied = renderToStaticMarkup(
+      <Step
+        step={tool({ id: "a", name: "searchCorpus", status: "denied", icon: "search" })}
+        now={now}
+      />,
+    )
+    expect(denied).toContain('data-state="denied" data-kind="tool"')
+    expect(denied).not.toContain('data-expanded="true"')
+    expect(denied).toContain("Denied searchCorpus")
+    expect(denied).toContain('<span class="b4-step__meta">· denied</span>')
+    // The tool's own glyph, not the alert a failed step swaps in.
+    const glyph = (markup: string) => markup.match(/<svg class="b4-step__icon"[\s\S]*?<\/svg>/)?.[0]
+    const failed = renderToStaticMarkup(
+      <Step
+        step={tool({ id: "a", name: "searchCorpus", status: "failed", icon: "search" })}
+        now={now}
+      />,
+    )
+    const searching = renderToStaticMarkup(
+      <Step
+        step={tool({ id: "a", name: "searchCorpus", status: "done", icon: "search" })}
+        now={now}
+      />,
+    )
+    expect(glyph(denied)).toBe(glyph(searching))
+    expect(glyph(denied)).not.toBe(glyph(failed))
+  })
+
   test("awaiting and failed add meta; a failed step opens itself", () => {
     expect(
       renderToStaticMarkup(

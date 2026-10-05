@@ -20,7 +20,7 @@ export interface StepPayload {
 /** The converter sets `tool_call_id` and `status`; this module only produces the payload. */
 export interface StepEventData extends StepPayload {
   readonly tool_call_id: string
-  readonly status: "running" | "completed"
+  readonly status: "running" | "completed" | "denied"
 }
 
 const warned = new Set<string>()
@@ -115,10 +115,10 @@ export function describeDone(
 }
 
 /**
- * The step as a denied call returns: the icon alone. The denial text is the
- * model's result, not a thing the tool did, so `done` and `sources` are never
- * asked to describe it — they would read it as output (a "48 hits" label for a
- * 48-character reason).
+ * The step as a denied call returns (`status: "denied"`): the icon alone. The
+ * denial text is the model's result, not a thing the tool did, so `done` and
+ * `sources` are never asked to describe it — they would read it as output (a
+ * "48 hits" label for a 48-character reason).
  */
 export function describeDenied(display: ToolDisplay): StepPayload {
   return display.icon !== undefined ? { icon: display.icon } : {}

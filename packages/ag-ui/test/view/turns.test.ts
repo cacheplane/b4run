@@ -284,6 +284,56 @@ describe("reduceTurns", () => {
     expect(view.turns[0]?.status).toBe("stopped")
   })
 
+  it("a denied step settles the call, drops the running label and sources, and is not a failure", async () => {
+    const view = await fold([
+      { type: "tool_call", data: { id: "d1", name: "searchCorpus", input: { query: "a" } } },
+      {
+        type: "step",
+        data: { tool_call_id: "d1", status: "running", icon: "search", label: "Searching" },
+      },
+      { type: "step", data: { tool_call_id: "d1", status: "denied", icon: "search" } },
+      {
+        type: "tool_result",
+        data: { id: "d1", name: "searchCorpus", output: "[B4_E3001] Permission denied" },
+      },
+      { type: "done", data: {} },
+    ])
+    const turn = view.turns[0]
+    const tool = turn?.steps[0]
+    expect(tool).toMatchObject({
+      kind: "tool",
+      status: "denied",
+      icon: "search",
+      result: "[B4_E3001] Permission denied",
+      settledAt: expect.any(Number),
+    })
+    expect(tool).not.toHaveProperty("label")
+    expect(tool).not.toHaveProperty("sources")
+    expect(turn?.failed).toBe(0)
+    expect(turn?.status).toBe("done")
+  })
+
+  it("a failed step wins over a denied one, and a denied step keeps a server label it carries", () => {
+    const run = { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent
+    const base: BaseEvent[] = [
+      run,
+      { type: EventType.TOOL_CALL_START, toolCallId: "d2", toolCallName: "deploy" } as BaseEvent,
+      step("d2", "failed"),
+      step("d2", "denied"),
+    ]
+    expect(foldEvents(base).turns[0]?.steps[0]).toMatchObject({ status: "failed" })
+    const labelled: BaseEvent[] = [
+      run,
+      { type: EventType.TOOL_CALL_START, toolCallId: "d3", toolCallName: "deploy" } as BaseEvent,
+      step("d3", "running", "Deploying"),
+      step("d3", "denied", "Deploy was blocked"),
+    ]
+    expect(foldEvents(labelled).turns[0]?.steps[0]).toMatchObject({
+      status: "denied",
+      label: "Deploy was blocked",
+    })
+  })
+
   it("merges repeated running steps for one call into a single step and never downgrades done", async () => {
     // LangGraph re-executes a resumed tool node, so the converter dispatches a
     // second `running` for the same tool_call_id before `completed`.
