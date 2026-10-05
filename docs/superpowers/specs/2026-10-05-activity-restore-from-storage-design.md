@@ -176,10 +176,12 @@ interrupts parsed from the head checkpoint (the same parse `/pending_interrupts`
 { "threadId": "…", "status": "idle", "turns": { "threadId": "…", "turns": [ … ] }, "warnings": [], "truncated": false }
 ```
 
-- 404 when neither the thread row nor any checkpoint exists (as `/state`).
-- Gate: the one `/pending_interrupts` enforces (route identity when a thread-access policy is
-  installed); 403 without body detail. A parked gate's payload is never exposed more widely than
-  today.
+- 404 `thread_not_found` when the thread row is missing (the checkpointer is a separate store; a
+  transcript without a row is not served), exactly as `/pending_interrupts`.
+- Gate: the one `/pending_interrupts` enforces — the thread-access read gate with operation
+  `thread.turns` (a denied read returns the same 404 bytes as a genuine miss), then the parking
+  route's middleware with the route identity resolved thread-first (409 `thread_route_unknown`
+  when no route is recorded). A parked gate's payload is never exposed more widely than today.
 - `busy` threads return the last written checkpoint; the client keeps `/threads/:id/runs/stream`
   for the live tail. `/turns` never blocks on a run.
 - A fixed cap of 2000 decoded checkpoints across all namespaces; when hit, the newest turns are
@@ -197,7 +199,7 @@ interrupts parsed from the head checkpoint (the same parse `/pending_interrupts`
 | Thread busy | Snapshot of the last checkpoint; status says `busy` |
 | Oversized thread | Cap, newest turns, `truncated: true` |
 | Serialization drift | One server-side decode path with its own unit test |
-| Gate mismatch / unknown thread | 403 / 404 without body detail |
+| Gate denial / unknown thread / no recorded route | 404 same bytes as a miss / 404 `thread_not_found` / 409 `thread_route_unknown` |
 
 ## 6. Testing
 
