@@ -120,6 +120,8 @@ function buildLlmsTxt(): string {
       "- `POST /threads/:thread_id/runs/wait`",
       "- `POST /threads/:thread_id/runs/stream`",
       "- `GET /threads/:thread_id/state`",
+      "- `GET /threads/:thread_id/pending_interrupts`",
+      "- `GET /threads/:thread_id/turns`",
       "- `POST /threads/:thread_id/resume`",
       "- `GET /memory/candidates`",
       "- `POST /memory/candidates/:id/approve`",

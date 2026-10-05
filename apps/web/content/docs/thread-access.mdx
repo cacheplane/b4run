@@ -146,6 +146,7 @@ export default defineThreadAccess({
 | `DELETE /threads/:thread_id` | 403 `thread_access_denied` |
 | `POST /threads/:thread_id/cancel` | 403 `thread_access_denied` |
 | `GET /threads/:thread_id/pending_interrupts` | 404 `thread_not_found`, the same body a genuine miss returns |
+| `GET /threads/:thread_id/turns` | 404 `thread_not_found`, the same body a genuine miss returns |
 | `POST /threads/:thread_id/runs/stream` | 403 `thread_access_denied` |
 | `POST /threads/:thread_id/runs/wait` | 403 `thread_access_denied` |
 | `POST /threads/:thread_id/resume` | 403 `thread_access_denied` |

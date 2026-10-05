@@ -2802,6 +2802,8 @@ const accuracyContracts = [
       "GET /threads/:thread_id",
       "DELETE /threads/:thread_id",
       "GET /threads/:thread_id/state",
+      "GET /threads/:thread_id/pending_interrupts",
+      "GET /threads/:thread_id/turns",
       "POST /threads/:thread_id/runs/wait",
       "POST /threads/:thread_id/runs/stream",
       "POST /threads/:thread_id/resume",
@@ -5038,6 +5040,8 @@ for (const required of [
 
 for (const endpoint of [
   "POST /threads/:thread_id/cancel",
+  "GET /threads/:thread_id/pending_interrupts",
+  "GET /threads/:thread_id/turns",
   "GET /memory/candidates",
   "POST /memory/candidates/:id/approve",
   "POST /memory/candidates/:id/reject",

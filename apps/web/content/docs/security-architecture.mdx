@@ -34,6 +34,7 @@ B4.run middleware runs only when a request is about to execute a route. Manageme
 | Health | `GET /healthz` | No | Yes on a non-local service. A platform may expose a separately constrained probe path. |
 | Thread management | `POST /threads`, `GET /threads/:thread_id`, `DELETE /threads/:thread_id` | No | Yes, with per-thread ownership checks |
 | State | `GET /threads/:thread_id/state` | No | Yes, with per-thread ownership checks |
+| Turns | `GET /threads/:thread_id/turns` | Yes, the parking route's middleware, as for `GET /threads/:thread_id/pending_interrupts` | Yes, with per-thread ownership checks |
 | Cancellation | `POST /threads/:thread_id/cancel` | No | Yes. It controls process-local execution. |
 | Agent Protocol execution | `/threads/:thread_id/runs/wait`, `/runs/stream`, and `/resume` | Yes | Yes. Middleware is an additional execution decision. |
 | AG-UI execution | `POST /agui/:routeId` | Yes | Yes |

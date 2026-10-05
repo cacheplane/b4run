@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### Threads restore their activity from `GET /threads/:thread_id/turns`
+
+Landed in the first release after **0.13.1**. Action required if you read `GET /threads/:thread_id/state` to rebuild a transcript, or parse `values.messages` yourself.
+
+Every tool call's `ToolMessage` now carries a complete `additional_kwargs.b4_step` (status, start and settle times, the permission decision, and the display's icon, label and sources), the `task` tool returns a `ToolMessage` with `b4_subagent`, and the runtime stamps `b4:turn` on the head checkpoint when a run ends. A call that a permission or argument constraint denied persists and restores as a `denied` step, not a failed one. `GET /threads/:thread_id/turns` rebuilds the same `TurnsView` a live AG-UI client builds, approvals included, so prefer it over parsing `/state`. `/state.created_at` is now the checkpoint's time. Threads written before this release do not restore through `/turns`. See [Agent Protocol](/docs/dev-server/agent-protocol#restoring-a-threads-activity).
+
 ### `b4ActivityRenderers` lives in `@b4run/ag-ui/copilotkit`
 
 Landed in the first release after **0.13.1**. Action required if you import `b4ActivityRenderers` or `b4PlanActivityRenderer` from `@b4run/ag-ui/react`: import them from `@b4run/ag-ui/copilotkit` instead. `./react` no longer depends on CopilotKit; it is the React activity kit (`TurnActivity`, `ApprovalCard`, the step rows). The legacy cards `PlanActivityCard`, `ActivityChecklist` and `SubagentPanel` and their `classNames`/`components` slots still ship, deprecated, until the research example adopts the kit. The stylesheet now sits in `@layer b4-activity` with the design tokens `--b4-activity-surface-alt`, `-running-bg`, `-failed-bg`, `-primary`, `-on-primary`, `-radius-card`, `-radius-pill` and `-font-mono` added. The legacy cards pick up the re-valued tokens too: `-running` `#2563eb` → `#b45309`, `-failed` `#9f1239` → `#b91c1c`, `-complete` → `#15803d`, `-radius` `10px` → `8px`, and new `-surface`, `-border`, `-text` and `-muted` values. Dark mode no longer follows the OS by default; it follows the host (`.dark`, `[data-theme="dark"]`, or `data-b4-theme="dark"` on the root). Action required if your app relied on OS-driven dark: set `data-b4-theme="auto"` on the root element, or override the tokens in your own CSS. See [AG-UI](/docs/ag-ui).

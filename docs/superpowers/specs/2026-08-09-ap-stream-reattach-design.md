@@ -419,6 +419,6 @@ permission prompt from the state frame alone; `EventSource` polling cadence on t
 | Middleware identity on a body-less GET | Route resolved thread-first from `threadRouteMap` ?? metadata; fail-closed 409 when unresolvable; gating parity integration test; `method:"GET"` changeset callout. |
 | Resume-run attach mis-rendered by clients | `resume: true` + fresh `run_started_at` + `interrupts: []` contract; dedicated tests; reducer exercised by `dawn threads tail`. |
 | workerd live-tail unproven until the PR3 lane exists | Pull model is workerd-legal by construction, but docs promise only the durable path there until the lane proves it. |
-| Mixing `GET /state` (advances mid-run) with an attach snapshot (anchored) double-counts | Documented: the attach stream is self-contained; do not merge it with `/state` reads. |
+| Mixing `GET /state` (advances mid-run) with an attach snapshot (anchored) double-counts | Documented: the attach stream is self-contained; do not merge it with `/state` or `/turns` reads. |
 | `state` frame is a Dawn extension unknown to generic AP clients | Documented divergence, like thread-scoped cancel. Nothing regresses — no such client can reconnect today. If third-party `Last-Event-ID` demand materializes, sequence numbers layer onto the digest. |
 | `"interrupted"` now means cancelled-or-parked | Deliberate overload; `pending_interrupts` is the discriminator; documented and asserted in tests; distinct status member is an explicit non-goal. |
