@@ -1060,6 +1060,40 @@ describe("turn end stamp on the head checkpoint", () => {
     expect(turnEnd?.error).toContain("No fixture matched")
   }, 60_000)
 
+  it("leaves an earlier turn's stamp alone when a later turn fails before its first checkpoint", async () => {
+    await withAimock(
+      script()
+        .user("deploy to staging")
+        .callsTool("deployProd", { env: "staging" })
+        .replies("Deployed.")
+        .build(),
+    )
+    const saver = new MemorySaver()
+    const handler = await createHandler(
+      await fixtureApp({ "src/app/broken/index.ts": BROKEN_AGENT_ROUTE }),
+      saver,
+    )
+    const threadId = "t-stamp-not-before"
+
+    // One completed turn: park, then a resume that finishes.
+    await drain(await handler.fetch(parkRunRequest(threadId, "deploy to staging")))
+    const interruptId = (await readPendingInterruptsBody(handler, threadId)).interrupts[0]
+      ?.interruptId
+    expect(interruptId).toBeDefined()
+    await drain(await handler.fetch(resumeRequest(threadId, interruptId ?? "")))
+    const completed = await readHeadTurnEnd(saver, threadId)
+    expect(completed?.status).toBe("done")
+
+    // An agent route that dies at model resolution never writes a checkpoint,
+    // so the head after it is still the completed turn's. Its failure must not
+    // be written over how THAT turn ended.
+    const broken = await handler.fetch(runStreamRequest(threadId, "/broken#agent"))
+    expect(broken.status).toBe(200)
+    expect(await readSseText(broken)).toContain("error")
+
+    expect(await readHeadTurnEnd(saver, threadId)).toEqual(completed)
+  }, 60_000)
+
   it("stamps a run cancelled mid-turn as stopped, only once its route has unwound", async () => {
     const appRoot = await fixtureApp({ "src/app/park/tools/slowPing.ts": SLOW_PING_TOOL })
     const startedFile = join(appRoot, "slow-started.json")

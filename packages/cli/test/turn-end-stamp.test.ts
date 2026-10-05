@@ -94,6 +94,39 @@ describe("turn end stamp", () => {
     expect(after?.pendingWrites?.map(([, channel]) => channel)).toEqual(["__interrupt__"])
   })
 
+  test("notBefore equal to the head id means the run wrote nothing: no put", async () => {
+    const saver = new MemorySaver()
+    await saver.put(
+      cfg("t-anchor"),
+      checkpoint("c1") as never,
+      { source: "loop", step: 0, parents: {}, [B4_TURN_METADATA_KEY]: END } as never,
+    )
+    const puts: unknown[] = []
+    const original = saver.put.bind(saver)
+    saver.put = async (...args: Parameters<MemorySaver["put"]>) => {
+      puts.push(args)
+      return original(...args)
+    }
+    const later = { status: "failed", error: "boom", endedAt: "2026-10-05T00:00:09.000Z" } as const
+
+    await stampTurnEnd(saver, "t-anchor", later, { notBefore: "c1" })
+    expect(puts).toEqual([])
+    expect(
+      readPersistedTurnEnd(metadataOf(await saver.getTuple(cfg("t-anchor")))[B4_TURN_METADATA_KEY]),
+    ).toEqual(END)
+
+    // A different anchor, a null one (no prior checkpoint) and an unknown one all stamp.
+    await stampTurnEnd(saver, "t-anchor", later, { notBefore: "c0" })
+    expect(puts).toHaveLength(1)
+    await stampTurnEnd(saver, "t-anchor", END, { notBefore: null })
+    expect(puts).toHaveLength(2)
+    await stampTurnEnd(saver, "t-anchor", later, { notBefore: undefined })
+    expect(puts).toHaveLength(3)
+    expect(
+      readPersistedTurnEnd(metadataOf(await saver.getTuple(cfg("t-anchor")))[B4_TURN_METADATA_KEY]),
+    ).toEqual(later)
+  })
+
   test("a thread with no checkpoint is a no-op; a saver failure is swallowed", async () => {
     const saver = new MemorySaver()
     await expect(stampTurnEnd(saver, "t-none", END)).resolves.toBeUndefined()

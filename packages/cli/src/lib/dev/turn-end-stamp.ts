@@ -43,6 +43,18 @@ export function readTerminalError(chunk: StreamChunk | undefined): string | unde
 const hasParkedWrite = (pendingWrites: readonly unknown[] | undefined): boolean =>
   (pendingWrites ?? []).some((write) => Array.isArray(write) && write[1] === "__interrupt__")
 
+/** What `stampTurnEnd` must not write over. */
+export interface StampTurnEndOptions {
+  /**
+   * The head checkpoint id as it stood BEFORE the run executed (the live-turn
+   * anchor). A head still carrying this id means the run wrote nothing, so the
+   * head — and whatever record it already holds — belongs to an earlier turn.
+   * `null` is "no prior checkpoint"; `undefined` is "unknown", and both stamp
+   * whatever head exists.
+   */
+  readonly notBefore?: string | null | undefined
+}
+
 /**
  * Write `b4:turn` onto the thread's head root checkpoint by re-putting it under
  * the same id and parent through the RAW saver (the provenance Proxy only wraps
@@ -58,6 +70,10 @@ const hasParkedWrite = (pendingWrites: readonly unknown[] | undefined): boolean 
  * its client mid-superstep, or a `/runs/wait` whose post-hoc diff could not
  * read the checkpoint, reads the park from here instead.
  *
+ * Nor is a head this turn did not write (`notBefore`): a turn that failed
+ * before its first checkpoint has no head of its own, and stamping the
+ * previous turn's would rewrite how THAT turn ended.
+ *
  * Never throws: a failed stamp degrades the restored turn to "done without an
  * end time", never the run.
  */
@@ -65,11 +81,13 @@ export async function stampTurnEnd(
   checkpointer: BaseCheckpointSaver,
   threadId: string,
   end: PersistedTurnEnd,
+  options: StampTurnEndOptions = {},
 ): Promise<void> {
   try {
     const root = { configurable: { thread_id: threadId, checkpoint_ns: "" } }
     const head = await checkpointer.getTuple(root)
     if (!head) return
+    if (typeof options.notBefore === "string" && head.checkpoint.id === options.notBefore) return
     if (hasParkedWrite(head.pendingWrites)) return
     await checkpointer.put(
       head.parentConfig ?? root,

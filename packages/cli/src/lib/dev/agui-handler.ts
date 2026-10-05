@@ -1146,14 +1146,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // read degrades attach to the durable path for this turn — it must never
     // fail the run or leak the run slot, so the failure is only logged.
     let liveTurn: LiveTurnProducer | undefined
+    // The same anchor also bounds the turn-end stamp: a head still carrying
+    // this id after the run was not written by this turn. Left undefined
+    // when the read fails, which stamps without the guard.
+    let anchorCheckpointId: string | null | undefined
     try {
       const anchorTuple = await checkpointer.getTuple({
         configurable: { checkpoint_ns: "", thread_id: threadId },
       })
+      anchorCheckpointId = anchorTuple?.checkpoint?.id ?? null
       liveTurn = liveTurnHub.open({
         routeKey,
         anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
-        anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+        anchorCheckpointId,
         input: routeResume ?? b4Input,
         resume: routeResume !== undefined,
         runStartedAt: new Date().toISOString(),
@@ -1420,8 +1425,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 : undefined
             // Written now for a drained source; chased behind the route's own
             // unwind for an aborted one (see `deferredTurnEnd`).
-            if (turnEnd && !run.signal.aborted) await stampTurnEnd(checkpointer, threadId, turnEnd)
-            else deferredTurnEnd = turnEnd
+            if (turnEnd && !run.signal.aborted) {
+              await stampTurnEnd(checkpointer, threadId, turnEnd, {
+                notBefore: anchorCheckpointId,
+              })
+            } else deferredTurnEnd = turnEnd
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: false, sawInterrupt }))
               .catch(() => undefined)
@@ -1441,7 +1449,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
           // Never throws (stampTurnEnd swallows), and a no-op for a drained
           // turn, which was stamped inline.
           const stampDeferredTurnEnd = async (): Promise<void> => {
-            if (deferredTurnEnd) await stampTurnEnd(checkpointer, threadId, deferredTurnEnd)
+            if (deferredTurnEnd) {
+              await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
+                notBefore: anchorCheckpointId,
+              })
+            }
           }
           if (deferClientRecordVoid) {
             // The slot is held until the void and the stamp are done, so no

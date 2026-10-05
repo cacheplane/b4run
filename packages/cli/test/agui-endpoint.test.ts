@@ -990,30 +990,36 @@ it("stamps a turn whose client disconnected as stopped, once the route source un
     markRouteAborted = resolve
   })
   cleanup.push(() => releaseSource?.())
+  // A real saver with a prior turn's head, and a route that writes its own
+  // checkpoint before blocking, as the agent adapter does before the model
+  // call: the stamp only ever lands on a head THIS turn wrote.
+  const saver = new MemorySaver()
+  const threadId = "disconnect-stamp-thread"
+  const checkpoint = (id: string) => ({
+    v: 4,
+    id,
+    ts: "2026-10-05T00:00:00.000Z",
+    channel_values: { messages: [] },
+    channel_versions: {},
+    versions_seen: {},
+  })
+  const prior = await saver.put(
+    { configurable: { thread_id: threadId, checkpoint_ns: "" } },
+    checkpoint("c1") as never,
+    { source: "loop", step: 0, parents: {} } as never,
+  )
   const streamRoute: typeof streamResolvedRoute = async function* (options) {
     options.signal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
+    await saver.put(
+      prior,
+      checkpoint("c2") as never,
+      { source: "loop", step: 1, parents: {} } as never,
+    )
     yield { type: "chunk", data: "started", messageId: "m1" }
     markBlocked?.()
     await released
     yield { type: "done", output: { ok: true } }
   }
-  // A real saver with a head for the thread, as the agent adapter would have
-  // written one before the model call; the controlled route itself never
-  // checkpoints.
-  const saver = new MemorySaver()
-  const threadId = "disconnect-stamp-thread"
-  await saver.put(
-    { configurable: { thread_id: threadId, checkpoint_ns: "" } },
-    {
-      v: 4,
-      id: "c1",
-      ts: "2026-10-05T00:00:00.000Z",
-      channel_values: { messages: [] },
-      channel_versions: {},
-      versions_seen: {},
-    } as never,
-    { source: "loop", step: 0, parents: {} } as never,
-  )
   const readTurnEnd = async () => {
     const head = await saver.getTuple({ configurable: { thread_id: threadId, checkpoint_ns: "" } })
     return readPersistedTurnEnd(
@@ -1044,6 +1050,8 @@ it("stamps a turn whose client disconnected as stopped, once the route source un
   const turnEnd = await readTurnEnd()
   expect(turnEnd?.status).toBe("stopped")
   expect(turnEnd?.error).toBeUndefined()
+  const head = await saver.getTuple({ configurable: { thread_id: threadId, checkpoint_ns: "" } })
+  expect(head?.checkpoint.id).toBe("c2")
 })
 
 it("does not abort the route signal after a normal response", async () => {

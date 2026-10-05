@@ -2722,14 +2722,19 @@ async function handleApStreamRequest(options: {
   // degrades attach to the durable path for this turn — it must never fail the
   // run or leak the run slot, so the failure is only logged.
   let liveTurn: LiveTurnProducer | undefined
+  // The same anchor also bounds the turn-end stamp: a head still carrying this
+  // id after the run was not written by this turn. Left undefined when the
+  // read fails, which stamps without the guard.
+  let anchorCheckpointId: string | null | undefined
   try {
     const anchorTuple = await checkpointer.getTuple({
       configurable: { checkpoint_ns: "", thread_id: threadId },
     })
+    anchorCheckpointId = anchorTuple?.checkpoint?.id ?? null
     liveTurn = liveTurnHub.open({
       routeKey,
       anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
-      anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+      anchorCheckpointId,
       input,
       resume: false,
       runStartedAt: new Date().toISOString(),
@@ -2893,7 +2898,8 @@ async function handleApStreamRequest(options: {
                   error: readTerminalError(terminalChunk),
                 })
               : undefined
-          if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+          if (turnEnd)
+            await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
           await threadsStore.updateStatus(
             threadId,
             terminalStatus({ cancelled: false, sawInterrupt }),
@@ -2948,7 +2954,8 @@ async function handleApStreamRequest(options: {
                   error: run.cancelled ? undefined : readTerminalError(terminalChunk),
                 })
               : undefined
-          if (turnEnd && !run.cancelled) await stampTurnEnd(checkpointer, threadId, turnEnd)
+          if (turnEnd && !run.cancelled)
+            await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
           else deferredTurnEnd = turnEnd
           await threadsStore
             .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
@@ -2969,7 +2976,10 @@ async function handleApStreamRequest(options: {
         // Never throws (stampTurnEnd swallows); a no-op unless the catch
         // deferred a cancelled turn's record.
         const stampDeferredTurnEnd = async (): Promise<void> => {
-          if (deferredTurnEnd) await stampTurnEnd(checkpointer, threadId, deferredTurnEnd)
+          if (deferredTurnEnd)
+            await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
+              notBefore: anchorCheckpointId,
+            })
         }
         if (run.cancelled && sourceCleanup) {
           // The abort stopped us CONSUMING the route, not the route itself:
@@ -3218,6 +3228,26 @@ async function handleApWaitRequest(options: {
     throw error
   }
 
+  // The head as it stands BEFORE the route executes, bounding the turn-end
+  // stamp the way the streaming handlers' live-turn anchor does: a head still
+  // carrying this id afterwards was not written by this turn. Agent routes
+  // only (nothing else has a checkpointer). A failed read degrades to
+  // stamping without the guard; it never fails the run.
+  let anchorCheckpointId: string | null | undefined
+  if (canPark) {
+    try {
+      const anchorTuple = await checkpointer.getTuple({
+        configurable: { checkpoint_ns: "", thread_id: threadId },
+      })
+      anchorCheckpointId = anchorTuple?.checkpoint?.id ?? null
+    } catch (error) {
+      console.warn(
+        `B4: turn-end anchor read failed for ${threadId}; the stamp is unguarded this turn.`,
+        error,
+      )
+    }
+  }
+
   // Shared by both places below that report a cancelled run, so the response
   // body and the status write cannot drift apart.
   //
@@ -3365,7 +3395,8 @@ async function handleApWaitRequest(options: {
             error: run.cancelled ? undefined : result.error.message,
           })
         : undefined
-      if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+      if (turnEnd)
+        await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
 
       // Defensive re-check, not dead code: resultPromise can settle in the
       // same tick the abort fires, so the Promise.race above can resolve to
@@ -3415,7 +3446,8 @@ async function handleApWaitRequest(options: {
     // interrupt chunk to watch for.
     // Agent routes only: a graph route has no checkpointer to stamp.
     const turnEnd = canPark ? turnEndFor({ sawInterrupt: parked, cancelled: false }) : undefined
-    if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+    if (turnEnd)
+      await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
 
     // Deliberately unconditional, unlike the streaming handlers' terminalStatus:
     // the spec scopes parked-status honesty to the streaming endpoints, so a
@@ -3484,7 +3516,8 @@ async function handleApWaitRequest(options: {
                     : result.error.message,
               })
             : undefined
-          if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+          if (turnEnd)
+            await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
         })
         .catch(() => undefined)
         .finally(() => {
@@ -4250,14 +4283,17 @@ async function handleResumeRequest(options: {
     // rationale as handleApStreamRequest. A failed read degrades attach to
     // the durable path for this turn; it never fails the resume.
     let liveTurn: LiveTurnProducer | undefined
+    // Also bounds the turn-end stamp — see handleApStreamRequest.
+    let anchorCheckpointId: string | null | undefined
     try {
       const anchorTuple = await checkpointer.getTuple({
         configurable: { checkpoint_ns: "", thread_id: threadId },
       })
+      anchorCheckpointId = anchorTuple?.checkpoint?.id ?? null
       liveTurn = liveTurnHub.open({
         routeKey,
         anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
-        anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+        anchorCheckpointId,
         input: resumeResolution.resume,
         resume: true,
         runStartedAt: new Date().toISOString(),
@@ -4375,7 +4411,8 @@ async function handleResumeRequest(options: {
                     error: readTerminalError(terminalChunk),
                   })
                 : undefined
-            if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+            if (turnEnd)
+              await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
             await threadsStore.updateStatus(
               threadId,
               terminalStatus({ cancelled: false, sawInterrupt }),
@@ -4424,7 +4461,8 @@ async function handleResumeRequest(options: {
                     error: run.cancelled ? undefined : readTerminalError(terminalChunk),
                   })
                 : undefined
-            if (turnEnd && !run.cancelled) await stampTurnEnd(checkpointer, threadId, turnEnd)
+            if (turnEnd && !run.cancelled)
+              await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
             else deferredTurnEnd = turnEnd
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
@@ -4442,7 +4480,10 @@ async function handleResumeRequest(options: {
             releaseResumeClaim()
           }
           const stampDeferredTurnEnd = async (): Promise<void> => {
-            if (deferredTurnEnd) await stampTurnEnd(checkpointer, threadId, deferredTurnEnd)
+            if (deferredTurnEnd)
+              await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
+                notBefore: anchorCheckpointId,
+              })
           }
           if (run.cancelled && sourceCleanup) {
             // Stamp after the unwind, then release — see handleApStreamRequest.
