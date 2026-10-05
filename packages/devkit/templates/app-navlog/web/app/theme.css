@@ -102,6 +102,187 @@
   --wb-rail: #101114;
 }
 
+/*
+ * Layout tokens for the map-dominant workbench. The map fills the viewport;
+ * the dock, the weather strip and the navlog sheet float over it.
+ */
+:root {
+  --wb-dock-width: min(380px, 34vw);
+  --wb-sheet-max: 46vh;
+  --wb-gutter: 16px;
+  --wb-route: #2563eb;
+  --wb-cat-vfr: #15803d;
+  --wb-cat-mvfr: #1d4ed8;
+  --wb-cat-ifr: #b91c1c;
+  --wb-cat-lifr: #9d174d;
+  --wb-cat-vfr-bg: #dcfce7;
+  --wb-cat-mvfr-bg: #dbeafe;
+  --wb-cat-ifr-bg: #fee2e2;
+  --wb-cat-lifr-bg: #fce7f3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-wb-theme="light"]) {
+    --wb-route: #60a5fa;
+    --wb-cat-vfr: #4ade80;
+    --wb-cat-mvfr: #93c5fd;
+    --wb-cat-ifr: #fca5a5;
+    --wb-cat-lifr: #f9a8d4;
+    --wb-cat-vfr-bg: #052e16;
+    --wb-cat-mvfr-bg: #172554;
+    --wb-cat-ifr-bg: #450a0a;
+    --wb-cat-lifr-bg: #500724;
+  }
+}
+
+:root[data-wb-theme="dark"] {
+  --wb-route: #60a5fa;
+  --wb-cat-vfr: #4ade80;
+  --wb-cat-mvfr: #93c5fd;
+  --wb-cat-ifr: #fca5a5;
+  --wb-cat-lifr: #f9a8d4;
+  --wb-cat-vfr-bg: #052e16;
+  --wb-cat-mvfr-bg: #172554;
+  --wb-cat-ifr-bg: #450a0a;
+  --wb-cat-lifr-bg: #500724;
+}
+
+/* The OpenStreetMap tiles, muted in light mode and inverted in dark mode so the route carries the color. */
+.wb-map .leaflet-tile-pane {
+  filter: saturate(0.55) contrast(0.95);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-wb-theme="light"]) .wb-map .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+  }
+}
+
+:root[data-wb-theme="dark"] .wb-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+}
+
+.wb-map .leaflet-container {
+  background: var(--wb-bg);
+  font: inherit;
+}
+
+.wb-map .wb-wp-label {
+  border: 1px solid var(--wb-border);
+  border-radius: 6px;
+  background: var(--wb-surface);
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wb-text);
+  white-space: nowrap;
+}
+
+.wb-map .wb-hdg-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wb-route);
+  white-space: nowrap;
+  text-shadow:
+    0 0 3px var(--wb-surface),
+    0 0 3px var(--wb-surface);
+}
+
+/* A floating surface over the map. */
+.wb-panel {
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-wb-theme="light"]) .wb-panel {
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  }
+}
+
+/* Flight-category chips and markers. Color never stands alone: every chip carries its text. */
+.wb-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.wb-cat[data-cat="VFR"] {
+  background: var(--wb-cat-vfr-bg);
+  color: var(--wb-cat-vfr);
+}
+.wb-cat[data-cat="MVFR"] {
+  background: var(--wb-cat-mvfr-bg);
+  color: var(--wb-cat-mvfr);
+}
+.wb-cat[data-cat="IFR"] {
+  background: var(--wb-cat-ifr-bg);
+  color: var(--wb-cat-ifr);
+}
+.wb-cat[data-cat="LIFR"] {
+  background: var(--wb-cat-lifr-bg);
+  color: var(--wb-cat-lifr);
+}
+.wb-cat[data-cat="UNKNOWN"] {
+  background: var(--wb-rail);
+  color: var(--wb-muted);
+}
+
+/* Motion: subtle, and none under reduced motion. */
+.wb-sheet,
+.wb-dock {
+  transition:
+    transform 240ms ease,
+    opacity 240ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-sheet,
+  .wb-dock {
+    transition: none;
+  }
+}
+
+/*
+ * Print: the navlog sheet alone, one landscape page. `!important` because the
+ * sheet's own position, height and panel shadow come from rules (utilities and
+ * the dark-mode `.wb-panel` selector) this block must beat whatever their
+ * specificity.
+ */
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .wb-sheet,
+  .wb-sheet * {
+    visibility: visible;
+  }
+  .wb-sheet {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    position: static !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    max-height: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    box-shadow: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    border: 0 !important;
+  }
+  .wb-sheet-actions,
+  .wb-sheet-grip,
+  .wb-sheet-tabs {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    display: none !important;
+  }
+}
+
 .wb-brand-mark {
   background: linear-gradient(135deg, var(--wb-accent-from), var(--wb-accent-to));
   -webkit-background-clip: text;
