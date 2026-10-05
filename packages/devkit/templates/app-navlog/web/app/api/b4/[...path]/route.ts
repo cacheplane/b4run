@@ -3,9 +3,9 @@ import { guardRequest } from "../../../lib/guarded-request"
 import { resolveProxyTarget } from "../../../lib/proxy-allowlist"
 import {
   isOwnerApprovalPath,
-  OWNER_COOKIE,
+  isOwnerCookie,
+  ownerCookieName,
   readCookie,
-  tokensMatch,
   upstreamHeaders,
 } from "../../../lib/proxy-guard"
 
@@ -32,7 +32,7 @@ async function forward(
   request: NextRequest,
   context: { params: Promise<{ path?: string[] }> },
 ): Promise<Response> {
-  const guarded = await guardRequest(request)
+  const guarded = await guardRequest(request, "b4")
   if (guarded.rejection !== undefined) return guarded.rejection
   const { path } = await context.params
   const target = resolveProxyTarget(request.method, path ?? [], SERVER_URL)
@@ -51,8 +51,8 @@ async function forward(
   if (
     guarded.config.internalToken !== undefined &&
     isOwnerApprovalPath(path ?? []) &&
-    !tokensMatch(
-      readCookie(request.headers.get("cookie"), OWNER_COOKIE),
+    !isOwnerCookie(
+      readCookie(request.headers.get("cookie"), ownerCookieName(guarded.config)),
       process.env.B4_DEMO_ADMIN_TOKEN,
     )
   ) {

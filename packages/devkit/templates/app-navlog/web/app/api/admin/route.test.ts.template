@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { ownerCookieValue } from "../../lib/proxy-guard"
 import { GET } from "./route"
 
 afterEach(() => {
@@ -29,8 +30,18 @@ describe("admin route", () => {
     expect(response.status).toBe(303)
     expect(response.headers.get("location")).toBe("https://navlog.test/")
     const cookie = response.headers.get("set-cookie") ?? ""
-    expect(cookie).toContain("b4_demo_owner=owner-secret")
+    // The HMAC of the token under the `__Host-` name, never the token itself.
+    expect(cookie).toContain(`__Host-b4_demo_owner=${ownerCookieValue("owner-secret")}`)
+    expect(cookie).not.toContain("owner-secret")
     expect(cookie).toContain("HttpOnly")
     expect(cookie).toContain("Secure")
+  })
+
+  test("uses the plain cookie name and no Secure flag in development", () => {
+    vi.stubEnv("B4_DEMO_ADMIN_TOKEN", "owner-secret")
+    vi.stubEnv("B4_INTERNAL_TOKEN", "")
+    const cookie = visit("?token=owner-secret").headers.get("set-cookie") ?? ""
+    expect(cookie.startsWith("b4_demo_owner=")).toBe(true)
+    expect(cookie).not.toContain("Secure")
   })
 })

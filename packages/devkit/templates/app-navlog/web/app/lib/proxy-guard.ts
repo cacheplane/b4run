@@ -7,10 +7,13 @@
  * 1. Origin: with `B4_DEMO_ORIGINS` set, a browser call from any other origin is
  *    refused. A request with no `Origin` header (a same-origin GET, curl) passes;
  *    the limiter and the visitor cookie still apply to it.
- * 2. Visitor: every caller gets an HTTP-only `b4_visitor` cookie, and the id in
- *    it is forwarded as `X-B4-Visitor`. The server makes threads owned by that id.
- * 3. Rate limit: per visitor, through Upstash (`rate-limit.ts`). Without Upstash
- *    configured the limiter is skipped: the proxy fails open.
+ * 2. Visitor: every caller gets an HTTP-only visitor cookie, and the id in it is
+ *    forwarded as `X-B4-Visitor`. The server makes threads owned by that id.
+ * 3. Rate limit: through Upstash (`rate-limit.ts`), keyed twice, on the visitor
+ *    id AND on the client IP, so clearing the cookie does not reset the budget.
+ *    A run (a CopilotKit POST) draws on a tight bucket, a read (an `/api/b4`
+ *    GET) on a loose one. Without Upstash, or when it errors, the limiter is
+ *    skipped: the proxy fails open.
  * 4. Token: with `B4_INTERNAL_TOKEN` set, every upstream call carries it, and the
  *    server refuses anything that does not.
  *
@@ -21,7 +24,7 @@
  * Everything here is pure so it is testable without Next; the request adapter is
  * `guarded-request.ts`.
  */
-import { randomBytes, timingSafeEqual } from "node:crypto"
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 export interface GuardConfig {
   /** Origins allowed to call the proxy; empty means no origin check (development). */
@@ -32,16 +35,28 @@ export interface GuardConfig {
 
 export type LimiterVerdict = "allow" | "limit" | "unconfigured"
 
+/** One verdict per key the limiter counts against. */
+export interface LimiterVerdicts {
+  readonly visitor: LimiterVerdict
+  readonly ip: LimiterVerdict
+}
+
+/** A run draws on the tight bucket, a read on the loose one. */
+export type LimitBucket = "run" | "read"
+
 export type Decision =
   | { readonly kind: "allow" }
   | { readonly kind: "reject"; readonly status: number; readonly error: string }
 
-/** The pure policy: origin first, then the limiter. Fails open when the limiter is unconfigured. */
+/**
+ * The pure policy: origin first, then the limiter, which refuses when either
+ * key is over its budget. Fails open when the limiter is unconfigured.
+ */
 export function decideRequest(
   input: GuardConfig & {
     readonly origin: string | undefined
     readonly visitorId: string
-    readonly limiterVerdict: LimiterVerdict
+    readonly limiterVerdicts: LimiterVerdicts
   },
 ): Decision {
   if (
@@ -51,14 +66,47 @@ export function decideRequest(
   ) {
     return { kind: "reject", status: 403, error: "origin_not_allowed" }
   }
-  if (input.limiterVerdict === "limit") {
+  if (input.limiterVerdicts.visitor === "limit" || input.limiterVerdicts.ip === "limit") {
     return { kind: "reject", status: 429, error: "rate_limit_exceeded" }
   }
   return { kind: "allow" }
 }
 
-export const VISITOR_COOKIE = "b4_visitor"
-export const OWNER_COOKIE = "b4_demo_owner"
+/** Which bucket a request draws on, or `undefined` for one that is not limited. */
+export function limitBucketFor(
+  surface: "b4" | "copilotkit",
+  method: string,
+): LimitBucket | undefined {
+  if (surface === "copilotkit" && method === "POST") return "run"
+  if (surface === "b4" && method === "GET") return "read"
+  return undefined
+}
+
+/**
+ * The client IP the limiter keys on: the first `X-Forwarded-For` hop (the one
+ * the platform's edge appended for the caller), else `X-Real-IP`, else one
+ * shared "unknown" key.
+ */
+export function clientIp(headers: Headers): string {
+  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  if (forwarded) return forwarded
+  const real = headers.get("x-real-ip")?.trim()
+  return real ? real : "unknown"
+}
+
+/**
+ * Cookie names. Deployed (the token set, so the cookies are `Secure`), the
+ * `__Host-` prefix makes the browser refuse them unless they are Secure,
+ * host-only and `Path=/`, so a sibling subdomain cannot plant one. Development
+ * over plain http cannot use the prefix.
+ */
+export function visitorCookieName(config: GuardConfig): string {
+  return config.internalToken ? "__Host-b4_visitor" : "b4_visitor"
+}
+
+export function ownerCookieName(config: GuardConfig): string {
+  return config.internalToken ? "__Host-b4_demo_owner" : "b4_demo_owner"
+}
 
 /** The pattern the server's `principalOf` accepts (server/src/auth.ts). */
 const VISITOR_ID = /^v-[A-Za-z0-9_-]{8,64}$/
@@ -120,4 +168,22 @@ export function tokensMatch(presented: string | undefined, expected: string | un
   const a = Buffer.from(presented)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/**
+ * What the owner cookie holds: an HMAC of the admin token, never the token
+ * itself, so a leaked cookie (a log line, a screenshot of devtools) does not
+ * hand over the secret that mints more of them.
+ */
+export function ownerCookieValue(adminToken: string): string {
+  return createHmac("sha256", adminToken).update("b4-demo-owner").digest("base64url")
+}
+
+/** Whether a presented owner cookie was minted from `adminToken`, in constant time. */
+export function isOwnerCookie(
+  presented: string | undefined,
+  adminToken: string | undefined,
+): boolean {
+  if (!adminToken) return false
+  return tokensMatch(presented, ownerCookieValue(adminToken))
 }

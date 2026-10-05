@@ -1,13 +1,15 @@
 import {
+  clientIp,
   decideRequest,
   type GuardConfig,
   guardConfigFromEnv,
   isValidVisitorId,
+  limitBucketFor,
   mintVisitorId,
   readCookie,
-  VISITOR_COOKIE,
+  visitorCookieName,
 } from "./proxy-guard"
-import { limiterVerdict } from "./rate-limit"
+import { limiterVerdicts } from "./rate-limit"
 
 /** One year: the visitor id is what owns the visitor's threads. */
 const VISITOR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
@@ -24,16 +26,21 @@ export interface GuardedRequest {
 /**
  * Runs the proxy guard for one request (see `proxy-guard.ts`). Takes a plain
  * `Request`, so it works for Next's `NextRequest` and for the runtime test that
- * drives the CopilotKit route with a bare `Request`.
+ * drives the CopilotKit route with a bare `Request`. `surface` names which
+ * proxy is asking, which picks the rate-limit bucket.
  */
-export async function guardRequest(request: Request): Promise<GuardedRequest> {
+export async function guardRequest(
+  request: Request,
+  surface: "b4" | "copilotkit",
+): Promise<GuardedRequest> {
   const config = guardConfigFromEnv()
-  const existing = readCookie(request.headers.get("cookie"), VISITOR_COOKIE)
+  const cookieName = visitorCookieName(config)
+  const existing = readCookie(request.headers.get("cookie"), cookieName)
   const visitorId = isValidVisitorId(existing) ? existing : mintVisitorId()
   const cookie =
     existing === visitorId
       ? undefined
-      : `${VISITOR_COOKIE}=${visitorId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${VISITOR_COOKIE_MAX_AGE}${config.internalToken ? "; Secure" : ""}`
+      : `${cookieName}=${visitorId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${VISITOR_COOKIE_MAX_AGE}${config.internalToken ? "; Secure" : ""}`
 
   const finish = (response: Response): Response => {
     if (cookie === undefined) return response
@@ -57,7 +64,10 @@ export async function guardRequest(request: Request): Promise<GuardedRequest> {
     ...config,
     origin: request.headers.get("origin") ?? undefined,
     visitorId,
-    limiterVerdict: await limiterVerdict(visitorId),
+    limiterVerdicts: await limiterVerdicts(limitBucketFor(surface, request.method), {
+      ip: clientIp(request.headers),
+      visitorId,
+    }),
   })
   const rejection =
     decision.kind === "reject"

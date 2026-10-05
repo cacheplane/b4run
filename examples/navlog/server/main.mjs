@@ -30,14 +30,33 @@ const modules = { ...loadedModules, workspace: JSON.parse(await readFile(workspa
 const token = process.env.B4_INTERNAL_TOKEN || undefined
 const databaseUrl = process.env.DATABASE_URL || undefined
 
+// Fail closed. A deployment (a Postgres store, or Railway) without the token
+// would serve every runtime route to anyone who finds its URL, so it refuses to
+// boot unless the operator says, explicitly, that an unguarded server is meant.
+const deployed = databaseUrl !== undefined || Boolean(process.env.RAILWAY_ENVIRONMENT)
+if (token === undefined && deployed && process.env.B4_ALLOW_UNGUARDED !== "1") {
+  console.error(
+    "Refusing to boot: B4_INTERNAL_TOKEN is not set, but this looks like a deployment " +
+      "(DATABASE_URL or RAILWAY_ENVIRONMENT is set). Set B4_INTERNAL_TOKEN to the secret the " +
+      "web proxy sends (openssl rand -base64 32), or B4_ALLOW_UNGUARDED=1 to serve unguarded.",
+  )
+  process.exit(1)
+}
+if (token !== undefined && token.length < 32) {
+  console.error(
+    "Refusing to boot: B4_INTERNAL_TOKEN must be at least 32 characters (openssl rand -base64 32).",
+  )
+  process.exit(1)
+}
+
 const handle = await serve({
   appRoot,
   host: process.env.HOST || "0.0.0.0",
   port: listenPort(process.env.PORT),
   modules,
-  // `b4 build` records whether it saw src/thread-access.ts; a manifest that
-  // has one must boot with it, never open.
-  ...(loadedModules.threadAccess !== undefined ? { threadAccessExpected: true } : {}),
+  // src/thread-access.ts is committed, so a manifest without the policy is a
+  // stale or broken build: boot fails rather than serve thread endpoints open.
+  threadAccessExpected: true,
   permissionsMode: "boot",
   ...(databaseUrl ? postgresStores(databaseUrl) : {}),
   ...(token ? { guard: tokenGuard(token) } : {}),

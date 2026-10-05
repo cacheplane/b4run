@@ -19,6 +19,42 @@ async function waitForListening(proc: ReturnType<typeof spawn>): Promise<string>
   throw new Error(`entry exited before listening:\n${buffer}`)
 }
 
+const TOKEN = "test-secret-0123456789abcdefghijklmnop"
+
+/** Boots main.mjs with `env` and resolves with its exit code and stderr. */
+async function bootAndExit(
+  env: Record<string, string>,
+): Promise<{ code: number | null; stderr: string }> {
+  const proc = spawn(process.execPath, ["main.mjs"], {
+    cwd: appRoot,
+    env: { ...process.env, PORT: "0", HOST: "127.0.0.1", B4_ALLOW_UNGUARDED: "", ...env },
+    stdio: ["ignore", "ignore", "pipe"],
+  })
+  let stderr = ""
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString()
+  })
+  const [code] = (await once(proc, "exit")) as [number | null]
+  return { code, stderr }
+}
+
+describe("main.mjs refuses to boot unguarded as a deployment", () => {
+  it("exits when DATABASE_URL is set and B4_INTERNAL_TOKEN is not", async () => {
+    const { code, stderr } = await bootAndExit({
+      B4_INTERNAL_TOKEN: "",
+      DATABASE_URL: "postgres://user:pass@127.0.0.1:1/never",
+    })
+    expect(code).not.toBe(0)
+    expect(stderr).toContain("Refusing to boot: B4_INTERNAL_TOKEN is not set")
+  })
+
+  it("exits when the token is shorter than 32 characters", async () => {
+    const { code, stderr } = await bootAndExit({ B4_INTERNAL_TOKEN: "short", DATABASE_URL: "" })
+    expect(code).not.toBe(0)
+    expect(stderr).toContain("at least 32 characters")
+  })
+})
+
 describe("main.mjs behind the internal-token guard", () => {
   beforeAll(async () => {
     child = spawn(process.execPath, ["main.mjs"], {
@@ -27,7 +63,7 @@ describe("main.mjs behind the internal-token guard", () => {
         ...process.env,
         PORT: "0",
         HOST: "127.0.0.1",
-        B4_INTERNAL_TOKEN: "test-secret",
+        B4_INTERNAL_TOKEN: TOKEN,
         DATABASE_URL: "",
       },
       stdio: ["ignore", "pipe", "inherit"],
@@ -66,7 +102,7 @@ describe("main.mjs behind the internal-token guard", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-internal-token": "test-secret",
+        "x-internal-token": TOKEN,
         "x-b4-visitor": "v-deploytest",
       },
       body: "{}",
@@ -77,7 +113,7 @@ describe("main.mjs behind the internal-token guard", () => {
   it("keeps a visitor's thread from every other visitor", async () => {
     const as = (visitor: string) => ({
       "content-type": "application/json",
-      "x-internal-token": "test-secret",
+      "x-internal-token": TOKEN,
       "x-b4-visitor": visitor,
     })
     const created = await fetch(new URL("/threads", url), {
@@ -93,7 +129,7 @@ describe("main.mjs behind the internal-token guard", () => {
     const other = await fetch(new URL(`/threads/${threadId}`, url), { headers: as("v-other0001") })
     expect(other.status).not.toBe(200)
     const anonymous = await fetch(new URL(`/threads/${threadId}`, url), {
-      headers: { "x-internal-token": "test-secret" },
+      headers: { "x-internal-token": TOKEN },
     })
     expect(anonymous.status).not.toBe(200)
   })

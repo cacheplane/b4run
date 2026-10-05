@@ -67,7 +67,7 @@ afterEach(() => {
 describe("copilotkit proxy route", () => {
   test("a run carries the visitor id from the cookie, and the token when deployed", async () => {
     vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret")
-    const response = await route.POST(runRequest({ cookie: "b4_visitor=v-returning01" }))
+    const response = await route.POST(runRequest({ cookie: "__Host-b4_visitor=v-returning01" }))
     await response.text()
 
     expect(response.status).toBe(200)

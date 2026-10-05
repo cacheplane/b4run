@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { afterEach, describe, expect, test, vi } from "vitest"
+import { ownerCookieValue } from "../../../lib/proxy-guard"
 import { GET } from "./route"
 
 function call(
@@ -113,17 +114,17 @@ describe("b4 proxy route", () => {
   })
 
   test("keeps an existing visitor cookie and injects the token when deployed", async () => {
-    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret")
+    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret-0123456789abcdefghijkl")
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("{}"))
 
     const response = await call(["threads", "t1", "state"], {
-      headers: { cookie: "b4_visitor=v-returning01" },
+      headers: { cookie: "__Host-b4_visitor=v-returning01" },
     })
 
     expect(response.headers.has("set-cookie")).toBe(false)
     const sent = upstreamHeadersOf(fetchSpy)
     expect(sent.get("x-b4-visitor")).toBe("v-returning01")
-    expect(sent.get("x-internal-token")).toBe("server-secret")
+    expect(sent.get("x-internal-token")).toBe("server-secret-0123456789abcdefghijkl")
   })
 
   test("refuses a cross-origin call when an origin allowlist is set", async () => {
@@ -140,7 +141,7 @@ describe("b4 proxy route", () => {
   })
 
   test("reserves memory approval for the demo owner when deployed", async () => {
-    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret")
+    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret-0123456789abcdefghijkl")
     vi.stubEnv("B4_DEMO_ADMIN_TOKEN", "owner-secret")
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("{}"))
 
@@ -151,10 +152,17 @@ describe("b4 proxy route", () => {
 
     const owner = await call(["memory", "candidates", "c1", "approve"], {
       method: "POST",
-      headers: { cookie: "b4_demo_owner=owner-secret" },
+      headers: { cookie: `__Host-b4_demo_owner=${ownerCookieValue("owner-secret")}` },
     })
     expect(owner.status).toBe(200)
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+    // The raw token is not the cookie: only its HMAC is.
+    const raw = await call(["memory", "candidates", "c1", "approve"], {
+      method: "POST",
+      headers: { cookie: "__Host-b4_demo_owner=owner-secret" },
+    })
+    expect(raw.status).toBe(403)
   })
 
   test("leaves memory approval open in development", async () => {

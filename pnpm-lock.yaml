@@ -432,7 +432,7 @@ importers:
         specifier: ^2.0.5
         version: 2.2.0(@upstash/redis@1.39.0)
       '@upstash/redis':
-        specifier: ^1.34.3
+        specifier: ^1.38.2
         version: 1.39.0
       leaflet:
         specifier: ^1.9.4

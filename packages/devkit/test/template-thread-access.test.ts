@@ -30,8 +30,12 @@ const navlogTemplateSrc = fileURLToPath(
 const navlogExampleSrc = `${resolve(repoRoot, "examples/navlog/server/src")}/`
 
 /** The policy's code from its first import on: what activation must not change. */
-const policyBody = (source: string): string =>
-  source.slice(source.indexOf("import { defineThreadAccess"))
+const policyBody = (source: string): string => {
+  const start = source.indexOf("import { defineThreadAccess")
+  // A missing marker would slice from -1 and compare two one-character tails.
+  expect(start).toBeGreaterThanOrEqual(0)
+  return source.slice(start)
+}
 
 const read = (name: string, file: string): string =>
   readFileSync(

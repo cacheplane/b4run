@@ -1,16 +1,23 @@
 import { describe, expect, test } from "vitest"
 import {
+  clientIp,
   decideRequest,
   guardConfigFromEnv,
   isOwnerApprovalPath,
+  isOwnerCookie,
   isValidVisitorId,
+  limitBucketFor,
   mintVisitorId,
+  ownerCookieName,
+  ownerCookieValue,
   readCookie,
   tokensMatch,
   upstreamHeaders,
+  visitorCookieName,
 } from "./proxy-guard"
 
 const base = { allowedOrigins: ["https://navlog.b4.run"], internalToken: "secret" }
+const ALLOW = { visitor: "allow", ip: "allow" } as const
 
 describe("decideRequest", () => {
   test("rejects a cross-origin request when an allowlist is configured", () => {
@@ -19,7 +26,7 @@ describe("decideRequest", () => {
         ...base,
         origin: "https://evil.example",
         visitorId: "v-1",
-        limiterVerdict: "allow",
+        limiterVerdicts: ALLOW,
       }),
     ).toEqual({ kind: "reject", status: 403, error: "origin_not_allowed" })
   })
@@ -30,11 +37,11 @@ describe("decideRequest", () => {
         ...base,
         origin: "https://navlog.b4.run",
         visitorId: "v-1",
-        limiterVerdict: "allow",
+        limiterVerdicts: ALLOW,
       }),
     ).toEqual({ kind: "allow" })
     expect(
-      decideRequest({ ...base, origin: undefined, visitorId: "v-1", limiterVerdict: "allow" }),
+      decideRequest({ ...base, origin: undefined, visitorId: "v-1", limiterVerdicts: ALLOW }),
     ).toEqual({ kind: "allow" })
   })
 
@@ -45,14 +52,32 @@ describe("decideRequest", () => {
         internalToken: undefined,
         origin: "http://localhost:3010",
         visitorId: "v-1",
-        limiterVerdict: "allow",
+        limiterVerdicts: ALLOW,
       }),
     ).toEqual({ kind: "allow" })
   })
 
   test("rejects with 429 when the limiter says so", () => {
     expect(
-      decideRequest({ ...base, origin: undefined, visitorId: "v-1", limiterVerdict: "limit" }),
+      decideRequest({
+        ...base,
+        origin: undefined,
+        visitorId: "v-1",
+        limiterVerdicts: { visitor: "limit", ip: "allow" },
+      }),
+    ).toEqual({ kind: "reject", status: 429, error: "rate_limit_exceeded" })
+  })
+
+  test("rejects with 429 when the IP is over budget even though the visitor is not", () => {
+    // A script that drops its cookie on every call mints a fresh visitor each
+    // time; the IP key is what still counts it.
+    expect(
+      decideRequest({
+        ...base,
+        origin: undefined,
+        visitorId: "v-1",
+        limiterVerdicts: { visitor: "allow", ip: "limit" },
+      }),
     ).toEqual({ kind: "reject", status: 429, error: "rate_limit_exceeded" })
   })
 
@@ -62,7 +87,7 @@ describe("decideRequest", () => {
         ...base,
         origin: undefined,
         visitorId: "v-1",
-        limiterVerdict: "unconfigured",
+        limiterVerdicts: { visitor: "unconfigured", ip: "unconfigured" },
       }),
     ).toEqual({ kind: "allow" })
   })
@@ -141,5 +166,46 @@ describe("tokensMatch", () => {
     expect(tokensMatch("short", "owner-secret")).toBe(false)
     expect(tokensMatch(undefined, "owner-secret")).toBe(false)
     expect(tokensMatch("owner-secret", undefined)).toBe(false)
+  })
+})
+
+describe("limitBucketFor", () => {
+  test("runs draw on the tight bucket, reads on the loose one, everything else on none", () => {
+    expect(limitBucketFor("copilotkit", "POST")).toBe("run")
+    expect(limitBucketFor("b4", "GET")).toBe("read")
+    expect(limitBucketFor("copilotkit", "GET")).toBeUndefined()
+    expect(limitBucketFor("b4", "POST")).toBeUndefined()
+  })
+})
+
+describe("clientIp", () => {
+  test("is the first forwarded hop, then X-Real-IP, then one shared unknown key", () => {
+    expect(clientIp(new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" }))).toBe(
+      "203.0.113.7",
+    )
+    expect(clientIp(new Headers({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2")
+    expect(clientIp(new Headers())).toBe("unknown")
+  })
+})
+
+describe("cookie names", () => {
+  test("carry the __Host- prefix when deployed and plain names in development", () => {
+    const deployed = { allowedOrigins: [], internalToken: "secret" }
+    const local = { allowedOrigins: [], internalToken: undefined }
+    expect(visitorCookieName(deployed)).toBe("__Host-b4_visitor")
+    expect(ownerCookieName(deployed)).toBe("__Host-b4_demo_owner")
+    expect(visitorCookieName(local)).toBe("b4_visitor")
+    expect(ownerCookieName(local)).toBe("b4_demo_owner")
+  })
+})
+
+describe("owner cookie", () => {
+  test("holds an HMAC of the admin token, never the token, and verifies only that", () => {
+    const value = ownerCookieValue("owner-secret")
+    expect(value).not.toContain("owner-secret")
+    expect(isOwnerCookie(value, "owner-secret")).toBe(true)
+    expect(isOwnerCookie("owner-secret", "owner-secret")).toBe(false)
+    expect(isOwnerCookie(ownerCookieValue("other-secret"), "owner-secret")).toBe(false)
+    expect(isOwnerCookie(value, undefined)).toBe(false)
   })
 })

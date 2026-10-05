@@ -39,7 +39,7 @@ const handler = createCopilotRuntimeHandler({
 })
 
 async function guarded(request: Request): Promise<Response> {
-  const guard = await guardRequest(request)
+  const guard = await guardRequest(request, "copilotkit")
   if (guard.rejection !== undefined) return guard.rejection
   const response = await visitorContext.run({ visitorId: guard.visitorId }, () => handler(request))
   return guard.finish(response)
