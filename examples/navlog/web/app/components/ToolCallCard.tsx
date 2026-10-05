@@ -46,7 +46,7 @@ export interface ToolCallViewProps {
  * wrapper, whose value is itself a JSON string. Either way `@b4run/ag-ui`'s
  * outbound layer serializes the whole thing to the JSON string this card
  * receives, so after the caller parses it `parameters` is either the args
- * object directly or `{ input: '{"path":"corpus/x.md"}' }`. The `input` branch
+ * object directly or `{ input: '{"path":"poh/cruise-performance.md"}' }`. The `input` branch
  * below fires on the second and passes the first straight through; unwrapping
  * is what keeps the card from showing double-encoded JSON.
  *
@@ -92,8 +92,6 @@ function parseResult(result: string | undefined): string | undefined {
 function summarizeArgs(name: string, parameters: unknown): string {
   const p = parseArgs(parameters)
   switch (name) {
-    case "searchCorpus":
-      return typeof p.query === "string" ? p.query : JSON.stringify(p)
     case "readDoc":
       return typeof p.path === "string" ? p.path : JSON.stringify(p)
     case "runBash":
@@ -189,7 +187,7 @@ export function ToolCallView({ name, status, parameters, result }: ToolCallViewP
           `overflow-wrap: anywhere`, not `break-all`: a long tool name should
           break only when it genuinely cannot fit, the same rule the package
           puts on `.b4-activity__title`. `break-all` splits mid-token even
-          when there is room, which turns `searchCorpus` into `searchCorp/us`.
+          when there is room, which turns `computeNavlog` into `computeNav/log`.
 
           The radius is `rounded-wb-sm` (7px), a deliberate departure from the
           package badge's flat 4px: that 4px is a hard-coded literal in the

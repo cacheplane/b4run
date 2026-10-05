@@ -29,7 +29,7 @@ import {
 //   under "default", so every hook binds without per-component agentId wiring.
 // - `defaultThrottleMs` coalesces the useAgent re-renders that the transcript and panels
 //   get from OnMessagesChanged/OnStateChanged. It defaults to UNTHROTTLED,
-//   and a full research run streams hundreds of events, which pegs the renderer
+//   and a full planning run streams hundreds of events, which pegs the renderer
 //   (the UI froze outright). 100ms keeps it live-feeling while capping re-renders.
 //
 // Why `CopilotChatConfigurationProvider` is mounted here: `CopilotKit` does not

@@ -22,6 +22,7 @@ export interface WorkbenchLayoutProps {
   readonly memory: ReactNode
   readonly dock: ReactNode
   readonly composer: ReactNode
+  readonly onNewConversation: () => void
 }
 
 /** Room the map leaves for the floating surfaces when it fits the route, in pixels. */
@@ -52,6 +53,7 @@ export function WorkbenchLayout({
   memory,
   dock,
   composer,
+  onNewConversation,
 }: WorkbenchLayoutProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const [sheetOpen, setSheetOpen] = useState(true)
@@ -75,7 +77,14 @@ export function WorkbenchLayout({
   const highlightedLeg = navlog && hoveredLeg !== null ? pairIndexOf(navlog, hoveredLeg) : null
 
   const chat = (
-    <ChatDock header={header} status={status} rail={rail} memory={memory} composer={composer}>
+    <ChatDock
+      header={header}
+      status={status}
+      rail={rail}
+      memory={memory}
+      composer={composer}
+      onNewConversation={onNewConversation}
+    >
       {dock}
     </ChatDock>
   )

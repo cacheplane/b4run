@@ -18,6 +18,7 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
   rail: <p>rail</p>,
   memory: <p>memory</p>,
   header: "Thread one",
+  onNewConversation: () => {},
   ...overrides,
 })
 
@@ -41,6 +42,13 @@ describe("WorkbenchLayout on desktop", () => {
     expect(count(html, "<main")).toBe(1)
     expect(count(html, "transcript")).toBe(1)
     expect(html).not.toContain('role="tablist"')
+  })
+  test("the new-conversation button is in the dock header, outside the Threads disclosure", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    const button = html.indexOf('aria-label="+ New conversation"')
+    expect(button).toBeGreaterThan(-1)
+    expect(button).toBeLessThan(html.indexOf("<details"))
+    expect(button).toBeLessThan(html.indexOf("<main"))
   })
   test("without a navlog there is no sheet", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)

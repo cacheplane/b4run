@@ -133,7 +133,7 @@ const RUN_ERROR_TITLES: Readonly<Record<string, string>> = {
   agent_run_error_event: "The run failed",
   agent_connect_failed: "Lost the connection to the agent",
   agent_thread_locked: "This conversation is already running",
-  agent_not_found: "The research agent is not registered",
+  agent_not_found: "The navlog agent is not registered",
   // NOT "Cannot reach the B4.run server" — this code means `/api/copilotkit`'s
   // own `/info` sync broke inside the Next process, which is a different
   // failure from B4.run being down (see `probeB4Server`'s comment for why
@@ -381,7 +381,7 @@ export function AppShell({
   //
   // `&& !agent.isRunning` because the flag would otherwise stay true for the
   // whole resumed run: `pendingInterrupts` is not cleared until that run's own
-  // RUN_FINISHED lands, which for a research turn can be a minute later. The
+  // RUN_FINISHED lands, which for a planning turn can be a minute later. The
   // user decided long ago; insisting they have not — and showing "running" and
   // "awaiting approval" side by side — is just wrong. The composer stays
   // blocked either way, via `isRunning`, but now for the true reason.
@@ -706,8 +706,10 @@ export function AppShell({
           activeThreadId={activeThreadId}
           onSelect={onSelectThread}
           onCreate={onCreateThread}
+          showCreate={false}
         />
       }
+      onNewConversation={onCreateThread}
       /*
         Not rendered while the server is KNOWN to be down — this return is
         already past the `serverStatus === "down"` branch. It does render

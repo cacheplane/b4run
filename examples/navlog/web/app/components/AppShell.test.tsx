@@ -245,7 +245,7 @@ beforeEach(() => {
   // assumes (no hydrated card, no composer block from that source).
   pendingInterrupts = vi.fn(async () => [])
   mocks.runAgent = async () => {}
-  // The default: the route's model takes images, which is what the research
+  // The default: the route's model takes images, which is what the navlog
   // example's gpt-5-mini route declares.
   mocks.capabilities = { multimodal: { input: { image: true } } }
   // The default: the probe reports B4.run up, which is what every pre-existing
@@ -557,7 +557,7 @@ describe("app shell composer block for restored gates", () => {
     await settleParked()
     expect(container.textContent).not.toContain("Permission required")
     expect(composer().readOnly).toBe(false)
-    expect(composer().placeholder).toBe("Ask the research agent…")
+    expect(composer().placeholder).toBe("Ask the flight planner…")
   })
 
   test("leaves the composer alone when nothing is parked", async () => {

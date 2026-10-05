@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import "@copilotkit/react-core/v2/styles.css"
 // Required, not optional polish: the activity cards carry no inline styles, so
-// without this import the plan and researcher cards render as bare markup.
+// without this import the plan and subagent cards render as bare markup.
 // Restyle by overriding the `--b4-activity-*` tokens.
 import "@b4run/ag-ui/react/styles.css"
 import "leaflet/dist/leaflet.css"

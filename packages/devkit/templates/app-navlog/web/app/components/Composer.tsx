@@ -172,7 +172,7 @@ export function Composer({
     ? "Waiting on your decision above…"
     : isRunning
       ? "The agent is working…"
-      : "Ask the research agent…"
+      : "Ask the flight planner…"
   const hint = isAwaitingApproval
     ? "Allow or deny the request above to continue this conversation."
     : "Enter to send · Shift+Enter for a new line"

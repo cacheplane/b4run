@@ -34,9 +34,9 @@ describe("tool call arguments", () => {
     const markup = render({
       name: "readDoc",
       status: "executing",
-      parameters: { input: '{"path":"corpus/x.md"}' },
+      parameters: { input: '{"path":"poh/cruise-performance.md"}' },
     })
-    expect(markup).toContain("corpus/x.md")
+    expect(markup).toContain("poh/cruise-performance.md")
     // The double-encoded wrapper itself must not reach the reader. The escaped
     // JSON is the whole claim: if `parseArgs` stopped unwrapping, the card
     // would render `{"input":"{\"path\":...`, and this catches it.
@@ -47,27 +47,27 @@ describe("tool call arguments", () => {
     const markup = render({
       name: "readDoc",
       status: "executing",
-      parameters: { input: "corpus/x.md" },
+      parameters: { input: "poh/cruise-performance.md" },
     })
-    expect(markup).toContain("corpus/x.md")
+    expect(markup).toContain("poh/cruise-performance.md")
   })
 
-  test("summarizes searchCorpus by its query", () => {
+  test("summarizes task by the subagent it dispatches", () => {
     const markup = render({
-      name: "searchCorpus",
+      name: "task",
       status: "executing",
-      parameters: { input: '{"query":"battery chemistry"}' },
+      parameters: { input: '{"subagent":"weather","description":"brief KSTP to KRST"}' },
     })
-    expect(markup).toContain("battery chemistry")
+    expect(markup).toContain("→ weather")
   })
 
   test("summarizes runBash by its command", () => {
     const markup = render({
       name: "runBash",
       status: "executing",
-      parameters: { input: '{"command":"ls -la corpus"}' },
+      parameters: { input: '{"command":"ls -la poh"}' },
     })
-    expect(markup).toContain("ls -la corpus")
+    expect(markup).toContain("ls -la poh")
   })
 
   test("summarizes an unknown tool as its whole argument object", () => {
@@ -108,10 +108,10 @@ describe("tool call results", () => {
       name: "runBash",
       status: "complete",
       parameters: {},
-      result: "total 0\ndrwxr-xr-x  corpus",
+      result: "total 0\ndrwxr-xr-x  poh",
     })
     expect(markup).toContain("total 0")
-    expect(markup).toContain("drwxr-xr-x  corpus")
+    expect(markup).toContain("drwxr-xr-x  poh")
   })
 
   test("shows nothing for a result that has not arrived yet", () => {

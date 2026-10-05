@@ -49,12 +49,12 @@ const SUBAGENT_METADATA = {
   kind: "subagent",
   callId: "call_1",
   detail: {
-    parentRouteId: "research",
-    subagentName: "researcher",
-    subagentRouteId: "research/researcher",
-    inputPreview: "Find the 2026 filings",
+    parentRouteId: "navlog",
+    subagentName: "performance",
+    subagentRouteId: "navlog/performance",
+    inputPreview: "Cruise numbers for 4500 ft at 2400 RPM",
     reason: "depth 2",
-    suggestedPattern: "researcher",
+    suggestedPattern: "performance",
   },
 } as const
 
@@ -82,8 +82,8 @@ describe("PermissionPrompt", () => {
       <PermissionPrompt metadata={SUBAGENT_METADATA} isResolving={false} onDecide={() => {}} />,
     )
     expect(html).toContain("Subagent approval required")
-    expect(html).toContain("research/researcher")
-    expect(html).toContain("Find the 2026 filings")
+    expect(html).toContain("navlog/performance")
+    expect(html).toContain("Cruise numbers for 4500 ft at 2400 RPM")
     expect(html).toContain("Reason: depth 2")
     // The subagent branch's own labels, not the permission branch's.
     expect(html).toContain(">Once<")

@@ -10,7 +10,7 @@ const STATE = {
         lc: 1,
         type: "constructor",
         id: ["langchain_core", "messages", "HumanMessage"],
-        kwargs: { content: "What are common agent architectures?", id: "m1" },
+        kwargs: { content: "What does the POH give for cruise at 4500 ft?", id: "m1" },
       },
       {
         lc: 1,
@@ -21,9 +21,9 @@ const STATE = {
           id: "m2",
           tool_calls: [
             {
-              name: "searchCorpus",
-              args: { query: "agent architectures" },
-              id: "call_searchCorpus_0_0",
+              name: "readDoc",
+              args: { path: "poh/cruise-performance.md" },
+              id: "call_readDoc_0_0",
               type: "tool_call",
             },
           ],
@@ -34,9 +34,9 @@ const STATE = {
         type: "constructor",
         id: ["langchain_core", "messages", "ToolMessage"],
         kwargs: {
-          content: '[{"path":"corpus/agent-architectures.md","score":2}]',
-          tool_call_id: "call_searchCorpus_0_0",
-          name: "searchCorpus",
+          content: '{"path":"poh/cruise-performance.md","content":"Figure 5-7"}',
+          tool_call_id: "call_readDoc_0_0",
+          name: "readDoc",
           id: "m3",
         },
       },
@@ -44,12 +44,16 @@ const STATE = {
         lc: 1,
         type: "constructor",
         id: ["langchain_core", "messages", "AIMessageChunk"],
-        kwargs: { content: "ReAct and plan-and-execute are common.", id: "m4", tool_calls: [] },
+        kwargs: {
+          content: "At 2400 RPM the POH gives 109.75 KTAS and 7.0 GPH.",
+          id: "m4",
+          tool_calls: [],
+        },
       },
     ],
     todos: [
-      { content: "Search the corpus", status: "completed" },
-      { content: "Read the best sources", status: "in_progress" },
+      { content: "Read the cruise table", status: "completed" },
+      { content: "Compute the navlog", status: "in_progress" },
     ],
   },
 }
@@ -68,7 +72,7 @@ const FULL_STATE = {
         type: "constructor",
         id: ["langchain_core", "messages", "HumanMessage"],
         kwargs: {
-          content: "What are common agent architectures?",
+          content: "What does the POH give for cruise at 4500 ft?",
           additional_kwargs: {},
           response_metadata: {},
           id: "h-real-1",
@@ -84,11 +88,11 @@ const FULL_STATE = {
             tool_calls: [
               {
                 index: 0,
-                id: "call_searchCorpus_0_0",
+                id: "call_readDoc_0_0",
                 type: "function",
                 function: {
-                  name: "searchCorpus",
-                  arguments: '{"query":"agent architectures"}',
+                  name: "readDoc",
+                  arguments: '{"path":"poh/cruise-performance.md"}',
                 },
               },
             ],
@@ -96,18 +100,18 @@ const FULL_STATE = {
           response_metadata: { model_provider: "openai" },
           tool_call_chunks: [
             {
-              name: "searchCorpus",
-              args: '{"query":"agent architectures"}',
-              id: "call_searchCorpus_0_0",
+              name: "readDoc",
+              args: '{"path":"poh/cruise-performance.md"}',
+              id: "call_readDoc_0_0",
               index: 0,
               type: "tool_call_chunk",
             },
           ],
           tool_calls: [
             {
-              name: "searchCorpus",
-              args: { query: "agent architectures" },
-              id: "call_searchCorpus_0_0",
+              name: "readDoc",
+              args: { path: "poh/cruise-performance.md" },
+              id: "call_readDoc_0_0",
               type: "tool_call",
             },
           ],
@@ -120,9 +124,9 @@ const FULL_STATE = {
         type: "constructor",
         id: ["langchain_core", "messages", "ToolMessage"],
         kwargs: {
-          content: '[{"path":"corpus/agent-architectures.md","score":2}]',
-          tool_call_id: "call_searchCorpus_0_0",
-          name: "searchCorpus",
+          content: '{"path":"poh/cruise-performance.md","content":"Figure 5-7"}',
+          tool_call_id: "call_readDoc_0_0",
+          name: "readDoc",
           additional_kwargs: {},
           response_metadata: {},
           status: "success",
@@ -135,7 +139,7 @@ const FULL_STATE = {
         type: "constructor",
         id: ["langchain_core", "messages", "AIMessageChunk"],
         kwargs: {
-          content: "ReAct and plan-and-execute are common.",
+          content: "At 2400 RPM the POH gives 109.75 KTAS and 7.0 GPH.",
           additional_kwargs: {},
           response_metadata: { model_provider: "openai", finish_reason: "stop" },
           tool_call_chunks: [],
@@ -146,8 +150,8 @@ const FULL_STATE = {
       },
     ],
     todos: [
-      { content: "Search the corpus", status: "completed" },
-      { content: "Read the best sources", status: "in_progress" },
+      { content: "Read the cruise table", status: "completed" },
+      { content: "Compute the navlog", status: "in_progress" },
     ],
   },
 }
@@ -170,9 +174,9 @@ describe("hydrateThreadState", () => {
       role: "assistant",
       toolCalls: [
         {
-          id: "call_searchCorpus_0_0",
+          id: "call_readDoc_0_0",
           type: "function",
-          function: { name: "searchCorpus", arguments: '{"query":"agent architectures"}' },
+          function: { name: "readDoc", arguments: '{"path":"poh/cruise-performance.md"}' },
         },
       ],
     })
@@ -182,15 +186,15 @@ describe("hydrateThreadState", () => {
     const { messages } = hydrateThreadState(STATE)
     expect(messages[2]).toMatchObject({
       role: "tool",
-      toolCallId: "call_searchCorpus_0_0",
-      content: '[{"path":"corpus/agent-architectures.md","score":2}]',
+      toolCallId: "call_readDoc_0_0",
+      content: '{"path":"poh/cruise-performance.md","content":"Figure 5-7"}',
     })
   })
 
   test("re-seeds the plan from the checkpointed todos", () => {
     expect(hydrateThreadState(STATE).todos).toEqual([
-      { content: "Search the corpus", status: "completed" },
-      { content: "Read the best sources", status: "in_progress" },
+      { content: "Read the cruise table", status: "completed" },
+      { content: "Compute the navlog", status: "in_progress" },
     ])
   })
 
@@ -199,7 +203,7 @@ describe("hydrateThreadState", () => {
     expect(items.map((item) => item.kind)).toEqual(["user", "toolCall", "assistant"])
     expect(items[1]).toMatchObject({
       kind: "toolCall",
-      toolResult: { toolCallId: "call_searchCorpus_0_0" },
+      toolResult: { toolCallId: "call_readDoc_0_0" },
     })
   })
 
@@ -400,7 +404,7 @@ describe("hydrateThreadState", () => {
             lc: 1,
             type: "constructor",
             id: ["x", "y", "ToolMessage"],
-            kwargs: { content: "result", id: "t1", name: "searchCorpus" },
+            kwargs: { content: "result", id: "t1", name: "readDoc" },
           },
         ],
       },
@@ -438,7 +442,7 @@ describe("hydrateThreadState", () => {
             kwargs: {
               content: "",
               id: "a1",
-              tool_calls: [{ name: "searchCorpus", args: {} }],
+              tool_calls: [{ name: "readDoc", args: {} }],
             },
           },
         ],
@@ -478,7 +482,7 @@ describe("hydrateThreadState", () => {
             kwargs: {
               content: "",
               id: "a1",
-              tool_calls: [{ id: "call_1", name: "searchCorpus" }],
+              tool_calls: [{ id: "call_1", name: "readDoc" }],
             },
           },
         ],
@@ -582,7 +586,7 @@ describe("hydrateThreadState", () => {
     expect(items.map((item) => item.kind)).toEqual(["user", "toolCall", "assistant"])
     expect(items[1]).toMatchObject({
       kind: "toolCall",
-      toolResult: { toolCallId: "call_searchCorpus_0_0" },
+      toolResult: { toolCallId: "call_readDoc_0_0" },
     })
   })
 })

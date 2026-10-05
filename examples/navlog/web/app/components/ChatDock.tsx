@@ -8,6 +8,8 @@ export interface ChatDockProps {
   readonly memory: ReactNode
   readonly children: ReactNode
   readonly composer: ReactNode
+  /** Starts a new conversation; the header button that calls it is always in view. */
+  readonly onNewConversation: () => void
 }
 
 /**
@@ -18,7 +20,15 @@ export interface ChatDockProps {
  * something to approve, and then it is in view (the teach journey and a person
  * both need to see it without hunting for it).
  */
-export function ChatDock({ header, status, rail, memory, children, composer }: ChatDockProps) {
+export function ChatDock({
+  header,
+  status,
+  rail,
+  memory,
+  children,
+  composer,
+  onNewConversation,
+}: ChatDockProps) {
   return (
     <section className="wb-panel wb-dock relative flex min-h-0 flex-1 flex-col" aria-label="Chat">
       <header className="flex shrink-0 items-center gap-2 border-b border-wb-border px-3 py-2">
@@ -31,7 +41,19 @@ export function ChatDock({ header, status, rail, memory, children, composer }: C
             {status}
           </span>
         ) : null}
-        <details className="ml-auto shrink-0">
+        {/*
+          The visible text is short for the dock's width; the accessible name
+          is the rail's full "+ New conversation", which contains it.
+        */}
+        <button
+          type="button"
+          aria-label="+ New conversation"
+          onClick={onNewConversation}
+          className="wb-focus ml-auto shrink-0 rounded-wb-sm border border-wb-border px-2 py-0.5 text-[12px] font-medium hover:border-wb-muted"
+        >
+          + New
+        </button>
+        <details className="shrink-0">
           <summary className="wb-focus cursor-pointer list-none text-[12px] text-wb-muted">
             Threads
           </summary>
