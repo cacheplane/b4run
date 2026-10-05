@@ -46,7 +46,7 @@ ToolMessage instead of a string.
 
 ```ts
 interface PersistedStep {
-  status: "completed" | "failed"
+  status: "completed" | "failed" | "denied"
   icon?: ToolDisplayIcon
   label?: string            // display.done when present; the tool-name fallback stays client-side
   sources?: ToolDisplaySource[]
@@ -56,9 +56,12 @@ interface PersistedStep {
 }
 ```
 
-`failed` covers thrown tools and denied gates; the denied label comes from the denial-branding work
-in flight (a denial returns a branded result the converter recognises), so a denied step never
-carries a success label. `b4_content_parts` is unchanged.
+`failed` covers thrown tools. `denied` is a call a permission or argument constraint blocked
+(the converter recognises the branded result from cacheplane/b4run#936), persisted exactly as the
+live stream reports it since cacheplane/b4run#946: `status: "denied"` with the icon only, never a
+success label or sources. A denial is not a failure: its ToolMessage keeps `status: "success"` (an
+`error` status would make the live translator append a `failed` step, which wins over `denied` in
+the reducer), and `turn.failed` never counts it. `b4_content_parts` is unchanged.
 
 The `task` ToolMessage additionally carries:
 
@@ -144,7 +147,7 @@ would have carried** and folds them through the unchanged `reduceTurns`:
 |---|---|
 | User message | `RUN_STARTED { threadId, runId: <message id> }`; clock = that checkpoint's `ts` |
 | Assistant message | `REASONING_START/MESSAGE_*/END` for thinking blocks (id `rsn:<message id>`), `TEXT_MESSAGE_*` for text, `TOOL_CALL_START/ARGS/END` per tool call |
-| ToolMessage | `CUSTOM b4.step` `completed` from the stamp, then `TOOL_CALL_RESULT`; for `failed`, the result first and the `failed` step after (the live order) |
+| ToolMessage | `CUSTOM b4.step` `completed` (or `denied`) from the stamp, then `TOOL_CALL_RESULT`; for `failed`, the result first and the `failed` step after (the live order) |
 | `task` ToolMessage | `SUBAGENT_STARTED { subagentRunId: <task call id>, name, description, parentToolCallId }`, the child namespace's own synthesised events tagged `subagentRunId`, then `SUBAGENT_FINISHED` or `SUBAGENT_ERROR` from `b4_subagent.outcome` |
 | `todos` changed between consecutive checkpoints | `ACTIVITY_SNAPSHOT` `b4.plan` |
 | End of turn | `RUN_FINISHED` with the `b4:turn` status; `RUN_FINISHED { outcome: interrupt }` built from `pendingInterrupts` when the head is parked; `RUN_ERROR` for `failed` |
