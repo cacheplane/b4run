@@ -1,0 +1,33 @@
+import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
+import { type FlightPlan, formatFplMessage } from "../lib/fpl.js"
+
+export interface FiledFlightPlan {
+  readonly status: "recorded"
+  readonly path: string
+  readonly transmitted: false
+}
+
+/**
+ * Record an ICAO flight plan in the workspace. This writes the FPL message to
+ * flight-plans/; it does not transmit to a filing service. The route approves
+ * each call (tools.approve), so a person confirms before anything is written.
+ */
+export default async (
+  input: { readonly flightPlan: FlightPlan },
+  ctx: B4ToolContext,
+): Promise<FiledFlightPlan> => {
+  const plan = input.flightPlan
+  const dof = plan.item18.replace(/^DOF\//, "")
+  const departure = plan.item13.slice(0, 4)
+  const destination = plan.item16.slice(0, 4)
+  const path = `flight-plans/${dof}-${departure}-${destination}.txt`
+  await ctx.fs.writeFile(path, `${formatFplMessage(plan)}\n`)
+  return { status: "recorded", path, transmitted: false }
+}
+
+export const display = {
+  icon: "write",
+  running: ({ flightPlan }) =>
+    `Filing ${flightPlan.item7} ${flightPlan.item13.slice(0, 4)} to ${flightPlan.item16.slice(0, 4)}`,
+  done: (_input, out) => `Recorded the flight plan at ${out.path} (not transmitted)`,
+} satisfies ToolDisplay<{ readonly flightPlan: FlightPlan }, FiledFlightPlan>

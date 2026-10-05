@@ -1,10 +1,9 @@
 <!--
 The presence of this file opts this route into B4.run's planning capability.
-The seeded checklist items below become the thread's initial `todos`. Edit them,
-add your own, or empty the list — the agent will adapt the plan to each question.
+The seeded checklist items below become the thread's initial `todos`.
 -->
 
-- [ ] Restate the question and list the sub-questions to research
-- [ ] Search the corpus for each sub-question
-- [ ] Read the most relevant documents in full
-- [ ] Synthesize a cited report and write it to the workspace
+- [ ] Recall the aircraft profile and parse the route, altitude and departure time
+- [ ] Brief the weather and look up POH performance
+- [ ] Compute the navlog and save it to the workspace
+- [ ] Brief the pilot and file only on request

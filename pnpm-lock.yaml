@@ -376,9 +376,6 @@ importers:
       '@b4run/langchain':
         specifier: workspace:*
         version: link:../../../packages/langchain
-      '@b4run/sandbox':
-        specifier: workspace:*
-        version: link:../../../packages/sandbox
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk

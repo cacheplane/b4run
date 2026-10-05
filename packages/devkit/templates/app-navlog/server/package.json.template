@@ -12,14 +12,12 @@
     "eval": "b4 eval",
     "build": "b4 build",
     "start": "node --env-file-if-exists=.env .b4/build/server.mjs",
-    "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
     "memory:list": "b4 memory list",
     "memory:approve": "b4 memory approve"
   },
   "dependencies": {
     "@b4run/cli": "{{b4CliSpecifier}}",
     "@b4run/langchain": "{{b4LangchainSpecifier}}",
-    "@b4run/sandbox": "{{b4SandboxSpecifier}}",
     "@b4run/sdk": "{{b4SdkSpecifier}}",
     "zod": "^4.0.0"
   },

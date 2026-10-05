@@ -1,26 +1,15 @@
 import { config } from "@b4run/cli"
-import { dockerSandbox } from "@b4run/sandbox"
 
 export default config({
   appDir: "src/app",
 
-  // HITL permissions. Default mode (omitted) is "interactive": a runBash
-  // command that is NOT on the allow-list pauses the run for human approval.
-  // The external-fetch step (node scripts/fetch-source.mjs ...) is intentionally
-  // left off the allow-list so the approval flow is visible on first run.
-  permissions: {
-    allow: {
-      bash: ["ls", "cat", "head", "wc"],
-    },
-    deny: {
-      bash: ["rm -rf", "sudo", "chmod 777", "curl", "wget"],
-    },
-  },
+  // Tool scoping lives on the route (src/app/navlog/index.ts): runBash is
+  // denied and fileFlightPlan asks a person before each call.
 
   // Tool-output offloading. Large tool results are spilled to
   // workspace/tool-outputs/ and replaced in-context with a short stub the
-  // agent can read back on demand. The threshold is lowered so a single full
-  // corpus document trips it (the default is 40000 chars).
+  // agent can read back on demand. The threshold is low so a TAF bundle or a
+  // full POH table trips it (the default is 40000 chars).
   toolOutput: {
     offloadThresholdChars: 1500,
     previewLines: 10,
@@ -32,45 +21,18 @@ export default config({
     writes: "candidate",
   },
 
-  // Persistence (SQLite checkpointer + Agent Protocol) is on by default — no
-  // config needed. Threads survive a restart.
+  // Persistence (SQLite checkpointer + Agent Protocol) is on by default.
 
   // --- Capability seam (documented, inactive): cross-origin access ---
   // B4.run sends no `Access-Control-*` header unless this block exists, and
   // `web/` deliberately does not need it: its browser client reaches B4.run
-  // through a same-origin Next proxy (`web/app/api/b4/[...path]/route.ts`),
-  // so B4.run's address never leaves the server.
-  //
-  // Uncomment when a browser talks to B4.run DIRECTLY — a client on another
-  // origin, or one that has dropped the proxy. `localhost` and `127.0.0.1` are
-  // different origins to a browser, so list both if your dev client may be
-  // opened at either. See /docs/configuration#servercors.
+  // through a same-origin Next proxy (`web/app/api/b4/[...path]/route.ts`).
   //
   // server: {
   //   cors: { origins: ["http://localhost:3010", "http://127.0.0.1:3010"] },
   // },
 
-  // --- Capability seam: Docker execution sandbox ---
-  // Default runs use the local workspace so the bundled corpus works without
-  // Docker. Run `npm run test:sandbox:docker` to dogfood the same scaffold with
-  // per-thread isolated Docker workspaces. For ordinary runs, set a stable,
-  // installation-specific B4_SANDBOX_SCOPE when enabling Docker.
-  ...(process.env.B4_DEMO_DOCKER_SANDBOX === "1"
-    ? {
-        sandbox: {
-          provider: dockerSandbox({
-            scope: process.env.B4_SANDBOX_SCOPE ?? "",
-            image: "node:24-slim",
-          }),
-          network: { mode: "deny" },
-          resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
-          idleTimeoutMs: 600_000,
-        },
-      }
-    : {}),
-
   // --- Capability seam (documented, inactive): conversation summarization ---
-  // Uncomment to compress older history once a thread exceeds maxTokens.
   // summarization: {
   //   enabled: true,
   //   maxTokens: 12000,
