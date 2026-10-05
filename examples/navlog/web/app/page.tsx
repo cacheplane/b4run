@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { AppShell } from "./components/AppShell"
 import { workbenchActivityRenderers } from "./components/activity-renderers"
 import { DemoSuggestions } from "./components/DemoSuggestions"
+import { NavlogCard } from "./components/NavlogCard"
 import { ToolCallCard } from "./components/ToolCallCard"
 import {
   createLocalThreadSource,
@@ -99,11 +100,14 @@ export default function Home() {
       renderActivityMessages={workbenchActivityRenderers}
     >
       <CopilotChatConfigurationProvider threadId={activeThreadId}>
-        {/* Registration-only: both publish into CopilotKit's registries rather
-            than rendering. `DemoSuggestions` is read back by `EmptyState`
-            (useSuggestions), `ToolCallCard` by `Transcript` (useRenderToolCall). */}
+        {/* Registration-only: all three publish into CopilotKit's registries
+            rather than rendering. `DemoSuggestions` is read back by `EmptyState`
+            (useSuggestions); `ToolCallCard` (the "*" wildcard) and `NavlogCard`
+            (the name-specific computeNavlog renderer, which wins over the
+            wildcard) by `Transcript` (useRenderToolCall). */}
         <DemoSuggestions />
         <ToolCallCard />
+        <NavlogCard />
         <AppShell
           threads={threads}
           activeThreadId={activeThreadId}
