@@ -194,7 +194,19 @@ const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right sty
      s
        .input({ messages: [{ role: "user", content: "What is the weather at KSTP?" }] })
        .mockTool("getMetar", async ({ ids }) =>
-         ids.map((id) => ({ id, flightCategory: "VFR", raw: \`METAR \${id} 041953Z 00000KT 10SM CLR\` })),
+         ids.map((id) => ({
+           id,
+           observedAt: "2026-10-04T19:53:00.000Z",
+           flightCategory: "VFR",
+           windDirDeg: null,
+           windKt: null,
+           visibilityMi: null,
+           ceilingFt: null,
+           tempC: null,
+           dewpointC: null,
+           altimeterHpa: null,
+           raw: \`METAR \${id} 041953Z 00000KT 10SM CLR\`,
+         })),
        )
        .expectPassed()
        .expectTool("getMetar", (call) =>

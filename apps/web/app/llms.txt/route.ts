@@ -85,6 +85,7 @@ function buildLlmsTxt(): string {
       "",
       "## Minimal Tool",
       "```ts",
+      'import type { B4ToolContext } from "@b4run/sdk"',
       "// src/tools/readDoc.ts (shared; the navlog scaffold uses this location)",
       "export default async (input: { readonly path: string }, ctx: B4ToolContext) => {",
       "  return { content: await ctx.fs.readFile(input.path) }",

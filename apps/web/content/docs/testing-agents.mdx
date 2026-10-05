@@ -263,7 +263,7 @@ The default `basic` template generates `test/agent.test.ts`, which imports `@b4r
 npm test
 ```
 
-A harness test for the navlog route scripts the model and lets the tools run. `computeNavlog` is pure, so this one needs no network:
+To test the route itself, add a harness test that scripts the model and lets the tools run, for example (`computeNavlog` is pure, so this one needs no network):
 
 ```ts title="server/test/plan.test.ts"
 import { fileURLToPath } from "node:url"

@@ -166,8 +166,14 @@ Output schema (abbreviated):
 
 A subagent sees every authored tool by default, and `tools.allow` only
 re-adds withheld capability tools, so each is scoped with an explicit
-`tools.deny` list of the other's tools and the parent's (`computeNavlog`,
-`fileFlightPlan`, `renderChart`) so neither sees the other's tools.
+`tools.deny` list so neither sees the other's tools or the parent's:
+
+- `weather`: allow `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`;
+  deny `readDoc`, `lookupAirport`, `computeNavlog`, `fileFlightPlan`,
+  `renderChart`, `runBash`, `writeFile`, `editFile`.
+- `performance`: allow `readDoc`, `lookupAirport`; deny `getMetar`, `getTaf`,
+  `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`,
+  `renderChart`, `runBash`, `writeFile`, `editFile`.
 
 ### 4.5 Corpus `workspace/`
 
