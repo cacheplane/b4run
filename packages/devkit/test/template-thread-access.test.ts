@@ -13,12 +13,29 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
  */
 const appRoot = (name: string): string => (name === "app-navlog" ? `${name}/server` : name)
 
-/** Every place the same two authorization files are shipped from. */
-const copies = [
-  fileURLToPath(new URL("../templates/app-basic/src/", import.meta.url)),
-  fileURLToPath(new URL("../templates/app-navlog/server/src/", import.meta.url)),
-  `${resolve(repoRoot, "examples/navlog/server/src")}/`,
-] as const
+/**
+ * Where each template keeps its policy. `app-basic` ships it inert, one rename
+ * from active. `app-navlog` ships it active: its `principalOf` returns one local
+ * principal when no proxy guards the server, so it is inert in development and
+ * per-visitor behind the deployed demo's proxy.
+ */
+const policyFile = (name: string): string =>
+  name === "app-navlog" ? "src/thread-access.ts" : "src/thread-access.ts.example"
+const authFile = (name: string): string =>
+  name === "app-navlog" ? "src/auth.ts" : "src/auth.ts.example"
+
+const navlogTemplateSrc = fileURLToPath(
+  new URL("../templates/app-navlog/server/src/", import.meta.url),
+)
+const navlogExampleSrc = `${resolve(repoRoot, "examples/navlog/server/src")}/`
+
+/** The policy's code from its first import on: what activation must not change. */
+const policyBody = (source: string): string => {
+  const start = source.indexOf("import { defineThreadAccess")
+  // A missing marker would slice from -1 and compare two one-character tails.
+  expect(start).toBeGreaterThanOrEqual(0)
+  return source.slice(start)
+}
 
 const read = (name: string, file: string): string =>
   readFileSync(
@@ -47,7 +64,7 @@ const stripComments = (source: string): string =>
 describe("scaffolded thread-access policy", () => {
   for (const name of templates) {
     it(`${name} ships a deny-by-default policy and the shared auth module`, () => {
-      const policy = read(name, "src/thread-access.ts.example")
+      const policy = read(name, policyFile(name))
 
       expect(policy).toContain("defineThreadAccess")
       // `fallback` is the deny-by-default floor: an action with no handler of
@@ -56,14 +73,14 @@ describe("scaffolded thread-access policy", () => {
       // The DELETE existence oracle: a missing row is denied ahead of any admin
       // branch, so "not yours" and "never existed" answer identically.
       expect(policy).toContain("if (req.thread === undefined) return deny()")
-      expect(read(name, "src/auth.ts.example")).toContain("export async function principalOf")
+      expect(read(name, authFile(name))).toContain("export async function principalOf")
       // One principal, imported by both authorization files — not two header
       // parsers that can disagree.
       expect(policy).toContain('from "./auth.js"')
     })
 
     it(`${name}'s policy authorizes against the server stamp, never client metadata`, () => {
-      const policy = read(name, "src/thread-access.ts.example")
+      const policy = read(name, policyFile(name))
 
       expect(policy).toContain("req.thread.access?.ownerId")
       // `thread.metadata` is client-supplied and untrusted. A scaffold that
@@ -73,20 +90,8 @@ describe("scaffolded thread-access policy", () => {
       expect(stripComments(policy)).not.toContain("thread.metadata")
     })
 
-    it(`${name} leaves the policy inert until the app renames it`, () => {
-      // Deliberate: the templates are also the quickstart and the base fixture
-      // for the Agent Protocol runtime harness, and an active deny-by-default
-      // policy denies every request from an app that has no authenticated
-      // caller yet. The scaffold is one `mv` from active, and the file says so.
-      expect(exists(name, "src/thread-access.ts")).toBe(false)
-      expect(exists(name, "src/auth.ts")).toBe(false)
-      expect(read(name, "src/thread-access.ts.example")).toContain(
-        "Rename to `src/thread-access.ts`",
-      )
-    })
-
     it(`${name} says what the missing-row deny does and does not reach`, () => {
-      const policy = read(name, "src/thread-access.ts.example")
+      const policy = read(name, policyFile(name))
 
       // The deny on `req.thread === undefined` is justified in this file on
       // DELETE-existence-oracle grounds, and the obvious misreading of it is
@@ -106,12 +111,49 @@ describe("scaffolded thread-access policy", () => {
     })
   }
 
-  it("keeps every shipped copy in byte-for-byte parity", () => {
-    for (const file of ["thread-access.ts.example", "auth.ts.example"]) {
-      const [first, ...rest] = copies.map((dir) => readFileSync(`${dir}${file}`, "utf8"))
-      // Three copies of an authorization scaffold that drift are three
-      // different security postures, only one of which anybody reviewed.
-      for (const other of rest) expect(other).toBe(first)
+  it("app-basic leaves the policy inert until the app renames it", () => {
+    // Deliberate: the template is also the quickstart and the base fixture for
+    // the Agent Protocol runtime harness, and an active deny-by-default policy
+    // denies every request from an app that has no authenticated caller yet.
+    // The scaffold is one `mv` from active, and the file says so.
+    expect(exists("app-basic", "src/thread-access.ts")).toBe(false)
+    expect(exists("app-basic", "src/auth.ts")).toBe(false)
+    expect(read("app-basic", "src/thread-access.ts.example")).toContain(
+      "Rename to `src/thread-access.ts`",
+    )
+  })
+
+  it("app-navlog ships the policy active, inert in development", () => {
+    expect(exists("app-navlog", "src/thread-access.ts.example")).toBe(false)
+    expect(exists("app-navlog", "src/auth.ts.example")).toBe(false)
+    const auth = read("app-navlog", "src/auth.ts")
+    // No proxy token, no per-visitor principal: one local principal owns
+    // everything, which is what `b4 dev` and the harness lanes run with.
+    expect(auth).toContain("const token = process.env.B4_INTERNAL_TOKEN")
+    expect(auth).toContain("if (!token) return")
+    // With a token configured, the visitor header counts only beside it, so
+    // the policy holds even without the example's main.mjs in front.
+    expect(auth).toContain('sameSecret(headers["x-internal-token"], token)')
+    expect(auth).toContain("LOCAL_PRINCIPAL")
+    // The route middleware resolves the caller through the same module.
+    const middleware = read("app-navlog", "src/middleware.ts")
+    expect(middleware).toContain("defineMiddleware")
+    expect(middleware).toContain('import { principalOf } from "./auth.js"')
+  })
+
+  it("app-navlog's active policy is the scaffold's policy, unchanged below its header", () => {
+    expect(policyBody(read("app-navlog", "src/thread-access.ts"))).toBe(
+      policyBody(read("app-basic", "src/thread-access.ts.example")),
+    )
+  })
+
+  it("keeps the navlog example and template authorization files in byte-for-byte parity", () => {
+    for (const file of ["thread-access.ts", "auth.ts", "middleware.ts"]) {
+      // Two copies of an authorization module that drift are two different
+      // security postures, only one of which anybody reviewed.
+      expect(readFileSync(`${navlogTemplateSrc}${file}`, "utf8")).toBe(
+        readFileSync(`${navlogExampleSrc}${file}`, "utf8"),
+      )
     }
   })
 })

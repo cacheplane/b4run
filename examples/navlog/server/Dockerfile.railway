@@ -1,0 +1,39 @@
+# Builds the navlog server from the monorepo: workspace packages are built from
+# source, the example runs `b4 build`, and the runtime image carries the whole
+# installed workspace (simplest correct answer for workspace: links; size is a
+# non-goal for a demo). Railway builds this with the repository root as context
+# (see railway.json); locally:
+#   docker build -f examples/navlog/server/Dockerfile.railway -t navlog-server .
+FROM node:24-slim AS build
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+WORKDIR /app
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc tsconfig.json ./
+COPY packages ./packages
+COPY examples/navlog/server ./examples/navlog/server
+# The CLI's build bundles the website's docs into the package (`b4 docs`), so it
+# reads the docs sources and their nav from apps/web.
+COPY apps/web/content/docs ./apps/web/content/docs
+COPY apps/web/app/components/docs/nav.ts apps/web/app/components/docs/api-reference-pages.ts ./apps/web/app/components/docs/
+# The lockfile names every workspace importer, including ones this image does
+# not copy; `--filter` with `...` installs only the server and its workspace deps.
+RUN pnpm install --frozen-lockfile --filter @b4-example/navlog-server...
+# Build the server's workspace dependencies in topological order (`^...` is the
+# dependencies without the server itself, which has no compile step).
+RUN pnpm --filter "@b4-example/navlog-server^..." run build
+# `b4 build` writes .b4/build (modules.mjs, workspace.json, server.mjs) for main.mjs.
+RUN pnpm --filter @b4-example/navlog-server run build
+
+FROM node:24-slim
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=8000
+WORKDIR /app
+COPY --from=build /app /app
+WORKDIR /app/examples/navlog/server
+# The app writes its SQLite fallback stores and grants under .b4/, and agent
+# output under workspace/; everything else stays root-owned and read-only.
+RUN chown -R 1000:1000 /app/examples/navlog/server/.b4 /app/examples/navlog/server/workspace
+USER 1000:1000
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "main.mjs"]

@@ -170,8 +170,9 @@ pnpm dev                             # server on :3002, web on :3010
 # open http://localhost:3010
 ```
 
-`web/.env.example` holds only `B4_SERVER_URL` (default `http://127.0.0.1:3002`); copy
-it to `web/.env` if your server listens elsewhere.
+`web/.env.example` sets `B4_SERVER_URL` (default `http://127.0.0.1:3002`); copy it to
+`web/.env` if your server listens elsewhere. Its other variables are for the deployed
+demo (see [Deploy](#deploy-vercel)) and stay unset locally.
 
 `pnpm --filter @b4run/ag-ui test` renders the cards on the server and checks their
 schemas and bounds. Here, `typecheck` / `build` verify the CopilotKit/AG-UI wiring
@@ -259,14 +260,63 @@ by unit tests only.
 ## Security caveat
 
 Same as the server: tools run against the workspace with real network and filesystem
-access as configured. Do not point untrusted users at this example.
+access as configured. Do not point untrusted users at a local run of this example.
 
-The proxy adds a second exposure, and the allowlist does not close it. `/api/b4/[...path]`
-is same-origin and forwards to B4.run with **no authentication of any kind**, and this
-example installs no `threadAccess` policy — so anything that can reach this Next app can
-read any thread's full checkpoint transcript by guessing its id, and can permanently
-delete memory candidates through `/reject`. The allowlist bounds WHICH routes are
-reachable, not WHO may reach them: it is a blast-radius limit, not an access control.
-The fix belongs on the B4.run side — a `threadAccess` policy on the server, so a request
-for someone else's thread is refused where the data lives rather than in front of it.
-Until that is in place, run this only on a trusted machine you are the sole user of.
+The allowlist bounds WHICH routes are reachable, not WHO may reach them. Who is the
+server's job: `server/src/thread-access.ts` makes every thread owned by the principal
+that created it, and `server/src/auth.ts` resolves that principal. Locally (no
+`B4_INTERNAL_TOKEN`) one local principal owns everything, so anything that can reach
+this Next app can read any thread by its id and delete memory candidates; run it only
+on a machine you are the sole user of. The deployed demo turns the guards below on.
+
+## Deploy (Vercel)
+
+The live demo runs this client on Vercel in front of the server on Railway (see
+[`../server/README.md`](../server/README.md#deploy-railway)).
+
+**Project.** Import the `cacheplane/b4run` repository, set the Root Directory to
+`examples/navlog/web`, and turn on "Include source files outside of the Root
+Directory". `vercel.json` builds the client and the workspace packages it uses from
+the repository root (`pnpm turbo run build --filter=@b4-example/navlog-web...`), and
+`scripts/vercel-ignore-build.sh` skips preview builds when nothing the client is built
+from changed. `factory/*` branches never build.
+
+**Variables** (the same list as `.env.example`):
+
+| Variable | Purpose |
+|---|---|
+| `B4_SERVER_URL` | The Railway service's public URL. |
+| `B4_INTERNAL_TOKEN` | The same secret as the server's, at least 32 characters. |
+| `B4_DEMO_ORIGINS` | The site's own origin(s), comma-separated. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | The rate limiter's store. |
+| `B4_DEMO_ADMIN_TOKEN` | The demo owner's secret: long and random (`openssl rand -base64 32`). Shorter than 32 characters and the owner route stays a 404. |
+
+**The guards** (`app/lib/proxy-guard.ts`, applied by both proxy routes before anything
+is forwarded):
+
+1. **Origin.** With `B4_DEMO_ORIGINS` set, a browser call from another origin gets 403.
+2. **Visitor.** Every browser gets an HTTP-only visitor cookie (`__Host-b4_visitor`
+   when deployed), and its id is forwarded as `X-B4-Visitor`. The server makes each
+   thread owned by the visitor that created it, so one browser cannot read another's
+   conversations.
+3. **Rate limit.** Counted twice, per visitor id and per client IP, so clearing the
+   cookie does not reset it. A run (a CopilotKit POST) draws on a tight bucket, ten a
+   minute; a read (any GET, including CopilotKit's `/info`) on a loose one, 120 a
+   minute. The IP is `X-Real-IP`, else the first `X-Forwarded-For` hop, which Vercel's
+   edge sets; behind a proxy that passes client-supplied forwarding headers through,
+   the IP key is forgeable and only the visitor key holds. Without Upstash, or
+   when it errors, the limiter is skipped: the proxy fails open rather than take the
+   demo down.
+4. **Token.** Every upstream call carries `B4_INTERNAL_TOKEN`; the server refuses any
+   call without it.
+
+With none of these variables set, as in local development and the test lanes, the
+only effect is the visitor cookie and header, which a server without a token ignores.
+
+**Memory approval is the owner's.** Long-term memory is shared by the whole demo: any
+visitor's agent may propose a memory, and the proposed candidates are visible to every
+visitor in the memory panel, but only the demo owner may approve or delete one. Visit
+`/api/admin?token=<B4_DEMO_ADMIN_TOKEN>` once to make your browser the owner: it sets an
+HTTP-only owner cookie holding an HMAC of the token, never the token itself. Everyone
+else gets the panel's "reserved for the demo owner" message. With `B4_DEMO_ADMIN_TOKEN`
+unset the route is a 404.

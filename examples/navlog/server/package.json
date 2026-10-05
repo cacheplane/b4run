@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3002",
     "build": "node node_modules/@b4run/cli/dist/index.js build",
-    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json b4.config.ts src test tsconfig.json vitest.config.ts",
+    "start": "node main.mjs",
+    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json b4.config.ts deploy main.mjs src test tsconfig.json vitest.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "check": "node node_modules/@b4run/cli/dist/index.js check",
     "test": "vitest run",
+    "test:deploy": "node node_modules/@b4run/cli/dist/index.js build && vitest run --config deploy/vitest.config.ts",
     "eval": "node node_modules/@b4run/cli/dist/index.js eval",
     "memory:list": "node node_modules/@b4run/cli/dist/index.js memory list",
     "memory:approve": "node node_modules/@b4run/cli/dist/index.js memory approve"
@@ -18,6 +20,8 @@
     "@b4run/cli": "workspace:*",
     "@b4run/core": "workspace:*",
     "@b4run/langchain": "workspace:*",
+    "@b4run/memory-pgvector": "workspace:*",
+    "@b4run/postgres-storage": "workspace:*",
     "@b4run/sdk": "workspace:*",
     "zod": "^4.4.3"
   },

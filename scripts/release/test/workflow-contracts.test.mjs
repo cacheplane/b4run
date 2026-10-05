@@ -5038,26 +5038,30 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
     guard.protectedPaths.some((entry) =>
       entry.endsWith("/**") ? file.startsWith(entry.slice(0, -2)) : file === entry,
     )
-  const vercel = JSON.parse(
-    await readBoundedFixture(path.join(ROOT, "apps/web/vercel.json"), { root: ROOT }),
-  )
-  const script = /^bash (\S+)$/u.exec(vercel.ignoreCommand)?.[1]
-  assert.ok(script, "apps/web/vercel.json's ignoreCommand must be `bash <script>`")
+  // Every Vercel project in the repository builds from the branch commit: the website and
+  // the navlog demo's web client. Each project's config and the ignore script it names are
+  // what a branch build runs.
+  const vercelProjects = ["apps/web", "examples/navlog/web"]
+  const vercelFiles = []
+  for (const project of vercelProjects) {
+    const config = path.posix.join(project, "vercel.json")
+    const vercel = JSON.parse(await readBoundedFixture(path.join(ROOT, config), { root: ROOT }))
+    const script = /^bash (\S+)$/u.exec(vercel.ignoreCommand)?.[1]
+    assert.ok(script, `${config}'s ignoreCommand must be \`bash <script>\``)
+    vercelFiles.push(config, path.posix.join(project, script))
+  }
   for (const file of [
     ".github/workflows/ci.yml",
     ".github/workflows/auto-approve.yml",
     ".github/workflows/claude-review.yml",
-    "apps/web/vercel.json",
-    path.posix.join("apps/web", script),
+    ...vercelFiles,
   ])
     assert.ok(covered(file), `${file} must be a delivery-protected path`)
-  // The files the branch's own Vercel build runs must also not have changed on main since the
-  // pin; the workflows need not (a PR runs main's at the merge commit, and a factory PR can
-  // never change .github/**, a delivery-protected path).
-  assert.deepEqual(guard.runFromBranchPaths, [
-    "apps/web/vercel.json",
-    path.posix.join("apps/web", script),
-  ])
+  // The files a branch's own Vercel build runs must also not have changed on main since the
+  // pin, so they are checked against the base branch, never taken from a factory branch; the
+  // workflows need not (a PR runs main's at the merge commit, and a factory PR can never
+  // change .github/**, a delivery-protected path).
+  assert.deepEqual(guard.runFromBranchPaths, vercelFiles)
   for (const file of guard.runFromBranchPaths)
     assert.ok(covered(file), `${file} must be protected too`)
 })

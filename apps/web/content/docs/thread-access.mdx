@@ -44,7 +44,7 @@ export default defineThreadAccess({
 
 B4.run probes four paths, in order: `src/thread-access.ts`, `src/thread-access.js`, `thread-access.ts`, `thread-access.js`. The `default` export wins, and a named `threadAccess` export is the fallback.
 
-`create-b4-app` scaffolds this file, and the `src/auth.ts` it imports, as `src/thread-access.ts.example` and `src/auth.ts.example` inside the B4.run app (the generated root in the `basic` template, and the `server/` package in the research workspace). Drop both `.example` suffixes to activate them. B4.run only probes the names above, so an unrenamed scaffold changes nothing. They ship inert because a deny-by-default policy denies every caller the app can't authenticate yet, and a generated app has no identity provider on its first run.
+The `basic` template of `create-b4-app` scaffolds this file, and the `src/auth.ts` it imports, as `src/thread-access.ts.example` and `src/auth.ts.example` at the generated root. Drop both `.example` suffixes to activate them. B4.run only probes the names above, so an unrenamed scaffold changes nothing. They ship inert because a deny-by-default policy denies every caller the app can't authenticate yet, and a generated app has no identity provider on its first run. The `navlog` template ships them active in its `server/` package: its `principalOf` returns one local principal when no proxy token is configured, so local development is unaffected, and each visitor is its own principal behind the deployed proxy.
 
 `fallback` is required. That makes "I forgot to handle delete" a compile error. Without it, every request for that action would be silently allowed (or denied).
 
