@@ -13,6 +13,7 @@ import type {
   MiddlewareAfterMessage,
   MiddlewareHandler,
   MiddlewareRequest,
+  PersistedTurnEnd,
   ThreadAccessPolicy,
   ToolCallOrigin,
 } from "@b4run/sdk"
@@ -1206,6 +1207,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // stray), keeping only a call whose park is still in the checkpoint — a
     // park the stream could not see must stay answerable.
     let deferClientRecordVoid = false
+    // The turn-end record an ABORTED turn still owes the head checkpoint. Set
+    // in the inner finally, written in the outer one once `sourceCleanup` has
+    // settled, so the route's own in-flight checkpoint put cannot land after
+    // the stamp and bury it.
+    let deferredTurnEnd: PersistedTurnEnd | undefined
     const voidClientRecordsIfSettled = async (): Promise<void> => {
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
@@ -1393,18 +1399,29 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // for it, and that park still reads back as idle. Closing that needs
             // a checkpoint read here rather than a flag.
             //
-            // How the turn ended, for a thread restored from storage: from the
-            // same terminal the attachers read. `cancelled` here IS the run's
-            // own flag (projected into the terminal above) — the turn-end
-            // record describes the turn, not the thread status, so a cancel
-            // endpoint stop is "stopped" while a disconnect, which leaves no
-            // terminal error, reads as "done". Parked turns get no record.
-            const turnEnd = turnEndFor({
-              sawInterrupt,
-              cancelled: readTerminalCancelled(terminalChunk),
-              error: readTerminalError(terminalChunk),
-            })
-            if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
+            // How the turn ended, for a thread restored from storage. The
+            // record describes the TURN, not the thread status, so unlike the
+            // status write it does key on how the run stopped: a cancel
+            // endpoint stop (projected into the terminal above) and a client
+            // disconnect are both "stopped" — the disconnect aborts the route
+            // with a RUN_ERROR on the wire, but nothing went wrong with the
+            // turn, somebody stopped listening to it. A shutdown keeps its
+            // error, and a parked turn gets no record at all. Only an agent
+            // route has a checkpointer to stamp; a graph route's head, if any,
+            // belongs to some other turn.
+            const disconnected = run.signal.aborted && !run.cancelled && !shutdownSignal.aborted
+            const turnEnd =
+              route.mode === "agent"
+                ? turnEndFor({
+                    sawInterrupt,
+                    cancelled: disconnected || readTerminalCancelled(terminalChunk),
+                    error: disconnected ? undefined : readTerminalError(terminalChunk),
+                  })
+                : undefined
+            // Written now for a drained source; chased behind the route's own
+            // unwind for an aborted one (see `deferredTurnEnd`).
+            if (turnEnd && !run.signal.aborted) await stampTurnEnd(checkpointer, threadId, turnEnd)
+            else deferredTurnEnd = turnEnd
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: false, sawInterrupt }))
               .catch(() => undefined)
@@ -1421,13 +1438,25 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             run.release()
             releaseClaimWhenSettled?.()
           }
+          // Never throws (stampTurnEnd swallows), and a no-op for a drained
+          // turn, which was stamped inline.
+          const stampDeferredTurnEnd = async (): Promise<void> => {
+            if (deferredTurnEnd) await stampTurnEnd(checkpointer, threadId, deferredTurnEnd)
+          }
           if (deferClientRecordVoid) {
-            // The slot is held until the void is done, so no successor run
-            // can race it; the void itself never throws.
+            // The slot is held until the void and the stamp are done, so no
+            // successor run can race them; neither ever throws. The stamp
+            // comes after the source has unwound, so a park it lands late is
+            // seen (and leaves the head unstamped) rather than buried.
             void (sourceCleanup ?? Promise.resolve())
               .then(voidClientRecordsIfSettled, voidClientRecordsIfSettled)
+              .then(stampDeferredTurnEnd)
               .finally(releaseExecutionClaims)
-          } else if (sourceCleanup) void sourceCleanup.finally(releaseExecutionClaims)
+          } else if (sourceCleanup) {
+            void sourceCleanup
+              .then(stampDeferredTurnEnd, stampDeferredTurnEnd)
+              .finally(releaseExecutionClaims)
+          } else if (deferredTurnEnd) void stampDeferredTurnEnd().finally(releaseExecutionClaims)
           else releaseExecutionClaims()
         }
       },

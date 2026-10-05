@@ -67,15 +67,54 @@ describe("turn end stamp", () => {
     expect(readPersistedTurnEnd(metadataOf(head)[B4_TURN_METADATA_KEY])).toEqual(END)
   })
 
+  test("never stamps a parked head: an __interrupt__ pending write means no put at all", async () => {
+    const saver = new MemorySaver()
+    const head = await saver.put(
+      cfg("t-parked"),
+      checkpoint("c1") as never,
+      { source: "loop", step: 0, parents: {} } as never,
+    )
+    await saver.putWrites(
+      head,
+      [["__interrupt__", [{ value: { interruptId: "perm-1" } }]]],
+      "task-1",
+    )
+    const puts: unknown[] = []
+    const original = saver.put.bind(saver)
+    saver.put = async (...args: Parameters<MemorySaver["put"]>) => {
+      puts.push(args)
+      return original(...args)
+    }
+
+    await stampTurnEnd(saver, "t-parked", END)
+
+    expect(puts).toEqual([])
+    const after = await saver.getTuple(cfg("t-parked"))
+    expect(metadataOf(after)[B4_TURN_METADATA_KEY]).toBeUndefined()
+    expect(after?.pendingWrites?.map(([, channel]) => channel)).toEqual(["__interrupt__"])
+  })
+
   test("a thread with no checkpoint is a no-op; a saver failure is swallowed", async () => {
     const saver = new MemorySaver()
     await expect(stampTurnEnd(saver, "t-none", END)).resolves.toBeUndefined()
-    const broken = {
+    const brokenRead = {
       getTuple: async () => {
         throw new Error("db down")
       },
     } as unknown as MemorySaver
-    await expect(stampTurnEnd(broken, "t1", END)).resolves.toBeUndefined()
+    await expect(stampTurnEnd(brokenRead, "t1", END)).resolves.toBeUndefined()
+
+    const brokenWrite = new MemorySaver()
+    await brokenWrite.put(
+      cfg("t1"),
+      checkpoint("c1") as never,
+      { source: "loop", step: 0, parents: {} } as never,
+    )
+    brokenWrite.put = async () => {
+      throw new Error("disk full")
+    }
+    await expect(stampTurnEnd(brokenWrite, "t1", END)).resolves.toBeUndefined()
+    expect(metadataOf(await brokenWrite.getTuple(cfg("t1")))[B4_TURN_METADATA_KEY]).toBeUndefined()
   })
 
   test("turnEndFor maps the handler facts: parked → none, cancelled → stopped, error → failed, else done", () => {

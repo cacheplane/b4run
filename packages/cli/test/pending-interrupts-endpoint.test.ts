@@ -615,8 +615,10 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     await withAimock(
       script().user("deploy to staging").callsTool("deployProd", { env: "staging" }).build(),
     )
+    const saver = new MemorySaver()
     const handler = await createHandler(
       await fixtureApp({ "src/middleware.ts": ADMIN_PARK_MIDDLEWARE }),
+      saver,
     )
     const threadId = "t-route-swap"
 
@@ -638,6 +640,11 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     const swap = await handler.fetch(runStreamRequest(threadId, "/echo#graph"))
     expect(swap.status).toBe(200)
     await drain(swap)
+
+    // ...and the weaker turn did not stamp its own end onto the parked head:
+    // a graph route has no checkpointer, so the only head it could reach is
+    // the admin's parked one, and a parked turn has not ended.
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
 
     // Gating identity must still be the PARKING route. Resolving it from the
     // last run instead hands this caller the interruptId/resumeKey pair that
@@ -1031,6 +1038,67 @@ function resumeRequest(
     method: "POST",
   })
 }
+
+describe("turn end stamp on the head checkpoint", () => {
+  it("stamps a turn that failed after its first checkpoint as failed, with the error", async () => {
+    // The fixture never matches this message, so the model call 404s AFTER
+    // the agent's input checkpoint exists: a real failed turn with a real head.
+    await withAimock(script().user("something else").replies("Sure.").build())
+    const saver = new MemorySaver()
+    const handler = await createHandler(await fixtureApp(), saver)
+    const threadId = "t-failed-turn"
+
+    const text = await readSseText(
+      await handler.fetch(parkRunRequest(threadId, "deploy to staging")),
+    )
+    // Pins the premise: the turn FAILED, and the failure reached the terminal.
+    expect(text).toContain('"error"')
+    expect(text).toContain("No fixture matched")
+
+    const turnEnd = await readHeadTurnEnd(saver, threadId)
+    expect(turnEnd?.status).toBe("failed")
+    expect(turnEnd?.error).toContain("No fixture matched")
+  }, 60_000)
+
+  it("stamps a run cancelled mid-turn as stopped, only once its route has unwound", async () => {
+    const appRoot = await fixtureApp({ "src/app/park/tools/slowPing.ts": SLOW_PING_TOOL })
+    const startedFile = join(appRoot, "slow-started.json")
+    const releaseFile = join(appRoot, "slow-release.json")
+    // One ordinary, ungated tool call that blocks: nothing parks, so the only
+    // thing that can end this turn early is POST /cancel.
+    await withAimock([
+      {
+        match: { hasToolResult: false, turnIndex: 0, userMessage: "ping slowly" },
+        response: {
+          toolCalls: [
+            { arguments: { releaseFile, startedFile }, id: "call_slowPing_0_0", name: "slowPing" },
+          ],
+        },
+      },
+    ])
+    const saver = new MemorySaver()
+    const handler = await createHandler(appRoot, saver)
+    const threadId = "t-cancelled-turn"
+
+    const streamPromise = handler.fetch(parkRunRequest(threadId, "ping slowly"))
+    await waitForFile(startedFile, { what: "started probe" })
+    expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
+    const text = await readSseText(await streamPromise)
+    expect(text).toContain('"cancelled":true')
+
+    // The response has ended but the tool is still running: the stamp waits
+    // for the route to unwind, so the head is not stamped yet...
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
+    await writeFile(releaseFile, "release")
+
+    // ...and lands once it has. Polled: the stamp is chained behind the
+    // route's own cleanup, which nothing in the response waits for.
+    await waitFor(async () => {
+      expect((await readHeadTurnEnd(saver, threadId))?.status).toBe("stopped")
+    })
+    expect((await readHeadTurnEnd(saver, threadId))?.error).toBeUndefined()
+  }, 60_000)
+})
 
 describe("thread status after a resumed turn", () => {
   it("marks the thread interrupted when the resumed turn parks again", async () => {

@@ -39,6 +39,10 @@ export function readTerminalError(chunk: StreamChunk | undefined): string | unde
   return typeof error === "string" ? error : undefined
 }
 
+/** Whether the head's pending writes hold a park — the same channel test `parsePendingInterrupts` makes. */
+const hasParkedWrite = (pendingWrites: readonly unknown[] | undefined): boolean =>
+  (pendingWrites ?? []).some((write) => Array.isArray(write) && write[1] === "__interrupt__")
+
 /**
  * Write `b4:turn` onto the thread's head root checkpoint by re-putting it under
  * the same id and parent through the RAW saver (the provenance Proxy only wraps
@@ -46,6 +50,13 @@ export function readTerminalError(chunk: StreamChunk | undefined): string | unde
  * `(thread_id, checkpoint_ns, checkpoint_id)`, so this touches metadata only;
  * pending writes live in their own table and the parent comes from the config
  * passed in, which is the head's own `parentConfig`.
+ *
+ * A parked head is never stamped, whatever the caller's facts say: the
+ * `__interrupt__` write IS the turn's awaiting state, and a stamp over it
+ * would make a restored thread show a finished turn above a live prompt.
+ * This is the backstop for the handlers' own park flags — a stream that lost
+ * its client mid-superstep, or a `/runs/wait` whose post-hoc diff could not
+ * read the checkpoint, reads the park from here instead.
  *
  * Never throws: a failed stamp degrades the restored turn to "done without an
  * end time", never the run.
@@ -59,6 +70,7 @@ export async function stampTurnEnd(
     const root = { configurable: { thread_id: threadId, checkpoint_ns: "" } }
     const head = await checkpointer.getTuple(root)
     if (!head) return
+    if (hasParkedWrite(head.pendingWrites)) return
     await checkpointer.put(
       head.parentConfig ?? root,
       head.checkpoint,
