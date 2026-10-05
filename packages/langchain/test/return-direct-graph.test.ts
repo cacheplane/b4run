@@ -7,7 +7,8 @@
  * alone, error or not; B4 routes these itself (`endsOnReturnDirect`).
  */
 
-import { agent } from "@b4run/sdk"
+import { wrapToolWithApproval } from "@b4run/core"
+import { agent, B4_STEP_KEY } from "@b4run/sdk"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AIMessage, type BaseMessage, isAIMessage, isToolMessage } from "@langchain/core/messages"
 import type { ChatResult } from "@langchain/core/outputs"
@@ -21,6 +22,8 @@ import {
 
 let script: AIMessage[] = []
 let modelCalls = 0
+/** What each model call was shown, in order. */
+let seenByModel: BaseMessage[][] = []
 
 class ScriptedChatModel extends BaseChatModel {
   constructor(_options: Record<string, unknown>) {
@@ -29,7 +32,8 @@ class ScriptedChatModel extends BaseChatModel {
   _llmType(): string {
     return "scripted-fake"
   }
-  async _generate(_messages: BaseMessage[]): Promise<ChatResult> {
+  async _generate(messages: BaseMessage[]): Promise<ChatResult> {
+    seenByModel.push(messages)
     const message = script[modelCalls]
     modelCalls += 1
     if (!message) throw new Error("ScriptedChatModel ran out of canned responses")
@@ -100,6 +104,7 @@ async function runTurn(tools: readonly ReturnType<typeof renderTool>[]) {
 afterEach(() => {
   script = []
   modelCalls = 0
+  seenByModel = []
   __resetMaterializedAgentsForTests()
 })
 
@@ -160,4 +165,34 @@ test("without returnDirect the same tool hands control back to the model", async
   const last = messages.at(-1)
   expect(last !== undefined && isAIMessage(last)).toBe(true)
   expect(last?.content).toBe("Here is your invoice.")
+})
+
+test("a denied returnDirect call goes back to the model instead of ending the run", async () => {
+  // On main the denial text ended the run as the final answer. The denial is
+  // now a `status: "error"` ToolMessage, and `endsOnReturnDirect` ends only
+  // on success, so the model reads the denial like any failed call.
+  script = [callsRender("call_1", "Table"), new AIMessage("I am not allowed to render that.")]
+  const deniesEverything = {
+    mode: "interactive" as const,
+    match: () => "deny" as const,
+    load: async () => {},
+    addAllow: async () => {},
+  }
+  const render = wrapToolWithApproval(renderTool({ returnDirect: true }), deniesEverything)
+
+  const { messages, toolStatuses } = await runTurn([render])
+
+  expect(modelCalls).toBe(2)
+  expect(toolStatuses).toEqual(["error"])
+  const denial = messages.filter(isToolMessage)[0]
+  expect(denial?.content).toBe("[B4_E3001] Permission denied by user: tool render")
+  expect(denial?.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "failed" })
+  // The second model call was shown the denial ToolMessage.
+  const shown = seenByModel[1]?.filter(isToolMessage) ?? []
+  expect(shown.map((m) => [m.tool_call_id, m.status, String(m.content)])).toEqual([
+    ["call_1", "error", "[B4_E3001] Permission denied by user: tool render"],
+  ])
+  const last = messages.at(-1)
+  expect(last !== undefined && isAIMessage(last)).toBe(true)
+  expect(last?.content).toBe("I am not allowed to render that.")
 })

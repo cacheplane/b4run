@@ -1,6 +1,16 @@
+import { wrapToolWithApproval } from "@b4run/core"
 import { B4_STEP_KEY, toolDenial } from "@b4run/sdk"
 import { ToolMessage } from "@langchain/core/messages"
-import { GraphInterrupt } from "@langchain/langgraph"
+import type { RunnableConfig } from "@langchain/core/runnables"
+import {
+  Annotation,
+  Command,
+  END,
+  GraphInterrupt,
+  MemorySaver,
+  START,
+  StateGraph,
+} from "@langchain/langgraph"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { convertToolToLangChain } from "../src/tool-converter.js"
 
@@ -236,6 +246,72 @@ describe("converter persists a complete b4_step", () => {
     expect(spy.mock.calls.map((call) => call[1])).toEqual([
       { tool_call_id: "call_1", status: "running", icon: "search" },
     ])
+  })
+})
+
+describe("the approval gate's answer reaches the persisted step", () => {
+  /** A store with no rule for the tool, so every call asks the human. */
+  const asksEveryTime = {
+    mode: "interactive" as const,
+    match: () => "unknown" as const,
+    load: async () => {},
+    addAllow: async () => {},
+  }
+
+  /** Parks the wrapped, converted tool on its permission interrupt, then resumes with `decision`. */
+  async function gatedCall(decision: "once" | "deny") {
+    const converted = convertToolToLangChain(
+      wrapToolWithApproval(
+        {
+          name: "deployProd",
+          display: { icon: "run" as const, done: () => "Deployed" },
+          run: async () => "deployed",
+        },
+        asksEveryTime,
+      ),
+    )
+    const State = Annotation.Root({ result: Annotation<ToolMessage | undefined>() })
+    const graph = new StateGraph(State)
+      .addNode("tools", async (_state, graphConfig: RunnableConfig) => ({
+        result: (await converted.func({}, undefined, {
+          ...graphConfig,
+          toolCall: { id: "call_gated", name: "deployProd", args: {} },
+        } as never)) as ToolMessage,
+      }))
+      .addEdge(START, "tools")
+      .addEdge("tools", END)
+      .compile({ checkpointer: new MemorySaver() })
+    const graphConfig = { configurable: { thread_id: `gate-${decision}` } }
+    await graph.invoke({}, graphConfig)
+    const parked = await graph.getState(graphConfig)
+    expect(parked.tasks[0]?.interrupts[0]?.value).toMatchObject({
+      type: "permission-request",
+      kind: "tool",
+      toolCallId: "call_gated",
+    })
+    const resumed = await graph.invoke(new Command({ resume: decision }), graphConfig)
+    return resumed.result as ToolMessage
+  }
+
+  test("once: the completed step records the decision", async () => {
+    const result = await gatedCall("once")
+    expect(result.status).toBe("success")
+    expect(result.content).toBe('"deployed"')
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      status: "completed",
+      icon: "run",
+      label: "Deployed",
+      decision: "once",
+    })
+  })
+
+  test("deny: an error ToolMessage with a failed step that records the decision", async () => {
+    const result = await gatedCall("deny")
+    expect(result.status).toBe("error")
+    expect(result.content).toBe("[B4_E3001] Permission denied by user: tool deployProd")
+    const step = result.additional_kwargs[B4_STEP_KEY] as Record<string, unknown>
+    expect(step).toMatchObject({ status: "failed", icon: "run", decision: "deny" })
+    expect(step).not.toHaveProperty("label")
   })
 })
 
