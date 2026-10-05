@@ -47,7 +47,12 @@ export function ChatDock({
   }, [threadsOpen])
 
   return (
-    <section className="wb-panel wb-dock relative flex min-h-0 flex-1 flex-col" aria-label="Chat">
+    // `min-w-0`: as a flex item the dock would otherwise grow to its widest
+    // content (a long tool-call argument line) and spill over the map.
+    <section
+      className="wb-panel wb-dock relative flex min-h-0 min-w-0 flex-1 flex-col"
+      aria-label="Chat"
+    >
       <header className="relative flex shrink-0 items-center gap-2 border-b border-wb-border px-3 py-2">
         <span className="wb-brand-mark shrink-0 text-[14px] font-semibold tracking-tight">
           B4.run navlog

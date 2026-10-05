@@ -25,9 +25,14 @@ export interface WorkbenchLayoutProps {
   readonly onNewConversation: () => void
 }
 
-/** Room the map leaves for the floating surfaces when it fits the route, in pixels. */
-const DOCK_PAD = 420
+/**
+ * Room the map leaves for the floating surfaces when it fits the route, in
+ * pixels. The zoom and attribution controls sit in the top-left corner (beside
+ * the dock on desktop), so the left (desktop) and top (phone) pads clear them.
+ */
+const DOCK_PAD = 470
 const STRIP_PAD = 90
+const PHONE_CONTROLS_PAD = 110
 /** The collapsed sheet: one line of totals plus the gutter. */
 const SHEET_COLLAPSED_PAD = 140
 /** Matches `--wb-sheet-max` (46vh), the open sheet's height cap. */
@@ -88,7 +93,7 @@ export function WorkbenchLayout({
     if (!isDesktop) {
       return {
         left: 24,
-        top: 24,
+        top: PHONE_CONTROLS_PAD,
         bottom: Math.round(viewportHeight() * PHONE_SHEET_SHARE) + PHONE_STRIP_PAD,
       }
     }
