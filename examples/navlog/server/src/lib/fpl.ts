@@ -25,8 +25,10 @@ export interface FlightPlan {
 }
 
 const hhmm = (minutes: number): string => {
-  const h = Math.floor(minutes / 60)
-  const m = Math.round(minutes % 60)
+  // Round to whole minutes first, so 59.6 min is 0100, never 0060.
+  const total = Math.round(minutes)
+  const h = Math.floor(total / 60)
+  const m = total % 60
   return `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`
 }
 

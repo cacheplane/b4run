@@ -26,6 +26,11 @@ describe("cruise performance (Figure 5-7)", () => {
       gph: 6.3,
     })
   })
+  it("rejects a pressure altitude outside the table instead of clamping", () => {
+    expect(() => cruiseAt({ pressureAltitudeFt: 1500, rpm: 2400 })).toThrow(
+      "cruise table covers 2000 to 12,000 ft pressure altitude (Figure 5-7)",
+    )
+  })
   it("rejects an RPM the table does not list at that altitude", () => {
     expect(() => cruiseAt({ pressureAltitudeFt: 2000, rpm: 2600 })).toThrow(/not listed/)
   })

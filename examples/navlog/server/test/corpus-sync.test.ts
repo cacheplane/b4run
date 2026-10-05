@@ -23,8 +23,12 @@ describe("workspace/poh matches src/lib/poh-tables", () => {
   it("climb rows", () => {
     const md = doc("time-fuel-distance-to-climb")
     for (const row of CLIMB_TABLE) {
-      const line = `| ${row.timeMin} | ${row.fuelGal.toFixed(1)} | ${row.distanceNm} |`
-      expect(md, `${row.pressureAltitudeFt}`).toContain(line)
+      // Anchored on the altitude, so swapped rows fail.
+      const pattern = new RegExp(
+        `^\\| ${fmtAlt(row.pressureAltitudeFt)} \\|.*\\| ${row.timeMin} \\| ${row.fuelGal.toFixed(1).replace(".", "\\.")} \\| ${row.distanceNm} \\|$`,
+        "m",
+      )
+      expect(md, `${row.pressureAltitudeFt}`).toMatch(pattern)
     }
   })
   it("takeoff and landing rows", () => {

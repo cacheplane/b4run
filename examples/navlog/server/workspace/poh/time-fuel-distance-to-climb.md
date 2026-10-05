@@ -17,3 +17,5 @@ Source: Cessna 172N POH (1978), Section 5, Figure 5-6. Conditions: flaps up, ful
 | 10,000 | −5 | 68 | 295 | 21 | 3.7 | 27 |
 | 11,000 | −7 | 67 | 250 | 24 | 4.2 | 32 |
 | 12,000 | −9 | 67 | 200 | 29 | 4.9 | 38 |
+
+To find the climb from a field above sea level, subtract the row for the field's pressure altitude from the row for the cruise altitude.

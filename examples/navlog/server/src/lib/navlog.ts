@@ -79,10 +79,34 @@ export interface Navlog {
 
 const START_TAXI_TAKEOFF_GAL = 1.1
 const RESERVE_MIN = 45
-/** Figure 5-6 climb speed, used as climb-segment TAS. */
-const CLIMB_TAS_KT = 72
+/** Figure 5-6 climb speed, KIAS. Shown in the TAS column of a climb row; not used for groundspeed. */
+const CLIMB_SPEED_KIAS = 72
 
 const round1 = (n: number): number => Math.round(n * 10) / 10
+
+/**
+ * Climb from the departure field to cruise altitude. Figure 5-6 is cumulative
+ * from sea level, so the climb from a field above sea level is the row for the
+ * cruise altitude minus the row for the field, component-wise, never below zero.
+ */
+function climbFromField(
+  fieldElevationFt: number,
+  altitudeFt: number,
+): {
+  timeMin: number
+  fuelGal: number
+  distanceNm: number
+} {
+  const top = climbFromSeaLevel(altitudeFt)
+  const field = climbFromSeaLevel(Math.min(fieldElevationFt, altitudeFt))
+  return {
+    timeMin: Math.max(0, top.timeMin - field.timeMin),
+    fuelGal: Math.max(0, round1(top.fuelGal - field.fuelGal)),
+    distanceNm: Math.max(0, top.distanceNm - field.distanceNm),
+  }
+}
+
+type LegRow = Omit<NavlogLeg, "remainingNm">
 
 /** Pure navlog arithmetic. No model, no network. */
 export function computeNavlog(input: NavlogInput): Navlog {
@@ -95,19 +119,27 @@ export function computeNavlog(input: NavlogInput): Navlog {
     throw new Error(`departureTimeUtc is not a date: ${input.departureTimeUtc}`)
 
   const cruise = cruiseAt({ pressureAltitudeFt: input.altitudeFt, rpm: input.aircraft.cruiseRpm })
-  const climb = climbFromSeaLevel(input.altitudeFt)
+  const origin = input.waypoints[0] as NavlogWaypoint
+  const climb = climbFromField(origin.elevationFt ?? 0, input.altitudeFt)
 
-  const legs: NavlogLeg[] = []
+  // The climb can span several legs. Time and fuel are prorated by the share of
+  // the climb distance flown on each leg, and rounded on the running total so
+  // the climb rows still add up to the Figure 5-6 figures.
+  let climbFlownNm = 0
+  let climbMinRounded = 0
+  let climbGalRounded = 0
+  // Start, taxi and takeoff fuel goes on the first row emitted.
+  let startAllowanceGal = START_TAXI_TAKEOFF_GAL
+
+  const rows: LegRow[] = []
   let clock = departure.getTime()
   let fuelRemaining = input.aircraft.usableFuelGal
 
-  const push = (partial: Omit<NavlogLeg, "etaUtc" | "fuelRemainingGal" | "remainingNm">): void => {
+  const pushRow = (partial: Omit<LegRow, "etaUtc" | "fuelRemainingGal">): void => {
     clock += partial.eteMin * 60_000
     fuelRemaining = round1(fuelRemaining - partial.fuelGal)
-    legs.push({
+    rows.push({
       ...partial,
-      // Filled in below from the whole-nm leg distances, so the column adds up.
-      remainingNm: 0,
       etaUtc: new Date(clock).toISOString(),
       fuelRemainingGal: fuelRemaining,
     })
@@ -121,68 +153,84 @@ export function computeNavlog(input: NavlogInput): Navlog {
     const trueCourse = initialTrueCourse(from, to)
     const variation = from.magneticVariationDeg
     const magneticCourse = magneticFromTrue(trueCourse, variation)
-
-    const segments: { segment: "climb" | "cruise"; distanceNm: number; tasKt: number }[] = []
-    if (i === 0 && climb.distanceNm > 0) {
-      const climbDistance = Math.min(climb.distanceNm, legDistance)
-      segments.push({ segment: "climb", distanceNm: climbDistance, tasKt: CLIMB_TAS_KT })
-      if (legDistance > climbDistance)
-        segments.push({
-          segment: "cruise",
-          distanceNm: legDistance - climbDistance,
-          tasKt: cruise.tasKt,
-        })
-    } else {
-      segments.push({ segment: "cruise", distanceNm: legDistance, tasKt: cruise.tasKt })
+    const common = {
+      from: from.id,
+      to: to.id,
+      trueCourse: Math.round(trueCourse),
+      variation,
+      magneticCourse: Math.round(magneticCourse),
+      wind: { dir: wind.dirDegTrue, kt: wind.speedKt },
     }
 
-    for (const seg of segments) {
+    let cruiseDistance = legDistance
+    const climbLeftNm = climb.distanceNm - climbFlownNm
+    if (climbLeftNm > 0) {
+      const climbNm = Math.min(climbLeftNm, legDistance)
+      climbFlownNm += climbNm
+      cruiseDistance = legDistance - climbNm
+      const share = climbFlownNm / climb.distanceNm
+      const exactMin = climb.timeMin * share
+      const eteMin = Math.round(exactMin) - climbMinRounded
+      climbMinRounded += eteMin
+      const climbGal = round1(climb.fuelGal * share - climbGalRounded)
+      climbGalRounded = round1(climbGalRounded + climbGal)
+      const exactSegMin = (climb.timeMin * climbNm) / climb.distanceNm
+      // No wind triangle on a climb row: Figure 5-6 distances are zero-wind,
+      // so the groundspeed is the table's distance over its time.
+      const groundspeed = exactSegMin > 0 ? climbNm / (exactSegMin / 60) : CLIMB_SPEED_KIAS
+      pushRow({
+        ...common,
+        segment: "climb",
+        wca: 0,
+        trueHeading: Math.round(trueCourse),
+        magneticHeading: Math.round(magneticCourse),
+        tasKt: CLIMB_SPEED_KIAS,
+        groundspeedKt: Math.round(groundspeed),
+        distanceNm: Math.round(climbNm),
+        eteMin,
+        fuelGal: round1(climbGal + startAllowanceGal),
+      })
+      startAllowanceGal = 0
+    }
+
+    if (cruiseDistance > 0) {
       const tri = solveWindTriangle({
         trueCourse,
-        tasKt: seg.tasKt,
+        tasKt: cruise.tasKt,
         windDirTrue: wind.dirDegTrue,
         windKt: wind.speedKt,
       })
-      const isClimb = seg.segment === "climb"
-      const eteMin = isClimb ? climb.timeMin : Math.round((seg.distanceNm / tri.groundspeedKt) * 60)
-      const fuelGal = isClimb
-        ? round1(climb.fuelGal + START_TAXI_TAKEOFF_GAL)
-        : round1((eteMin / 60) * cruise.gph)
-      push({
-        from: from.id,
-        to: to.id,
-        segment: seg.segment,
-        trueCourse: Math.round(trueCourse),
-        variation,
-        magneticCourse: Math.round(magneticCourse),
-        wind: { dir: wind.dirDegTrue, kt: wind.speedKt },
+      const eteMin = Math.round((cruiseDistance / tri.groundspeedKt) * 60)
+      pushRow({
+        ...common,
+        segment: "cruise",
         wca: Math.round(tri.windCorrectionAngle),
         trueHeading: Math.round(tri.trueHeading),
         magneticHeading: Math.round(magneticFromTrue(tri.trueHeading, variation)),
-        tasKt: seg.tasKt,
+        tasKt: cruise.tasKt,
         groundspeedKt: Math.round(tri.groundspeedKt),
-        distanceNm: Math.round(seg.distanceNm),
+        distanceNm: Math.round(cruiseDistance),
         eteMin,
-        fuelGal,
+        fuelGal: round1((eteMin / 60) * cruise.gph + startAllowanceGal),
       })
+      startAllowanceGal = 0
     }
   }
 
-  // Distance remaining after each leg, and the total, are sums of the leg
-  // distances as printed (whole nm), so the navlog columns add up.
-  let distanceAfter = 0
-  for (let k = legs.length - 1; k >= 0; k--) {
-    const leg = legs[k] as NavlogLeg
-    legs[k] = { ...leg, remainingNm: distanceAfter }
-    distanceAfter += leg.distanceNm
+  // One backward pass: distance remaining after each row is the sum of the
+  // whole-nm rows after it, so the column adds up.
+  const remaining: number[] = new Array(rows.length).fill(0)
+  for (let k = rows.length - 2; k >= 0; k--) {
+    remaining[k] = (remaining[k + 1] ?? 0) + (rows[k + 1]?.distanceNm ?? 0)
   }
-  const totalDistanceNm = distanceAfter
+  const legs: NavlogLeg[] = rows.map((row, k) => ({ ...row, remainingNm: remaining[k] ?? 0 }))
+  // The plain sum of the whole-nm legs, so the totals row equals the column.
+  const totalDistanceNm = legs.reduce((sum, leg) => sum + leg.distanceNm, 0)
 
   const eteMin = legs.reduce((sum, leg) => sum + leg.eteMin, 0)
   const fuelGal = round1(legs.reduce((sum, leg) => sum + leg.fuelGal, 0))
   const fuelRemainingGal = round1(input.aircraft.usableFuelGal - fuelGal)
   const reserveMin = (fuelRemainingGal / cruise.gph) * 60
-  const first = input.waypoints[0] as NavlogWaypoint
   const last = input.waypoints[input.waypoints.length - 1] as NavlogWaypoint
 
   return {
@@ -199,7 +247,7 @@ export function computeNavlog(input: NavlogInput): Navlog {
     waypoints: input.waypoints,
     legs,
     totals: {
-      distanceNm: round1(totalDistanceNm),
+      distanceNm: totalDistanceNm,
       eteMin,
       fuelGal,
       fuelRemainingGal,
@@ -208,7 +256,7 @@ export function computeNavlog(input: NavlogInput): Navlog {
     },
     flightPlan: buildFlightPlan({
       tailNumber: input.aircraft.tailNumber,
-      departure: first.id,
+      departure: origin.id,
       destination: last.id,
       route: input.waypoints.slice(1, -1).map((wp) => wp.id),
       departureTimeUtc: departure.toISOString(),

@@ -81,7 +81,10 @@ export function cruiseAt(input: {
   const altitudes = [...new Set(CRUISE_TABLE.map((row) => row.pressureAltitudeFt))].sort(
     (a, b) => a - b,
   )
-  const alt = Math.min(Math.max(input.pressureAltitudeFt, altitudes[0] ?? 0), altitudes.at(-1) ?? 0)
+  const alt = input.pressureAltitudeFt
+  if (alt < (altitudes[0] ?? 0) || alt > (altitudes.at(-1) ?? 0)) {
+    throw new Error("cruise table covers 2000 to 12,000 ft pressure altitude (Figure 5-7)")
+  }
   const lower = [...altitudes].reverse().find((a) => a <= alt) ?? altitudes[0] ?? 0
   const upper = altitudes.find((a) => a >= alt) ?? lower
   const cellAt = (altitudeFt: number): CruiseCell => {

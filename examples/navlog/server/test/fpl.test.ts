@@ -37,6 +37,11 @@ describe("ICAO flight plan", () => {
     const direct = buildFlightPlan({ ...planInput(), route: [] })
     expect(direct.item15).toBe("N0110VFR DCT")
   })
+  it("rounds minutes before splitting hours, so 59.6 min is 0100", () => {
+    const plan = buildFlightPlan({ ...planInput(), eteMin: 59.6, enduranceMin: 119.5 })
+    expect(plan.item16).toBe("KRST0100")
+    expect(plan.item19).toBe("E/0200 P/2")
+  })
 })
 
 function planInput() {
