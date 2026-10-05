@@ -10,7 +10,7 @@ export type AwcProduct =
   | "taf"
   | "windtemp"
   | "gairmet"
-  | "sigmet"
+  | "airsigmet"
   | "stationinfo"
   | "navaid"
 
@@ -55,7 +55,8 @@ export class AwcClient {
       ...(signal ? { signal } : {}),
     })
     if (!response.ok) throw new Error(`aviationweather.gov ${product} returned ${response.status}`)
-    const body = await response.text()
+    // 204 No Content means "nothing matched"; keep it as an empty body.
+    const body = response.status === 204 ? "" : await response.text()
     this.#cache.set(url, { at: now, body })
     return body
   }
@@ -66,6 +67,9 @@ export class AwcClient {
     signal?: AbortSignal,
   ): Promise<T> {
     const body = await this.getText(product, { ...params, format: "json" }, signal)
+    // Every JSON product used here is an array; an empty answer (204 or a blank
+    // body) is an empty array, not a parse error.
+    if (body.trim() === "") return [] as T
     return JSON.parse(body) as T
   }
 }

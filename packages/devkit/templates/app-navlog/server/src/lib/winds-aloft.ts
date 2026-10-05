@@ -18,14 +18,6 @@ export interface WindsAloftProduct {
 function decodeGroup(group: string, levelFt: number): WindAtLevel {
   const wind = group.slice(0, 4)
   const rest = group.slice(4)
-  let dir = Number.parseInt(wind.slice(0, 2), 10) * 10
-  let speed = Number.parseInt(wind.slice(2, 4), 10)
-  if (wind === "9900") return { dirDegTrue: 0, speedKt: 0, tempC: null }
-  if (dir > 360) {
-    dir -= 500
-    speed += 100
-  }
-  if (dir === 360) dir = 0
   let tempC: number | null = null
   if (rest.length > 0) {
     const signed = rest.startsWith("+") || rest.startsWith("-")
@@ -34,6 +26,15 @@ function decodeGroup(group: string, levelFt: number): WindAtLevel {
       tempC = rest.startsWith("-") || (!signed && levelFt > 24000) ? -magnitude : magnitude
     }
   }
+  // Light and variable; the temperature, when given, still applies.
+  if (wind === "9900") return { dirDegTrue: 0, speedKt: 0, tempC }
+  let dir = Number.parseInt(wind.slice(0, 2), 10) * 10
+  let speed = Number.parseInt(wind.slice(2, 4), 10)
+  if (dir > 360) {
+    dir -= 500
+    speed += 100
+  }
+  if (dir === 360) dir = 0
   return { dirDegTrue: dir, speedKt: speed, tempC }
 }
 
@@ -97,9 +98,16 @@ export function interpolateWind(station: StationWinds, altitudeFt: number): Wind
   const lo = station[lower] as WindAtLevel
   const hi = station[upper] as WindAtLevel
   const t = (altitudeFt - lower) / (upper - lower)
+  // A calm level has no direction; take the other level's.
+  const direction =
+    lo.speedKt === 0
+      ? hi.dirDegTrue
+      : hi.speedKt === 0
+        ? lo.dirDegTrue
+        : lerpAngle(lo.dirDegTrue, hi.dirDegTrue, t)
   const tempC = lo.tempC !== null && hi.tempC !== null ? lo.tempC + (hi.tempC - lo.tempC) * t : null
   return {
-    dirDegTrue: Math.round(lerpAngle(lo.dirDegTrue, hi.dirDegTrue, t)),
+    dirDegTrue: Math.round(direction),
     speedKt: lo.speedKt + (hi.speedKt - lo.speedKt) * t,
     tempC,
   }

@@ -10,7 +10,7 @@ const base: NavlogInput = {
       id: "KSTP",
       lat: 44.9346,
       lon: -93.0603,
-      elevationFt: 215,
+      elevationFt: 705,
       magneticVariationDeg: 0,
       kind: "airport",
     },
@@ -32,11 +32,11 @@ describe("computeNavlog", () => {
     expect(log.legs.map((leg) => leg.segment)).toEqual(["climb", "cruise"])
     expect(log.legs[0]?.from).toBe("KSTP")
     expect(log.legs[1]?.to).toBe("KRST")
-    // Figure 5-6 from KSTP (215 ft: 0 min, 0.1 gal, 0 nm) to 4500 ft (7 min, 1.4 gal, 9 nm):
-    // 7 min, 1.3 gal, 9 nm, plus 1.1 gal start/taxi/takeoff on the climb segment.
-    expect(log.legs[0]?.distanceNm).toBe(9)
-    expect(log.legs[0]?.eteMin).toBe(7)
-    expect(log.legs[0]?.fuelGal).toBeCloseTo(2.4, 5)
+    // Figure 5-6 from KSTP (705 ft: 1 min, 0.2 gal, 1 nm) to 4500 ft (7 min, 1.4 gal, 9 nm):
+    // 6 min, 1.2 gal, 8 nm, plus 1.1 gal start/taxi/takeoff on the climb segment.
+    expect(log.legs[0]?.distanceNm).toBe(8)
+    expect(log.legs[0]?.eteMin).toBe(6)
+    expect(log.legs[0]?.fuelGal).toBeCloseTo(2.3, 5)
   })
   it("flies the climb row at the table's zero-wind groundspeed, no wind correction", () => {
     const climb = computeNavlog(base).legs[0]
@@ -45,7 +45,7 @@ describe("computeNavlog", () => {
     expect(climb?.trueHeading).toBe(climb?.trueCourse)
     expect(climb?.magneticHeading).toBe(climb?.magneticCourse)
     expect(climb?.tasKt).toBe(72)
-    expect(climb?.groundspeedKt).toBe(Math.round(9 / (7 / 60)))
+    expect(climb?.groundspeedKt).toBe(Math.round(8 / (6 / 60)))
     expect(climb?.wind).toEqual({ dir: 320, kt: 20 })
   })
   it("carries the climb into the next leg when the first leg is shorter", () => {
@@ -67,8 +67,9 @@ describe("computeNavlog", () => {
         { dirDegTrue: 320, speedKt: 20 },
       ],
     })
-    // Figure 5-6 from 215 ft to 8500 ft: 16 min, 2.9 gal, 21 nm.
-    const climbNm = 21
+    // Figure 5-6 from 705 ft (1 min, 0.2 gal, 1 nm) to 8500 ft (16 min, 3.0 gal, 21 nm):
+    // 15 min, 2.8 gal, 20 nm.
+    const climbNm = 20
     expect(log.legs.map((leg) => `${leg.from}-${leg.to}:${leg.segment}`)).toEqual([
       "KSTP-FIX6S:climb",
       "FIX6S-KRST:climb",
@@ -76,9 +77,40 @@ describe("computeNavlog", () => {
     ])
     expect(log.legs[0]?.distanceNm).toBe(6)
     expect(log.legs[1]?.distanceNm).toBe(climbNm - 6)
-    expect((log.legs[0]?.eteMin ?? 0) + (log.legs[1]?.eteMin ?? 0)).toBe(16)
-    expect((log.legs[0]?.fuelGal ?? 0) + (log.legs[1]?.fuelGal ?? 0)).toBeCloseTo(2.9 + 1.1, 5)
+    expect((log.legs[0]?.eteMin ?? 0) + (log.legs[1]?.eteMin ?? 0)).toBe(15)
+    expect((log.legs[0]?.fuelGal ?? 0) + (log.legs[1]?.fuelGal ?? 0)).toBeCloseTo(2.8 + 1.1, 5)
     expect(log.totals.eteMin).toBe(log.legs.reduce((sum, leg) => sum + leg.eteMin, 0))
+  })
+  it("drops a climb sliver that rounds to nothing instead of printing a zero row", () => {
+    // A field at sea level climbs to 8500 ft in 16 min, 3.0 gal, 21 nm (Figure 5-6);
+    // a first leg of 20.7 nm leaves 0.3 nm of climb, which rounds to 0 nm, 0 min, 0.0 gal.
+    const [kstp, krst] = base.waypoints
+    if (!kstp || !krst) throw new Error("base waypoints")
+    const seaLevelField = { ...kstp, elevationFt: 0 }
+    const fix = {
+      id: "FIX21S",
+      lat: kstp.lat - 20.7 / (3440.065 * (Math.PI / 180)),
+      lon: kstp.lon,
+      magneticVariationDeg: 0,
+      kind: "fix" as const,
+    }
+    const log = computeNavlog({
+      ...base,
+      altitudeFt: 8500,
+      waypoints: [seaLevelField, fix, krst],
+      winds: [
+        { dirDegTrue: 320, speedKt: 20 },
+        { dirDegTrue: 320, speedKt: 20 },
+      ],
+    })
+    expect(log.legs.map((leg) => `${leg.from}-${leg.to}:${leg.segment}`)).toEqual([
+      "KSTP-FIX21S:climb",
+      "FIX21S-KRST:cruise",
+    ])
+    expect(log.legs[0]?.distanceNm).toBe(21)
+    for (const leg of log.legs) {
+      expect(leg.distanceNm + leg.eteMin + leg.fuelGal).toBeGreaterThan(0)
+    }
   })
   it("uses the Figure 5-7 cruise row at the pressure altitude and RPM", () => {
     const log = computeNavlog(base)
@@ -100,13 +132,12 @@ describe("computeNavlog", () => {
     expect(log.totals.eteMin).toBe(log.legs.reduce((sum, leg) => sum + leg.eteMin, 0))
     expect(log.legs.at(-1)?.remainingNm).toBe(0)
     expect(log.legs.at(-1)?.fuelRemainingGal).toBeCloseTo(50 - log.totals.fuelGal, 5)
-    expect(log.legs[0]?.etaUtc).toBe("2026-10-05T14:07:00.000Z")
+    expect(log.legs[0]?.etaUtc).toBe("2026-10-05T14:06:00.000Z")
   })
   it("reports the reserve in minutes at cruise burn and flags under 45", () => {
     const log = computeNavlog(base)
-    expect(log.totals.reserveMin).toBeCloseTo(
-      (log.totals.fuelRemainingGal / log.aircraft.gph) * 60,
-      5,
+    expect(log.totals.reserveMin).toBe(
+      Math.round((log.totals.fuelRemainingGal / log.aircraft.gph) * 60),
     )
     expect(log.totals.reserveOk).toBe(true)
     const thirsty = computeNavlog({ ...base, aircraft: { ...base.aircraft, usableFuelGal: 8 } })

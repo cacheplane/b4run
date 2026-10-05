@@ -14,6 +14,8 @@ export const WINDS_ALOFT_REGIONS = [
 ] as const
 export type WindsAloftRegion = (typeof WINDS_ALOFT_REGIONS)[number]
 
+const FORECAST_HOURS: readonly number[] = [6, 12, 24]
+
 export interface WindsAloft {
   readonly region: string
   readonly station: string
@@ -35,14 +37,20 @@ export default async (
     readonly region: WindsAloftRegion
     readonly station: string
     readonly altitudeFt: number
-    readonly forecastHours?: 6 | 12 | 24
+    readonly forecastHours?: number
   },
   ctx: B4ToolContext,
 ): Promise<WindsAloft> => {
   if (!(WINDS_ALOFT_REGIONS as readonly string[]).includes(input.region)) {
     throw new Error(`region must be one of ${WINDS_ALOFT_REGIONS.join(", ")}`)
   }
+  // Typegen flattens a numeric literal union, so the allowed values are checked here.
   const forecastHours = input.forecastHours ?? 6
+  if (!FORECAST_HOURS.includes(forecastHours)) {
+    throw new Error(
+      `forecastHours must be one of ${FORECAST_HOURS.join(", ")}, got ${forecastHours}`,
+    )
+  }
   const text = await awc.getText(
     "windtemp",
     { region: input.region, level: "low", fcst: String(forecastHours).padStart(2, "0") },
@@ -78,7 +86,7 @@ export const display = {
     readonly region: WindsAloftRegion
     readonly station: string
     readonly altitudeFt: number
-    readonly forecastHours?: 6 | 12 | 24
+    readonly forecastHours?: number
   },
   WindsAloft
 >

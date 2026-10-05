@@ -36,6 +36,14 @@ describe("AwcClient", () => {
     await client.getJson("metar", { ids: "KSTP" })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+  it("reads a 204 No Content answer as an empty array", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 204 })),
+    )
+    const client = new AwcClient({ baseUrl: "https://awc.test/api/data", now: () => 0 })
+    await expect(client.getJson("airsigmet", {})).resolves.toEqual([])
+  })
   it("throws a readable error on a non-2xx response", async () => {
     vi.stubGlobal(
       "fetch",

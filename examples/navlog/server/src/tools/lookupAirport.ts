@@ -84,7 +84,8 @@ export default async (input: { readonly id: string }, ctx: B4ToolContext): Promi
     state: record.state ?? "",
     lat: record.lat,
     lon: record.lon,
-    elevationFt: record.elev ?? 0,
+    // The AWC airport record gives field elevation in meters.
+    elevationFt: Math.round((record.elev ?? 0) * 3.28084),
     magneticVariationDeg: variationFrom(record.magdec),
     frequencies,
     runways,

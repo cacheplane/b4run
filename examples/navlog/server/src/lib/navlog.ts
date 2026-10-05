@@ -136,6 +136,8 @@ export function computeNavlog(input: NavlogInput): Navlog {
   let fuelRemaining = input.aircraft.usableFuelGal
 
   const pushRow = (partial: Omit<LegRow, "etaUtc" | "fuelRemainingGal">): void => {
+    // A sliver of climb or cruise that rounds to nothing everywhere is not a row.
+    if (partial.distanceNm === 0 && partial.eteMin === 0 && partial.fuelGal === 0) return
     clock += partial.eteMin * 60_000
     fuelRemaining = round1(fuelRemaining - partial.fuelGal)
     rows.push({
@@ -230,7 +232,7 @@ export function computeNavlog(input: NavlogInput): Navlog {
   const eteMin = legs.reduce((sum, leg) => sum + leg.eteMin, 0)
   const fuelGal = round1(legs.reduce((sum, leg) => sum + leg.fuelGal, 0))
   const fuelRemainingGal = round1(input.aircraft.usableFuelGal - fuelGal)
-  const reserveMin = (fuelRemainingGal / cruise.gph) * 60
+  const reserveMin = Math.round((fuelRemainingGal / cruise.gph) * 60)
   const last = input.waypoints[input.waypoints.length - 1] as NavlogWaypoint
 
   return {

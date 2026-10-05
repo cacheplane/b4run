@@ -1,5 +1,6 @@
 import type { B4ToolContext } from "@b4run/sdk"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import getAdvisories from "../src/tools/getAdvisories.ts"
 import getMetar from "../src/tools/getMetar.ts"
 import getWindsAloft from "../src/tools/getWindsAloft.ts"
 import lookupAirport from "../src/tools/lookupAirport.ts"
@@ -22,7 +23,7 @@ describe("lookupAirport", () => {
             state: "MN",
             lat: 44.9346,
             lon: -93.0603,
-            elev: 215,
+            elev: 215, // meters
             magdec: "01E",
             freqs: "ATIS,118.35;LCL/P,119.1",
             runways: [{ id: "14/32", dimension: "6491x150", surface: "A", alignment: 146 }],
@@ -37,7 +38,7 @@ describe("lookupAirport", () => {
       state: "MN",
       lat: 44.9346,
       lon: -93.0603,
-      elevationFt: 215,
+      elevationFt: 705,
       magneticVariationDeg: 1,
       frequencies: [
         { name: "ATIS", mhz: "118.35" },
@@ -50,10 +51,12 @@ describe("lookupAirport", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        json([{ icaoId: "KRST", lat: 43.9, lon: -92.5, elev: 1317, magdec: "02W", runways: [] }]),
+        json([{ icaoId: "KRST", lat: 43.9, lon: -92.5, elev: 401, magdec: "02W", runways: [] }]),
       ),
     )
-    expect((await lookupAirport({ id: "KRST" }, ctx)).magneticVariationDeg).toBe(-2)
+    const krst = await lookupAirport({ id: "KRST" }, ctx)
+    expect(krst.magneticVariationDeg).toBe(-2)
+    expect(krst.elevationFt).toBe(1316) // 401 m
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => json([])),
@@ -114,6 +117,15 @@ describe("getWindsAloft", () => {
     expect(out.station).toBe("MSP")
     expect(out.wind).toEqual({ dirDegTrue: 325, speedKt: 30.5, tempC: null })
   })
+  it("rejects a forecast period the product does not offer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => text(product)),
+    )
+    await expect(
+      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: 9 }, ctx),
+    ).rejects.toThrow(/forecastHours must be one of 6, 12, 24/)
+  })
   it("lists the available stations when the requested one is absent", async () => {
     vi.stubGlobal(
       "fetch",
@@ -122,5 +134,90 @@ describe("getWindsAloft", () => {
     await expect(
       getWindsAloft({ region: "chi", station: "XYZ", altitudeFt: 4500 }, ctx),
     ).rejects.toThrow(/available: MSP/)
+  })
+})
+
+describe("getAdvisories", () => {
+  it("keeps advisories whose area touches the point, labelled by the product they came from", async () => {
+    const inside = [
+      { lat: "44.0", lon: "-94.0" },
+      { lat: "46.0", lon: "-94.0" },
+      { lat: "46.0", lon: "-92.0" },
+      { lat: "44.0", lon: "-92.0" },
+    ]
+    const outside = [
+      { lat: "35.0", lon: "-80.0" },
+      { lat: "36.0", lon: "-80.0" },
+      { lat: "36.0", lon: "-79.0" },
+    ]
+    const gairmet = [
+      // The same G-AIRMET repeats per forecast hour.
+      {
+        hazard: "ICE",
+        forecastHour: 0,
+        validTime: "2026-10-04T03:00:00Z",
+        expireTime: "2026-10-04T06:00:00Z",
+        coords: inside,
+      },
+      {
+        hazard: "ICE",
+        forecastHour: 3,
+        validTime: "2026-10-04T03:00:00Z",
+        expireTime: "2026-10-04T06:00:00Z",
+        coords: inside,
+      },
+      {
+        hazard: "TURB-LO",
+        forecastHour: 0,
+        validTime: "2026-10-04T03:00:00Z",
+        expireTime: "2026-10-04T06:00:00Z",
+        coords: outside,
+      },
+    ]
+    const airsigmet = [
+      {
+        hazard: "CONVECTIVE",
+        severity: 1,
+        validTimeFrom: 1791090000,
+        validTimeTo: 1791097200,
+        coords: [
+          { lat: 44.5, lon: -93.5 },
+          { lat: 45.5, lon: -92.5 },
+          { lat: 44.5, lon: -92.5 },
+        ],
+        rawAirSigmet: "CONVECTIVE SIGMET 12C",
+      },
+    ]
+    const fetchMock = vi.fn(async (url: string) =>
+      json(url.includes("/gairmet?") ? gairmet : url.includes("/airsigmet?") ? airsigmet : []),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const out = await getAdvisories({ lat: 44.9346, lon: -93.0603 }, ctx)
+    expect(out).toEqual([
+      {
+        product: "G-AIRMET",
+        hazard: "ICE",
+        severity: "",
+        validFrom: "2026-10-04T03:00:00Z",
+        validTo: "2026-10-04T06:00:00Z",
+        base: "",
+        top: "",
+        raw: "",
+      },
+      {
+        product: "SIGMET",
+        hazard: "CONVECTIVE",
+        severity: "1",
+        validFrom: "1791090000",
+        validTo: "1791097200",
+        base: "",
+        top: "",
+        raw: "CONVECTIVE SIGMET 12C",
+      },
+    ])
+    expect(fetchMock.mock.calls.map(([url]) => String(url).split("?")[0])).toEqual([
+      "https://aviationweather.gov/api/data/gairmet",
+      "https://aviationweather.gov/api/data/airsigmet",
+    ])
   })
 })

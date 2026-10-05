@@ -35,6 +35,13 @@ describe("parseWindsAloft", () => {
       tempC: null,
     })
   })
+  it("keeps the temperature on a light-and-variable group", () => {
+    expect(parseWindsAloft("FT  3000    6000\nXYZ 2610 9900+13\n").stations.XYZ?.[6000]).toEqual({
+      dirDegTrue: 0,
+      speedKt: 0,
+      tempC: 13,
+    })
+  })
   it("leaves a missing low level undefined", () => {
     expect(parseWindsAloft(SAMPLE).stations.GCK?.[3000]).toBeUndefined()
     expect(parseWindsAloft(SAMPLE).stations.GCK?.[6000]).toEqual({
@@ -68,6 +75,15 @@ describe("interpolateWind", () => {
   it("returns the level itself at a listed altitude", () => {
     const msp = parseWindsAloft(SAMPLE).stations.MSP!
     expect(interpolateWind(msp, 6000)).toEqual({ dirDegTrue: 320, speedKt: 29, tempC: 7 })
+  })
+  it("takes the other level's direction when one level is calm", () => {
+    const station = {
+      3000: { dirDegTrue: 0, speedKt: 0, tempC: null },
+      6000: { dirDegTrue: 270, speedKt: 20, tempC: null },
+    }
+    const w = interpolateWind(station, 4500)
+    expect(w.dirDegTrue).toBe(270)
+    expect(w.speedKt).toBeCloseTo(10, 5)
   })
   it("interpolates direction across north", () => {
     const station = {
