@@ -615,7 +615,11 @@ describe("turnsFromState", () => {
       ),
     ]
     const { turns, warnings } = turnsFromState(base(root, { "tools:ct": child }))
-    expect(warnings).toEqual([expect.stringMatching(/missing b4_step.*\bct\b/)])
+    // The child is framed at the task's ToolMessage time, so its earlier stamp clocks are clamped and say so.
+    expect(warnings).toEqual([
+      expect.stringMatching(/clamped b4_step clocks on tool call n1/),
+      expect.stringMatching(/missing b4_step on tool call ct/),
+    ])
     const sub = firstTurn(turns).steps[0] as SubagentStep
     expect(sub).toMatchObject({ kind: "subagent", id: "ct", status: "done", startedAt: T0 + 5000 })
     expect(sub.turn.steps).toEqual([
@@ -639,7 +643,8 @@ describe("turnsFromState", () => {
         { metadata: { "b4:turn": { status: "done", endedAt: iso(6) } } },
       ),
     ]
-    const turn = firstTurn(turnsFromState(base(history)).turns)
+    const { turns, warnings } = turnsFromState(base(history))
+    const turn = firstTurn(turns)
     expect(turn.steps[0]).toMatchObject({
       kind: "tool",
       id: "c1",
@@ -648,6 +653,7 @@ describe("turnsFromState", () => {
       settledAt: T0 + 5000,
     })
     expect(turn.failed).toBe(0)
+    expect(warnings).toEqual([expect.stringMatching(/clamped b4_step clocks on tool call c1/)])
   })
 
   test("a thrown root writeTodos keeps its empty plan when the plan change belongs to a later turn", () => {
@@ -982,5 +988,170 @@ describe("turnsFromState", () => {
     }
     expect(firstTurn(restored).failed).toBe(1)
     expect(restored).toEqual(view)
+  })
+
+  test("an open task never claims the namespace an answered sibling owns", () => {
+    const critic = {
+      id: "tA",
+      name: "task",
+      args: { subagent: "critic", input: "review" },
+      type: "tool_call",
+    }
+    const editor = {
+      id: "tB",
+      name: "task",
+      args: { subagent: "editor", input: "review" },
+      type: "tool_call",
+    }
+    const run = { id: "n1", name: "runBash", args: { command: "ls" }, type: "tool_call" }
+    const a1 = ai("a1", "", [critic, editor])
+    const criticNs = [
+      ckpt("x0", 1, [human("cu", "review")]),
+      ckpt("x1", 2, [human("cu", "review"), ai("ca", "fine")]),
+    ]
+    const editorNs = [
+      ckpt("y0", 1, [human("eu", "review")]),
+      ckpt("y1", 2, [human("eu", "review"), ai("ea", "", [run])]),
+    ]
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), a1]),
+      ckpt("k2", 3, [
+        human("u1", "go"),
+        a1,
+        toolMsg(
+          "tA",
+          "task",
+          "fine",
+          { status: "completed", startedAt: iso(1), settledAt: iso(3) },
+          {
+            b4_subagent: {
+              name: "critic",
+              routeId: "/c",
+              depth: 1,
+              checkpointNs: "tools:A",
+              outcome: "done",
+            },
+          },
+        ),
+      ]),
+    ]
+    const pending = [
+      {
+        interruptId: "perm-3",
+        resumeKey: "c".repeat(32),
+        value: {
+          interruptId: "perm-3",
+          type: "permission-request",
+          kind: "command",
+          callId: "tB",
+          toolCallId: "n1",
+          detail: {},
+        },
+      },
+    ]
+    const { turns, warnings } = turnsFromState(
+      base(root, { "tools:A": criticNs, "tools:B": editorNs }, pending, "interrupted"),
+    )
+    expect(warnings).toEqual([])
+    const [criticStep, editorStep] = firstTurn(turns).steps as SubagentStep[]
+    expect(criticStep).toMatchObject({ kind: "subagent", id: "tA", name: "critic", status: "done" })
+    expect(criticStep?.turn.text).toBe("fine")
+    expect(editorStep).toMatchObject({
+      kind: "subagent",
+      id: "tB",
+      name: "editor",
+      status: "paused",
+    })
+    expect(editorStep?.turn.steps[0]).toMatchObject({
+      kind: "tool",
+      id: "n1",
+      status: "awaiting",
+      approval: expect.objectContaining({ interruptId: "perm-3" }),
+    })
+  })
+
+  test("a checkpoint without a string ts and an object values is dropped with a warning", () => {
+    const valid = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "hi")], {
+        metadata: { "b4:turn": { status: "done", endedAt: iso(1) } },
+      }),
+    ]
+    const { turns, warnings } = turnsFromState(base([...valid, { nope: true } as never]))
+    expect(firstTurn(turns)).toMatchObject({ runId: "u1", status: "done", text: "hi" })
+    expect(warnings).toEqual(["ignored checkpoint #2 in root: not { ts: string, values: object }"])
+  })
+
+  test("a suspended subagent stamp pauses the step and leaves its turn open", () => {
+    const task = {
+      id: "ct",
+      name: "task",
+      args: { subagent: "r", input: "dig" },
+      type: "tool_call",
+    }
+    const run = { id: "n1", name: "runBash", args: {}, type: "tool_call" }
+    const child = [
+      ckpt("x0", 1, [human("cu", "dig")]),
+      ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "", [run])]),
+    ]
+    const subagent = {
+      name: "r",
+      routeId: "/r",
+      depth: 1,
+      checkpointNs: "tools:ct",
+      outcome: "suspended",
+    }
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [task])]),
+      ckpt(
+        "k2",
+        4,
+        [
+          human("u1", "go"),
+          ai("a1", "", [task]),
+          toolMsg(
+            "ct",
+            "task",
+            "",
+            { status: "completed", startedAt: iso(1), settledAt: iso(3) },
+            { b4_subagent: subagent },
+          ),
+        ],
+        { metadata: { "b4:turn": { status: "done", endedAt: iso(4) } } },
+      ),
+    ]
+    const turn = firstTurn(turnsFromState(base(root, { "tools:ct": child })).turns)
+    const sub = turn.steps[0] as SubagentStep
+    expect(sub).toMatchObject({ kind: "subagent", id: "ct", status: "paused" })
+    expect(sub.settledAt).toBeUndefined()
+    expect(sub.turn).toMatchObject({ status: "working" })
+    expect(sub.turn.steps[0]).toMatchObject({ kind: "tool", id: "n1", status: "running" })
+  })
+
+  test("warnings come inline first, then one aggregated line per stamp reason, then unattached namespaces", () => {
+    const c1 = { id: "c1", name: "x", args: {}, type: "tool_call" }
+    const c2 = { id: "c2", name: "y", args: {}, type: "tool_call" }
+    const bare = (id: string, name: string) =>
+      env("ToolMessage", { tool_call_id: id, name, content: "v", additional_kwargs: {} })
+    const history = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [c1, c2]), bare("c1", "x"), bare("c2", "y")], {
+        metadata: { "b4:turn": "yes" },
+      }),
+    ]
+    const { warnings } = turnsFromState(
+      base(history, {
+        "tools:ghost": [ckpt("g0", 0, [human("gu", "hi")])],
+        "tools:bad": "x" as never,
+      }),
+    )
+    expect(warnings).toEqual([
+      "children[tools:bad] is not an array",
+      "ignored malformed b4:turn on checkpoint k1",
+      "ignored missing b4_step on 2 tool calls: c1, c2",
+      "child namespace tools:ghost is not named by any task call",
+    ])
   })
 })

@@ -46,7 +46,12 @@ export interface ThreadStateForTurns {
 
 export interface TurnsFromStateResult {
   readonly turns: TurnsView
-  /** One line per ignored stamp or unattached child namespace. */
+  /**
+   * One line per reason: an unattached or missing child namespace, a malformed
+   * message, stamp or turn end, a clamped clock, a rejected input shape — and
+   * one aggregated line per reason for the tool calls whose `b4_step` was
+   * missing or malformed.
+   */
   readonly warnings: readonly string[]
 }
 
@@ -235,6 +240,9 @@ function synthesiseNamespace(
     const message = envelope(value)
     if (message?.cls === "ToolMessage" && typeof message.kwargs.tool_call_id === "string") {
       answered.add(message.kwargs.tool_call_id)
+      // A namespace an answered task owns is spoken for before any open call looks for one.
+      const owned = readPersistedSubagent(stampOf(message.kwargs, B4_SUBAGENT_KEY))
+      if (owned !== undefined) s.attached.add(owned.checkpointNs)
     }
     if (message?.cls === "HumanMessage") humanIndices.push(index)
     if (message?.cls === "AIMessage" || message?.cls === "AIMessageChunk") {
@@ -297,7 +305,9 @@ function synthesiseNamespace(
     if (nested) return
     const threadId = input.threadId
     const resolved = endOf(openRunStart, upTo)
-    // A turn never ends before its own events (a child's frames may postdate the root's last checkpoint).
+    // A turn never ends before its own events: a child's frames may postdate
+    // the root's last checkpoint, and a skewed `b4:turn.endedAt` could land
+    // before a step settled — either would make the reducer fail that step.
     const latest = s.events.reduce((max, e) => Math.max(max, e.at), 0)
     const lastAt = Math.max(lastCheckpointAt(upTo), latest)
     const endAt = resolved === undefined ? lastAt : Math.max(resolved.at, latest)
@@ -485,8 +495,12 @@ function synthesiseNamespace(
         push(s, at, { type: EventType.TOOL_CALL_END, toolCallId } as BaseEvent, owner)
         if (call.name === TASK_TOOL && !answered.has(toolCallId)) {
           // The bridge writes the task's ToolMessage only when the child ends:
-          // a running or parked child has a namespace but no message yet. Its
-          // first user message is exactly the call's `input`.
+          // a running or parked child has a namespace but no message yet. The
+          // spec keys the child by the task id in the parent's writes, but
+          // `CheckpointForTurns` carries no writes, so the fallback is input:
+          // the child's first user message is exactly the call's `input`.
+          // Namespaces answered siblings own are already claimed; two open
+          // calls with identical input are attached in `children` key order.
           const args = isRecord(call.args) ? call.args : {}
           const name = typeof args.subagent === "string" ? args.subagent : call.name
           const ns = Object.keys(input.children).find(
@@ -522,6 +536,11 @@ function synthesiseNamespace(
       const announced = announcedAt.get(toolCallId) ?? floor
       const startedAt = step ? Math.max(ms(step.startedAt), announced) : at
       const settledAt = step ? Math.max(ms(step.settledAt), startedAt) : at
+      if (step && (ms(step.startedAt) < announced || ms(step.settledAt) < startedAt)) {
+        s.warnings.push(
+          `clamped ${B4_STEP_KEY} clocks on tool call ${toolCallId} to the checkpoint that announced it`,
+        )
+      }
       const subagentValue = stampOf(kwargs, B4_SUBAGENT_KEY)
       const subagent = readPersistedSubagent(subagentValue)
       if (subagentValue !== undefined && subagent === undefined) {
@@ -550,6 +569,14 @@ function synthesiseNamespace(
             subagentRunId: toolCallId,
             message,
           } as BaseEvent)
+        } else if (subagent.outcome === "suspended") {
+          // Paused at its own gate: the nested turn stays open for the resume.
+          const event = {
+            type: EventType.SUBAGENT_FINISHED,
+            subagentRunId: toolCallId,
+            outcome: { type: "suspended" },
+          }
+          push(s, settledAt, event as BaseEvent)
         } else {
           const event = {
             type: EventType.SUBAGENT_FINISHED,
@@ -610,9 +637,10 @@ function normalise(input: unknown, warnings: string[]): Normalised | undefined {
       warnings.push(`${name} is not an array`)
       return []
     }
-    return value.filter((cp): cp is CheckpointForTurns => {
-      if (isRecord(cp)) return true
-      warnings.push(`ignored non-object checkpoint in ${name}`)
+    return value.filter((cp, index): cp is CheckpointForTurns => {
+      if (isRecord(cp) && typeof cp.ts === "string" && isRecord(cp.values)) return true
+      const label = isRecord(cp) && typeof cp.id === "string" ? cp.id : `#${index}`
+      warnings.push(`ignored checkpoint ${label} in ${name}: not { ts: string, values: object }`)
       return false
     })
   }
@@ -620,7 +648,8 @@ function normalise(input: unknown, warnings: string[]): Normalised | undefined {
   if (input.children !== undefined) {
     if (isRecord(input.children)) {
       for (const [ns, history] of Object.entries(input.children)) {
-        children[ns] = checkpoints(history, `children[${ns}]`)
+        if (Array.isArray(history)) children[ns] = checkpoints(history, `children[${ns}]`)
+        else warnings.push(`children[${ns}] is not an array`)
       }
     } else {
       warnings.push("children is not an object")
