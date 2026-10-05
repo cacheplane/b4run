@@ -39,6 +39,23 @@ describe("latestNavlog", () => {
     ]
     expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
   })
+  test("reads a tool result delivered as an array of text content parts", () => {
+    const json = JSON.stringify(SAMPLE_NAVLOG)
+    const half = Math.floor(json.length / 2)
+    const messages = [
+      toolCall("c1", "computeNavlog"),
+      {
+        id: "r-c1",
+        role: "tool" as const,
+        toolCallId: "c1",
+        content: [
+          { type: "text", text: json.slice(0, half) },
+          { type: "text", text: json.slice(half) },
+        ],
+      },
+    ]
+    expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
+  })
   test("is null with no navlog, and ignores a call whose result has not arrived", () => {
     expect(latestNavlog([toolCall("c1", "computeNavlog")])).toBeNull()
     expect(latestNavlog([])).toBeNull()

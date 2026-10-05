@@ -162,7 +162,8 @@
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
 }
 
-.wb-map .leaflet-container {
+/* Leaflet adds `leaflet-container` to the map element itself, which also carries `wb-map`. */
+.wb-map.leaflet-container {
   background: var(--wb-bg);
   font: inherit;
 }
@@ -202,6 +203,10 @@
   }
 }
 
+:root[data-wb-theme="dark"] .wb-panel {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
 /* Flight-category chips and markers. Color never stands alone: every chip carries its text. */
 .wb-cat {
   display: inline-flex;
@@ -230,7 +235,7 @@
 }
 .wb-cat[data-cat="UNKNOWN"] {
   background: var(--wb-rail);
-  color: var(--wb-muted);
+  color: var(--wb-text);
 }
 
 /* Motion: subtle, and none under reduced motion. */

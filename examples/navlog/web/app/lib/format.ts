@@ -1,7 +1,10 @@
 export const formatHeading = (deg: number): string => String(Math.round(deg)).padStart(3, "0")
 
-export const formatHhmm = (minutes: number): string =>
-  `${Math.floor(minutes / 60)}:${String(Math.round(minutes % 60)).padStart(2, "0")}`
+/** Minutes as h:mm. Rounds to whole minutes first, so 59.6 is 1:00, never 0:60. */
+export const formatHhmm = (minutes: number): string => {
+  const total = Math.round(minutes)
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
+}
 
 export const formatUtcHhmm = (iso: string): string => {
   const d = new Date(iso)
