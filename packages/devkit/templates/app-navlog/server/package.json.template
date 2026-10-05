@@ -18,6 +18,7 @@
   "dependencies": {
     "@b4run/cli": "{{b4CliSpecifier}}",
     "@b4run/langchain": "{{b4LangchainSpecifier}}",
+    "@b4run/memory-pgvector": "{{b4MemoryPgvectorSpecifier}}",
     "@b4run/sdk": "{{b4SdkSpecifier}}",
     "zod": "^4.0.0"
   },

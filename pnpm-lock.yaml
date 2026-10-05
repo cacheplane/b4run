@@ -376,6 +376,12 @@ importers:
       '@b4run/langchain':
         specifier: workspace:*
         version: link:../../../packages/langchain
+      '@b4run/memory-pgvector':
+        specifier: workspace:*
+        version: link:../../../packages/memory-pgvector
+      '@b4run/postgres-storage':
+        specifier: workspace:*
+        version: link:../../../packages/postgres-storage
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk

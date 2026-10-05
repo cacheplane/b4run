@@ -263,6 +263,7 @@ function createTemplateReplacements(
   readonly b4LangchainSpecifier: string
   readonly b4LanggraphSpecifier: string
   readonly b4MemorySpecifier: string
+  readonly b4MemoryPgvectorSpecifier: string
   readonly b4PermissionsSpecifier: string
   readonly b4SandboxSpecifier: string
   readonly b4SdkSpecifier: string
@@ -284,6 +285,9 @@ function createTemplateReplacements(
       b4LangchainSpecifier: createAbsoluteFileSpecifier(resolve(repoRoot, "packages/langchain")),
       b4LanggraphSpecifier: createAbsoluteFileSpecifier(resolve(repoRoot, "packages/langgraph")),
       b4MemorySpecifier: createAbsoluteFileSpecifier(resolve(repoRoot, "packages/memory")),
+      b4MemoryPgvectorSpecifier: createAbsoluteFileSpecifier(
+        resolve(repoRoot, "packages/memory-pgvector"),
+      ),
       b4PermissionsSpecifier: createAbsoluteFileSpecifier(
         resolve(repoRoot, "packages/permissions"),
       ),
@@ -308,6 +312,7 @@ function createTemplateReplacements(
     b4LangchainSpecifier: options.distTag,
     b4LanggraphSpecifier: options.distTag,
     b4MemorySpecifier: options.distTag,
+    b4MemoryPgvectorSpecifier: options.distTag,
     b4PermissionsSpecifier: options.distTag,
     b4SandboxSpecifier: options.distTag,
     b4SdkSpecifier: options.distTag,
@@ -341,6 +346,7 @@ async function applyInternalModePackageOverrides(
     "@b4run/langchain": replacements.b4LangchainSpecifier,
     "@b4run/langgraph": replacements.b4LanggraphSpecifier,
     "@b4run/memory": replacements.b4MemorySpecifier,
+    "@b4run/memory-pgvector": replacements.b4MemoryPgvectorSpecifier,
     "@b4run/permissions": replacements.b4PermissionsSpecifier,
     "@b4run/sandbox": replacements.b4SandboxSpecifier,
     "@b4run/sdk": replacements.b4SdkSpecifier,

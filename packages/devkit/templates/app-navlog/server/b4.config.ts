@@ -1,4 +1,12 @@
 import { config } from "@b4run/cli"
+import { openaiEmbedder } from "@b4run/langchain"
+import { pgvectorMemoryStore } from "@b4run/memory-pgvector"
+
+// Memory backend: SQLite by default; Postgres + pgvector when DATABASE_URL is
+// set (the live demo); vector recall when OPENAI_API_KEY is set. Both connect
+// lazily, so constructing them here does no I/O. Same switch as examples/memory.
+const databaseUrl = process.env.DATABASE_URL
+const embedder = process.env.OPENAI_API_KEY ? openaiEmbedder() : undefined
 
 export default config({
   appDir: "src/app",
@@ -20,6 +28,10 @@ export default config({
     // Keep durable writes reviewable: remember() creates candidates until a
     // developer runs `npm run memory:approve -- <id>`.
     writes: "candidate",
+    ...(embedder ? { vector: { embedder } } : {}),
+    ...(databaseUrl
+      ? { store: pgvectorMemoryStore({ connectionString: databaseUrl, dimensions: 1536 }) }
+      : {}),
   },
 
   // Persistence (SQLite checkpointer + Agent Protocol) is on by default.
