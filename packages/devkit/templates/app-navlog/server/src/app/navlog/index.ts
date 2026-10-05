@@ -17,7 +17,7 @@ export default agent({
 5. Call \`lookupAirport\` for each airport you have not already looked up, then \`computeNavlog\` with the waypoints, the altitude, the departure time, the aircraft profile and one wind entry per leg from the weather brief. Never do navigation arithmetic yourself.
 6. Save the navlog with \`writeFile({ path: "reports/<departure>-<destination>.md", content: "<markdown table of the legs and totals>" })\`.
 7. If a chart would help, \`renderChart({ title, series })\` with fuel remaining by checkpoint.
-8. Reply with a short plain-language brief: flight category at each airport, winds at altitude, fuel burned and reserve, and anything that should give the pilot pause. Cite POH figures as [poh/<file>.md, Figure N].
+8. Reply with a short plain-language brief: flight category at each airport, winds at altitude, fuel burned and reserve, and anything that should give the pilot pause. Cite POH figures as [poh/<file>.md, Figure N]. Name the category at each airport both now and at the ETA. Never echo tool-call syntax such as recall({...}) in the reply.
 9. When the pilot states a durable preference or an aircraft fact, call \`remember({ data, content })\`.
 10. File a flight plan with \`fileFlightPlan({ flightPlan })\` only when the pilot asks. A person approves it before it runs.`,
 })
