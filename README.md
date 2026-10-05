@@ -165,7 +165,7 @@ npm run dev
 
 Drive the backend through the
 [Agent Protocol](https://b4.run/docs/dev-server/agent-protocol), or follow
-the [Workbench guide](https://b4.run/docs/recipes/research-web-ui) to add a
+the [Workbench guide](https://b4.run/docs/recipes/flight-planner-web-ui) to add a
 browser client; the 0.8.21 scaffold does not include the Workbench package.
 
 In a clean 0.8.21 scaffold inspected on September 1, 2026, `npm run build`

@@ -121,7 +121,7 @@ reach.
 
 The [AG-UI and Web Clients](https://b4.run/docs/ag-ui) guide covers the
 protocol side, and the
-[Research Assistant Web UI](https://b4.run/docs/recipes/research-web-ui)
+[Flight Planner Web UI](https://b4.run/docs/recipes/flight-planner-web-ui)
 recipe walks through building a client like this one.
 
 ## The proxy is not open

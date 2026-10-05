@@ -51,6 +51,27 @@ describe("production response policy", () => {
     expect(existsSync(new URL("./docs/page.tsx", import.meta.url))).toBe(false)
   })
 
+  it("redirects the retired research recipe slugs to the flight-planner recipes", async () => {
+    const redirects = (await nextConfig.redirects?.()) ?? []
+
+    expect(redirects).toContainEqual({
+      source: "/docs/recipes/research-assistant",
+      destination: "/docs/recipes/flight-planner",
+      permanent: true,
+    })
+    expect(redirects).toContainEqual({
+      source: "/docs/recipes/research-web-ui",
+      destination: "/docs/recipes/flight-planner-web-ui",
+      permanent: true,
+    })
+    expect(existsSync(new URL("./docs/recipes/research-assistant/page.tsx", import.meta.url))).toBe(
+      false,
+    )
+    expect(existsSync(new URL("./docs/recipes/research-web-ui/page.tsx", import.meta.url))).toBe(
+      false,
+    )
+  })
+
   it("sends security headers on every route without a script-blocking CSP", async () => {
     const rules = await nextConfig.headers?.()
     const all = rules?.find((rule) => rule.source === "/:path*")

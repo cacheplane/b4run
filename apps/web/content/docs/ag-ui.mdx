@@ -392,7 +392,7 @@ Inline parts count against the 8 MiB body ceiling; there is no per-part limit. T
 
 Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well: a `role: "tool"` message's parts are stored as sent and replayed to the model under the same tool-result rules, so media reach the model only where the profile and provider allow it — never on OpenAI's Chat Completions path — and the UI gets every part on `TOOL_CALL_RESULT`. The one exception is a call closed by the [abandon path](#abandoned-calls), such as a new user message sent instead of resuming: the stored result is replayed as its text only, and the server logs a warning once the call is closed.
 
-For a client that attaches images, renders media parts, and shows the dropped-part notices, see [Attach an image](/docs/recipes/research-web-ui#attach-an-image) in the research web UI recipe.
+For a client that attaches images, renders media parts, and shows the dropped-part notices, see [Attach an image](/docs/recipes/flight-planner-web-ui#attach-an-image) in the flight-planner web UI recipe.
 
 `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
 
@@ -486,7 +486,7 @@ function Subagents() {
 
 React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
-For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
+For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [flight-planner web UI recipe](/docs/recipes/flight-planner-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
 
 ## Adapter API
 

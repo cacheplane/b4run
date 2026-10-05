@@ -1287,7 +1287,7 @@ describe("validateRootReadme", () => {
     assert.match(published, /npm run dev(?:\s|$)/)
     assert.match(published, /npm run build/)
     assert.match(published, /\/docs\/dev-server\/agent-protocol/)
-    assert.match(published, /\/docs\/recipes\/research-web-ui/)
+    assert.match(published, /\/docs\/recipes\/flight-planner-web-ui/)
     assert.doesNotMatch(published, /^npm (?:run dev:(?:server|web)|start)$/mu)
   })
 

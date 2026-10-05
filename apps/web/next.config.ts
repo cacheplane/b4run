@@ -81,6 +81,17 @@ const nextConfig: NextConfig = {
         destination: "/docs/getting-started",
         permanent: true,
       },
+      // The research recipes became the flight-planner recipes (navlog series, PR 6).
+      {
+        source: "/docs/recipes/research-assistant",
+        destination: "/docs/recipes/flight-planner",
+        permanent: true,
+      },
+      {
+        source: "/docs/recipes/research-web-ui",
+        destination: "/docs/recipes/flight-planner-web-ui",
+        permanent: true,
+      },
     ]
   },
 }

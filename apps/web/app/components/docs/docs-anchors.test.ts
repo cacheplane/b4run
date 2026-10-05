@@ -1577,7 +1577,7 @@ describe("docs links and in-page anchors", () => {
         required: ["/docs/memory/long-term"],
       },
       {
-        file: "apps/web/content/docs/recipes/research-web-ui.mdx",
+        file: "apps/web/content/docs/recipes/flight-planner-web-ui.mdx",
         heading: "Related",
         required: ["/docs/memory/long-term"],
       },
