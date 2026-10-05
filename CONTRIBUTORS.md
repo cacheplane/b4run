@@ -53,7 +53,7 @@ The generated app uses the default `basic` template. It is a single flat package
 - `src/app/hello/index.ts`
 - `src/app/hello/tools/greet.ts`
 
-Add `--template navlog` to scaffold the `research` app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
+Add `--template navlog` to scaffold the research app instead. That one is a two-package workspace (`server/` holds the B4.run app, `web/` the B4.run Workbench UI), so the B4.run CLI runs from `server/` rather than the generated root, and the root `package.json` scripts delegate there for you.
 
 Use this path only when you intentionally want the generated app wired to the local B4.run checkout. The public user path remains `pnpm create b4-app`.
 

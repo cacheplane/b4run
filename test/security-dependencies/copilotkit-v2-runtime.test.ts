@@ -12,9 +12,9 @@ const routeCases = [
     importRoute: () => import("../../examples/chat/web/app/api/copilotkit/[...path]/route.ts"),
   },
   {
-    label: "research",
+    label: "navlog",
     modulePath: "../../examples/navlog/web/app/api/copilotkit/[...path]/route.ts",
-    expectedPath: "/agui/%2Fresearch%23agent",
+    expectedPath: "/agui/%2Fnavlog%23agent",
     importRoute: () => import("../../examples/navlog/web/app/api/copilotkit/[...path]/route.ts"),
   },
 ] as const

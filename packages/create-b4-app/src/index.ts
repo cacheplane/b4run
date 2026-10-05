@@ -178,6 +178,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error('Missing value for "--template"')
       }
 
+      // Deprecated alias for one release: remove after the release that ships "navlog".
       template = value === "research" ? "navlog" : value
       if (value === "research") {
         process.stderr.write(

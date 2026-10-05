@@ -1332,7 +1332,7 @@ test("activates the research scaffold (--template navlog) through the complete n
     const artifactRoot = await createArtifactRoot({
       baseDir: tempRoot,
       runId: "generated-navlog-activation",
-      lane: "research",
+      lane: "navlog",
     })
     expect(artifactRoot).toBe(expectedArtifactRoot)
     await mkdir(dirname(commandsTranscriptPath), { recursive: true })

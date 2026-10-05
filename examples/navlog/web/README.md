@@ -34,7 +34,7 @@ a legacy base-URL POST.
 ```
 browser
   → /api/copilotkit/* (app/api/copilotkit/[...path]/route.ts, this app, no API key)
-    → B4HttpAgent → POST /agui/%2Fresearch%23agent  (B4.run dev server, holds OPENAI_API_KEY)
+    → B4HttpAgent → POST /agui/%2Fnavlog%23agent  (B4.run dev server, holds OPENAI_API_KEY)
       → live /navlog agent
         → AG-UI event stream back to the browser
 ```

@@ -24,7 +24,7 @@ Ask the research agent a question — it plans, dispatches a researcher subagent
 and streams back a cited report:
 
 ```bash
-curl -N "http://127.0.0.1:3002/agui/%2Fresearch%23agent" \
+curl -N "http://127.0.0.1:3002/agui/%2Fnavlog%23agent" \
   -H 'accept: text/event-stream' \
   -H 'content-type: application/json' \
   -d '{"threadId":"t1","runId":"r1","state":{},"tools":[],"context":[],"forwardedProps":{},
