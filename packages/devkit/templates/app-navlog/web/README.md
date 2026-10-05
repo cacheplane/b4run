@@ -51,9 +51,9 @@ Start the server first. Until it answers, this app shows a connect screen with
 the commands that start it; the screen re-probes every five seconds and clears
 itself the moment the server comes up, with no reload.
 
-`web/.env.example` holds one variable, `B4_SERVER_URL` (default
-`http://127.0.0.1:3002`). Copy it to `web/.env` if your server listens
-elsewhere.
+`web/.env.example` sets `B4_SERVER_URL` (default `http://127.0.0.1:3002`).
+Copy it to `web/.env` if your server listens elsewhere. Its other variables
+turn on the proxy guards for a deployment and stay unset locally.
 
 Offline checks, also from the app root:
 
@@ -143,15 +143,16 @@ rejected with **403** and never forwarded. Running, resuming, and cancelling a
 thread are deliberately absent: those go through CopilotKit's own runtime route.
 
 The allowlist bounds **which** routes are reachable, not **who** may reach them.
-The proxy forwards with no authentication, and this scaffold installs no
-`threadAccess` policy on the server, so anything that can reach this app can
-read a thread's saved transcript by guessing its id and can permanently delete
-memory candidates. Before you expose this beyond your own machine, add a
-[`threadAccess` policy](https://b4.run/docs/thread-access) so a request for
-someone else's thread is refused where the data lives. The server package
-scaffolds one inert, at `server/src/thread-access.ts.example`: drop the
-`.example` suffix on it and on the `server/src/auth.ts.example` it imports, then
-fill in how you authenticate a caller.
+That is the job of the server's
+[`threadAccess` policy](https://b4.run/docs/thread-access), which this scaffold
+ships active in `server/src/thread-access.ts`, with the caller resolved in
+`server/src/auth.ts`. Locally it is inert: with no `B4_INTERNAL_TOKEN` one local
+principal owns every thread. Set `B4_INTERNAL_TOKEN` on both packages and the
+proxy guards in `app/lib/proxy-guard.ts` turn on: the proxy forwards the token
+and a per-browser visitor id, and the server refuses calls without the token
+and makes each thread owned by the visitor that created it. Before you expose
+this beyond your own machine, replace the visitor id in `server/src/auth.ts`
+with however you authenticate a caller.
 
 ## Known limits
 

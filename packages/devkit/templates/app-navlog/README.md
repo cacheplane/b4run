@@ -17,6 +17,10 @@ shipped as an npm workspace with two packages:
   the brief, print and copy. Phones get one tabbed bottom sheet.
   [`web/README.md`](./web/README.md) covers restyling it and its known limits.
 
+The B4.run repository's `examples/navlog` runs this same app as a public demo,
+with the server on Railway and the Workbench on Vercel; its READMEs' "Deploy"
+sections cover the production entry, the proxy guards and the configuration.
+
 Requires Node.js 24 or later and npm 11.
 
 ## Run it

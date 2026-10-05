@@ -259,20 +259,29 @@ and the route.
   pnpm monorepo install, deploys from `main`.
 - Server: a new Railway service in the threadplane project, Dockerfile builder,
   `/healthz` healthcheck, on-failure restarts (`railway.json` as threadplane's
-  services use), deploys from `main`. Railway Postgres beside it. A Railway
-  volume at `/app/workspace` for flight plans and reports.
+  services use), deploys from `main`. Railway Postgres beside it. No Railway
+  volume: `workspace/` holds the POH corpus the tools read, so a volume mounted
+  there would hide it. Reports and recorded flight plans the agent writes are
+  ephemeral per deploy; the navlog itself lives in the Postgres checkpoint and
+  the Workbench reads it from the thread.
 - Rate limits: the existing Upstash Redis with a `navlog` key prefix.
 - Model: a dedicated OpenAI key with a monthly hard cap.
 
 ### 6.2 Server entry and stores
 
-`examples/navlog/server/main.ts` composes `@b4run/postgres-storage` stores
+`examples/navlog/server/main.mjs` (plain ESM, so the image needs no compile
+step) composes `@b4run/postgres-storage` stores
 (checkpointer, threads, permissions, one `pg` pool with an `'error'` listener)
 and `@b4run/memory-pgvector` over the same database (keyword recall unless an
-embedding key is set), then starts the runtime with a guard in front: every
+embedding key is also set), then starts the runtime with a guard in front: every
 request except `/healthz` must carry `X-Internal-Token` equal to the service's
-secret, else 401 before the runtime sees it. The Dockerfile command runs the
-compiled entry. Locally, without `DATABASE_URL`, the example keeps its SQLite
+secret, else 401 before the runtime sees it. The entry refuses to boot as a
+deployment (`DATABASE_URL` or `RAILWAY_ENVIRONMENT` set) without a token of at
+least 32 characters. The Dockerfile command runs the entry.
+
+Approval grants and client tool-call records stay in SQLite on the container
+disk: the Node server has no injection seam for those two stores, so "Always
+allow" grants last until the next deploy. Locally, without `DATABASE_URL`, the example keeps its SQLite
 defaults through `b4 dev`.
 
 This needs one framework change (PR 1): `serve()` in `@b4run/cli` gains a
@@ -282,7 +291,9 @@ shutdown. The embedding docs page gains one paragraph.
 
 `src/auth.ts` and `src/thread-access.ts` are activated from their `.example`
 files: the principal is the visitor id the proxy forwards, so one visitor
-cannot list, read or resume another's threads.
+cannot list, read or resume another's threads. Without a token (local
+development, CI) one local principal owns everything. The thread-access policy
+cannot ship to LangSmith, so the app builds the `node` target only.
 
 ### 6.3 Web proxy guards
 
@@ -296,8 +307,13 @@ gain, in order:
 4. Injection of `X-Internal-Token` and the visitor id header on the upstream
    call.
 
-The memory candidate approve and reject routes are scoped to the visitor's own
-candidates through the same principal. `B4_SERVER_URL`, the token and the
+Long-term memory stays shared across visitors: memory scope is resolved at
+route preparation without the request principal, and per-visitor memory needs a
+framework seam that passes middleware context into `resolveScope` (filed as its
+own issue). Visitors may propose memories, and the candidates are visible to
+every visitor; only a request carrying the demo-owner cookie (an HMAC of
+`B4_DEMO_ADMIN_TOKEN`, set by `/api/admin`) may approve or reject one. The daily
+run quota is folded into the per-visitor and per-IP token buckets for now. `B4_SERVER_URL`, the token and the
 Upstash credentials are Vercel project secrets.
 
 ### 6.4 Verification
