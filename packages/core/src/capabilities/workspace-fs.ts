@@ -27,6 +27,13 @@ export interface CreateWorkspaceFsOptions {
   readonly permissions: PermissionsStore | undefined
   readonly signal: AbortSignal
   /**
+   * The model's id for the tool call this handle serves, when it serves one.
+   * A path gate that parks for approval puts it on the interrupt, so an AG-UI
+   * client can attach the approval to the call's step (the command, tool and
+   * memory gates already do). A handle outside a tool call has none.
+   */
+  readonly toolCallId?: string | undefined
+  /**
    * Whether this execution context can surface the interactive LangGraph
    * permission interrupt (true inside agent-route tool execution; false for
    * workflow/graph entries, which run outside the graph).
@@ -91,6 +98,7 @@ export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
     const canonicalRoot = await fs.realPath(opts.workspaceRoot, bctx)
     const result = await gatePathOp(opts.permissions, operation, canonicalPath, canonicalRoot, {
       interruptCapable: opts.interruptCapable,
+      ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     })
     if (!result.allowed) throw new Error(result.reason)
     return absPath

@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest"
 import {
   gateBashOp,
   gateMemorySupersede,
+  gatePathOp,
   gateToolOp,
   wrapToolWithApproval,
   wrapToolWithConstraint,
 } from "../../src/capabilities/permission-gate.js"
+import { createWorkspaceFs } from "../../src/capabilities/workspace-fs.js"
 
 const State = Annotation.Root({
   parked: Annotation<unknown>({ reducer: (_a, b) => b, default: () => undefined }),
@@ -53,6 +55,46 @@ describe("permission envelopes name the tool call they gate", () => {
     )
     const envelope = parkedEnvelope(await app.invoke({}, config))
     expect(envelope).toMatchObject({ kind: "tool", toolCallId: "call_deploy_1" })
+  })
+
+  it("gatePathOp puts toolCallId on a kind:path envelope", async () => {
+    const app = parkingGraph(() =>
+      gatePathOp(askingStore(), "readFile", "/outside/secret.txt", "/ws", {
+        toolCallId: "call_read_1",
+      }),
+    )
+    const envelope = parkedEnvelope(await app.invoke({}, config))
+    expect(envelope).toMatchObject({ kind: "path", toolCallId: "call_read_1" })
+  })
+
+  it("a workspace handle forwards its toolCallId to the path gate", async () => {
+    const backend = {
+      realPath: async (path: string) => path,
+      readFile: async () => "never read",
+    }
+    const fs = createWorkspaceFs({
+      workspaceRoot: "/ws",
+      backend: backend as never,
+      permissions: askingStore(),
+      signal: new AbortController().signal,
+      interruptCapable: true,
+      toolCallId: "call_read_2",
+    })
+    const app = parkingGraph(() => fs.readFile("/outside/secret.txt"))
+    const envelope = parkedEnvelope(await app.invoke({}, config))
+    expect(envelope).toMatchObject({ kind: "path", toolCallId: "call_read_2" })
+    const without = createWorkspaceFs({
+      workspaceRoot: "/ws",
+      backend: backend as never,
+      permissions: askingStore(),
+      signal: new AbortController().signal,
+      interruptCapable: true,
+    })
+    const bare = parkedEnvelope(
+      await parkingGraph(() => without.readFile("/outside/secret.txt")).invoke({}, config),
+    )
+    expect(bare).toMatchObject({ kind: "path" })
+    expect(bare).not.toHaveProperty("toolCallId")
   })
 
   it("gateBashOp puts toolCallId on a kind:command envelope", async () => {
