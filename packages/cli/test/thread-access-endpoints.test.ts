@@ -331,7 +331,11 @@ describe("GET /threads/:thread_id", () => {
 function checkpointerWithTuple(): BaseCheckpointSaver {
   return {
     getTuple: async () => ({
-      checkpoint: { channel_values: { messages: ["hello"] } },
+      checkpoint: {
+        channel_values: { messages: ["hello"] },
+        id: "c1",
+        ts: "2026-10-05T00:00:00.000Z",
+      },
       config: { configurable: { checkpoint_ns: "", thread_id: "t-orphan" } },
       metadata: {},
     }),
@@ -400,6 +404,14 @@ describe("GET /threads/:thread_id/state", () => {
     // The gate ran with no row rather than being skipped.
     expect(seen.at(-1)?.operation).toBe("thread.state")
     expect(seen.at(-1)?.thread).toBeUndefined()
+  })
+
+  it("reports created_at as the head checkpoint's own time, not the request's", async () => {
+    const { handler } = await setup({ checkpointer: checkpointerWithTuple() })
+    const served = await handler.fetch(get("/threads/t-orphan/state"))
+    expect(served.status).toBe(200)
+    const body = (await served.json()) as { created_at: string }
+    expect(body.created_at).toBe("2026-10-05T00:00:00.000Z")
   })
 })
 

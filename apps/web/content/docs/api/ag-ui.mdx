@@ -97,7 +97,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 ### `@b4run/ag-ui/view`
 
-The framework-free half of the client: pure reducers and selectors over AG-UI events, with no React and no CopilotKit. `./react` builds on it; so can any other framework.
+The framework-free half of the client: pure reducers and selectors over AG-UI events, with no React and no CopilotKit. `./react` builds on it; so can any other framework. The runtime uses the same entry to serve `GET /threads/:thread_id/turns`, so a restored thread folds into the same `TurnsView` a live stream builds.
 
 | Export | Responsibility |
 |---|---|

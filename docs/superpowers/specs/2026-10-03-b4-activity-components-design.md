@@ -190,11 +190,11 @@ For every tool call, the server evaluates the labels and emits an AG-UI
 - `running` goes out as the call starts (before `TOOL_CALL_RESULT`), with
   `icon` and the running `label`; `completed` goes out as the call returns, just before the result, with the done `label` and `sources`; `failed` follows an error result, for every
   tool, display or not. A subagent's step carries `subagentRunId`.
-- The done payload is stored on the checkpointed `ToolMessage` as
-  `additional_kwargs.b4_step` (for tools run through the converter; the `task`
-  tool's message does not carry it yet), so `GET /threads/:id/state` carries it for a
-  restored thread. (The tool-call record is opt-in and pruned, so it is not
-  the durable home.)
+- Every tool's done payload, with timing and the gate decision, is stored on the
+  checkpointed `ToolMessage` as `additional_kwargs.b4_step` (the `task` tool's
+  message also carries `b4_subagent`); `GET /threads/:id/turns` rebuilds a restored
+  thread from it (`2026-10-05-activity-restore-from-storage-design.md`). (The
+  tool-call record is opt-in and pruned, so it is not the durable home.)
 - B4.run's vendor events share the `b4.` prefix (`b4.step`,
   `b4.content_parts_dropped`); a client that doesn't know a name ignores it.
 - Grouped-step labels are computed on the client (see §4's fallbacks).
@@ -355,10 +355,9 @@ whether live, replayed or restored. It owns:
 - Every open interrupt must be answered before CopilotKit resumes. Each
   card resolves its own interrupt id independently; nothing waits for all of
   them together.
-- **Spike first (sub-project 1):** confirm these slot props behave as typed
-  in `@copilotkit/react-core` ≥1.76, and whether CopilotKit restores pending
-  interrupts after a reload. If it doesn't, the connector reads parked
-  interrupts from the thread's `/state` and feeds them to the view core.
+- Pending interrupts after a reload: CopilotKit restores them from the replayed
+  `RUN_FINISHED`; a host with its own transcript reads `GET /threads/:id/turns`,
+  which embeds them.
 
 ### 6.3 Protocol changes in `@b4run/ag-ui`
 

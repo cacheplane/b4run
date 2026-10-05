@@ -34,6 +34,7 @@ type _Operation = Expect<
     | "thread.delete"
     | "thread.cancel"
     | "thread.pending_interrupts"
+    | "thread.turns"
     | "run.stream"
     | "run.wait"
     | "run.resume"

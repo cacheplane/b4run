@@ -43,6 +43,7 @@ const GATED: readonly string[] = [
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/resume(?:\?.*)?$/),
   routeKey("POST", /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/),
   routeKey("GET", /^\/threads\/(?<thread_id>[^/?#]+)\/pending_interrupts(?:\?.*)?$/),
+  routeKey("GET", /^\/threads\/(?<thread_id>[^/?#]+)\/turns(?:\?.*)?$/),
   routeKey("POST", /^\/threads\/(?<thread_id>[^/?#]+)\/workspace\/inspect(?:\?.*)?$/),
   routeKey("PUT", /^\/workspace\/sources\/(?<digest>[^/?#]+)(?:\?.*)?$/),
 ]
@@ -79,17 +80,19 @@ const routes = buildRouteTable({} as unknown as Parameters<typeof buildRouteTabl
 const actual = routes.map((route) => `${route.method} ${route.pattern.source}`)
 
 describe("route-table coverage", () => {
-  it("has 19 entries on this branch", () => {
-    // 19: 14 as of PR #443/pending_interrupts, plus the
+  it("has 20 entries on this branch", () => {
+    // 20: 14 as of PR #443/pending_interrupts, plus the
     // `GET /threads/:thread_id/runs/stream` attach endpoint, plus the
     // `GET /readyz` readiness probe (#688), plus
     // `POST /threads/:thread_id/workspace/inspect` (spec item 3), plus
     // `PUT /workspace/sources/:digest` (spec item 2), which carries no thread id and is
-    // gated as a `create`, plus `GET /agui/:routeId` capabilities (exempt). Each is CLASSIFIED (see GATED /
+    // gated as a `create`, plus `GET /agui/:routeId` capabilities (exempt), plus
+    // `GET /threads/:thread_id/turns` (activity restore, gated like
+    // `pending_interrupts`). Each is CLASSIFIED (see GATED /
     // EXEMPT) rather than counted, which is the whole point of this pair of
     // assertions: bumping the number without adding the route to a list would
     // let a new thread endpoint ship ungated and silent.
-    expect(actual).toHaveLength(19)
+    expect(actual).toHaveLength(20)
   })
 
   it("classifies every route as gated, deferred or exempt", () => {

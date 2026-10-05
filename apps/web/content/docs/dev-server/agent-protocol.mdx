@@ -36,8 +36,9 @@ Requests name a route with its generated `<routeId>#<kind>` key, such as
 | `POST /threads` | Optional `{ "metadata": { ... }, "workspace": { "sourceDigest", "environmentLinks"?, "baseline"? } }` body. `workspace` only with `sandbox.stagedWorkspaces`, which also bounds the body to 1 MiB | `200` thread object. `400` `workspace_not_accepted` when the app does not accept a workspace, `422` `workspace_source_not_held` (not uploaded) or `workspace_invalid`, `409` when the source was reclaimed meanwhile, `413` over 1 MiB, `429` `workspace_create_in_flight` |
 | `GET /threads/:thread_id` | None | `200` thread object, or `404` when absent |
 | `DELETE /threads/:thread_id` | None | `204`. Deletes the thread metadata, supported checkpoints, and sandbox, in that order |
-| `GET /threads/:thread_id/state` | None | `200 { config, created_at, metadata, next, parent_config, values }`, or `404` without a checkpoint |
+| `GET /threads/:thread_id/state` | None | `200 { config, created_at, metadata, next, parent_config, values }` (`created_at` is the checkpoint's time), or `404` without a checkpoint |
 | `GET /threads/:thread_id/pending_interrupts` | None | `200 { "interrupts": [...] }`. `404` `thread_not_found`. `409` `thread_route_unknown` when no route is recorded |
+| `GET /threads/:thread_id/turns` | None | `200 { threadId, status, turns, warnings, truncated }`: the thread's activity turns rebuilt from its checkpoints (`turns` is `@b4run/ag-ui/view`'s `TurnsView`). `404` `thread_not_found`. `409` `thread_route_unknown` when no route is recorded |
 | `POST /threads/:thread_id/workspace/inspect` | Optional `{ "root", "excludeRootDirectories", "expectedRootSymlinks", "ignorePrefixes", "maxEntries", "maxFileBytes", "maxTotalBytes" }` | `200 { threadId, sourceDigest, intentDigest, root?, inspection }`. Only with `sandbox.workspaceRead: "http"` and a thread-access policy. `409` `run_in_flight` or `workspace_changed`, `422` `workspace_root_missing`, `413` over 64 KiB, `504` `workspace_read_timeout` |
 | `PUT /workspace/sources/:digest` | A `SourceBundle` whose `digest` is the path's | `201 { digest, status: "created" }` or `200 { digest, status: "held" }`. Only with `sandbox.stagedWorkspaces` and a thread-access policy. `400` `digest_mismatch`, `422` `workspace_source_invalid`, `413` over `maxUploadBytes`, `408` `upload_timeout` past `uploadTimeoutMs`, `422` `workspace_uploader_invalid` when the policy's stamp cannot be kept, `429` `upload_in_flight`, `507` `staged_quota_exceeded` |
 | `POST /threads/:thread_id/runs/wait` | `{ "route": "<routeId>#<kind>", "input": { ... } }` | `200` final state JSON, or `null` when the route returned nothing. `500` naming the route when its output isn't JSON-serializable |
@@ -186,6 +187,20 @@ returns `409` with `error.details.code` set to `thread_route_unknown`. So does a
 thread whose recorded route is no longer registered, without naming that route.
 An unknown thread returns `404` with `thread_not_found`.
 
+### Restoring a thread's activity
+
+`GET /threads/:thread_id/turns` returns the same turns a live AG-UI client builds with
+`reduceTurns`: tool steps with their labels and timing, the plan, reasoning, nested subagent
+turns, and the approval a parked turn is waiting on. The runtime rebuilds it from the checkpoint
+chain (every tool call persists `additional_kwargs.b4_step`, a `task` call persists
+`b4_subagent`, and a run's end is stamped as `b4:turn` on the head checkpoint), so there is no
+separate event store. A call that a permission or argument constraint denied restores as a
+`denied` step, never a failure. `warnings` names stamps the runtime could not read; `truncated`
+is true when a very long thread hit the decoding cap and only the newest turns are returned.
+Threads written before these stamps existed do not restore. The gate is the one
+`pending_interrupts` enforces: a denied read is the same `404` as a miss. Responses carry
+`cache-control: no-store`.
+
 ## One run at a time per thread
 
 B4.run allows one active run per thread. An ordinary run-slot collision (a
@@ -236,7 +251,8 @@ When a `runs/stream`, `runs/wait`, or `resume` client disconnects, the run
 keeps going. To stop it, call `POST /threads/:thread_id/cancel`. Shutting down
 the server also stops active work. A client that reconnects rejoins the run with
 `GET /threads/:thread_id/runs/stream` (below), so there's no need to poll
-`GET /threads/:thread_id/state`.
+`GET /threads/:thread_id/state`. After a reload, `GET /threads/:thread_id/turns`
+rebuilds the activity view.
 
 Run admission and cancel are process-local. So a service with several replicas
 must send every request for a thread to the same process, or coordinate runs
