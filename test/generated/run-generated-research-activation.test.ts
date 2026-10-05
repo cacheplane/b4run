@@ -1274,7 +1274,7 @@ test("activates the research scaffold (--template navlog) through the complete n
   const installerRoot = join(tempRoot, "installer")
   const expectedArtifactRoot = join(
     tempRoot,
-    "artifacts/testing/generated-navlog-activation/research",
+    "artifacts/testing/generated-navlog-activation/navlog",
   )
   const commandsTranscriptPath = join(expectedArtifactRoot, "transcripts", "commands.log")
   const agUiTranscriptPath = join(expectedArtifactRoot, "transcripts", "ag-ui.json")
