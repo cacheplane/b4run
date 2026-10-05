@@ -574,7 +574,7 @@ async function postAgui(options: {
     forwardedProps: {},
     ...options.resumeFields,
   }
-  const routeKey = encodeURIComponent("/research#agent")
+  const routeKey = encodeURIComponent("/navlog#agent")
   const endpoint = new URL(options.endpointPath ?? `/agui/${routeKey}`, options.baseUrl)
   const requestSignal = AbortSignal.any([options.signal, AbortSignal.timeout(60_000)])
   await options.recorder.append({ type: "request", endpoint: endpoint.href, body })
@@ -1266,15 +1266,15 @@ test("anchors the recorded server exit to a whole command line", () => {
   expect(() => assertRecordedServerExit(webFirst, { appRoot, script: "dev:web" })).toThrow()
 })
 
-test("activates the research scaffold (--template research) through the complete npm lifecycle", {
+test("activates the research scaffold (--template navlog) through the complete npm lifecycle", {
   timeout: ACTIVATION_TIMEOUT_MS,
 }, async ({ signal: testSignal }) => {
-  const tempRoot = await createTrackedTempDir("b4-generated-research-activation-", tempDirs)
+  const tempRoot = await createTrackedTempDir("b4-generated-navlog-activation-", tempDirs)
   const appRoot = join(tempRoot, "app")
   const installerRoot = join(tempRoot, "installer")
   const expectedArtifactRoot = join(
     tempRoot,
-    "artifacts/testing/generated-research-activation/research",
+    "artifacts/testing/generated-navlog-activation/navlog",
   )
   const commandsTranscriptPath = join(expectedArtifactRoot, "transcripts", "commands.log")
   const agUiTranscriptPath = join(expectedArtifactRoot, "transcripts", "ag-ui.json")
@@ -1284,7 +1284,7 @@ test("activates the research scaffold (--template research) through the complete
     process.cwd(),
     "artifacts",
     "testing",
-    "generated-research-activation",
+    "generated-navlog-activation",
     "workbench-browser.png",
   )
   // W7 needs a real Chromium. Check it before the scaffold and the installs so a
@@ -1331,8 +1331,8 @@ test("activates the research scaffold (--template research) through the complete
 
     const artifactRoot = await createArtifactRoot({
       baseDir: tempRoot,
-      runId: "generated-research-activation",
-      lane: "research",
+      runId: "generated-navlog-activation",
+      lane: "navlog",
     })
     expect(artifactRoot).toBe(expectedArtifactRoot)
     await mkdir(dirname(commandsTranscriptPath), { recursive: true })
@@ -1374,14 +1374,14 @@ test("activates the research scaffold (--template research) through the complete
     })
     expect(installerDir).toBe(installerRoot)
     const creatorResult = await runPackagedNpmCommand({
-      args: ["exec", "--", "create-b4-app", appRoot, "--template", "research"],
+      args: ["exec", "--", "create-b4-app", appRoot, "--template", "navlog"],
       cwd: installerDir,
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
 
     await expect(
-      access(join(appRoot, "server/src/app/research/index.ts"), constants.F_OK),
+      access(join(appRoot, "server/src/app/navlog/index.ts"), constants.F_OK),
     ).resolves.toBeUndefined()
     // Proves the RESEARCH template was generated, not the BASIC one: the basic
     // template's marker route must be absent from where the server actually
@@ -1392,14 +1392,14 @@ test("activates the research scaffold (--template research) through the complete
     ).rejects.toThrow()
     // The other half of the workspace: the scaffold ships a web client too.
     await expect(access(join(appRoot, "web/app/page.tsx"), constants.F_OK)).resolves.toBeUndefined()
-    expect(creatorResult.stdout).toContain("(research template)")
+    expect(creatorResult.stdout).toContain("(navlog template)")
 
     const scaffoldTranscript = await readFile(commandsTranscriptPath, "utf8")
     const creatorCommandLines = scaffoldTranscript
       .split("\n")
       .filter((line) => line.startsWith(`$ (cd ${installerDir} && npm exec `))
     expect(creatorCommandLines).toEqual([
-      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot} --template research)`,
+      `$ (cd ${installerDir} && npm exec -- create-b4-app ${appRoot} --template navlog)`,
     ])
 
     await writeRegistryNpmrc(appRoot, getTestRegistryUrl())
@@ -1552,7 +1552,7 @@ test("activates the research scaffold (--template research) through the complete
       "memory:approve": "b4 memory approve",
     })
     await expect(
-      readFile(join(appRoot, "server/src/app/research/index.ts"), "utf8"),
+      readFile(join(appRoot, "server/src/app/navlog/index.ts"), "utf8"),
     ).resolves.toContain("recursionLimit: 100")
 
     const safeThreadId = `safe-thread-${randomUUID()}`

@@ -82,16 +82,16 @@ function printNextSteps(options: CliOptions): void {
     "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
     "",
     "Want the full deep-research assistant with a web UI instead?",
-    "  npm create b4-app@latest <new-directory> -- --template research",
+    "  npm create b4-app@latest <new-directory> -- --template navlog",
   ]
   const lines = [
     "",
     `✔ Created ${appName} (${options.template} template)`,
     "",
     isWindows ? "Next steps (PowerShell):" : "Next steps:",
-    ...(options.template === "research" ? researchSteps : basicSteps),
+    ...(options.template === "navlog" ? researchSteps : basicSteps),
     "",
-    options.template === "research"
+    options.template === "navlog"
       ? "See README.md for the full tour, or https://github.com/cacheplane/b4run"
       : "See AGENTS.md for the app's conventions, or https://b4.run/docs/getting-started",
     "",
@@ -178,7 +178,13 @@ function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error('Missing value for "--template"')
       }
 
-      template = value
+      // Deprecated alias for one release: remove after the release that ships "navlog".
+      template = value === "research" ? "navlog" : value
+      if (value === "research") {
+        process.stderr.write(
+          'The "research" template id is deprecated and now scaffolds "navlog"; pass --template navlog.\n',
+        )
+      }
       continue
     }
 
@@ -209,7 +215,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
   if (!targetDir) {
     throw new Error(
-      "Usage: create-b4-app <target-directory> [--template basic|research] [--mode external|internal] [--dist-tag latest]",
+      "Usage: create-b4-app <target-directory> [--template basic|navlog] [--mode external|internal] [--dist-tag latest]",
     )
   }
 

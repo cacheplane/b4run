@@ -41,7 +41,7 @@ Yes. A route's `index.ts` can default-export an `agent()` descriptor or named-ex
 It walks your routes, runs typegen, then writes deployment artifacts for each target in `build.targets` (`node` and `langsmith` by default).
 
 - The `node` target emits `.b4/build/server.mjs`, which boots the real B4.run runtime (Agent Protocol, AG-UI, and the sandbox if configured), plus a hardened `Dockerfile`. Run it with `node .b4/build/server.mjs` or `docker build`/`docker run`. `b4 start` serves the source tree instead of the build output.
-- The `langsmith` target emits `.b4/build/langgraph.json` plus a per-route entry file under `.b4/build/<routeSlug>.ts`. Each agent route's entry imports your default `agent()` descriptor, turns it into a LangGraph graph, and wires in the route's tools. Each `assistant_id` is `<routeId>#<kind>`, for example `/research#agent`.
+- The `langsmith` target emits `.b4/build/langgraph.json` plus a per-route entry file under `.b4/build/<routeSlug>.ts`. Each agent route's entry imports your default `agent()` descriptor, turns it into a LangGraph graph, and wires in the route's tools. Each `assistant_id` is `<routeId>#<kind>`, for example `/navlog#agent`.
 - The opt-in `hono` target emits `.b4/build/app.mjs` plus a `wrangler.toml` for edge runtimes, and the opt-in `vercel` target emits a Vercel Build Output tree.
 
 See [CLI Reference](/docs/cli#b4-build) and [Deployment](/docs/deployment).

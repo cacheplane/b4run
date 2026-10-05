@@ -51,7 +51,7 @@ const maxAssetBytes = 32 * 1024 * 1024
 const maxBundleBytes = 64 * 1024 * 1024
 const examples = [
   { label: "chat", path: "examples/chat/web" },
-  { label: "research", path: "examples/research/web" },
+  { label: "research", path: "examples/navlog/web" },
 ] as const
 
 type Example = (typeof examples)[number]

@@ -707,7 +707,7 @@ jobs:
         run: pnpm --filter @b4-example/chat-web test:e2e
 
       - name: Verify research transport
-        run: pnpm --filter @b4-example/research-web test:e2e
+        run: pnpm --filter @b4-example/navlog-web test:e2e
 
   vercel-native:
     needs: metadata_scope

@@ -13,7 +13,7 @@ b4 dev --port 3001
 ```
 
 Requests name a route with its generated `<routeId>#<kind>` key, such as
-`/research#agent`.
+`/navlog#agent`.
 
 <Callout type="warn" title="Authenticate the entire production service">
   B4.run execution middleware is not blanket server authentication. It covers
@@ -69,7 +69,7 @@ THREAD_ID=$(curl -sS -X POST "$BASE_URL/threads" \
 curl -sS -X POST "$BASE_URL/threads/$THREAD_ID/runs/wait" \
   -H 'content-type: application/json' \
   -d '{
-    "route": "/research#agent",
+    "route": "/navlog#agent",
     "input": {
       "messages": [{ "role": "user", "content": "Explain checkpoints briefly." }]
     }
@@ -124,7 +124,7 @@ curl -N -X POST "$BASE_URL/threads/$THREAD_ID/resume" \
       { "interruptId": "perm-abc123", "status": "resolved", "payload": "once" },
       { "interruptId": "perm-def456", "status": "cancelled" }
     ],
-    "route": "/research#agent"
+    "route": "/navlog#agent"
   }'
 ```
 

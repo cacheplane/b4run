@@ -18,7 +18,7 @@ const nextApps = [
   ["apps/web", "../../../apps/web/next.config.ts"],
   ["packages/inspector", "../next.config.ts"],
   ["examples/chat/web", "../../../examples/chat/web/next.config.mjs"],
-  ["examples/research/web", "../../../examples/research/web/next.config.mjs"],
+  ["examples/navlog/web", "../../../examples/navlog/web/next.config.mjs"],
 ] as const
 const nextEnvDeclarations = `/// <reference types="next" />
 /// <reference types="next/image-types/global" />

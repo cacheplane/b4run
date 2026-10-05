@@ -9,7 +9,7 @@ interface WebManifest {
 }
 
 const templateWeb = (path: string): string =>
-  fileURLToPath(new URL(`../templates/app-research/web/${path}`, import.meta.url))
+  fileURLToPath(new URL(`../templates/app-navlog/web/${path}`, import.meta.url))
 
 const webManifest = (): WebManifest =>
   JSON.parse(readFileSync(templateWeb("package.json.template"), "utf8")) as WebManifest

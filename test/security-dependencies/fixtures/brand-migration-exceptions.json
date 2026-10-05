@@ -1367,12 +1367,12 @@
       "sha256": "be947afc1d9bb0ec8b0b4083e75b5914fa5822cd6fbe9ee520d1765e0585a5d7"
     },
     {
-      "path": "examples/research/server/CHANGELOG.md",
+      "path": "examples/navlog/server/CHANGELOG.md",
       "reason": "historical-changelog",
       "sha256": "2dff84532b93152d248358e541f2b5eca514b5f71cb1940025af255b4ae61940"
     },
     {
-      "path": "examples/research/web/CHANGELOG.md",
+      "path": "examples/navlog/web/CHANGELOG.md",
       "reason": "historical-changelog",
       "sha256": "43f7faee295d000c11865cad1043a9fb98339fca74f686bf3d764f11f0d92d35"
     },

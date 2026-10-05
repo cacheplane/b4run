@@ -699,21 +699,14 @@ describe("installRegistryScaffolderWithNpm", () => {
             "@b4run",
             "devkit",
             "templates",
-            "app-research",
+            "app-navlog",
             "package.json.template",
           ),
           "utf8",
         ),
       ).resolves.toBe(
         await readFile(
-          join(
-            REPO_ROOT,
-            "packages",
-            "devkit",
-            "templates",
-            "app-research",
-            "package.json.template",
-          ),
+          join(REPO_ROOT, "packages", "devkit", "templates", "app-navlog", "package.json.template"),
           "utf8",
         ),
       )

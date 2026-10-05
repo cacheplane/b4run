@@ -6,7 +6,7 @@ import { parseDocument } from "yaml"
 
 const testDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = resolve(testDirectory, "../..")
-const exampleImporters = ["examples/chat/web", "examples/research/web"] as const
+const exampleImporters = ["examples/chat/web", "examples/navlog/web"] as const
 const forbiddenOverrideSelector =
   /(^|>)(?:@copilotkit\/|@ag-ui\/|@ai-sdk\/provider-utils(?:@|$)|@hono\/node-server(?:@|$)|hono(?:@|$)|uuid(?:@|$))/
 

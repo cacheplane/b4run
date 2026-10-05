@@ -15,21 +15,21 @@ The tests and evals use recorded fixtures and run offline. Live runs need a real
 First, scaffold the app and install its dependencies:
 
 ```bash
-npm create b4-app@latest my-research -- --template research
+npm create b4-app@latest my-research -- --template navlog
 cd my-research
 npm install
 ```
 
-The `--template research` flag picks the research template instead of the default. You need Node.js 24 or later and npm 11.
+The `--template navlog` flag picks the research template instead of the default. You need Node.js 24 or later and npm 11.
 
 ## Look at the agents
 
 The app is an npm workspace with two packages. `server/` is the B4.run app, and `web/` is the Workbench. The root `npm install` installs both.
 
-The research route lives in `server/src/app/research/`. Let's look at the coordinator, its subagent and the app config:
+The research route lives in `server/src/app/navlog/`. Let's look at the coordinator, its subagent and the app config:
 
 <CodeGroup>
-```ts title="server/src/app/research/index.ts"
+```ts title="server/src/app/navlog/index.ts"
 import { agent } from "@b4run/sdk"
 
 export default agent({
@@ -55,7 +55,7 @@ Cite every claim with its source path in square brackets, e.g. [corpus/agent-arc
 })
 ```
 
-```ts title="server/src/app/research/subagents/researcher/index.ts"
+```ts title="server/src/app/navlog/subagents/researcher/index.ts"
 import { agent } from "@b4run/sdk"
 
 export default agent({
@@ -95,14 +95,14 @@ The coordinator plans the work and hands each sub-question to the `researcher` s
 A few more files shape the agent:
 
 ```
-server/src/app/research/
+server/src/app/navlog/
   plan.md                       # seeds each thread's todo list
   memory.md                     # route-specific prompt guidance
   memory.ts                     # typed cross-session memory
   subagents/researcher/         # the specialist subagent
   skills/cite-sources/          # loaded on demand: citation rules
   skills/synthesize-findings/   # loaded on demand: report structure
-  evals/research-quality.eval.ts
+  evals/navlog-quality.eval.ts
 server/src/tools/
   searchCorpus.ts               # keyword search over the corpus
   readDoc.ts                    # reads one document in full
@@ -132,7 +132,7 @@ npm run typecheck
 ```
 B4.run app is valid: 2 routes discovered.
 - /research (agent)
-- /research/subagents/researcher (agent)
+- /navlog/subagents/researcher (agent)
 ```
 
 Next, run both packages' tests:
@@ -170,7 +170,7 @@ In a second terminal, send the agent a question:
 
 ```bash
 cd server
-echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | npx b4 run /research --url http://127.0.0.1:3002
+echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | npx b4 run /navlog --url http://127.0.0.1:3002
 ```
 
 The report lands in `server/workspace/reports/`. Thread state is saved to `server/.b4/checkpoints.sqlite`, so threads survive dev-server restarts.

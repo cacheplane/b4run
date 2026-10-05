@@ -25,13 +25,13 @@ const templateConfig = (relativePath: string): string =>
 
 describe("scaffolded web app leaves CopilotKit telemetry off", () => {
   it("disables it in next.config.mjs, before anything imports the runtime", () => {
-    const config = templateConfig("app-research/web/next.config.mjs")
+    const config = templateConfig("app-navlog/web/next.config.mjs")
 
     expect(config).toContain('process.env.COPILOTKIT_TELEMETRY_DISABLED ??= "true"')
   })
 
   it("sets it before the config object, not after", () => {
-    const config = templateConfig("app-research/web/next.config.mjs")
+    const config = templateConfig("app-navlog/web/next.config.mjs")
 
     expect(config.indexOf("COPILOTKIT_TELEMETRY_DISABLED")).toBeLessThan(
       config.indexOf("const nextConfig"),

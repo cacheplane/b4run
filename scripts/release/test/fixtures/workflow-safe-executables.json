@@ -786,7 +786,7 @@
         "stepIndex": 7,
         "step": "Verify research transport",
         "kind": "run",
-        "value": "pnpm --filter @b4-example/research-web test:e2e"
+        "value": "pnpm --filter @b4-example/navlog-web test:e2e"
       },
       {
         "classification": "safe",

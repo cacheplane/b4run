@@ -7,7 +7,7 @@ interface WebManifest {
 }
 
 const manifestPath = fileURLToPath(
-  new URL("../templates/app-research/web/package.json.template", import.meta.url),
+  new URL("../templates/app-navlog/web/package.json.template", import.meta.url),
 )
 
 describe("research web template dependency alignment", () => {

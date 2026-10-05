@@ -89,7 +89,7 @@ On Agent Protocol it is the top-level `grant`:
 ```sh
 curl -X POST http://127.0.0.1:2024/threads/$THREAD/resume \
   -H 'Content-Type: application/json' \
-  -d '{"resume":[{"interruptId":"perm-abc123","status":"resolved","payload":"once","grant":"b4ag_..."}],"route":"/research#agent"}'
+  -d '{"resume":[{"interruptId":"perm-abc123","status":"resolved","payload":"once","grant":"b4ag_..."}],"route":"/navlog#agent"}'
 ```
 
 `grant` is opaque. The client echoes the string it was given and authors nothing about the decision beyond `status` and `payload`. It is optional on the type for migration only; at runtime it is required whenever the interrupt has one.

@@ -238,13 +238,13 @@ Commit the eval and its fixture files alongside your route. CI replays them, inc
 
 ## Your scaffolded app already has an eval
 
-The default `basic` template generates `src/app/hello/evals/smoke.eval.ts`, a one-case replay eval for the `/hello` agent, and an `eval` npm script. The research template (`npm create b4-app@latest my-agent -- --template research`) generates `server/src/app/research/evals/research-quality.eval.ts` next to its research route, adds `@b4run/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. In either app, run it right after scaffolding:
+The default `basic` template generates `src/app/hello/evals/smoke.eval.ts`, a one-case replay eval for the `/hello` agent, and an `eval` npm script. The research template (`npm create b4-app@latest my-agent -- --template navlog`) generates `server/src/app/navlog/evals/navlog-quality.eval.ts` next to its research route, adds `@b4run/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. In either app, run it right after scaffolding:
 
 ```bash
 npm run eval
 ```
 
-This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The research eval (`server/src/app/research/evals/research-quality.eval.ts`) has two dataset cases and four scorers:
+This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The research eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has two dataset cases and four scorers:
 
 - `toolCalled("searchCorpus", { threshold: 1 })` asserts the agent called `searchCorpus`.
 - `contains("[corpus/", { threshold: 1 })` asserts the reply cites a corpus source.

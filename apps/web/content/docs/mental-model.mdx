@@ -17,7 +17,7 @@ B4.run writes those conventions once, so you can focus on the agent.
 
 ## The pieces
 
-A *route* is a folder under `src/app/`. The folder path becomes the endpoint, so `src/app/research/` answers to `/research`. Everything a route needs lives in that folder.
+A *route* is a folder under `src/app/`. The folder path becomes the endpoint, so `src/app/navlog/` answers to `/navlog`. Everything a route needs lives in that folder.
 
 A *route entry* is what the route runs. Each route has one `index.ts` that exports an `agent`, a `workflow`, a `graph`, or a `chain`. Pick the shape that fits the problem, route by route.
 
@@ -54,13 +54,13 @@ You need all four, since each covers something the others don't. They all sit be
 A typical request through B4.run looks like this:
 
 ```text
-POST /threads/<id>/runs/wait  { "route": "/research#agent", "input": { "messages": [...] } }
+POST /threads/<id>/runs/wait  { "route": "/navlog#agent", "input": { "messages": [...] } }
         │
         ▼
    thread lookup   →   .b4/threads.sqlite (created on POST /threads)
         │
         ▼
-   route id match  →   src/app/research/index.ts
+   route id match  →   src/app/navlog/index.ts
         │
         ▼
    input state     →   { messages: [{ role: "user", content: "What are common agent architectures?" }] }

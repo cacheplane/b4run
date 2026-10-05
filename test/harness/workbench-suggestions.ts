@@ -75,7 +75,7 @@ const HIDDEN = { state: "hidden", timeout: LOCATOR_TIMEOUT_MS } as const
 
 /**
  * Mirrors `LABEL_LIMIT` in
- * packages/devkit/templates/app-research/web/app/components/MemoryPanel.tsx,
+ * packages/devkit/templates/app-navlog/web/app/components/MemoryPanel.tsx,
  * where `shortLabel()` collapses whitespace runs and truncates past this many
  * characters with `…` before building `aria-label={`Approve: ${…}`}`. Nothing
  * imports that file (it ships inside the scaffolded app), so keep it in step

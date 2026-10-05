@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-const templates = ["app-basic", "app-research"] as const
+const templates = ["app-basic", "app-navlog"] as const
 
 describe("scaffold gitignore", () => {
   for (const name of templates) {

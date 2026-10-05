@@ -29,7 +29,7 @@ The target writes `.b4/build/langgraph.json` and one `.b4/build/<route-slug>.ts`
 ```json title=".b4/build/langgraph.json"
 {
   "graphs": {
-    "/research#agent": "./.b4/build/research.ts:graph"
+    "/navlog#agent": "./.b4/build/navlog.ts:graph"
   },
   "dependencies": ["."],
   "env": ".env.example",
@@ -37,7 +37,7 @@ The target writes `.b4/build/langgraph.json` and one `.b4/build/<route-slug>.ts`
 }
 ```
 
-Each graph key is `<routeId>#<kind>`. Use the full key, such as `/research#agent`, as the platform `assistant_id`.
+Each graph key is `<routeId>#<kind>`. Use the full key, such as `/navlog#agent`, as the platform `assistant_id`.
 
 ## Route entry behavior
 

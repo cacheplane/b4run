@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-04T04:09:03.000Z",
-      "sourceDigest": "bd0440c69a6345d71b33f03558d5f65cd1d3ae4b4edc4811ce989ccd4a34e4bb",
-      "recordDigest": "4ce597ff3215510bf8260b270460bf28f7e6d1721b2103777c1cbc361a8a17fc"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "4624a9d31f41c4e23749ac1689157862b3e56d6189cdcbc92e967583f17e1696",
+      "recordDigest": "61661b2d9faa5b23316216dcd76ae0f7fdaa2e0c154d05da5039b1e92f7c0a66"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -137,9 +137,9 @@
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
     },
     "/docs/approval-grants": {
-      "lastModified": "2026-10-03T02:54:00.000Z",
-      "sourceDigest": "bad030e4cf09b7b0d24bc44c0f301d48312ec19617210f600cf265793e84ca9b",
-      "recordDigest": "2d86add80fe88da0a1f08b335ffcb703e81f560d7dcb261df957d1e4dc540f45"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "46b63df4da976566d0570fd07115d9146793bf84bd6fbab619e6b5b7451d76c8",
+      "recordDigest": "b09e494103b586a9155d3f34fe73ba1e19f4cc4bf2f691d4b4b13f512ae9845c"
     },
     "/docs/blueprints": {
       "lastModified": "2026-09-23T17:16:40.000Z",
@@ -147,9 +147,9 @@
       "recordDigest": "fbd8a797655a538b9b346d8599f16e88a7764828f45b2628a910f2df1f1e2a53"
     },
     "/docs/cli": {
-      "lastModified": "2026-10-03T04:12:31.000Z",
-      "sourceDigest": "58ba06b7840b2cc90ddb42a1958ac0bb7a5ff4c01322b03a2eaf44e8e6a6a7fb",
-      "recordDigest": "91176baccf6eac2931b74ed6f154e68f0ea8db21e57b58891b842340d1066968"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "86be2d74b2b91e71a3c9f3dc686e301b76e4840a5e2213988846687e58389914",
+      "recordDigest": "145b548a5107375e4e1a69144493ba657fcfb283ca7165d509b29e2a2e0ce1db"
     },
     "/docs/configuration": {
       "lastModified": "2026-10-03T15:36:55.000Z",
@@ -177,9 +177,9 @@
       "recordDigest": "38966a0c0c69227fcb37325ff45b920e5c73d5830dbf005d501ecaf9c8159658"
     },
     "/docs/deployment/langsmith": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "46ee1fad35bf0f7428ae34a25c040bca6dcf99b1de517c8cba542ace5d68f03a",
-      "recordDigest": "83cf85f7523a4f68ef085b6a6b65cb27e62ab3479eec2829ed616c799130784a"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "61df231f7873b748cdbf369bccaa08bbc727ac17aed1014d65b654b7aa40d2ba",
+      "recordDigest": "c0c55d1a81fca7c038f91ae666495590021353c844dc4da72b0b30607b2ff41a"
     },
     "/docs/deployment/node": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -197,9 +197,9 @@
       "recordDigest": "80c35fa2ed1ac036a6f052d0349a5bb13570467c95423908aff1f3e1b7871126"
     },
     "/docs/dev-server/agent-protocol": {
-      "lastModified": "2026-09-25T09:33:24.000Z",
-      "sourceDigest": "9030d2fbaa05d2a86cfc17b390848e4023b4304c5dbb7b3f7f584b7b4950900c",
-      "recordDigest": "b74f75795fe808c051f3fd900283ea13ea116922c9b8c5c329281ffd78adfe9e"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "a17da7d0e290455e3651bf2066e668241de2ccabb5b7c17adb5d022bf2f33e55",
+      "recordDigest": "90ae7fab2622b2bdaf8ea1dcfb082063f4cd193acbbb59be305819a6a85bfd27"
     },
     "/docs/embedding": {
       "lastModified": "2026-10-04T23:07:54.000Z",
@@ -212,14 +212,14 @@
       "recordDigest": "70854daf9d76a227dedc323e733d46567cc2564beaff9e78e0cc21d9b7477b19"
     },
     "/docs/evals": {
-      "lastModified": "2026-09-25T17:07:15.000Z",
-      "sourceDigest": "5c31d23c5917658426144744ebfac823171262267f8bc6c37dceaf82bdd9e24b",
-      "recordDigest": "965663cd4a674c330e7f6fbcb87053a1d2a1b6b41cdb07a66ebb009df0736f64"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "7d088564b32e0064a2f573f848c701a823495a58e9b17fcad1bf03277c48e89b",
+      "recordDigest": "c3696416815f72cb53fb1391c2bbf74a80e15c2640ca3ec3319dcf0d3f55d785"
     },
     "/docs/faq": {
-      "lastModified": "2026-10-02T03:59:58.000Z",
-      "sourceDigest": "9e595281d812b0e198f848e210f2f084f0c701dcf78764477396c2d721f83919",
-      "recordDigest": "68c7e1021eedf407f7d203a71a9692f750b16840d191ff870842f2b6067b436e"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "18a854b38bdee28e01238894a2823b5c147984c861e20ff6d9cf20d82a0003ad",
+      "recordDigest": "5544d6502da9720064281820c49bccf161356db0553e737ccfaf3d79064356ba"
     },
     "/docs/getting-started": {
       "lastModified": "2026-09-23T15:28:48.000Z",
@@ -232,9 +232,9 @@
       "recordDigest": "8dc110528b2ebf8c21a12b657e4f67b8ad3da130b10b110efcdfa13419a7e865"
     },
     "/docs/memory": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "5d58e9e73555d8d8e01d9fdbd846ef30e14c2953d0d69f7eab180f4994788908",
-      "recordDigest": "2919a51dd4a34fd2dc8af2d452b693e497f303edcd6d567e2d030584d20629ad"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "2c341f6b490aa5ce565237fe8d2f886d1c07b354d3cfa043889e6e01f25a750d",
+      "recordDigest": "402f3f9f0103ae73fdd6dc30c1575e84e21359fe88e6fdac2eb887c52edfe700"
     },
     "/docs/memory/browse": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -262,9 +262,9 @@
       "recordDigest": "0ebbb7e49198bf0bb955af3bc52c2f724d5fad0b5cfc23d3632734a0a16ae708"
     },
     "/docs/mental-model": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "4517d365f8f92e27755eb5808e8628938050e20962f5a75ef5150665ba8527b1",
-      "recordDigest": "9275e5bb30c48b292317528ca80045742045f9d03ad483c45059b80a6d778764"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "5480435974f7b4f308c15caf019371b25b482971cbd62b5b70308f814d941da9",
+      "recordDigest": "afcdd29b43e334c8f7e0b1b204dc986550253c11aafe2e33dea91e6b2e36408f"
     },
     "/docs/middleware": {
       "lastModified": "2026-09-28T18:04:34.000Z",
@@ -282,9 +282,9 @@
       "recordDigest": "469a26742d5ce45700de275fa7ffab78deb29e29c17b905a659973f196e152eb"
     },
     "/docs/permissions": {
-      "lastModified": "2026-10-03T21:12:13.000Z",
-      "sourceDigest": "c1860225b60f15f3129bcd8f608f4d7b022fb8f68e4e6beb0e367169b5db2170",
-      "recordDigest": "7d13c80589b2360cc0fdbbd18b97cfc8b7dc33e5d16a9c93ab762aa14e15f461"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "41780fba379b9786d956f2ebb435fc0c6f3f44b81a77415ec18bf16b6f45cd51",
+      "recordDigest": "4ee98b328fdf1efe0930cf8e21fc783dcc42f250ea28ab627de0df2d4396dffd"
     },
     "/docs/persistence": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -327,14 +327,14 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/research-assistant": {
-      "lastModified": "2026-10-03T17:44:41.000Z",
-      "sourceDigest": "062adfbd16bb4e5555e37071c75b5cd47bd8e6e89a427a385dc26b338ff69903",
-      "recordDigest": "094f28186cc75ed452620c8b360c6550d789893dc62a3016789466dc2555e4bb"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "6eace9ea2314f43f530ded6650ca79b5982bd406be1d6943defd09515ea70723",
+      "recordDigest": "478499f0682b5b6feabbd00715dbe5e2a1581d7324388d095f4d208cdf7abea3"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-10-03T18:00:01.000Z",
-      "sourceDigest": "cb58f1bea5d510115e29f2af125c39bb789f5e845840f846fd3345ca95508d5c",
-      "recordDigest": "3511cdcfdf6b5f9bc6d8f7787f7d40567fe2473a50f479b6eaefab2769524d4b"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "53f9bc84d4d6d8c1d441177c8865dc0b3a765cd9816dc106ec8c231e5c2f19a5",
+      "recordDigest": "b4944cfc0b7c2baf0d8435c1f5f47d045c919c9f312cb1d26069f8e3d6c12950"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -342,9 +342,9 @@
       "recordDigest": "c9570f9f413b83a0ea8459574c90bc3df616f486a77285ed13c2ca72d018a2bb"
     },
     "/docs/recipes/stream-output": {
-      "lastModified": "2026-10-03T05:47:50.000Z",
-      "sourceDigest": "3a5a72c1c75c359b935cd58dd86817ca8dd4d106c297a603101cbd73fa873d5e",
-      "recordDigest": "3b87192f4ff60b7ac9d7c47eac557a3065de81af0f40aef22f336c50b5142c6c"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "063857189cc49cf52a456f93a6e2deb103a13f54598b894c28679f05c7418505",
+      "recordDigest": "c4de7b298e87669ff55cf0802e367dc8e08f6c37f729f221cc68bf278b0ea3fe"
     },
     "/docs/recipes/typed-state": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -392,14 +392,14 @@
       "recordDigest": "af296e6ca39c0e6b0a99fd54f31c27497a028d98cc97bc9dabe0638dd5ba9e49"
     },
     "/docs/testing": {
-      "lastModified": "2026-09-23T17:27:43.000Z",
-      "sourceDigest": "ee876f99339d27fb865a189744af8845fa9fe6d0650f85c573d93972e453210d",
-      "recordDigest": "786961685094de67fc60ff898d3f4596179d62ff8e00ba26134003b3729d0379"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "ac32526c2d678dfeb0544a338ac488d17439acb6c66502de319496d962bd6628",
+      "recordDigest": "c4f573584627baa3ebfcb7d59d1a260a1e063950ece4cdecc18cacc1058b72c4"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-09-25T17:07:15.000Z",
-      "sourceDigest": "3aad3e4748d0fc079fc1e9aa76d7a262f1957a43bee0be7d5b3e28df86a51000",
-      "recordDigest": "683b6373c7de42ee323b6fc16dc7fccbadbb8dcfc0bc7ce064550eabec15d072"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "de37f6dc38967be4362d07a8143bed6be6fdb76e912c546dc692fb7ed4ae177d",
+      "recordDigest": "16406013f8ae529402a91f7d0c16e43c0a2ec78baec04facf1408ac720955326"
     },
     "/docs/testing-agents/fixtures": {
       "lastModified": "2026-09-23T17:27:43.000Z",
@@ -417,9 +417,9 @@
       "recordDigest": "171870a2f8984f99910b5f6cde51ae89e10bc25ce8b37ea10b19b6969c941b77"
     },
     "/docs/tools": {
-      "lastModified": "2026-10-04T00:08:15.000Z",
-      "sourceDigest": "79120359db72379a567fd8ff869c44dbc6d6bd5fcbac02b0a2167d8ce71896ff",
-      "recordDigest": "92970d81631b2626037555f5b8c304dc87e67d5de031570544fdd975936e8e5b"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "6070f2f81f6fc880092a5dfc5f8441cb779df172264d067a013c4613bf9f42b8",
+      "recordDigest": "f356c0bc0fd537da2381ff200b398a656c510823959ec6529a2d713ffee7fc12"
     },
     "/docs/troubleshooting": {
       "lastModified": "2026-09-23T18:32:41.000Z",
@@ -432,9 +432,9 @@
       "recordDigest": "11f47aa2765176efaccf67fb0809853452bd5ee064ee021195345b78b990307c"
     },
     "/docs/workspace": {
-      "lastModified": "2026-09-24T01:19:36.000Z",
-      "sourceDigest": "b077925b305ba4e2ba9350fe6f64b27501fa974dd31506f478bcc1727c2d121a",
-      "recordDigest": "ff39d9940013f0967b1facef16bc081f66e0c3ee602ccbeff632705a7ed87819"
+      "lastModified": "2026-10-04T23:15:09.000Z",
+      "sourceDigest": "f5bca77d13062623a4504e4bde24ba5815c20b9b8284095d03f11d0d1304dc94",
+      "recordDigest": "0dbee741a705cda54338096980ed199fc5c7e8417a411b1e04f1555b77510363"
     }
   }
 }

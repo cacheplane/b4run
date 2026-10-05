@@ -3,21 +3,21 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-const templates = ["app-basic", "app-research"] as const
+const templates = ["app-basic", "app-navlog"] as const
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
 
 /**
- * Where each template's app tree starts. `app-research` is an npm workspace,
+ * Where each template's app tree starts. `app-navlog` is an npm workspace,
  * so its `src/` — and the authorization files in it — live under `server/`.
  */
-const appRoot = (name: string): string => (name === "app-research" ? `${name}/server` : name)
+const appRoot = (name: string): string => (name === "app-navlog" ? `${name}/server` : name)
 
 /** Every place the same two authorization files are shipped from. */
 const copies = [
   fileURLToPath(new URL("../templates/app-basic/src/", import.meta.url)),
-  fileURLToPath(new URL("../templates/app-research/server/src/", import.meta.url)),
-  `${resolve(repoRoot, "examples/research/server/src")}/`,
+  fileURLToPath(new URL("../templates/app-navlog/server/src/", import.meta.url)),
+  `${resolve(repoRoot, "examples/navlog/server/src")}/`,
 ] as const
 
 const read = (name: string, file: string): string =>

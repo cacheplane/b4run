@@ -37,13 +37,13 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 Examples:
 
 - Default basic scaffold: `src/app/hello/index.ts` → route id `/hello`; agent route key `/hello#agent`.
-- Research scaffold (`npm create b4-app@latest my-app -- --template research`): `src/app/research/index.ts` → route id `/research`; agent route key `/research#agent`.
+- Research scaffold (`npm create b4-app@latest my-app -- --template navlog`): `src/app/navlog/index.ts` → route id `/navlog`; agent route key `/navlog#agent`.
 - Route group plus dynamic segment: `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
 
 ## Defining an Agent Route
 
 ```ts
-// src/app/research/index.ts
+// src/app/navlog/index.ts
 import { agent } from "@b4run/sdk"
 
 export default agent({
@@ -63,7 +63,7 @@ export default agent({
 ## Tool Authoring
 
 ```ts
-// src/app/research/tools/searchCorpus.ts
+// src/app/navlog/tools/searchCorpus.ts
 export default async (
   input: { readonly query: string },
   ctx: { signal: AbortSignal; middleware?: Readonly<Record<string, unknown>> },
@@ -108,7 +108,7 @@ export default defineMiddleware(async (req) => {
 ## Route Entry: workflow form (alternative to agent)
 
 ```ts
-// src/app/research/index.ts
+// src/app/navlog/index.ts
 import type { RuntimeContext } from "@b4run/sdk"
 import type { RouteTools } from "b4:routes"
 import type { z } from "zod"
@@ -118,7 +118,7 @@ type ResearchState = z.infer<typeof state>
 
 export async function workflow(
   state: ResearchState,
-  ctx: RuntimeContext<RouteTools<"/research">>,
+  ctx: RuntimeContext<RouteTools<"/navlog">>,
 ) {
   // ctx.signal is the request-scoped AbortSignal.
   // ctx.tools.searchCorpus is fully typed from the route's tools/ directory.
@@ -130,12 +130,12 @@ export async function workflow(
 }
 ```
 
-The `RouteTools<"/research">` lookup uses the route's pathname as the key. These keys are populated by `b4 typegen`. Run `b4 typegen` if `b4:routes` does not resolve.
+The `RouteTools<"/navlog">` lookup uses the route's pathname as the key. These keys are populated by `b4 typegen`. Run `b4 typegen` if `b4:routes` does not resolve.
 
 ## Commands (run via `npx`)
 
 - `b4 add [name]`: add B4.run-authored templates or components.
-- `b4 build`: write `.b4/build/langgraph.json` and per-route entry files for LangSmith deployment. Generated route keys are `<routeId>#<kind>` (e.g. `/research#agent`).
+- `b4 build`: write `.b4/build/langgraph.json` and per-route entry files for LangSmith deployment. Generated route keys are `<routeId>#<kind>` (e.g. `/navlog#agent`).
 - `b4 check`: validate app structure/config (lightweight).
 - `b4 dev`: local Agent Protocol runtime server.
 - `b4 docs [topic]`: print local documentation snippets.
@@ -147,7 +147,7 @@ The `RouteTools<"/research">` lookup uses the route's pathname as the key. These
 - `b4 typegen`: regenerate `.b4/b4.generated.d.ts` and per-route `tools.json` / `state.json`.
 - `b4 verify`: full integrity check across app, routes, typegen, deps. Preferred CI gate.
 - `echo '{"messages":[{"role":"user","content":"Say hello to Ada"}]}' | b4 run /hello`: execute the default basic scaffold route.
-- `echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | b4 run /research`: execute the research scaffold route.
+- `echo '{"messages":[{"role":"user","content":"What are common agent architectures?"}]}' | b4 run /navlog`: execute the research scaffold route.
 
 ## Agent Protocol
 
@@ -166,7 +166,7 @@ Run and stream bodies require a route key and optional input:
 
 ```json
 {
-  "route": "/research#agent",
+  "route": "/navlog#agent",
   "input": {
     "messages": [{ "role": "user", "content": "What are common agent architectures?" }]
   }
@@ -184,7 +184,7 @@ Resume resolves a parked human-in-the-loop interrupt and streams the continuatio
       "payload": "once"
     }
   ],
-  "route": "/research#agent"
+  "route": "/navlog#agent"
 }
 ```
 
