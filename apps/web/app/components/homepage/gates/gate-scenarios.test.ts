@@ -14,6 +14,7 @@ import {
 import { discoverRoutes, extractToolSchemasForRoute, nodeMarkerFs } from "@b4run/core/node"
 import { createPermissionsStore } from "@b4run/permissions/node"
 import { type DockerSandboxOptions, dockerSandbox } from "@b4run/sandbox"
+import { isToolDenial } from "@b4run/sdk"
 import {
   Annotation,
   Command,
@@ -374,7 +375,10 @@ describe("each check answers as the framework does", () => {
     const tool = approvedRefund(store, (input) => ran.push(input))
     const call = pausable(() => tool.run({ amount: 500 }, context()))
     await call.start()
-    const reason = await call.resume("deny")
+    const denial = await call.resume("deny")
+    // Branded so a step can tell a denial from a result; the model reads `result`.
+    if (!isToolDenial(denial)) throw new Error("expected a branded denial")
+    const reason = denial.result
     expect(reason).toBe("[B4_E3001] Permission denied by user: tool refund")
     expect(ran).toEqual([])
     expect(store.match("tool", "refund")).toBe("unknown")
