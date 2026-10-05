@@ -73,4 +73,28 @@ describe("main.mjs behind the internal-token guard", () => {
     })
     expect(res.status).toBe(200)
   })
+
+  it("keeps a visitor's thread from every other visitor", async () => {
+    const as = (visitor: string) => ({
+      "content-type": "application/json",
+      "x-internal-token": "test-secret",
+      "x-b4-visitor": visitor,
+    })
+    const created = await fetch(new URL("/threads", url), {
+      method: "POST",
+      headers: as("v-owner0001"),
+      body: "{}",
+    })
+    expect(created.status).toBe(200)
+    const { thread_id: threadId } = (await created.json()) as { thread_id: string }
+
+    const own = await fetch(new URL(`/threads/${threadId}`, url), { headers: as("v-owner0001") })
+    expect(own.status).toBe(200)
+    const other = await fetch(new URL(`/threads/${threadId}`, url), { headers: as("v-other0001") })
+    expect(other.status).not.toBe(200)
+    const anonymous = await fetch(new URL(`/threads/${threadId}`, url), {
+      headers: { "x-internal-token": "test-secret" },
+    })
+    expect(anonymous.status).not.toBe(200)
+  })
 })

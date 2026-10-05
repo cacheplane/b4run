@@ -36,6 +36,14 @@ export default config({
 
   // Persistence (SQLite checkpointer + Agent Protocol) is on by default.
 
+  // The node target only: src/thread-access.ts makes threads visitor-owned, and
+  // the langsmith target cannot carry a thread access policy, so `b4 build`
+  // refuses it rather than deploy every thread endpoint ungated. The live demo
+  // runs the node build (main.mjs, Dockerfile.railway).
+  build: {
+    targets: ["node"],
+  },
+
   // --- Capability seam (documented, inactive): cross-origin access ---
   // B4.run sends no `Access-Control-*` header unless this block exists, and
   // `web/` deliberately does not need it: its browser client reaches B4.run

@@ -2,12 +2,13 @@
  * Thread authorization: may this caller create, read, mutate or destroy this
  * thread?
  *
- * Rename to `src/thread-access.ts` — drop the `.example` — to activate it,
- * together with `src/auth.ts.example`. Until you do, every thread endpoint is
- * open to anyone who can name a thread id, and ids are neither secret nor
- * collision-proof (`t-` plus four random bytes). Activating it before you have
- * an authenticated caller will deny every request, which is the point: this
- * policy is deny-by-default and only `principalOf` can open it.
+ * Active, and inert in development: `principalOf` (src/auth.ts) returns one
+ * local principal when no `B4_INTERNAL_TOKEN` is set, and that principal owns
+ * every thread it creates. Behind the deployed proxy each visitor is its own
+ * principal, so a visitor sees only the threads it created. Without this file
+ * every thread endpoint is open to anyone who can name a thread id, and ids are
+ * neither secret nor collision-proof (`t-` plus four random bytes). The policy
+ * is deny-by-default and only `principalOf` can open it.
  *
  * This is NOT route middleware. Middleware is keyed on route identity, and a
  * thread has no owning route — every endpoint that starts a turn overwrites the
