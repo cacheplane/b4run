@@ -5,10 +5,30 @@ agent. It is a [CopilotKit](https://docs.copilotkit.ai) v2 app
 (`@copilotkit/react-core/v2` + `@copilotkit/runtime`) on Next.js and React that
 talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
 
-It is a workbench rather than a chat widget: it renders its own transcript and
-composer instead of mounting `CopilotSidebar`, so the plan card, the `weather`
-and `performance` subagent cards, tool cards, and the `fileFlightPlan` approval
-appear inline in the conversation.
+It is a workbench rather than a chat widget, and it is map-first:
+
+- **Route map.** A full-viewport [Leaflet](https://leafletjs.com) map on
+  OpenStreetMap tiles, credited in the map's attribution control. It draws the
+  planned route, one marker per waypoint colored by flight category with the
+  category as text beside it, and the cruise magnetic heading on each leg.
+- **Chat dock.** A floating panel on the left with "+ New conversation", the
+  thread list behind a "Threads" disclosure, memory review, and the
+  conversation itself: the plan card, the `weather` and `performance` subagent
+  cards, tool cards and the `fileFlightPlan` approval, inline and in order.
+- **Weather strip.** Flight-category chips per airport from the `weather`
+  subagent's brief (the worse of now and at ETA), plus the winds-aloft line. A
+  chip opens the raw METAR and TAF.
+- **Navlog sheet.** A bottom sheet with the totals when collapsed; open, the
+  legs table, the ICAO flight plan items 7 to 19 and the brief. **Print** prints
+  the sheet alone on one landscape page and **Copy FPL** copies the `(FPL-…)`
+  message. Hovering a leg highlights it on the map.
+- **Phones.** Under 768 px the dock and the sheet become one bottom sheet with
+  Chat and Navlog tabs, the navlog as one card per leg.
+
+Every surface reads the thread the client already has through pure, unit-tested
+selectors: `latestNavlog` (the last `computeNavlog` result), `latestWeatherBrief`
+(the last completed `weather` subagent run) and `routeGeometry` (what the map
+draws). Nothing extra is stored.
 
 No model credentials live in this package. The B4.run server holds them, and this
 app reaches it through a same-origin proxy.
@@ -48,7 +68,14 @@ npm run build --workspace web
 | Part | File | What it does |
 |---|---|---|
 | Connect screen | `app/components/ConnectScreen.tsx` | replaces the shell while the server is unreachable |
-| Thread rail | `app/components/ThreadRail.tsx` | new conversation, plus the thread list |
+| Layout | `app/components/WorkbenchLayout.tsx` | the map with the dock, strip and sheet over it; the phone tabs |
+| Route map | `app/components/RouteMap.tsx` | Leaflet, browser-only, draws what `routeGeometry` returns |
+| Chat dock | `app/components/ChatDock.tsx` | header, new conversation, threads, memory, transcript, composer |
+| Weather strip | `app/components/WeatherStrip.tsx` | flight-category chips and the raw reports |
+| Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx` | totals, legs, ICAO flight plan, print and copy |
+| Navlog card | `app/components/NavlogCard.tsx` | the compact `computeNavlog` card in the transcript |
+| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
+| Thread list | `app/components/ThreadRail.tsx` | the thread list behind the dock's "Threads" disclosure |
 | Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
 | Transcript | `app/components/Transcript.tsx` | messages, activity cards, tool cards, approvals, errors |
 | Composer | `app/components/Composer.tsx` | send, and stop while a run is in flight |
@@ -71,6 +98,11 @@ the dark palette, the activity-card tokens, and every utility move together.
 The same file holds the focus ring (`wb-focus`), the two roles the gradient is
 allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and the `.wb-prose`
 rules for rendered markdown.
+
+It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max`
+and `--wb-gutter` for the layout, `--wb-route` for the route line, the
+`--wb-cat-*` flight-category colors shared by the chips and the markers, the
+filter that mutes the map tiles (inverted in dark mode), and the print rules.
 
 The palette follows the OS light/dark setting. To pin one, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>`; `theme.css`
@@ -140,16 +172,24 @@ fill in how you authenticate a caller.
   and counts the rest, so it cannot push the thread list off the rail. It cannot
   browse, search, or edit stored memories; that is `npm run memory:list` and the
   rest of the `b4 memory` CLI, or `npx b4 inspect --cwd server` for a browser UI.
+- **The map needs the network.** Tiles come from `tile.openstreetmap.org` under
+  the OpenStreetMap tile usage policy, which suits development and light use,
+  not heavy production traffic; point the `L.tileLayer` URL in `RouteMap.tsx` at
+  your own tile provider before you ship. Without network access the map is
+  blank, and the route, markers and labels still draw on it.
 - **A connection loss costs your draft.** When a probe finds the server down,
   the connect screen replaces the whole shell, which unmounts the composer.
 
 ## Tests
 
-`npm test --workspace web` runs 15 test files with Vitest: the proxy route and
+`npm test --workspace web` runs 27 test files with Vitest: the proxy route and
 its allowlist, the thread source, the checkpoint hydrator, the transcript
 mapping, the renderer registry, the thread rail, the composer, the connect
-screen, the memory panel, the tool-call card, all three permission surfaces, and
-the shell's thread-switch and server-probe behaviour. `typecheck` and `build`
+screen, the memory panel, the tool-call card, media parts, all three permission
+surfaces, the shell's thread-switch and server-probe behaviour, and the map
+workbench (selectors, route geometry, formatting, the navlog table, sheet,
+flight plan and card, the weather strip, and the desktop and phone layouts).
+`RouteMap` needs a real DOM and is not unit-tested. `typecheck` and `build`
 prove the CopilotKit and AG-UI wiring compiles. The activity cards themselves
 are tested in `@b4run/ag-ui`.
 

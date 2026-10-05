@@ -9,8 +9,12 @@ shipped as an npm workspace with two packages:
   tests, and evals.
   [`server/README.md`](./server/README.md) is the full tour.
 - **`web/`** — the B4.run Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
-  client built on CopilotKit, with a thread rail, streaming chat, plan and
-  subagent activity cards, tool cards, the flight-plan approval, and memory review.
+  client built on CopilotKit. A full-viewport route map (Leaflet on
+  OpenStreetMap tiles) sits behind a floating chat dock (threads, streaming chat,
+  plan and subagent activity cards, tool cards, the flight-plan approval, memory
+  review), a weather strip with flight-category chips that match the airport
+  markers, and a bottom navlog sheet with the legs table, the ICAO flight plan,
+  the brief, print and copy. Phones get one tabbed bottom sheet.
   [`web/README.md`](./web/README.md) covers restyling it and its known limits.
 
 Requires Node.js 24 or later and npm 11.
