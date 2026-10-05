@@ -167,6 +167,16 @@ import { scenarios } from "@b4run/sdk/testing"
 | `TOOL_DENIAL` | Name the symbol key that brands a denied tool call's result. |
 | `toolDenial` | Brand a denial reason as a tool result; the model still reads the reason as plain text. |
 | `isToolDenial` | Tell a denied tool call's result from a successful one. |
+| `B4_STEP_KEY` | The `additional_kwargs` key under which every ToolMessage persists its step (`b4_step`). |
+| `B4_SUBAGENT_KEY` | The `additional_kwargs` key under which a `task` ToolMessage persists the subagent it launched (`b4_subagent`). |
+| `B4_TURN_METADATA_KEY` | The checkpoint-metadata key under which the runtime stamps how a turn ended (`b4:turn`). |
+| `GateDecision` | How a permission gate was answered: `once`, `always` or `deny`. |
+| `PersistedStep` | The step a ToolMessage persists: status, icon, label, sources, start and settle times, and the gate decision. |
+| `PersistedSubagent` | The subagent a `task` call launched: name, route, description, depth, child checkpoint namespace, outcome and error. |
+| `PersistedTurnEnd` | How and when a turn ended, stamped on the head checkpoint's metadata. |
+| `readPersistedStep` | Validate a `b4_step` value; invalid optional fields are dropped, a missing identity returns undefined. |
+| `readPersistedSubagent` | Validate a `b4_subagent` value. |
+| `readPersistedTurnEnd` | Validate a `b4:turn` value. |
 
 ### `@b4run/sdk/pure`
 

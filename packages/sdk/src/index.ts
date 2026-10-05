@@ -105,6 +105,18 @@ export type {
   ModelProviderId,
 } from "./model-provider.js"
 export { inferProvider, SUPPORTED_AGENT_PROVIDERS } from "./model-provider.js"
+export {
+  B4_STEP_KEY,
+  B4_SUBAGENT_KEY,
+  B4_TURN_METADATA_KEY,
+  type GateDecision,
+  type PersistedStep,
+  type PersistedSubagent,
+  type PersistedTurnEnd,
+  readPersistedStep,
+  readPersistedSubagent,
+  readPersistedTurnEnd,
+} from "./persisted-turn.js"
 export type { RouteConfig, RouteKind } from "./route-config.js"
 export type { RouteStateMap, RouteToolMap } from "./route-types.js"
 export type {
