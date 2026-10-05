@@ -1,10 +1,11 @@
-# Research demo — server
+# Navlog demo — server
 
-The flagship [B4.run](https://github.com/cacheplane/b4run) example: a deep-research
-assistant that plans sub-questions, researches a bundled local corpus with a
-specialist subagent, and writes a cited report. Live research uses a real model
-and API key; the included tests and evals use deterministic fixtures and run
-offline.
+The flagship [B4.run](https://github.com/cacheplane/b4run) example: a VFR flight
+planner for a Cessna 172N. It briefs the weather from live aviationweather.gov
+data (no key), looks up performance in the 1978 172N POH tables, computes the
+navlog in code, and files an ICAO flight plan only when the pilot asks and a
+person approves. Live planning uses a real model and API key; the unit tests
+and evals run offline.
 
 ## Run it
 
@@ -13,22 +14,25 @@ pnpm install                 # from the repo root
 pnpm build                   # build B4.run packages before commands that use dist
 pnpm --filter @b4-example/navlog-server exec b4 typegen  # write generated types
 pnpm --filter @b4-example/navlog-server check   # validate routes, tools, and config
-pnpm --filter @b4-example/navlog-server test    # harness tests, offline (replay fixtures)
-pnpm --filter @b4-example/navlog-server eval     # quality evals, offline (replay fixtures)
+pnpm --filter @b4-example/navlog-server test    # keyless unit tests of the math, tables and parsers
+pnpm --filter @b4-example/navlog-server eval     # quality evals, offline (scripted fixtures)
 pnpm --filter @b4-example/navlog-server memory:list
 ```
 
 To run against a real model, set `OPENAI_API_KEY` and add `--live`
 (e.g. `pnpm --filter @b4-example/navlog-server eval -- --live`). The offline
-path uses recorded fixtures, so tests and evals are deterministic and need no
-API key.
+path replays scripted model turns, so evals are deterministic and need no API
+key; the tools still run, so the weather tools reach aviationweather.gov.
+
+The weather tools call the aviationweather.gov Data API, which needs no key and
+is cached in-process for five minutes. Set `B4_AWC_BASE_URL` to point them at a
+local stub instead.
 
 ## Run the live web client
 
-The current Next.js/CopilotKit client streams cited research, renders generic
-tool calls, handles standard permission interrupts, offers suggestion prompts,
-and reviews memory candidates. After the root install and build above, run from
-`examples/navlog`:
+The current Next.js/CopilotKit client streams the plan, renders tool calls,
+handles the flight-plan approval, offers suggestion prompts, and reviews memory
+candidates. After the root install and build above, run from `examples/navlog`:
 
 ```bash
 cp server/.env.example server/.env   # add a real OPENAI_API_KEY
@@ -38,32 +42,21 @@ pnpm dev                             # B4.run server on :3002, web client on :30
 Open `http://localhost:3010`. The key stays on the B4.run server; see
 [`../web/README.md`](../web/README.md) for the architecture and smoke checklist.
 
-To dogfood the Docker sandbox, start Docker and run:
-
-```bash
-pnpm --filter @b4-example/navlog-server test:sandbox:docker
-```
-
-The normal test path uses the local `workspace/` so the bundled corpus works
-immediately. The Docker sandbox path creates an isolated per-thread workspace;
-the sandbox test seeds a corpus document there before running the same tools.
-
 ## The tour — where each capability lives
 
 | Capability | File | What it shows |
 |---|---|---|
-| Agent route | `src/app/navlog/index.ts` | the research coordinator |
-| Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `b4 typegen` writes their generated types |
-| Subagents | `src/app/navlog/subagents/researcher/` | dispatched via `task({ subagent, input })` |
+| Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator |
+| Tools + typegen | `src/tools/` | `lookupAirport`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
+| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
+| Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
-| Offloading | `b4.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
-| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` |
-| Skills | `src/app/navlog/skills/` | `cite-sources`, `synthesize-findings` |
-| HITL permissions | `b4.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
-| Workspace | `workspace/` | corpus + report output behind a path-jail |
-| Docker sandbox | `b4.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@b4run/sandbox` |
+| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
+| Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
+| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before each call |
+| Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans |
 | Persistence | (default) | threads survive a restart (SQLite) |
-| Tests | `test/navlog.test.ts` | `createAgentHarness` + `script()` |
+| Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
 
 ## Memory review
@@ -75,12 +68,3 @@ memory is saved for review instead of becoming active immediately.
 pnpm --filter @b4-example/navlog-server memory:list
 pnpm --filter @b4-example/navlog-server memory:approve -- <memory-id>
 ```
-
-The tests show both paths: seeding an active memory with `seedMemory`, and
-writing a reviewable candidate through the real `remember` tool.
-
-When enabling Docker for ordinary development or deployment, set
-`B4_DEMO_DOCKER_SANDBOX=1` and a nonblank `B4_SANDBOX_SCOPE` unique to this
-installation/environment. Keep the scope stable across restarts. The dedicated
-Docker test supplies its own disposable scope; it does not select your app's
-persistent workspace.

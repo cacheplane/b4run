@@ -1,9 +1,11 @@
 # {{appName}} — server
 
-A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4run).
-Ask a question; it plans sub-questions, researches a bundled local corpus,
-and writes a cited report. Live research uses a real OpenAI model and API key;
-the included tests and evals use deterministic fixtures and run offline.
+A VFR flight planner for a Cessna 172N, built with [B4.run](https://github.com/cacheplane/b4run).
+Ask for a flight; it briefs the weather from live aviationweather.gov data (no
+key), looks up performance in the 1978 172N POH tables, computes the navlog in
+code, and files an ICAO flight plan only when you ask and a person approves.
+Live planning uses a real OpenAI model and API key; the unit tests and evals
+run offline.
 
 Requires Node.js 24 or later and npm 11.
 
@@ -20,15 +22,15 @@ npm run verify
 npm run dev:server     # B4.run dev server on http://127.0.0.1:3002
 ```
 
-Ask the research agent a question — it plans, dispatches a researcher subagent,
-and streams back a cited report:
+Ask the planner for a flight — it plans, dispatches the `weather` and
+`performance` subagents, computes the navlog, and streams back a brief:
 
 ```bash
 curl -N "http://127.0.0.1:3002/agui/%2Fnavlog%23agent" \
   -H 'accept: text/event-stream' \
   -H 'content-type: application/json' \
   -d '{"threadId":"t1","runId":"r1","state":{},"tools":[],"context":[],"forwardedProps":{},
-       "messages":[{"id":"1","role":"user","content":"What are common agent architectures?"}]}'
+       "messages":[{"id":"1","role":"user","content":"Plan a VFR flight from KSTP to KRST at 4500 feet, departing at 2026-10-06T14:00:00Z."}]}'
 ```
 
 That's the [AG-UI](https://github.com/ag-ui-protocol/ag-ui) endpoint (`/agui/<route>`).
@@ -39,8 +41,8 @@ delegated-work progress. Those activities are the whole presentation of the
 produces no root tool events, while every other tool is unchanged.
 
 The **web UI** over this endpoint is the sibling [`web/`](../web) package — the
-B4.run Workbench: cited reports, generic tool cards, suggestion prompts, standard
-permission handling, and memory-candidate review. Start it with
+B4.run Workbench: the streamed plan and brief, tool cards, suggestion prompts,
+the flight-plan approval, and memory-candidate review. Start it with
 `npm run dev:web` from the app root. If you write your own client instead, do
 not hand-build the plan card or the subagent panel — `@b4run/ag-ui/react` ships
 them: a React client passes `b4ActivityRenderers` to CopilotKit's
@@ -59,14 +61,19 @@ app's live memory store, already installed here as a devDependency.
 npm run typegen    # write server/.b4/b4.generated.d.ts
 npm run check      # validate routes, tools, and configuration without writing files
 npm run typecheck  # validate TypeScript
-npm test           # harness tests (deterministic fixtures)
-npm run eval       # quality evals (deterministic fixtures)
+npm test           # keyless unit tests of the math, tables and parsers
+npm run eval       # quality evals (scripted fixtures)
 npm run memory:list
 ```
 
 These commands provide offline confidence in the starter; the fixtures are
-test assets, not a keyless product demo. To run evals against a real model, add
-`--live` (for example, `npm run eval -- --live`).
+test assets, not a keyless product demo. The eval replays scripted model turns,
+but the tools still run, so the weather tools reach aviationweather.gov. To run
+evals against a real model, add `--live` (for example, `npm run eval -- --live`).
+
+The weather tools call the aviationweather.gov Data API, which needs no key and
+is cached in-process for five minutes. Set `B4_AWC_BASE_URL` in `server/.env`
+to point them at a local stub instead.
 
 ## Build and start the artifact
 
@@ -79,33 +86,22 @@ Run these in order: `build` writes the configured deployment artifacts, then
 `start` loads `server/.env` when present and serves
 `server/.b4/build/server.mjs`. `start` does not build the app for you.
 
-To dogfood the Docker sandbox, start Docker and run:
-
-```bash
-npm run test:sandbox:docker --workspace server
-```
-
-The normal test path uses the local `workspace/` so the bundled corpus works
-immediately. The Docker sandbox path creates an isolated per-thread workspace;
-the sandbox test seeds a corpus document there before running the same tools.
-
 ## The tour — where each capability lives
 
 | Capability | File | What it shows |
 |---|---|---|
-| Agent route | `src/app/navlog/index.ts` | the research coordinator |
-| Tools + typegen | `src/tools/` | shared `searchCorpus`, `readDoc`; `b4 typegen` writes their generated types |
-| Subagents | `src/app/navlog/subagents/researcher/` | dispatched via `task({ subagent, input })` |
+| Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator |
+| Tools + typegen | `src/tools/` | `lookupAirport`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
+| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
+| Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
-| Offloading | `b4.config.ts` + a large `readDoc` | big results spill to the workspace, stubbed in-context |
-| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` |
-| Skills | `src/app/navlog/skills/` | `cite-sources`, `synthesize-findings` |
-| HITL permissions | `b4.config.ts` + `workspace/scripts/fetch-source.mjs` | the external fetch pauses for approval |
-| Workspace | `workspace/` | corpus + report output behind a path-jail |
-| Docker sandbox | `b4.config.ts`, `test/sandbox-docker.test.ts` | opt-in isolated workspace via `@b4run/sandbox` |
+| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
+| Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
+| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before each call |
+| Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans, behind a path-jail |
 | Persistence | (default) | threads survive a restart (SQLite) |
-| Tests | `test/navlog.test.ts` | `createAgentHarness` + `script()` |
-| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
+| Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
+| Evals | `src/app/navlog/evals/` | `defineEval` + scripted cases + scorers + a gate |
 
 ## Memory review
 
@@ -120,28 +116,18 @@ npm run memory:approve -- <memory-id>
 `npm run memory:approve` wraps `b4 memory approve`; use either form when
 you want to promote a candidate into active recall.
 
-The tests show both paths: seeding an active memory with `seedMemory`, and
-writing a reviewable candidate through the real `remember` tool.
-
 ## Make it yours
 
 This is a starter — extend the parts you want and delete the rest:
 
-- **Swap the corpus:** replace `workspace/corpus/*.md` with your own documents.
+- **Swap the aircraft:** replace `workspace/poh/*.md` and `src/lib/poh-tables.ts`
+  together; `test/corpus-sync.test.ts` keeps the two equal.
 - **Add tools:** drop a file in `src/tools/` for shared tools or
   `<route>/tools/` for route-local tools, then run `npm run typegen` followed by
   `npm run check`.
-- **Wire a real fetch:** edit `workspace/scripts/fetch-source.mjs` and add the
-  command to `permissions.allow.bash` in `b4.config.ts`.
-- **Dogfood sandboxing:** keep `B4_DEMO_DOCKER_SANDBOX=1` for isolated
-  workspace execution, and seed any files the sandbox needs during the run.
+- **File for real:** `fileFlightPlan` records the FPL message in the workspace;
+  replace its body with a call to your filing service, and keep `tools.approve`.
 - **Enable summarization:** uncomment the `summarization` block in
   `b4.config.ts` once your threads get long.
 - **Throw it away:** delete `src/app/navlog/` and start from a single
   `index.ts` — the toolchain (`typegen`/`check`/`build`/`test`/`eval`) still works.
-
-When enabling Docker for ordinary development or deployment, set
-`B4_DEMO_DOCKER_SANDBOX=1` and a nonblank `B4_SANDBOX_SCOPE` unique to this
-installation/environment. Keep the scope stable across restarts. The dedicated
-Docker test supplies its own disposable scope; it does not select your app's
-persistent workspace.

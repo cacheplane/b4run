@@ -53,7 +53,7 @@ describe("generated app helper", () => {
     }
   })
 
-  it("materializes the research template with sandbox-ready shared tools and memory scripts", async () => {
+  it("materializes the navlog template with shared tools and memory scripts", async () => {
     const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-generated-research-app-"))
 
     try {
@@ -96,8 +96,8 @@ describe("generated app helper", () => {
         resolve(generatedApp.appRoot, "server/src/tools/readDoc.ts"),
         "utf8",
       )
-      const searchCorpus = await readFile(
-        resolve(generatedApp.appRoot, "server/src/tools/searchCorpus.ts"),
+      const computeNavlogTool = await readFile(
+        resolve(generatedApp.appRoot, "server/src/tools/computeNavlog.ts"),
         "utf8",
       )
       const prompt = await readFile(
@@ -110,12 +110,8 @@ describe("generated app helper", () => {
       )
       const rootReadme = await readFile(resolve(generatedApp.appRoot, "README.md"), "utf8")
       const readme = await readFile(resolve(generatedApp.appRoot, "server/README.md"), "utf8")
-      const researchTest = await readFile(
+      const navlogTest = await readFile(
         resolve(generatedApp.appRoot, "server/test/navlog.test.ts"),
-        "utf8",
-      )
-      const sandboxTest = await readFile(
-        resolve(generatedApp.appRoot, "server/test/sandbox-docker.test.ts"),
         "utf8",
       )
       const envExample = await readFile(
@@ -124,7 +120,6 @@ describe("generated app helper", () => {
       )
       const gitignore = await readFile(resolve(generatedApp.appRoot, ".gitignore"), "utf8")
 
-      expect(serverPackageJson).toContain('"@b4run/sandbox": "workspace:*"')
       expect(rootManifest.workspaces).toEqual(["server", "web"])
       // Each single-workspace delegator keeps its literal trailing ` --`; see
       // `template-root-scripts.test.ts` for why deleting it breaks the harness.
@@ -153,7 +148,6 @@ describe("generated app helper", () => {
         eval: "b4 eval",
         build: "b4 build",
         start: "node --env-file-if-exists=.env .b4/build/server.mjs",
-        "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
         "memory:list": "b4 memory list",
         "memory:approve": "b4 memory approve",
       })
@@ -168,7 +162,8 @@ describe("generated app helper", () => {
       expect(pnpmWorkspace).toContain("allowBuilds:")
       expect(pnpmWorkspace).toContain("esbuild: true")
       expect(readDoc).toContain("ctx.fs.readFile")
-      expect(searchCorpus).toContain("ctx.fs.listDir")
+      // The tool is thin; the navlog arithmetic lives in src/lib, outside typegen's tools/.
+      expect(computeNavlogTool).toContain("../lib/navlog.js")
       expect(prompt).toContain("recall({ query:")
       expect(prompt).toContain("remember({")
       expect(prompt).toContain("recursionLimit: 100")
@@ -177,19 +172,11 @@ describe("generated app helper", () => {
       expect(generatedTypes).toContain("readonly task:")
       expect(generatedTypes).toContain("readonly recall:")
       expect(generatedTypes).toContain("readonly remember:")
-      expect(readme).toContain("Docker sandbox")
+      expect(readme).toContain("aviationweather.gov")
       expect(readme).toContain("b4 memory approve")
-      expect(researchTest).toContain("seedMemory")
-      expect(researchTest).toContain(`const resumed = await h.resume({
-    resume: run.interrupts.map((entry) => ({
-      interruptId: entry.interruptId,
-      status: "resolved" as const,
-      payload: "once",
-    })),
-  })`)
-      expect(sandboxTest).toContain("B4_DEMO_DOCKER_SANDBOX")
-      expect(sandboxTest).toContain("dockerSandbox")
-      // The corpus tools are shared at `server/src/tools/`, never route-local.
+      // The scaffold's test is the keyless unit test of the navlog core.
+      expect(navlogTest).toContain("computeNavlog")
+      // The tools are shared at `server/src/tools/`, never route-local.
       await expect(
         access(
           resolve(generatedApp.appRoot, "server/src/app/navlog/tools/readDoc.ts"),

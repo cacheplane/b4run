@@ -1,10 +1,10 @@
 const ACTS = ["author", "test", "close"]
 export const GENERATED_PATHS = Object.freeze([
-  "server/src/app/research/index.ts",
-  "server/src/app/research/state.ts",
-  "server/src/app/research/plan.md",
-  "server/src/tools/searchCorpus.ts",
-  "server/test/research.test.ts",
+  "server/src/app/navlog/index.ts",
+  "server/src/app/navlog/state.ts",
+  "server/src/app/navlog/plan.md",
+  "server/src/tools/computeNavlog.ts",
+  "server/test/navlog.test.ts",
 ])
 
 function escapeHtml(value) {
@@ -81,8 +81,8 @@ export function renderStage({ act, tree, primarySource, secondarySource, testLog
   <section class="grid" aria-label="Generated B4.run application">
     <div class="panel"><div class="bar">Generated files</div><pre><code>${escapeHtml(tree.join("\n"))}</code></pre></div>
     <div class="stack">
-      <div class="panel"><div class="bar">research/index.ts</div><pre><code>${escapeHtml(primarySource)}</code></pre></div>
-      <div class="panel"><div class="bar">tools/searchCorpus.ts</div><pre><code>${escapeHtml(secondarySource)}</code></pre></div>
+      <div class="panel"><div class="bar">navlog/index.ts</div><pre><code>${escapeHtml(primarySource)}</code></pre></div>
+      <div class="panel"><div class="bar">tools/computeNavlog.ts</div><pre><code>${escapeHtml(secondarySource)}</code></pre></div>
     </div>
   </section>
 </main>`)

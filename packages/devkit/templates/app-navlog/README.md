@@ -1,14 +1,16 @@
 # {{appName}}
 
-A deep-research assistant built with [B4.run](https://github.com/cacheplane/b4run),
+A VFR flight planner for a Cessna 172N, built with [B4.run](https://github.com/cacheplane/b4run),
 shipped as an npm workspace with two packages:
 
-- **`server/`** — the B4.run app: the research route, tools, a researcher
-  subagent, memory, planning, offloading, HITL permissions, tests, and evals.
+- **`server/`** — the B4.run app: the planning route, live aviationweather.gov
+  tools (no key), a POH-grounded `computeNavlog`, `weather` and `performance`
+  subagents, memory, planning, `fileFlightPlan` behind approval, keyless unit
+  tests, and evals.
   [`server/README.md`](./server/README.md) is the full tour.
 - **`web/`** — the B4.run Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
   client built on CopilotKit, with a thread rail, streaming chat, plan and
-  subagent activity cards, tool cards, permission prompts, and memory review.
+  subagent activity cards, tool cards, the flight-plan approval, and memory review.
   [`web/README.md`](./web/README.md) covers restyling it and its known limits.
 
 Requires Node.js 24 or later and npm 11.
@@ -22,7 +24,7 @@ npm install
 cp server/.env.example server/.env
 ```
 
-Live research needs a real `OPENAI_API_KEY` in `server/.env`. There is no
+Live planning needs a real `OPENAI_API_KEY` in `server/.env`. There is no
 keyless demo mode; the bundled tests and evals run offline on fixtures instead.
 
 Then start the two processes, one per terminal:

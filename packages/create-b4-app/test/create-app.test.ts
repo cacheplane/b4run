@@ -48,7 +48,6 @@ const RESEARCH_SERVER_SCRIPTS = {
   eval: "b4 eval",
   build: "b4 build",
   start: "node --env-file-if-exists=.env .b4/build/server.mjs",
-  "test:sandbox:docker": "B4_DEMO_DOCKER_SANDBOX=1 vitest run test/sandbox-docker.test.ts",
   "memory:list": "b4 memory list",
   "memory:approve": "b4 memory approve",
 } as const
@@ -154,15 +153,16 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, "server/src/app/navlog/index.ts"))
     await assertExists(join(targetDir, "server/src/app/navlog/state.ts"))
     await assertExists(join(targetDir, "server/src/app/navlog/plan.md"))
-    await assertExists(join(targetDir, "server/src/tools/searchCorpus.ts"))
+    await assertExists(join(targetDir, "server/src/tools/computeNavlog.ts"))
     await assertExists(join(targetDir, "server/src/tools/readDoc.ts"))
-    await assertExists(join(targetDir, "server/src/app/navlog/subagents/researcher/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/navlog/skills/cite-sources/SKILL.md"))
+    await assertExists(join(targetDir, "server/src/lib/navlog.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/weather/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/performance/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/skills/poh-lookup/SKILL.md"))
     await assertExists(join(targetDir, "server/src/app/navlog/evals/navlog-quality.eval.ts"))
     await assertExists(join(targetDir, "server/test/navlog.test.ts"))
     await assertExists(join(targetDir, "server/workspace/AGENTS.md"))
-    await assertExists(join(targetDir, "server/workspace/corpus/agent-architectures.md"))
-    await assertExists(join(targetDir, "server/workspace/scripts/fetch-source.mjs"))
+    await assertExists(join(targetDir, "server/workspace/poh/cruise-performance.md"))
 
     // ...and the Workbench UI in the `web` workspace.
     await assertExists(join(targetDir, "web/package.json"))
@@ -191,14 +191,12 @@ describe("create-b4-app", () => {
     expect(researchRoute).toContain("recursionLimit: 100")
     expect(serverManifest.dependencies["@b4run/cli"]).not.toMatch(/^file:/)
     expect(serverManifest.dependencies["@b4run/langchain"]).not.toMatch(/^file:/)
-    expect(serverManifest.dependencies["@b4run/sandbox"]).not.toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/config-typescript"]).not.toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/testing"]).not.toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/evals"]).not.toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/inspector"]).not.toMatch(/^file:/)
     expect(serverManifest.dependencies["@b4run/cli"]).toBe("next")
     expect(serverManifest.dependencies["@b4run/langchain"]).toBe("next")
-    expect(serverManifest.dependencies["@b4run/sandbox"]).toBe("next")
     expect(serverManifest.devDependencies["@b4run/config-typescript"]).toBe("next")
     expect(serverManifest.devDependencies["@b4run/testing"]).toBe("next")
     expect(serverManifest.devDependencies["@b4run/evals"]).toBe("next")
@@ -375,7 +373,6 @@ describe("create-b4-app", () => {
     expect(serverManifest.scripts).toEqual(RESEARCH_SERVER_SCRIPTS)
     expect(serverManifest.dependencies["@b4run/cli"]).toMatch(/^file:/)
     expect(serverManifest.dependencies["@b4run/langchain"]).toMatch(/^file:/)
-    expect(serverManifest.dependencies["@b4run/sandbox"]).toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/config-typescript"]).toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/testing"]).toMatch(/^file:/)
     expect(serverManifest.devDependencies["@b4run/evals"]).toMatch(/^file:/)
@@ -387,15 +384,16 @@ describe("create-b4-app", () => {
     await assertExists(join(targetDir, "server/src/app/navlog/index.ts"))
     await assertExists(join(targetDir, "server/src/app/navlog/state.ts"))
     await assertExists(join(targetDir, "server/src/app/navlog/plan.md"))
-    await assertExists(join(targetDir, "server/src/tools/searchCorpus.ts"))
+    await assertExists(join(targetDir, "server/src/tools/computeNavlog.ts"))
     await assertExists(join(targetDir, "server/src/tools/readDoc.ts"))
-    await assertExists(join(targetDir, "server/src/app/navlog/subagents/researcher/index.ts"))
-    await assertExists(join(targetDir, "server/src/app/navlog/skills/cite-sources/SKILL.md"))
+    await assertExists(join(targetDir, "server/src/lib/navlog.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/weather/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/subagents/performance/index.ts"))
+    await assertExists(join(targetDir, "server/src/app/navlog/skills/poh-lookup/SKILL.md"))
     await assertExists(join(targetDir, "server/src/app/navlog/evals/navlog-quality.eval.ts"))
     await assertExists(join(targetDir, "server/test/navlog.test.ts"))
     await assertExists(join(targetDir, "server/workspace/AGENTS.md"))
-    await assertExists(join(targetDir, "server/workspace/corpus/agent-architectures.md"))
-    await assertExists(join(targetDir, "server/workspace/scripts/fetch-source.mjs"))
+    await assertExists(join(targetDir, "server/workspace/poh/cruise-performance.md"))
 
     // ...and the Workbench UI in the `web` workspace.
     await assertExists(join(targetDir, "web/package.json"))
@@ -508,9 +506,6 @@ describe("create-b4-app", () => {
     )
     expect(resolveFileSpecifier(serverManifest.dependencies["@b4run/langchain"])).toBe(
       resolve(repoRoot, "packages/langchain"),
-    )
-    expect(resolveFileSpecifier(serverManifest.dependencies["@b4run/sandbox"])).toBe(
-      resolve(repoRoot, "packages/sandbox"),
     )
     expect(resolveFileSpecifier(serverManifest.devDependencies["@b4run/config-typescript"])).toBe(
       resolve(repoRoot, "packages/config-typescript"),

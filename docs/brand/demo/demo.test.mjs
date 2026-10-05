@@ -66,7 +66,7 @@ import {
 } from "./encode.mjs"
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_PROMPT } from "./scenario.mjs"
+import { DEMO_FIXTURES, DEMO_NAVLOG_INPUT, DEMO_PROMPT } from "./scenario.mjs"
 import { renderStage } from "./stage.mjs"
 import {
   buildDemoMediaCatalog,
@@ -914,22 +914,26 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
 })
 
 const GENERATED_TREE = [
-  "server/src/app/research/index.ts",
-  "server/src/app/research/state.ts",
-  "server/src/app/research/plan.md",
-  "server/src/tools/searchCorpus.ts",
-  "server/test/research.test.ts",
+  "server/src/app/navlog/index.ts",
+  "server/src/app/navlog/state.ts",
+  "server/src/app/navlog/plan.md",
+  "server/src/tools/computeNavlog.ts",
+  "server/test/navlog.test.ts",
 ]
 
-test("scenario exports the canonical prompt and deterministic research fixture", () => {
-  assert.equal(DEMO_PROMPT, "What are common agent architectures?")
+test("scenario exports the canonical prompt and deterministic navlog fixture", () => {
+  assert.equal(
+    DEMO_PROMPT,
+    "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.",
+  )
   assert.deepEqual(
     DEMO_FIXTURES,
     script()
-      .user("What are common agent architectures?")
-      .callsTool("searchCorpus", { query: "agent architectures" })
-      .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-      .replies("ReAct and plan-and-execute are common. [corpus/agent-architectures.md]")
+      .user("Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.")
+      .callsTool("computeNavlog", DEMO_NAVLOG_INPUT)
+      .replies(
+        "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]",
+      )
       .build(),
   )
 })
@@ -937,8 +941,8 @@ test("scenario exports the canonical prompt and deterministic research fixture",
 test("normalizeLog narrowly removes capture instability", () => {
   const temporaryRoot = "/tmp/b4-demo-[42]"
   const raw = [
-    `\u001B[32mPASS\u001B[39m ${temporaryRoot}/server/test/research.test.ts 143ms`,
-    "✓ searches the corpus and writes a cited answer 1.27s",
+    `\u001B[32mPASS\u001B[39m ${temporaryRoot}/server/test/navlog.test.ts 143ms`,
+    "✓ splits the first leg into a climb segment and a cruise segment 1.27s",
     "command: npm test -- --seed=42",
     "7 passed, score 98.6, port 3002",
     "FAIL preserves this test name and exit code 17",
@@ -948,8 +952,8 @@ test("normalizeLog narrowly removes capture instability", () => {
   assert.equal(
     normalizeLog(raw, { temporaryRoot }),
     [
-      "PASS <workspace>/server/test/research.test.ts <time>",
-      "✓ searches the corpus and writes a cited answer <time>",
+      "PASS <workspace>/server/test/navlog.test.ts <time>",
+      "✓ splits the first leg into a climb segment and a cruise segment <time>",
       "command: npm test -- --seed=42",
       "7 passed, score 98.6, port 3002",
       "FAIL preserves this test name and exit code 17",
@@ -966,11 +970,11 @@ test("normalizeLog validates meaningful inputs", () => {
 test("stage exports a frozen canonical generated-path inventory", async () => {
   const { GENERATED_PATHS } = await import("./stage.mjs")
   assert.deepEqual(GENERATED_PATHS, [
-    "server/src/app/research/index.ts",
-    "server/src/app/research/state.ts",
-    "server/src/app/research/plan.md",
-    "server/src/tools/searchCorpus.ts",
-    "server/test/research.test.ts",
+    "server/src/app/navlog/index.ts",
+    "server/src/app/navlog/state.ts",
+    "server/src/app/navlog/plan.md",
+    "server/src/tools/computeNavlog.ts",
+    "server/test/navlog.test.ts",
   ])
   assert.equal(Object.isFrozen(GENERATED_PATHS), true)
 })
@@ -999,7 +1003,7 @@ test("author stage keeps both real source panels in the 16:9 viewport", () => {
     act: "author",
     tree: GENERATED_TREE,
     primarySource: "export default agent({\n  model: 'gpt-5-mini',\n})",
-    secondarySource: "export const searchCorpus = tool({})",
+    secondarySource: "export const computeNavlog = tool({})",
     testLog: "unused",
   })
 
@@ -1338,7 +1342,8 @@ test("stopManaged rejects when SIGKILL termination is not confirmed in time", as
   await assert.rejects(stopped, /Managed child PID 9876 did not exit within 100ms after SIGKILL/)
 })
 
-const EXPECTED_ANSWER = "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
+const EXPECTED_ANSWER =
+  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
 
 function orchestrationFixture({ failAt } = {}) {
   const operations = []
@@ -1381,8 +1386,8 @@ function orchestrationFixture({ failAt } = {}) {
         assert.equal(options.appRoot, appRoot)
         return {
           stdout: [
-            `\u001B[32mPASS\u001B[39m ${appRoot}/server/test/research.test.ts 143ms`,
-            "\u2713 searches the corpus and writes a cited answer 1.27s",
+            `\u001B[32mPASS\u001B[39m ${appRoot}/server/test/navlog.test.ts 143ms`,
+            "\u2713 splits the first leg into a climb segment and a cruise segment 1.27s",
             "Tests 7 passed",
           ].join("\n"),
           stderr: "",
@@ -1406,11 +1411,11 @@ function orchestrationFixture({ failAt } = {}) {
         operations.push("publish summary")
       },
       async readFile(path) {
-        if (path.endsWith("server/src/app/research/index.ts")) {
-          return "export default agent({ tools: [searchCorpus] })"
+        if (path.endsWith("server/src/app/navlog/index.ts")) {
+          return "export default agent({ tools: [computeNavlog] })"
         }
-        if (path.endsWith("server/src/tools/searchCorpus.ts")) {
-          return "export default searchCorpus"
+        if (path.endsWith("server/src/tools/computeNavlog.ts")) {
+          return "export default computeNavlog"
         }
         throw new Error(`unexpected read: ${path}`)
       },
@@ -1460,10 +1465,10 @@ function orchestrationFixture({ failAt } = {}) {
             if (act === "author") {
               for (const path of GENERATED_TREE) assert.match(html, new RegExp(path))
               assert.match(html, /export default agent\(\{/)
-              assert.match(html, /searchCorpus/)
+              assert.match(html, /computeNavlog/)
             }
             if (act === "test") {
-              assert.match(html, /searches the corpus and writes a cited answer/)
+              assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
               assert.match(html, /Tests 7 passed/)
               assert.match(html, /&lt;workspace&gt;/)
               assert.doesNotMatch(html, /b4-demo-unit-abc123/)
@@ -1473,7 +1478,7 @@ function orchestrationFixture({ failAt } = {}) {
           async runScenario(options) {
             operations.push("run Workbench scenario")
             assert.equal(options.prompt, DEMO_PROMPT)
-            assert.deepEqual(options.tools, ["searchCorpus", "readDoc"])
+            assert.deepEqual(options.tools, ["computeNavlog"])
             assert.equal(options.answer, EXPECTED_ANSWER)
             if (failAt === "scenario") throw new Error("scenario failed")
             return { threadId: "thread-unit-1" }
@@ -2117,7 +2122,7 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     workbenchUrl: "http://127.0.0.1:4101",
     threadId: "thread-unit-1",
     prompt: DEMO_PROMPT,
-    tools: ["searchCorpus", "readDoc"],
+    tools: ["computeNavlog"],
     answer: EXPECTED_ANSWER,
   })
   assert.equal(responsePredicate(response), true)
@@ -2129,7 +2134,7 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     false,
   )
   assert.equal(result.stateUrl, stateUrl)
-  for (const evidence of [DEMO_PROMPT, "searchCorpus", "readDoc", EXPECTED_ANSWER]) {
+  for (const evidence of [DEMO_PROMPT, "computeNavlog", EXPECTED_ANSWER]) {
     assert.equal(
       calls.some((call) => Array.isArray(call) && call[0] === "transcript" && call[1] === evidence),
       true,
@@ -2902,7 +2907,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
   assert.deepEqual(holds, [700, 900])
   assert.deepEqual(summary.evidence, {
     prompt: DEMO_PROMPT,
-    tools: ["searchCorpus", "readDoc"],
+    tools: ["computeNavlog"],
     answer: EXPECTED_ANSWER,
     threadId: "thread-unit-1",
     stateUrl: undefined,
