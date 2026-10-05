@@ -282,6 +282,14 @@ function readCandidates(body: unknown): readonly MemoryCandidate[] {
   )
 }
 
+/** The proxy's owner-only refusal message (`{ error: "owner_only", message }`), defensively. */
+function readOwnerOnlyMessage(body: unknown): string | null {
+  const parsed = body as { error?: unknown; message?: unknown } | null
+  return parsed?.error === "owner_only" && typeof parsed.message === "string"
+    ? parsed.message
+    : null
+}
+
 /** The approve outcome out of its response body, defensively. */
 function readApproveOutcome(body: unknown): string | null {
   const parsed = body as { action?: unknown; superseded?: unknown } | null
@@ -407,6 +415,15 @@ export function MemoryPanel() {
         method: "POST",
       })
         .then(async (response) => {
+          if (response.status === 403) {
+            // The deployed demo reserves approval for its owner, and the proxy
+            // says so in its own words; anything else is a plain failure.
+            const message = readOwnerOnlyMessage(await response.json().catch(() => null))
+            if (message !== null) {
+              if (isMountedRef.current) setOutcome(message)
+              return
+            }
+          }
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           // Reject's body is `{ ok: true }` and says nothing worth showing;
           // the row disappearing is the feedback, and the button already said

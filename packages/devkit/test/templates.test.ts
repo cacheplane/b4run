@@ -517,7 +517,7 @@ describe("research template parity with examples/navlog/web", () => {
     const templateSuffixedPaths = await collectTemplateSuffixedPaths(templateWebRoot)
 
     expect(templateSuffixedPaths.filter((path) => path.endsWith(".test.ts.template"))).toHaveLength(
-      10,
+      13,
     )
     expect(
       templateSuffixedPaths.filter((path) => path.endsWith(".test.tsx.template")),

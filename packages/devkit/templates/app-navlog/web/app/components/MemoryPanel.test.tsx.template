@@ -434,6 +434,25 @@ describe("memory panel container", () => {
     expect(container.textContent).toContain("Prefers concise, cited reports.")
   })
 
+  test("an owner-only refusal shows the proxy's own message, not a generic failure", async () => {
+    // The deployed demo reserves approval for its owner; a visitor clicking
+    // Approve should learn why nothing happened, not that something broke.
+    const message = "Approving memories is reserved for the demo owner."
+    answering(
+      listing([CANDIDATE]),
+      () => Response.json({ error: "owner_only", message }, { status: 403 }),
+      listing([CANDIDATE]),
+    )
+    mount()
+    await settle()
+    act(() => {
+      buttonNamed("Approve").click()
+    })
+    await settle()
+    expect(container.textContent).toContain(message)
+    expect(container.textContent).not.toContain(DECISION_FAILURE_NOTICE)
+  })
+
   test("re-reads when a run finishes, so a memory proposed mid-run appears", async () => {
     // The behavior the old component had and the reason it subscribed at all:
     // `remember()` writes during the run, and nothing else would ask again
