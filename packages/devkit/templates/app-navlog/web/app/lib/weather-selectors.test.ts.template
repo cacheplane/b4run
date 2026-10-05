@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest"
-import { categoryOf, latestWeatherBrief, parseWeatherBrief } from "./weather-selectors"
+import {
+  categoryOf,
+  latestWeatherBrief,
+  latestWeatherBriefText,
+  parseWeatherBrief,
+  worstCategory,
+} from "./weather-selectors"
 
 const BRIEF = `Airports:
 KSTP: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 270 at 5. METAR KSTP 040253Z 27005KT 10SM CLR 14/12 A3008. TAF KSTP 040230Z ...
@@ -88,6 +94,20 @@ Rochester trends MVFR by 15Z; the 1400Z departure stays ahead of it.`
   })
 })
 
+describe("worstCategory", () => {
+  test("is the worse of now and at ETA, in either direction", () => {
+    expect(worstCategory({ now: "VFR", atEta: "MVFR" })).toBe("MVFR")
+    // Improving: MVFR now, VFR at ETA is still MVFR.
+    expect(worstCategory({ now: "MVFR", atEta: "VFR" })).toBe("MVFR")
+    expect(worstCategory({ now: "IFR", atEta: "LIFR" })).toBe("LIFR")
+  })
+  test("a known category beats UNKNOWN", () => {
+    expect(worstCategory({ now: "VFR", atEta: "UNKNOWN" })).toBe("VFR")
+    expect(worstCategory({ now: "UNKNOWN", atEta: "IFR" })).toBe("IFR")
+    expect(worstCategory({ now: "UNKNOWN", atEta: "UNKNOWN" })).toBe("UNKNOWN")
+  })
+})
+
 describe("categoryOf", () => {
   test("normalizes category words and falls back to UNKNOWN", () => {
     expect(categoryOf("mvfr")).toBe("MVFR")
@@ -116,6 +136,8 @@ describe("latestWeatherBrief", () => {
       { id: "c", name: "weather", status: "running" as const, toolCalls: [] },
     ]
     expect(latestWeatherBrief(runs)?.airports[0]?.id).toBe("KSTP")
+    expect(latestWeatherBriefText(runs)).toBe(runs[0]?.result)
     expect(latestWeatherBrief([])).toBeNull()
+    expect(latestWeatherBriefText([])).toBeNull()
   })
 })

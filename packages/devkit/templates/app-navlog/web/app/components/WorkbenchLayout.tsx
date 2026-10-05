@@ -1,10 +1,10 @@
 "use client"
 import dynamic from "next/dynamic"
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type { Navlog } from "../lib/navlog-types"
 import { pairIndexOf, routeGeometry } from "../lib/route-geometry"
 import { useMediaQuery } from "../lib/use-media-query"
-import type { FlightCategory, WeatherBrief } from "../lib/weather-selectors"
+import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { NavlogSheet } from "./NavlogSheet"
 import { WeatherStrip } from "./WeatherStrip"
@@ -27,12 +27,19 @@ export interface WorkbenchLayoutProps {
 
 /** Room the map leaves for the floating surfaces when it fits the route, in pixels. */
 const DOCK_PAD = 420
-const SHEET_PAD = 140
 const STRIP_PAD = 90
-/** The phone sheet is 58vh tall; this keeps the route above it on a typical phone. */
-const PHONE_SHEET_PAD = 440
+/** The collapsed sheet: one line of totals plus the gutter. */
+const SHEET_COLLAPSED_PAD = 140
+/** Matches `--wb-sheet-max` (46vh), the open sheet's height cap. */
+const SHEET_OPEN_SHARE = 0.46
+/** The phone's bottom sheet is 58vh, with the weather row above it. */
+const PHONE_SHEET_SHARE = 0.58
+const PHONE_STRIP_PAD = 60
 /** Tailwind's `md` breakpoint. */
 const DESKTOP_QUERY = "(min-width: 768px)"
+
+/** Read at render, not tracked: the fit is a starting view, and the pilot can pan. */
+const viewportHeight = (): number => (typeof window === "undefined" ? 800 : window.innerHeight)
 
 /**
  * Map full-bleed; the dock floats left, the weather strip top-right, the
@@ -42,6 +49,9 @@ const DESKTOP_QUERY = "(min-width: 768px)"
  * Only the layout that applies is rendered, not both hidden by CSS: the dock
  * holds `Transcript` and `Composer`, and two copies would mean two `<main>`
  * elements, two sets of CopilotKit subscriptions and two composers.
+ *
+ * `wb-root` and `wb-sheet-wrap` are what the print rules in `theme.css` flatten
+ * so the sheet prints in the page flow instead of clipped to the viewport.
  */
 export function WorkbenchLayout({
   navlog,
@@ -59,21 +69,37 @@ export function WorkbenchLayout({
   const [sheetOpen, setSheetOpen] = useState(true)
   const [tab, setTab] = useState<"navlog" | "chat">("chat")
   const [hoveredLeg, setHoveredLeg] = useState<number | null>(null)
+  // No navlog, no Navlog tab: a thread switch must not leave an empty tab selected.
+  const activeTab = navlog ? tab : "chat"
+  const awaitingApproval = status === "awaiting approval"
+
+  // An approval card lives in the chat; never leave it behind the Navlog tab.
+  useEffect(() => {
+    if (awaitingApproval) setTab("chat")
+  }, [awaitingApproval])
+
   const geometry = useMemo(() => (navlog ? routeGeometry(navlog) : null), [navlog])
   const categories = useMemo(() => {
     const out: Record<string, FlightCategory> = {}
-    for (const airport of brief?.airports ?? []) {
-      out[airport.id] = airport.atEta !== "UNKNOWN" ? airport.atEta : airport.now
-    }
+    for (const airport of brief?.airports ?? []) out[airport.id] = worstCategory(airport)
     return out
   }, [brief])
-  const padding = useMemo(
-    () =>
-      isDesktop
-        ? { left: DOCK_PAD, bottom: navlog ? SHEET_PAD : 40, top: STRIP_PAD }
-        : { left: 24, bottom: PHONE_SHEET_PAD, top: STRIP_PAD },
-    [isDesktop, navlog],
-  )
+  const padding = useMemo(() => {
+    if (!isDesktop) {
+      return {
+        left: 24,
+        top: 24,
+        bottom: Math.round(viewportHeight() * PHONE_SHEET_SHARE) + PHONE_STRIP_PAD,
+      }
+    }
+    const bottom =
+      navlog === null
+        ? 40
+        : sheetOpen
+          ? Math.round(viewportHeight() * SHEET_OPEN_SHARE) + 32
+          : SHEET_COLLAPSED_PAD
+    return { left: DOCK_PAD, top: STRIP_PAD, bottom }
+  }, [isDesktop, navlog, sheetOpen])
   const highlightedLeg = navlog && hoveredLeg !== null ? pairIndexOf(navlog, hoveredLeg) : null
 
   const chat = (
@@ -90,7 +116,7 @@ export function WorkbenchLayout({
   )
 
   return (
-    <div className="relative h-dvh overflow-hidden">
+    <div className="wb-root relative h-dvh overflow-hidden">
       <RouteMap
         geometry={geometry}
         categories={categories}
@@ -111,7 +137,7 @@ export function WorkbenchLayout({
             dock's composer whenever it is open.
           */}
           {navlog ? (
-            <div className="absolute bottom-[var(--wb-gutter)] left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] z-10">
+            <div className="wb-sheet-wrap absolute bottom-[var(--wb-gutter)] left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] z-10">
               <NavlogSheet
                 navlog={navlog}
                 brief={assistantBrief}
@@ -123,19 +149,19 @@ export function WorkbenchLayout({
           ) : null}
         </>
       ) : (
-        <div className="absolute inset-x-0 bottom-0 z-10 flex h-[58vh] flex-col">
+        <div className="wb-sheet-wrap absolute inset-x-0 bottom-0 z-10 flex h-[58vh] flex-col">
           <div className="absolute inset-x-3 top-[-52px]">
-            <WeatherStrip brief={brief} />
+            <WeatherStrip brief={brief} layout="row" />
           </div>
           <div className="wb-panel flex min-h-0 flex-1 flex-col rounded-b-none pb-[env(safe-area-inset-bottom)]">
-            <div className="wb-sheet-tabs flex gap-1 px-3 pt-1.5" role="tablist">
+            <div className="wb-sheet-tabs flex gap-1 px-3 pt-1" role="tablist">
               <button
                 type="button"
                 role="tab"
                 id="wb-tab-chat"
-                aria-selected={tab === "chat"}
+                aria-selected={activeTab === "chat"}
                 aria-controls="wb-panel-chat"
-                className="wb-focus px-3 py-1.5 text-[13px] aria-selected:border-b-2 aria-selected:border-wb-accent-from"
+                className="wb-focus min-h-11 px-3 text-[13px] aria-selected:border-b-2 aria-selected:border-wb-accent-from"
                 onClick={() => setTab("chat")}
               >
                 Chat
@@ -144,35 +170,39 @@ export function WorkbenchLayout({
                 type="button"
                 role="tab"
                 id="wb-tab-navlog"
-                aria-selected={tab === "navlog"}
+                aria-selected={activeTab === "navlog"}
                 aria-controls="wb-panel-navlog"
                 disabled={navlog === null}
-                className="wb-focus px-3 py-1.5 text-[13px] disabled:opacity-50 aria-selected:border-b-2 aria-selected:border-wb-accent-from"
+                className="wb-focus min-h-11 px-3 text-[13px] disabled:opacity-50 aria-selected:border-b-2 aria-selected:border-wb-accent-from"
                 onClick={() => setTab("navlog")}
               >
                 Navlog
               </button>
             </div>
             {/*
-              The chat stays mounted behind the Navlog tab (hidden, not
-              unmounted), so a switch keeps the transcript's scroll position,
-              the composer's draft and any parked approval card.
+              Both panels stay mounted and the inactive one is hidden with a
+              class, not unmounted: a switch keeps the transcript's scroll
+              position, the composer's draft and any parked approval card, and
+              the navlog panel still prints (`print:block`) from the Chat tab.
             */}
             <div
               role="tabpanel"
               id="wb-panel-chat"
               aria-labelledby="wb-tab-chat"
-              hidden={tab !== "chat" && navlog !== null}
-              className="flex min-h-0 flex-1 flex-col"
+              className={`min-h-0 flex-1 flex-col print:hidden ${
+                activeTab === "chat" ? "flex" : "hidden"
+              }`}
             >
               {chat}
             </div>
-            {tab === "navlog" && navlog ? (
+            {navlog ? (
               <div
                 role="tabpanel"
                 id="wb-panel-navlog"
                 aria-labelledby="wb-tab-navlog"
-                className="min-h-0 flex-1 overflow-auto"
+                className={`min-h-0 flex-1 overflow-auto ${
+                  activeTab === "navlog" ? "" : "hidden print:block"
+                }`}
               >
                 <NavlogSheet
                   navlog={navlog}
@@ -180,6 +210,7 @@ export function WorkbenchLayout({
                   open={true}
                   onToggle={() => {}}
                   variant="cards"
+                  collapsible={false}
                 />
               </div>
             ) : null}

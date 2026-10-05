@@ -32,6 +32,21 @@ export function categoryOf(text: string): FlightCategory {
   return m ? ((m[1] as string).toUpperCase() as FlightCategory) : "UNKNOWN"
 }
 
+/** Worst first. UNKNOWN sorts last, so a known category always wins over it. */
+const SEVERITY: readonly FlightCategory[] = ["LIFR", "IFR", "MVFR", "VFR", "UNKNOWN"]
+
+/**
+ * The one category an airport is shown in, on the chip and on its map marker:
+ * the worse of now and at ETA, whichever way the weather is trending. An
+ * improving airport (MVFR now, VFR at ETA) is MVFR, because the pilot may have
+ * to depart or divert into the weather as it is now.
+ */
+export function worstCategory(airport: Pick<AirportWeather, "now" | "atEta">): FlightCategory {
+  return SEVERITY.indexOf(airport.now) <= SEVERITY.indexOf(airport.atEta)
+    ? airport.now
+    : airport.atEta
+}
+
 const EMPTY: WeatherBrief = { airports: [], winds: [], advisories: [], note: "" }
 
 type Section = "airports" | "winds" | "advisories" | "note"
@@ -113,13 +128,22 @@ export function parseWeatherBrief(text: string): WeatherBrief {
   return { airports, winds, advisories, note: note.join(" ") }
 }
 
-/** The most recent completed `weather` subagent run's brief, or null. */
-export function latestWeatherBrief(runs: readonly SubagentRunLike[]): WeatherBrief | null {
+/**
+ * The most recent completed `weather` subagent run's brief text, or null. A
+ * string so the shell can memoize the parse on it (see `latestNavlogText`).
+ */
+export function latestWeatherBriefText(runs: readonly SubagentRunLike[]): string | null {
   for (let i = runs.length - 1; i >= 0; i--) {
     const run = runs[i]
     if (run?.name !== "weather" || run.status !== "completed") continue
     if (typeof run.result !== "string") continue
-    return parseWeatherBrief(run.result)
+    return run.result
   }
   return null
+}
+
+/** The most recent completed `weather` subagent run's brief, or null. */
+export function latestWeatherBrief(runs: readonly SubagentRunLike[]): WeatherBrief | null {
+  const text = latestWeatherBriefText(runs)
+  return text === null ? null : parseWeatherBrief(text)
 }

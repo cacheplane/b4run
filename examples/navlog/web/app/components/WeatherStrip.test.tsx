@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
+import type { AirportWeather } from "../lib/weather-selectors"
 import { WeatherStrip } from "./WeatherStrip"
 
 const brief = {
@@ -32,7 +33,24 @@ describe("WeatherStrip", () => {
     expect(html).toContain('data-cat="VFR"')
     expect(html).toContain("KSTP VFR")
     expect(html).toContain('data-cat="MVFR"')
-    expect(html).toContain("KRST MVFR at ETA")
+    expect(html).toContain("KRST VFR now, MVFR at ETA")
+  })
+  test("an improving airport is shown in its worse, current category", () => {
+    const improving = {
+      ...brief,
+      airports: [
+        { ...(brief.airports[1] as AirportWeather), now: "MVFR" as const, atEta: "VFR" as const },
+      ],
+    }
+    const html = renderToStaticMarkup(<WeatherStrip brief={improving} />)
+    expect(html).toContain('data-cat="MVFR"')
+    expect(html).toContain("KRST MVFR now, VFR at ETA")
+    expect(html).not.toContain('data-cat="VFR"')
+  })
+  test("the phone row scrolls sideways instead of wrapping", () => {
+    const html = renderToStaticMarkup(<WeatherStrip brief={brief} layout="row" />)
+    expect(html).toContain("flex-nowrap overflow-x-auto")
+    expect(html).not.toContain("flex-wrap")
   })
   test("shows the first winds line and the raw reports in a disclosure", () => {
     const html = renderToStaticMarkup(<WeatherStrip brief={brief} />)

@@ -168,6 +168,18 @@
   font: inherit;
 }
 
+/*
+ * The zoom and attribution controls sit in Leaflet's top-left corner. On
+ * desktop the dock covers the map's left edge, so the left corners move past
+ * it; the OpenStreetMap tile policy requires the attribution to stay visible.
+ * 768px is Tailwind's `md`, the breakpoint `WorkbenchLayout` switches on.
+ */
+@media (min-width: 768px) {
+  .wb-map .leaflet-left {
+    left: calc(var(--wb-dock-width) + var(--wb-gutter));
+  }
+}
+
 .wb-map .wb-wp-label {
   border: 1px solid var(--wb-border);
   border-radius: 6px;
@@ -279,6 +291,24 @@
     box-shadow: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     border: 0 !important;
+  }
+  /*
+   * The sheet's ancestors are a full-viewport, overflow-hidden root and an
+   * absolutely positioned wrapper. Flattened, the sheet prints in the page flow
+   * at its full length instead of clipped to one screen.
+   */
+  .wb-root,
+  .wb-sheet-wrap {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    position: static !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    overflow: visible !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    height: auto !important;
+  }
+  .wb-sheet-body {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    overflow: visible !important;
   }
   .wb-sheet-actions,
   .wb-sheet-grip,

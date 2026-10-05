@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { lastAssistantText, latestNavlog, parseNavlog } from "./navlog-selectors"
+import { lastAssistantText, latestNavlog, latestNavlogText, parseNavlog } from "./navlog-selectors"
 import { SAMPLE_NAVLOG } from "./navlog-types"
 
 const toolCall = (id: string, name: string) => ({
@@ -54,6 +54,16 @@ describe("latestNavlog", () => {
         ],
       },
     ]
+    expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
+  })
+  test("skips a later failed call so the last good navlog stays, and exposes its text", () => {
+    const messages = [
+      toolCall("c1", "computeNavlog"),
+      toolResult("c1", JSON.stringify(SAMPLE_NAVLOG)),
+      toolCall("c2", "computeNavlog"),
+      toolResult("c2", "Error: computeNavlog needs one wind entry per leg (1)"),
+    ]
+    expect(latestNavlogText(messages)).toBe(JSON.stringify(SAMPLE_NAVLOG))
     expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
   })
   test("is null with no navlog, and ignores a call whose result has not arrived", () => {

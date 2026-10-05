@@ -36,6 +36,12 @@ interface RouteLayers {
 
 const NO_LAYERS: RouteLayers = { route: null, segments: [], overlays: [] }
 
+const applyHighlight = (segments: readonly Polyline[], index: number | null): void => {
+  for (const [i, segment] of segments.entries()) {
+    segment.setStyle({ opacity: i === index ? 0.6 : 0 })
+  }
+}
+
 /**
  * The map behind everything. Leaflet is imported inside the effects so this
  * module never touches `window` on the server; `WorkbenchLayout` also loads it
@@ -44,6 +50,7 @@ const NO_LAYERS: RouteLayers = { route: null, segments: [], overlays: [] }
 export function RouteMap({ geometry, categories, highlightedLeg, padding }: RouteMapProps) {
   const container = useRef<HTMLElement>(null)
   const layers = useRef<RouteLayers>(NO_LAYERS)
+  const highlightRef = useRef<number | null>(highlightedLeg)
   // State, not a ref: the drawing effect must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
   const [map, setMap] = useState<LeafletMap | null>(null)
@@ -53,8 +60,13 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
     let instance: LeafletMap | null = null
     void import("leaflet").then((L) => {
       if (cancelled || container.current === null) return
-      instance = L.map(container.current, { zoomControl: false, attributionControl: true })
-      L.control.zoom({ position: "bottomright" }).addTo(instance)
+      instance = L.map(container.current, { zoomControl: false, attributionControl: false })
+      // Both controls in the top-left corner, which no floating panel covers:
+      // on phones the sheet is at the bottom, and on desktop `theme.css`
+      // shifts Leaflet's left corners past the dock. The OpenStreetMap tile
+      // policy requires the attribution to stay visible.
+      L.control.zoom({ position: "topleft" }).addTo(instance)
+      L.control.attribution({ position: "topleft", prefix: false }).addTo(instance)
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors",
         maxZoom: 19,
@@ -131,26 +143,37 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
         )
       }
       layers.current = { route, segments, overlays }
-      map.fitBounds(
-        [
-          [geometry.bounds[0][0], geometry.bounds[0][1]],
-          [geometry.bounds[1][0], geometry.bounds[1][1]],
-        ],
-        {
-          paddingTopLeft: [padding.left, padding.top],
-          paddingBottomRight: [40, padding.bottom],
-        },
-      )
+      // A redraw replaces the segments, so put the current highlight back.
+      applyHighlight(segments, highlightRef.current)
     })
     return () => {
       cancelled = true
     }
-  }, [map, geometry, categories, padding])
+  }, [map, geometry, categories])
+
+  // Fitting is separate from drawing: a new weather brief recolors the
+  // markers but must not move the map under the pilot. It refits only for a
+  // new route or when the room around it changes (the sheet opening).
+  const { left, top, bottom } = padding
+  useEffect(() => {
+    if (map === null || geometry === null) return
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+    map.fitBounds(
+      [
+        [geometry.bounds[0][0], geometry.bounds[0][1]],
+        [geometry.bounds[1][0], geometry.bounds[1][1]],
+      ],
+      {
+        paddingTopLeft: [left, top],
+        paddingBottomRight: [40, bottom],
+        ...(reduceMotion ? { animate: false } : {}),
+      },
+    )
+  }, [map, geometry, left, top, bottom])
 
   useEffect(() => {
-    for (const [i, segment] of layers.current.segments.entries()) {
-      segment.setStyle({ opacity: i === highlightedLeg ? 0.6 : 0 })
-    }
+    highlightRef.current = highlightedLeg
+    applyHighlight(layers.current.segments, highlightedLeg)
   }, [highlightedLeg])
 
   return <section ref={container} className="wb-map fixed inset-0 z-0" aria-label="Route map" />

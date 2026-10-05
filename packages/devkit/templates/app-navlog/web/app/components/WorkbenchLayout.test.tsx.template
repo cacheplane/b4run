@@ -4,9 +4,29 @@ import { SAMPLE_NAVLOG } from "../lib/navlog-types"
 import { WorkbenchLayout, type WorkbenchLayoutProps } from "./WorkbenchLayout"
 
 const viewport = vi.hoisted(() => ({ desktop: true }))
+/** What the layout last handed the map. */
+const map = vi.hoisted(
+  () =>
+    ({}) as {
+      categories?: Readonly<Record<string, string>>
+      padding?: { readonly bottom: number }
+    },
+)
 
-// Leaflet needs a DOM; the map is a stand-in here and `RouteMap` is exercised in the browser.
-vi.mock("next/dynamic", () => ({ default: () => () => <div data-testid="map" /> }))
+// Leaflet needs a DOM; the map is a stand-in here (recording its props) and
+// `RouteMap` itself is exercised in the browser.
+vi.mock("next/dynamic", () => ({
+  default:
+    () =>
+    (mapProps: {
+      categories: Readonly<Record<string, string>>
+      padding: { readonly bottom: number }
+    }) => {
+      map.categories = mapProps.categories
+      map.padding = mapProps.padding
+      return <div data-testid="map" />
+    },
+}))
 vi.mock("../lib/use-media-query", () => ({ useMediaQuery: () => viewport.desktop }))
 
 const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutProps => ({
@@ -43,24 +63,45 @@ describe("WorkbenchLayout on desktop", () => {
     expect(count(html, "transcript")).toBe(1)
     expect(html).not.toContain('role="tablist"')
   })
-  test("the new-conversation button is in the dock header, outside the Threads disclosure", () => {
+  test("new conversation is in the dock header; the thread list waits behind Threads", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
     const button = html.indexOf('aria-label="+ New conversation"')
     expect(button).toBeGreaterThan(-1)
-    expect(button).toBeLessThan(html.indexOf("<details"))
     expect(button).toBeLessThan(html.indexOf("<main"))
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>Threads<\/button>/)
+    // Closed, the list is not rendered at all.
+    expect(html).not.toContain("<p>rail</p>")
+  })
+  test("map markers take each airport's worst category, as the chips do", () => {
+    const brief = {
+      airports: [
+        { id: "KSTP", now: "VFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
+        // Improving: MVFR now, VFR at ETA is MVFR on the chip and the marker.
+        { id: "KRST", now: "MVFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
+      ],
+      winds: [],
+      advisories: [],
+      note: "",
+    }
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief })} />)
+    expect(map.categories).toEqual({ KSTP: "VFR", KRST: "MVFR" })
+    expect(html).toContain("KRST MVFR now, VFR at ETA")
+  })
+  test("the map leaves room for the open sheet, and less when there is no navlog", () => {
+    renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    const withSheet = map.padding?.bottom ?? 0
+    renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
+    expect(map.padding?.bottom).toBeLessThan(withSheet)
   })
   test("without a navlog there is no sheet", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
     expect(html).not.toContain('aria-label="Navlog"')
   })
   test("the memory panel sits in the dock, not behind a disclosure", () => {
+    // Threads is closed, and the memory panel still renders.
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
-    const memoryAt = html.indexOf("memory")
-    expect(memoryAt).toBeGreaterThan(-1)
-    expect(html.slice(0, memoryAt).lastIndexOf("<details")).toBeLessThan(
-      html.slice(0, memoryAt).lastIndexOf("</details>"),
-    )
+    expect(html).toContain("<p>memory</p>")
+    expect(html.indexOf("<p>memory</p>")).toBeLessThan(html.indexOf("<main"))
   })
 })
 

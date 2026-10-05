@@ -3,12 +3,17 @@ import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
 import { planActivityContentSchema, useSubagentRuns } from "@b4run/ag-ui/react"
 import type { B4ContentPart } from "@b4run/sdk"
 import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { HydratedThread } from "../lib/hydrate"
-import { lastAssistantText, latestNavlog, type MessageLike } from "../lib/navlog-selectors"
+import {
+  lastAssistantText,
+  latestNavlogText,
+  type MessageLike,
+  parseNavlog,
+} from "../lib/navlog-selectors"
 import type { ThreadSource, WorkbenchThread } from "../lib/thread-source"
 import { type DropNotice, type TranscriptMessage, titleFor } from "../lib/transcript"
-import { latestWeatherBrief } from "../lib/weather-selectors"
+import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
 import { Composer, type ComposerMessage } from "./Composer"
 import { ConnectScreen } from "./ConnectScreen"
 import { MemoryPanel } from "./MemoryPanel"
@@ -252,8 +257,25 @@ export function AppShell({
   // which correctly hides the attach control until then.
   const capabilities = useCapabilities()
   const canAttachImages = capabilities?.multimodal?.input?.image === true
-  // The weather subagent's brief feeds the strip and the marker colors.
+  // The map, the weather strip and the navlog sheet read the thread through
+  // pure selectors; nothing new is stored. `useSubagentRuns` is also called by
+  // `Transcript` — each call keeps its own subscription, which is allowed.
+  //
+  // The selectors return STRINGS and the parse is memoized on them. The agent
+  // hands back new message arrays on every streamed token; parsing afresh each
+  // time would give the map a new `Navlog` object per token, and the map refits
+  // whenever its geometry changes. A tool result's text never changes once it
+  // has arrived, so keying on it gives one object per computation.
   const subagentRuns = useSubagentRuns(agent)
+  const navlogText = latestNavlogText(agent.messages as readonly MessageLike[])
+  const navlog = useMemo(() => (navlogText === null ? null : parseNavlog(navlogText)), [navlogText])
+  const weatherText = latestWeatherBriefText([...subagentRuns.runs.values()])
+  const weatherBrief = useMemo(
+    () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
+    [weatherText],
+  )
+  // Already a string, so it only changes when the prose does.
+  const assistantBrief = lastAssistantText(agent.messages as readonly MessageLike[])
   // Drop notices for the thread on screen, in arrival order. Not on the
   // agent: CopilotKit keeps no record of CUSTOM events, so this list is the
   // only place they live, and it goes with the thread on a switch.
@@ -685,13 +707,6 @@ export function AppShell({
   if (serverStatus === "down") {
     return <ConnectScreen serverUrl={DEFAULT_SERVER_URL} onRetry={runProbe} />
   }
-
-  // The map, the weather strip and the navlog sheet read the thread through
-  // pure selectors; nothing new is stored. `useSubagentRuns` is also called by
-  // `Transcript` — each call keeps its own subscription, which is allowed.
-  const navlog = latestNavlog(agent.messages as readonly MessageLike[])
-  const weatherBrief = latestWeatherBrief([...subagentRuns.runs.values()])
-  const assistantBrief = lastAssistantText(agent.messages as readonly MessageLike[])
 
   return (
     <WorkbenchLayout

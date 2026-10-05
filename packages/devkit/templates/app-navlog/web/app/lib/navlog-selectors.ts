@@ -58,8 +58,13 @@ export function lastAssistantText(messages: readonly MessageLike[]): string {
   return ""
 }
 
-/** The most recent `computeNavlog` result in the thread, or null. */
-export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
+/**
+ * The text of the most recent `computeNavlog` result that holds a navlog, or
+ * null. A string on purpose: the shell memoizes the parse on it, so the map
+ * sees one `Navlog` object per computation rather than a new one per streamed
+ * token (each new object would refit the map).
+ */
+export function latestNavlogText(messages: readonly MessageLike[]): string | null {
   const callIds = new Set<string>()
   for (const message of messages) {
     for (const call of message.toolCalls ?? []) {
@@ -70,8 +75,15 @@ export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
     const message = messages[i]
     if (message?.role !== "tool" || message.toolCallId === undefined) continue
     if (!callIds.has(message.toolCallId)) continue
-    const navlog = parseNavlog(contentText(message.content))
-    if (navlog) return navlog
+    const text = contentText(message.content)
+    // A failed call's error text is skipped, so the last good plan stays up.
+    if (parseNavlog(text)) return text
   }
   return null
+}
+
+/** The most recent `computeNavlog` result in the thread, or null. */
+export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
+  const text = latestNavlogText(messages)
+  return text === null ? null : parseNavlog(text)
 }
