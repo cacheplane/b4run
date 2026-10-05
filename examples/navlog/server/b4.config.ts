@@ -2,11 +2,14 @@ import { config } from "@b4run/cli"
 import { openaiEmbedder } from "@b4run/langchain"
 import { pgvectorMemoryStore } from "@b4run/memory-pgvector"
 
-// Memory backend: SQLite by default; Postgres + pgvector when DATABASE_URL is
-// set (the live demo); vector recall when OPENAI_API_KEY is set. Both connect
-// lazily, so constructing them here does no I/O. Same switch as examples/memory.
+// Memory backend: SQLite with keyword recall by default, which is what every
+// keyless run gets. Postgres + pgvector when DATABASE_URL is set (the live
+// demo), and vector recall only on top of that store, when OPENAI_API_KEY is
+// set too. The harness lanes set a fake OPENAI_API_KEY pointed at aimock, so an
+// embedder keyed on the API key alone would send them embedding calls no
+// fixture answers. Both connect lazily, so constructing them here does no I/O.
 const databaseUrl = process.env.DATABASE_URL
-const embedder = process.env.OPENAI_API_KEY ? openaiEmbedder() : undefined
+const embedder = databaseUrl && process.env.OPENAI_API_KEY ? openaiEmbedder() : undefined
 
 export default config({
   appDir: "src/app",
