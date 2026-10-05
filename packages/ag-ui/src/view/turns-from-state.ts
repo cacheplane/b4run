@@ -14,7 +14,7 @@ import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities
 import { toAguiInterrupt } from "../interrupts.js"
 import { B4_STEP_EVENT_NAME } from "../step.js"
 import { readPlan } from "./subagent-runs.js"
-import { reduceTurns, type TurnsView } from "./turns.js"
+import { EMPTY_TURNS, reduceTurns, type TurnsView } from "./turns.js"
 
 /** One decoded checkpoint of one namespace, oldest first in a history. */
 export interface CheckpointForTurns {
@@ -64,15 +64,28 @@ interface PlanChange {
   readonly beforeMessage: number
 }
 
+/** The input after shape checks: every collection is a real one, so the walk never guards. */
+interface Normalised {
+  readonly threadId: string
+  readonly status: ThreadStateForTurns["status"]
+  readonly root: readonly CheckpointForTurns[]
+  readonly children: Readonly<Record<string, readonly CheckpointForTurns[]>>
+  readonly pendingInterrupts: readonly Record<string, unknown>[]
+}
+
 interface Synth {
   readonly events: Timed[]
   readonly warnings: string[]
-  /** Child namespaces a `task` message named, so the rest can be reported. */
+  /** Tool calls whose `b4_step` was unusable, by reason; reported as one line per reason. */
+  readonly unstamped: { readonly missing: string[]; readonly malformed: string[] }
+  /** Child namespaces a `task` call claimed, so the rest can be reported. */
   readonly attached: Set<string>
 }
 
 /** The one built-in tool whose root frames the live ledger replaces with the plan snapshot. */
 const PLAN_TOOL = "writeTodos"
+/** The built-in tool that launches a subagent; its child checkpoints under its own namespace. */
+const TASK_TOOL = "task"
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -91,7 +104,7 @@ function ms(iso: unknown): number {
 }
 
 const messagesOf = (cp: CheckpointForTurns | undefined): readonly unknown[] => {
-  const list = cp?.values?.messages
+  const list = isRecord(cp?.values) ? cp.values.messages : undefined
   return Array.isArray(list) ? list : []
 }
 
@@ -133,26 +146,52 @@ function push(s: Synth, at: number, event: BaseEvent, owner?: string): void {
   })
 }
 
+/** The `b4_step` of a ToolMessage envelope's `additional_kwargs`, when it names this tool. */
+function stampOf(kwargs: Record<string, unknown>, key: string): unknown {
+  return isRecord(kwargs.additional_kwargs) ? kwargs.additional_kwargs[key] : undefined
+}
+
+/** The content of a namespace's first user message: what its `task` call was invoked with. */
+function firstUserText(history: readonly CheckpointForTurns[]): string | undefined {
+  for (const value of messagesOf(history.at(-1))) {
+    const message = envelope(value)
+    if (message?.cls === "HumanMessage") return textOf(message.kwargs.content)
+  }
+  return undefined
+}
+
 /**
  * The plan snapshots a history implies: one per checkpoint whose `todos`
  * differ from the previous checkpoint's, placed before the first message that
  * checkpoint added (the tool node writes `todos` in the same superstep as the
  * ToolMessages, so live showed the snapshot after the model's frames and
- * among the results). A history that starts with an empty plan has nothing to
- * show until it changes.
+ * among the results), timed by the `writeTodos` result that checkpoint holds
+ * when it has one, else by the checkpoint. A history that starts with an
+ * empty plan has nothing to show until it changes.
  */
 function planChanges(history: readonly CheckpointForTurns[]): PlanChange[] {
   const changes: PlanChange[] = []
   let previous = "null"
   let previousCount = 0
+  let previousTs = 0
   for (const cp of history) {
-    const todos = readPlan({ todos: cp.values?.todos })
+    const todos = readPlan({ todos: isRecord(cp.values) ? cp.values.todos : undefined })
     const key = JSON.stringify(todos ?? null)
+    const messages = messagesOf(cp)
     if (todos !== undefined && key !== previous && !(previous === "null" && todos.length === 0)) {
-      changes.push({ at: ms(cp.ts), todos, beforeMessage: previousCount })
+      let at = ms(cp.ts)
+      for (const value of messages.slice(previousCount)) {
+        const message = envelope(value)
+        if (message?.cls !== "ToolMessage" || message.kwargs.name !== PLAN_TOOL) continue
+        const step = readPersistedStep(stampOf(message.kwargs, B4_STEP_KEY))
+        if (step !== undefined) at = Math.max(ms(step.settledAt), previousTs)
+        break
+      }
+      changes.push({ at, todos, beforeMessage: previousCount })
     }
     previous = key
-    previousCount = messagesOf(cp).length
+    previousCount = messages.length
+    previousTs = ms(cp.ts)
   }
   return changes
 }
@@ -160,16 +199,18 @@ function planChanges(history: readonly CheckpointForTurns[]): PlanChange[] {
 /**
  * Emit the events one namespace's history would have streamed. Messages are
  * walked once (the last checkpoint holds the full list); the checkpoint that
- * first contained each message gives it a time. The root namespace frames its
- * turns with `RUN_*`; a child's turn is framed by its parent's `SUBAGENT_*`
- * instead, since the reducer resets on a foreign `RUN_STARTED` and always
- * lands `RUN_FINISHED`/`RUN_ERROR` on the root turn.
+ * first contained each message gives it a time, never before `floor` (a
+ * child's events never precede the `SUBAGENT_STARTED` that frames them). The
+ * root namespace frames its turns with `RUN_*`; a child's turn is framed by
+ * its parent's `SUBAGENT_*` instead, since the reducer resets on a foreign
+ * `RUN_STARTED` and always lands `RUN_FINISHED`/`RUN_ERROR` on the root turn.
  */
 function synthesiseNamespace(
   s: Synth,
-  input: ThreadStateForTurns,
+  input: Normalised,
   history: readonly CheckpointForTurns[],
   owner: string | undefined,
+  floor: number,
 ): void {
   if (history.length === 0) return
   const nested = owner !== undefined
@@ -179,14 +220,42 @@ function synthesiseNamespace(
 
   // When each message first appeared: the ts of the first checkpoint whose list is long enough.
   const firstSeenAt = (index: number): number => {
-    for (const cp of history) if (messagesOf(cp).length > index) return ms(cp.ts)
-    return ms(last.ts)
+    for (const cp of history) {
+      if (messagesOf(cp).length > index) return Math.max(ms(cp.ts), floor)
+    }
+    return Math.max(ms(last.ts), floor)
   }
+
+  // Tool calls that have a ToolMessage; a `task` call without one is a child still running or parked.
+  const answered = new Set<string>()
+  /** When the model announced each call: the floor for that call's stamped clocks. */
+  const announcedAt = new Map<string, number>()
+  const humanIndices: number[] = []
+  messages.forEach((value, index) => {
+    const message = envelope(value)
+    if (message?.cls === "ToolMessage" && typeof message.kwargs.tool_call_id === "string") {
+      answered.add(message.kwargs.tool_call_id)
+    }
+    if (message?.cls === "HumanMessage") humanIndices.push(index)
+    if (message?.cls === "AIMessage" || message?.cls === "AIMessageChunk") {
+      const calls = Array.isArray(message.kwargs.tool_calls) ? message.kwargs.tool_calls : []
+      for (const call of calls) {
+        if (isRecord(call) && typeof call.id === "string")
+          announcedAt.set(call.id, firstSeenAt(index))
+      }
+    }
+  })
+  /** The index of the user message that ends the turn holding `index`, else the end. */
+  const nextHuman = (index: number): number =>
+    humanIndices.find((i) => i > index) ?? messages.length
 
   const plans = planChanges(history)
   const pendingPlans = [...plans]
-  /** Whether a plan snapshot follows the message at `index` (so the live ledger suppressed its `writeTodos` frames). */
-  const planFollows = (index: number): boolean => plans.some((p) => p.beforeMessage > index)
+  /** Whether this turn has a plan snapshot after the message at `index` (so the live ledger suppressed its `writeTodos` frames). */
+  const planFollows = (index: number): boolean => {
+    const end = nextHuman(index)
+    return plans.some((p) => p.beforeMessage > index && p.beforeMessage <= end)
+  }
 
   let openRun: string | undefined
   let openRunStart = 0
@@ -215,9 +284,9 @@ function synthesiseNamespace(
   const lastCheckpointAt = (upTo: number): number => {
     for (let i = history.length - 1; i >= 0; i--) {
       const cp = history[i] as CheckpointForTurns
-      if (messagesOf(cp).length <= upTo) return ms(cp.ts)
+      if (messagesOf(cp).length <= upTo) return Math.max(ms(cp.ts), floor)
     }
-    return ms(last.ts)
+    return Math.max(ms(last.ts), floor)
   }
 
   /** Close the open turn (its messages end before `upTo`): `head` when it is the history's last, the only one that can still be running. */
@@ -228,11 +297,13 @@ function synthesiseNamespace(
     if (nested) return
     const threadId = input.threadId
     const resolved = endOf(openRunStart, upTo)
-    const lastAt = lastCheckpointAt(upTo)
-    const parked =
-      head && input.status === "interrupted" && (input.pendingInterrupts ?? []).length > 0
+    // A turn never ends before its own events (a child's frames may postdate the root's last checkpoint).
+    const latest = s.events.reduce((max, e) => Math.max(max, e.at), 0)
+    const lastAt = Math.max(lastCheckpointAt(upTo), latest)
+    const endAt = resolved === undefined ? lastAt : Math.max(resolved.at, latest)
+    const parked = head && input.status === "interrupted" && input.pendingInterrupts.length > 0
     if (parked) {
-      const interrupts = (input.pendingInterrupts ?? []).flatMap((p) => {
+      const interrupts = input.pendingInterrupts.flatMap((p) => {
         const interrupt = toAguiInterrupt(p.value)
         if (interrupt === null) return []
         return typeof p.grant === "string"
@@ -248,7 +319,7 @@ function synthesiseNamespace(
       push(s, lastAt, event as BaseEvent)
     } else if (resolved?.end.status === "failed") {
       const message = resolved.end.error ?? "The run failed."
-      push(s, resolved.at, { type: EventType.RUN_ERROR, threadId, runId, message } as BaseEvent)
+      push(s, endAt, { type: EventType.RUN_ERROR, threadId, runId, message } as BaseEvent)
     } else if (resolved?.end.status === "stopped") {
       const event = {
         type: EventType.RUN_FINISHED,
@@ -256,13 +327,13 @@ function synthesiseNamespace(
         runId,
         outcome: { type: "cancelled" },
       }
-      push(s, resolved.at, event as BaseEvent)
+      push(s, endAt, event as BaseEvent)
     } else if (resolved !== undefined || !head || input.status !== "busy") {
       // No stamp on a turn that is not the running head: the run ended before
       // the stamp existed, or its stamp was lost; the turn still ended, at its
       // last checkpoint.
       const event = { type: EventType.RUN_FINISHED, threadId, runId, outcome: { type: "success" } }
-      push(s, resolved?.at ?? lastAt, event as BaseEvent)
+      push(s, endAt, event as BaseEvent)
     }
     // A busy head with no stamp is the turn still running: leave it open.
   }
@@ -276,13 +347,35 @@ function synthesiseNamespace(
       if (openRun === undefined) continue
       const event = {
         type: EventType.ACTIVITY_SNAPSHOT,
-        messageId: `b4:plan:${openRun}`,
+        // Live keys the plan by its owner: the task call for a child, the run for the root.
+        messageId: `b4:plan:${owner ?? openRun}`,
         activityType: B4_PLAN_ACTIVITY_TYPE,
         replace: true,
         content: { todos: plan.todos },
       }
-      push(s, plan.at, event as BaseEvent, owner)
+      push(s, Math.max(plan.at, floor), event as BaseEvent, owner)
     }
+  }
+
+  /** Open a subagent under `toolCallId` and synthesise its namespace, framed by that start. */
+  const openSubagent = (
+    toolCallId: string,
+    at: number,
+    name: string,
+    description: string | undefined,
+    checkpointNs: string | undefined,
+    child: readonly CheckpointForTurns[] | undefined,
+  ): void => {
+    push(s, at, {
+      type: EventType.SUBAGENT_STARTED,
+      subagentRunId: toolCallId,
+      name,
+      parentToolCallId: toolCallId,
+      ...(owner !== undefined ? { parentSubagentRunId: owner } : {}),
+      ...(description !== undefined ? { description } : {}),
+    } as BaseEvent)
+    if (checkpointNs !== undefined) s.attached.add(checkpointNs)
+    if (child !== undefined) synthesiseNamespace(s, input, child, toolCallId, at)
   }
 
   for (let index = 0; index < messages.length; index++) {
@@ -360,11 +453,17 @@ function synthesiseNamespace(
       }
       const calls = Array.isArray(kwargs.tool_calls) ? kwargs.tool_calls : []
       for (const call of calls) {
-        if (!isRecord(call) || typeof call.id !== "string" || typeof call.name !== "string")
+        if (!isRecord(call) || typeof call.id !== "string" || call.id === "") {
+          s.warnings.push(`ignored tool call without a string id on message ${id} in ${where}`)
           continue
+        }
+        if (typeof call.name !== "string") {
+          s.warnings.push(`ignored tool call ${call.id} without a name in ${where}`)
+          continue
+        }
         // Live, the root ledger drops a `writeTodos` call's frames once its
         // plan snapshot arrives (a child's frames always flow, and so do the
-        // root's when the call produced no plan).
+        // root's when the call produced no plan in this turn).
         if (!nested && call.name === PLAN_TOOL && planFollows(index)) continue
         const toolCallId = call.id
         push(
@@ -384,6 +483,25 @@ function synthesiseNamespace(
           owner,
         )
         push(s, at, { type: EventType.TOOL_CALL_END, toolCallId } as BaseEvent, owner)
+        if (call.name === TASK_TOOL && !answered.has(toolCallId)) {
+          // The bridge writes the task's ToolMessage only when the child ends:
+          // a running or parked child has a namespace but no message yet. Its
+          // first user message is exactly the call's `input`.
+          const args = isRecord(call.args) ? call.args : {}
+          const name = typeof args.subagent === "string" ? args.subagent : call.name
+          const ns = Object.keys(input.children).find(
+            (key) =>
+              !s.attached.has(key) &&
+              typeof args.input === "string" &&
+              firstUserText(input.children[key] ?? []) === args.input,
+          )
+          if (ns === undefined) {
+            s.warnings.push(`no child namespace matches open task call ${toolCallId}`)
+            continue
+          }
+          openSubagent(toolCallId, at, name, undefined, ns, input.children[ns])
+          // Left open: a parked head's `RUN_FINISHED { interrupt }` pauses it; a busy head keeps it running.
+        }
       }
       continue
     }
@@ -394,40 +512,37 @@ function synthesiseNamespace(
         s.warnings.push(`ignored ToolMessage ${index} without tool_call_id in ${where}`)
         continue
       }
-      const additional = isRecord(kwargs.additional_kwargs) ? kwargs.additional_kwargs : {}
-      const stampValue = additional[B4_STEP_KEY]
+      const stampValue = stampOf(kwargs, B4_STEP_KEY)
       const step = readPersistedStep(stampValue)
       if (step === undefined) {
-        const why = stampValue === undefined ? "missing" : "malformed"
-        s.warnings.push(`ignored ${why} ${B4_STEP_KEY} on tool call ${toolCallId}`)
+        ;(stampValue === undefined ? s.unstamped.missing : s.unstamped.malformed).push(toolCallId)
       }
       const failed = step?.status === "failed" || kwargs.status === "error"
-      const startedAt = step ? ms(step.startedAt) : at
-      const settledAt = step ? ms(step.settledAt) : at
-      const subagentValue = additional[B4_SUBAGENT_KEY]
+      // Stamp clocks never run ahead of the model checkpoint that announced the call.
+      const announced = announcedAt.get(toolCallId) ?? floor
+      const startedAt = step ? Math.max(ms(step.startedAt), announced) : at
+      const settledAt = step ? Math.max(ms(step.settledAt), startedAt) : at
+      const subagentValue = stampOf(kwargs, B4_SUBAGENT_KEY)
       const subagent = readPersistedSubagent(subagentValue)
       if (subagentValue !== undefined && subagent === undefined) {
         s.warnings.push(`ignored malformed ${B4_SUBAGENT_KEY} on tool call ${toolCallId}`)
       }
 
       if (subagent) {
-        push(s, startedAt, {
-          type: EventType.SUBAGENT_STARTED,
-          subagentRunId: toolCallId,
-          name: subagent.name,
-          parentToolCallId: toolCallId,
-          ...(owner !== undefined ? { parentSubagentRunId: owner } : {}),
-          ...(subagent.description !== undefined ? { description: subagent.description } : {}),
-        } as BaseEvent)
-        s.attached.add(subagent.checkpointNs)
-        const child = input.children?.[subagent.checkpointNs]
+        const child = input.children[subagent.checkpointNs]
         if (child === undefined) {
           s.warnings.push(
             `no checkpoints for child namespace ${subagent.checkpointNs} of tool call ${toolCallId}`,
           )
-        } else {
-          synthesiseNamespace(s, input, child, toolCallId)
         }
+        openSubagent(
+          toolCallId,
+          startedAt,
+          subagent.name,
+          subagent.description,
+          subagent.checkpointNs,
+          child,
+        )
         if (subagent.outcome === "failed") {
           const message = subagent.error ?? "The subagent failed."
           push(s, settledAt, {
@@ -435,13 +550,6 @@ function synthesiseNamespace(
             subagentRunId: toolCallId,
             message,
           } as BaseEvent)
-        } else if (subagent.outcome === "suspended") {
-          const event = {
-            type: EventType.SUBAGENT_FINISHED,
-            subagentRunId: toolCallId,
-            outcome: { type: "suspended" },
-          }
-          push(s, settledAt, event as BaseEvent)
         } else {
           const event = {
             type: EventType.SUBAGENT_FINISHED,
@@ -483,6 +591,52 @@ function synthesiseNamespace(
   closeRun(messages.length, true)
 }
 
+/** Shape-check the input: what is not the collection it should be is replaced and named. */
+function normalise(input: unknown, warnings: string[]): Normalised | undefined {
+  if (!isRecord(input)) {
+    warnings.push("input is not an object")
+    return undefined
+  }
+  const threadId = typeof input.threadId === "string" ? input.threadId : ""
+  if (threadId === "") warnings.push("threadId is not a string")
+  const status =
+    input.status === "busy" || input.status === "interrupted" || input.status === "idle"
+      ? input.status
+      : "idle"
+  if (status !== input.status)
+    warnings.push(`status ${String(input.status)} is unknown; read as idle`)
+  const checkpoints = (value: unknown, name: string): readonly CheckpointForTurns[] => {
+    if (!Array.isArray(value)) {
+      warnings.push(`${name} is not an array`)
+      return []
+    }
+    return value.filter((cp): cp is CheckpointForTurns => {
+      if (isRecord(cp)) return true
+      warnings.push(`ignored non-object checkpoint in ${name}`)
+      return false
+    })
+  }
+  const children: Record<string, readonly CheckpointForTurns[]> = {}
+  if (input.children !== undefined) {
+    if (isRecord(input.children)) {
+      for (const [ns, history] of Object.entries(input.children)) {
+        children[ns] = checkpoints(history, `children[${ns}]`)
+      }
+    } else {
+      warnings.push("children is not an object")
+    }
+  }
+  let pendingInterrupts: readonly Record<string, unknown>[] = []
+  if (input.pendingInterrupts !== undefined) {
+    if (Array.isArray(input.pendingInterrupts)) {
+      pendingInterrupts = input.pendingInterrupts.filter(isRecord)
+    } else {
+      warnings.push("pendingInterrupts is not an array")
+    }
+  }
+  return { threadId, status, root: checkpoints(input.root, "root"), children, pendingInterrupts }
+}
+
 /**
  * The turns of a thread, rebuilt from its checkpoint chain (spec §3): the AG-UI
  * events the live stream would have carried are synthesised and folded
@@ -491,25 +645,44 @@ function synthesiseNamespace(
  * named in `warnings`; the function never throws.
  */
 export function turnsFromState(input: ThreadStateForTurns): TurnsFromStateResult {
-  const s: Synth = { events: [], warnings: [], attached: new Set() }
-  let view: TurnsView = { threadId: input.threadId, turns: [] }
+  const s: Synth = {
+    events: [],
+    warnings: [],
+    unstamped: { missing: [], malformed: [] },
+    attached: new Set(),
+  }
+  const normalised = normalise(input, s.warnings)
+  if (normalised === undefined) return { turns: EMPTY_TURNS, warnings: s.warnings }
+  let view: TurnsView = { threadId: normalised.threadId, turns: [] }
   try {
-    synthesiseNamespace(s, input, input.root ?? [], undefined)
-    for (const ns of Object.keys(input.children ?? {})) {
-      if (!s.attached.has(ns))
-        s.warnings.push(`child namespace ${ns} is not named by any task message`)
+    synthesiseNamespace(s, normalised, normalised.root, undefined, 0)
+  } catch (error) {
+    s.warnings.push(`synthesis stopped: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  for (const reason of ["missing", "malformed"] as const) {
+    const ids = s.unstamped[reason]
+    if (ids.length === 1) s.warnings.push(`ignored ${reason} ${B4_STEP_KEY} on tool call ${ids[0]}`)
+    else if (ids.length > 1) {
+      s.warnings.push(
+        `ignored ${reason} ${B4_STEP_KEY} on ${ids.length} tool calls: ${ids.join(", ")}`,
+      )
     }
-    // Events are already in message order; a stable sort by time keeps parallel
-    // calls in that order while placing a late-settling result after an earlier one.
-    const ordered = s.events.map((e, i) => ({ ...e, i })).sort((a, b) => a.at - b.at || a.i - b.i)
-    let clock = 0
-    const now = () => clock
+  }
+  for (const ns of Object.keys(normalised.children)) {
+    if (!s.attached.has(ns)) s.warnings.push(`child namespace ${ns} is not named by any task call`)
+  }
+  // Events are already in message order; a stable sort by time keeps parallel
+  // calls in that order while placing a late-settling result after an earlier one.
+  const ordered = s.events.map((e, i) => ({ ...e, i })).sort((a, b) => a.at - b.at || a.i - b.i)
+  let clock = 0
+  const now = () => clock
+  try {
     for (const { at, event } of ordered) {
       clock = at
       view = reduceTurns(view, event, { now, resuming: false })
     }
   } catch (error) {
-    s.warnings.push(`synthesis stopped: ${error instanceof Error ? error.message : String(error)}`)
+    s.warnings.push(`reduction stopped: ${error instanceof Error ? error.message : String(error)}`)
   }
   return { turns: view, warnings: s.warnings }
 }

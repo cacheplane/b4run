@@ -2,6 +2,7 @@ import type { BaseEvent } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
 import { describe, expect, test } from "vitest"
 import {
+  EMPTY_TURNS,
   reduceTurns,
   type SubagentStep,
   type TurnsView,
@@ -215,7 +216,8 @@ describe("turnsFromState", () => {
     const turn = firstTurn(turns)
     expect(turn.steps.map((s) => s.kind)).toEqual(["reasoning", "tool", "plan"])
     expect(turn.steps[1]).toMatchObject({ kind: "tool", id: "c1", status: "done", result: "a.md" })
-    expect(turn.steps[2]).toMatchObject({ kind: "plan", todos, startedAt: T0 + 3000 })
+    // Timed by the writeTodos result that produced it, as live was, not by the checkpoint.
+    expect(turn.steps[2]).toMatchObject({ kind: "plan", todos, startedAt: T0 + 2000 })
   })
 
   test("a task ToolMessage nests the child namespace's turn", () => {
@@ -303,6 +305,7 @@ describe("turnsFromState", () => {
       {
         interruptId: "perm-1",
         resumeKey: "a".repeat(32),
+        grant: "g-1",
         value: {
           interruptId: "perm-1",
           type: "permission-request",
@@ -323,6 +326,7 @@ describe("turnsFromState", () => {
         interruptId: "perm-1",
         kind: "command",
         offersAlways: true,
+        grant: "g-1",
       }),
     })
   })
@@ -496,6 +500,487 @@ describe("turnsFromState", () => {
       clock = T0 + s * 1000
       view = reduceTurns(view, event, { now })
     }
+    expect(restored).toEqual(view)
+  })
+
+  const openChild = () => {
+    const task = {
+      id: "ct",
+      name: "task",
+      args: { subagent: "researcher", input: "dig" },
+      type: "tool_call",
+    }
+    const run = { id: "n1", name: "runBash", args: { command: "ls" }, type: "tool_call" }
+    const child = [
+      ckpt("x0", 1, [human("cu", "dig")]),
+      ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "", [run])]),
+    ]
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [task])]),
+    ]
+    return { root, child }
+  }
+
+  test("a parked child's gate pauses the subagent its open task call attached by input", () => {
+    const { root, child } = openChild()
+    const pending = [
+      {
+        interruptId: "perm-2",
+        resumeKey: "b".repeat(32),
+        value: {
+          interruptId: "perm-2",
+          type: "permission-request",
+          kind: "command",
+          callId: "ct",
+          toolCallId: "n1",
+          detail: { command: "ls" },
+        },
+      },
+    ]
+    const { turns, warnings } = turnsFromState(
+      base(root, { "tools:ct": child }, pending, "interrupted"),
+    )
+    expect(warnings).toEqual([])
+    const turn = firstTurn(turns)
+    expect(turn.status).toBe("awaiting")
+    const sub = turn.steps[0] as SubagentStep
+    expect(sub).toMatchObject({ kind: "subagent", id: "ct", name: "researcher", status: "paused" })
+    expect(sub.turn.status).toBe("awaiting")
+    expect(sub.turn.steps[0]).toMatchObject({
+      kind: "tool",
+      id: "n1",
+      status: "awaiting",
+      approval: expect.objectContaining({ interruptId: "perm-2", kind: "command" }),
+    })
+  })
+
+  test("a busy head with a running child shows the subagent running", () => {
+    const { root, child } = openChild()
+    const { turns, warnings } = turnsFromState(base(root, { "tools:ct": child }, [], "busy"))
+    expect(warnings).toEqual([])
+    const turn = firstTurn(turns)
+    expect(turn.status).toBe("working")
+    const sub = turn.steps[0] as SubagentStep
+    expect(sub).toMatchObject({ kind: "subagent", id: "ct", status: "running" })
+    expect(sub.turn.status).toBe("working")
+    expect(sub.turn.steps[0]).toMatchObject({ kind: "tool", id: "n1", status: "running" })
+  })
+
+  test("a task ToolMessage with no b4_step still frames its child, with one warning", () => {
+    const task = {
+      id: "ct",
+      name: "task",
+      args: { subagent: "r", input: "dig" },
+      type: "tool_call",
+    }
+    const read = { id: "n1", name: "readDoc", args: {}, type: "tool_call" }
+    const child = [
+      ckpt("x0", 1, [human("cu", "dig")]),
+      ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "", [read])]),
+      ckpt("x2", 4, [
+        human("cu", "dig"),
+        ai("ca1", "", [read]),
+        toolMsg("n1", "readDoc", "txt", {
+          status: "completed",
+          startedAt: iso(2),
+          settledAt: iso(3),
+        }),
+      ]),
+    ]
+    const subagent = {
+      name: "r",
+      routeId: "/r",
+      depth: 1,
+      checkpointNs: "tools:ct",
+      outcome: "done",
+    }
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [task])]),
+      ckpt(
+        "k2",
+        5,
+        [
+          human("u1", "go"),
+          ai("a1", "", [task]),
+          env("ToolMessage", {
+            tool_call_id: "ct",
+            name: "task",
+            content: "ok",
+            additional_kwargs: { b4_subagent: subagent },
+          }),
+        ],
+        { metadata: { "b4:turn": { status: "done", endedAt: iso(5) } } },
+      ),
+    ]
+    const { turns, warnings } = turnsFromState(base(root, { "tools:ct": child }))
+    expect(warnings).toEqual([expect.stringMatching(/missing b4_step.*\bct\b/)])
+    const sub = firstTurn(turns).steps[0] as SubagentStep
+    expect(sub).toMatchObject({ kind: "subagent", id: "ct", status: "done", startedAt: T0 + 5000 })
+    expect(sub.turn.steps).toEqual([
+      expect.objectContaining({ kind: "tool", id: "n1", status: "done", result: "txt" }),
+    ])
+  })
+
+  test("a stamp clock behind the model checkpoint is clamped, so the step still settles done", () => {
+    const call = { id: "c1", name: "x", args: {}, type: "tool_call" }
+    const history = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 5, [human("u1", "go"), ai("a1", "", [call])]),
+      ckpt(
+        "k2",
+        6,
+        [
+          human("u1", "go"),
+          ai("a1", "", [call]),
+          toolMsg("c1", "x", "v", { status: "completed", startedAt: iso(1), settledAt: iso(2) }),
+        ],
+        { metadata: { "b4:turn": { status: "done", endedAt: iso(6) } } },
+      ),
+    ]
+    const turn = firstTurn(turnsFromState(base(history)).turns)
+    expect(turn.steps[0]).toMatchObject({
+      kind: "tool",
+      id: "c1",
+      status: "done",
+      startedAt: T0 + 5000,
+      settledAt: T0 + 5000,
+    })
+    expect(turn.failed).toBe(0)
+  })
+
+  test("a thrown root writeTodos keeps its empty plan when the plan change belongs to a later turn", () => {
+    const cp = { id: "cp", name: "writeTodos", args: { todos: [] }, type: "tool_call" }
+    const cp2 = { id: "cp2", name: "writeTodos", args: { todos: [] }, type: "tool_call" }
+    const todos = [{ content: "a", status: "pending" }]
+    const turn1 = [
+      human("u1", "go"),
+      ai("a1", "", [cp]),
+      toolMsg(
+        "cp",
+        "writeTodos",
+        "boom",
+        { status: "failed", startedAt: iso(1), settledAt: iso(2) },
+        {},
+        "error",
+      ),
+    ]
+    const turn2 = [
+      ...turn1,
+      human("u2", "again"),
+      ai("a2", "", [cp2]),
+      toolMsg("cp2", "writeTodos", "Updated", {
+        status: "completed",
+        startedAt: iso(4),
+        settledAt: iso(5),
+      }),
+    ]
+    const history = [
+      ckpt("k0", 0, [turn1[0]]),
+      ckpt("k1", 1, turn1.slice(0, 2)),
+      ckpt("k2", 2, turn1, { metadata: { "b4:turn": { status: "done", endedAt: iso(2) } } }),
+      ckpt("k3", 3, turn2.slice(0, 4)),
+      ckpt("k4", 4, turn2.slice(0, 5)),
+      ckpt("k5", 5, turn2, { todos, metadata: { "b4:turn": { status: "done", endedAt: iso(5) } } }),
+    ]
+    const { turns } = turnsFromState(base(history))
+    expect(turns.turns.map((t) => t.steps)).toEqual([
+      [expect.objectContaining({ kind: "plan", todos: [] })],
+      [expect.objectContaining({ kind: "plan", todos, startedAt: T0 + 5000 })],
+    ])
+    expect(turns.turns.map((t) => t.failed)).toEqual([0, 0])
+  })
+
+  test("a task ToolMessage whose subagent failed ends the nested turn failed", () => {
+    const task = {
+      id: "ct",
+      name: "task",
+      args: { subagent: "r", input: "dig" },
+      type: "tool_call",
+    }
+    const child = [
+      ckpt("x0", 1, [human("cu", "dig")]),
+      ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "half")]),
+    ]
+    const subagent = {
+      name: "r",
+      routeId: "/r",
+      depth: 1,
+      checkpointNs: "tools:ct",
+      outcome: "failed",
+      error: "boom",
+    }
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [task])]),
+      ckpt(
+        "k2",
+        4,
+        [
+          human("u1", "go"),
+          ai("a1", "", [task]),
+          toolMsg(
+            "ct",
+            "task",
+            "subagent_failed: boom",
+            { status: "failed", startedAt: iso(1), settledAt: iso(3) },
+            { b4_subagent: subagent },
+            "error",
+          ),
+        ],
+        { metadata: { "b4:turn": { status: "done", endedAt: iso(4) } } },
+      ),
+    ]
+    const turn = firstTurn(turnsFromState(base(root, { "tools:ct": child })).turns)
+    const sub = turn.steps[0] as SubagentStep
+    expect(sub).toMatchObject({
+      kind: "subagent",
+      status: "failed",
+      error: "boom",
+      settledAt: T0 + 3000,
+    })
+    expect(sub.turn).toMatchObject({ status: "failed", error: "boom", text: "half" })
+    expect(turn.failed).toBe(1)
+  })
+
+  test("parallel calls keep call order while settling in reverse", () => {
+    const c1 = { id: "c1", name: "slow", args: {}, type: "tool_call" }
+    const c2 = { id: "c2", name: "fast", args: {}, type: "tool_call" }
+    const history = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), ai("a1", "", [c1, c2])]),
+      ckpt(
+        "k2",
+        5,
+        [
+          human("u1", "go"),
+          ai("a1", "", [c1, c2]),
+          toolMsg("c1", "slow", "s", { status: "completed", startedAt: iso(1), settledAt: iso(4) }),
+          toolMsg("c2", "fast", "f", { status: "completed", startedAt: iso(1), settledAt: iso(2) }),
+        ],
+        { metadata: { "b4:turn": { status: "done", endedAt: iso(5) } } },
+      ),
+    ]
+    const turn = firstTurn(turnsFromState(base(history)).turns)
+    expect(turn.steps).toEqual([
+      expect.objectContaining({ id: "c1", status: "done", result: "s", settledAt: T0 + 4000 }),
+      expect.objectContaining({ id: "c2", status: "done", result: "f", settledAt: T0 + 2000 }),
+    ])
+  })
+
+  test("malformed input never throws and is named", () => {
+    expect(turnsFromState(null as never)).toEqual({
+      turns: EMPTY_TURNS,
+      warnings: ["input is not an object"],
+    })
+    const inputs: unknown[] = [
+      undefined,
+      "x",
+      42,
+      { threadId: "t", status: "idle", root: [], children: "x", pendingInterrupts: "y" },
+      {
+        threadId: 1,
+        status: "weird",
+        root: [{ ts: "bad", metadata: "m", values: 3 }, null],
+        children: { a: 5 },
+        pendingInterrupts: [1],
+      },
+      { threadId: "t", status: "busy", root: "nope" },
+    ]
+    for (const input of inputs) expect(() => turnsFromState(input as never)).not.toThrow()
+    const { turns, warnings } = turnsFromState({
+      threadId: "t",
+      status: "idle",
+      root: [],
+      children: "x",
+      pendingInterrupts: "y",
+    } as never)
+    expect(turns).toEqual({ threadId: "t", turns: [] })
+    expect(warnings).toEqual(["children is not an object", "pendingInterrupts is not an array"])
+  })
+
+  test("live and restored views agree on reasoning, a plan, a child with its own call and a failed root call", () => {
+    const todos = [{ content: "a", status: "pending" }]
+    const planCall = { id: "cp", name: "writeTodos", args: { todos }, type: "tool_call" }
+    const task = {
+      id: "ct",
+      name: "task",
+      args: { subagent: "researcher", input: "dig" },
+      type: "tool_call",
+    }
+    const bash = { id: "c1", name: "runBash", args: { command: "rm" }, type: "tool_call" }
+    const read = { id: "n1", name: "readDoc", args: { path: "a.md" }, type: "tool_call" }
+    const a1 = ai("a1", [{ type: "thinking", thinking: "think" }], [planCall, task, bash])
+    const child = [
+      ckpt("x0", 1, [human("cu", "dig")]),
+      ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "", [read])]),
+      ckpt("x2", 4, [
+        human("cu", "dig"),
+        ai("ca1", "", [read]),
+        toolMsg("n1", "readDoc", "txt", {
+          status: "completed",
+          label: "Read a.md",
+          startedAt: iso(2),
+          settledAt: iso(3),
+        }),
+        ai("ca2", "found"),
+      ]),
+    ]
+    const subagent = {
+      name: "researcher",
+      routeId: "/r",
+      description: "Finds",
+      depth: 1,
+      checkpointNs: "tools:ct",
+      outcome: "done",
+    }
+    const root = [
+      ckpt("k0", 0, [human("u1", "go")]),
+      ckpt("k1", 1, [human("u1", "go"), a1]),
+      ckpt(
+        "k2",
+        6,
+        [
+          human("u1", "go"),
+          a1,
+          toolMsg("cp", "writeTodos", "Updated", {
+            status: "completed",
+            startedAt: iso(1),
+            settledAt: iso(2),
+          }),
+          toolMsg(
+            "ct",
+            "task",
+            "found",
+            {
+              status: "completed",
+              icon: "agent",
+              label: "Heard back",
+              startedAt: iso(1),
+              settledAt: iso(5),
+            },
+            { b4_subagent: subagent },
+          ),
+          toolMsg(
+            "c1",
+            "runBash",
+            "boom",
+            { status: "failed", icon: "run", startedAt: iso(1), settledAt: iso(3) },
+            {},
+            "error",
+          ),
+        ],
+        { todos, metadata: { "b4:turn": { status: "done", endedAt: iso(6) } } },
+      ),
+    ]
+    const { turns: restored, warnings } = turnsFromState(base(root, { "tools:ct": child }))
+    expect(warnings).toEqual([])
+
+    const ct = { subagentRunId: "ct" }
+    const live: Array<[number, Record<string, unknown>]> = [
+      [0, { type: EventType.RUN_STARTED, threadId: "t-1", runId: "u1" }],
+      [1, { type: EventType.REASONING_START, messageId: "rspan:a1" }],
+      [1, { type: EventType.REASONING_MESSAGE_START, messageId: "rsn:a1", role: "reasoning" }],
+      [1, { type: EventType.REASONING_MESSAGE_CONTENT, messageId: "rsn:a1", delta: "think" }],
+      [1, { type: EventType.REASONING_MESSAGE_END, messageId: "rsn:a1" }],
+      [1, { type: EventType.REASONING_END, messageId: "rspan:a1" }],
+      [1, { type: EventType.TOOL_CALL_START, toolCallId: "ct", toolCallName: "task" }],
+      [
+        1,
+        {
+          type: EventType.TOOL_CALL_ARGS,
+          toolCallId: "ct",
+          delta: '{"subagent":"researcher","input":"dig"}',
+        },
+      ],
+      [1, { type: EventType.TOOL_CALL_END, toolCallId: "ct" }],
+      [1, { type: EventType.TOOL_CALL_START, toolCallId: "c1", toolCallName: "runBash" }],
+      [1, { type: EventType.TOOL_CALL_ARGS, toolCallId: "c1", delta: '{"command":"rm"}' }],
+      [1, { type: EventType.TOOL_CALL_END, toolCallId: "c1" }],
+      [
+        1,
+        {
+          type: EventType.SUBAGENT_STARTED,
+          subagentRunId: "ct",
+          name: "researcher",
+          parentToolCallId: "ct",
+          description: "Finds",
+        },
+      ],
+      [2, { type: EventType.TOOL_CALL_START, toolCallId: "n1", toolCallName: "readDoc", ...ct }],
+      [2, { type: EventType.TOOL_CALL_ARGS, toolCallId: "n1", delta: '{"path":"a.md"}', ...ct }],
+      [2, { type: EventType.TOOL_CALL_END, toolCallId: "n1", ...ct }],
+      [
+        2,
+        {
+          type: EventType.ACTIVITY_SNAPSHOT,
+          messageId: "b4:plan:u1",
+          activityType: "b4.plan",
+          replace: true,
+          content: { todos },
+        },
+      ],
+      [
+        3,
+        {
+          type: EventType.CUSTOM,
+          name: "b4.step",
+          value: { toolCallId: "n1", status: "completed", label: "Read a.md" },
+          ...ct,
+        },
+      ],
+      [
+        3,
+        {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: "n1",
+          messageId: "tr-n1",
+          content: "txt",
+          ...ct,
+        },
+      ],
+      [
+        3,
+        { type: EventType.TOOL_CALL_RESULT, toolCallId: "c1", messageId: "tr-c1", content: "boom" },
+      ],
+      [
+        3,
+        {
+          type: EventType.CUSTOM,
+          name: "b4.step",
+          value: { toolCallId: "c1", status: "failed", icon: "run" },
+        },
+      ],
+      [4, { type: EventType.TEXT_MESSAGE_START, messageId: "ca2", role: "assistant", ...ct }],
+      [4, { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "ca2", delta: "found", ...ct }],
+      [4, { type: EventType.TEXT_MESSAGE_END, messageId: "ca2", ...ct }],
+      [
+        5,
+        {
+          type: EventType.SUBAGENT_FINISHED,
+          subagentRunId: "ct",
+          result: "found",
+          outcome: { type: "success" },
+        },
+      ],
+      [
+        6,
+        {
+          type: EventType.RUN_FINISHED,
+          threadId: "t-1",
+          runId: "u1",
+          outcome: { type: "success" },
+        },
+      ],
+    ]
+    let clock = T0
+    let view: TurnsView = { turns: [] }
+    for (const [s, event] of live) {
+      clock = T0 + s * 1000
+      view = reduceTurns(view, event as unknown as BaseEvent, { now: () => clock })
+    }
+    expect(firstTurn(restored).failed).toBe(1)
     expect(restored).toEqual(view)
   })
 })
