@@ -900,7 +900,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
     )
   })
 
-  test("a denied call completes with the icon only — no done label or sources — and the model still reads the reason", async () => {
+  test("a denied call settles as `denied` with the icon only — no done label or sources — and the model still reads the reason", async () => {
     const reason = "[B4_E3001] Permission denied by user: tool searchCorpus"
     const converted = convertToolToLangChain({
       name: "searchCorpus",
@@ -923,14 +923,14 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
-      { tool_call_id: "call_search_denied", status: "completed", icon: "search" },
+      { tool_call_id: "call_search_denied", status: "denied", icon: "search" },
       expect.anything(),
     )
     expect(result.content).toBe(reason)
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({ icon: "search" })
   })
 
-  test("a denied call on a display without an icon still completes, with an empty step", async () => {
+  test("a denied call on a display without an icon still settles as denied, with an empty step", async () => {
     const converted = convertToolToLangChain({
       name: "deployProd",
       display: { done: () => "Deployed to production" },
@@ -941,7 +941,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
-      { tool_call_id: "call_deploy_denied", status: "completed" },
+      { tool_call_id: "call_deploy_denied", status: "denied" },
       expect.anything(),
     )
     expect(result.content).toBe("Permission denied by user: tool deployProd")

@@ -24,6 +24,12 @@ describe("readStepEvent", () => {
     expect(readStepEvent(custom("b4.step", { toolCallId: "", status: "running" }))).toBeUndefined()
   })
 
+  it("accepts a denied step", () => {
+    expect(
+      readStepEvent(custom("b4.step", { toolCallId: "t1", status: "denied", icon: "search" })),
+    ).toEqual({ toolCallId: "t1", status: "denied", icon: "search" })
+  })
+
   it("rejects an unknown status", () => {
     expect(readStepEvent(custom("b4.step", { toolCallId: "t1", status: "weird" }))).toBeUndefined()
   })

@@ -125,7 +125,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `B4_STEP_EVENT_NAME` | The AG-UI `CUSTOM` event name a tool call's human-readable step travels as (`b4.step`). |
 | `B4_STEP_STATUSES` | The statuses a step can carry; the one source for every validator. |
 | `B4StepEventValue` | A `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
-| `B4StepStatus` | `running`, `completed` or `failed`. |
+| `B4StepStatus` | `running`, `completed`, `failed` or `denied`. |
 | `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
 | `reduceSubagentRuns` | The pure subagent-tree reducer (also re-exported from `./react`). |
 | `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |

@@ -4,7 +4,7 @@ import type { ToolDisplayIcon, ToolDisplaySource } from "@b4run/sdk"
 export const B4_STEP_EVENT_NAME = "b4.step"
 
 /** The statuses a step can carry; the one source for every validator. */
-export const B4_STEP_STATUSES = ["running", "completed", "failed"] as const
+export const B4_STEP_STATUSES = ["running", "completed", "failed", "denied"] as const
 
 export type B4StepStatus = (typeof B4_STEP_STATUSES)[number]
 

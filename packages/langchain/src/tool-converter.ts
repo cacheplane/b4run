@@ -156,11 +156,13 @@ export function convertToolToLangChain(
         })
         // A denied call (tools.approve / tools.constrain) returns its reason as
         // the result the model reads; the step must not describe that as work
-        // done, so the `done` label and `sources` are skipped for it.
+        // done, so it settles as `denied` with the icon only — no `done` label,
+        // no `sources`.
+        const denied = isToolDenial(rawResult)
         const step: StepPayload | undefined =
           display === undefined
             ? undefined
-            : isToolDenial(rawResult)
+            : denied
               ? describeDenied(display)
               : describeDone(display, input, rawResult, tool.name)
         const { content, stateUpdates } = unwrapToolResult(rawResult)
@@ -254,7 +256,11 @@ export function convertToolToLangChain(
         }
 
         if (display !== undefined && step !== undefined) {
-          await dispatchStep(liveConfig, { tool_call_id: toolCallId, status: "completed", ...step })
+          await dispatchStep(liveConfig, {
+            tool_call_id: toolCallId,
+            status: denied ? "denied" : "completed",
+            ...step,
+          })
         }
 
         return convertedResult

@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-05T03:20:13.000Z",
-      "sourceDigest": "f4b1efd98902199ed35b451b535aec22ef4c88440443b9a1e58ca7b4e647411d",
-      "recordDigest": "b412c92a1575e460ea653cec2454e3dcbfd02ff7cf808800347aa9da6681deef"
+      "lastModified": "2026-10-05T16:01:42.000Z",
+      "sourceDigest": "c5e7f98c27b970cd53743c7e49fabd0b358d225c58059eb892dee6516a147484",
+      "recordDigest": "7f7613a2680d1e6b5507bec1497ee88347d425daf45579cf9f1a1df6b2563e90"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "7e39e81b651afa5340678c1084553f25db0ec28ecac96c68bdba8bcdb662b9f9"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-04T04:24:36.000Z",
-      "sourceDigest": "c22ddf7dd0ec517cacae3b310cf6a9dfab988f90fc00848bdd3416bedc1b9d6c",
-      "recordDigest": "408b7daabb22c80a86a7e4d12a392890dc01890bf09c401065b53d139dce6467"
+      "lastModified": "2026-10-05T16:01:42.000Z",
+      "sourceDigest": "445673aa55c70eeb936e09556f0ac331a85a84835622983eb50f3fab64451b24",
+      "recordDigest": "eef667711d0d80bc3b51fec6404ef9d3622f0750e59056432a40b860755e400e"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-04T22:35:08.000Z",
@@ -417,9 +417,9 @@
       "recordDigest": "171870a2f8984f99910b5f6cde51ae89e10bc25ce8b37ea10b19b6969c941b77"
     },
     "/docs/tools": {
-      "lastModified": "2026-10-05T03:20:13.000Z",
-      "sourceDigest": "94c67f8926ba871ad234d06acb85f53dce542a8a6b187918c6fb2b2b2afd6eaf",
-      "recordDigest": "9a1d7d534ca2ce9d179921e4e9b65640312962f0ab1e5065a5d69bc0e2f2267d"
+      "lastModified": "2026-10-05T16:01:42.000Z",
+      "sourceDigest": "42651e7ad5f6475aac18efd02f992eb512e9c5ae649b32b5a35b2d1be90c73b2",
+      "recordDigest": "982e4dc9f85de7e1922521d7c69ff5bb4ac608f25714e61859f4a5ab022b469d"
     },
     "/docs/troubleshooting": {
       "lastModified": "2026-09-23T18:32:41.000Z",

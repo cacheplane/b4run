@@ -19,9 +19,10 @@ export interface StepProps {
   readonly now: () => number
 }
 
-/** The muted tail: awaiting approval, or failed with no error text to open. */
+/** The muted tail: awaiting approval, denied, or failed with no error text to open. */
 function meta(step: ToolStep): string {
   if (step.status === "awaiting") return "· awaiting approval"
+  if (step.status === "denied") return "· denied"
   if (step.status === "failed" && step.result === undefined) return "· failed"
   return ""
 }
