@@ -761,11 +761,32 @@ export async function openReadyWorkbench(page, url) {
   }
 }
 
+/**
+ * The map Workbench keeps its thread list behind a "Threads" disclosure button
+ * in the chat dock (`ChatDock.tsx`). Opens it if it is closed and returns the
+ * toggle, so the caller can close it again once it has used a row: left open,
+ * the list floats over the transcript.
+ */
+async function openThreadList(page) {
+  const toggle = page.getByRole("button", { name: "Threads", exact: true })
+  await toggle.waitFor({ state: "visible", timeout: 60_000 })
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click()
+  return toggle
+}
+
+async function closeThreadList(toggle) {
+  if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click()
+}
+
 export async function fillActiveWorkbenchComposer(page, prompt) {
   requireString(prompt, "prompt")
+  // The untitled active thread's row is the readiness proof: it exists only
+  // once the Workbench has created or restored the thread a send binds to.
+  const threads = await openThreadList(page)
   await page
     .getByRole("button", { name: "New conversation", exact: true })
     .waitFor({ state: "visible", timeout: 60_000 })
+  await closeThreadList(threads)
   const messageBox = page.getByRole("textbox", { name: "Message" })
   await messageBox.fill(prompt)
 }
@@ -794,12 +815,14 @@ export async function restoreWorkbenchThread(
   )
   const interaction = Promise.resolve().then(async () => {
     await page.reload({ waitUntil: "domcontentloaded" })
+    const threads = await openThreadList(page)
     const row = page.getByRole("button", { name: prompt, exact: true })
     await row.waitFor({ state: "visible", timeout: 60_000 })
     await row.click()
     if ((await row.getAttribute("aria-current")) !== "true") {
       throw new Error(`Reload did not select the captured thread ${threadId}`)
     }
+    await closeThreadList(threads)
   })
   const [response] = await Promise.all([stateResponsePromise, interaction])
   if (!response.ok()) {

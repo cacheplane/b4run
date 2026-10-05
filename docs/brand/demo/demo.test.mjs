@@ -1913,10 +1913,32 @@ test("internal scaffold installation uses its pnpm workspace so Workbench resolv
   })
 })
 
+/**
+ * The dock's "Threads" disclosure button, as the fake pages below see it: it
+ * records each call and flips `aria-expanded` on click, like the real one.
+ */
+function threadsToggle(calls) {
+  let expanded = false
+  return {
+    async waitFor(waitOptions) {
+      calls.push(["threads toggle", waitOptions])
+    },
+    async getAttribute(name) {
+      return name === "aria-expanded" ? String(expanded) : null
+    },
+    async click() {
+      expanded = !expanded
+      calls.push(expanded ? "open threads" : "close threads")
+    },
+  }
+}
+
 test("Workbench capture waits for the active rail row before filling the keyed composer", async () => {
   const calls = []
+  const toggle = threadsToggle(calls)
   const page = {
     getByRole(role, options) {
+      if (role === "button" && options.name === "Threads") return toggle
       if (role === "button" && options.name === "New conversation") {
         return {
           async waitFor(waitOptions) {
@@ -1936,8 +1958,12 @@ test("Workbench capture waits for the active rail row before filling the keyed c
   }
 
   await fillActiveWorkbenchComposer(page, DEMO_PROMPT)
+  // The row lives behind the dock's Threads disclosure: open, wait, close, fill.
   assert.deepEqual(calls, [
+    ["threads toggle", { state: "visible", timeout: 60_000 }],
+    "open threads",
     ["active row", { state: "visible", timeout: 60_000 }],
+    "close threads",
     ["fill", DEMO_PROMPT],
   ])
 })
@@ -2065,6 +2091,7 @@ test("Workbench completion waits for Stop to leave and the real composer to retu
 
 test("restoration scopes state GET to Workbench and proves canonical transcript evidence", async () => {
   const calls = []
+  const toggle = threadsToggle(calls)
   let responsePredicate
   const stateUrl = "http://127.0.0.1:4101/api/b4/threads/thread-unit-1/state"
   const response = {
@@ -2100,6 +2127,7 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     },
     getByRole(role, options) {
       if (role === "main") return transcript
+      if (role === "button" && options.name === "Threads") return toggle
       if (role === "button" && options.name === DEMO_PROMPT) {
         return {
           async waitFor(waitOptions) {
@@ -2134,6 +2162,11 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     false,
   )
   assert.equal(result.stateUrl, stateUrl)
+  // The row is reached through the dock's Threads disclosure, closed again after.
+  const order = (step) => calls.indexOf(step)
+  assert.equal(order("open threads") > calls.findIndex((c) => c[0] === "reload"), true)
+  assert.equal(order("open threads") < order("click row"), true)
+  assert.equal(order("click row") < order("close threads"), true)
   for (const evidence of [DEMO_PROMPT, "computeNavlog", EXPECTED_ANSWER]) {
     assert.equal(
       calls.some((call) => Array.isArray(call) && call[0] === "transcript" && call[1] === evidence),
