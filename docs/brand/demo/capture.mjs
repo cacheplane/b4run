@@ -767,11 +767,37 @@ export async function openReadyWorkbench(page, url) {
  * toggle, so the caller can close it again once it has used a row: left open,
  * the list floats over the transcript.
  */
-async function openThreadList(page) {
+async function openThreadList(page, { timeoutMs = 60_000, settleMs = 2_000, pollMs = 100 } = {}) {
   const toggle = page.getByRole("button", { name: "Threads", exact: true })
-  await toggle.waitFor({ state: "visible", timeout: 60_000 })
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click()
+  await toggle.waitFor({ state: "visible", timeout: timeoutMs })
+  const deadline = Date.now() + timeoutMs
+  // The Workbench disables the toggle until React has hydrated, and
+  // Playwright's click waits for "enabled", so the first click normally
+  // works. The poll is the backstop: a click that is still dropped (CI load
+  // put one before hydration) gets re-sent once its settle window passes,
+  // instead of the journey waiting 60s on a list that never opened.
+  while ((await toggle.getAttribute("aria-expanded")) !== "true") {
+    if (Date.now() > deadline) {
+      throw new Error("The Workbench thread list did not open: Threads stayed aria-expanded=false")
+    }
+    await toggle.click({ timeout: Math.max(1, deadline - Date.now()) })
+    const settleBy = Date.now() + settleMs
+    while (Date.now() < settleBy && (await toggle.getAttribute("aria-expanded")) !== "true") {
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+  }
+  // Expanded is the state; the list itself being laid out is what a row wait needs.
+  await page
+    .getByRole("navigation", { name: "Conversations" })
+    .waitFor({ state: "visible", timeout: Math.max(1, deadline - Date.now()) })
   return toggle
+}
+
+/** A thread row, scrolled into the list's visible area before it is waited on. */
+async function threadRow(page, name) {
+  const row = page.getByRole("button", { name, exact: true })
+  await row.scrollIntoViewIfNeeded({ timeout: 60_000 })
+  return row
 }
 
 async function closeThreadList(toggle) {
@@ -783,9 +809,8 @@ export async function fillActiveWorkbenchComposer(page, prompt) {
   // The untitled active thread's row is the readiness proof: it exists only
   // once the Workbench has created or restored the thread a send binds to.
   const threads = await openThreadList(page)
-  await page
-    .getByRole("button", { name: "New conversation", exact: true })
-    .waitFor({ state: "visible", timeout: 60_000 })
+  const activeRow = await threadRow(page, "New conversation")
+  await activeRow.waitFor({ state: "visible", timeout: 60_000 })
   await closeThreadList(threads)
   const messageBox = page.getByRole("textbox", { name: "Message" })
   await messageBox.fill(prompt)
@@ -816,7 +841,7 @@ export async function restoreWorkbenchThread(
   const interaction = Promise.resolve().then(async () => {
     await page.reload({ waitUntil: "domcontentloaded" })
     const threads = await openThreadList(page)
-    const row = page.getByRole("button", { name: prompt, exact: true })
+    const row = await threadRow(page, prompt)
     await row.waitFor({ state: "visible", timeout: 60_000 })
     await row.click()
     if ((await row.getAttribute("aria-current")) !== "true") {

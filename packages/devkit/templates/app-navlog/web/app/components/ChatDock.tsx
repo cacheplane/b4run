@@ -1,5 +1,6 @@
 "use client"
 import { type ReactNode, useEffect, useId, useState } from "react"
+import { useHydrated } from "../lib/use-hydrated"
 
 export interface ChatDockProps {
   readonly header: string
@@ -36,6 +37,7 @@ export function ChatDock({
 }: ChatDockProps) {
   const [threadsOpen, setThreadsOpen] = useState(false)
   const threadsId = useId()
+  const hydrated = useHydrated()
 
   useEffect(() => {
     if (!threadsOpen) return
@@ -68,11 +70,18 @@ export function ChatDock({
           The visible text is short for the dock's width; the accessible name
           is the rail's full "+ New conversation", which contains it.
         */}
+        {/*
+          Both header buttons are disabled until hydration. They are in the
+          server render, so they are visible before their handlers exist, and
+          a click in that window is dropped: under load, the browser journey's
+          Threads click landed there and the list never opened.
+        */}
         <button
           type="button"
           aria-label="+ New conversation"
+          disabled={!hydrated}
           onClick={onNewConversation}
-          className="wb-focus ml-auto shrink-0 rounded-wb-sm border border-wb-border px-2 py-0.5 text-[12px] font-medium hover:border-wb-muted"
+          className="wb-focus ml-auto shrink-0 rounded-wb-sm border border-wb-border px-2 py-0.5 text-[12px] font-medium hover:border-wb-muted disabled:opacity-60"
         >
           + New
         </button>
@@ -80,15 +89,19 @@ export function ChatDock({
           type="button"
           aria-expanded={threadsOpen}
           aria-controls={threadsId}
+          disabled={!hydrated}
           onClick={() => setThreadsOpen((open) => !open)}
-          className="wb-focus shrink-0 rounded-wb-sm px-1.5 py-0.5 text-[12px] text-wb-muted hover:text-wb-text"
+          className="wb-focus shrink-0 rounded-wb-sm px-1.5 py-0.5 text-[12px] text-wb-muted hover:text-wb-text disabled:opacity-60"
         >
           Threads
         </button>
         {threadsOpen ? (
+          // A plain block, not a flex column: the rail's `flex-1 min-h-0`
+          // children are meant for a full-height column and could otherwise
+          // shrink to nothing inside this content-sized popover.
           <div
             id={threadsId}
-            className="wb-panel absolute right-2 top-full z-20 mt-1 flex max-h-[60vh] w-72 flex-col overflow-auto py-2"
+            className="wb-panel absolute right-2 top-full z-20 mt-1 block max-h-[60vh] w-72 overflow-auto py-2"
           >
             {rail}
           </div>

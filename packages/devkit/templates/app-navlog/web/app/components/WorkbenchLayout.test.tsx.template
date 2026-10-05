@@ -69,6 +69,10 @@ describe("WorkbenchLayout on desktop", () => {
     expect(button).toBeGreaterThan(-1)
     expect(button).toBeLessThan(html.indexOf("<main"))
     expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>Threads<\/button>/)
+    // The server render (this test) is pre-hydration: both header buttons are
+    // disabled, so a click cannot land before their handlers exist.
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*disabled=""[^>]*>Threads<\/button>/)
+    expect(html).toMatch(/<button[^>]*aria-label="\+ New conversation"[^>]*disabled=""/)
     // Closed, the list is not rendered at all.
     expect(html).not.toContain("<p>rail</p>")
   })
