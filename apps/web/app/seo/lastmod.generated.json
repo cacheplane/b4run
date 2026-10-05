@@ -212,9 +212,9 @@
       "recordDigest": "70854daf9d76a227dedc323e733d46567cc2564beaff9e78e0cc21d9b7477b19"
     },
     "/docs/evals": {
-      "lastModified": "2026-10-04T23:15:09.000Z",
-      "sourceDigest": "7d088564b32e0064a2f573f848c701a823495a58e9b17fcad1bf03277c48e89b",
-      "recordDigest": "c3696416815f72cb53fb1391c2bbf74a80e15c2640ca3ec3319dcf0d3f55d785"
+      "lastModified": "2026-10-05T04:56:38.000Z",
+      "sourceDigest": "5281c90ffa5f9f271ec1f148b923b60b4b9b681e5ce3668288e6a4fbd4fd13d6",
+      "recordDigest": "9051a93c2fee4c829a2b8e647730f967b4dc4df0a052b3f836ecd3ebc5eed165"
     },
     "/docs/faq": {
       "lastModified": "2026-10-04T23:15:09.000Z",
@@ -327,14 +327,14 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/research-assistant": {
-      "lastModified": "2026-10-04T23:15:09.000Z",
-      "sourceDigest": "6eace9ea2314f43f530ded6650ca79b5982bd406be1d6943defd09515ea70723",
-      "recordDigest": "478499f0682b5b6feabbd00715dbe5e2a1581d7324388d095f4d208cdf7abea3"
+      "lastModified": "2026-10-05T04:56:38.000Z",
+      "sourceDigest": "88b86adc392233b5d702653244c763cb3d1fc93f88cdc7789ae7cff565e2425f",
+      "recordDigest": "6a87f937a6a8be1a6623d26fa43cec704c2e90cd13df2bf80c7f5cd8a11345d8"
     },
     "/docs/recipes/research-web-ui": {
-      "lastModified": "2026-10-04T23:15:09.000Z",
-      "sourceDigest": "53f9bc84d4d6d8c1d441177c8865dc0b3a765cd9816dc106ec8c231e5c2f19a5",
-      "recordDigest": "b4944cfc0b7c2baf0d8435c1f5f47d045c919c9f312cb1d26069f8e3d6c12950"
+      "lastModified": "2026-10-05T04:56:38.000Z",
+      "sourceDigest": "d5887bb599c84124a735dae0a09d709ed819870499c88c1f3e8622c493db793c",
+      "recordDigest": "bf1cd6bfbbcabf7c3c4c28ccb513978c3858c6504e9924ee016bd84e7f1071a8"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -397,9 +397,9 @@
       "recordDigest": "c4f573584627baa3ebfcb7d59d1a260a1e063950ece4cdecc18cacc1058b72c4"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-10-04T23:15:09.000Z",
-      "sourceDigest": "de37f6dc38967be4362d07a8143bed6be6fdb76e912c546dc692fb7ed4ae177d",
-      "recordDigest": "16406013f8ae529402a91f7d0c16e43c0a2ec78baec04facf1408ac720955326"
+      "lastModified": "2026-10-05T04:56:38.000Z",
+      "sourceDigest": "9550d20e2c8224057dd4a184f9b1ce301f16e5e4c1467a71756e737ce8977c27",
+      "recordDigest": "27fa757ffa99edd5630b3b8c05fc22d60bfe29393b20875124cc1525d8f1914d"
     },
     "/docs/testing-agents/fixtures": {
       "lastModified": "2026-09-23T17:27:43.000Z",
