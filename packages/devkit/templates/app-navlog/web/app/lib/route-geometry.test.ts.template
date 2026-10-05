@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "./navlog-types"
-import { routeGeometry } from "./route-geometry"
+import { type NavlogLeg, SAMPLE_NAVLOG } from "./navlog-types"
+import { pairIndexOf, routeGeometry } from "./route-geometry"
 
 describe("routeGeometry", () => {
   test("one marker per waypoint and one polyline through them", () => {
@@ -24,5 +24,18 @@ describe("routeGeometry", () => {
       [43.9083, -93.0603],
       [44.9346, -92.49],
     ])
+  })
+})
+
+describe("pairIndexOf", () => {
+  test("the climb and cruise rows of one waypoint pair map to that pair", () => {
+    expect(pairIndexOf(SAMPLE_NAVLOG, 0)).toBe(0)
+    expect(pairIndexOf(SAMPLE_NAVLOG, 1)).toBe(0)
+  })
+  test("a route that returns to its origin counts pairs, not waypoint ids", () => {
+    const [climb, cruise] = SAMPLE_NAVLOG.legs as [NavlogLeg, NavlogLeg]
+    const back = { ...cruise, from: "KRST", to: "KSTP" }
+    const roundTrip = { ...SAMPLE_NAVLOG, legs: [climb, cruise, back] }
+    expect(pairIndexOf(roundTrip, 2)).toBe(1)
   })
 })

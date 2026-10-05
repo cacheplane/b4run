@@ -16,6 +16,21 @@ export interface RouteGeometry {
   readonly bounds: readonly [LatLng, LatLng]
 }
 
+/**
+ * The waypoint-pair index a navlog leg row (climb or cruise) belongs to: the
+ * number of `(from, to)` changes before it. Counting rather than looking up
+ * `from` keeps a route that revisits a waypoint (KSTP → KRST → KSTP) right.
+ */
+export function pairIndexOf(navlog: Navlog, legIndex: number): number {
+  let pair = 0
+  for (let i = 1; i <= legIndex && i < navlog.legs.length; i++) {
+    const prev = navlog.legs[i - 1]
+    const leg = navlog.legs[i]
+    if (prev && leg && (prev.from !== leg.from || prev.to !== leg.to)) pair++
+  }
+  return pair
+}
+
 const round5 = (n: number): number => Math.round(n * 100000) / 100000
 
 /** Map data from a navlog: markers, the route line, one heading label per leg (cruise heading), and bounds. */
