@@ -1,8 +1,9 @@
+import { B4_STEP_KEY } from "@b4run/sdk"
 import { ToolMessage } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ModalitySupport } from "../src/chat-model-factory.ts"
-import { B4_CONTENT_PARTS_KEY, B4_STEP_KEY, convertToolToLangChain } from "../src/tool-converter.ts"
+import { B4_CONTENT_PARTS_KEY, convertToolToLangChain } from "../src/tool-converter.ts"
 
 vi.mock("@langchain/core/callbacks/dispatch/web", () => ({ dispatchCustomEvent: vi.fn() }))
 
@@ -49,7 +50,13 @@ describe("tool results with content parts", () => {
     )
     const out = (await converted.invoke({}, config)) as ToolMessage
     expect(out.additional_kwargs[B4_CONTENT_PARTS_KEY]).toEqual(parts)
-    expect(out.additional_kwargs[B4_STEP_KEY]).toEqual({ icon: "read", label: "Read it" })
+    expect(out.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
+      icon: "read",
+      label: "Read it",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
   })
 
   it("returns a ToolMessage whose content is the model-visible blocks and whose kwargs keep every part", async () => {
@@ -128,8 +135,9 @@ describe("tool results with content parts", () => {
     ])
   })
 
-  it("a string result is unchanged (no ToolMessage wrapping here)", async () => {
-    // Without a tool call in the config, LangChain returns the func's value as is.
+  it("a string result is a ToolMessage with that content and no parts key", async () => {
+    // Without a tool call in the config, LangChain returns the func's value as
+    // is: the ToolMessage B4 built, with an empty call id.
     const converted = convertToolToLangChain(
       tool({ result: "plain" }),
       undefined,
@@ -138,10 +146,13 @@ describe("tool results with content parts", () => {
       [],
       OPENAI,
     )
-    expect(await converted.invoke({})).toBe("plain")
+    const bare = (await converted.invoke({})) as ToolMessage
+    expect(bare).toBeInstanceOf(ToolMessage)
+    expect(bare.content).toBe("plain")
+    expect(bare.tool_call_id).toBe("")
     const plain = convertToolToLangChain(tool("plain"), undefined, undefined, [], [], OPENAI)
-    expect(await plain.invoke({})).toBe('"plain"')
-    // With one, LangChain wraps the string itself; B4 adds no parts key.
+    expect(((await plain.invoke({})) as ToolMessage).content).toBe('"plain"')
+    // With one, the same ToolMessage carries the call id; B4 adds no parts key.
     const wrapped = (await converted.invoke({}, config)) as ToolMessage
     expect(wrapped.content).toBe("plain")
     expect(wrapped.additional_kwargs[B4_CONTENT_PARTS_KEY]).toBeUndefined()

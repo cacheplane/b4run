@@ -124,6 +124,14 @@ export function describeDenied(display: ToolDisplay): StepPayload {
   return display.icon !== undefined ? { icon: display.icon } : {}
 }
 
+/**
+ * The step for a tool that threw: the icon only. There is no output for `done`
+ * to describe, so the label is the client's fallback. Without a display, bare.
+ */
+export function describeFailed(display: ToolDisplay | undefined): StepPayload {
+  return display?.icon !== undefined ? { icon: display.icon } : {}
+}
+
 /** Stream one step over LangChain's custom-event channel; a failure never fails the tool. */
 export async function dispatchStep(
   config: RunnableConfig | undefined,
