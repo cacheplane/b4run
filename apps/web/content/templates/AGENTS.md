@@ -37,7 +37,7 @@ This project uses **B4.run**, a TypeScript-first meta-framework for building gra
 Examples:
 
 - Default basic scaffold: `src/app/hello/index.ts` → route id `/hello`; agent route key `/hello#agent`.
-- Research scaffold (`npm create b4-app@latest my-app -- --template navlog`): `src/app/navlog/index.ts` → route id `/navlog`; agent route key `/navlog#agent`.
+- Navlog scaffold (`npm create b4-app@latest my-app -- --template navlog`): `src/app/navlog/index.ts` → route id `/navlog`; agent route key `/navlog#agent`.
 - Route group plus dynamic segment: `src/app/(public)/hello/[tenant]/index.ts` → route id `/hello/[tenant]`; callers pass `tenant` in JSON input.
 
 ## Defining an Agent Route
@@ -49,7 +49,7 @@ import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   systemPrompt:
-    "You are a research coordinator. Search the local corpus, dispatch specialists when useful, and cite every claim.",
+    "You are a VFR flight-planning assistant for a Cessna 172N. Brief the weather, compute the navlog in code, and cite every POH figure.",
   // Optional retry policy:
   // retry: { maxAttempts: 3, baseDelay: 250 },
 })
@@ -63,18 +63,15 @@ export default agent({
 ## Tool Authoring
 
 ```ts
-// src/app/navlog/tools/searchCorpus.ts
+// src/app/navlog/tools/computeNavlog.ts
 export default async (
-  input: { readonly query: string },
+  input: { readonly from: string; readonly to: string; readonly altitudeFt: number },
   ctx: { signal: AbortSignal; middleware?: Readonly<Record<string, unknown>> },
 ) => {
-  return [
-    {
-      path: "corpus/agent-architectures.md",
-      score: 2,
-      snippet: "ReAct and plan-and-execute are common agent architectures.",
-    },
-  ]
+  return {
+    legs: [{ from: input.from, to: input.to, distanceNm: 68, eteMin: 41 }],
+    totals: { distanceNm: 68, eteMin: 41, fuelGal: 6.2 },
+  }
 }
 ```
 
@@ -114,18 +111,19 @@ import type { RouteTools } from "b4:routes"
 import type { z } from "zod"
 import type state from "./state.js"
 
-type ResearchState = z.infer<typeof state>
+type NavlogState = z.infer<typeof state>
 
 export async function workflow(
-  state: ResearchState,
+  state: NavlogState,
   ctx: RuntimeContext<RouteTools<"/navlog">>,
 ) {
   // ctx.signal is the request-scoped AbortSignal.
-  // ctx.tools.searchCorpus is fully typed from the route's tools/ directory.
-  const matches = await ctx.tools.searchCorpus({ query: state.context })
+  // ctx.tools.computeNavlog is fully typed from the route's tools/ directory.
+  const navlog = await ctx.tools.computeNavlog({ from: "KSTP", to: "KRST", altitudeFt: 4500 })
+  const { distanceNm, eteMin, fuelGal } = navlog.totals
   return {
     ...state,
-    context: matches.map((match) => `${match.path}: ${match.snippet}`).join("\n"),
+    context: `${distanceNm} nm, ${eteMin} min, ${fuelGal} gal`,
   }
 }
 ```

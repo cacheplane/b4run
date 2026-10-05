@@ -15,8 +15,8 @@ export const MEDIA_CAPTIONS = Object.freeze({
   "product-loop":
     "Author a file-system route, prove it with npm test, run it in the B4.run Workbench, then restore the same thread after a browser reload.",
   author:
-    "Inspect the generated research route, co-located route files, shared searchCorpus tool, and offline test harness.",
-  test: "Run npm test and see the deterministic research scenario pass without a provider key.",
+    "Inspect the generated navlog route, co-located route files, shared computeNavlog tool, and keyless unit tests.",
+  test: "Run npm test and see the deterministic navlog unit tests pass without a provider key.",
   run: "Complete a fixture-backed Workbench run, then restore the same thread and its checkpointed transcript after a browser reload.",
 })
 

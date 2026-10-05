@@ -126,7 +126,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned again after merging main (#914 repinned its own release-smoke probes); the
 // digest covers both sides of that merge.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "d11b92955ff70a014ff11e1ee78fff8d0e5ca3107612946819ca28318a515989"
+  "5d5d7e6643d7e2fd16abfe014f246faa5cf1f6be7811ed039a26d407adc264c0"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

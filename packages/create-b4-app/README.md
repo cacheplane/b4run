@@ -29,7 +29,7 @@ npm install
 npm test
 ```
 
-The `basic` template is the default. For the full deep-research assistant, a `server` and `web` npm workspace with subagents, memory, planning and a web UI, select the `navlog` template with `npm create b4-app@latest my-agent -- --template navlog`. For the research template, version 0.8.21 generated the earlier single-package starter and version 0.8.22 introduced the `server` and `web` workspace. Run `npm view create-b4-app@latest version` to see which release the current dist-tag selects.
+The `basic` template is the default. For the full flight-planning assistant, a `server` and `web` npm workspace with subagents, memory, planning and a map Workbench, select the `navlog` template with `npm create b4-app@latest my-agent -- --template navlog`. For the research template, version 0.8.21 generated the earlier single-package starter and version 0.8.22 introduced the `server` and `web` workspace. Run `npm view create-b4-app@latest version` to see which release the current dist-tag selects.
 
 ## Runtime and stability
 

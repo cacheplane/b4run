@@ -1,8 +1,8 @@
 import { defineMemory } from "@b4run/sdk"
 import { z } from "zod"
 
-// Long-term, cross-session memory for the research assistant. The agent stores
-// durable facts (sources vetted, user preferences, domain findings) via the
+// Long-term, cross-session memory for the flight planner. The agent stores
+// durable facts (the aircraft profile, pilot preferences, route notes) via the
 // generated `remember` tool and pulls them back with `recall`.
 export default defineMemory({
   kind: "semantic",
