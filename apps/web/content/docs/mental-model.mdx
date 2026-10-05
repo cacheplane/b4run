@@ -63,7 +63,7 @@ POST /threads/<id>/runs/wait  { "route": "/navlog#agent", "input": { "messages":
    route id match  →   src/app/navlog/index.ts
         │
         ▼
-   input state     →   { messages: [{ role: "user", content: "What are common agent architectures?" }] }
+   input state     →   { messages: [{ role: "user", content: "Plan a VFR flight from KSTP to KRST at 4500 feet." }] }
         │
         ▼
    middleware       →   src/middleware.ts (auth, request context, ...)
@@ -72,11 +72,13 @@ POST /threads/<id>/runs/wait  { "route": "/navlog#agent", "input": { "messages":
    route entry      →   index.ts (agent | workflow | graph | chain)
         │
         ▼
-   tool calls       →   searchCorpus({ query: "agent architectures" })
-                         → [{ path: "corpus/agent-architectures.md", snippet: "..." }]
+   tool calls       →   readDoc({ path: "poh/cruise-performance.md" })
+                         → { content: "..." }
+                         computeNavlog({ waypoints: [...], altitudeFt: 4500, ... })
+                         → { legs: [...], totals: { distanceNm: 66, fuelGal: 5.5, ... } }
         │
         ▼
-   typed output     →   "ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"
+   typed output     →   "66 nm, 33 minutes, 5.5 gal burned. [poh/cruise-performance.md, Figure 5-7]"
 ```
 
 Let's walk through each step:
@@ -86,7 +88,7 @@ Let's walk through each step:
 3. **Input state.** B4.run passes the JSON input to the route. Agent routes fill in defaults from `state.ts`. Workflow, graph, and chain routes get the input as sent (a workflow can parse it with its own `state.ts`).
 4. **Middleware.** The app's middleware runs, if there is one. It can stop the request or let it through with context for the tools.
 5. **Route entry.** The exported `agent`, `workflow`, `graph`, or `chain` runs. Agent routes get their tools wired in, and `workflow(input, ctx)` gets the typed `RuntimeContext`. Raw graph and chain routes run the way LangGraph and LangChain run them, with the dependencies they import.
-6. **Tool calls.** B4.run checks each tool call against the schemas it generated at build time. Here, `searchCorpus` searches the bundled corpus and `readDoc` reads a whole document. The model decides when to call each.
+6. **Tool calls.** B4.run checks each tool call against the schemas it generated at build time. Here, `readDoc` reads a POH table under `poh/` and `computeNavlog` computes the legs, time and fuel in code. The model decides when to call each.
 7. **Typed output.** The route returns a typed value. B4.run returns it in one response (`runs/wait`) or streams it (`runs/stream`).
 
 Runs happen on a thread. Between turns, B4.run saves the LangGraph state to SQLite in `.b4/checkpoints.sqlite`.
@@ -100,7 +102,7 @@ Runs happen on a thread. Between turns, B4.run saves the LangGraph state to SQLi
 
 ## Build vs runtime
 
-`b4 build` and `b4 typegen` walk your routes, infer tool parameter types from function signatures, and write `.b4/b4.generated.d.ts`. That file holds the route registry, the tool registry, and the typed `RouteTools<P>` map. Once it exists, your editor autocompletes `ctx.tools.searchCorpus` and flags a caller that no longer matches a tool's signature.
+`b4 build` and `b4 typegen` walk your routes, infer tool parameter types from function signatures, and write `.b4/b4.generated.d.ts`. That file holds the route registry, the tool registry, and the typed `RouteTools<P>` map. Once it exists, your editor autocompletes `ctx.tools.computeNavlog` and flags a caller that no longer matches a tool's signature.
 
 At *runtime*, `b4 run`, `b4 dev`, and the built HTTP entries run your routes. For agent and workflow routes, you never write a `tools: [...]` array or register a route. B4.run wires that up from the files.
 

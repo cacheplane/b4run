@@ -13,7 +13,7 @@ source tree.
   with version 8.1.1. The checked-in `sharp` development dependency encodes the
   WebP poster after ffmpeg extracts its exact source frame.
 - Repository dependencies installed and enough temporary disk space for a local
-  generated research workspace and raw recording.
+  generated navlog workspace and raw recording.
 
 Run every command from the repository root.
 
@@ -24,7 +24,7 @@ pnpm media:readme:capture
 ```
 
 The command checks Node and pnpm before it builds the repository, creates the
-current research starter in a temporary directory with `--mode internal`,
+current navlog starter in a temporary directory with `--mode internal`,
 installs it, and runs the generated root `npm test` command. It then starts
 aimock, the B4.run server, and the generated Workbench on assigned loopback ports
 and records at 1440×810. ffmpeg is exercised when encoding begins; ffprobe is
@@ -168,7 +168,7 @@ docs/brand/demo/transcript.md
 
 Inspect every poster and representative frames from every local MP4/WebM at full
 1440×810 size and at reduced README/mobile widths. Confirm that file paths, the
-`npm test` result, `searchCorpus`, `readDoc`, the cited answer, browser reload,
+`npm test` result, `computeNavlog`, the cited answer, browser reload,
 restored transcript, and the **Author**, **Prove**, and **Run** labels correspond
 exactly to
 [the transcript](./demo/transcript.md). No remote upload or store mutation is

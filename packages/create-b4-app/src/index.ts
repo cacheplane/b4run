@@ -81,7 +81,7 @@ function printNextSteps(options: CliOptions): void {
     isWindows ? "  $env:OPENAI_API_KEY = 'sk-...'" : "  export OPENAI_API_KEY=sk-...",
     "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
     "",
-    "Want the full deep-research assistant with a web UI instead?",
+    "Want the full flight planner with a map Workbench instead?",
     "  npm create b4-app@latest <new-directory> -- --template navlog",
   ]
   const lines = [

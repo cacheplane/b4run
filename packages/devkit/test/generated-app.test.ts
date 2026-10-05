@@ -54,22 +54,22 @@ describe("generated app helper", () => {
   })
 
   it("materializes the navlog template with shared tools and memory scripts", async () => {
-    const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-generated-research-app-"))
+    const baseDir = await mkdtemp(resolve(tmpdir(), "b4-devkit-generated-navlog-app-"))
 
     try {
       const artifactRoot = await createArtifactRoot({
         baseDir,
         lane: "generated",
-        runId: "run-generated-research-app-test",
+        runId: "run-generated-navlog-app-test",
       })
 
       const generatedApp = await createGeneratedApp({
-        appName: "sample-research-app",
+        appName: "sample-navlog-app",
         artifactRoot,
         template: "navlog",
       })
 
-      // The research template is a two-package npm workspace. Only the
+      // The navlog template is a two-package npm workspace. Only the
       // orchestrator manifest, the pnpm config, the tour README, and the
       // ignore file stay at the app root; the B4.run app lives in `server/`.
       const rootPackageJson = await readFile(resolve(generatedApp.appRoot, "package.json"), "utf8")

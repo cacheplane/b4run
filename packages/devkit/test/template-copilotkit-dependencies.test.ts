@@ -10,7 +10,7 @@ const manifestPath = fileURLToPath(
   new URL("../templates/app-navlog/web/package.json.template", import.meta.url),
 )
 
-describe("research web template dependency alignment", () => {
+describe("navlog web template dependency alignment", () => {
   it("generates a CopilotKit v2 app on the reviewed AG-UI dependency family", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as WebManifest
 
