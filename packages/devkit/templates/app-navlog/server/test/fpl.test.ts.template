@@ -33,6 +33,11 @@ describe("ICAO flight plan", () => {
       "(FPL-N738ZU-VG\n-C172/L-SG/C\n-KSTP1400\n-N0110VFR DCT FGT DCT KOWA DCT\n-KRST0048\n-DOF/261005\n-E/0640 P/2)",
     )
   })
+  it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
+    expect(() => buildFlightPlan({ ...planInput(), departureTimeUtc: "tomorrow 9am" })).toThrow(
+      'departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, got "tomorrow 9am"',
+    )
+  })
   it("writes DCT alone for a direct flight", () => {
     const direct = buildFlightPlan({ ...planInput(), route: [] })
     expect(direct.item15).toBe("N0110VFR DCT")

@@ -4,7 +4,24 @@ export default agent({
   model: "gpt-5-mini",
   description:
     "Looks up Cessna 172N POH performance for the actual fields: takeoff and landing distances, the cruise row to use, and climb figures, with figure citations.",
-  tools: { allow: ["readDoc", "lookupAirport"], deny: ["runBash", "writeFile", "editFile"] },
+  // A subagent sees every authored tool by default; allow only re-adds
+  // withheld capability tools. Deny the weather subagent's tools and the
+  // parent's, so each child does its own job and nothing else.
+  tools: {
+    allow: ["readDoc", "lookupAirport"],
+    deny: [
+      "getMetar",
+      "getTaf",
+      "getWindsAloft",
+      "getAdvisories",
+      "computeNavlog",
+      "fileFlightPlan",
+      "renderChart",
+      "runBash",
+      "writeFile",
+      "editFile",
+    ],
+  },
   systemPrompt: `You are a performance planner for a Cessna 172N. Given airports, a cruise altitude and a cruise RPM:
 
 - \`lookupAirport\` each airport for field elevation and runways.

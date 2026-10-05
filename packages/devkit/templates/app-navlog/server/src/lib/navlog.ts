@@ -1,4 +1,4 @@
-import { buildFlightPlan, type FlightPlan } from "./fpl.js"
+import { buildFlightPlan, type FlightPlan, parseUtcInstant } from "./fpl.js"
 import { distanceNm, initialTrueCourse, type LatLon, magneticFromTrue } from "./geo.js"
 import { climbFromSeaLevel, cruiseAt } from "./poh-tables.js"
 import { solveWindTriangle } from "./wind.js"
@@ -114,9 +114,7 @@ export function computeNavlog(input: NavlogInput): Navlog {
   const legCount = input.waypoints.length - 1
   if (input.winds.length !== legCount)
     throw new Error(`computeNavlog needs one wind entry per leg (${legCount})`)
-  const departure = new Date(input.departureTimeUtc)
-  if (Number.isNaN(departure.getTime()))
-    throw new Error(`departureTimeUtc is not a date: ${input.departureTimeUtc}`)
+  const departure = parseUtcInstant(input.departureTimeUtc)
 
   const cruise = cruiseAt({ pressureAltitudeFt: input.altitudeFt, rpm: input.aircraft.cruiseRpm })
   const origin = input.waypoints[0] as NavlogWaypoint

@@ -4,9 +4,21 @@ export default agent({
   model: "gpt-5-mini",
   description:
     "Briefs the weather for a VFR route: METARs, TAFs, winds aloft at the planned altitude for each leg, and advisories.",
+  // A subagent sees every authored tool by default; allow only re-adds
+  // withheld capability tools. Deny the performance subagent's tools and the
+  // parent's, so each child does its own job and nothing else.
   tools: {
     allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],
-    deny: ["runBash", "writeFile", "editFile"],
+    deny: [
+      "readDoc",
+      "lookupAirport",
+      "computeNavlog",
+      "fileFlightPlan",
+      "renderChart",
+      "runBash",
+      "writeFile",
+      "editFile",
+    ],
   },
   systemPrompt: `You are a weather briefer for a VFR flight. Given airports, waypoints, a cruise altitude and a departure time:
 

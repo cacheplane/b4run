@@ -32,11 +32,22 @@ const hhmm = (minutes: number): string => {
   return `${String(h).padStart(2, "0")}${String(m).padStart(2, "0")}`
 }
 
+const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/
+
+/** Parse an ISO 8601 UTC instant; throw a message the model can act on otherwise. */
+export function parseUtcInstant(value: string): Date {
+  const date = new Date(value)
+  if (!UTC_INSTANT.test(value) || Number.isNaN(date.getTime())) {
+    throw new Error(
+      `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, got "${value}"`,
+    )
+  }
+  return date
+}
+
 /** ICAO flight plan items for a VFR C172 with a transponder and GPS. */
 export function buildFlightPlan(input: FlightPlanInput): FlightPlan {
-  const dep = new Date(input.departureTimeUtc)
-  if (Number.isNaN(dep.getTime()))
-    throw new Error(`departureTimeUtc is not a date: ${input.departureTimeUtc}`)
+  const dep = parseUtcInstant(input.departureTimeUtc)
   const time = `${String(dep.getUTCHours()).padStart(2, "0")}${String(dep.getUTCMinutes()).padStart(2, "0")}`
   const dof = `${String(dep.getUTCFullYear()).slice(-2)}${String(dep.getUTCMonth() + 1).padStart(2, "0")}${String(dep.getUTCDate()).padStart(2, "0")}`
   const routeText = input.route.length === 0 ? "DCT" : `DCT ${input.route.join(" DCT ")} DCT`

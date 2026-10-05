@@ -6,12 +6,13 @@ export default config({
   // Tool scoping lives on the route (src/app/navlog/index.ts): runBash is
   // denied and fileFlightPlan asks a person before each call.
 
-  // Tool-output offloading. Large tool results are spilled to
-  // workspace/tool-outputs/ and replaced in-context with a short stub the
-  // agent can read back on demand. The threshold is low so a TAF bundle or a
-  // full POH table trips it (the default is 40000 chars).
+  // Tool-output offloading. Results above the threshold are spilled to
+  // workspace/tool-outputs/ and replaced in-context with a short stub.
+  // High enough that a navlog is never offloaded: the Workbench reads
+  // computeNavlog's result off the wire. POH tables and weather bundles stay
+  // inline too.
   toolOutput: {
-    offloadThresholdChars: 1500,
+    offloadThresholdChars: 12000,
     previewLines: 10,
   },
 

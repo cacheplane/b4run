@@ -160,6 +160,13 @@ describe("computeNavlog", () => {
     )
     expect(() => computeNavlog({ ...base, winds: [] })).toThrow(/one wind entry per leg/)
   })
+  it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
+    for (const departureTimeUtc of ["1500Z tomorrow", "2026-10-06T09:00:00-05:00", "2026-10-06"]) {
+      expect(() => computeNavlog({ ...base, departureTimeUtc })).toThrow(
+        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, got "${departureTimeUtc}"`,
+      )
+    }
+  })
   it("names its POH sources", () => {
     const log = computeNavlog(base)
     expect(log.sources.map((s) => s.figure)).toEqual(["Figure 5-6", "Figure 5-7"])
