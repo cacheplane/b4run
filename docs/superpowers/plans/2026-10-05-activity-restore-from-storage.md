@@ -12,6 +12,7 @@
 
 ## Mapping facts the tasks rely on
 
+- **Amended 2026-10-05 for cacheplane/b4run#946 (merged):** the live `b4.step` status union now has `denied`; the converter dispatches it for a branded denial instead of `completed`, `reduceTurns` settles the step as `denied` (drops the running label/sources, keeps it when the result arrives, never counts it toward `turn.failed`, `failed` still wins), and `stepLabel` reads it as "Denied x". A persisted denial is therefore `status: "denied"` on a `success` ToolMessage (never `error`: the live translator would append a `failed` step that overrides `denied`), and `turnsFromState` synthesises a `denied` step in the `completed` position. Tasks 1, 3 and 8 below carry the amended wording.
 - **Precondition: PR cacheplane/b4run#936 (denial branding) must be merged first.** It adds `packages/sdk/src/tool-denial.ts` (`toolDenial`, `isToolDenial`, `TOOL_DENIAL`), makes `wrapToolWithApproval`/`wrapToolWithConstraint` return `toolDenial(...)`, adds `describeDenied(display)` in `packages/langchain/src/tool-display.ts`, and teaches `unwrapToolResult` the branded shape. Start this plan's branch from main after #936 lands (`git log --oneline origin/main | grep -i "brand denied"`). Task 3 builds on `isToolDenial`.
 - **Converter today** (`packages/langchain/src/tool-converter.ts:85-251`): builds a `ToolMessage` only when `partsForUi` or a display `step` exists; otherwise returns the raw string and LangChain wraps it. `B4_STEP_KEY = "b4_step"`, `B4_CONTENT_PARTS_KEY = "b4_content_parts"`. `step` is `describeDone(display, input, rawResult, tool.name)`. No try/catch: a thrown tool reaches `agent-middleware.ts:112-121` `wrapToolCall`, which returns `toolErrorMessage(error, name, id)` — a `status: "error"` ToolMessage with no `additional_kwargs`. The tool run context type (langchain local `B4ToolDefinition.run` at `:38-57` and core `packages/core/src/types.ts` `B4ToolDefinition`) is `{ middleware?, signal, threadId?, params?, toolCallId? }`.
 - **Bridge today** (`packages/langchain/src/subagent-tool-bridge.ts:51-176`): returns plain strings on every path (`[B4_E5003] …` depth, `resolved.message`, `subagent_failed: …`, `extractFinalAiText(output)`); rethrows GraphInterrupt/abort. `childConfig` spreads `liveConfig`, so the child checkpoints under `liveConfig.configurable.checkpoint_ns` (LangGraph sets it to `tools:<task id>` for the task; verified in the navlog example's database). `recordToolCall(config, call, body)` wraps the body.
@@ -140,6 +141,7 @@ describe("persisted turn stamps", () => {
       settledAt: "2026-10-05T00:00:01.000Z",
       decision: "once",
     })
+    expect(readPersistedStep({ status: "denied", startedAt: "2026-10-05T00:00:00.000Z", settledAt: "2026-10-05T00:00:01.000Z", icon: "run", decision: "deny" })).toMatchObject({ status: "denied", decision: "deny" })
     expect(readPersistedStep({ status: "failed", startedAt: "2026-10-05T00:00:00.000Z", settledAt: "2026-10-05T00:00:01.000Z", icon: "nope", decision: "maybe" })).toEqual({
       status: "failed",
       startedAt: "2026-10-05T00:00:00.000Z",
@@ -186,7 +188,7 @@ export type GateDecision = "once" | "always" | "deny"
 
 /** The step a ToolMessage carries for a restored thread (spec §2.1). Times are ISO strings. */
 export interface PersistedStep {
-  readonly status: "completed" | "failed"
+  readonly status: "completed" | "failed" | "denied"
   readonly icon?: ToolDisplayIcon
   readonly label?: string
   readonly sources?: readonly ToolDisplaySource[]
@@ -235,7 +237,9 @@ function readSources(value: unknown): readonly ToolDisplaySource[] | undefined {
 /** A `b4_step` stamp, or undefined when its identity fields are missing. Invalid optional fields are dropped. */
 export function readPersistedStep(value: unknown): PersistedStep | undefined {
   if (!isRecord(value)) return undefined
-  if (value.status !== "completed" && value.status !== "failed") return undefined
+  if (value.status !== "completed" && value.status !== "failed" && value.status !== "denied") {
+    return undefined
+  }
   if (!isIsoDate(value.startedAt) || !isIsoDate(value.settledAt)) return undefined
   const sources = readSources(value.sources)
   return {
@@ -457,7 +461,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `packages/langchain/src/tool-display.ts` (export `StepEventData.status` union gains nothing; add `describeFailed`)
 - Test: `packages/langchain/test/tool-converter-step.test.ts` (new)
 
-Behaviour: every call returns a `ToolMessage` (never a bare string), whose `additional_kwargs.b4_step` is a `PersistedStep` with `startedAt`/`settledAt` from the converter's own clock, `status: "completed"` on success, `status: "failed"` for a branded denial or a thrown tool, `decision` when the gate reported one, and `icon/label/sources` from `display` when present. A thrown tool (not a GraphInterrupt, not an abort) becomes a `status: "error"` ToolMessage built here, with the same content `toolErrorMessage` produces, so the agent middleware's catch stays a safety net. The streamed `b4.step` events are unchanged.
+Behaviour: every call returns a `ToolMessage` (never a bare string), whose `additional_kwargs.b4_step` is a `PersistedStep` with `startedAt`/`settledAt` from the converter's own clock, `status: "completed"` on success, `status: "denied"` for a branded denial (on a `success` ToolMessage), `status: "failed"` for a thrown tool, `decision` when the gate reported one, and `icon/label/sources` from `display` when present. A thrown tool (not a GraphInterrupt, not an abort) becomes a `status: "error"` ToolMessage built here, with the same content `toolErrorMessage` produces, so the agent middleware's catch stays a safety net. The streamed `b4.step` events are unchanged.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -495,14 +499,16 @@ describe("converter persists a complete b4_step", () => {
     expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "completed", icon: "read", label: "Read a.md", sources: [{ title: "a.md" }] })
   })
 
-  test("a branded denial is a failed step carrying the decision the gate reported", async () => {
+  test("a branded denial is a denied step on a success ToolMessage, carrying the decision the gate reported", async () => {
     const result = (await run({
       name: "deployProd",
       display: { icon: "run", done: () => "Deployed" },
       run: async (_input, context) => { context.onGateDecision?.("deny"); return toolDenial("[B4_E3001] Permission denied by user: tool deployProd") },
     })) as ToolMessage
     expect(result.content).toBe("[B4_E3001] Permission denied by user: tool deployProd")
-    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "failed", icon: "run", decision: "deny" })
+    expect(result.status).toBe("success")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "denied", icon: "run", decision: "deny" })
+    expect(result.additional_kwargs[B4_STEP_KEY]).not.toHaveProperty("label")
     expect(result.additional_kwargs[B4_STEP_KEY]).not.toHaveProperty("label", "Deployed")
   })
 
@@ -595,10 +601,9 @@ In `tool-converter.ts`: replace the local `B4_STEP_KEY` constant with `import { 
           new ToolMessage({
             tool_call_id: toolCallId,
             name: tool.name,
-            ...(denied ? { status: "error" as const } : {}),
             additional_kwargs: {
               ...(partsForUi !== undefined ? { [B4_CONTENT_PARTS_KEY]: partsForUi } : {}),
-              [B4_STEP_KEY]: persisted(denied ? "failed" : "completed", step),
+              [B4_STEP_KEY]: persisted(denied ? "denied" : "completed", step),
             },
             ...(typeof finalContent === "string"
               ? { content: finalContent }
@@ -611,14 +616,18 @@ In `tool-converter.ts`: replace the local `B4_STEP_KEY` constant with `import { 
 
         /* … streamTransformers loop unchanged … */
 
-        if (display !== undefined && !denied) {
-          await dispatchStep(liveConfig, { tool_call_id: toolCallId, status: "completed", ...step })
+        if (display !== undefined) {
+          await dispatchStep(liveConfig, {
+            tool_call_id: toolCallId,
+            status: denied ? "denied" : "completed",
+            ...step,
+          })
         }
         return convertedResult
       }
 ```
 
-Keep the `recorded ? recordToolCall(...) : body()` tail. The `tool.run(input, {...})` call site at the old `:143-149` is replaced by `tool.run(input, context)`. Note the denial marks the ToolMessage `status: "error"` so the live translator keeps emitting the `failed` step as today.
+Keep the `recorded ? recordToolCall(...) : body()` tail. The `tool.run(input, {...})` call site at the old `:143-149` is replaced by `tool.run(input, context)`. A denial keeps the ToolMessage's default `success` status: marking it `error` would make the live translator append a `failed` step after the result, and `failed` wins over `denied` in `reduceTurns` (#946).
 
 - [ ] **Step 4: Fix existing tests that pinned string results**
 
@@ -994,7 +1003,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 2: Gates**
 
-Run: `pnpm build && pnpm lint && pnpm typecheck && node scripts/check-docs.mjs && pnpm -r --filter "./packages/{sdk,core,langchain,cli,sqlite-storage,postgres-storage,testing,ag-ui}" test && node scripts/check-changesets.mjs && pnpm pack:check`. Then `pnpm verify:harness:framework` (~7 min; the generated navlog journey exercises real tool calls and the AG-UI stream — the `TOOL_CALL_RESULT.content` text is unchanged, so it should pass; if a `b4.step` assertion in `test/generated/run-generated-navlog-activation.test.ts` pins a denied call's label, update it to the failed shape).
+Run: `pnpm build && pnpm lint && pnpm typecheck && node scripts/check-docs.mjs && pnpm -r --filter "./packages/{sdk,core,langchain,cli,sqlite-storage,postgres-storage,testing,ag-ui}" test && node scripts/check-changesets.mjs && pnpm pack:check`. Then `pnpm verify:harness:framework` (~7 min; the generated navlog journey exercises real tool calls and the AG-UI stream — the `TOOL_CALL_RESULT.content` text is unchanged, so it should pass; if a `b4.step` assertion in `test/generated/run-generated-navlog-activation.test.ts` pins a denied call's label, update it to the `denied` shape).
 
 - [ ] **Step 3: Push, PR, auto-merge**
 
@@ -1003,7 +1012,7 @@ git push -u origin blove/activity-restore-storage
 gh pr create --base main --title "feat!: persist every tool step, the task subagent and the turn end in the checkpoint (restore, PR 1/3)" --body "$(cat <<'EOF'
 PR 1 of 3 for `docs/superpowers/specs/2026-10-05-activity-restore-from-storage-design.md` (plan `docs/superpowers/plans/2026-10-05-activity-restore-from-storage.md`): the stamps a restored activity view reads.
 
-- Every tool call returns a `ToolMessage` with a complete `b4_step` (status, timing, gate decision, display fields); a thrown tool's failed step is built in the converter; branded denials are failed steps with `decision: "deny"`.
+- Every tool call returns a `ToolMessage` with a complete `b4_step` (status, timing, gate decision, display fields); a thrown tool's failed step is built in the converter; branded denials are `denied` steps with `decision: "deny"` on a `success` ToolMessage.
 - The `task` tool returns a `ToolMessage` with `b4_step` and `b4_subagent` (child checkpoint namespace, outcome).
 - Permission gates report `once | always | deny` into the tool context.
 - `b4:turn` stamped on the head checkpoint when a run ends; `listNamespaces` on both checkpointers; the "children have no checkpointer" comment corrected (they do).
@@ -1071,21 +1080,22 @@ describe("turnsFromState", () => {
     ])
   })
 
-  test("a failed step, a denied decision, reasoning blocks and a plan snapshot", () => {
+  test("a denied step, its decision, reasoning blocks and a plan snapshot", () => {
     const call = { id: "c1", name: "runBash", args: { command: "node x" }, type: "tool_call" }
     const todos = [{ content: "a", status: "completed" }, { content: "b", status: "pending" }]
     const history = [
       ckpt("k0", 0, [human("u1", "go")]),
       ckpt("k1", 1, [human("u1", "go"), ai("a1", [{ type: "thinking", thinking: "plan it" }, { type: "text", text: "" }], [call])], { todos }),
-      ckpt("k2", 3, [human("u1", "go"), ai("a1", [{ type: "thinking", thinking: "plan it" }], [call]), toolMsg("c1", "runBash", "[B4_E3001] Permission denied by user: command", { status: "failed", icon: "run", decision: "deny", startedAt: iso(1), settledAt: iso(2) }, {}, "error")], { todos, metadata: { "b4:turn": { status: "done", endedAt: iso(3) } } }),
+      ckpt("k2", 3, [human("u1", "go"), ai("a1", [{ type: "thinking", thinking: "plan it" }], [call]), toolMsg("c1", "runBash", "[B4_E3001] Permission denied by user: command", { status: "denied", icon: "run", decision: "deny", startedAt: iso(1), settledAt: iso(2) }, {})], { todos, metadata: { "b4:turn": { status: "done", endedAt: iso(3) } } }),
     ]
     const { turns } = turnsFromState(base(history))
     const turn = turns.turns[0]!
     expect(turn.steps.map((s) => s.kind)).toEqual(["reasoning", "plan", "tool"])
     expect(turn.steps[0]).toMatchObject({ kind: "reasoning", text: "plan it", status: "done" })
     expect(turn.steps[1]).toMatchObject({ kind: "plan", todos })
-    expect(turn.steps[2]).toMatchObject({ kind: "tool", status: "failed", icon: "run", result: "[B4_E3001] Permission denied by user: command" })
-    expect(turn.failed).toBe(1)
+    expect(turn.steps[2]).toMatchObject({ kind: "tool", status: "denied", icon: "run", result: "[B4_E3001] Permission denied by user: command" })
+    expect(turn.steps[2]).not.toHaveProperty("label")
+    expect(turn.failed).toBe(0)
   })
 
   test("a task ToolMessage nests the child namespace's turn", () => {
@@ -1454,7 +1464,7 @@ function synthesiseNamespace(
 
       const stepEvent = (status: PersistedStep["status"]): BaseEvent =>
         ({ type: EventType.CUSTOM, name: B4_STEP_EVENT_NAME, value: { toolCallId, status, ...(step?.icon !== undefined ? { icon: step.icon } : {}), ...(step?.label !== undefined ? { label: step.label } : {}), ...(step?.sources !== undefined ? { sources: step.sources } : {}) } }) as BaseEvent
-      if (!failed) push(s, settledAt, stepEvent("completed"), owner)
+      if (!failed) push(s, settledAt, stepEvent(step?.status === "denied" ? "denied" : "completed"), owner)
       push(s, settledAt, { type: EventType.TOOL_CALL_RESULT, toolCallId, messageId: `tr:${id}`, content: textOf(kwargs.content) } as BaseEvent, owner)
       if (failed) push(s, settledAt, stepEvent("failed"), owner)
       continue
