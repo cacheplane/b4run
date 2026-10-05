@@ -1,15 +1,28 @@
-import type { ToolDisplay } from "@b4run/sdk"
+import {
+  B4_STEP_KEY,
+  B4_SUBAGENT_KEY,
+  type PersistedStep,
+  type PersistedSubagent,
+  type ToolDisplay,
+} from "@b4run/sdk"
 
 // `/web` — see the note on the same import in tool-converter.ts. The default
 // entry drags `node:async_hooks` into the edge bundle to infer a config this
 // module always passes explicitly.
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
+import { ToolMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { z } from "zod"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
-import { describeDone, describeRunning, dispatchStep } from "./tool-display.js"
+import {
+  describeDone,
+  describeFailed,
+  describeRunning,
+  dispatchStep,
+  type StepPayload,
+} from "./tool-display.js"
 
 export interface ResolvedSubagentGraph {
   readonly routeId: string
@@ -80,15 +93,52 @@ export function convertSubagentTaskToLangChain(
           ...describeRunning(display, input, tool.name),
         })
       }
+      // Every path returns a ToolMessage carrying the step, and — once a child
+      // was resolved — the subagent it launched, with the LangGraph namespace
+      // the child checkpointed under (`childConfig` spreads `liveConfig`, so it
+      // is this task's own `checkpoint_ns`, `tools:<task id>`). A restored
+      // thread reads both off the checkpointed message.
+      const startedAt = new Date().toISOString()
+      const checkpointNs =
+        typeof liveConfig.configurable?.checkpoint_ns === "string"
+          ? liveConfig.configurable.checkpoint_ns
+          : ""
+      const persisted = (status: PersistedStep["status"], payload: StepPayload): PersistedStep => ({
+        status,
+        ...payload,
+        startedAt,
+        settledAt: new Date().toISOString(),
+      })
+      const toolMessage = (
+        content: string,
+        step: PersistedStep,
+        subagent: PersistedSubagent | undefined,
+        failed: boolean,
+      ): ToolMessage =>
+        new ToolMessage({
+          tool_call_id: providerCallId ?? "",
+          name: tool.name,
+          content,
+          status: failed ? "error" : "success",
+          additional_kwargs: {
+            [B4_STEP_KEY]: step,
+            ...(subagent !== undefined ? { [B4_SUBAGENT_KEY]: subagent } : {}),
+          },
+        })
       const result = await recordToolCall(
         liveConfig,
         { toolCallId: providerCallId ?? "", toolName: tool.name, ...(origin ? { origin } : {}) },
-        async () => {
+        async (): Promise<ToolMessage> => {
           const parentB4 = readB4Metadata(liveConfig)
           const nextDepth = readDepth(parentB4) + 1
 
           if (nextDepth > MAX_SUBAGENT_DEPTH) {
-            return `[B4_E5003] Cannot dispatch '${input.subagent}' at depth ${nextDepth}; the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}.`
+            return toolMessage(
+              `[B4_E5003] Cannot dispatch '${input.subagent}' at depth ${nextDepth}; the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}.`,
+              persisted("failed", describeFailed(display)),
+              undefined,
+              true,
+            )
           }
 
           const resolved = await resolver({
@@ -97,7 +147,28 @@ export function convertSubagentTaskToLangChain(
             input: input.input,
             config: liveConfig,
           })
-          if (!resolved.ok) return resolved.message
+          if (!resolved.ok) {
+            return toolMessage(
+              resolved.message,
+              persisted("failed", describeFailed(display)),
+              undefined,
+              true,
+            )
+          }
+          // `outcome: "suspended"` is never written here: a child that parks
+          // rethrows its GraphInterrupt (below) and the parent parks with no
+          // ToolMessage at all; the stamp appears only once the child finishes
+          // after resume. The reader keeps the value for the spec's shape, but
+          // no stored data carries it today.
+          const identity = {
+            name: input.subagent,
+            routeId: resolved.child.routeId,
+            depth: nextDepth,
+            checkpointNs,
+            ...(resolved.child.description !== undefined && resolved.child.description !== ""
+              ? { description: resolved.child.description }
+              : {}),
+          }
 
           const parentStack = readSubagentStack(parentB4)
           const stackEntry: B4SubagentStackEntry = {
@@ -151,7 +222,12 @@ export function convertSubagentTaskToLangChain(
               { phase: "end", ...eventBase, error: message },
               childConfig,
             )
-            return `subagent_failed: ${message}`
+            return toolMessage(
+              `subagent_failed: ${message}`,
+              persisted("failed", describeFailed(display)),
+              { ...identity, outcome: "failed", error: message },
+              true,
+            )
           }
 
           const finalText = extractFinalAiText(output)
@@ -160,14 +236,24 @@ export function convertSubagentTaskToLangChain(
             { phase: "end", ...eventBase, final_message: finalText },
             childConfig,
           )
-          return finalText
+          return toolMessage(
+            finalText,
+            persisted(
+              "completed",
+              display !== undefined ? describeDone(display, input, finalText, tool.name) : {},
+            ),
+            { ...identity, outcome: "done" },
+            false,
+          )
         },
       )
-      if (display !== undefined && providerCallId !== undefined) {
+      // `completed` streams only for a child that finished; the translator
+      // derives the `failed` step from the error-status result.
+      if (display !== undefined && providerCallId !== undefined && result.status !== "error") {
         await dispatchStep(liveConfig, {
           tool_call_id: providerCallId,
           status: "completed",
-          ...describeDone(display, input, result, tool.name),
+          ...describeDone(display, input, result.content, tool.name),
         })
       }
       return result

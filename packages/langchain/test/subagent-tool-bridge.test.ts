@@ -1,5 +1,10 @@
-import { CLIENT_TOOL_RECORDER_KEY, type ToolDisplay } from "@b4run/sdk"
-import { AIMessage } from "@langchain/core/messages"
+import {
+  B4_STEP_KEY,
+  B4_SUBAGENT_KEY,
+  CLIENT_TOOL_RECORDER_KEY,
+  type ToolDisplay,
+} from "@b4run/sdk"
+import { AIMessage, ToolMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import {
   Annotation,
@@ -75,7 +80,15 @@ describe("convertSubagentTaskToLangChain", () => {
       config,
     )
 
-    expect(result).toBe("Final answer from child.")
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).content).toBe("Final answer from child.")
+    expect((result as ToolMessage).tool_call_id).toBe("task-live-1")
+    expect((result as ToolMessage).additional_kwargs[B4_SUBAGENT_KEY]).toMatchObject({
+      name: "researcher",
+      depth: 2,
+      checkpointNs: "parent:1",
+      outcome: "done",
+    })
     expect(resolver).toHaveBeenCalledWith({
       callId: "task-live-1",
       name: "researcher",
@@ -116,7 +129,9 @@ describe("convertSubagentTaskToLangChain", () => {
       toolCall: { id: "task-depth-4" },
     } as RunnableConfig)
 
-    expect(result).toMatch(/^\[B4_E5003\]/)
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).status).toBe("error")
+    expect((result as ToolMessage).content).toMatch(/^\[B4_E5003\]/)
     expect(resolver).not.toHaveBeenCalled()
   })
 
@@ -127,11 +142,12 @@ describe("convertSubagentTaskToLangChain", () => {
     }))
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
 
-    await expect(
-      tool.func({ subagent: "writer", input: "Draft" }, undefined, {
-        toolCall: { id: "task-denied" },
-      } as RunnableConfig),
-    ).resolves.toBe("[B4_E3002] Dispatch denied.")
+    const result = (await tool.func({ subagent: "writer", input: "Draft" }, undefined, {
+      toolCall: { id: "task-denied" },
+    } as RunnableConfig)) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("error")
+    expect(result.content).toBe("[B4_E3002] Dispatch denied.")
   })
 
   it("rethrows the exact GraphInterrupt raised by a real child graph", async () => {
@@ -442,10 +458,14 @@ describe("convertSubagentTaskToLangChain", () => {
     const call =
       (callId: string, input: string) => async (_state: unknown, config: RunnableConfig) => ({
         results: [
-          await tool.func({ subagent: "researcher", input }, undefined, {
-            ...config,
-            toolCall: { id: callId },
-          } as RunnableConfig),
+          String(
+            (
+              (await tool.func({ subagent: "researcher", input }, undefined, {
+                ...config,
+                toolCall: { id: callId },
+              } as RunnableConfig)) as ToolMessage
+            ).content,
+          ),
         ],
       })
     const saver = new MemorySaver()
@@ -580,7 +600,8 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
       }),
     }
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
-    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toBe("Done.")
+    const result = (await tool.func(INPUT, undefined, withRecorder(rec))) as ToolMessage
+    expect(result.content).toBe("Done.")
     expect(log).toEqual(["issue:task:call_task_1", "child", "settle:call_task_1"])
   })
 
@@ -611,13 +632,17 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
     const { log, recorder: rec } = recorder()
     const resolver = vi.fn<SubagentResolver>(async () => ({ ok: false, message: "denied" }))
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, resolver)
-    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toBe("denied")
+    const denied = (await tool.func(INPUT, undefined, withRecorder(rec))) as ToolMessage
+    expect(denied.status).toBe("error")
+    expect(denied.content).toBe("denied")
     expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
     log.length = 0
     const deep = withRecorder(rec, {
       metadata: { b4: { subagent_depth: 3, subagent_stack: [] } },
     })
-    expect(await tool.func(INPUT, undefined, deep)).toMatch(/B4_E5003/)
+    const tooDeep = (await tool.func(INPUT, undefined, deep)) as ToolMessage
+    expect(tooDeep.status).toBe("error")
+    expect(tooDeep.content).toMatch(/B4_E5003/)
     expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
     expect(resolver).toHaveBeenCalledTimes(1)
   })
@@ -630,7 +655,9 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
       }),
     }
     const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => allowedChild(child))
-    expect(await tool.func(INPUT, undefined, withRecorder(rec))).toMatch(/^subagent_failed: /)
+    const result = (await tool.func(INPUT, undefined, withRecorder(rec))) as ToolMessage
+    expect(result.status).toBe("error")
+    expect(result.content).toMatch(/^subagent_failed: /)
     expect(log).toEqual(["issue:task:call_task_1", "settle:call_task_1"])
   })
 
@@ -645,7 +672,11 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
     const config = {
       configurable: { thread_id: "thread-rec", [CLIENT_TOOL_RECORDER_KEY]: rec },
     } as RunnableConfig
-    expect(await tool.func(INPUT, undefined, config)).toBe("Done.")
+    const result = (await tool.func(INPUT, undefined, config)) as ToolMessage
+    expect(result.content).toBe("Done.")
+    // No provider id: the message names no call, and the stamp still rides on it.
+    expect(result.tool_call_id).toBe("")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "completed" })
     expect(seenCallId).toMatch(/^task-/)
     expect(log).toEqual([])
   })
@@ -721,5 +752,238 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
       const { steps } = await runTask(taskPlaceholder)
       expect(steps).toEqual([])
     })
+  })
+})
+
+describe("task bridge persists the subagent on its ToolMessage", () => {
+  const TASK_DISPLAY: ToolDisplay = {
+    icon: "agent",
+    running: (i) =>
+      `Asking ${(i as { subagent: string }).subagent} to ${(i as { input: string }).input}`,
+    done: (i) => `Heard back from ${(i as { subagent: string }).subagent}`,
+  }
+  const taskConfig = (callId: string, ns: string) =>
+    ({
+      configurable: { thread_id: "t", toolCallId: callId, checkpoint_ns: ns },
+      toolCall: { id: callId, name: "task", args: {} },
+    }) as RunnableConfig
+  const placeholderWithDisplay = () => ({
+    name: "task",
+    schema: z.object({ subagent: z.string(), input: z.string() }),
+    display: TASK_DISPLAY,
+  })
+  const resolverReturning =
+    (graph: ResolvedSubagentGraph["graph"]): SubagentResolver =>
+    async () => ({
+      ok: true,
+      child: {
+        routeId: "/researcher",
+        routeKey: "/researcher#agent",
+        description: "Finds sources",
+        graph,
+      },
+    })
+  const childGraphReplying = (text: string): ResolvedSubagentGraph["graph"] => ({
+    invoke: async () => ({ messages: [new AIMessage(text)] }),
+  })
+  const childGraphThrowing = (error: unknown): ResolvedSubagentGraph["graph"] => ({
+    invoke: async () => {
+      throw error
+    },
+  })
+
+  it("success: ToolMessage with the final text, a completed step and the child namespace", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-05T00:00:00.000Z") })
+    try {
+      const tool = convertSubagentTaskToLangChain(
+        placeholderWithDisplay(),
+        resolverReturning({
+          invoke: async () => {
+            vi.advanceTimersByTime(2000)
+            return { messages: [new AIMessage("Done: ReAct interleaves…")] }
+          },
+        }),
+      )
+      const result = (await tool.invoke(
+        { subagent: "researcher", input: "summarize ReAct" },
+        taskConfig("call_task_1", "tools:abc"),
+      )) as ToolMessage
+      expect(result).toBeInstanceOf(ToolMessage)
+      expect(result.tool_call_id).toBe("call_task_1")
+      expect(result.name).toBe("task")
+      expect(result.status).toBe("success")
+      expect(result.content).toBe("Done: ReAct interleaves…")
+      expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+        status: "completed",
+        icon: "agent",
+        label: "Heard back from researcher",
+        startedAt: "2026-10-05T00:00:00.000Z",
+        settledAt: "2026-10-05T00:00:02.000Z",
+      })
+      expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toEqual({
+        name: "researcher",
+        routeId: "/researcher",
+        description: "Finds sources",
+        depth: 1,
+        checkpointNs: "tools:abc",
+        outcome: "done",
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("a child without a description leaves the field off the stamp", async () => {
+    const tool = convertSubagentTaskToLangChain(placeholderWithDisplay(), async () =>
+      allowedChild(childGraphReplying("ok"), "/plain"),
+    )
+    const result = (await tool.invoke(
+      { subagent: "plain", input: "x" },
+      taskConfig("call_task_0", "tools:000"),
+    )) as ToolMessage
+    expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toEqual({
+      name: "plain",
+      routeId: "/plain",
+      depth: 1,
+      checkpointNs: "tools:000",
+      outcome: "done",
+    })
+  })
+
+  it("child threw: error ToolMessage, failed step, outcome failed with the error", async () => {
+    const tool = convertSubagentTaskToLangChain(
+      placeholderWithDisplay(),
+      resolverReturning(childGraphThrowing(new Error("boom"))),
+    )
+    const result = (await tool.invoke(
+      { subagent: "researcher", input: "x" },
+      taskConfig("call_task_2", "tools:def"),
+    )) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("error")
+    expect(result.content).toBe("subagent_failed: boom")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "failed",
+      icon: "agent",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
+    expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toEqual({
+      name: "researcher",
+      routeId: "/researcher",
+      description: "Finds sources",
+      depth: 1,
+      checkpointNs: "tools:def",
+      outcome: "failed",
+      error: "boom",
+    })
+  })
+
+  it("resolver refused and depth exceeded are error ToolMessages with a failed step and no b4_subagent", async () => {
+    const refused = convertSubagentTaskToLangChain(placeholderWithDisplay(), async () => ({
+      ok: false,
+      message: "[B4_E5003] No subagent named ghost",
+    }))
+    const result = (await refused.invoke(
+      { subagent: "ghost", input: "x" },
+      taskConfig("call_task_3", "tools:ghi"),
+    )) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("error")
+    expect(result.content).toBe("[B4_E5003] No subagent named ghost")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "failed",
+      icon: "agent",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
+    expect(result.additional_kwargs).not.toHaveProperty(B4_SUBAGENT_KEY)
+
+    const resolver = vi.fn<SubagentResolver>()
+    const deep = convertSubagentTaskToLangChain(placeholderWithDisplay(), resolver)
+    const tooDeep = (await deep.invoke(
+      { subagent: "researcher", input: "x" },
+      {
+        ...taskConfig("call_task_3b", "tools:jjj"),
+        metadata: { b4: { subagent_depth: 3, subagent_stack: [] } },
+      },
+    )) as ToolMessage
+    expect(tooDeep.status).toBe("error")
+    expect(tooDeep.content).toMatch(/^\[B4_E5003\] Cannot dispatch 'researcher' at depth 4/)
+    expect(tooDeep.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      status: "failed",
+      icon: "agent",
+    })
+    expect(tooDeep.additional_kwargs).not.toHaveProperty(B4_SUBAGENT_KEY)
+    expect(resolver).not.toHaveBeenCalled()
+  })
+
+  it("without a display the steps are bare but still persisted", async () => {
+    const tool = convertSubagentTaskToLangChain(
+      taskPlaceholder,
+      resolverReturning(childGraphReplying("plain")),
+    )
+    const result = (await tool.invoke(
+      { subagent: "researcher", input: "x" },
+      taskConfig("call_task_5", "tools:mno"),
+    )) as ToolMessage
+    expect(result.content).toBe("plain")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
+    expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toMatchObject({ outcome: "done" })
+  })
+
+  it("a GraphInterrupt from the child still propagates", async () => {
+    const park = new GraphInterrupt([])
+    const tool = convertSubagentTaskToLangChain(
+      placeholderWithDisplay(),
+      resolverReturning(childGraphThrowing(park)),
+    )
+    await expect(
+      tool.invoke({ subagent: "researcher", input: "x" }, taskConfig("call_task_4", "tools:jkl")),
+    ).rejects.toBe(park)
+  })
+
+  it("streams completed only when the child succeeded", async () => {
+    const steps = async (graph: ResolvedSubagentGraph["graph"]) => {
+      const tool = convertSubagentTaskToLangChain(
+        placeholderWithDisplay(),
+        resolverReturning(graph),
+      )
+      const root = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
+        .addNode("tools", new ToolNode([tool]))
+        .addEdge(START, "tools")
+        .addEdge("tools", END)
+        .compile()
+      const seen: string[] = []
+      for await (const event of root.streamEvents(
+        {
+          messages: [
+            new AIMessage({
+              content: "",
+              tool_calls: [
+                {
+                  name: "task",
+                  args: { subagent: "researcher", input: "go" },
+                  id: "task-steps",
+                  type: "tool_call",
+                },
+              ],
+            }),
+          ],
+        },
+        { version: "v2" },
+      )) {
+        if (event.event === "on_custom_event" && event.name === "b4.step") {
+          seen.push((event.data as { status: string }).status)
+        }
+      }
+      return seen
+    }
+    expect(await steps(childGraphReplying("ok"))).toEqual(["running", "completed"])
+    expect(await steps(childGraphThrowing(new Error("boom")))).toEqual(["running"])
   })
 })
