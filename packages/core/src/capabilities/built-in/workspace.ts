@@ -250,13 +250,16 @@ function buildWorkspaceTools(
 ): readonly OverridableTool[] {
   // Agent tools run inside the graph, so the handle may surface the
   // interactive LangGraph permission interrupt.
-  function handleFor(signal: AbortSignal) {
+  // Per call: the handle carries the call's signal and, so a parked path
+  // approval names the call it gates, the model's tool-call id.
+  function handleFor(ctx: { readonly signal: AbortSignal; readonly toolCallId?: string }) {
     return createWorkspaceFs({
       workspaceRoot,
       backend: resolveFs(),
       permissions,
-      signal,
+      signal: ctx.signal,
       interruptCapable: true,
+      ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
     })
   }
   const readFile: OverridableTool = {
@@ -274,7 +277,7 @@ function buildWorkspaceTools(
       const { path } = parsed
       const startLine = parsed.startLine ?? undefined
       const endLine = parsed.endLine ?? undefined
-      const handle = handleFor(ctx.signal)
+      const handle = handleFor(ctx)
       // Same containment arithmetic as the path jail (workspace-fs.ts): an
       // absolute `path` discards the root, so a read that escapes the
       // workspace produces a `../…` relative path and never inherits the
@@ -309,7 +312,7 @@ function buildWorkspaceTools(
     display: WORKSPACE_DISPLAY.writeFile,
     run: async (input, ctx) => {
       const { path, content } = WRITE_FILE_INPUT.parse(input)
-      const result = await handleFor(ctx.signal).writeFile(path, content)
+      const result = await handleFor(ctx).writeFile(path, content)
       return `wrote ${result.bytesWritten} bytes to ${path}`
     },
   }
@@ -330,7 +333,7 @@ function buildWorkspaceTools(
       // and writeFile: the read is gated as a read, the write as a write.
       // Bytes, not text, so a non-UTF-8 file is refused instead of rewritten
       // with U+FFFD in place of every invalid byte.
-      const handle = handleFor(ctx.signal)
+      const handle = handleFor(ctx)
       const current = decodeUtf8ForEdit(path, await handle.readBinaryFile(path))
       const edit = applyEdit(path, current, oldText, newText, replaceAll === true)
       if (newText === oldText) {
@@ -350,7 +353,7 @@ function buildWorkspaceTools(
     display: WORKSPACE_DISPLAY.listDir,
     run: async (input, ctx) => {
       const { path } = LIST_DIR_INPUT.parse(input)
-      return [...(await handleFor(ctx.signal).listDir(path))]
+      return [...(await handleFor(ctx).listDir(path))]
     },
   }
   const runBash: OverridableTool = {

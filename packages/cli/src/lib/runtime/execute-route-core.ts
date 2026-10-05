@@ -1933,11 +1933,16 @@ async function prepareRouteExecutionForInvocation(
       ctx: {
         readonly middleware?: Readonly<Record<string, unknown>>
         readonly signal: AbortSignal
+        readonly toolCallId?: string
       },
     ) =>
       t.run(input, {
         ...ctx,
-        fs: createWorkspaceFs({ ...workspaceFsOptions, signal: ctx.signal }),
+        fs: createWorkspaceFs({
+          ...workspaceFsOptions,
+          signal: ctx.signal,
+          ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
+        }),
         ...(admittedWorkspace ? { workspace: workspaceContext(ctx.signal) } : {}),
       }),
   }))
