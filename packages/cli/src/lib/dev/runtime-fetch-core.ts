@@ -1,3 +1,4 @@
+import { turnsFromState } from "@b4run/ag-ui/view"
 import type { B4Config } from "@b4run/core"
 import { configureApprovalGrants, loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
@@ -10,6 +11,7 @@ import type {
   MiddlewareRequest,
   PersistedTurnEnd,
   ThreadAccessPolicy,
+  ThreadOperation,
 } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
@@ -100,6 +102,7 @@ import { terminalStatus } from "./terminal-status.js"
 import { threadAccessBootLine, validateThreadAccessPolicy } from "./thread-access.js"
 import { createGatedThreadForRun, isThenable, makeThreadGate } from "./thread-gate.js"
 import { assertNoReservedKey, stripReservedThreadMetadata } from "./thread-metadata.js"
+import { loadThreadStateForTurns } from "./thread-turns.js"
 import {
   INSPECT_BODY_MAX_BYTES,
   parseThreadWorkspaceRequest,
@@ -2169,7 +2172,9 @@ export function buildRouteTable(ctx: {
         if (!tuple) return notFound()
         const apState = {
           config: tuple.config,
-          created_at: new Date().toISOString(),
+          // The head checkpoint's own time (`Checkpoint.ts` is the ISO string),
+          // not the time of this request.
+          created_at: tuple.checkpoint.ts,
           metadata: tuple.metadata,
           next: tuple.pendingWrites?.map(([, channel]) => channel) ?? [],
           parent_config: tuple.parentConfig ?? null,
@@ -2200,6 +2205,25 @@ export function buildRouteTable(ctx: {
         }),
       method: "GET",
       pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/pending_interrupts(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
+    // GET /threads/:thread_id/turns — the thread's activity, rebuilt from storage
+    // ------------------------------------------------------------------
+    {
+      handle: async (request, params) =>
+        handleApThreadTurnsRequest({
+          checkpointer: getCheckpointer(request),
+          middleware,
+          registry,
+          request,
+          threadAccess,
+          threadId: params.thread_id ?? "",
+          threadRouteMap,
+          threadsStore: getThreadsStore(request),
+        }),
+      method: "GET",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/turns(?:\?.*)?$/,
     },
 
     // ------------------------------------------------------------------
@@ -3537,7 +3561,7 @@ async function handleApWaitRequest(options: {
 // AP pending-interrupts handler — durable HITL prompts for a reconnected client
 // ---------------------------------------------------------------------------
 
-async function handleApPendingInterruptsRequest(options: {
+interface ThreadReadOptions {
   readonly checkpointer: BaseCheckpointSaver
   readonly middleware: MiddlewareHandler | undefined
   readonly registry: RuntimeRegistry
@@ -3546,17 +3570,27 @@ async function handleApPendingInterruptsRequest(options: {
   readonly threadId: string
   readonly threadRouteMap: Map<string, string>
   readonly threadsStore: ThreadsStore
-}): Promise<Response> {
-  const {
-    checkpointer,
-    middleware,
-    registry,
-    request,
-    threadAccess,
-    threadId,
-    threadRouteMap,
-    threadsStore,
-  } = options
+}
+
+/**
+ * The two gates every durable read of a thread's parked state passes, in
+ * order: the thread row (404 `thread_not_found`), the thread-access read gate
+ * under `operation`, then the parking route's identity and its middleware
+ * (409 `thread_route_unknown`, or the middleware's own rejection). Returns
+ * the row on success so the handler can read its status. Shared by
+ * `GET /pending_interrupts` and `GET /turns`, which must stay byte-identical
+ * on every refusal: `/turns` serves the parked prompt and its grant too, so a
+ * looser gate on either would be the wider door.
+ */
+async function gateThreadRead(
+  options: ThreadReadOptions,
+  operation: Extract<ThreadOperation, "thread.pending_interrupts" | "thread.turns">,
+): Promise<
+  | { readonly ok: true; readonly thread: Thread }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const { middleware, registry, request, threadAccess, threadId, threadRouteMap, threadsStore } =
+    options
 
   // Thread first, with the same code POST /cancel and POST /resume use for an
   // unknown thread, so a client branches on one code across the AP surface.
@@ -3613,14 +3647,14 @@ async function handleApPendingInterruptsRequest(options: {
     const g = gate({
       action: "read",
       notFound,
-      operation: "thread.pending_interrupts",
+      operation,
       threadId,
       ...(thread ? { thread } : {}),
     })
     const settled = isThenable(g) ? await g : g
-    if (!settled.ok) return settled.response
+    if (!settled.ok) return settled
   }
-  if (!thread) return notFound()
+  if (!thread) return { ok: false, response: notFound() }
 
   // Route identity for middleware. The PARKING route wins — the route whose own
   // turn left these interrupts in the checkpoint (see PARKED_ROUTE_KEY) — and
@@ -3702,14 +3736,17 @@ async function handleApPendingInterruptsRequest(options: {
     // route-scoped middleware would silently fall through on an endpoint that
     // serves interrupt payloads. Deliberately a different code from /resume's
     // route_not_found: that one is fixable by passing `route` in the body.
-    return Response.json(
-      createRequestErrorBody(
-        `No route recorded for thread "${threadId}": it has never run, so its pending ` +
-          "interrupts cannot be gated by route middleware.",
-        { code: "thread_route_unknown" },
+    return {
+      ok: false,
+      response: Response.json(
+        createRequestErrorBody(
+          `No route recorded for thread "${threadId}": it has never run, so its pending ` +
+            "interrupts cannot be gated by route middleware.",
+          { code: "thread_route_unknown" },
+        ),
+        { status: 409 },
       ),
-      { status: 409 },
-    )
+    }
   }
 
   const route = registry.lookup(routeKey)
@@ -3720,13 +3757,16 @@ async function handleApPendingInterruptsRequest(options: {
     // anyone who can name a thread id which route that thread ran. The other
     // `Unknown route` sites can echo safely because there the key came from
     // the caller's own request body.
-    return Response.json(
-      createRequestErrorBody(
-        `The route recorded for thread "${threadId}" is no longer registered.`,
-        { code: "thread_route_unknown" },
+    return {
+      ok: false,
+      response: Response.json(
+        createRequestErrorBody(
+          `The route recorded for thread "${threadId}" is no longer registered.`,
+          { code: "thread_route_unknown" },
+        ),
+        { status: 409 },
       ),
-      { status: 409 },
-    )
+    }
   }
 
   const requestUrl = new URL(request.url)
@@ -3745,8 +3785,15 @@ async function handleApPendingInterruptsRequest(options: {
   }
   const mwResult = await runMiddleware(middleware, mwRequest)
   if (mwResult.action === "reject") {
-    return statusResponse(mwResult.status, mwResult.body)
+    return { ok: false, response: statusResponse(mwResult.status, mwResult.body) }
   }
+  return { ok: true, thread }
+}
+
+async function handleApPendingInterruptsRequest(options: ThreadReadOptions): Promise<Response> {
+  const gated = await gateThreadRead(options, "thread.pending_interrupts")
+  if (!gated.ok) return gated.response
+  const { checkpointer, threadId } = options
 
   // A known thread with no checkpoint has nothing parked. That is a 200 with an
   // empty list, not a 404: "no such thread" and "nothing pending" are different
@@ -3775,6 +3822,34 @@ async function handleApPendingInterruptsRequest(options: {
     { interrupts },
     // Checkpoint state changes under the client; a cached answer would show a
     // prompt that has already been resolved.
+    { headers: { "cache-control": "no-store" }, status: 200 },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AP thread-turns handler — the thread's activity view, rebuilt from storage
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /threads/:id/turns` (spec §4): the same gates as `/pending_interrupts`
+ * under the `thread.turns` operation, then every checkpoint of the thread
+ * (root and child namespaces, decoded once, up to `TURNS_CHECKPOINT_CAP`) and
+ * the parked interrupts off the head, folded by `turnsFromState` into the
+ * `TurnsView` the live AG-UI stream would have produced. A busy thread gets
+ * the last written checkpoint and never waits on the run; the live tail is
+ * `/runs/stream`'s job.
+ */
+async function handleApThreadTurnsRequest(options: ThreadReadOptions): Promise<Response> {
+  const gated = await gateThreadRead(options, "thread.turns")
+  if (!gated.ok) return gated.response
+  const { checkpointer, threadId } = options
+  const status = gated.thread.status
+  const { state, truncated } = await loadThreadStateForTurns(checkpointer, threadId, status)
+  const { turns, warnings } = turnsFromState(state)
+  return Response.json(
+    { threadId, status, turns, warnings, truncated },
+    // Checkpoint state changes under the client; a cached answer would show a
+    // turn that has since ended or a prompt that has been answered.
     { headers: { "cache-control": "no-store" }, status: 200 },
   )
 }

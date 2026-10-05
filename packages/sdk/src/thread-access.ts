@@ -25,6 +25,7 @@ export type ThreadAction = "create" | "read" | "update" | "delete"
  * - `thread.delete` — `DELETE /threads/:id` — `delete`
  * - `thread.cancel` — `POST /threads/:id/cancel` — `update`
  * - `thread.pending_interrupts` — `GET /threads/:id/pending_interrupts` — `read`
+ * - `thread.turns` — `GET /threads/:id/turns` — `read`
  * - `thread.attach` — `GET /threads/:id/runs/stream` — `read`
  * - `run.stream` — `POST /threads/:id/runs/stream` — `update`; on a thread id
  *   with no row yet, `create`, then again as the `update` recheck that follows
@@ -61,6 +62,14 @@ export type ThreadOperation =
    * other read of the thread.
    */
   | "thread.pending_interrupts"
+  /**
+   * `GET /threads/:id/turns`. Gated like `thread.pending_interrupts`: this
+   * axis in ADDITION to the parking route's middleware, composed as AND, with
+   * a denied read answering the same 404 a missing thread returns. The
+   * rebuilt turns carry the parked prompt and its grant, so the read answers
+   * to the same policy as the prompt itself.
+   */
+  | "thread.turns"
   /**
    * `GET /threads/:id/runs/stream`, the attach/reattach endpoint. Discloses
    * everything the POST stream discloses — channel values, the live turn's
