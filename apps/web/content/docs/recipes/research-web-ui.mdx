@@ -1,6 +1,6 @@
 # Research Assistant Web UI
 
-B4.run's research demo ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. It renders its own thread rail, transcript, and composer in place of `CopilotSidebar`, so the streamed report and the plan, researcher, tool, and permission cards all appear inline in message order.
+B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. It renders its own thread rail, transcript, and composer in place of `CopilotSidebar`, so the streamed brief and the plan, subagent, tool, and approval cards all appear inline in message order.
 
 This recipe covers the application wiring. For the endpoint, events, threading, and interrupt outcomes, see [AG-UI and Web Clients](/docs/ag-ui).
 
@@ -10,14 +10,14 @@ The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js C
 
 - **Thread rail:** "New conversation" plus the list of threads, each titled from its first user message.
 - **Chat + report:** streamed markdown output and citations in the app's own transcript.
-- **Plan cards:** the root checklist updates in place while research runs.
-- **Researcher cards:** delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
+- **Plan cards:** the root checklist updates in place while the plan runs.
+- **Subagent cards:** the `weather` and `performance` subagents' delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
 - **Suggestions + tools:** three discovery prompts on the empty state, and generic root-tool cards in the transcript.
 - **Permissions:** the standard interrupt UI owns the approve and deny actions, rendered at the end of the transcript where the run stopped.
 - **Composer:** send, attach an image when the route's model takes one, and stop while a run is in flight. It's blocked while the agent is running or waiting on an approval, and the header says which.
 - **Media:** images, audio, video, and documents in user messages and tool results, plus a notice for each part the model never saw.
 
-The plan and researcher cards only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
+The plan and subagent cards only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
 
 The Workbench also reviews durable memory. A small panel reaches B4.run through the same allowlisted, same-origin proxy used for thread hydration. See [Approve memory candidates](#approve-memory-candidates) below.
 
@@ -42,7 +42,7 @@ pnpm install
 pnpm dev          # B4.run server on :3002, web client on :3010
 ```
 
-Open [http://localhost:3010](http://localhost:3010) and ask a research question.
+Open [http://localhost:3010](http://localhost:3010) and choose **Plan a flight**.
 
 </Step>
 
@@ -110,7 +110,7 @@ The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths u
 
 Three pieces of that tree matter most:
 
-- `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full research run streams hundreds of events, which pegs the renderer.
+- `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full planning run streams hundreds of events, which pegs the renderer.
 - `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a row in the rail would change nothing.
 - `<DemoSuggestions />` and `<ToolCallCard />` render nothing. They publish into CopilotKit's registries, and the transcript reads them back.
 
@@ -178,7 +178,7 @@ A user image the adapter dropped is a different case. It never reached the model
 
 ### A chart the model doesn't see
 
-The research server ships `renderChart` (`server/src/tools/renderChart.ts`). Given a title and up to 12 `{ label, value }` pairs, it returns two parts: a one-line text summary and an inline SVG bar chart.
+The navlog server ships `renderChart` (`server/src/tools/renderChart.ts`). Given a title and up to 12 `{ label, value }` pairs, it returns two parts: a one-line text summary and an inline SVG bar chart.
 
 ```ts title="examples/navlog/server/src/tools/renderChart.ts"
 return [
@@ -189,9 +189,9 @@ return [
 
 The user sees the chart under the tool card. The model, `gpt-5-mini`, sees only the summary, because media in a tool result never reaches an OpenAI model. So every `renderChart` call also produces a dropped-part notice. That's expected: the notice is telling you the truth about what the model saw.
 
-## Render plan and researcher activities
+## Render plan and subagent activities
 
-The plan and researcher cards ship with the adapter. Install the package and hand its renderer array to CopilotKit:
+The plan and subagent cards ship with the adapter. Install the package and hand its renderer array to CopilotKit:
 
 ```bash
 npm install @b4run/ag-ui
@@ -237,7 +237,7 @@ The plan activity is the whole presentation of `writeTodos`: when a `writeTodos`
 
 The wildcard card is still the fail-open fallback for `writeTodos`. If the plan activity cannot be produced (no tool-call id, a malformed payload), the ordinary tool events survive and the generic card renders them.
 
-Choose **Research a topic** on the empty transcript to see the root plan and researcher progress update before the cited answer. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
+Choose **Plan a flight** on the empty transcript to see the root plan and the `weather` and `performance` progress update before the brief. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 
 ## Approve memory candidates
 
@@ -291,7 +291,7 @@ The panel only reviews candidates. It lists at most three and counts the rest. B
 
 <Callout title="Deep runs need a higher recursion limit">
   The coordinator plans, dispatches subagents, and makes many tool calls. The
-  research route sets `recursionLimit: 100` so a full run can exceed LangGraph's
+  navlog route sets `recursionLimit: 100` so a full run can exceed LangGraph's
   default step ceiling.
 </Callout>
 
@@ -300,8 +300,8 @@ The panel only reviews candidates. It lists at most three and counts the rest. B
 <RelatedCards
   items={[
     { href: "/docs/ag-ui", title: "AG-UI and Web Clients", subtitle: "The adapter, endpoint, and event contract" },
-    { href: "/docs/getting-started", title: "Getting Started", subtitle: "Scaffold the /research agent locally" },
-    { href: "/docs/subagents", title: "Subagents", subtitle: "How the coordinator dispatches researchers internally" },
+    { href: "/docs/getting-started", title: "Getting Started", subtitle: "Scaffold an agent locally" },
+    { href: "/docs/subagents", title: "Subagents", subtitle: "How the coordinator dispatches subagents internally" },
     { href: "/docs/memory/long-term", title: "Long-term Memory", subtitle: "candidates, approval, and recall" },
   ]}
 />

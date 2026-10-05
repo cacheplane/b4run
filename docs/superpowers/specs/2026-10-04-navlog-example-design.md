@@ -123,12 +123,15 @@ One pure module with no model in the loop, unit-tested table-driven:
 - Magnetic variation from the airport records (east subtracted, west added),
   applied to true course and true heading.
 - Wind triangle per leg: wind correction angle, true heading, groundspeed.
-- Climb from POH Figure 5-6 (time, fuel, distance to climb) for the first leg,
-  with the leg split into climb and cruise segments when the climb distance is
-  shorter than the leg.
+- Climb from POH Figure 5-6 (time, fuel, distance to climb), from the
+  departure field's row to the cruise altitude's row, split into climb and
+  cruise segments and carried across legs when the climb is longer than the
+  first leg.
 - Cruise TAS and GPH from Figure 5-7 for the pressure altitude and RPM in the
   aircraft profile, interpolated between table rows.
-- Per-leg ETE, ETA from departure time, fuel burned, fuel remaining.
+- Per-leg ETE, ETA from departure time, fuel burned, fuel remaining. The
+  departure time is an ISO 8601 UTC instant or a UTC clock time such as 1400Z,
+  which means its next occurrence.
 - Totals and reserve: usable fuel minus burn, expressed in minutes at the
   cruise burn rate, flagged when under 45 minutes.
 - ICAO flight plan fields 7 through 19 assembled from the aircraft profile and
@@ -161,8 +164,10 @@ Output schema (abbreviated):
   takeoff and landing distances for the actual field elevations and
   temperatures, the cruise row to use, and the figure citations.
 
-Both are scoped with `tools: { allow: [...] }` so neither sees the other's
-tools.
+A subagent sees every authored tool by default, and `tools.allow` only
+re-adds withheld capability tools, so each is scoped with an explicit
+`tools.deny` list of the other's tools and the parent's (`computeNavlog`,
+`fileFlightPlan`, `renderChart`) so neither sees the other's tools.
 
 ### 4.5 Corpus `workspace/`
 
@@ -183,9 +188,11 @@ the aircraft profile as subject `aircraft` with predicates such as
 `tail_number`, `cruise_rpm`, `usable_fuel_gal`, `reserve_minutes`. Writes stay
 `candidate` so the memory panel keeps its review beat.
 
-`b4.config.ts`: the permissions block shrinks to the file tools; the tool-output
-offload threshold stays low so a TAF bundle trips it; the Docker sandbox seam
-and `test:sandbox:docker` are removed from this example.
+`b4.config.ts`: the permissions block is gone (the route denies `runBash` and
+approves `fileFlightPlan` per call); the tool-output offload threshold is high
+(12,000 characters) so a navlog stays inline for the Workbench to read off the
+wire; the Docker sandbox seam and `test:sandbox:docker` are removed from this
+example.
 
 ## 5. Web client (`examples/navlog/web`)
 
@@ -301,19 +308,24 @@ PR. No CI deploy lane in this series.
   FPL fields), the winds-aloft parser against a saved FB text sample, the
   weather cache, and the web components (navlog card, chips, map data mapping,
   proxy guard logic). These are the `pnpm test` gate.
-- **Recorded evals.** Cases recorded with `b4 eval --record`; tools run live
-  against aviationweather.gov in replay, so scorers judge shape, never a
-  weather-dependent number or exact wording:
+- **Scripted evals.** Cases replay from inline `script()` fixtures (the
+  recorder keys fixtures by a global turn index that parallel subagents race,
+  #937); tools still run, so the weather tools reach aviationweather.gov in
+  replay, and scorers judge shape, never a weather-dependent number or exact
+  wording. `--live` measures the real agent:
   - `computeNavlog` called once; result validates against the schema.
   - every leg has MH, GS, ETE and fuel; totals add up; reserve is at least 45
     minutes.
   - `weather` and `performance` each ran once.
   - POH citations in the brief resolve to corpus paths.
-  - `fileFlightPlan` not called unless the case asks; when called, preceded by
-    an approval.
+  - `fileFlightPlan` not called unless the case asks (`b4 eval` cannot resume
+    an approval, so no case asks).
   - an LLM judge with written criteria scores the brief for naming the flight
-    category at each airport and the fuel and reserve, thresholded; runs only
-    when a key is present.
+    category at each airport and the fuel and reserve, thresholded; a scripted
+    judge turn answers it in replay.
+- **Harness journeys stay hermetic.** `computeNavlog` with inline waypoints and
+  winds, and the `performance` subagent reading the POH; the network tools are
+  covered by unit tests with a stubbed `fetch` and by the evals.
 - The scripted `research.test.ts` scenario is removed. The recipe copy that
   promises `npm test` passes without a provider key stays true and is reworded
   to describe the math tests.
@@ -343,7 +355,9 @@ Each PR is green on its own.
    package names, template id and alias, and every literal identifier in docs;
    recipe slugs and the eight pinned places move with the content in PR 6. No
    content change beyond names.
-3. **Server retheme.** Sections 4 and 7 server parts, template mirror.
+3. **Server retheme.** Sections 4 and 7 server parts, template mirror. Also
+   the Workbench starter prompts, the harness journeys and the brand demo
+   scenario, which script the server's tools by name.
 4. **Web retheme.** Section 5 and its tests, template mirror.
 5. **Deployment.** Section 6: `main.ts`, proxy guards, `railway.json`, Vercel
    settings, environment docs, manual smoke evidence.

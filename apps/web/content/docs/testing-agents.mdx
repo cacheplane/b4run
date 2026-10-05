@@ -160,7 +160,7 @@ expectOffloaded(run, "generateReport")
 Pass the tool names in the order you expect:
 
 ```ts
-expectToolSequence(run, ["searchCorpus", "readDoc", "writeFile"])
+expectToolSequence(run, ["lookupAirport", "computeNavlog", "writeFile"])
 ```
 
 By default it's a subsequence match, so other tools may appear between them. Pass `{ strict: true }` to require the tools to appear consecutively:
@@ -257,27 +257,18 @@ You don't need any extra setup. aimock runs on a random port and stops when the 
 
 ## Your scaffolded app already has a test
 
-The default `basic` template generates `test/agent.test.ts`, which imports `@b4run/testing` and replays one scripted greeting against the `/hello#agent` route. The research template (`npm create b4-app@latest my-agent -- --template navlog`) generates `server/test/navlog.test.ts`, which covers its `/navlog#agent` route. In either app, run the suite right after scaffolding from the app root:
+The default `basic` template generates `test/agent.test.ts`, which imports `@b4run/testing` and replays one scripted greeting against the `/hello#agent` route. The navlog template (`npm create b4-app@latest my-agent -- --template navlog`) generates keyless unit tests under `server/test/` for its navlog math, POH tables, weather parsers and tools, and replays its agent through scripted fixtures in `server/src/app/navlog/evals/navlog-quality.eval.ts`. In either app, run the suite right after scaffolding from the app root:
 
 ```bash
 npm test
 ```
 
-The generated research suite starts by verifying the corpus search and citation path:
+A harness test for the navlog route scripts the model and lets the tools run. `computeNavlog` is pure, so this one needs no network:
 
-```ts title="server/test/navlog.test.ts"
+```ts title="server/test/plan.test.ts"
 import { fileURLToPath } from "node:url"
 import { afterAll, it } from "vitest"
-import type { FixtureSet } from "@b4run/testing"
-import {
-  createAgentHarness,
-  expectFinalMessage,
-  expectInterrupt,
-  expectOffloaded,
-  expectSubagent,
-  expectToolCalled,
-  script,
-} from "@b4run/testing"
+import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url))
 const h = await createAgentHarness({ appRoot, route: "/navlog#agent" })
@@ -285,33 +276,32 @@ afterAll(async () => {
   await h.close()
 })
 
-it("searches the corpus and writes a cited answer", async () => {
+const navlogInput = {
+  aircraft: { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 },
+  altitudeFt: 4500,
+  departureTimeUtc: "2026-10-06T14:00:00Z",
+  waypoints: [
+    { id: "KSTP", lat: 44.9346, lon: -93.0603, elevationFt: 705, magneticVariationDeg: 0, kind: "airport" },
+    { id: "KRST", lat: 43.9083, lon: -92.49, elevationFt: 1317, magneticVariationDeg: 0, kind: "airport" },
+  ],
+  winds: [{ dirDegTrue: 320, speedKt: 20 }],
+}
+
+it("computes the navlog and cites the POH", async () => {
   h.reset()
   const run = await h.run({
-    input: "What are common agent architectures?",
+    input: "Plan KSTP to KRST at 4500 feet, departing 1400Z.",
     fixtures: script()
-      .user("What are common agent architectures?")
-      .callsTool("searchCorpus", { query: "agent architectures" })
-      .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-      .replies("ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"),
+      .user("Plan KSTP to KRST at 4500 feet, departing 1400Z.")
+      .callsTool("computeNavlog", navlogInput)
+      .replies("66 nm, 33 minutes, 5.5 gal. [poh/cruise-performance.md, Figure 5-7]"),
   })
-  expectToolCalled(run, "searchCorpus")
-  expectToolCalled(run, "readDoc")
-  expectFinalMessage(run).toContain("[corpus/")
+  expectToolCalled(run, "computeNavlog")
+  expectFinalMessage(run).toContain("[poh/")
 }, 60_000)
 ```
 
-The suite also exercises:
-
-- Recall of seeded durable research preferences.
-- Candidate writes through `remember`, plus CLI approval and recall from a fresh thread.
-- Researcher subagent dispatch with access to the shared corpus tools.
-- Offloading of a large `readDoc` result.
-- The HITL permission gate for `runBash`, followed by resume.
-
-These scenarios share one harness and call `h.reset()` per test. `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated.
-
-The separately gated `server/test/sandbox-docker.test.ts` checks that shared tools run inside an isolated Docker workspace and leak no files to the host or to a fresh thread sandbox.
+Call `h.reset()` per test. `reset()` starts a fresh thread and clears the previous scenario's fixtures, so the tests stay isolated.
 
 Grow it by:
 

@@ -238,20 +238,20 @@ Commit the eval and its fixture files alongside your route. CI replays them, inc
 
 ## Your scaffolded app already has an eval
 
-The default `basic` template generates `src/app/hello/evals/smoke.eval.ts`, a one-case replay eval for the `/hello` agent, and an `eval` npm script. The research template (`npm create b4-app@latest my-agent -- --template navlog`) generates `server/src/app/navlog/evals/navlog-quality.eval.ts` next to its research route, adds `@b4run/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. In either app, run it right after scaffolding:
+The default `basic` template generates `src/app/hello/evals/smoke.eval.ts`, a one-case replay eval for the `/hello` agent, and an `eval` npm script. The navlog template (`npm create b4-app@latest my-agent -- --template navlog`) generates `server/src/app/navlog/evals/navlog-quality.eval.ts` next to its flight-planning route, adds `@b4run/evals` as a dev dependency of the `server` package, and wires an `eval` npm script at the workspace root. In either app, run it right after scaffolding:
 
 ```bash
 npm run eval
 ```
 
-This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The research eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has two dataset cases and four scorers:
+This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The navlog eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has three dataset cases, each with inline `script()` fixtures, and these scorers:
 
-- `toolCalled("searchCorpus", { threshold: 1 })` asserts the agent called `searchCorpus`.
-- `contains("[corpus/", { threshold: 1 })` asserts the reply cites a corpus source.
-- A custom `cites-source` scorer: `custom((run) => run.finalMessage.includes("corpus/") ? 1 : 0, { name: "cites-source", threshold: 1 })`.
-- `llmJudge({ criteria: "The report answers the question and cites at least one source document.", model: "gpt-5-mini", threshold: 0.7 })`.
+- `toolCalled("computeNavlog", { threshold: 1 })`, and `toolCalled("task", { withArgs: { subagent: "weather" } })` and its `performance` twin, assert the plan used the navlog tool and both subagents.
+- Custom `navlog-shape` and `totals-add-up-and-reserve` scorers parse `computeNavlog`'s result and check its legs, totals and legal reserve.
+- A custom `cites-poh` scorer asserts the brief cites a POH file that exists in the workspace, and `files-only-when-asked` that no flight plan was filed unasked.
+- `llmJudge({ criteria: "The brief names the flight category at every airport, …", model: "gpt-5-mini", threshold: 0.7 })`.
 
-The gate is `gate.all(gate.passRate(1), gate.perScorer())`, so every case must pass and every scorer must meet its threshold. The generated fixtures include the extra judge turns used by `llmJudge`, so the default `npm run eval` stays offline and no-key.
+The gate is `gate.all(gate.passRate(1), gate.perScorer())`, so every case must pass and every scorer must meet its threshold. The scripted fixtures include the judge turn used by `llmJudge`, so the default `npm run eval` needs no key; the tools still run, so the weather tools reach aviationweather.gov.
 
 To run the agent cases against the real model locally:
 

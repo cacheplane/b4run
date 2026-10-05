@@ -15,7 +15,7 @@ const SCAFFOLD = `Help me build my first B4.run agent. B4.run is the TypeScript 
    cd my-agent
    npm install
    \`\`\`
-   This creates the default \`basic\` template: one package with a \`/hello\` agent in \`src/app/hello/index.ts\` and one typed \`greet\` tool in \`src/app/hello/tools/greet.ts\`. Pass \`-- --template navlog\` instead for the larger research assistant with subagents, planning, memory, and a web UI.
+   This creates the default \`basic\` template: one package with a \`/hello\` agent in \`src/app/hello/index.ts\` and one typed \`greet\` tool in \`src/app/hello/tools/greet.ts\`. Pass \`-- --template navlog\` instead for the larger VFR flight planner with subagents, planning, memory, and a web UI.
 
 2. Walk me through the two files. Explain:
    - \`index.ts\` default-exports \`agent({ model, systemPrompt })\`.
@@ -39,7 +39,7 @@ const SCAFFOLD = `Help me build my first B4.run agent. B4.run is the TypeScript 
 
 6. For a dev server, run \`npm run dev\`. It serves Agent Protocol and AG-UI on \`http://127.0.0.1:3000\` and reloads as I edit.
 
-7. Summarize what I can build next: add a route, write an agent harness test, add an eval, or start from the research template.
+7. Summarize what I can build next: add a route, write an agent harness test, add an eval, or start from the navlog template.
 
 Key packages: \`@b4run/sdk\` (authoring contract), \`@b4run/langgraph\` (graphs/workflows), \`@b4run/langchain\` (LCEL and provider-aware agent materialization), \`@b4run/cli\` (CLI).
 
@@ -49,10 +49,10 @@ Reference: https://b4.run/llms.txt
 const ADD_A_TOOL = `Help me add a new tool to an existing B4.run app. B4.run discovers shared tools in \`src/tools/*.ts\` and route-local tools in \`src/app/<route>/tools/*.ts\`; their types are generated from TypeScript — no Zod schemas or manual type wiring.
 
 1. Choose the tool's scope before creating it:
-   - Put tools reused by multiple routes in \`src/tools/\`. This is where the research scaffold keeps \`searchCorpus\` and \`readDoc\`.
+   - Put tools reused by multiple routes in \`src/tools/\`. This is where the navlog scaffold keeps \`computeNavlog\` and \`readDoc\`.
    - Put a route-specific tool in \`src/app/<route>/tools/\`. A route-local tool is available only to that route and shadows a shared tool with the same name.
 
-2. Add a TypeScript file with a default export that is an async function. This shared example is the default for the research scaffold:
+2. Add a TypeScript file with a default export that is an async function. This shared example is the default for the navlog scaffold:
 
    \`\`\`ts
    // src/tools/<tool-name>.ts
@@ -142,7 +142,7 @@ Reference: https://b4.run/llms.txt
 
 const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right style for the route kind:
 
-1. For an agent route like the research scaffold's \`/navlog#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
+1. For an agent route like the navlog scaffold's \`/navlog#agent\`, write a Vitest test with \`createAgentHarness\`, \`script()\` fixtures, and agent matchers:
 
    \`\`\`ts
    import { fileURLToPath } from "node:url"
@@ -155,20 +155,18 @@ const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right sty
      await h.close()
    })
 
-   it("searches the corpus and writes a cited answer", async () => {
+   it("reads the POH and cites it", async () => {
      h.reset()
      const run = await h.run({
-       input: "What are common agent architectures?",
+       input: "What does the POH give for cruise at 4000 ft and 2400 RPM?",
        fixtures: script()
-         .user("What are common agent architectures?")
-         .callsTool("searchCorpus", { query: "agent architectures" })
-         .callsTool("readDoc", { path: "corpus/agent-architectures.md" })
-         .replies("ReAct and plan-and-execute are common. [corpus/agent-architectures.md]"),
+         .user("What does the POH give for cruise at 4000 ft and 2400 RPM?")
+         .callsTool("readDoc", { path: "poh/cruise-performance.md" })
+         .replies("64% BHP, 110 KTAS, 7.1 GPH. [poh/cruise-performance.md, Figure 5-7]"),
      })
 
-     expectToolCalled(run, "searchCorpus")
      expectToolCalled(run, "readDoc")
-     expectFinalMessage(run).toContain("[corpus/")
+     expectFinalMessage(run).toContain("[poh/")
    }, 60_000)
    \`\`\`
 
@@ -192,15 +190,15 @@ const WRITE_A_TEST = `Help me write tests for a B4.run route. Pick the right sty
    \`\`\`ts
    import { scenarios } from "@b4run/sdk/testing"
 
-   export default scenarios("/navlog").scenario("uses a controlled corpus result", (s) =>
+   export default scenarios("/navlog").scenario("uses a controlled METAR", (s) =>
      s
-       .input({ messages: [{ role: "user", content: "Research B4.run" }] })
-       .mockTool("searchCorpus", async ({ query }) => [
-         { path: "corpus/b4.md", score: 1, snippet: query },
-       ])
+       .input({ messages: [{ role: "user", content: "What is the weather at KSTP?" }] })
+       .mockTool("getMetar", async ({ ids }) =>
+         ids.map((id) => ({ id, flightCategory: "VFR", raw: \`METAR \${id} 041953Z 00000KT 10SM CLR\` })),
+       )
        .expectPassed()
-       .expectTool("searchCorpus", (call) =>
-         call.calledOnce().withArgs({ query: "B4.run" }),
+       .expectTool("getMetar", (call) =>
+         call.calledOnce().withArgs({ ids: ["KSTP"] }),
        ),
    )
    \`\`\`
