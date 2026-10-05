@@ -3,6 +3,7 @@
 export { type B4Config, config } from "@b4run/core"
 export {
   type ServeFallback,
+  type ServeGuard,
   type ServeHandle,
   type ServeOptions,
   serve,

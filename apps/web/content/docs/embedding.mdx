@@ -60,6 +60,29 @@ Omit `fallback` and the runtime answers every path, including the 404 for paths 
 
 `serve` defaults `installSignalHandlers` to `true`, because it is an entry point rather than a component of a larger host. Its shutdown runs in the only order that terminates: stop accepting connections, close the runtime so in-flight runs abort and streams finish, then drop the connections still held open. Pass `installSignalHandlers: false` when the host owns signals, and call `await handle.close()` from its own shutdown path. `onListening` replaces the logged address line.
 
+`guard` runs ahead of the split, for every request the process receives. It is where a single-process deployment checks what the whole service requires of a caller before any route runs: the internal token a proxy in front injects, an origin check, a rate limit. Return `true` once the guard has answered the request itself, `false` to let it continue. It may be async. A guard that throws answers 500. A guard that writes the response must return `true` (setting a header alone is fine), and it must not read the request body unless it answers the request. Exempt the health path by comparing the parsed pathname exactly, never by a prefix match on the raw URL: the runtime routes on the normalized path, so `/healthz/../threads` is `/threads` to the runtime.
+
+```ts title="main.ts"
+import { serve } from "@b4run/cli"
+
+await serve({
+  appRoot: process.cwd(),
+  guard: (request, response) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname
+    if (pathname === "/healthz") return false
+    const token = process.env.B4_INTERNAL_TOKEN
+    if (token && request.headers["x-internal-token"] === token) return false
+    response.writeHead(401, { "content-type": "application/json" })
+    response.end(JSON.stringify({ error: "unauthorized" }))
+    return true
+  },
+})
+```
+
+With the token unset or empty, every request except the health check is refused, which is the failure you want to notice at deploy time rather than an open service.
+
+The guard sees the raw Node request, so it covers surfaces `src/middleware.ts` never sees: middleware is a route-execution hook, while the thread-management, memory, and workspace surfaces reach the runtime without it. See [Security Architecture](/docs/security-architecture) for which gate owns what.
+
 Every other option is the runtime server's and is passed through untouched, including `modules`, `config`, `middleware`, and the boot-resolved stores.
 
 ## Compose the fetch runtime

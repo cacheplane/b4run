@@ -1,13 +1,15 @@
+import { once } from "node:events"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { Agent, get } from "node:http"
+import { connect } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import { VERCEL_RUNTIME_ROUTE_SRC } from "../src/lib/build/targets/vercel-compose.js"
-import { serve, shutdownServe } from "../src/lib/dev/serve.js"
+import { type ServeGuard, serve, shutdownServe } from "../src/lib/dev/serve.js"
 import {
   isRuntimeOwnedPath,
   RUNTIME_ROUTE_SEGMENTS,
@@ -97,6 +99,195 @@ describe("serve route split", () => {
 
     expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
     expect((await fetch(new URL("/not-a-runtime-route", handle.url))).status).toBe(404)
+  })
+})
+
+describe("serve guard", () => {
+  test("runs before the split and sees runtime-owned and fallback paths alike", async () => {
+    const guarded: string[] = []
+    const fallbackPaths: string[] = []
+    const handle = await startServe(recordingFallback(fallbackPaths), {
+      guard: (request) => {
+        guarded.push(request.url ?? "")
+        return false
+      },
+    })
+
+    const health = await fetch(new URL("/healthz", handle.url))
+    expect(health.status).toBe(200)
+    const other = await fetch(new URL("/app/page?x=1", handle.url))
+    expect(await other.text()).toBe("fallback")
+
+    expect(guarded).toEqual(["/healthz", "/app/page?x=1"])
+    expect(fallbackPaths).toEqual(["/app/page?x=1"])
+  })
+
+  test("a guard that answers the request stops it reaching the runtime or the fallback", async () => {
+    const fallbackPaths: string[] = []
+    const handle = await startServe(recordingFallback(fallbackPaths), {
+      guard: (request, response) => {
+        if (request.headers["x-internal-token"] === "secret") return false
+        response.writeHead(401, { "content-type": "application/json" })
+        response.end(JSON.stringify({ error: "unauthorized" }))
+        return true
+      },
+    })
+
+    const denied = await fetch(new URL("/healthz", handle.url))
+    expect(denied.status).toBe(401)
+    expect(await denied.json()).toEqual({ error: "unauthorized" })
+
+    const allowed = await fetch(new URL("/healthz", handle.url), {
+      headers: { "x-internal-token": "secret" },
+    })
+    expect(allowed.status).toBe(200)
+
+    const deniedFallback = await fetch(new URL("/app", handle.url))
+    expect(deniedFallback.status).toBe(401)
+    expect(fallbackPaths).toEqual([])
+  })
+
+  test("an async guard is awaited", async () => {
+    const handle = await startServe(undefined, {
+      guard: async (_request, response) => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        response.writeHead(403)
+        response.end()
+        return true
+      },
+    })
+
+    const response = await fetch(new URL("/healthz", handle.url))
+    expect(response.status).toBe(403)
+  })
+
+  test("a guard that throws answers 500 and never reaches the runtime", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(undefined, {
+        guard: () => {
+          throw new Error("guard exploded")
+        },
+      })
+
+      const response = await fetch(new URL("/healthz", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request guard failed" })
+      expect(errorSpy).toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  test("a guard that resolves false through a promise lets the request through", async () => {
+    const handle = await startServe(undefined, { guard: () => Promise.resolve(false) })
+    expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
+  })
+
+  test("a guard that writes headers and returns false fails the request instead of hanging", {
+    timeout: 5000,
+  }, async () => {
+    const handle = await startServe(undefined, {
+      guard: (_request, response) => {
+        response.writeHead(200)
+        response.flushHeaders()
+        return false
+      },
+    })
+    // The flushed headers reach the client, so fetch itself may resolve; the
+    // destroyed socket then fails the body (or fetch) rather than hanging.
+    await expect(
+      fetch(new URL("/healthz", handle.url)).then((response) => response.text()),
+    ).rejects.toThrow()
+  })
+
+  test("a guard that rejects answers 500", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(undefined, {
+        guard: () => Promise.reject(new Error("nope")),
+      })
+      const response = await fetch(new URL("/healthz", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request guard failed" })
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  test("a client that disconnects during an async guard is never dispatched", async () => {
+    const paths: string[] = []
+    let markEntered: () => void = () => undefined
+    const enteredPromise = new Promise<void>((resolve) => {
+      markEntered = resolve
+    })
+    let markSettled: () => void = () => undefined
+    const settledPromise = new Promise<void>((resolve) => {
+      markSettled = resolve
+    })
+    const handle = await startServe(recordingFallback(paths), {
+      guard: async (_request, response) => {
+        markEntered()
+        await once(response, "close")
+        markSettled()
+        return false
+      },
+    })
+    const controller = new AbortController()
+    const pending = fetch(new URL("/app", handle.url), { signal: controller.signal }).catch(
+      () => undefined,
+    )
+    await enteredPromise
+    controller.abort()
+    await pending
+    await settledPromise
+    // Let the guard chain run its continuation before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(paths).toEqual([])
+  })
+})
+
+describe("serve dispatch errors", () => {
+  test("a `//` request target does not throw and reaches the fallback", async () => {
+    const paths: string[] = []
+    const handle = await startServe(recordingFallback(paths))
+    const port = Number(new URL(handle.url).port)
+
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    })
+    let raw: string
+    try {
+      raw = await new Promise<string>((resolve, reject) => {
+        let data = ""
+        socket.on("data", (chunk) => {
+          data += chunk.toString()
+        })
+        socket.on("end", () => resolve(data))
+        socket.on("close", () => resolve(data))
+        socket.on("error", reject)
+      })
+    } finally {
+      socket.destroy()
+    }
+
+    expect(raw.startsWith("HTTP/1.1 200")).toBe(true)
+    expect(paths).toEqual(["//"])
+    expect((await fetch(new URL("/healthz", handle.url))).status).toBe(200)
+  })
+
+  test("a fallback that throws synchronously answers 500", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    try {
+      const handle = await startServe(() => {
+        throw new Error("sync boom")
+      })
+      const response = await fetch(new URL("/app", handle.url))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: "Request handler failed" })
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })
 
@@ -221,6 +412,7 @@ async function startServe(
     readonly onListening?: (url: string) => void
     /** Omit `installSignalHandlers` entirely, to exercise the default. */
     readonly defaultSignalHandlers?: boolean
+    readonly guard?: ServeGuard
   } = {},
 ) {
   const appRoot = await createFixtureApp({
@@ -236,6 +428,7 @@ async function startServe(
     onListening: overrides.onListening ?? (() => undefined),
     port: 0,
     ...(fallback ? { fallback } : {}),
+    ...(overrides.guard ? { guard: overrides.guard } : {}),
   })
   handles.push(handle)
   return handle

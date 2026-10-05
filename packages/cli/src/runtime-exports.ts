@@ -35,6 +35,7 @@ export {
 } from "./lib/dev/runtime-server.js"
 export {
   type ServeFallback,
+  type ServeGuard,
   type ServeHandle,
   type ServeOptions,
   serve,

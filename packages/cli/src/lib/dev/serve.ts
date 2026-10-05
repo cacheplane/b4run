@@ -4,11 +4,33 @@ import type { AddressInfo } from "node:net"
 import { isRuntimeOwnedPath } from "../runtime-routes.js"
 import { createRuntimeRequestListener, type StartRuntimeServerOptions } from "./runtime-server.js"
 
-/** A Node request handler, i.e. what `createServer` takes. */
+/**
+ * A Node request handler, i.e. what `createServer` takes.
+ *
+ * The fallback may receive a `request.url` that does not parse as a URL (for
+ * example `//`), since the runtime split degrades to the raw target rather
+ * than rejecting it.
+ */
 export type ServeFallback = (
   request: IncomingMessage,
   response: ServerResponse,
 ) => void | Promise<void>
+
+/**
+ * A handler that runs before every request, runtime-owned or not.
+ *
+ * Return `true` when the guard answered the request itself (a 401, a 429, a
+ * redirect) and nothing else should run. Return `false` to let the request
+ * continue to the runtime or the fallback. May be async.
+ *
+ * A guard that writes any part of the response must return `true`. A guard
+ * must not consume the request body unless it answers the request. Calling
+ * `setHeader` alone and returning `false` is fine.
+ */
+export type ServeGuard = (
+  request: IncomingMessage,
+  response: ServerResponse,
+) => boolean | Promise<boolean>
 
 export interface ServeOptions extends StartRuntimeServerOptions {
   /**
@@ -21,6 +43,19 @@ export interface ServeOptions extends StartRuntimeServerOptions {
    * own.
    */
   readonly fallback?: ServeFallback
+  /**
+   * Runs ahead of the runtime/fallback split for every request.
+   *
+   * The place for what the whole process requires of a caller before any
+   * route runs: an internal token the proxy in front injects, an origin
+   * check, a rate limit. Health checks included — to exempt the health path,
+   * compare the parsed pathname exactly
+   * (`new URL(request.url ?? "/", "http://localhost").pathname === "/healthz"`),
+   * never with a prefix match on the raw url: the runtime routes on the
+   * normalized path, and `/healthz/../threads` normalizes to `/threads`. A guard that
+   * throws answers 500 and the request goes no further.
+   */
+  readonly guard?: ServeGuard
   /**
    * Handle SIGINT and SIGTERM by running the ordered shutdown. Defaults to
    * `true`: this is an entry point, not a component embedded in a larger host.
@@ -84,6 +119,7 @@ export async function shutdownServe(targets: ServeShutdownTargets): Promise<void
 export async function serve(options: ServeOptions): Promise<ServeHandle> {
   const {
     fallback,
+    guard,
     installSignalHandlers = true,
     onListening = defaultOnListening,
     ...runtimeOptions
@@ -91,14 +127,41 @@ export async function serve(options: ServeOptions): Promise<ServeHandle> {
 
   const runtime = await createRuntimeRequestListener(runtimeOptions)
 
-  const server = createServer((request, response) => {
+  const dispatch = (request: IncomingMessage, response: ServerResponse): void => {
     if (fallback === undefined || isRuntimeOwnedPath(pathnameOf(request.url))) {
       runtime.listener(request, response)
       return
     }
-    void Promise.resolve(fallback(request, response)).catch((error: unknown) => {
-      failFallback(response, error)
-    })
+    void Promise.resolve()
+      .then(() => fallback(request, response))
+      .catch((error: unknown) => {
+        failRequest(response, error, "Request handler failed")
+      })
+  }
+
+  // A request waiting in the guard is not counted as active in the runtime, so
+  // a close() during the wait is not drained; runtime-owned paths then answer
+  // the closed-runtime response.
+  const server = createServer((request, response) => {
+    if (guard === undefined) {
+      dispatch(request, response)
+      return
+    }
+    void Promise.resolve()
+      .then(() => guard(request, response))
+      .then((handled) => {
+        if (!handled && response.headersSent && !response.writableEnded) {
+          // A guard that wrote headers and returned false is misuse; fail it
+          // loudly rather than leave the request hanging.
+          response.destroy()
+          return
+        }
+        if (handled || response.destroyed || response.writableEnded || response.headersSent) return
+        dispatch(request, response)
+      })
+      .catch((error: unknown) => {
+        failRequest(response, error, "Request guard failed")
+      })
   })
 
   try {
@@ -155,19 +218,26 @@ function defaultOnListening(url: string): void {
 
 /** The request's pathname, with the query string and any absolute-form host removed. */
 function pathnameOf(requestUrl: string | undefined): string {
-  return new URL(requestUrl ?? "/", "http://localhost").pathname
+  const raw = requestUrl ?? "/"
+  try {
+    return new URL(raw, "http://localhost").pathname
+  } catch {
+    // e.g. `//`, which Node accepts as a request target but URL rejects.
+    const query = raw.indexOf("?")
+    return query === -1 ? raw : raw.slice(0, query)
+  }
 }
 
-function failFallback(response: ServerResponse, error: unknown): void {
+function failRequest(response: ServerResponse, error: unknown, message: string): void {
   console.error(error instanceof Error ? error.stack : error)
   if (response.headersSent) {
-    // The fallback already committed to a status; the only honest signal left
+    // The handler already committed to a status; the only honest signal left
     // is a truncated body.
     response.destroy()
     return
   }
   response.writeHead(500, { "content-type": "application/json" })
-  response.end(JSON.stringify({ error: "Request handler failed" }))
+  response.end(JSON.stringify({ error: message }))
 }
 
 /**
