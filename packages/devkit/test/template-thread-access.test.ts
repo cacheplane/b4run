@@ -129,7 +129,11 @@ describe("scaffolded thread-access policy", () => {
     const auth = read("app-navlog", "src/auth.ts")
     // No proxy token, no per-visitor principal: one local principal owns
     // everything, which is what `b4 dev` and the harness lanes run with.
-    expect(auth).toContain("if (!process.env.B4_INTERNAL_TOKEN) return")
+    expect(auth).toContain("const token = process.env.B4_INTERNAL_TOKEN")
+    expect(auth).toContain("if (!token) return")
+    // With a token configured, the visitor header counts only beside it, so
+    // the policy holds even without the example's main.mjs in front.
+    expect(auth).toContain('sameSecret(headers["x-internal-token"], token)')
     expect(auth).toContain("LOCAL_PRINCIPAL")
     // The route middleware resolves the caller through the same module.
     const middleware = read("app-navlog", "src/middleware.ts")

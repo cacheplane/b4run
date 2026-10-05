@@ -173,17 +173,21 @@ describe("limitBucketFor", () => {
   test("runs draw on the tight bucket, reads on the loose one, everything else on none", () => {
     expect(limitBucketFor("copilotkit", "POST")).toBe("run")
     expect(limitBucketFor("b4", "GET")).toBe("read")
-    expect(limitBucketFor("copilotkit", "GET")).toBeUndefined()
+    expect(limitBucketFor("copilotkit", "GET")).toBe("read")
     expect(limitBucketFor("b4", "POST")).toBeUndefined()
   })
 })
 
 describe("clientIp", () => {
-  test("is the first forwarded hop, then X-Real-IP, then one shared unknown key", () => {
+  test("is X-Real-IP, then the first forwarded hop, then one shared unknown key", () => {
+    expect(
+      clientIp(
+        new Headers({ "x-real-ip": "198.51.100.2", "x-forwarded-for": "203.0.113.7, 10.0.0.1" }),
+      ),
+    ).toBe("198.51.100.2")
     expect(clientIp(new Headers({ "x-forwarded-for": "203.0.113.7, 10.0.0.1" }))).toBe(
       "203.0.113.7",
     )
-    expect(clientIp(new Headers({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2")
     expect(clientIp(new Headers())).toBe("unknown")
   })
 })

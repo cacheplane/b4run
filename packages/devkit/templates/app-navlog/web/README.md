@@ -149,10 +149,14 @@ ships active in `server/src/thread-access.ts`, with the caller resolved in
 `server/src/auth.ts`. Locally it is inert: with no `B4_INTERNAL_TOKEN` one local
 principal owns every thread. Set `B4_INTERNAL_TOKEN` on both packages and the
 proxy guards in `app/lib/proxy-guard.ts` turn on: the proxy forwards the token
-and a per-browser visitor id, and the server refuses calls without the token
-and makes each thread owned by the visitor that created it. Before you expose
-this beyond your own machine, replace the visitor id in `server/src/auth.ts`
-with however you authenticate a caller.
+and a per-browser visitor id, route runs and thread routes are refused without
+the token, and each thread is owned by the visitor that created it. The policy
+gates only those: `/healthz` and the `/memory/*` review routes still answer
+without the token. The B4.run repository's `examples/navlog` adds a production
+entry (`main.mjs`) that requires the token on the whole process. Before you
+expose this beyond your own machine, guard the whole server the same way, and
+replace the visitor id in `server/src/auth.ts` with however you authenticate a
+caller.
 
 ## Known limits
 

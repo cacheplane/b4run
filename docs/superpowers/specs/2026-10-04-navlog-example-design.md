@@ -310,11 +310,12 @@ gain, in order:
 Long-term memory stays shared across visitors: memory scope is resolved at
 route preparation without the request principal, and per-visitor memory needs a
 framework seam that passes middleware context into `resolveScope` (filed as its
-own issue). Visitors may propose memories, and the candidates are visible to
+own issue, cacheplane/b4run#940). Visitors may propose memories, and the candidates are visible to
 every visitor; only a request carrying the demo-owner cookie (an HMAC of
 `B4_DEMO_ADMIN_TOKEN`, set by `/api/admin`) may approve or reject one. The daily
-run quota is folded into the per-visitor and per-IP token buckets for now. `B4_SERVER_URL`, the token and the
-Upstash credentials are Vercel project secrets.
+run quota is folded into the per-visitor and per-IP token buckets for now. `B4_SERVER_URL`, the token, the
+Upstash credentials and `B4_DEMO_ADMIN_TOKEN` (at least 32 characters; shorter
+disables the owner route) are Vercel project secrets.
 
 ### 6.4 Verification
 

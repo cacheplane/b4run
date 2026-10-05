@@ -4,7 +4,14 @@
   "protectedPaths": [
     ".github/**",
     "apps/web/vercel.json",
-    "apps/web/scripts/vercel-ignore-build.sh"
+    "apps/web/scripts/vercel-ignore-build.sh",
+    "examples/navlog/web/vercel.json",
+    "examples/navlog/web/scripts/vercel-ignore-build.sh"
   ],
-  "runFromBranchPaths": ["apps/web/vercel.json", "apps/web/scripts/vercel-ignore-build.sh"]
+  "runFromBranchPaths": [
+    "apps/web/vercel.json",
+    "apps/web/scripts/vercel-ignore-build.sh",
+    "examples/navlog/web/vercel.json",
+    "examples/navlog/web/scripts/vercel-ignore-build.sh"
+  ]
 }

@@ -27,7 +27,16 @@ async function bootAndExit(
 ): Promise<{ code: number | null; stderr: string }> {
   const proc = spawn(process.execPath, ["main.mjs"], {
     cwd: appRoot,
-    env: { ...process.env, PORT: "0", HOST: "127.0.0.1", B4_ALLOW_UNGUARDED: "", ...env },
+    env: {
+      ...process.env,
+      PORT: "0",
+      HOST: "127.0.0.1",
+      B4_ALLOW_UNGUARDED: "",
+      RAILWAY_ENVIRONMENT: "",
+      RAILWAY_ENVIRONMENT_NAME: "",
+      RAILWAY_ENVIRONMENT_ID: "",
+      ...env,
+    },
     stdio: ["ignore", "ignore", "pipe"],
   })
   let stderr = ""
@@ -46,6 +55,46 @@ describe("main.mjs refuses to boot unguarded as a deployment", () => {
     })
     expect(code).not.toBe(0)
     expect(stderr).toContain("Refusing to boot: B4_INTERNAL_TOKEN is not set")
+  })
+
+  it("exits on Railway without a token, whichever environment variable says so", async () => {
+    for (const name of [
+      "RAILWAY_ENVIRONMENT",
+      "RAILWAY_ENVIRONMENT_NAME",
+      "RAILWAY_ENVIRONMENT_ID",
+    ]) {
+      const { code, stderr } = await bootAndExit({
+        B4_INTERNAL_TOKEN: "",
+        DATABASE_URL: "",
+        [name]: "production",
+      })
+      expect(code).not.toBe(0)
+      expect(stderr).toContain("Refusing to boot: B4_INTERNAL_TOKEN is not set")
+    }
+  })
+
+  it("boots unguarded on Railway when B4_ALLOW_UNGUARDED=1 says so", async () => {
+    const proc = spawn(process.execPath, ["main.mjs"], {
+      cwd: appRoot,
+      env: {
+        ...process.env,
+        PORT: "0",
+        HOST: "127.0.0.1",
+        B4_INTERNAL_TOKEN: "",
+        DATABASE_URL: "",
+        RAILWAY_ENVIRONMENT: "production",
+        B4_ALLOW_UNGUARDED: "1",
+      },
+      stdio: ["ignore", "pipe", "inherit"],
+    })
+    try {
+      const listening = await waitForListening(proc)
+      const res = await fetch(new URL("/healthz", listening))
+      expect(res.status).toBe(200)
+    } finally {
+      proc.kill("SIGTERM")
+      if (proc.exitCode === null) await once(proc, "exit")
+    }
   })
 
   it("exits when the token is shorter than 32 characters", async () => {

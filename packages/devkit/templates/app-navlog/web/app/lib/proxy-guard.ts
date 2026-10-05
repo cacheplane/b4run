@@ -78,20 +78,26 @@ export function limitBucketFor(
   method: string,
 ): LimitBucket | undefined {
   if (surface === "copilotkit" && method === "POST") return "run"
-  if (surface === "b4" && method === "GET") return "read"
+  // `/api/copilotkit/info` (a GET) reads the route's capabilities upstream.
+  if (method === "GET") return "read"
   return undefined
 }
 
 /**
- * The client IP the limiter keys on: the first `X-Forwarded-For` hop (the one
- * the platform's edge appended for the caller), else `X-Real-IP`, else one
- * shared "unknown" key.
+ * The client IP the limiter keys on: `X-Real-IP`, else the first
+ * `X-Forwarded-For` hop, else one shared "unknown" key.
+ *
+ * Trust assumption: this app runs behind Vercel's edge, which overwrites
+ * `X-Forwarded-For` and sets `X-Real-IP` to the connecting client, so a caller
+ * cannot choose its own key. Behind a proxy that passes client-supplied
+ * forwarding headers through, these values are forgeable and the IP key is
+ * only as good as that proxy; the visitor key still applies.
  */
 export function clientIp(headers: Headers): string {
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-  if (forwarded) return forwarded
   const real = headers.get("x-real-ip")?.trim()
-  return real ? real : "unknown"
+  if (real) return real
+  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  return forwarded ? forwarded : "unknown"
 }
 
 /**

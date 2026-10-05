@@ -289,7 +289,7 @@ from changed. `factory/*` branches never build.
 | `B4_INTERNAL_TOKEN` | The same secret as the server's, at least 32 characters. |
 | `B4_DEMO_ORIGINS` | The site's own origin(s), comma-separated. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | The rate limiter's store. |
-| `B4_DEMO_ADMIN_TOKEN` | The demo owner's secret: long and random (`openssl rand -base64 32`). |
+| `B4_DEMO_ADMIN_TOKEN` | The demo owner's secret: long and random (`openssl rand -base64 32`). Shorter than 32 characters and the owner route stays a 404. |
 
 **The guards** (`app/lib/proxy-guard.ts`, applied by both proxy routes before anything
 is forwarded):
@@ -301,7 +301,10 @@ is forwarded):
    conversations.
 3. **Rate limit.** Counted twice, per visitor id and per client IP, so clearing the
    cookie does not reset it. A run (a CopilotKit POST) draws on a tight bucket, ten a
-   minute; a read (an `/api/b4` GET) on a loose one, 120 a minute. Without Upstash, or
+   minute; a read (any GET, including CopilotKit's `/info`) on a loose one, 120 a
+   minute. The IP is `X-Real-IP`, else the first `X-Forwarded-For` hop, which Vercel's
+   edge sets; behind a proxy that passes client-supplied forwarding headers through,
+   the IP key is forgeable and only the visitor key holds. Without Upstash, or
    when it errors, the limiter is skipped: the proxy fails open rather than take the
    demo down.
 4. **Token.** Every upstream call carries `B4_INTERNAL_TOKEN`; the server refuses any

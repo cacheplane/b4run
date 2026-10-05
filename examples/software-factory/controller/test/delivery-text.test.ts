@@ -58,6 +58,8 @@ describe("the delivery guard", () => {
     expect(RUN_FROM_BRANCH_PATHS).toEqual([
       "apps/web/vercel.json",
       "apps/web/scripts/vercel-ignore-build.sh",
+      "examples/navlog/web/vercel.json",
+      "examples/navlog/web/scripts/vercel-ignore-build.sh",
     ])
     for (const path of RUN_FROM_BRANCH_PATHS) expect(isProtectedPath(path)).toBe(true)
     expect(isRunFromBranchPath(".github/workflows/ci.yml")).toBe(false)
@@ -70,6 +72,8 @@ describe("the delivery guard", () => {
       ".github/**",
       "apps/web/vercel.json",
       "apps/web/scripts/vercel-ignore-build.sh",
+      "examples/navlog/web/vercel.json",
+      "examples/navlog/web/scripts/vercel-ignore-build.sh",
     ])
     for (const path of [
       ".github",

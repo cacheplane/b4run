@@ -104,9 +104,12 @@ repository root), and set the config-as-code path to
 | `B4_PG_SCHEMA`, `B4_PG_TABLE_PREFIX` | Optional; default `public` and `b4`. |
 | `B4_ALLOW_UNGUARDED` | Leave unset. See below. |
 
-**Fail closed.** When `DATABASE_URL` or `RAILWAY_ENVIRONMENT` is set and
+**Fail closed.** When `DATABASE_URL` or any of `RAILWAY_ENVIRONMENT`,
+`RAILWAY_ENVIRONMENT_NAME` and `RAILWAY_ENVIRONMENT_ID` is set and
 `B4_INTERNAL_TOKEN` is not, `main.mjs` refuses to boot rather than serve every
-runtime route to anyone who finds the URL. Set `B4_ALLOW_UNGUARDED=1` only if an
+runtime route to anyone who finds the URL. `src/auth.ts` checks the token too,
+so route runs and thread routes refuse an untokened call even without
+`main.mjs` in front; `main.mjs` is what also covers `/memory/*`. Set `B4_ALLOW_UNGUARDED=1` only if an
 unguarded server is really what you mean.
 
 **Visitors.** Behind the proxy each browser is its own principal: the proxy

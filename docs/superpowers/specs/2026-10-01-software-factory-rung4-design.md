@@ -697,7 +697,12 @@ ignore script. So the candidate must never be able to change them. A constant in
 .github/**
 apps/web/vercel.json
 apps/web/scripts/vercel-ignore-build.sh
+examples/navlog/web/vercel.json
+examples/navlog/web/scripts/vercel-ignore-build.sh
 ```
+
+The navlog demo's Vercel project (added later) builds from a branch the same way, so its two
+files join the list; its ignore script carries the same `factory/` check.
 
 Enforced three times, by the mechanisms that already exist (§2.3):
 

@@ -33,11 +33,16 @@ const databaseUrl = process.env.DATABASE_URL || undefined
 // Fail closed. A deployment (a Postgres store, or Railway) without the token
 // would serve every runtime route to anyone who finds its URL, so it refuses to
 // boot unless the operator says, explicitly, that an unguarded server is meant.
-const deployed = databaseUrl !== undefined || Boolean(process.env.RAILWAY_ENVIRONMENT)
+const onRailway = [
+  "RAILWAY_ENVIRONMENT",
+  "RAILWAY_ENVIRONMENT_NAME",
+  "RAILWAY_ENVIRONMENT_ID",
+].some((name) => Boolean(process.env[name]))
+const deployed = databaseUrl !== undefined || onRailway
 if (token === undefined && deployed && process.env.B4_ALLOW_UNGUARDED !== "1") {
   console.error(
     "Refusing to boot: B4_INTERNAL_TOKEN is not set, but this looks like a deployment " +
-      "(DATABASE_URL or RAILWAY_ENVIRONMENT is set). Set B4_INTERNAL_TOKEN to the secret the " +
+      "(DATABASE_URL or a RAILWAY_ENVIRONMENT variable is set). Set B4_INTERNAL_TOKEN to the secret the " +
       "web proxy sends (openssl rand -base64 32), or B4_ALLOW_UNGUARDED=1 to serve unguarded.",
   )
   process.exit(1)

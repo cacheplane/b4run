@@ -9,12 +9,20 @@
  *
  * Behind the deployed proxy (`B4_INTERNAL_TOKEN` set), the web proxy mints a
  * visitor id into an HTTP-only cookie and forwards it as `X-B4-Visitor` on
- * every upstream call. The guard in `main.mjs` has already proven the request
- * came through that proxy (it carries the shared token), so the header is
- * trustworthy there and nowhere else. In local development (no token) there is
- * no proxy and one local principal owns everything, which is what `b4 dev`, the
- * harness lanes and the tests expect.
+ * every upstream call, together with the shared token as `X-Internal-Token`.
+ * The visitor header is trusted only on a request that also carries the token,
+ * which this module checks itself, so route runs (the middleware) and thread
+ * routes (the thread-access policy) refuse an untokened call even when the app
+ * runs the plain `.b4/build/server.mjs`. Those two are all it gates: `/healthz`
+ * and the `/memory/*` review routes answer without a principal. The example
+ * repository's `main.mjs` guards the whole process with the same token.
+ *
+ * In local development (no token) there is no proxy and one local principal
+ * owns everything, which is what `b4 dev`, the harness lanes and the tests
+ * expect.
  */
+
+import { timingSafeEqual } from "node:crypto"
 
 export interface Principal {
   readonly id: string
@@ -41,8 +49,18 @@ const VISITOR_ID = /^v-[A-Za-z0-9_-]{8,64}$/
 export async function principalOf(
   headers: Readonly<Record<string, string>>,
 ): Promise<Principal | undefined> {
-  if (!process.env.B4_INTERNAL_TOKEN) return await Promise.resolve(LOCAL_PRINCIPAL)
+  const token = process.env.B4_INTERNAL_TOKEN
+  if (!token) return await Promise.resolve(LOCAL_PRINCIPAL)
+  if (!sameSecret(headers["x-internal-token"], token)) return undefined
   const id = headers["x-b4-visitor"]
   if (id === undefined || !VISITOR_ID.test(id)) return undefined
   return { id, isAdmin: false, org: "demo" }
+}
+
+/** Constant-time comparison; unequal lengths are refused before comparing. */
+function sameSecret(presented: string | undefined, expected: string): boolean {
+  if (presented === undefined) return false
+  const a = Buffer.from(presented)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
