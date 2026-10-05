@@ -76,7 +76,7 @@ describe("converter persists a complete b4_step", () => {
     })
   })
 
-  test("a branded denial is an error ToolMessage with a failed step carrying the decision the gate reported", async () => {
+  test("a branded denial is a denied step on a success ToolMessage, carrying the decision the gate reported", async () => {
     const reason = "[B4_E3001] Permission denied by user: tool deployProd"
     const result = (await run({
       name: "deployProd",
@@ -87,24 +87,24 @@ describe("converter persists a complete b4_step", () => {
       },
     })) as ToolMessage
     expect(result).toBeInstanceOf(ToolMessage)
-    expect(result.status).toBe("error")
+    expect(result.status).toBe("success")
     expect(result.content).toBe(reason)
     const step = result.additional_kwargs[B4_STEP_KEY] as Record<string, unknown>
-    expect(step).toMatchObject({ status: "failed", icon: "run", decision: "deny" })
+    expect(step).toMatchObject({ status: "denied", icon: "run", decision: "deny" })
     expect(step).not.toHaveProperty("label")
     expect(step).not.toHaveProperty("sources")
   })
 
-  test("a branded denial on a display-less tool is still a failed error ToolMessage", async () => {
+  test("a branded denial on a display-less tool is still a denied step on a success ToolMessage", async () => {
     const result = (await run({
       name: "plain",
       run: async () => toolDenial("Blocked: nope"),
     })) as ToolMessage
     expect(result).toBeInstanceOf(ToolMessage)
-    expect(result.status).toBe("error")
+    expect(result.status).toBe("success")
     expect(result.content).toBe("Blocked: nope")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
-      status: "failed",
+      status: "denied",
       startedAt: expect.any(String),
       settledAt: expect.any(String),
     })
@@ -220,7 +220,7 @@ describe("converter persists a complete b4_step", () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  test("the streamed steps are unchanged: running, then completed only on success", async () => {
+  test("the streamed steps are unchanged: running, then completed on success, denied on a denial, nothing on a throw", async () => {
     const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
     const spy = vi.fn()
     vi.mocked(dispatchCustomEvent).mockImplementation(spy)
@@ -234,6 +234,7 @@ describe("converter persists a complete b4_step", () => {
     await run({ name: "s", display, run: async () => toolDenial("no") })
     expect(spy.mock.calls.map((call) => call[1])).toEqual([
       { tool_call_id: "call_1", status: "running", icon: "search" },
+      { tool_call_id: "call_1", status: "denied", icon: "search" },
     ])
     spy.mockClear()
     await run({
@@ -305,12 +306,12 @@ describe("the approval gate's answer reaches the persisted step", () => {
     })
   })
 
-  test("deny: an error ToolMessage with a failed step that records the decision", async () => {
+  test("deny: a success ToolMessage with a denied step that records the decision", async () => {
     const result = await gatedCall("deny")
-    expect(result.status).toBe("error")
+    expect(result.status).toBe("success")
     expect(result.content).toBe("[B4_E3001] Permission denied by user: tool deployProd")
     const step = result.additional_kwargs[B4_STEP_KEY] as Record<string, unknown>
-    expect(step).toMatchObject({ status: "failed", icon: "run", decision: "deny" })
+    expect(step).toMatchObject({ status: "denied", icon: "run", decision: "deny" })
     expect(step).not.toHaveProperty("label")
   })
 })

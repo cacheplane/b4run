@@ -36,6 +36,15 @@ describe("persisted turn stamps", () => {
     })
     expect(
       readPersistedStep({
+        status: "denied",
+        startedAt: "2026-10-05T00:00:00.000Z",
+        settledAt: "2026-10-05T00:00:01.000Z",
+        icon: "run",
+        decision: "deny",
+      }),
+    ).toMatchObject({ status: "denied", decision: "deny" })
+    expect(
+      readPersistedStep({
         status: "failed",
         startedAt: "2026-10-05T00:00:00.000Z",
         settledAt: "2026-10-05T00:00:01.000Z",

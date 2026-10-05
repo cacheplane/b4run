@@ -120,7 +120,7 @@ describe("turnsFromState", () => {
     ])
   })
 
-  test("a failed step, a denied decision, reasoning blocks and a plan snapshot", () => {
+  test("a denied step, its decision, reasoning blocks and a plan snapshot", () => {
     const call = { id: "c1", name: "runBash", args: { command: "node x" }, type: "tool_call" }
     const todos = [
       { content: "a", status: "completed" },
@@ -150,20 +150,13 @@ describe("turnsFromState", () => {
         [
           human("u1", "go"),
           ai("a1", [{ type: "thinking", thinking: "plan it" }], [call]),
-          toolMsg(
-            "c1",
-            "runBash",
-            "[B4_E3001] Permission denied by user: command",
-            {
-              status: "failed",
-              icon: "run",
-              decision: "deny",
-              startedAt: iso(1),
-              settledAt: iso(2),
-            },
-            {},
-            "error",
-          ),
+          toolMsg("c1", "runBash", "[B4_E3001] Permission denied by user: command", {
+            status: "denied",
+            icon: "run",
+            decision: "deny",
+            startedAt: iso(1),
+            settledAt: iso(2),
+          }),
         ],
         { todos, metadata: { "b4:turn": { status: "done", endedAt: iso(3) } } },
       ),
@@ -177,11 +170,12 @@ describe("turnsFromState", () => {
     expect(turn.steps[0]).toMatchObject({ kind: "plan", todos })
     expect(turn.steps[2]).toMatchObject({
       kind: "tool",
-      status: "failed",
+      status: "denied",
       icon: "run",
       result: "[B4_E3001] Permission denied by user: command",
     })
-    expect(turn.failed).toBe(1)
+    expect(turn.steps[2]).not.toHaveProperty("label")
+    expect(turn.failed).toBe(0)
   })
 
   test("a root writeTodos call becomes the plan where live showed it: after the message's other calls, its own frames dropped", () => {

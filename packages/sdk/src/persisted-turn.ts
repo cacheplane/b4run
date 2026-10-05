@@ -10,9 +10,13 @@ export const B4_TURN_METADATA_KEY = "b4:turn"
 /** How a permission gate was answered for a call. */
 export type GateDecision = "once" | "always" | "deny"
 
-/** The step a ToolMessage carries for a restored thread (spec §2.1). Times are ISO strings. */
+/**
+ * The step a ToolMessage carries for a restored thread (spec §2.1). Times are
+ * ISO strings. `denied` is a call a gate blocked, persisted on a `success`
+ * ToolMessage: not a failure, never a success label.
+ */
 export interface PersistedStep {
-  readonly status: "completed" | "failed"
+  readonly status: "completed" | "failed" | "denied"
   readonly icon?: ToolDisplayIcon
   readonly label?: string
   readonly sources?: readonly ToolDisplaySource[]
@@ -64,7 +68,9 @@ function readSources(value: unknown): readonly ToolDisplaySource[] | undefined {
 /** A `b4_step` stamp, or undefined when its identity fields are missing. Invalid optional fields are dropped. */
 export function readPersistedStep(value: unknown): PersistedStep | undefined {
   if (!isRecord(value)) return undefined
-  if (value.status !== "completed" && value.status !== "failed") return undefined
+  if (value.status !== "completed" && value.status !== "failed" && value.status !== "denied") {
+    return undefined
+  }
   if (!isIsoDate(value.startedAt) || !isIsoDate(value.settledAt)) return undefined
   const sources = readSources(value.sources)
   return {

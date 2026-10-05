@@ -167,10 +167,12 @@ test("without returnDirect the same tool hands control back to the model", async
   expect(last?.content).toBe("Here is your invoice.")
 })
 
-test("a denied returnDirect call goes back to the model instead of ending the run", async () => {
-  // On main the denial text ended the run as the final answer. The denial is
-  // now a `status: "error"` ToolMessage, and `endsOnReturnDirect` ends only
-  // on success, so the model reads the denial like any failed call.
+test("a denied returnDirect call ends the run with the denial as its result (a denial is not a failure)", async () => {
+  // A denial is a `success` ToolMessage with a `denied` step (#946/#951):
+  // nothing threw and the policy or the user answered, so `endsOnReturnDirect`
+  // ends the run on it as it always has, and the denial text is the final
+  // answer. Only an `error` result (a thrown tool, bad arguments) goes back
+  // to the model.
   script = [callsRender("call_1", "Table"), new AIMessage("I am not allowed to render that.")]
   const deniesEverything = {
     mode: "interactive" as const,
@@ -182,17 +184,16 @@ test("a denied returnDirect call goes back to the model instead of ending the ru
 
   const { messages, toolStatuses } = await runTurn([render])
 
-  expect(modelCalls).toBe(2)
-  expect(toolStatuses).toEqual(["error"])
+  expect(modelCalls).toBe(1)
+  expect(toolStatuses).toEqual(["success"])
   const denial = messages.filter(isToolMessage)[0]
   expect(denial?.content).toBe("[B4_E3001] Permission denied by user: tool render")
-  expect(denial?.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "failed" })
-  // The second model call was shown the denial ToolMessage.
-  const shown = seenByModel[1]?.filter(isToolMessage) ?? []
-  expect(shown.map((m) => [m.tool_call_id, m.status, String(m.content)])).toEqual([
-    ["call_1", "error", "[B4_E3001] Permission denied by user: tool render"],
-  ])
+  // A static deny rule carries no human decision, so the step records none.
+  expect(denial?.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "denied" })
+  expect(denial?.additional_kwargs[B4_STEP_KEY]).not.toHaveProperty("decision")
+  // No second model call: the denial ToolMessage is the run's last message.
+  expect(seenByModel[1]).toBeUndefined()
   const last = messages.at(-1)
-  expect(last !== undefined && isAIMessage(last)).toBe(true)
-  expect(last?.content).toBe("I am not allowed to render that.")
+  expect(last !== undefined && isToolMessage(last)).toBe(true)
+  expect(last).toBe(denial)
 })

@@ -601,8 +601,11 @@ function synthesiseNamespace(
             ...(step?.sources !== undefined ? { sources: step.sources } : {}),
           },
         }) as BaseEvent
-      // Live order: a `completed` step precedes its result; a `failed` step follows it.
-      if (step !== undefined && !failed) push(s, settledAt, stepEvent("completed"), owner)
+      // Live order: a `completed` (or `denied`) step precedes its result; a
+      // `failed` step follows it. A denial is not a failure (#946).
+      if (step !== undefined && !failed) {
+        push(s, settledAt, stepEvent(step.status === "denied" ? "denied" : "completed"), owner)
+      }
       const result = {
         type: EventType.TOOL_CALL_RESULT,
         toolCallId,
