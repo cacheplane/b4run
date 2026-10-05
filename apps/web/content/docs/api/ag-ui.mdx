@@ -103,6 +103,11 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 |---|---|
 | `reduceTurns` | Fold one AG-UI event into the turns of a thread: steps in order, nested subagent turns, the plan, reasoning, prose, and approvals attached to the calls they gate. Pure given `now`; an event that changes nothing returns the same state. |
 | `EMPTY_TURNS` | The initial turns state. |
+| `turnsFromState` | Rebuild a thread's turns from its checkpoint history and parked interrupts: the AG-UI events the stream would have carried are synthesised and folded through `reduceTurns`, so a restored view matches a live one. Never throws; ignored or missing stamps are named in `warnings`. |
+| `ThreadStateForTurns` | What `GET /threads/:id/turns` assembles: thread id and status, the root namespace's history, child namespaces, and parked interrupts. |
+| `CheckpointForTurns` | One decoded checkpoint: id, timestamp, metadata, and `values.messages`/`values.todos` as serialized LangChain envelopes. |
+| `PendingInterruptForTurns` | A parked interrupt as `/pending_interrupts` returns it, with its grant. |
+| `TurnsFromStateResult` | The rebuilt `TurnsView` plus warnings. |
 | `TurnsView` | The thread id and its turns. |
 | `TurnView` | One turn: its run id, status, timing, steps, prose, unattached approvals, error and failure count (nested subagents included). |
 | `StepView` | A tool, plan, reasoning or subagent step. |
