@@ -3578,7 +3578,7 @@ interface ThreadReadOptions {
  * under `operation`, then the parking route's identity and its middleware
  * (409 `thread_route_unknown`, or the middleware's own rejection). Returns
  * the row on success so the handler can read its status. Shared by
- * `GET /pending_interrupts` and `GET /turns`, which must stay byte-identical
+ * `GET /pending_interrupts` and `GET /turns`, which must answer every refusal with the same bytes
  * on every refusal: `/turns` serves the parked prompt and its grant too, so a
  * looser gate on either would be the wider door.
  */
