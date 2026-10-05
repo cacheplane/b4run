@@ -461,6 +461,20 @@ async function installTemplateTypegenDependencies(appRoot: string): Promise<void
       "export const config = (value) => value\n",
       "export function config<T>(value: T): T\n",
     ),
+    // The navlog config's memory backend switch: SQLite unless DATABASE_URL is
+    // set, so neither factory is called here, but both modules must resolve.
+    createModuleStub(
+      join(modulesDir, "@b4run", "langchain"),
+      "@b4run/langchain",
+      "export const openaiEmbedder = (options) => ({ options })\n",
+      "export function openaiEmbedder(options?: unknown): unknown\n",
+    ),
+    createModuleStub(
+      join(modulesDir, "@b4run", "memory-pgvector"),
+      "@b4run/memory-pgvector",
+      "export const pgvectorMemoryStore = (options) => ({ options })\n",
+      "export function pgvectorMemoryStore(options: unknown): unknown\n",
+    ),
     createModuleStub(
       join(modulesDir, "@b4run", "sandbox"),
       "@b4run/sandbox",
