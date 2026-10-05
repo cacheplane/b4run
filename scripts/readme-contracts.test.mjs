@@ -458,10 +458,10 @@ npm create b4-app@latest my-agent
 \`\`\``
 const canonicalProductLoopBlock = `<p align="center">
   <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing a generated flight-planner workspace, a deterministic test, and the B4.run Workbench" width="900">
+    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`
-const canonicalQualifiedCredentials = `Credentials are provider-specific: the published navlog starter's OpenAI live
+const canonicalQualifiedCredentials = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
 key.`
 const canonicalFinalCta = `Ready to start?
@@ -1505,7 +1505,7 @@ describe("validateRootReadme", () => {
       "unlinked product-loop GIF",
       actualRootReadme.replace(
         canonicalProductLoopBlock,
-        '<p align="center">\n  <img src="docs/brand/product-loop.gif" alt="Animation showing a generated flight-planner workspace, a deterministic test, and the B4.run Workbench" width="900">\n</p>',
+        '<p align="center">\n  <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">\n</p>',
       ),
     ],
     [
@@ -1518,7 +1518,7 @@ describe("validateRootReadme", () => {
     [
       "wrong product-loop alt text",
       actualRootReadme.replace(
-        "Animation showing a generated flight-planner workspace, a deterministic test, and the B4.run Workbench",
+        "Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench",
         "B4.run product loop",
       ),
     ],

@@ -445,7 +445,7 @@ export const DOCS_SEO_ENTRIES = [
     path: "/docs/recipes/flight-planner-web-ui",
     title: "Flight Planner Web UI",
     description:
-      "Connect the flight-planner demo to CopilotKit over AG-UI with thread hydration, activity cards, the navlog sheet and route map, and approval prompts.",
+      "Connect the flight-planner demo to CopilotKit over AG-UI with thread hydration, image attachments, plan and subagent cards, and memory-candidate review.",
     sourcePath: "apps/web/content/docs/recipes/flight-planner-web-ui.mdx",
   },
   {

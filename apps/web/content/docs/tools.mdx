@@ -73,7 +73,7 @@ A subagent gets the shared `src/tools/*` plus its own route-local `tools/*.ts`. 
 
 Since shared tools reach children by default, deny any sensitive one a child shouldn't have:
 
-```ts title="src/app/navlog/subagents/researcher/index.ts"
+```ts title="src/app/navlog/subagents/performance/index.ts"
 // deployProd is authored in src/tools/, so deny it explicitly for this child.
 export default agent({
   model: "gpt-5-mini",

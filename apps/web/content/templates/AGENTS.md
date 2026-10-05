@@ -63,15 +63,15 @@ export default agent({
 ## Tool Authoring
 
 ```ts
-// src/app/navlog/tools/computeNavlog.ts
-export default async (
-  input: { readonly from: string; readonly to: string; readonly altitudeFt: number },
-  ctx: { signal: AbortSignal; middleware?: Readonly<Record<string, unknown>> },
-) => {
-  return {
-    legs: [{ from: input.from, to: input.to, distanceNm: 68, eteMin: 41 }],
-    totals: { distanceNm: 68, eteMin: 41, fuelGal: 6.2 },
-  }
+// src/tools/computeNavlog.ts (shared; the navlog scaffold uses this location)
+import type { B4ToolContext } from "@b4run/sdk"
+import { computeNavlog, type Navlog, type NavlogInput } from "../lib/navlog.js"
+
+// NavlogInput: { aircraft, altitudeFt, departureTimeUtc, waypoints, winds }
+// KSTP → KRST at 4500 ft returns totals of 66 nm, 33 min and 5.5 gal.
+export default async (input: NavlogInput, ctx: B4ToolContext): Promise<Navlog> => {
+  ctx.signal.throwIfAborted()
+  return computeNavlog(input)
 }
 ```
 
@@ -118,9 +118,19 @@ export async function workflow(
   ctx: RuntimeContext<RouteTools<"/navlog">>,
 ) {
   // ctx.signal is the request-scoped AbortSignal.
-  // ctx.tools.computeNavlog is fully typed from the route's tools/ directory.
-  const navlog = await ctx.tools.computeNavlog({ from: "KSTP", to: "KRST", altitudeFt: 4500 })
-  const { distanceNm, eteMin, fuelGal } = navlog.totals
+  // ctx.tools.computeNavlog is fully typed from the shared src/tools/ directory.
+  const waypoints = [
+    await ctx.tools.lookupAirport({ id: "KSTP" }),
+    await ctx.tools.lookupAirport({ id: "KRST" }),
+  ]
+  const navlog = await ctx.tools.computeNavlog({
+    aircraft: { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 },
+    altitudeFt: 4500,
+    departureTimeUtc: "1400Z",
+    waypoints,
+    winds: [{ dirDegTrue: 270, speedKt: 15 }], // one entry per leg
+  })
+  const { distanceNm, eteMin, fuelGal } = navlog.totals // 66 nm, 33 min, 5.5 gal
   return {
     ...state,
     context: `${distanceNm} nm, ${eteMin} min, ${fuelGal} gal`,

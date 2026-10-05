@@ -34,7 +34,7 @@ npm create b4-app@latest my-agent
 
 <p align="center">
   <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing a generated flight-planner workspace, a deterministic test, and the B4.run Workbench" width="900">
+    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>
 
@@ -148,7 +148,7 @@ Scaffold a new B4.run app and help me build an agent. B4.run is the TypeScript m
 
 ## Run it live
 
-Credentials are provider-specific: the published navlog starter's OpenAI live
+Credentials are provider-specific: the navlog starter's OpenAI live
 path requires `OPENAI_API_KEY`, while a local Ollama route requires no provider
 key.
 
@@ -175,7 +175,8 @@ compiles the TypeScript project. That scaffold does not define `npm start`; use
 ### Current source (unreleased 0.8.22)
 
 Current repository source scaffolds the smaller `basic` template, a single
-`/hello` agent, by default. Its navlog template is a two-package workspace
+`/hello` agent, by default. Its navlog template (the research template of
+0.8.22 is the navlog template in current source) is a two-package workspace
 with a server and the B4.run Workbench, selected with `--template navlog`
 (`npm create b4-app@latest my-agent -- --template navlog`). These commands
 apply to a navlog scaffold generated from current repository source, not the

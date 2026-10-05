@@ -23,7 +23,7 @@ export default {
 }
 ```
 
-`allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. For example, the research scaffold allows safe read-only commands and denies destructive ones. It leaves the network-fetch script off the allow list, so the first run shows a prompt.
+`allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. For example, the navlog scaffold sets `tools: { deny: ["runBash"], approve: ["fileFlightPlan"] }` on its route, so the agent never runs a shell command and a person approves every flight-plan filing.
 
 Static entries stay in `b4.config.ts`. The runtime evaluates them alongside its own decisions but keeps them out of the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.b4/permissions.json`. Custom stores and the Postgres store persist them in their own backend.
 

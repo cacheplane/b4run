@@ -467,7 +467,7 @@ export default function Page() {
 }
 ```
 
-Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the research example does this in a later release.
+Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the navlog example does this in a later release.
 
 Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 

@@ -55,7 +55,7 @@ function printNextSteps(options: CliOptions): void {
   const changeDirectoryStep = isWindows
     ? `  Set-Location -LiteralPath ${targetDir}`
     : `  cd ${targetDir}`
-  const researchSteps = [
+  const navlogSteps = [
     changeDirectoryStep,
     "  npm install",
     isWindows
@@ -89,7 +89,7 @@ function printNextSteps(options: CliOptions): void {
     `✔ Created ${appName} (${options.template} template)`,
     "",
     isWindows ? "Next steps (PowerShell):" : "Next steps:",
-    ...(options.template === "navlog" ? researchSteps : basicSteps),
+    ...(options.template === "navlog" ? navlogSteps : basicSteps),
     "",
     options.template === "navlog"
       ? "See README.md for the full tour, or https://github.com/cacheplane/b4run"
