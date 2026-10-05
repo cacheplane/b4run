@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { localFilesystem } from "@b4run/workspace/node"
+import { ToolMessage } from "@langchain/core/messages"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { convertToolToLangChain, OffloadStore, offloadToolOutput } from "../src/index.js"
 
@@ -44,7 +45,13 @@ describe("tool-output offloading end-to-end", () => {
     const tool = { name: "bigsearch", description: "", run: async () => ({ result: big }) }
     const converted = convertToolToLangChain(tool, undefined, offload)
 
-    const result = (await converted.func({}, undefined as never, { signal } as never)) as string
+    const message = (await converted.func(
+      {},
+      undefined as never,
+      { signal } as never,
+    )) as ToolMessage
+    expect(message).toBeInstanceOf(ToolMessage)
+    const result = String(message.content)
     expect(result).toContain("Tool output offloaded")
     const m = result.match(/tool-outputs\/[^\s\]]+/)
     expect(m).not.toBeNull()

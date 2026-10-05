@@ -2154,7 +2154,7 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
           kind: "source-ast",
           file: "packages/sqlite-storage/src/checkpointer/saver.ts",
           selector: "B4SqliteSaver.publicMembers",
-          expected: "public members: deleteThread, getTuple, list, put, putWrites",
+          expected: "public members: deleteThread, getTuple, list, listNamespaces, put, putWrites",
         },
         {
           kind: "source-ast",

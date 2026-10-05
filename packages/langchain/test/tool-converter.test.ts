@@ -1,8 +1,9 @@
 import type { StreamTransformerInput } from "@b4run/core"
-import { CLIENT_TOOL_RECORDER_KEY, toolDenial } from "@b4run/sdk"
+import { B4_STEP_KEY, CLIENT_TOOL_RECORDER_KEY, toolDenial } from "@b4run/sdk"
+import { ToolMessage } from "@langchain/core/messages"
 import { type Command, GraphInterrupt, isCommand } from "@langchain/langgraph"
 import { beforeEach, describe, expect, it, test, vi } from "vitest"
-import { B4_STEP_KEY, convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
+import { convertToolToLangChain, jsonSchemaToZod } from "../src/tool-converter.ts"
 
 const dispatchCustomEvent = vi.hoisted(() => vi.fn())
 
@@ -93,11 +94,16 @@ describe("convertToolToLangChain", () => {
       "dispatch:second",
       "returned",
     ])
+    // The transformer sees the ToolMessage the tool node will store, as it
+    // always has for a displayed tool.
     expect(transformerInput).toEqual({
       toolName: "probe",
-      toolOutput: JSON.stringify({ ok: true }),
+      toolOutput: expect.any(ToolMessage),
       toolCallId: "provider-call-1",
     })
+    expect((transformerInput as { toolOutput: ToolMessage }).toolOutput.content).toBe(
+      JSON.stringify({ ok: true }),
+    )
     expect(transformerInput?.toolCallId).not.toBe("execution-run-1")
   })
 
@@ -184,7 +190,7 @@ describe("convertToolToLangChain", () => {
     )
   })
 
-  test("returns string content when a transformer iterator fails", async () => {
+  test("returns the tool's content when a transformer iterator fails", async () => {
     const converted = convertToolToLangChain(
       { name: "probe", run: async () => "ok" },
       undefined,
@@ -201,9 +207,15 @@ describe("convertToolToLangChain", () => {
       ],
     )
 
-    await expect(
-      converted.func({}, undefined as never, { signal: new AbortController().signal } as never),
-    ).resolves.toBe(JSON.stringify("ok"))
+    const result = (await converted.func(
+      {},
+      undefined as never,
+      {
+        signal: new AbortController().signal,
+      } as never,
+    )) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.content).toBe(JSON.stringify("ok"))
   })
 
   test("returns a state-updating Command when capability dispatch fails", async () => {
@@ -249,8 +261,9 @@ describe("convertToolToLangChain", () => {
 
     expect(langchainTool.name).toBe("greet")
     expect(langchainTool.description).toBe("Greet a user")
-    const result = await langchainTool.invoke({ name: "World" })
-    expect(result).toBe(JSON.stringify({ greeting: "Hello, World!" }))
+    const result = (await langchainTool.invoke({ name: "World" })) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.content).toBe(JSON.stringify({ greeting: "Hello, World!" }))
   })
 
   test("marks the LangChain tool returnDirect when the definition asks for it", () => {
@@ -302,8 +315,8 @@ describe("convertToolToLangChain", () => {
     const langchainTool = convertToolToLangChain(b4Tool)
 
     expect(langchainTool.name).toBe("greet")
-    const result = await langchainTool.invoke({ tenant: "acme" })
-    expect(JSON.parse(result)).toEqual({ tenant: "acme" })
+    const result = (await langchainTool.invoke({ tenant: "acme" })) as ToolMessage
+    expect(JSON.parse(String(result.content))).toEqual({ tenant: "acme" })
   })
 
   test("uses provided Zod schema when available", async () => {
@@ -325,7 +338,7 @@ describe("convertToolToLangChain", () => {
 })
 
 describe("convertToolToLangChain — {result, state} wrapped returns", () => {
-  it("returns a JSON-stringified content for a plain return (unchanged)", async () => {
+  it("returns a ToolMessage whose content is the JSON-stringified plain return", async () => {
     const tool = {
       name: "echo",
       description: "Echo input.",
@@ -337,8 +350,8 @@ describe("convertToolToLangChain — {result, state} wrapped returns", () => {
       undefined as unknown as never,
       { signal: new AbortController().signal } as unknown as never,
     )
-    expect(typeof result).toBe("string")
-    expect(result).toBe(JSON.stringify({ msg: "hi" }))
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).content).toBe(JSON.stringify({ msg: "hi" }))
   })
 
   it("returns a Command when the tool returns {result, state}", async () => {
@@ -380,7 +393,7 @@ describe("convertToolToLangChain — {result, state} wrapped returns", () => {
     expect(update.note).toBe("noted")
   })
 
-  it("returns plain string content when tool returns { result } only (no state)", async () => {
+  it("returns a ToolMessage with the plain string content when tool returns { result } only (no state)", async () => {
     const tool = {
       name: "noState",
       description: "...",
@@ -392,8 +405,8 @@ describe("convertToolToLangChain — {result, state} wrapped returns", () => {
       undefined as unknown as never,
       { signal: new AbortController().signal } as unknown as never,
     )
-    expect(typeof result).toBe("string")
-    expect(result).toBe("ok")
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).content).toBe("ok")
   })
 })
 
@@ -606,7 +619,8 @@ describe("convertToolToLangChain offloading", () => {
       undefined as never,
       { signal: new AbortController().signal } as never,
     )
-    expect(result).toBe("STUB:dump")
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).content).toBe("STUB:dump")
   })
   it("replaces large {result,state} content with a stub in the ToolMessage", async () => {
     const big = "y".repeat(50_000)
@@ -636,7 +650,8 @@ describe("convertToolToLangChain offloading", () => {
       { signal: new AbortController().signal } as never,
     )
     // unwrapToolResult JSON-stringifies plain values; verify no offload substitution occurred
-    expect(result).toBe(JSON.stringify(big))
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect((result as ToolMessage).content).toBe(JSON.stringify(big))
   })
 })
 
@@ -756,7 +771,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(log).toEqual(["issue:probe:call_1"])
   })
 
-  it("settles when the tool throws, and the error still propagates", async () => {
+  it("settles when the tool throws, and the error becomes the call's error result", async () => {
     const { log, recorder: rec } = recorder()
     const tool = convertToolToLangChain({
       name: "probe",
@@ -765,7 +780,11 @@ describe("convertToolToLangChain — the tool-call record", () => {
         throw new Error("boom")
       },
     })
-    await expect(tool.invoke(call, configWith(rec))).rejects.toThrow("boom")
+    const result = (await tool.invoke(call, configWith(rec))) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("error")
+    expect(result.content).toBe("Error: boom\n Please fix your mistakes.")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "failed" })
     expect(log).toEqual(["issue:probe:call_1", "settle:call_1"])
   })
 
@@ -900,7 +919,7 @@ describe("convertToolToLangChain — the tool-call record", () => {
     )
   })
 
-  test("a denied call settles as `denied` with the icon only — no done label or sources — and the model still reads the reason", async () => {
+  test("a denied call settles as `denied` with the icon only — no done label or sources — on a success ToolMessage the model still reads", async () => {
     const reason = "[B4_E3001] Permission denied by user: tool searchCorpus"
     const converted = convertToolToLangChain({
       name: "searchCorpus",
@@ -915,58 +934,103 @@ describe("convertToolToLangChain — the tool-call record", () => {
       run: async () => toolDenial(reason),
     })
     const config = { configurable: {}, toolCall: { id: "call_search_denied" } }
-    const result = (await converted.func({ query: "agents" }, undefined, config as never)) as {
-      content: unknown
-      additional_kwargs: Record<string, unknown>
-    }
+    const result = (await converted.func(
+      { query: "agents" },
+      undefined,
+      config as never,
+    )) as ToolMessage
+    // `running` streams, then `denied` (never `completed`): a denial is not a
+    // failure, so the ToolMessage keeps `success` and the step persists as denied.
     expect(dispatchCustomEvent).toHaveBeenCalledTimes(2)
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      "b4.step",
+      {
+        tool_call_id: "call_search_denied",
+        status: "running",
+        icon: "search",
+        label: "Searching the corpus for “agents”",
+      },
+      expect.anything(),
+    )
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
       { tool_call_id: "call_search_denied", status: "denied", icon: "search" },
       expect.anything(),
     )
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("success")
     expect(result.content).toBe(reason)
-    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({ icon: "search" })
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "denied",
+      icon: "search",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
   })
 
-  test("a denied call on a display without an icon still settles as denied, with an empty step", async () => {
+  test("a denied call on a display without an icon still settles as denied and persists a bare denied step", async () => {
     const converted = convertToolToLangChain({
       name: "deployProd",
       display: { done: () => "Deployed to production" },
       run: async () => toolDenial("Permission denied by user: tool deployProd"),
     })
     const config = { configurable: {}, toolCall: { id: "call_deploy_denied" } }
-    const result = (await converted.func({}, undefined, config as never)) as { content: unknown }
+    const result = (await converted.func({}, undefined, config as never)) as ToolMessage
+    expect(dispatchCustomEvent).toHaveBeenCalledTimes(2)
+    expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      "b4.step",
+      { tool_call_id: "call_deploy_denied", status: "running" },
+      expect.anything(),
+    )
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
       { tool_call_id: "call_deploy_denied", status: "denied" },
       expect.anything(),
     )
+    expect(result.status).toBe("success")
     expect(result.content).toBe("Permission denied by user: tool deployProd")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "denied",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
   })
 
-  test("a denied call on a tool without display returns the reason as plain string content", async () => {
+  test("a denied call on a tool without display is a success ToolMessage whose content is the reason, persisting a bare denied step", async () => {
     const converted = convertToolToLangChain({
       name: "plain",
       run: async () => toolDenial("Blocked: nope"),
     })
-    const result = await converted.func({}, undefined, {
+    const result = (await converted.func({}, undefined, {
       configurable: {},
       toolCall: { id: "call_plain_denied" },
-    } as never)
-    expect(result).toBe("Blocked: nope")
+    } as never)) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("success")
+    expect(result.content).toBe("Blocked: nope")
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "denied" })
     expect(dispatchCustomEvent).not.toHaveBeenCalled()
   })
 
-  test("a tool without display dispatches no step and returns what it did before", async () => {
+  test("a tool without display dispatches no step and still persists a bare completed one", async () => {
     const converted = convertToolToLangChain({ name: "plain", run: async () => "ok" })
-    const result = await converted.func({}, undefined, {
+    const result = (await converted.func({}, undefined, {
       configurable: {},
       toolCall: { id: "c1" },
-    } as never)
-    expect(result).toBe('"ok"')
+    } as never)) as ToolMessage
+    expect(result).toBeInstanceOf(ToolMessage)
+    expect(result.status).toBe("success")
+    expect(result.tool_call_id).toBe("c1")
+    expect(result.content).toBe('"ok"')
+    expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
+    })
     expect(dispatchCustomEvent).not.toHaveBeenCalled()
   })
 
@@ -987,8 +1051,11 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(result.content).toBe('{"content":"# Title"}')
     expect(result.tool_call_id).toBe("call_read_1")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
       icon: "read",
       label: "Read corpus/a.md",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
     })
   })
 
@@ -1007,8 +1074,11 @@ describe("convertToolToLangChain — the tool-call record", () => {
       messages: { additional_kwargs: Record<string, unknown> }[]
     }
     expect(update.messages[0]?.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
       icon: "plan",
       label: "Updated the plan",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
     })
   })
 

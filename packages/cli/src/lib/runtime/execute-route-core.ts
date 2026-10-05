@@ -1866,8 +1866,10 @@ async function prepareRouteExecutionForInvocation(
     streamTransformers = capStreamTransformers
 
     // Resolve and prepare children only after the guarded policy boundary has
-    // allowed the current invocation. Child graphs are materialized natively
-    // with no child checkpointer, while live invocation metadata propagates.
+    // allowed the current invocation. Child graphs are materialized natively;
+    // `checkpointer: false` here resolves to "omitted", so LangGraph inherits
+    // the parent's saver and a child checkpoints under its own `tools:<task>`
+    // namespace — which is what `GET /threads/:id/turns` walks to restore it.
     const hasTaskTool = capTools.some((t) => t.name === "task")
     if (hasTaskTool) {
       const routeById = new Map(routeManifest.routes.map((route) => [route.id, route] as const))

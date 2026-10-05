@@ -1,5 +1,5 @@
 import type { PermissionsStore } from "@b4run/permissions"
-import type { B4Agent, WorkspaceFs } from "@b4run/sdk"
+import type { B4Agent, GateDecision, WorkspaceFs } from "@b4run/sdk"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { ResolvedSubagent } from "../subagents/types.js"
 import type { ResolvedStateField, RouteManifest } from "../types.js"
@@ -352,6 +352,12 @@ export interface B4ToolDefinition {
        * model tool call.
        */
       readonly toolCallId?: string
+      /**
+       * Receives how a permission gate answered this call (`once`, `always`,
+       * `deny`) when one ran interactively; the runtime persists it on the
+       * call's step. Absent outside the runtime's converter.
+       */
+      readonly onGateDecision?: (decision: GateDecision) => void
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown

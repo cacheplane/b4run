@@ -7,9 +7,11 @@
  * path; this file covers the actual call path that LangGraph's ToolNode uses,
  * which is where the tool_call_id resolution actually happens.
  */
+
+import { B4_STEP_KEY } from "@b4run/sdk"
 import { isCommand } from "@langchain/langgraph"
 import { describe, expect, it } from "vitest"
-import { B4_STEP_KEY, convertToolToLangChain } from "../src/tool-converter.js"
+import { convertToolToLangChain } from "../src/tool-converter.js"
 
 describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () => {
   it("surfaces capability events when the converted tool streams standalone", async () => {
@@ -126,8 +128,11 @@ describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () =
     expect(message.tool_call_id).toBe("call_read_9")
     expect(message.content).toBe('"# Title"')
     expect(message.additional_kwargs[B4_STEP_KEY]).toEqual({
+      status: "completed",
       icon: "read",
       label: "Read corpus/a.md",
+      startedAt: expect.any(String),
+      settledAt: expect.any(String),
     })
   })
 })

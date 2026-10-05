@@ -38,3 +38,10 @@ export {
   type TurnsView,
   type TurnView,
 } from "./turns.js"
+export {
+  type CheckpointForTurns,
+  type PendingInterruptForTurns,
+  type ThreadStateForTurns,
+  type TurnsFromStateResult,
+  turnsFromState,
+} from "./turns-from-state.js"

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { AIMessage } from "@langchain/core/messages"
+import { AIMessage, ToolMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -198,9 +198,26 @@ export default async (_input: unknown, ctx: B4ToolContext) => ctx.fs.readFile("n
     })
     const readLive = findNamedTool(createAgent.mock.calls[0]?.[0], "read-live")
 
-    await expect(readLive.func({}, undefined, { signal: liveSignal })).resolves.toBe(
-      JSON.stringify("live contents"),
-    )
+    const result: unknown = await readLive.func({}, undefined, { signal: liveSignal })
+    expect(result).toBeInstanceOf(ToolMessage)
+    const toolMessage = result as ToolMessage
+    expect(toolMessage.content).toBe(JSON.stringify("live contents"))
+    expect(toolMessage.name).toBe("read-live")
+    expect(toolMessage.status).toBe("success")
+    // Every tool call persists its b4_step stamp on the ToolMessage; the clocks
+    // are ISO strings from the converter's clock, everything else is exact.
+    expect(toolMessage.additional_kwargs).toEqual({
+      b4_step: expect.objectContaining({
+        settledAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        startedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        status: "completed",
+      }),
+    })
+    expect(Object.keys(toolMessage.additional_kwargs.b4_step as object).sort()).toEqual([
+      "settledAt",
+      "startedAt",
+      "status",
+    ])
     expect(seenContexts.length).toBeGreaterThan(0)
     expect(seenContexts.every((context) => context.signal === liveSignal)).toBe(true)
     expect(

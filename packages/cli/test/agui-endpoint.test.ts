@@ -10,7 +10,13 @@ import {
   type SubagentResolver,
   streamAgent,
 } from "@b4run/langchain"
-import type { MiddlewareAfterHook, MiddlewareAfterRun, MiddlewareHandler } from "@b4run/sdk"
+import {
+  B4_TURN_METADATA_KEY,
+  type MiddlewareAfterHook,
+  type MiddlewareAfterRun,
+  type MiddlewareHandler,
+  readPersistedTurnEnd,
+} from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch"
 import { AIMessage } from "@langchain/core/messages"
@@ -334,11 +340,16 @@ function parallelSubagentRoot(
   })
   const dispatch =
     (callId: string, input: string) => async (_state: unknown, config: RunnableConfig) => ({
+      // The task tool returns a ToolMessage; the channel keeps its text.
       results: [
-        await task.func({ input, subagent: "researcher" }, undefined, {
-          ...config,
-          toolCall: { id: callId },
-        } as RunnableConfig),
+        String(
+          (
+            (await task.func({ input, subagent: "researcher" }, undefined, {
+              ...config,
+              toolCall: { id: callId },
+            } as RunnableConfig)) as { content: unknown }
+          ).content,
+        ),
       ],
     })
   return new StateGraph(RootState)
@@ -968,6 +979,84 @@ it("holds a resume claim until a disconnected route source unwinds", async () =>
     })
     .toBe(200)
   await first.body?.cancel().catch(() => undefined)
+})
+
+it("stamps a turn whose client disconnected as stopped, once the route source unwinds", async () => {
+  let markBlocked: (() => void) | undefined
+  let releaseSource: (() => void) | undefined
+  let markRouteAborted: (() => void) | undefined
+  const blocked = new Promise<void>((resolve) => {
+    markBlocked = resolve
+  })
+  const released = new Promise<void>((resolve) => {
+    releaseSource = resolve
+  })
+  const routeAborted = new Promise<void>((resolve) => {
+    markRouteAborted = resolve
+  })
+  cleanup.push(() => releaseSource?.())
+  // A real saver with a prior turn's head, and a route that writes its own
+  // checkpoint before blocking, as the agent adapter does before the model
+  // call: the stamp only ever lands on a head THIS turn wrote.
+  const saver = new MemorySaver()
+  const threadId = "disconnect-stamp-thread"
+  const checkpoint = (id: string) => ({
+    v: 4,
+    id,
+    ts: "2026-10-05T00:00:00.000Z",
+    channel_values: { messages: [] },
+    channel_versions: {},
+    versions_seen: {},
+  })
+  const prior = await saver.put(
+    { configurable: { thread_id: threadId, checkpoint_ns: "" } },
+    checkpoint("c1") as never,
+    { source: "loop", step: 0, parents: {} } as never,
+  )
+  const streamRoute: typeof streamResolvedRoute = async function* (options) {
+    options.signal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
+    await saver.put(
+      prior,
+      checkpoint("c2") as never,
+      { source: "loop", step: 1, parents: {} } as never,
+    )
+    yield { type: "chunk", data: "started", messageId: "m1" }
+    markBlocked?.()
+    await released
+    yield { type: "done", output: { ok: true } }
+  }
+  const readTurnEnd = async () => {
+    const head = await saver.getTuple({ configurable: { thread_id: threadId, checkpoint_ns: "" } })
+    return readPersistedTurnEnd(
+      ((head?.metadata ?? {}) as Record<string, unknown>)[B4_TURN_METADATA_KEY],
+    )
+  }
+  const runRegistry = createRunRegistry()
+  const { port } = await setupControlledServer({ checkpointer: saver, runRegistry, streamRoute })
+
+  const response = await requestRun(port, {
+    threadId,
+    runId: "disconnect-stamp-run",
+    messages: [{ id: "1", role: "user", content: "wait" }],
+  })
+  expect(response.status).toBe(200)
+  await blocked
+  // The client goes away mid-turn: no cancel endpoint, no shutdown.
+  await response.body?.cancel()
+  await routeAborted
+
+  // The route is still unwinding, so nothing is stamped yet (a stamp written
+  // now could be buried by the route's own in-flight checkpoint put)...
+  expect(await readTurnEnd()).toBeUndefined()
+  releaseSource?.()
+  // ...and the slot is held until the stamp has landed.
+  await expect.poll(() => runRegistry.activeCount()).toBe(0)
+
+  const turnEnd = await readTurnEnd()
+  expect(turnEnd?.status).toBe("stopped")
+  expect(turnEnd?.error).toBeUndefined()
+  const head = await saver.getTuple({ configurable: { thread_id: threadId, checkpoint_ns: "" } })
+  expect(head?.checkpoint.id).toBe("c2")
 })
 
 it("does not abort the route signal after a normal response", async () => {

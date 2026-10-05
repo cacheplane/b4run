@@ -13,6 +13,7 @@ import type {
   MiddlewareAfterMessage,
   MiddlewareHandler,
   MiddlewareRequest,
+  PersistedTurnEnd,
   ThreadAccessPolicy,
   ToolCallOrigin,
 } from "@b4run/sdk"
@@ -86,6 +87,7 @@ import { terminalStatus } from "./terminal-status.js"
 import type { Gate, GateSpec } from "./thread-gate.js"
 import { createGatedThreadForRun, isThenable, makeThreadGate } from "./thread-gate.js"
 import { assertNoReservedKey } from "./thread-metadata.js"
+import { readTerminalError, stampTurnEnd, turnEndFor } from "./turn-end-stamp.js"
 
 export interface AgUiFetchRequestOptions {
   readonly appRoot: string
@@ -1144,14 +1146,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // read degrades attach to the durable path for this turn — it must never
     // fail the run or leak the run slot, so the failure is only logged.
     let liveTurn: LiveTurnProducer | undefined
+    // The same anchor also bounds the turn-end stamp: a head still carrying
+    // this id after the run was not written by this turn. Left undefined
+    // when the read fails, which stamps without the guard.
+    let anchorCheckpointId: string | null | undefined
     try {
       const anchorTuple = await checkpointer.getTuple({
         configurable: { checkpoint_ns: "", thread_id: threadId },
       })
+      anchorCheckpointId = anchorTuple?.checkpoint?.id ?? null
       liveTurn = liveTurnHub.open({
         routeKey,
         anchorRouteKeys: checkpointRoutes(anchorTuple) ?? [],
-        anchorCheckpointId: anchorTuple?.checkpoint?.id ?? null,
+        anchorCheckpointId,
         input: routeResume ?? b4Input,
         resume: routeResume !== undefined,
         runStartedAt: new Date().toISOString(),
@@ -1205,6 +1212,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // stray), keeping only a call whose park is still in the checkpoint — a
     // park the stream could not see must stay answerable.
     let deferClientRecordVoid = false
+    // The turn-end record an ABORTED turn still owes the head checkpoint. Set
+    // in the inner finally, written in the outer one once `sourceCleanup` has
+    // settled, so the route's own in-flight checkpoint put cannot land after
+    // the stamp and bury it.
+    let deferredTurnEnd: PersistedTurnEnd | undefined
     const voidClientRecordsIfSettled = async (): Promise<void> => {
       if (!sawInterrupt && clientToolStore) {
         await voidSettledClientToolCalls(clientToolStore, checkpointer, threadId)
@@ -1391,6 +1403,33 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // written `__interrupt__` but before the adapter yields the chunk
             // for it, and that park still reads back as idle. Closing that needs
             // a checkpoint read here rather than a flag.
+            //
+            // How the turn ended, for a thread restored from storage. The
+            // record describes the TURN, not the thread status, so unlike the
+            // status write it does key on how the run stopped: a cancel
+            // endpoint stop (projected into the terminal above) and a client
+            // disconnect are both "stopped" — the disconnect aborts the route
+            // with a RUN_ERROR on the wire, but nothing went wrong with the
+            // turn, somebody stopped listening to it. A shutdown keeps its
+            // error, and a parked turn gets no record at all. Only an agent
+            // route has a checkpointer to stamp; a graph route's head, if any,
+            // belongs to some other turn.
+            const disconnected = run.signal.aborted && !run.cancelled && !shutdownSignal.aborted
+            const turnEnd =
+              route.mode === "agent"
+                ? turnEndFor({
+                    sawInterrupt,
+                    cancelled: disconnected || readTerminalCancelled(terminalChunk),
+                    error: disconnected ? undefined : readTerminalError(terminalChunk),
+                  })
+                : undefined
+            // Written now for a drained source; chased behind the route's own
+            // unwind for an aborted one (see `deferredTurnEnd`).
+            if (turnEnd && !run.signal.aborted) {
+              await stampTurnEnd(checkpointer, threadId, turnEnd, {
+                notBefore: anchorCheckpointId,
+              })
+            } else deferredTurnEnd = turnEnd
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: false, sawInterrupt }))
               .catch(() => undefined)
@@ -1407,13 +1446,29 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             run.release()
             releaseClaimWhenSettled?.()
           }
+          // Never throws (stampTurnEnd swallows), and a no-op for a drained
+          // turn, which was stamped inline.
+          const stampDeferredTurnEnd = async (): Promise<void> => {
+            if (deferredTurnEnd) {
+              await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
+                notBefore: anchorCheckpointId,
+              })
+            }
+          }
           if (deferClientRecordVoid) {
-            // The slot is held until the void is done, so no successor run
-            // can race it; the void itself never throws.
+            // The slot is held until the void and the stamp are done, so no
+            // successor run can race them; neither ever throws. The stamp
+            // comes after the source has unwound, so a park it lands late is
+            // seen (and leaves the head unstamped) rather than buried.
             void (sourceCleanup ?? Promise.resolve())
               .then(voidClientRecordsIfSettled, voidClientRecordsIfSettled)
+              .then(stampDeferredTurnEnd)
               .finally(releaseExecutionClaims)
-          } else if (sourceCleanup) void sourceCleanup.finally(releaseExecutionClaims)
+          } else if (sourceCleanup) {
+            void sourceCleanup
+              .then(stampDeferredTurnEnd, stampDeferredTurnEnd)
+              .finally(releaseExecutionClaims)
+          } else if (deferredTurnEnd) void stampDeferredTurnEnd().finally(releaseExecutionClaims)
           else releaseExecutionClaims()
         }
       },
@@ -1823,6 +1878,17 @@ function toAfterMessage(message: {
     content: message.content,
     ...(message.id !== undefined ? { id: message.id } : {}),
   }
+}
+
+/** Whether the AP projection of this turn's terminal says the run was cancelled. */
+function readTerminalCancelled(chunk: StreamChunk | undefined): boolean {
+  if (chunk === undefined || chunk.type !== "done") return false
+  const output = (chunk as { readonly output?: unknown }).output
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    (output as { readonly cancelled?: unknown }).cancelled === true
+  )
 }
 
 function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, chunk: Uint8Array) {

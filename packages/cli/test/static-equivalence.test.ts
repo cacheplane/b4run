@@ -350,6 +350,13 @@ function parseSseEvents(text: string): unknown[] {
 //   - Timestamps: replaced with a flat "<ts>" placeholder (NOT
 //     first-appearance mapping: two wall-clock reads can coincide in one run
 //     and differ in the other, which would make identity mapping flaky).
+//   - Step clocks: every tool call persists `additional_kwargs.b4_step`
+//     ({ status, startedAt, settledAt, icon?, label?, sources?, decision? })
+//     on its ToolMessage, and a settled turn stamps `b4:turn.endedAt` in the
+//     checkpoint metadata. ONLY the ISO clock fields inside those two objects
+//     are replaced with "<ts>"; status, decision, label, icon and sources stay
+//     byte-compared — a static path that persisted a different stamp still
+//     fails.
 // ---------------------------------------------------------------------------
 
 const ID_KEYS = new Set([
@@ -370,6 +377,17 @@ const ID_KEYS = new Set([
 
 const TIMESTAMP_KEYS = new Set(["created", "created_at", "timestamp", "ts", "updated_at"])
 
+/**
+ * Objects whose ISO clock fields are scrubbed, and ONLY those fields: the tool
+ * call's persisted `b4_step` stamp and the turn's `b4:turn` checkpoint metadata.
+ * The keys are scoped to these objects so a same-named field anywhere else
+ * would still be compared verbatim.
+ */
+const CLOCK_SCOPES: Readonly<Record<string, ReadonlySet<string>>> = {
+  b4_step: new Set(["settledAt", "startedAt"]),
+  "b4:turn": new Set(["endedAt"]),
+}
+
 /** Test-supplied deterministic ids that must compare VERBATIM across runs. */
 const PRESERVED_IDS = new Set(["call-echo-1", "call-note-1", "call-note-2", "rn-agui", "u1"])
 
@@ -382,6 +400,19 @@ function normalizeTranscript(transcript: ConversationTranscript): unknown {
         Object.entries(value).map(([key, entry]) => {
           if (TIMESTAMP_KEYS.has(key) && (typeof entry === "string" || typeof entry === "number")) {
             return [key, "<ts>"]
+          }
+          const clockKeys = CLOCK_SCOPES[key]
+          if (clockKeys && entry && typeof entry === "object" && !Array.isArray(entry)) {
+            return [
+              key,
+              Object.fromEntries(
+                Object.entries(entry).map(([field, fieldValue]) =>
+                  clockKeys.has(field) && typeof fieldValue === "string"
+                    ? [field, "<ts>"]
+                    : [field, normalizeValue(fieldValue)],
+                ),
+              ),
+            ]
           }
           if (ID_KEYS.has(key) && typeof entry === "string" && !PRESERVED_IDS.has(entry)) {
             let placeholder = assigned.get(entry)

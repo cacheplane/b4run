@@ -12,18 +12,22 @@ import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 // still installed on Node: `@langchain/langgraph`'s main entry does it, and
 // B4.run always loads that.
 import {
+  B4_STEP_KEY,
   type B4ContentPart,
   type BuiltInModelProviderId,
   contentPartsText,
+  type GateDecision,
   isToolDenial,
+  type PersistedStep,
   type ToolDisplay,
 } from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
-import { Command } from "@langchain/langgraph"
+import { Command, isGraphInterrupt } from "@langchain/langgraph"
 import { z } from "zod"
+import { toolErrorMessage } from "./agent-middleware.js"
 import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "./chat-model-factory.js"
 import {
   type DroppedPart,
@@ -36,6 +40,7 @@ import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import {
   describeDenied,
   describeDone,
+  describeFailed,
   describeRunning,
   dispatchStep,
   type StepPayload,
@@ -58,6 +63,12 @@ interface B4ToolDefinition {
        * model tool call.
        */
       readonly toolCallId?: string
+      /**
+       * Receives how a permission gate answered this call (`once`, `always`,
+       * `deny`) when one ran interactively; the runtime persists it on the
+       * call's step. Absent outside the runtime's converter.
+       */
+      readonly onGateDecision?: (decision: GateDecision) => void
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
@@ -85,9 +96,6 @@ export interface ToolResultModality {
 
 /** The `additional_kwargs` key under which a ToolMessage keeps every part the tool returned, for the UI. */
 export const B4_CONTENT_PARTS_KEY = "b4_content_parts"
-
-/** The `additional_kwargs` key under which a ToolMessage keeps its display step, for replay. */
-export const B4_STEP_KEY = "b4_step"
 
 export function convertToolToLangChain(
   tool: B4ToolDefinition,
@@ -146,22 +154,54 @@ export function convertToolToLangChain(
           ...describeRunning(display, input, tool.name),
         })
       }
+      // The converter's own clock bounds the call; both ends ride on the
+      // persisted step so a restored thread knows how long the tool took.
+      const startedAt = new Date().toISOString()
+      let decision: GateDecision | undefined
+      const context = {
+        ...(middlewareContext ? { middleware: middlewareContext } : {}),
+        signal,
+        ...(threadId ? { threadId } : {}),
+        ...(Object.keys(params).length > 0 ? { params } : {}),
+        ...(toolCallId !== "" ? { toolCallId } : {}),
+        onGateDecision: (reported: GateDecision) => {
+          decision = reported
+        },
+      }
+      const persisted = (status: PersistedStep["status"], payload: StepPayload): PersistedStep => ({
+        status,
+        ...payload,
+        startedAt,
+        settledAt: new Date().toISOString(),
+        ...(decision !== undefined ? { decision } : {}),
+      })
       const body = async () => {
-        const rawResult = await tool.run(input, {
-          ...(middlewareContext ? { middleware: middlewareContext } : {}),
-          signal,
-          ...(threadId ? { threadId } : {}),
-          ...(Object.keys(params).length > 0 ? { params } : {}),
-          ...(toolCallId !== "" ? { toolCallId } : {}),
-        })
+        let rawResult: unknown
+        try {
+          rawResult = await tool.run(input, context)
+        } catch (error) {
+          // A park or an abort is not a failure and must keep propagating.
+          // Anything else is this call's failed step, built here (with the
+          // content the agent middleware's safety-net catch would produce) so
+          // the checkpointed ToolMessage carries it for a restored thread.
+          if (isGraphInterrupt(error) || signal.aborted) throw error
+          const failed = toolErrorMessage(error, tool.name, toolCallId)
+          return new ToolMessage({
+            tool_call_id: toolCallId,
+            name: tool.name,
+            status: "error",
+            content: failed.content,
+            additional_kwargs: { [B4_STEP_KEY]: persisted("failed", describeFailed(display)) },
+          })
+        }
         // A denied call (tools.approve / tools.constrain) returns its reason as
         // the result the model reads; the step must not describe that as work
         // done, so it settles as `denied` with the icon only — no `done` label,
         // no `sources`.
         const denied = isToolDenial(rawResult)
-        const step: StepPayload | undefined =
+        const step: StepPayload =
           display === undefined
-            ? undefined
+            ? {}
             : denied
               ? describeDenied(display)
               : describeDone(display, input, rawResult, tool.name)
@@ -203,21 +243,21 @@ export function convertToolToLangChain(
           }
         }
 
-        // With a display, the step rides on the checkpointed ToolMessage too, so a
-        // restored thread can tell the same story without the stream. LangChain's
-        // ToolNode returns a ToolMessage a tool returns as-is.
+        // Every call returns a ToolMessage: the step rides on the checkpointed
+        // message (display or not) so a restored thread can tell the same story
+        // without the stream. The status is explicit, as LangChain's ToolNode
+        // would have set it had it wrapped a string. A denial keeps `success`:
+        // an `error` status would make the live translator append a `failed`
+        // step after the result, and `failed` wins over `denied` in the reducer.
         const toolMessage = (): ToolMessage =>
           new ToolMessage({
             tool_call_id: toolCallId,
             name: tool.name,
-            ...(partsForUi !== undefined || step !== undefined
-              ? {
-                  additional_kwargs: {
-                    ...(partsForUi !== undefined ? { [B4_CONTENT_PARTS_KEY]: partsForUi } : {}),
-                    ...(step !== undefined ? { [B4_STEP_KEY]: step } : {}),
-                  },
-                }
-              : {}),
+            status: "success",
+            additional_kwargs: {
+              ...(partsForUi !== undefined ? { [B4_CONTENT_PARTS_KEY]: partsForUi } : {}),
+              [B4_STEP_KEY]: persisted(denied ? "denied" : "completed", step),
+            },
             // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
             ...(typeof finalContent === "string"
               ? { content: finalContent }
@@ -229,9 +269,7 @@ export function convertToolToLangChain(
 
         const convertedResult = stateUpdates
           ? new Command({ update: { ...stateUpdates, messages: [toolMessage()] } })
-          : partsForUi !== undefined || step !== undefined
-            ? toolMessage()
-            : finalContent
+          : toolMessage()
 
         for (const transformer of streamTransformers) {
           if (transformer.observes !== "tool_result") continue
@@ -255,7 +293,7 @@ export function convertToolToLangChain(
           }
         }
 
-        if (display !== undefined && step !== undefined) {
+        if (display !== undefined) {
           await dispatchStep(liveConfig, {
             tool_call_id: toolCallId,
             status: denied ? "denied" : "completed",
