@@ -10,8 +10,9 @@ import { useConfigureSuggestions } from "@copilotkit/react-core/v2"
 // defaults to "before-first-message", so these appear on the empty chat and go
 // away once the conversation starts.
 //
-// - "Plan a flight" drives recall → plan → the performance subagent → computeNavlog → a saved report
-// - "File the plan" drives fileFlightPlan, which the route approves per call, so the approve/deny flow is on screen
+// Each prompt carries the aircraft, so it works on a fresh thread with empty memory:
+// - "Plan a flight" drives recall → plan → the weather and performance subagents → computeNavlog → a saved report
+// - "File the plan" plans, then drives fileFlightPlan, which the route approves per call, so the approve/deny flow is on screen
 // - "Teach it the aircraft" drives remember() → a memory candidate in the rail's memory panel
 //   (`MemoryPanel.tsx`) for approval. Nothing the agent proposes becomes a real
 //   memory until that click, so the whole loop is on screen.
@@ -22,11 +23,12 @@ export function DemoSuggestions() {
         {
           title: "Plan a flight",
           message:
-            "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.",
+            "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), and save the navlog.",
         },
         {
           title: "File the plan",
-          message: "File the flight plan for KSTP to KRST.",
+          message:
+            "Plan KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), then file the flight plan.",
         },
         {
           title: "Teach it the aircraft",

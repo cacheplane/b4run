@@ -62,8 +62,9 @@ const WORKSPACE_INSTALL_TIMEOUT_MS = 600_000
 // The three Workbench suggestions send these exact texts (DemoSuggestions.tsx);
 // W8 reuses the PLAN and FILE fixtures below for them.
 const PLAN_PROMPT =
-  "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog."
-const FILE_PROMPT = "File the flight plan for KSTP to KRST."
+  "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), and save the navlog."
+const FILE_PROMPT =
+  "Plan KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), then file the flight plan."
 const PERF_INPUT =
   "KSTP and KRST, 4500 ft, 2400 RPM: takeoff, landing, cruise row and climb figures"
 // Hermetic: the waypoints and the wind are inline, so no journey reaches
@@ -199,6 +200,7 @@ function createPlanFixtures() {
 
 function createGatedAndBuiltFixtures() {
   return [
+    // A live run plans before filing; a scripted one need not, so the gate is the first turn.
     ...script()
       .user(FILE_PROMPT)
       .callsTool("fileFlightPlan", { flightPlan: FLIGHT_PLAN })

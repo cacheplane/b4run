@@ -5,7 +5,7 @@ planner for a Cessna 172N. It briefs the weather from live aviationweather.gov
 data (no key), looks up performance in the 1978 172N POH tables, computes the
 navlog in code, and files an ICAO flight plan only when the pilot asks and a
 person approves. Live planning uses a real model and API key; the unit tests
-and evals run offline.
+and evals are keyless.
 
 ## Run it
 
@@ -15,12 +15,12 @@ pnpm build                   # build B4.run packages before commands that use di
 pnpm --filter @b4-example/navlog-server exec b4 typegen  # write generated types
 pnpm --filter @b4-example/navlog-server check   # validate routes, tools, and config
 pnpm --filter @b4-example/navlog-server test    # keyless unit tests of the math, tables and parsers
-pnpm --filter @b4-example/navlog-server eval     # quality evals, offline (scripted fixtures)
+pnpm --filter @b4-example/navlog-server eval     # quality evals, keyless (scripted fixtures)
 pnpm --filter @b4-example/navlog-server memory:list
 ```
 
 To run against a real model, set `OPENAI_API_KEY` and add `--live`
-(e.g. `pnpm --filter @b4-example/navlog-server eval -- --live`). The offline
+(e.g. `pnpm --filter @b4-example/navlog-server eval -- --live`). The keyless
 path replays scripted model turns, so evals are deterministic and need no API
 key; the tools still run, so the weather tools reach aviationweather.gov.
 

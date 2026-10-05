@@ -54,6 +54,21 @@ describe("AwcClient", () => {
       /aviationweather.gov windtemp returned 503/,
     )
   })
+  it("abandons a request that never answers once its timeout passes", async () => {
+    const neverAnswers = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+        }),
+    )
+    vi.stubGlobal("fetch", neverAnswers)
+    const client = new AwcClient({
+      baseUrl: "https://awc.test/api/data",
+      now: () => 0,
+      timeoutMs: 20,
+    })
+    await expect(client.getText("metar", { ids: "KSTP" })).rejects.toThrow(/timed? ?out|aborted/i)
+  })
   it("passes the abort signal through", async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       expect(init.signal).toBeInstanceOf(AbortSignal)

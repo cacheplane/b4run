@@ -5,7 +5,7 @@ Ask for a flight; it briefs the weather from live aviationweather.gov data (no
 key), looks up performance in the 1978 172N POH tables, computes the navlog in
 code, and files an ICAO flight plan only when you ask and a person approves.
 Live planning uses a real OpenAI model and API key; the unit tests and evals
-run offline.
+are keyless.
 
 Requires Node.js 24 or later and npm 11.
 
@@ -30,7 +30,7 @@ curl -N "http://127.0.0.1:3002/agui/%2Fnavlog%23agent" \
   -H 'accept: text/event-stream' \
   -H 'content-type: application/json' \
   -d '{"threadId":"t1","runId":"r1","state":{},"tools":[],"context":[],"forwardedProps":{},
-       "messages":[{"id":"1","role":"user","content":"Plan a VFR flight from KSTP to KRST at 4500 feet, departing at 2026-10-06T14:00:00Z."}]}'
+       "messages":[{"id":"1","role":"user","content":"Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable)."}]}'
 ```
 
 That's the [AG-UI](https://github.com/ag-ui-protocol/ag-ui) endpoint (`/agui/<route>`).
@@ -55,7 +55,7 @@ Separately, `npx b4 inspect --cwd server` opens the
 [B4.run Inspector](https://b4.run/docs/inspector) — a browser UI over this
 app's live memory store, already installed here as a devDependency.
 
-## Check it offline
+## Check it without a key
 
 ```bash
 npm run typegen    # write server/.b4/b4.generated.d.ts
@@ -66,7 +66,7 @@ npm run eval       # quality evals (scripted fixtures)
 npm run memory:list
 ```
 
-These commands provide offline confidence in the starter; the fixtures are
+These commands provide keyless confidence in the starter; the fixtures are
 test assets, not a keyless product demo. The eval replays scripted model turns,
 but the tools still run, so the weather tools reach aviationweather.gov. To run
 evals against a real model, add `--live` (for example, `npm run eval -- --live`).

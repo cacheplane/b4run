@@ -25,7 +25,7 @@ cp server/.env.example server/.env
 ```
 
 Live planning needs a real `OPENAI_API_KEY` in `server/.env`. There is no
-keyless demo mode; the bundled tests and evals run offline on fixtures instead.
+keyless demo mode; the bundled tests and evals run keyless on fixtures instead.
 
 Then start the two processes, one per terminal:
 

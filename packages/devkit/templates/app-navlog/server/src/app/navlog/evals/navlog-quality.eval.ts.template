@@ -1,9 +1,25 @@
+import { existsSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { custom, defineEval, gate, llmJudge, toolCalled } from "@b4run/evals"
 import { script } from "@b4run/testing"
 import { z } from "zod"
 
 const JUDGE_CRITERIA =
   "The brief names the flight category at every airport, states fuel burned and the reserve at destination, and cites at least one POH figure."
+// The scripted judge turn is matched by a substring of the judge's prompt, so
+// derive it from the criteria rather than restating it.
+const JUDGE_MATCH = JUDGE_CRITERIA.slice(0, 32)
+
+// The workspace the cited POH files live in, resolved from this file.
+const WORKSPACE = fileURLToPath(new URL("../../../../workspace/", import.meta.url))
+const CITATION = /\[(poh\/[a-z-]+\.md)/g
+
+const DIRECT_INPUT =
+  "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z. My airplane is N738ZU, a 172N, cruise 2400 RPM, 50 gallons usable."
+const VIA_OWA_INPUT =
+  "Plan KSTP to KRST via KOWA at 4500, departing 1500Z, in N738ZU (172N, 2400 RPM, 50 gal usable)."
+const NO_FILING_INPUT =
+  "Plan KSTP to KRST at 4500 departing 1400Z in N738ZU (172N, 2400 RPM, 50 gal usable). Do not file it."
 
 const legSchema = z.object({
   magneticHeading: z.number(),
@@ -129,7 +145,7 @@ function planFixtures(plan: PlanScript) {
     .replies(
       "Cruise at 4500 ft, 2400 RPM, standard temperature: 64% BHP at 4000 ft and 60% at 6000 ft, about 110 KTAS and 7.0 GPH interpolated [poh/cruise-performance.md, Figure 5-7].",
     )
-    .user("names the flight category")
+    .user(JUDGE_MATCH)
     .replies('{"score":1,"reason":"names categories now and at ETA, fuel, reserve, cites 5-7"}')
 }
 
@@ -138,11 +154,9 @@ export default defineEval({
   dataset: [
     {
       name: "stp to rst",
-      input:
-        "Plan a VFR flight from KSTP to KRST at 4500 feet, departing at 2026-10-06T14:00:00Z. My airplane is N738ZU, a 172N, cruise 2400 RPM, 50 gallons usable.",
+      input: DIRECT_INPUT,
       fixtures: planFixtures({
-        input:
-          "Plan a VFR flight from KSTP to KRST at 4500 feet, departing at 2026-10-06T14:00:00Z. My airplane is N738ZU, a 172N, cruise 2400 RPM, 50 gallons usable.",
+        input: DIRECT_INPUT,
         departureTimeUtc: "2026-10-06T14:00:00Z",
         waypoints: [KSTP, KRST],
         navlogTable:
@@ -153,11 +167,9 @@ export default defineEval({
     },
     {
       name: "stp to rst via owa",
-      input:
-        "Plan KSTP to KRST via KOWA at 4500, departing at 2026-10-06T15:00:00Z, in N738ZU (172N, 2400 RPM, 50 gal usable).",
+      input: VIA_OWA_INPUT,
       fixtures: planFixtures({
-        input:
-          "Plan KSTP to KRST via KOWA at 4500, departing at 2026-10-06T15:00:00Z, in N738ZU (172N, 2400 RPM, 50 gal usable).",
+        input: VIA_OWA_INPUT,
         departureTimeUtc: "2026-10-06T15:00:00Z",
         waypoints: [KSTP, KOWA, KRST],
         navlogTable:
@@ -170,11 +182,9 @@ export default defineEval({
       // b4 eval runs each case once and cannot resume an approval interrupt,
       // so this case asks for the plan only and checks nothing was filed.
       name: "plan without filing",
-      input:
-        "Plan KSTP to KRST at 4500 departing at 2026-10-06T14:00:00Z in N738ZU (172N, 2400 RPM, 50 gal usable). Do not file it.",
+      input: NO_FILING_INPUT,
       fixtures: planFixtures({
-        input:
-          "Plan KSTP to KRST at 4500 departing at 2026-10-06T14:00:00Z in N738ZU (172N, 2400 RPM, 50 gal usable). Do not file it.",
+        input: NO_FILING_INPUT,
         departureTimeUtc: "2026-10-06T14:00:00Z",
         waypoints: [KSTP, KRST],
         navlogTable:
@@ -203,10 +213,14 @@ export default defineEval({
       },
       { name: "totals-add-up-and-reserve", threshold: 1 },
     ),
-    custom((run) => (/\[poh\/[a-z-]+\.md/.test(run.finalMessage) ? 1 : 0), {
-      name: "cites-poh",
-      threshold: 1,
-    }),
+    // At least one [poh/<file>.md citation, and every cited file exists.
+    custom(
+      (run) => {
+        const cited = [...run.finalMessage.matchAll(CITATION)].map((match) => match[1] ?? "")
+        return cited.length > 0 && cited.every((path) => existsSync(`${WORKSPACE}${path}`)) ? 1 : 0
+      },
+      { name: "cites-poh", threshold: 1 },
+    ),
     custom(
       (run, testCase) => {
         const filed = run.toolCalls.some((call) => call.name === "fileFlightPlan")

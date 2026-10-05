@@ -16,6 +16,8 @@ export type AwcProduct =
 
 export const AWC_DEFAULT_BASE_URL = "https://aviationweather.gov/api/data"
 const TTL_MS = 5 * 60_000
+/** A request that has not answered in this long is abandoned, so a hung upstream cannot stall a run. */
+const DEFAULT_TIMEOUT_MS = 10_000
 
 interface CacheEntry {
   readonly at: number
@@ -25,15 +27,23 @@ interface CacheEntry {
 export class AwcClient {
   readonly #baseUrl: string
   readonly #now: () => number
+  readonly #timeoutMs: number
   readonly #cache = new Map<string, CacheEntry>()
 
-  constructor(options: { readonly baseUrl?: string; readonly now?: () => number } = {}) {
+  constructor(
+    options: {
+      readonly baseUrl?: string
+      readonly now?: () => number
+      readonly timeoutMs?: number
+    } = {},
+  ) {
     this.#baseUrl = (
       options.baseUrl ??
       process.env.B4_AWC_BASE_URL ??
       AWC_DEFAULT_BASE_URL
     ).replace(/\/$/, "")
     this.#now = options.now ?? Date.now
+    this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
   url(product: AwcProduct, params: Readonly<Record<string, string>>): string {
@@ -50,9 +60,11 @@ export class AwcClient {
     const cached = this.#cache.get(url)
     const now = this.#now()
     if (cached && now - cached.at <= TTL_MS) return cached.body
+    // The caller's signal (the run being cancelled) and our own deadline, whichever fires first.
+    const timeout = AbortSignal.timeout(this.#timeoutMs)
     const response = await fetch(url, {
       headers: { accept: "application/json, text/plain" },
-      ...(signal ? { signal } : {}),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
     if (!response.ok) throw new Error(`aviationweather.gov ${product} returned ${response.status}`)
     // 204 No Content means "nothing matched"; keep it as an empty body.

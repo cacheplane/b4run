@@ -6,8 +6,9 @@ agent. It is a [CopilotKit](https://docs.copilotkit.ai) v2 app
 talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
 
 It is a workbench rather than a chat widget: it renders its own transcript and
-composer instead of mounting `CopilotSidebar`, so plan and researcher activity
-cards, tool cards, and permission prompts appear inline in the conversation.
+composer instead of mounting `CopilotSidebar`, so the plan card, the `weather`
+and `performance` subagent cards, tool cards, and the `fileFlightPlan` approval
+appear inline in the conversation.
 
 No model credentials live in this package. The B4.run server holds them, and this
 app reaches it through a same-origin proxy.
@@ -75,7 +76,7 @@ The palette follows the OS light/dark setting. To pin one, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>`; `theme.css`
 defines both branches.
 
-The plan and researcher cards are **not forks**. They are the packaged
+The plan and subagent cards are **not forks**. They are the packaged
 `@b4run/ag-ui/react` components (`PlanActivityCard`, `SubagentActivityCard`),
 customized through that package's `classNames` ladder. To change how they look,
 edit `app/components/PlanCard.tsx` and `app/components/SubagentCard.tsx` —
@@ -152,6 +153,6 @@ the shell's thread-switch and server-probe behaviour. `typecheck` and `build`
 prove the CopilotKit and AG-UI wiring compiles. The activity cards themselves
 are tested in `@b4run/ag-ui`.
 
-There are no browser or live-model tests here. A full research run — streaming,
-activity cards, a permission gate live and across a reload, memory candidates
+There are no browser or live-model tests here. A full planning run — streaming,
+activity cards, the approval gate live and across a reload, memory candidates
 appearing — needs a real `OPENAI_API_KEY` and is covered by unit tests only.
