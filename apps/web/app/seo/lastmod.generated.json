@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-05T16:49:00.000Z",
-      "sourceDigest": "e928a65e2c6a0e6dac8d8b9b51fe471debdd955d88300ebeb34bfce3c3c6142e",
-      "recordDigest": "faadcfcc12d51a4183f6047a543730432441608e69a388f56cb84ee8fa6bfe82"
+      "lastModified": "2026-10-05T20:01:51.000Z",
+      "sourceDigest": "51fe0d6deb89a6de7144a7a515d1de98a09c882cfbf177b9b1ee419510d3fe99",
+      "recordDigest": "bbff8b59a626cef6c9d988c0cdd43a655690dfd4429260ec94a43d88cae3091e"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "7e39e81b651afa5340678c1084553f25db0ec28ecac96c68bdba8bcdb662b9f9"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-05T16:47:27.000Z",
-      "sourceDigest": "76526f02b30ac4ad6fbfb02aacef268dad580c4f0109910e90649e74e59fecab",
-      "recordDigest": "7d1d13cf5a714c5bf306c5187e84b3d0c6b7d546dc410d0446d588d52c74e3e3"
+      "lastModified": "2026-10-05T20:01:51.000Z",
+      "sourceDigest": "79e21a1b880b5ec81ee29c4998dc111881cdd802d910999ca0f77c617ec460ad",
+      "recordDigest": "cc77ae65f954c1783ff61ff6f028a81bfa0fc1dffbe0ab45261286873123d00e"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-04T22:35:08.000Z",
@@ -197,9 +197,9 @@
       "recordDigest": "80c35fa2ed1ac036a6f052d0349a5bb13570467c95423908aff1f3e1b7871126"
     },
     "/docs/dev-server/agent-protocol": {
-      "lastModified": "2026-10-04T23:15:09.000Z",
-      "sourceDigest": "a17da7d0e290455e3651bf2066e668241de2ccabb5b7c17adb5d022bf2f33e55",
-      "recordDigest": "90ae7fab2622b2bdaf8ea1dcfb082063f4cd193acbbb59be305819a6a85bfd27"
+      "lastModified": "2026-10-05T20:01:51.000Z",
+      "sourceDigest": "1ca695eb6b6fcf926d040f011704445b50e777718e16480e07d9281aeb025a54",
+      "recordDigest": "330a37c8f92f4608bdc4bc44244ee9f58b3ba9b3d14d854d53ae5052fe795fa1"
     },
     "/docs/embedding": {
       "lastModified": "2026-10-04T23:07:54.000Z",
@@ -372,9 +372,9 @@
       "recordDigest": "defe81e64fe5bd828c0ef89035004bffce5b5f53dd989329b4bbde47ce16916b"
     },
     "/docs/security-architecture": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "df20e66433cdce30f7c6b69e821ffe241c7f73febd7977c5a9ce3e632db82937",
-      "recordDigest": "9dc6de55469438e1675ff34cd0e431d6a0b01b9f431045b31dbcb464632a5e20"
+      "lastModified": "2026-10-05T20:01:55.000Z",
+      "sourceDigest": "aa4f14772b9beebcacc3d57a82d58d6fd08d2ec1b1b61a7049df861f830e848c",
+      "recordDigest": "640ac38ccad542876b2a7f3649e3a1301f02de6d4e91bfd9dc6ad2670c24acd8"
     },
     "/docs/skills": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -412,9 +412,9 @@
       "recordDigest": "6bf2f28ea5b29816e1c058b2503e21d8fde5c6684904ddac827f179345e38853"
     },
     "/docs/thread-access": {
-      "lastModified": "2026-10-05T07:19:17.000Z",
-      "sourceDigest": "6b80634adb464914b3dfa79faf767fba3c17893df54a7c8d1086724bca08cef7",
-      "recordDigest": "9b7ec5cd8529408ce39e34028c18d1c3b651299d3b8bddd8686aff23730bf9fc"
+      "lastModified": "2026-10-05T20:01:55.000Z",
+      "sourceDigest": "25d6b73b2a94121f64bc4295f53676fdfa807643d57088d16b84f5e5a45a66f4",
+      "recordDigest": "50c92b98a22b56bda5f29870a0567b2d7c69df1368ac985db5552cc2f257f252"
     },
     "/docs/tools": {
       "lastModified": "2026-10-05T16:01:42.000Z",
@@ -427,9 +427,9 @@
       "recordDigest": "ccb0cf59b18052e3f54bf58237543c04718b16585241444407531150319d36f0"
     },
     "/docs/upgrading": {
-      "lastModified": "2026-10-04T04:24:36.000Z",
-      "sourceDigest": "f4d868cc0e98d81c4b28d51c492a717de4da32a4914eda0ded10d5dfa5689cc4",
-      "recordDigest": "11f47aa2765176efaccf67fb0809853452bd5ee064ee021195345b78b990307c"
+      "lastModified": "2026-10-05T20:01:51.000Z",
+      "sourceDigest": "e2fcd7a51b9de084cffeeb2911ed58cc75edcb6408bee72f768ad51bc52a9543",
+      "recordDigest": "215e090a04ce027582a36e181ac2cd0bf55322565a6a7d5a1662fb78d2555c0d"
     },
     "/docs/workspace": {
       "lastModified": "2026-10-04T23:15:09.000Z",
