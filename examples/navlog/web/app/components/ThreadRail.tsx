@@ -14,6 +14,12 @@ export interface ThreadRailProps {
   readonly activeThreadId: string | undefined
   readonly onSelect: (threadId: string) => void
   readonly onCreate: () => void
+  /**
+   * Whether the rail draws its own "+ New conversation" button. The map
+   * workbench turns it off: the dock header carries that button, always in
+   * view, while the list lives behind the "Threads" disclosure.
+   */
+  readonly showCreate?: boolean
 }
 
 /**
@@ -30,19 +36,29 @@ const ROW_ACTIVE = "bg-wb-surface font-medium text-wb-text shadow-xs"
 
 const ROW_IDLE = "text-wb-muted hover:bg-wb-surface hover:text-wb-text"
 
-export function ThreadRail({ threads, activeThreadId, onSelect, onCreate }: ThreadRailProps) {
+export function ThreadRail({
+  threads,
+  activeThreadId,
+  onSelect,
+  onCreate,
+  showCreate = true,
+}: ThreadRailProps) {
   return (
     <nav aria-label="Conversations" className="flex min-h-0 flex-1 flex-col">
-      <div className="px-3">
-        <button
-          type="button"
-          onClick={onCreate}
-          className="w-full rounded-wb border border-wb-border bg-wb-surface px-3 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors hover:border-wb-muted wb-focus"
-        >
-          + New conversation
-        </button>
-      </div>
-      <p className="px-4 pt-6 pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-wb-muted">
+      {showCreate ? (
+        <div className="px-3">
+          <button
+            type="button"
+            onClick={onCreate}
+            className="w-full rounded-wb border border-wb-border bg-wb-surface px-3 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors hover:border-wb-muted wb-focus"
+          >
+            + New conversation
+          </button>
+        </div>
+      ) : null}
+      <p
+        className={`px-4 ${showCreate ? "pt-6" : "pt-1"} pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-wb-muted`}
+      >
         Recent
       </p>
       {threads.length === 0 ? (

@@ -45,7 +45,7 @@ export function ConnectScreen({ serverUrl, onRetry }: ConnectScreenProps) {
     <div className="flex h-dvh items-center justify-center bg-wb-bg px-6">
       <div className="max-w-md text-center">
         <span className="wb-brand-mark text-[15px] font-semibold tracking-tight">
-          B4.run research
+          B4.run navlog
         </span>
         <h1 className="mt-6 text-xl font-semibold tracking-tight">{CONNECT_SCREEN_HEADING}</h1>
         <p className="mt-3 text-sm leading-6 text-wb-muted">

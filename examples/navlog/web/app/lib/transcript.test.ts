@@ -116,7 +116,7 @@ describe("buildTranscriptItems", () => {
 
   test("keeps reasoning but drops system and developer prompt plumbing", () => {
     const items = buildTranscriptItems([
-      { id: "m1", role: "system", content: "you are a research agent" },
+      { id: "m1", role: "system", content: "you are a flight planner" },
       { id: "m2", role: "developer", content: "internal" },
       { id: "m3", role: "reasoning", content: "considering the corpus" },
     ])

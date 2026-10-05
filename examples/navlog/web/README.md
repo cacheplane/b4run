@@ -19,18 +19,61 @@ a legacy base-URL POST.
   every 5 seconds through `GET /api/b4/memory/candidates` (an allowlisted read, so it
   measures B4.run's own liveness rather than this Next process's), and clears itself the
   moment the server comes up — no reload. "Try again" probes immediately.
-- **Thread rail** (left, `app/components/ThreadRail.tsx`) — "New conversation" plus the
-  list of threads, each titled from its first user message.
-- **Memory panel** (in the rail, `app/components/MemoryPanel.tsx`) — the candidates the
-  agent proposed with `remember()`, with Approve and Delete on each.
+- **Route map** (full viewport, `app/components/RouteMap.tsx`) — a
+  [Leaflet](https://leafletjs.com) map on OpenStreetMap tiles (credited in the map's
+  attribution control, as the tile policy requires), muted in light mode and inverted in
+  dark so the route carries the color. It draws the planned route, one marker per
+  waypoint colored by flight category and labelled with the category as text, and the
+  cruise magnetic heading at each leg's midpoint, then fits the route between the
+  floating panels. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
+- **Chat dock** (floating left, `app/components/ChatDock.tsx`) — the brand, the thread
+  title and run status, "+ New conversation", a "Threads" disclosure holding the thread
+  list (`app/components/ThreadRail.tsx`, each thread titled from its first user
+  message), the memory panel (`app/components/MemoryPanel.tsx`, the candidates the agent
+  proposed with `remember()`, with Approve and Delete on each; it takes no space until
+  one is waiting), the transcript and the composer.
+- **Weather strip** (floating top right, `app/components/WeatherStrip.tsx`) — one chip
+  per airport in the `weather` subagent's brief, colored by the worse of the category
+  now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,
+  MVFR at ETA`), and the first winds-aloft line. A chip opens the raw METAR (or SPECI)
+  and TAF. Each map marker shows the same category as its chip. On phones the chips
+  are one horizontally scrolling row.
+- **Navlog sheet** (floating bottom, `app/components/NavlogSheet.tsx`) — collapsed, one
+  line of totals (route, distance, ETE, fuel, reserve, with a warning under 45 minutes);
+  open, the legs table (`NavlogTable.tsx`: TC, variation, MC, wind, WCA, MH, TAS, GS,
+  distance, ETE, ETA and fuel per climb and cruise segment), the ICAO flight plan items
+  7 to 19 (`FlightPlanBlock.tsx`) and the assistant's brief. **Print** prints the sheet
+  alone on one landscape page (the `@media print` rules in `app/theme.css`); **Copy FPL**
+  copies the filing-ready `(FPL-…)` message. Hovering or focusing a row highlights that
+  leg on the map. The transcript shows a compact `computeNavlog` card
+  (`NavlogCard.tsx`) that points at the sheet.
+- **Phones** (under 768 px) — the dock and the sheet become one bottom sheet with
+  **Chat** and **Navlog** tabs, the navlog as one card per leg; the map stays behind it
+  and the weather chips sit just above. Only the layout that applies is rendered
+  (`app/lib/use-media-query.ts`), so there is always exactly one transcript and composer.
 - **Transcript** (`app/components/Transcript.tsx`) — user and assistant messages,
   with the plan card, the `weather` / `performance` subagent cards, tool cards, the
   `fileFlightPlan` approval, and run
   errors inline in message order. Before the first message it shows an empty state with
   clickable suggestions.
 - **Composer** (`app/components/Composer.tsx`) — send, and stop while a run is in
-  flight. It is blocked while the agent is running or waiting on an approval; the header
-  says which.
+  flight. It is blocked while the agent is running or waiting on an approval; the dock
+  header says which.
+
+### How data reaches the map and the sheet
+
+Nothing new is stored. `AppShell` derives every surface from the thread the client
+already holds, through pure selectors with their own unit tests:
+
+- `latestNavlog(messages)` (`app/lib/navlog-selectors.ts`) — the most recent
+  `computeNavlog` tool result, parsed into the `Navlog` shape (`app/lib/navlog-types.ts`
+  mirrors the server's type field for field).
+- `latestWeatherBrief(runs)` (`app/lib/weather-selectors.ts`) — the most recent completed
+  `weather` subagent run from `useSubagentRuns`, parsed from the brief the subagent is
+  prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
+  brief it cannot read leaves the strip empty rather than throwing.
+- `routeGeometry(navlog)` (`app/lib/route-geometry.ts`) — the polyline, markers, heading
+  labels and bounds the map draws.
 
 ```
 browser
@@ -147,6 +190,11 @@ utility move together. The same file holds the single focus ring (`wb-focus`), t
 roles the b4 gradient is allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and
 the `.wb-prose` rules for rendered markdown.
 
+It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max` and
+`--wb-gutter` for the layout, `--wb-route` for the route line, the `--wb-cat-*`
+flight-category colors the chips and the markers share, the filter that mutes the map
+tiles (inverted in dark mode), and the print rules.
+
 The palette follows the OS light/dark setting. To pin one regardless, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>` — `theme.css` defines both
 branches.
@@ -165,13 +213,18 @@ what it puts out of reach.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs 15 test files: the proxy route and
+`pnpm --filter @b4-example/navlog-web test` runs 27 test files: the proxy route and
 its allowlist, the thread source, the checkpoint hydrator, the transcript mapping, the
 renderer registry, the thread rail, the composer, the connect screen, the memory panel,
-the tool-call card, all three permission surfaces (`PermissionPrompt`,
-`PermissionInterrupt`, `HydratedInterrupts`), and the shell's thread-switch and
-server-probe behaviour. `typecheck` and `build` prove the CopilotKit/AG-UI wiring
-compiles. The activity cards themselves are tested in `@b4run/ag-ui`.
+the tool-call card, media parts, all three permission surfaces (`PermissionPrompt`,
+`PermissionInterrupt`, `HydratedInterrupts`), the shell's thread-switch and
+server-probe behaviour, and the map workbench: the navlog and weather selectors, route
+geometry, formatting, the navlog table, sheet, flight plan block and in-transcript
+card, the weather strip, and the desktop and phone layouts. The navlog fixture
+(`SAMPLE_NAVLOG`) is the server's own `computeNavlog` output, not hand-written numbers.
+`RouteMap` itself needs a real DOM and is exercised in the browser, not in Vitest.
+`typecheck` and `build` prove the CopilotKit/AG-UI wiring compiles. The activity cards
+themselves are tested in `@b4run/ag-ui`.
 
 The model-free `test:e2e` browser test proves the V2 transport begins with
 `GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`. The connect
@@ -183,6 +236,12 @@ real `OPENAI_API_KEY` and has not been exercised in this repo; those paths are c
 by unit tests only.
 
 ## What it does not do yet
+
+- **The map needs the network.** Tiles come from `tile.openstreetmap.org` under the
+  OpenStreetMap tile usage policy, which suits development and light use, not heavy
+  production traffic; point the `L.tileLayer` URL in `RouteMap.tsx` at your own provider
+  before you ship. Offline, the map is blank and the route, markers and labels still
+  draw on it. It opens on the continental US until a navlog arrives.
 
 - **Threads are local to the browser.** The rail keeps its own list in `localStorage`
   (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The

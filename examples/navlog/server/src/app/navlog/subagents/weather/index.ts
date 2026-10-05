@@ -27,6 +27,7 @@ export default agent({
 - \`getAdvisories\` at the departure, the destination and each waypoint.
 - Return a brief with this shape, and nothing else:
   Airports: one line each, id, category now, category at ETA, ceiling, visibility, wind, then the raw METAR and TAF.
+  Example: "KSTP: VFR now, VFR at ETA, ceiling 8500 ft, visibility 10 mi, wind 270 at 5. METAR KSTP … TAF KSTP …"
   Winds per leg: one line each, "leg N: dir/kt tempC at altitude, station, valid".
   Advisories: one line each or "none".
   Go/no-go note: one or two sentences.

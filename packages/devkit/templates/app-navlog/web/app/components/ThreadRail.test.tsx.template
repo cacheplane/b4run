@@ -111,4 +111,10 @@ describe("thread rail", () => {
     expect(markup).toContain("+ New conversation")
     expect(markup).not.toContain("<ul")
   })
+
+  test("leaves the create action to its host when showCreate is false", () => {
+    const markup = render({ threads: [], showCreate: false })
+    expect(markup).not.toContain("+ New conversation")
+    expect(markup).toContain("No conversations yet.")
+  })
 })

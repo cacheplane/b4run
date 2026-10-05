@@ -1913,12 +1913,53 @@ test("internal scaffold installation uses its pnpm workspace so Workbench resolv
   })
 })
 
-test("Workbench capture waits for the active rail row before filling the keyed composer", async () => {
-  const calls = []
-  const page = {
+/**
+ * The dock's "Threads" disclosure button, as the fake pages below see it: it
+ * records each call and flips `aria-expanded` on click, like the real one.
+ */
+function threadsToggle(calls, { dropClicks = 0 } = {}) {
+  let expanded = false
+  let dropped = 0
+  return {
+    async waitFor(waitOptions) {
+      calls.push(["threads toggle", waitOptions])
+    },
+    async getAttribute(name) {
+      return name === "aria-expanded" ? String(expanded) : null
+    },
+    async click() {
+      // A click that lands before hydration does nothing.
+      if (dropped < dropClicks) {
+        dropped += 1
+        calls.push("dropped click")
+        return
+      }
+      expanded = !expanded
+      calls.push(expanded ? "open threads" : "close threads")
+    },
+  }
+}
+
+/** The thread list's `nav` landmark, which appears once the list is open. */
+function threadList(calls) {
+  return {
+    async waitFor(waitOptions) {
+      calls.push(["thread list", waitOptions.state])
+    },
+  }
+}
+
+/** A Workbench page with the dock's Threads toggle, its list and the composer. */
+function composerPage(calls, toggle) {
+  return {
     getByRole(role, options) {
+      if (role === "button" && options.name === "Threads") return toggle
+      if (role === "navigation" && options.name === "Conversations") return threadList(calls)
       if (role === "button" && options.name === "New conversation") {
         return {
+          async scrollIntoViewIfNeeded() {
+            calls.push("scroll active row")
+          },
           async waitFor(waitOptions) {
             calls.push(["active row", waitOptions])
           },
@@ -1934,11 +1975,37 @@ test("Workbench capture waits for the active rail row before filling the keyed c
       throw new Error(`unexpected locator: ${role} ${options.name}`)
     },
   }
+}
 
-  await fillActiveWorkbenchComposer(page, DEMO_PROMPT)
+test("Workbench capture waits for the active rail row before filling the keyed composer", async () => {
+  const calls = []
+  await fillActiveWorkbenchComposer(composerPage(calls, threadsToggle(calls)), DEMO_PROMPT)
+  // The row lives behind the dock's Threads disclosure: open, wait for the
+  // list, scroll and wait for the row, close, fill.
   assert.deepEqual(calls, [
+    ["threads toggle", { state: "visible", timeout: 60_000 }],
+    "open threads",
+    ["thread list", "visible"],
+    "scroll active row",
     ["active row", { state: "visible", timeout: 60_000 }],
+    "close threads",
     ["fill", DEMO_PROMPT],
+  ])
+})
+
+test("Workbench capture re-sends a Threads click that was dropped before hydration", async () => {
+  const calls = []
+  await fillActiveWorkbenchComposer(
+    composerPage(calls, threadsToggle(calls, { dropClicks: 1 })),
+    DEMO_PROMPT,
+  )
+  // CI's W7 failure: the first click landed before React hydrated and did
+  // nothing. The poll notices aria-expanded stayed false and clicks again.
+  assert.deepEqual(calls.slice(0, 4), [
+    ["threads toggle", { state: "visible", timeout: 60_000 }],
+    "dropped click",
+    "open threads",
+    ["thread list", "visible"],
   ])
 })
 
@@ -2065,6 +2132,7 @@ test("Workbench completion waits for Stop to leave and the real composer to retu
 
 test("restoration scopes state GET to Workbench and proves canonical transcript evidence", async () => {
   const calls = []
+  const toggle = threadsToggle(calls)
   let responsePredicate
   const stateUrl = "http://127.0.0.1:4101/api/b4/threads/thread-unit-1/state"
   const response = {
@@ -2100,8 +2168,13 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     },
     getByRole(role, options) {
       if (role === "main") return transcript
+      if (role === "button" && options.name === "Threads") return toggle
+      if (role === "navigation" && options.name === "Conversations") return threadList(calls)
       if (role === "button" && options.name === DEMO_PROMPT) {
         return {
+          async scrollIntoViewIfNeeded() {
+            calls.push("scroll row")
+          },
           async waitFor(waitOptions) {
             calls.push(["row", waitOptions])
           },
@@ -2134,6 +2207,11 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
     false,
   )
   assert.equal(result.stateUrl, stateUrl)
+  // The row is reached through the dock's Threads disclosure, closed again after.
+  const order = (step) => calls.indexOf(step)
+  assert.equal(order("open threads") > calls.findIndex((c) => c[0] === "reload"), true)
+  assert.equal(order("open threads") < order("click row"), true)
+  assert.equal(order("click row") < order("close threads"), true)
   for (const evidence of [DEMO_PROMPT, "computeNavlog", EXPECTED_ANSWER]) {
     assert.equal(
       calls.some((call) => Array.isArray(call) && call[0] === "transcript" && call[1] === evidence),

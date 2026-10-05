@@ -1,17 +1,25 @@
 "use client"
 import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
-import { planActivityContentSchema } from "@b4run/ag-ui/react"
+import { planActivityContentSchema, useSubagentRuns } from "@b4run/ag-ui/react"
 import type { B4ContentPart } from "@b4run/sdk"
 import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { HydratedThread } from "../lib/hydrate"
+import {
+  lastAssistantText,
+  latestNavlogText,
+  type MessageLike,
+  parseNavlog,
+} from "../lib/navlog-selectors"
 import type { ThreadSource, WorkbenchThread } from "../lib/thread-source"
 import { type DropNotice, type TranscriptMessage, titleFor } from "../lib/transcript"
+import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
 import { Composer, type ComposerMessage } from "./Composer"
 import { ConnectScreen } from "./ConnectScreen"
 import { MemoryPanel } from "./MemoryPanel"
 import { ThreadRail, UNTITLED_THREAD_LABEL } from "./ThreadRail"
 import { Transcript } from "./Transcript"
+import { WorkbenchLayout } from "./WorkbenchLayout"
 
 /**
  * THE ERROR-SURFACE NOTE. Four surfaces can report a failure in this app, and
@@ -130,7 +138,7 @@ const RUN_ERROR_TITLES: Readonly<Record<string, string>> = {
   agent_run_error_event: "The run failed",
   agent_connect_failed: "Lost the connection to the agent",
   agent_thread_locked: "This conversation is already running",
-  agent_not_found: "The research agent is not registered",
+  agent_not_found: "The navlog agent is not registered",
   // NOT "Cannot reach the B4.run server" — this code means `/api/copilotkit`'s
   // own `/info` sync broke inside the Next process, which is a different
   // failure from B4.run being down (see `probeB4Server`'s comment for why
@@ -249,6 +257,25 @@ export function AppShell({
   // which correctly hides the attach control until then.
   const capabilities = useCapabilities()
   const canAttachImages = capabilities?.multimodal?.input?.image === true
+  // The map, the weather strip and the navlog sheet read the thread through
+  // pure selectors; nothing new is stored. `useSubagentRuns` is also called by
+  // `Transcript` — each call keeps its own subscription, which is allowed.
+  //
+  // The selectors return STRINGS and the parse is memoized on them. The agent
+  // hands back new message arrays on every streamed token; parsing afresh each
+  // time would give the map a new `Navlog` object per token, and the map refits
+  // whenever its geometry changes. A tool result's text never changes once it
+  // has arrived, so keying on it gives one object per computation.
+  const subagentRuns = useSubagentRuns(agent)
+  const navlogText = latestNavlogText(agent.messages as readonly MessageLike[])
+  const navlog = useMemo(() => (navlogText === null ? null : parseNavlog(navlogText)), [navlogText])
+  const weatherText = latestWeatherBriefText([...subagentRuns.runs.values()])
+  const weatherBrief = useMemo(
+    () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
+    [weatherText],
+  )
+  // Already a string, so it only changes when the prose does.
+  const assistantBrief = lastAssistantText(agent.messages as readonly MessageLike[])
   // Drop notices for the thread on screen, in arrival order. Not on the
   // agent: CopilotKit keeps no record of CUSTOM events, so this list is the
   // only place they live, and it goes with the thread on a switch.
@@ -376,7 +403,7 @@ export function AppShell({
   //
   // `&& !agent.isRunning` because the flag would otherwise stay true for the
   // whole resumed run: `pendingInterrupts` is not cleared until that run's own
-  // RUN_FINISHED lands, which for a research turn can be a minute later. The
+  // RUN_FINISHED lands, which for a planning turn can be a minute later. The
   // user decided long ago; insisting they have not — and showing "running" and
   // "awaiting approval" side by side — is just wrong. The composer stays
   // blocked either way, via `isRunning`, but now for the true reason.
@@ -682,54 +709,56 @@ export function AppShell({
   }
 
   return (
-    <div className="flex h-dvh overflow-hidden">
-      <aside className="flex w-64 shrink-0 flex-col gap-1 border-r border-wb-border bg-wb-rail py-4">
-        <div className="px-4 pb-4">
-          <span className="wb-brand-mark text-[15px] font-semibold tracking-tight">
-            B4.run research
-          </span>
-        </div>
+    <WorkbenchLayout
+      navlog={navlog}
+      brief={weatherBrief}
+      assistantBrief={assistantBrief}
+      header={activeThread?.title ?? UNTITLED_THREAD_LABEL}
+      status={agent.isRunning ? "running" : isAwaitingApproval ? "awaiting approval" : undefined}
+      rail={
         <ThreadRail
           threads={threads}
           activeThreadId={activeThreadId}
           onSelect={onSelectThread}
           onCreate={onCreateThread}
+          showCreate={false}
         />
-        {/*
-          Beneath the rail, and not rendered while the server is KNOWN to be
-          down — this return is already past the `serverStatus === "down"`
-          branch. It does render during "checking", which is why the panel
-          still has a 502 branch of its own (a silent one: see its `load`).
+      }
+      onNewConversation={onCreateThread}
+      /*
+        Not rendered while the server is KNOWN to be down — this return is
+        already past the `serverStatus === "down"` branch. It does render
+        during "checking", which is why the panel still has a 502 branch of
+        its own (a silent one: see its `load`).
 
-          Deliberately NOT thread-scoped: memory candidates are the agent's,
-          not a conversation's, and the endpoint has no thread parameter.
-          Switching threads leaves the panel exactly as it was, which is
-          correct — the queue did not change.
-        */}
-        <MemoryPanel />
-      </aside>
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-13 shrink-0 items-center gap-2 border-b border-wb-border px-6">
-          <h1 className="truncate text-[13px] font-medium tracking-tight">
-            {activeThread?.title ?? UNTITLED_THREAD_LABEL}
-          </h1>
-          {agent.isRunning || isAwaitingApproval ? (
-            <span className="shrink-0 text-[11px] uppercase tracking-[0.08em] text-wb-muted">
-              {agent.isRunning ? "running" : "awaiting approval"}
-            </span>
-          ) : null}
-        </header>
-        {/*
-          `threadKey` and the `Composer` key below both end component state at a
-          thread boundary, and both are bug fixes rather than hygiene — see
-          `Transcript` for what `useInterrupt` does with its own state, and
-          `Composer` for the draft.
+        Deliberately NOT thread-scoped: memory candidates are the agent's, not
+        a conversation's, and the endpoint has no thread parameter. Switching
+        threads leaves the panel exactly as it was, which is correct — the
+        queue did not change.
+      */
+      memory={<MemoryPanel />}
+      /*
+        `threadKey` and the `Composer` key below both end component state at a
+        thread boundary, and both are bug fixes rather than hygiene — see
+        `Transcript` for what `useInterrupt` does with its own state, and
+        `Composer` for the draft.
 
-          `Transcript` takes the id as a PROP rather than as its own `key`
-          because only `PermissionInterrupt`, deep inside it, needs the
-          remount; keying the whole transcript would also throw away the scroll
-          position and remount the empty state on every switch.
-        */}
+        `Transcript` takes the id as a PROP rather than as its own `key`
+        because only `PermissionInterrupt`, deep inside it, needs the remount;
+        keying the whole transcript would also throw away the scroll position
+        and remount the empty state on every switch.
+      */
+      composer={
+        <Composer
+          key={activeThreadId}
+          onSend={send}
+          onStop={stop}
+          canAttachImages={canAttachImages}
+          isRunning={agent.isRunning}
+          isAwaitingApproval={isAwaitingApproval}
+        />
+      }
+      dock={
         <Transcript
           agent={agent}
           threadKey={activeThreadId}
@@ -744,15 +773,7 @@ export function AppShell({
           threadSource={threadSource}
           onHydratedPendingChange={setHydratedPendingCount}
         />
-        <Composer
-          key={activeThreadId}
-          onSend={send}
-          onStop={stop}
-          canAttachImages={canAttachImages}
-          isRunning={agent.isRunning}
-          isAwaitingApproval={isAwaitingApproval}
-        />
-      </main>
-    </div>
+      }
+    />
   )
 }

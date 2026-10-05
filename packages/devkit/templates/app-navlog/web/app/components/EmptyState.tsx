@@ -8,9 +8,9 @@ export interface EmptyStateProps {
 
 /**
  * The first screen after `npm create b4-app`, so the suggestions are the
- * point of it rather than a footnote: the research agent's plan, subagent,
- * permission-gate and memory behavior are all model-driven, and a cold user
- * finds none of it from a blank input.
+ * point of it rather than a footnote: the planner's subagent, permission-gate
+ * and memory behavior are all model-driven, and a cold user finds none of it
+ * from a blank input.
  *
  * `DemoSuggestions` is the registration half (`useConfigureSuggestions`); this
  * is the read half. The `reloadSuggestions()` below is NOT redundant with it.
@@ -31,10 +31,10 @@ export function EmptyState({ onSelectSuggestion }: EmptyStateProps) {
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col justify-center px-6 py-16">
-      <h1 className="wb-brand-mark text-3xl font-semibold tracking-tight">B4.run research</h1>
+      <h1 className="wb-brand-mark text-3xl font-semibold tracking-tight">B4.run navlog</h1>
       <p className="mt-3 text-sm leading-6 text-wb-muted">
-        A research agent that plans its work, dispatches subagents, cites a local corpus, and asks
-        before it does anything you have not allowed yet.
+        A VFR flight planner for a Cessna 172N that briefs weather, reads the POH, computes the
+        navlog in code, and files only when you ask.
       </p>
       {suggestions.length > 0 ? (
         <ul className="mt-8 grid gap-2">
