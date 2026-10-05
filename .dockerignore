@@ -1,0 +1,10 @@
+# Build context for repo-root Docker builds (examples/navlog/server/Dockerfile.railway).
+.git
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+examples/navlog/server/.b4
+artifacts
+.superpowers
+.claude
