@@ -81,6 +81,8 @@ export type {
 } from "./capabilities/types.js"
 export type { CreateWorkspaceFsOptions } from "./capabilities/workspace-fs.js"
 export { createWorkspaceFs } from "./capabilities/workspace-fs.js"
+export type { NamespaceListingCheckpointer } from "./checkpointer-namespaces.js"
+export { canListNamespaces } from "./checkpointer-namespaces.js"
 export type { UnresolvedImport, UnresolvedToolInputTypeDetails } from "./compiler/errors.js"
 export { UnresolvedToolInputTypeError } from "./compiler/errors.js"
 export type { B4ConfigLoader } from "./config.js"

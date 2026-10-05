@@ -100,6 +100,8 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 | `createWorkspaceFs` | Create a workspace filesystem facade. |
 | `B4ConfigLoader` | Define the configuration loader seam. |
 | `B4AppError` | Describe an app-root or route-entry failure that carries a `B4_Exxxx` code. |
+| `NamespaceListingCheckpointer` | A checkpointer that enumerates a thread's checkpoint namespaces; B4's savers implement it, `GET /threads/:id/turns` requires it. |
+| `canListNamespaces` | Whether a checkpointer implements `listNamespaces`. |
 | `UnresolvedToolInputTypeError` | Thrown by tool-schema extraction when a tool's declared input type resolves to `any`/`unknown` or depends on an import that does not resolve; the message names the tool file, the type, and the tsconfig used. |
 | `UnresolvedToolInputTypeDetails` | The structured `details` on `UnresolvedToolInputTypeError`: tool name, file, type text, what it resolved to, unresolved imports, and the tsconfig path. |
 | `UnresolvedImport` | One unresolved module specifier or member from the compiler, with its diagnostic text. |

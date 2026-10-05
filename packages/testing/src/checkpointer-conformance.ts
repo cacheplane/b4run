@@ -315,6 +315,24 @@ export function runCheckpointerConformance(opts: {
         await close?.(s)
       }
     })
+    test("listNamespaces returns every namespace the thread has written, root first", async () => {
+      const s = (await makeSaver()) as BaseCheckpointSaver & {
+        listNamespaces?: (threadId: string) => Promise<readonly string[]>
+      }
+      try {
+        expect(typeof s.listNamespaces).toBe("function")
+        const root = mk("ckpt-1", { messages: ["root"] })
+        const child = mk("ckpt-1", { messages: ["child"] })
+        await s.put(cfg("t1"), root.checkpoint, meta(), root.newVersions)
+        await s.put(cfg("t1", "tools:abc"), child.checkpoint, meta(), child.newVersions)
+        await s.put(cfg("t1", "tools:abc|tools:def"), child.checkpoint, meta(), child.newVersions)
+        await s.put(cfg("t2", "tools:zzz"), child.checkpoint, meta(), child.newVersions)
+        expect(await s.listNamespaces?.("t1")).toEqual(["", "tools:abc", "tools:abc|tools:def"])
+        expect(await s.listNamespaces?.("t-none")).toEqual([])
+      } finally {
+        await close?.(s)
+      }
+    })
     test("deleteThread removes that thread's checkpoints and writes, leaving others", async () => {
       const s = await makeSaver()
       try {

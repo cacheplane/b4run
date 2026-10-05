@@ -149,6 +149,17 @@ export class B4SqliteSaver extends BaseCheckpointSaver {
     }
   }
 
+  /** Every `checkpoint_ns` this thread has checkpoints in, root (`""`) first, then byte order. */
+  async listNamespaces(threadId: string): Promise<readonly string[]> {
+    if (!threadId) return []
+    const rows = this.db
+      .prepare(
+        "SELECT DISTINCT checkpoint_ns FROM checkpoints WHERE thread_id = ? ORDER BY checkpoint_ns",
+      )
+      .all(threadId) as unknown as Array<{ checkpoint_ns: string }>
+    return rows.map((row) => row.checkpoint_ns)
+  }
+
   async put(
     config: RunnableConfig,
     checkpoint: Checkpoint,

@@ -274,6 +274,18 @@ export class B4PostgresSaver extends BaseCheckpointSaver {
     }
   }
 
+  /** Every `checkpoint_ns` this thread has checkpoints in, root (`""`) first, then byte order. */
+  async listNamespaces(threadId: string): Promise<readonly string[]> {
+    if (!threadId) return []
+    await this.ready()
+    const res = await this.pool.query<{ checkpoint_ns: string }>(
+      `SELECT checkpoint_ns FROM ${this.checkpointsTable}
+       WHERE thread_id = $1 GROUP BY checkpoint_ns ORDER BY checkpoint_ns COLLATE "C"`,
+      [threadId],
+    )
+    return res.rows.map((row) => row.checkpoint_ns)
+  }
+
   async put(
     config: RunnableConfig,
     checkpoint: Checkpoint,
