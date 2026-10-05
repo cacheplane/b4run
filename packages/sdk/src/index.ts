@@ -125,6 +125,8 @@ export type {
   ThreadSubject,
 } from "./thread-access.js"
 export { defineThreadAccess, deny, permit, THREAD_ACCESS_METADATA_KEY } from "./thread-access.js"
+export type { ToolDenial } from "./tool-denial.js"
+export { isToolDenial, TOOL_DENIAL, toolDenial } from "./tool-denial.js"
 export type { ToolDisplay, ToolDisplayIcon, ToolDisplaySource } from "./tool-display.js"
 export {
   describeToolDisplayProblem,

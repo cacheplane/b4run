@@ -1,4 +1,4 @@
-import { type B4ContentPart, isContentPartArray } from "@b4run/sdk"
+import { type B4ContentPart, isContentPartArray, isToolDenial } from "@b4run/sdk"
 
 /**
  * Result of unwrapping a tool's return value.
@@ -6,6 +6,9 @@ import { type B4ContentPart, isContentPartArray } from "@b4run/sdk"
  * - `content` is what becomes the ToolMessage content the agent sees: a string,
  *   or the ordered content parts the tool returned.
  *   Built rules:
+ *     • A branded denial (`toolDenial(reason)` from a permission or constraint
+ *       wrapper) is the reason string verbatim; the brand is for the converter
+ *       (`isToolDenial`), never for the model.
  *     • A non-empty content-part array (returned plainly, or as a wrapped
  *       `result`) is kept as parts. An empty array is JSON `[]`, as before.
  *     • If the tool returned a wrapped `{result}` shape and `result` is a string,
@@ -38,6 +41,9 @@ export interface UnwrappedToolResult {
  * authors should never return undefined as the agent-facing result.
  */
 export function unwrapToolResult(value: unknown): UnwrappedToolResult {
+  if (isToolDenial(value)) {
+    return { content: value.result, stateUpdates: undefined }
+  }
   if (isContentPartArray(value) && value.length > 0) {
     return { content: value, stateUpdates: undefined }
   }

@@ -5,7 +5,12 @@ import {
   suggestedMemoryPattern,
   suggestedPathPattern,
 } from "@b4run/permissions"
-import type { B4ErrorCode, ConstraintContext, ConstraintPredicate } from "@b4run/sdk"
+import {
+  type B4ErrorCode,
+  type ConstraintContext,
+  type ConstraintPredicate,
+  toolDenial,
+} from "@b4run/sdk"
 import { POSIX_SEP } from "@b4run/sdk/pure"
 import { interrupt } from "@langchain/langgraph"
 import { mintGrantForPark } from "./approval-grants.js"
@@ -305,7 +310,10 @@ function truncateDisplay(value: string): string {
 
 /**
  * Wrap a tool so each call passes gateToolOp first (tools.approve). A blocked
- * call returns the denial reason AS THE TOOL RESULT — deliberately a different
+ * call returns the denial reason AS THE TOOL RESULT, branded with `TOOL_DENIAL`
+ * (`toolDenial(reason)`): the model reads the reason as a regular result, and
+ * the runtime can tell the denial from a successful string so a `display.done`
+ * label never describes it as work done — deliberately a different
  * contract from the workspace gates (which throw from inside their own run):
  * a returned denial flows through the normal on_tool_end path, so stream
  * consumers and streamTransformers see a regular tool result and the model can
@@ -336,7 +344,7 @@ export function wrapToolWithApproval<
         ...opts,
         ...(toolCallId ? { toolCallId } : {}),
       })
-      if (!gate.allowed) return codedReason(gate)
+      if (!gate.allowed) return toolDenial(codedReason(gate))
       return tool.run(input, context)
     },
   }
@@ -387,10 +395,10 @@ export function wrapToolWithConstraint<
       try {
         verdict = await predicate(input, ctx)
       } catch {
-        return CONSTRAINT_FAILED_REASON
+        return toolDenial(CONSTRAINT_FAILED_REASON)
       }
       if (verdict === true) return tool.run(input, context)
-      if (typeof verdict === "string") return verdict
+      if (typeof verdict === "string") return toolDenial(verdict)
       // Escalate to HITL ONLY on a genuine { approve: true } verdict.
       if (
         typeof verdict === "object" &&
@@ -401,12 +409,12 @@ export function wrapToolWithConstraint<
         const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
           ...(toolCallId ? { toolCallId } : {}),
         })
-        if (!gate.allowed) return codedReason(gate)
+        if (!gate.allowed) return toolDenial(codedReason(gate))
         return tool.run(input, context)
       }
       // Any other value (false, undefined, { approve: false }, a number, …) is
       // off-contract — fail closed rather than silently escalate or allow.
-      return CONSTRAINT_FAILED_REASON
+      return toolDenial(CONSTRAINT_FAILED_REASON)
     },
   }
 }
