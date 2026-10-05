@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { ThreadAccessPolicy } from "@b4run/sdk"
+import { B4_TURN_METADATA_KEY, readPersistedTurnEnd, type ThreadAccessPolicy } from "@b4run/sdk"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { MemorySaver } from "@langchain/langgraph"
 import {
@@ -290,6 +290,17 @@ async function waitFor(assertion: () => Promise<void>, timeoutMs = 15_000): Prom
 }
 
 /** Block until the thread's checkpoint durably holds a parked interrupt. */
+/** The `b4:turn` record on the thread's head root checkpoint, if any. */
+async function readHeadTurnEnd(checkpointer: BaseCheckpointSaver, threadId: string) {
+  const head = await checkpointer.getTuple({
+    configurable: { checkpoint_ns: "", thread_id: threadId },
+  })
+  expect(head).toBeDefined()
+  return readPersistedTurnEnd(
+    ((head?.metadata ?? {}) as Record<string, unknown>)[B4_TURN_METADATA_KEY],
+  )
+}
+
 async function waitForParkedWrite(
   checkpointer: BaseCheckpointSaver,
   threadId: string,
@@ -400,13 +411,17 @@ describe("GET /threads/:thread_id/pending_interrupts", () => {
     await withAimock(
       script().user("deploy to staging").callsTool("deployProd", { env: "staging" }).build(),
     )
-    const handler = await createHandler(await fixtureApp())
+    const saver = new MemorySaver()
+    const handler = await createHandler(await fixtureApp(), saver)
     const threadId = "t-parked-payload"
 
     const text = await readSseText(
       await handler.fetch(parkRunRequest(threadId, "deploy to staging")),
     )
     expect(text).toContain("event: interrupt")
+    // A parked turn has not ended: the head checkpoint carries no `b4:turn`,
+    // so a thread restored from storage shows the prompt, not a finished turn.
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
 
     const body = await readPendingInterruptsBody(handler, threadId)
 
@@ -1054,7 +1069,8 @@ describe("thread status after a resumed turn", () => {
         .replies("Deployed.")
         .build(),
     )
-    const handler = await createHandler(await fixtureApp())
+    const saver = new MemorySaver()
+    const handler = await createHandler(await fixtureApp(), saver)
     const threadId = "t-resume-completes"
 
     await drain(await handler.fetch(parkRunRequest(threadId, "deploy to staging")))
@@ -1072,6 +1088,14 @@ describe("thread status after a resumed turn", () => {
     // does not re-render a decision the human already made.
     const after = await readPendingInterruptsBody(handler, threadId)
     expect(after.interrupts).toEqual([])
+    // And the turn that completed left how it ended on the head checkpoint,
+    // which is what a thread restored from storage reads instead of a stream.
+    // (The plain /echo#graph route never checkpoints, so this is the drained
+    // run that has a head to stamp.)
+    const turnEnd = await readHeadTurnEnd(saver, threadId)
+    expect(turnEnd?.status).toBe("done")
+    expect(turnEnd?.error).toBeUndefined()
+    expect(Date.parse(turnEnd?.endedAt ?? "")).not.toBeNaN()
   }, 60_000)
 })
 

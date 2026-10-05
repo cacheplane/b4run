@@ -86,6 +86,7 @@ import { terminalStatus } from "./terminal-status.js"
 import type { Gate, GateSpec } from "./thread-gate.js"
 import { createGatedThreadForRun, isThenable, makeThreadGate } from "./thread-gate.js"
 import { assertNoReservedKey } from "./thread-metadata.js"
+import { readTerminalError, stampTurnEnd, turnEndFor } from "./turn-end-stamp.js"
 
 export interface AgUiFetchRequestOptions {
   readonly appRoot: string
@@ -1391,6 +1392,19 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // written `__interrupt__` but before the adapter yields the chunk
             // for it, and that park still reads back as idle. Closing that needs
             // a checkpoint read here rather than a flag.
+            //
+            // How the turn ended, for a thread restored from storage: from the
+            // same terminal the attachers read. `cancelled` here IS the run's
+            // own flag (projected into the terminal above) — the turn-end
+            // record describes the turn, not the thread status, so a cancel
+            // endpoint stop is "stopped" while a disconnect, which leaves no
+            // terminal error, reads as "done". Parked turns get no record.
+            const turnEnd = turnEndFor({
+              sawInterrupt,
+              cancelled: readTerminalCancelled(terminalChunk),
+              error: readTerminalError(terminalChunk),
+            })
+            if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: false, sawInterrupt }))
               .catch(() => undefined)
@@ -1823,6 +1837,17 @@ function toAfterMessage(message: {
     content: message.content,
     ...(message.id !== undefined ? { id: message.id } : {}),
   }
+}
+
+/** Whether the AP projection of this turn's terminal says the run was cancelled. */
+function readTerminalCancelled(chunk: StreamChunk | undefined): boolean {
+  if (chunk === undefined || chunk.type !== "done") return false
+  const output = (chunk as { readonly output?: unknown }).output
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    (output as { readonly cancelled?: unknown }).cancelled === true
+  )
 }
 
 function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, chunk: Uint8Array) {

@@ -108,6 +108,7 @@ import {
   threadWorkspaceResponse,
   uploaderStampProblem,
 } from "./thread-workspace-http.js"
+import { readTerminalError, stampTurnEnd, turnEndFor } from "./turn-end-stamp.js"
 
 // ---------------------------------------------------------------------------
 // Route-table types
@@ -2873,6 +2874,16 @@ async function handleApStreamRequest(options: {
           // finished. A cancel that lost the race against the last chunk does
           // not retroactively interrupt it — the same abort-vs-settle race the
           // /runs/wait re-check documents at length.
+          //
+          // How the turn ended, onto the head checkpoint, for a thread restored
+          // from storage. Same facts as the status write: the loop drained, so
+          // not cancelled; the route's own `done` may still carry an error.
+          const turnEnd = turnEndFor({
+            sawInterrupt,
+            cancelled: false,
+            error: readTerminalError(terminalChunk),
+          })
+          if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
           await threadsStore.updateStatus(
             threadId,
             terminalStatus({ cancelled: false, sawInterrupt }),
@@ -2913,6 +2924,14 @@ async function handleApStreamRequest(options: {
             threadId,
             threadsStore,
           }).catch(() => undefined)
+          // Same facts as the terminal chunk just sent: a cancelled run is
+          // "stopped", anything else "failed" with the error's message.
+          const turnEnd = turnEndFor({
+            sawInterrupt,
+            cancelled: run.cancelled,
+            error: run.cancelled ? undefined : readTerminalError(terminalChunk),
+          })
+          if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
           await threadsStore
             .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
             .catch(() => undefined)
@@ -3203,10 +3222,13 @@ async function handleApWaitRequest(options: {
    * Always a post-hoc diff, never "is anything pending now": interrupts this
    * turn did not park belong to whichever route did.
    */
-  const settleParkedRouteForTurn = async (): Promise<void> => {
+  const settleParkedRouteForTurn = async (): Promise<{ readonly parked: boolean }> => {
     const interruptIdsAfter = canPark
       ? await readParkedInterruptIds(checkpointer, threadId).catch(() => undefined)
       : undefined
+    const parked = interruptIdsAfter
+      ? [...interruptIdsAfter].some((id) => !interruptIdsBefore.has(id))
+      : false
     await settleParkedRoute({
       ...(approvalGrants.mode === "off"
         ? {}
@@ -3222,15 +3244,14 @@ async function handleApWaitRequest(options: {
           }),
       canPark,
       checkpointer,
-      parked: interruptIdsAfter
-        ? [...interruptIdsAfter].some((id) => !interruptIdsBefore.has(id))
-        : false,
+      parked,
       ...(interruptIdsAfter ? { pendingAfter: interruptIdsAfter } : {}),
       previousParkedRoute,
       routeKey,
       threadId,
       threadsStore,
     }).catch(() => undefined)
+    return { parked }
   }
 
   // Set only when the route is abandoned (detached, not stopped) rather than
@@ -3300,7 +3321,16 @@ async function handleApWaitRequest(options: {
       // so the route is done writing and the slot is still held. Once, before
       // the sub-branching, so all three exits below are covered — a turn that
       // parked and THEN failed is still parked.
-      await settleParkedRouteForTurn()
+      const { parked } = await settleParkedRouteForTurn()
+      // How the turn ended, onto the head checkpoint, for a thread restored
+      // from storage. The same post-hoc diff the gate used says whether it
+      // parked; a cancelled run is "stopped", any other failure "failed".
+      const turnEnd = turnEndFor({
+        sawInterrupt: parked,
+        cancelled: run.cancelled,
+        error: run.cancelled ? undefined : result.error.message,
+      })
+      if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
 
       // Defensive re-check, not dead code: resultPromise can settle in the
       // same tick the abort fires, so the Promise.race above can resolve to
@@ -3342,7 +3372,14 @@ async function handleApWaitRequest(options: {
     // recorded nowhere is a park whose prompt stays gated on the last-run route,
     // which any run the caller is allowed to start can repoint. The status
     // contract below is untouched — a parked /runs/wait turn still reads "idle".
-    await settleParkedRouteForTurn()
+    const { parked } = await settleParkedRouteForTurn()
+    // How the turn ended, onto the head checkpoint, for a thread restored from
+    // storage. Unlike the status write below this one DOES honour the park —
+    // the record describes the turn, and a parked turn has not ended — using
+    // the same post-hoc diff the gate just used, since this handler has no
+    // interrupt chunk to watch for.
+    const turnEnd = turnEndFor({ sawInterrupt: parked, cancelled: false })
+    if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
 
     // Deliberately unconditional, unlike the streaming handlers' terminalStatus:
     // the spec scopes parked-status honesty to the streaming endpoints, so a
@@ -4269,6 +4306,15 @@ async function handleResumeRequest(options: {
             // finished. A cancel that lost the race against the last chunk does
             // not retroactively interrupt it — the same abort-vs-settle race the
             // /runs/wait re-check documents at length.
+            //
+            // How the resumed turn ended, onto the head checkpoint — same
+            // facts and same reasoning as handleApStreamRequest.
+            const turnEnd = turnEndFor({
+              sawInterrupt,
+              cancelled: false,
+              error: readTerminalError(terminalChunk),
+            })
+            if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
             await threadsStore.updateStatus(
               threadId,
               terminalStatus({ cancelled: false, sawInterrupt }),
@@ -4306,6 +4352,14 @@ async function handleResumeRequest(options: {
               threadId,
               threadsStore,
             }).catch(() => undefined)
+            // Same facts as the terminal chunk just sent; see
+            // handleApStreamRequest's catch.
+            const turnEnd = turnEndFor({
+              sawInterrupt,
+              cancelled: run.cancelled,
+              error: run.cancelled ? undefined : readTerminalError(terminalChunk),
+            })
+            if (turnEnd) await stampTurnEnd(checkpointer, threadId, turnEnd)
             await threadsStore
               .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
               .catch(() => undefined)
