@@ -111,7 +111,7 @@ The [homepage](https://b4.run) shows one real recorded repair; the
 [evaluation report](./docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md)
 retains the failed attempts too.
 
-- [Research assistant](./examples/navlog/README.md)
+- [Flight planner (navlog)](./examples/navlog/README.md)
 - [Chat and workspace assistant](./examples/chat/README.md)
 - [Memory-backed agent](./examples/memory/README.md)
 - [Routes and workflows guide](https://b4.run/docs/routes)
@@ -148,7 +148,7 @@ Scaffold a new B4.run app and help me build an agent. B4.run is the TypeScript m
 
 ## Run it live
 
-Credentials are provider-specific: the published research starter's OpenAI live
+Credentials are provider-specific: the navlog starter's OpenAI live
 path requires `OPENAI_API_KEY`, while a local Ollama route requires no provider
 key.
 
@@ -165,7 +165,7 @@ npm run dev
 
 Drive the backend through the
 [Agent Protocol](https://b4.run/docs/dev-server/agent-protocol), or follow
-the [Workbench guide](https://b4.run/docs/recipes/research-web-ui) to add a
+the [Workbench guide](https://b4.run/docs/recipes/flight-planner-web-ui) to add a
 browser client; the 0.8.21 scaffold does not include the Workbench package.
 
 In a clean 0.8.21 scaffold inspected on September 1, 2026, `npm run build`
@@ -175,10 +175,11 @@ compiles the TypeScript project. That scaffold does not define `npm start`; use
 ### Current source (unreleased 0.8.22)
 
 Current repository source scaffolds the smaller `basic` template, a single
-`/hello` agent, by default. Its research template is a two-package workspace
+`/hello` agent, by default. Its navlog template (the research template of
+0.8.22 is the navlog template in current source) is a two-package workspace
 with a server and the B4.run Workbench, selected with `--template navlog`
 (`npm create b4-app@latest my-agent -- --template navlog`). These commands
-apply to a research scaffold generated from current repository source, not the
+apply to a navlog scaffold generated from current repository source, not the
 published `@latest` package:
 
 ```bash

@@ -62,10 +62,14 @@ src/app/navlog/
 ```
 
 ```md title="src/app/navlog/memory.md"
-# Research Route Memory
+# Navlog Route Memory
 
-- Every claim in a report must carry an inline citation to a source you read.
-- Prefer primary sources; flag anything you could not verify.
+- The aircraft profile lives in long-term memory as subject `aircraft` with
+  predicates `tail_number`, `cruise_rpm`, `usable_fuel_gal`, `reserve_minutes`.
+  Recall it at the start of every plan; remember new facts the pilot states.
+- Performance numbers come from POH tables the performance subagent read; cite
+  the figure. Weather comes from the live tools; quote the raw observation.
+- `computeNavlog` owns every number on the navlog.
 ```
 
 B4.run trims the file and injects it under `# Route Memory`, after `workspace/AGENTS.md`, on every model turn. Creating the file is the whole opt-in. You don't import or register anything.

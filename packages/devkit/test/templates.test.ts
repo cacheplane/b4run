@@ -18,7 +18,7 @@ const SERVER_PARITY_ROOTS = [
   "test",
   "workspace",
 ] as const
-const RESEARCH_PARITY_RUNTIME_PATHS = ["workspace/tool-outputs", "workspace/reports"] as const
+const NAVLOG_PARITY_RUNTIME_PATHS = ["workspace/tool-outputs", "workspace/reports"] as const
 
 const SERVER_PARITY_IGNORED_PATHS = new Set(["workspace/reports", "workspace/tool-outputs"])
 
@@ -92,7 +92,7 @@ function isMissingPathError(error: unknown): boolean {
 }
 
 function isRuntimeParityPath(normalizedPath: string): boolean {
-  return RESEARCH_PARITY_RUNTIME_PATHS.some(
+  return NAVLOG_PARITY_RUNTIME_PATHS.some(
     (runtimePath) => normalizedPath === runtimePath || normalizedPath.startsWith(`${runtimePath}/`),
   )
 }
@@ -296,18 +296,18 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 describe("template registry", () => {
-  it("registers the research template", () => {
+  it("registers the navlog template", () => {
     expect(TEMPLATE_NAMES).toContain("navlog")
   })
 
-  it("resolves the research template directory", async () => {
+  it("resolves the navlog template directory", async () => {
     const dir = await resolveTemplateDir("navlog")
     expect(dir.endsWith("templates/app-navlog")).toBe(true)
   })
 })
 
-describe("research template parity with examples/navlog/server", () => {
-  it("keeps the complete research behavior tree in byte-for-byte parity", async () => {
+describe("navlog template parity with examples/navlog/server", () => {
+  it("keeps the complete navlog behavior tree in byte-for-byte parity", async () => {
     const templateServerRoot = join(await resolveTemplateDir("navlog"), "server")
     expect(
       await compareParityTrees(serverExampleRoot, templateServerRoot, SERVER_PARITY_SCOPE),
@@ -332,7 +332,7 @@ describe("research template parity with examples/navlog/server", () => {
   })
 
   it("ignores gitignored runtime workspace outputs", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-runtime-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-navlog-parity-runtime-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -366,7 +366,7 @@ describe("research template parity with examples/navlog/server", () => {
   })
 
   it("classifies missing, unexpected, colliding, and drifted paths independently", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-navlog-parity-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -413,7 +413,7 @@ describe("research template parity with examples/navlog/server", () => {
   })
 
   it("excludes only documented runtime workspace subtrees from parity", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-runtime-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-navlog-parity-runtime-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -446,7 +446,7 @@ describe("research template parity with examples/navlog/server", () => {
   })
 
   it("detects normalized root collisions and mirrors special template output names", async () => {
-    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-research-parity-roots-"))
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "b4-navlog-parity-roots-"))
     const fixtureExampleRoot = join(fixtureRoot, "example")
     const fixtureTemplateRoot = join(fixtureRoot, "template")
 
@@ -493,8 +493,8 @@ describe("research template parity with examples/navlog/server", () => {
   })
 })
 
-describe("research template parity with examples/navlog/web", () => {
-  it("keeps the complete research web tree in byte-for-byte parity", async () => {
+describe("navlog template parity with examples/navlog/web", () => {
+  it("keeps the complete navlog web tree in byte-for-byte parity", async () => {
     const templateWebRoot = join(await resolveTemplateDir("navlog"), "web")
     expect(await compareParityTrees(webExampleRoot, templateWebRoot, WEB_PARITY_SCOPE)).toEqual({
       contentDriftedPaths: [],

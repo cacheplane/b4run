@@ -1772,7 +1772,7 @@ const checks = [
     ],
   },
   {
-    file: "apps/web/content/docs/recipes/research-assistant.mdx",
+    file: "apps/web/content/docs/recipes/flight-planner.mdx",
     patterns: ["b4.config.ts"],
   },
   {
@@ -1880,17 +1880,17 @@ const gettingStartedSource = readFileSync(
   resolve(repoRoot, "apps/web/content/docs/getting-started.mdx"),
   "utf8",
 )
-const researchAssistantSource = readFileSync(
-  resolve(repoRoot, "apps/web/content/docs/recipes/research-assistant.mdx"),
+const flightPlannerSource = readFileSync(
+  resolve(repoRoot, "apps/web/content/docs/recipes/flight-planner.mdx"),
   "utf8",
 )
 for (const required of [
   "[Deployment Options](/docs/deployment)",
   "[Node and Docker](/docs/deployment/node)",
 ]) {
-  if (!researchAssistantSource.includes(required)) {
+  if (!flightPlannerSource.includes(required)) {
     failures.push(
-      `apps/web/content/docs/recipes/research-assistant.mdx is missing journey link: ${required}`,
+      `apps/web/content/docs/recipes/flight-planner.mdx is missing journey link: ${required}`,
     )
   }
 }
@@ -1907,7 +1907,7 @@ const gettingStartedFinalCards = gettingStartedSource.slice(
 const gettingStartedDecisionTitles = [
   ...gettingStartedFinalCards.matchAll(/\btitle:\s*"([^"]+)"/g),
 ].map((match) => match[1])
-const expectedGettingStartedDecisionTitles = ["Build a Research Assistant", "Tools", "Routes"]
+const expectedGettingStartedDecisionTitles = ["Build a Flight Planner", "Tools", "Routes"]
 if (
   JSON.stringify(gettingStartedDecisionTitles) !==
   JSON.stringify(expectedGettingStartedDecisionTitles)
@@ -1933,7 +1933,7 @@ for (const label of [
   "Dispatch from a Route",
   "Auth Middleware",
   "Stream Output",
-  "Research Assistant Web UI",
+  "Flight Planner Web UI",
 ]) {
   const count = recipesOverviewSource.split(`[${label}]`).length - 1
   if (count !== 1) {
@@ -3879,7 +3879,7 @@ const canonicalOwnerContracts = [
     required: ["/docs/memory/long-term"],
   },
   {
-    file: "apps/web/content/docs/recipes/research-web-ui.mdx",
+    file: "apps/web/content/docs/recipes/flight-planner-web-ui.mdx",
     heading: "Related",
     required: ["/docs/memory/long-term"],
   },
@@ -4096,8 +4096,8 @@ const expectedNavDocEntries = [
   { label: "Stream Output", href: "/docs/recipes/stream-output" },
   { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
   { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
-  { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
-  { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+  { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
+  { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
   { label: "Blueprints", href: "/docs/blueprints" },
   { label: "Configuration Reference", href: "/docs/configuration" },
   { label: "CLI Reference", href: "/docs/cli" },

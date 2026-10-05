@@ -21,7 +21,7 @@ const isDelegator = (command: string): boolean => /\s--workspace\s/u.test(comman
 const isFanOut = (command: string): boolean => /\s--workspaces\b/u.test(command)
 
 const WHY_THE_TERMINATOR = [
-  "Every single-workspace delegator in the research template's root package.json must end",
+  "Every single-workspace delegator in the navlog template's root package.json must end",
   'with a literal " --". It reads like a stray typo. It is not, and deleting it breaks the',
   "scaffold harness.",
   "",
@@ -40,7 +40,7 @@ const WHY_NO_TERMINATOR_ON_FAN_OUTS = [
   "does not define the script is skipped rather than failing the run.",
 ].join("\n")
 
-describe("research template root scripts", () => {
+describe("navlog template root scripts", () => {
   it("terminates every single-workspace delegator with a literal ` --`", () => {
     const { scripts } = rootManifest()
     const delegators = Object.entries(scripts).filter(([, command]) => isDelegator(command))

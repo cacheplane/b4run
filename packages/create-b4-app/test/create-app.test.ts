@@ -232,7 +232,7 @@ describe("create-b4-app", () => {
     expect(scaffoldResult.stdout).toContain("✔ Created hello-b4 (navlog template)")
     expect(scaffoldResult.stdout).toContain("See README.md for the full tour")
     expect(scaffoldResult.stdout).not.toContain("--template navlog")
-    expect(scaffoldResult.stdout).not.toContain("docs/recipes/research-web-ui")
+    expect(scaffoldResult.stdout).not.toContain("docs/recipes/flight-planner-web-ui")
     expect(scaffoldResult.stdout).not.toContain("npm run check")
     expect(scaffoldResult.stdout).not.toContain("npm test")
     expect(scaffoldResult.stdout).not.toContain("export OPENAI_API_KEY")
@@ -267,7 +267,7 @@ describe("create-b4-app", () => {
         "  npx b4 inspect --cwd server  # memory Inspector (browser UI), in a third terminal",
       ].join("\n"),
     )
-    expect(stdout).not.toContain("docs/recipes/research-web-ui")
+    expect(stdout).not.toContain("docs/recipes/flight-planner-web-ui")
     expect(stdout).not.toContain("npm run check")
     expect(stdout).not.toContain("npm test")
     expect(stdout).not.toContain("export OPENAI_API_KEY")
@@ -323,7 +323,7 @@ describe("create-b4-app", () => {
       ].join("\n"),
     )
     expect(stdout).not.toContain("  cp server/.env.example server/.env")
-    expect(stdout).not.toContain("docs/recipes/research-web-ui")
+    expect(stdout).not.toContain("docs/recipes/flight-planner-web-ui")
     expect(stdout).not.toContain("npm run check")
     expect(stdout).not.toContain("npm test")
     expect(stdout).not.toContain("export OPENAI_API_KEY")
@@ -421,7 +421,7 @@ describe("create-b4-app", () => {
         "  export OPENAI_API_KEY=sk-...",
         "  npm run dev       # B4.run dev server on http://127.0.0.1:3000",
         "",
-        "Want the full deep-research assistant with a web UI instead?",
+        "Want the full flight planner with a map Workbench instead?",
         "  npm create b4-app@latest <new-directory> -- --template navlog",
       ].join("\n"),
     )

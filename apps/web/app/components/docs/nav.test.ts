@@ -133,8 +133,8 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
-      { label: "Build a Research Assistant", href: "/docs/recipes/research-assistant" },
-      { label: "Research Assistant Web UI", href: "/docs/recipes/research-web-ui" },
+      { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
+      { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
       { label: "Blueprints", href: "/docs/blueprints" },
     ],
   },
@@ -689,11 +689,11 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(source).not.toContain("--template")
     expect(source).not.toContain("## 5. Ship it")
     expect(source).not.toContain("docker run -p 8000:8000")
-    expect(cardTitles).toEqual(["Build a Research Assistant", "Tools", "Routes"])
+    expect(cardTitles).toEqual(["Build a Flight Planner", "Tools", "Routes"])
   })
 
-  it("keeps the research recipe on the shipping journey", () => {
-    const source = readFileSync(join(CONTENT_ROOT, "recipes/research-assistant.mdx"), "utf8")
+  it("keeps the flight-planner recipe on the shipping journey", () => {
+    const source = readFileSync(join(CONTENT_ROOT, "recipes/flight-planner.mdx"), "utf8")
     expect(source).toContain("[Deployment Options](/docs/deployment)")
     expect(source).toContain("[Node and Docker](/docs/deployment/node)")
   })
@@ -701,14 +701,14 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
   it("groups Recipes Overview around build, integrate, test, and deploy tasks", () => {
     const source = readFileSync(join(CONTENT_ROOT, "recipes/index.mdx"), "utf8")
     const recipeLabels = [
-      "Build a Research Assistant",
+      "Build a Flight Planner",
       "Add a Tool",
       "Typed State",
       "Retry Transient Model Calls",
       "Dispatch from a Route",
       "Auth Middleware",
       "Stream Output",
-      "Research Assistant Web UI",
+      "Flight Planner Web UI",
     ]
 
     for (const heading of ["Build", "Integrate", "Test", "Deploy"]) {

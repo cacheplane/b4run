@@ -392,7 +392,7 @@ Inline parts count against the 8 MiB body ceiling; there is no per-part limit. T
 
 Tools can return parts too: a tool's result may be an array of the same parts (or `{ result: parts, state }`), and it travels as `TOOL_CALL_RESULT.content`. The model sees the media only as described above; the UI sees every part regardless. A [client-provided tool](#client-provided-tools) may answer with parts as well: a `role: "tool"` message's parts are stored as sent and replayed to the model under the same tool-result rules, so media reach the model only where the profile and provider allow it — never on OpenAI's Chat Completions path — and the UI gets every part on `TOOL_CALL_RESULT`. The one exception is a call closed by the [abandon path](#abandoned-calls), such as a new user message sent instead of resuming: the stored result is replayed as its text only, and the server logs a warning once the call is closed.
 
-For a client that attaches images, renders media parts, and shows the dropped-part notices, see [Attach an image](/docs/recipes/research-web-ui#attach-an-image) in the research web UI recipe.
+For a client that attaches images, renders media parts, and shows the dropped-part notices, see [Attach an image](/docs/recipes/flight-planner-web-ui#attach-an-image) in the flight-planner web UI recipe.
 
 `role: "reasoning"` and `role: "activity"` history is dropped on the way in: it is the client's stored artefact of an earlier turn, not something the assistant said.
 
@@ -467,7 +467,7 @@ export default function Page() {
 }
 ```
 
-Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the research example does this in a later release.
+Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the navlog example does this in a later release.
 
 Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 
@@ -486,7 +486,7 @@ function Subagents() {
 
 React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
-For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [research web UI recipe](/docs/recipes/research-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
+For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [flight-planner web UI recipe](/docs/recipes/flight-planner-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
 
 ## Adapter API
 
@@ -572,7 +572,7 @@ B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content
 
 B4.run presents its built-in planning action once. When a `writeTodos` call produced the `b4.plan` activity, the adapter emits no `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` for that call. The chunk behind the activity carries the same tool-call id as the model's call (`plan_update.tool_call_id`); that internal correlation decides the suppression, and it stays out of activity content. A subagent's own `writeTodos` is never suppressed: its plan snapshot and its tool frames both flow, tagged with the child's id.
 
-Every other tool is unchanged. `task`, `recall`, `searchCorpus`, `readDoc`, `writeFile`, `runBash`, and any application tool produce ordinary tool events.
+Every other tool is unchanged. `task`, `recall`, `computeNavlog`, `readDoc`, `writeFile`, `fileFlightPlan`, and any application tool produce ordinary tool events.
 
 The rule fails open. When the adapter can't prove the suppression is safe, the client sees the ordinary tool card. That covers a call with no tool-call id or a colliding one, a malformed plan payload, a result that arrives with no correlation, buffer limits, and a stream that ends early.
 

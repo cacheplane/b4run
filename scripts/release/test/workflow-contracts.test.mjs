@@ -125,8 +125,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // order v0.13.0/v0.13.1 were published in is kept as a historical constant.
 // Repinned again after merging main (#914 repinned its own release-smoke probes); the
 // digest covers both sides of that merge.
+// Repinned for the navlog rename: readme-contracts.mjs names the navlog starter in its
+// credential guidance.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "d11b92955ff70a014ff11e1ee78fff8d0e5ca3107612946819ca28318a515989"
+  "f95c95a1e1637b928e1b0662bdd8a917f9cef699c1d9782cd1842a378918c415"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

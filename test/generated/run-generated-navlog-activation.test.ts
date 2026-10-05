@@ -1349,7 +1349,7 @@ test("anchors the recorded server exit to a whole command line", () => {
   expect(() => assertRecordedServerExit(webFirst, { appRoot, script: "dev:web" })).toThrow()
 })
 
-test("activates the research scaffold (--template navlog) through the complete npm lifecycle", {
+test("activates the navlog scaffold (--template navlog) through the complete npm lifecycle", {
   timeout: ACTIVATION_TIMEOUT_MS,
 }, async ({ signal: testSignal }) => {
   const tempRoot = await createTrackedTempDir("b4-generated-navlog-activation-", tempDirs)
@@ -1400,7 +1400,7 @@ test("activates the research scaffold (--template navlog) through the complete n
       () =>
         lifecycleController.abort(
           new Error(
-            `Generated research activation reached its command deadline with ${ACTIVATION_CLEANUP_RESERVE_MS}ms reserved for cleanup`,
+            `Generated navlog activation reached its command deadline with ${ACTIVATION_CLEANUP_RESERVE_MS}ms reserved for cleanup`,
           ),
         ),
       ACTIVATION_TIMEOUT_MS - ACTIVATION_CLEANUP_RESERVE_MS,
@@ -2071,7 +2071,7 @@ test("activates the research scaffold (--template navlog) through the complete n
       cleanupError =
         cleanupErrors.length === 1
           ? cleanupErrors[0]
-          : new AggregateError(cleanupErrors, "Generated research activation cleanup failed")
+          : new AggregateError(cleanupErrors, "Generated navlog activation cleanup failed")
     }
     for (const inherited of inheritedRuntimeEnv) {
       if (inherited.hadOwnProperty) {
@@ -2088,14 +2088,14 @@ test("activates the research scaffold (--template navlog) through the complete n
       scenarioFailed && cleanupError !== undefined
         ? new AggregateError(
             [scenarioError, cleanupError],
-            "Generated research activation and cleanup both failed",
+            "Generated navlog activation and cleanup both failed",
           )
         : scenarioFailed
           ? scenarioError
           : cleanupError
     throw new Error(
       [
-        "Generated research activation failed; preserved its temporary root.",
+        "Generated navlog activation failed; preserved its temporary root.",
         `App root: ${appRoot}`,
         `Commands transcript: ${commandsTranscriptPath}`,
         `AG-UI transcript: ${agUiTranscriptPath}`,

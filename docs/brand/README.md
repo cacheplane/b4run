@@ -85,7 +85,7 @@ remote store.
 
 ## Determinism and truthfulness
 
-The capture creates the current local research starter in internal mode, runs
+The capture creates the current local navlog starter in internal mode, runs
 its real `npm test` path, and drives the generated Workbench against aimock on a
 loopback URL. Provider credentials are removed from child environments. The
 Workbench has no demo or fixture mode; only its model endpoint is redirected by

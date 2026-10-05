@@ -461,7 +461,7 @@ const canonicalProductLoopBlock = `<p align="center">
     <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
   </a>
 </p>`
-const canonicalQualifiedCredentials = `Credentials are provider-specific: the published research starter's OpenAI live
+const canonicalQualifiedCredentials = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
 key.`
 const canonicalFinalCta = `Ready to start?
@@ -1287,7 +1287,7 @@ describe("validateRootReadme", () => {
     assert.match(published, /npm run dev(?:\s|$)/)
     assert.match(published, /npm run build/)
     assert.match(published, /\/docs\/dev-server\/agent-protocol/)
-    assert.match(published, /\/docs\/recipes\/research-web-ui/)
+    assert.match(published, /\/docs\/recipes\/flight-planner-web-ui/)
     assert.doesNotMatch(published, /^npm (?:run dev:(?:server|web)|start)$/mu)
   })
 

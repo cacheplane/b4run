@@ -35,7 +35,7 @@ const webManifest = (): WebManifest =>
  * docs mention) and delete this file. Adding any one of them alone is the
  * failure mode this test exists to catch.
  */
-describe("research web template excludes Playwright", () => {
+describe("navlog web template excludes Playwright", () => {
   it("declares no test:e2e script", () => {
     expect(webManifest().scripts ?? {}).not.toHaveProperty("test:e2e")
   })

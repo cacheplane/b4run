@@ -435,18 +435,18 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/recipes/dispatch-from-route.mdx",
   },
   {
-    path: "/docs/recipes/research-assistant",
-    title: "Build a Research Assistant",
+    path: "/docs/recipes/flight-planner",
+    title: "Build a Flight Planner",
     description:
-      "Build a B4.run deep-research assistant with a coordinator agent, a researcher subagent, planning, memory, offline tests and the Workbench UI.",
-    sourcePath: "apps/web/content/docs/recipes/research-assistant.mdx",
+      "Build a B4.run VFR flight planner for a Cessna 172N: weather and performance subagents, a POH-grounded navlog tool, memory, keyless tests and a Workbench.",
+    sourcePath: "apps/web/content/docs/recipes/flight-planner.mdx",
   },
   {
-    path: "/docs/recipes/research-web-ui",
-    title: "Research Assistant Web UI",
+    path: "/docs/recipes/flight-planner-web-ui",
+    title: "Flight Planner Web UI",
     description:
-      "Connect the research demo to CopilotKit over AG-UI with thread hydration, inline activity cards, permission prompts, and memory-candidate review.",
-    sourcePath: "apps/web/content/docs/recipes/research-web-ui.mdx",
+      "Connect the flight-planner demo to CopilotKit over AG-UI with thread hydration, image attachments, plan and subagent cards, and memory-candidate review.",
+    sourcePath: "apps/web/content/docs/recipes/flight-planner-web-ui.mdx",
   },
   {
     path: "/docs/blueprints",

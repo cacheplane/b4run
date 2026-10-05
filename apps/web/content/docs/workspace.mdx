@@ -219,24 +219,25 @@ export async function workflow(input: unknown, ctx: RuntimeContext<RouteTools<"/
 
 `listDir()` with no argument lists the workspace root. Both `readFile` and `listDir` pass the permission gate before they reach the backend.
 
-## Research scaffold example
+## Navlog scaffold example
 
-The `research` template (`create-b4-app --template navlog`) shows how these tools fit together. These paths are relative to the B4.run app root, which is the generated project's `server/` package:
+The `navlog` template (`create-b4-app --template navlog`) shows how these tools fit together. These paths are relative to the B4.run app root, which is the generated project's `server/` package:
 
 ```text
 workspace/
   AGENTS.md          ← agent memory (see /docs/memory)
-  corpus/            ← source documents the agent reads
-  scripts/
-    fetch-source.mjs ← network fetch script called via runBash
-  reports/           ← agent-written output (writeFile creates this)
+  poh/               ← Cessna 172N POH tables the agent reads
+  regs/              ← regulation excerpts (VFR cruising altitudes, fuel reserves)
+  reports/           ← agent-written navlogs (writeFile creates this)
+  tool-outputs/      ← large tool results the runtime offloads
 ```
 
 Here's how the agent uses them:
 
-- `listDir` and `readFile` explore and read the corpus.
-- `runBash` runs `scripts/fetch-source.mjs` when the agent needs a new source. That command is left off the `allow` list on purpose, so a person approves each fetch.
-- `writeFile` saves reports to `workspace/reports/`, creating the directory on the first write.
+- `readDoc` reads a POH table under `poh/` or a regulation excerpt under `regs/`, and an offloaded result under `tool-outputs/`.
+- `writeFile` saves each navlog to `workspace/reports/`, creating the directory on the first write.
+- The runtime offloads a large tool result to `workspace/tool-outputs/` and keeps a preview in context.
+- The route denies `runBash`, so the agent never runs a shell command.
 
 Agent memory lives in `workspace/AGENTS.md`, and B4.run adds it to the system prompt. See [Memory](/docs/memory).
 

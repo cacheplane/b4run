@@ -188,9 +188,9 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `SubagentRunsState` | Re-export from `@b4run/ag-ui/view`: the thread id and the invocations keyed by `subagentRunId`. |
 | `SubagentToolCall` | Re-export from `@b4run/ag-ui/view`: one tool call a subagent made, with its streamed arguments and result. |
 | `planActivityContentSchema` | Zod schema for the `b4.plan` activity content. |
-| `PlanActivityCard` | Deprecated legacy plan card; removed when the research example adopts `TurnActivity`. |
+| `PlanActivityCard` | Deprecated legacy plan card; removed when the navlog example adopts `TurnActivity`. |
 | `ActivityChecklist` | Deprecated legacy checklist; removed with `PlanActivityCard`. |
-| `SubagentPanel` | Deprecated legacy subagent tree; removed when the research example adopts `SubagentStep`. |
+| `SubagentPanel` | Deprecated legacy subagent tree; removed when the navlog example adopts `SubagentStep`. |
 | `B4ActivityClassNames` | Deprecated: the per-part classes the legacy cards append to their defaults (customization rung 2). |
 | `B4ActivityComponents` | Deprecated: the leaf slots (`TodoRow`, `ToolRow`) the legacy cards let a consumer replace (customization rung 3). |
 | `B4TodoRowProps` | Deprecated: the props passed to a replacement `TodoRow`. |
@@ -199,7 +199,7 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 
 `TurnActivity` is the drop-in: give it a `TurnView` from `reduceTurns` and it renders the turn. The kit components are plain React and don't need CopilotKit; the CopilotKit connector is `@b4run/ag-ui/copilotkit`.
 
-Deprecated: `ActivityChecklist`, `PlanActivityCard` and `SubagentPanel` still accept the `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and `SubagentPanel` still renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. They go away once the research example adopts the kit. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for the tokens and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for the legacy ladder.
+Deprecated: `ActivityChecklist`, `PlanActivityCard` and `SubagentPanel` still accept the `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and `SubagentPanel` still renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. They go away once the navlog example adopts the kit. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for the tokens and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for the legacy ladder.
 
 ### `@b4run/ag-ui/copilotkit`
 

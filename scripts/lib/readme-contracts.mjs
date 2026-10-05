@@ -109,7 +109,7 @@ const CANONICAL_FINAL_CTA = `Ready to start?
 npm create b4-app@latest my-agent
 \`\`\``
 const CANONICAL_LICENSE_SECTION = "## License\n\nMIT. See [LICENSE](./LICENSE)."
-const CANONICAL_PROVIDER_CREDENTIAL_GUIDANCE = `Credentials are provider-specific: the published research starter's OpenAI live
+const CANONICAL_PROVIDER_CREDENTIAL_GUIDANCE = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
 key.`
 

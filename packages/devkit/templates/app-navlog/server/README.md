@@ -48,7 +48,7 @@ not hand-build the plan card or the subagent panel — `@b4run/ag-ui/react` ship
 them: a React client passes `b4ActivityRenderers` to CopilotKit's
 `renderActivityMessages` and mounts `SubagentPanel` from `useSubagentRuns(agent)`.
 That is what `web/` does, and the
-[Research assistant web UI](https://b4.run/docs/recipes/research-web-ui)
+[Flight planner web UI](https://b4.run/docs/recipes/flight-planner-web-ui)
 recipe walks through building one.
 
 Separately, `npx b4 inspect --cwd server` opens the

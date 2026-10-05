@@ -119,7 +119,7 @@ export default function Page() {
 
 ## React renderers
 
-Deprecated: the legacy cards and the `classNames`/`components` rungs go away once the research example adopts the kit. `b4ActivityRenderers` renders the legacy plan card from the plan activity snapshots. The drop-in is one prop:
+Deprecated: the legacy cards and the `classNames`/`components` rungs go away once the navlog example adopts the kit. `b4ActivityRenderers` renders the legacy plan card from the plan activity snapshots. The drop-in is one prop:
 
 ```tsx
 import { CopilotKit } from "@copilotkit/react-core/v2"

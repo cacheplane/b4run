@@ -1,4 +1,4 @@
-# Research Assistant Web UI
+# Flight Planner Web UI
 
 B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. It renders its own thread rail, transcript, and composer in place of `CopilotSidebar`, so the streamed brief and the plan, subagent, tool, and approval cards all appear inline in message order.
 

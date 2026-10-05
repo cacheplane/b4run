@@ -377,7 +377,7 @@ describe("runTypegen", () => {
   test.each(["app-basic", "app-navlog"] as const)(
     "keeps the %s template declaration pair in sync with typegen",
     async (templateName) => {
-      // The research template is an npm workspace: its B4.run app (routes, tools,
+      // The navlog template is an npm workspace: its B4.run app (routes, tools,
       // and the tracked `.b4` declarations) lives in `server/`, while the root
       // only orchestrates. Pointing at `server/` also keeps the `web/` package
       // out of `installTemplateTypegenDependencies`.
