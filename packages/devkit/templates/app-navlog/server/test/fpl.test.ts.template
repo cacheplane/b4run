@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildFlightPlan, formatFplMessage } from "../src/lib/fpl.ts"
+import { buildFlightPlan, formatFplMessage, parseUtcInstant } from "../src/lib/fpl.ts"
 
 const plan = buildFlightPlan({
   tailNumber: "N738ZU",
@@ -35,8 +35,21 @@ describe("ICAO flight plan", () => {
   })
   it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
     expect(() => buildFlightPlan({ ...planInput(), departureTimeUtc: "tomorrow 9am" })).toThrow(
-      'departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, got "tomorrow 9am"',
+      'departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "tomorrow 9am"',
     )
+  })
+  it("reads a UTC clock time as its next occurrence", () => {
+    const before = () => Date.parse("2026-10-06T09:30:00Z")
+    const after = () => Date.parse("2026-10-06T15:00:00Z")
+    expect(parseUtcInstant("1400Z", before).toISOString()).toBe("2026-10-06T14:00:00.000Z")
+    expect(parseUtcInstant("1400Z", after).toISOString()).toBe("2026-10-07T14:00:00.000Z")
+    expect(parseUtcInstant("1400z", before).toISOString()).toBe("2026-10-06T14:00:00.000Z")
+    expect(() => parseUtcInstant("2460Z", before)).toThrow(
+      /or a UTC time such as 1400Z, got "2460Z"/,
+    )
+    const plan = buildFlightPlan({ ...planInput(), departureTimeUtc: "1400Z" }, after)
+    expect(plan.item13).toBe("KSTP1400")
+    expect(plan.item18).toBe("DOF/261007")
   })
   it("writes DCT alone for a direct flight", () => {
     const direct = buildFlightPlan({ ...planInput(), route: [] })

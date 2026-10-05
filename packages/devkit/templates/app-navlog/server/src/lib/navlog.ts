@@ -108,13 +108,16 @@ function climbFromField(
 
 type LegRow = Omit<NavlogLeg, "remainingNm">
 
-/** Pure navlog arithmetic. No model, no network. */
-export function computeNavlog(input: NavlogInput): Navlog {
+/**
+ * Pure navlog arithmetic. No model, no network. `now` resolves a clock-time
+ * departure such as 1400Z to its next occurrence; tests pin it.
+ */
+export function computeNavlog(input: NavlogInput, now?: () => number): Navlog {
   if (input.waypoints.length < 2) throw new Error("computeNavlog needs at least two waypoints")
   const legCount = input.waypoints.length - 1
   if (input.winds.length !== legCount)
     throw new Error(`computeNavlog needs one wind entry per leg (${legCount})`)
-  const departure = parseUtcInstant(input.departureTimeUtc)
+  const departure = parseUtcInstant(input.departureTimeUtc, now)
 
   const cruise = cruiseAt({ pressureAltitudeFt: input.altitudeFt, rpm: input.aircraft.cruiseRpm })
   const origin = input.waypoints[0] as NavlogWaypoint

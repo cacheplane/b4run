@@ -163,9 +163,15 @@ describe("computeNavlog", () => {
   it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
     for (const departureTimeUtc of ["1500Z tomorrow", "2026-10-06T09:00:00-05:00", "2026-10-06"]) {
       expect(() => computeNavlog({ ...base, departureTimeUtc })).toThrow(
-        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, got "${departureTimeUtc}"`,
+        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "${departureTimeUtc}"`,
       )
     }
+  })
+  it("resolves a 1400Z departure to its next occurrence from now", () => {
+    const now = () => Date.parse("2026-10-06T15:00:00Z")
+    const log = computeNavlog({ ...base, departureTimeUtc: "1400Z" }, now)
+    expect(log.departureTimeUtc).toBe("2026-10-07T14:00:00.000Z")
+    expect(log.legs[0]?.etaUtc).toBe("2026-10-07T14:06:00.000Z")
   })
   it("names its POH sources", () => {
     const log = computeNavlog(base)
