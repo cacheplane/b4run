@@ -72,7 +72,7 @@ pnpm --filter @b4-example/navlog-server memory:approve -- <memory-id>
 ## Deploy (Railway)
 
 The live demo runs this server on Railway behind the web client on Vercel
-(see [`../web/README.md`](../web/README.md#deploy-vercel)). Three files are
+(see [`../web/README.md`](../web/README.md#deploy-vercel)). Two files are
 deployment-only and are not part of the scaffold:
 
 - `main.mjs`, the production entry. It loads the `b4 build` output exactly as
@@ -85,14 +85,23 @@ deployment-only and are not part of the scaffold:
 - `Dockerfile.railway`, a multi-stage build from the repository root: it
   installs the server and its workspace packages, builds them from source, and
   runs `b4 build`.
-- `railway.json`, which selects that Dockerfile, health-checks `/healthz` and
-  restarts on failure.
 
-**Railway service.** Deploy from the `cacheplane/b4run` repository, keep the
-service's root directory at `/` (the Docker build context must be the
-repository root), and set the config-as-code path to
-`examples/navlog/server/railway.json`. Attach the Postgres plugin, which injects
+**Railway service.** The service is not connected to GitHub (Railway has
+deprecated `railway.json` config-as-code, and its GitHub App is not installed
+on this repository). Its settings live on the service itself: Dockerfile path
+`examples/navlog/server/Dockerfile.railway` with the repository root as the
+build context, health check `/healthz` with a 120 s timeout, restart on
+failure up to three times. The Postgres template in the same project injects
 `DATABASE_URL`.
+
+**Deploys** come from `.github/workflows/deploy-navlog.yml`, the same shape as
+threadplane's Railway workflows: on a push to `main` that touches the server,
+a workspace package, or the docs the CLI bundles, it uploads the checkout with
+the Railway CLI under a project token (`RAILWAY_NAVLOG_TOKEN`, scoped to the
+demo's project and environment), follows the deployment it created until
+Railway reports success, and probes `/healthz`. A build or boot failure fails
+the workflow instead of hiding behind the last good image. `workflow_dispatch`
+redeploys `main` by hand.
 
 **Variables.**
 

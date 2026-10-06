@@ -1555,6 +1555,48 @@
         "value": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
       }
     ],
+    "deploy-navlog.yml": [
+      {
+        "classification": "safe",
+        "job": "deploy",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "deploy",
+        "stepIndex": 1,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "deploy",
+        "stepIndex": 2,
+        "step": "Upload the checkout to Railway",
+        "kind": "run",
+        "value": "npx --yes @railway/cli@5.63.1 up --service navlog-server --environment production --detach | tee railway-up.log\ndeployment=\"$(sed -n 's/.*[?&]id=\\([0-9a-f-]\\{36\\}\\).*/\\1/p' railway-up.log | head -n 1)\"\nif [ -z \"$deployment\" ]; then\n  echo \"::error::railway up did not report a deployment id\" >&2\n  exit 1\nfi\necho \"deployment=$deployment\" >> \"$GITHUB_OUTPUT\"\n"
+      },
+      {
+        "classification": "safe",
+        "job": "deploy",
+        "stepIndex": 3,
+        "step": "Wait for the rollout",
+        "kind": "run",
+        "value": "node - <<'JS'\nconst id = process.env.DEPLOYMENT_ID\nconst deadline = Date.now() + 25 * 60 * 1000\nconst query = \"query($id: String!) { deployment(id: $id) { status } }\"\nwhile (true) {\n  const response = await fetch(\"https://backboard.railway.com/graphql/v2\", {\n    method: \"POST\",\n    headers: {\n      \"content-type\": \"application/json\",\n      \"project-access-token\": process.env.RAILWAY_TOKEN,\n    },\n    body: JSON.stringify({ query, variables: { id } }),\n  })\n  const body = await response.json()\n  const status = body?.data?.deployment?.status\n  if (!status) {\n    console.error(\"Railway did not report a status:\", JSON.stringify(body))\n    process.exit(1)\n  }\n  console.log(new Date().toISOString(), status)\n  if (status === \"SUCCESS\") break\n  if ([\"FAILED\", \"CRASHED\", \"REMOVED\", \"SKIPPED\"].includes(status)) {\n    console.error(`Deployment ${id} ended as ${status}`)\n    process.exit(1)\n  }\n  if (Date.now() > deadline) {\n    console.error(`Deployment ${id} still ${status} after 25 minutes`)\n    process.exit(1)\n  }\n  await new Promise((resolve) => setTimeout(resolve, 20000))\n}\nJS\n"
+      },
+      {
+        "classification": "safe",
+        "job": "deploy",
+        "stepIndex": 4,
+        "step": "Probe the live server",
+        "kind": "run",
+        "value": "for attempt in 1 2 3 4 5 6; do\n  if curl --fail --silent --show-error --max-time 10 https://navlog-server-production.up.railway.app/healthz; then\n    echo\n    exit 0\n  fi\n  sleep 10\ndone\necho \"::error::navlog-server did not answer /healthz after the rollout\" >&2\nexit 1\n"
+      }
+    ],
     "kubernetes-compat.yml": [
       {
         "classification": "safe",
