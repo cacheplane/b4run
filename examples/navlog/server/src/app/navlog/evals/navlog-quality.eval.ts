@@ -5,7 +5,7 @@ import { script } from "@b4run/testing"
 import { z } from "zod"
 
 const JUDGE_CRITERIA =
-  "The brief names the flight category at every airport, states fuel burned and the reserve at destination, and cites at least one POH figure."
+  "The answer opens with a GO, CAUTION or NO-GO bottom line, states the ETE, fuel burned and the reserve at destination, lists its assumptions, and cites at least one POH figure."
 // The scripted judge turn is matched by a substring of the judge's prompt, so
 // derive it from the criteria rather than restating it.
 const JUDGE_MATCH = JUDGE_CRITERIA.slice(0, 32)
@@ -13,6 +13,15 @@ const JUDGE_MATCH = JUDGE_CRITERIA.slice(0, 32)
 // The workspace the cited POH files live in, resolved from this file.
 const WORKSPACE = fileURLToPath(new URL("../../../../workspace/", import.meta.url))
 const CITATION = /\[(poh\/[a-z-]+\.md)/g
+const BOTTOM_LINE = /^Bottom line: (GO|CAUTION|NO-GO) — /
+// What a planning answer must never contain: an echoed tool call, the todo
+// list's statuses, a workspace path, or ETE mislabelled as engine time.
+const NEVER_IN_ANSWER = [
+  /\brecall\(/,
+  /\[(completed|pending|in_progress)\]/,
+  /reports\//,
+  /engine-on/i,
+]
 
 const DIRECT_INPUT =
   "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z. My airplane is N738ZU, a 172N, cruise 2400 RPM, 50 gallons usable."
@@ -107,8 +116,8 @@ interface PlanScript {
 
 /**
  * The tool sequence a live plan follows, scripted so replay is keyless and
- * deterministic: the parent recalls, records todos, dispatches both
- * subagents, looks up each airport, computes the navlog and saves it. The
+ * deterministic: the parent recalls, records todos, looks up each
+ * airport, dispatches both subagents, computes the navlog and saves it. The
  * tools run for real (computeNavlog's numbers are the code's, not the
  * script's); the weather child's METAR and lookupAirport reach
  * aviationweather.gov. Each subagent and the judge answer in their own
@@ -116,16 +125,17 @@ interface PlanScript {
  */
 function planFixtures(plan: PlanScript) {
   const ids = plan.waypoints.map((wp) => wp.id)
-  const weatherInput = `Weather brief for ${ids.join(", ")} at 4500 ft, departure ${plan.departureTimeUtc}.`
+  const coordinates = plan.waypoints.map((wp) => `${wp.id} (${wp.lat}, ${wp.lon})`).join(", ")
+  const weatherInput = `Weather brief for ${coordinates} at 4500 ft, departure ${plan.departureTimeUtc}.`
   const performanceInput = `Performance for ${ids.join(", ")} at 4500 ft, cruise 2400 RPM.`
   let builder = script()
     .user(plan.input)
     .callsTool("recall", { query: PROFILE })
     .callsTool("writeTodos", PLAN_TODOS)
-    .callsTool("task", { subagent: "weather", input: weatherInput })
-    .callsTool("task", { subagent: "performance", input: performanceInput })
   for (const id of ids) builder = builder.callsTool("lookupAirport", { id })
   return builder
+    .callsTool("task", { subagent: "weather", input: weatherInput })
+    .callsTool("task", { subagent: "performance", input: performanceInput })
     .callsTool("computeNavlog", {
       aircraft: AIRCRAFT,
       altitudeFt: 4500,
@@ -138,7 +148,20 @@ function planFixtures(plan: PlanScript) {
     .user(weatherInput)
     .callsTool("getMetar", { ids })
     .replies(
-      `Airports: ${ids.map((id) => `${id} VFR now, VFR at ETA`).join("; ")}.\nWinds per leg: 320/20 at 4500 ft.\nAdvisories: none.\nGo/no-go note: VFR throughout.`,
+      [
+        "Verdict: GO — VFR at every airport now and at the ETA, with no advisory during the flight.",
+        "Forecast horizon: Departure is within TAF and winds-aloft coverage.",
+        "Airports:",
+        ...ids.map(
+          (id) =>
+            `${id}: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 320 at 8. METAR ${id} … TAF ${id} …`,
+        ),
+        "Winds per leg:",
+        ...ids.slice(1).map((_, n) => `leg ${n + 1}: 320/20 5C at 4500 ft, MSP, valid 1800Z`),
+        "Advisories:",
+        "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure",
+        "Go/no-go note: VFR throughout; the convective SIGMET ends hours before departure.",
+      ].join("\n"),
     )
     .user(performanceInput)
     .callsTool("readDoc", { path: "poh/cruise-performance.md" })
@@ -161,8 +184,13 @@ export default defineEval({
         waypoints: [KSTP, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
-        brief:
-          "KSTP is VFR now and VFR at departure; KRST is VFR now and VFR at the 1433Z ETA. Winds at 4500 ft are 320 at 20, a quartering tailwind. The flight is 66 nm and 33 minutes, burning 5.5 gal including start and taxi, leaving 44.5 gal, a reserve of 380 minutes at cruise burn. Cruise is 2400 RPM, about 110 KTAS at 7.0 GPH [poh/cruise-performance.md, Figure 5-7]. The navlog is saved in reports/KSTP-KRST.md; I have not filed a flight plan.",
+        brief: [
+          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
+          "Watch for: none during the flight; a convective SIGMET expires before departure.",
+          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min at 2400 RPM, 7.0 GPH [poh/cruise-performance.md, Figure 5-7].",
+          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
+          "Want me to file the plan, try another altitude, or re-brief closer to departure?",
+        ].join("\n"),
       }),
     },
     {
@@ -174,8 +202,13 @@ export default defineEval({
         waypoints: [KSTP, KOWA, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KOWA | climb | 190 | 80 | 8 | 6 | 2.3 |\n| KSTP | KOWA | cruise | 198 | 122 | 41 | 20 | 2.3 |\n| KOWA | KRST | cruise | 106 | 127 | 36 | 17 | 2.0 |\n\nTotals: 85 nm, 43 min, 6.6 gal, reserve 371 min.\n",
-        brief:
-          "KSTP is VFR now and at departure, KOWA is VFR now and at its 1526Z ETA, and KRST is VFR now and at the 1543Z ETA. Winds at 4500 ft are 320 at 20. The route is 85 nm and 43 minutes, burning 6.6 gal including start and taxi, leaving 43.4 gal, a reserve of 371 minutes at cruise burn. Cruise is 2400 RPM, about 110 KTAS at 7.0 GPH [poh/cruise-performance.md, Figure 5-7]. The navlog is saved in reports/KSTP-KRST.md; I have not filed a flight plan.",
+        brief: [
+          "Bottom line: GO — KSTP, KOWA and KRST are VFR now and through the 1543Z ETA, with no advisory during the flight.",
+          "Watch for: none during the flight; a convective SIGMET expires before departure.",
+          "Numbers: 85 nm, ETE 43 min, 6.6 gal burned (includes 1.1 gal for start, taxi and takeoff), 43.4 gal at landing, reserve 371 min at 2400 RPM, 7.0 GPH [poh/cruise-performance.md, Figure 5-7].",
+          "Assumptions: departure 1500Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
+          "Want me to file the plan, try another altitude, or re-brief closer to departure?",
+        ].join("\n"),
       }),
     },
     {
@@ -189,8 +222,13 @@ export default defineEval({
         waypoints: [KSTP, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
-        brief:
-          "KSTP is VFR now and VFR at departure; KRST is VFR now and VFR at the 1433Z ETA. The flight is 66 nm and 33 minutes, burning 5.5 gal including start and taxi, with a 380 minute reserve at cruise burn [poh/cruise-performance.md, Figure 5-7]. As asked, I have not filed a flight plan; the navlog is in reports/KSTP-KRST.md.",
+        brief: [
+          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
+          "Watch for: none during the flight.",
+          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min [poh/cruise-performance.md, Figure 5-7].",
+          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
+          "As asked, I have not filed it; I can try another altitude or re-brief closer to departure.",
+        ].join("\n"),
       }),
     },
   ],
@@ -221,6 +259,14 @@ export default defineEval({
       },
       { name: "cites-poh", threshold: 1 },
     ),
+    custom((run) => (BOTTOM_LINE.test(run.finalMessage) ? 1 : 0), {
+      name: "opens-with-bottom-line",
+      threshold: 1,
+    }),
+    custom((run) => (NEVER_IN_ANSWER.some((pattern) => pattern.test(run.finalMessage)) ? 0 : 1), {
+      name: "no-echoes-or-paths",
+      threshold: 1,
+    }),
     custom(
       (run, testCase) => {
         const filed = run.toolCalls.some((call) => call.name === "fileFlightPlan")
