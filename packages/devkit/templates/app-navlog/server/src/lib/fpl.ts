@@ -37,30 +37,51 @@ const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?0
 const UTC_CLOCK = /^([01]\d|2[0-3])([0-5]\d)Z$/i
 const DAY_MS = 24 * 60 * 60_000
 
+/** "tomorrow 1400Z" or "1400Z tomorrow" (and the same with "today"). */
+const DAY_CLOCK =
+  /^(?:(today|tomorrow)\s+([01]\d|2[0-3])([0-5]\d)Z|([01]\d|2[0-3])([0-5]\d)Z\s+(today|tomorrow))$/i
+/** "Tomorrow" is never sooner than this: half a day covers a pilot in any US time zone. */
+const TOMORROW_MIN_AHEAD_MS = 12 * 60 * 60_000
+
+/** The next time the UTC clock reads hh:mm, at or after `from`. */
+function nextClock(from: number, hours: number, minutes: number): number {
+  const today = new Date(from)
+  const candidate = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+    hours,
+    minutes,
+  )
+  return candidate < from ? candidate + DAY_MS : candidate
+}
+
 /**
- * Parse a departure time: an ISO 8601 UTC instant, or a UTC clock time such
- * as 1400Z, which means its next occurrence from `now` (today if that time
- * has not passed yet, otherwise tomorrow). Throws a message the model can act
+ * Parse a departure time: an ISO 8601 UTC instant; a UTC clock time such as
+ * 1400Z, which means its next occurrence from `now` (today if that time has not
+ * passed yet, otherwise tomorrow); or the clock time with the day the pilot
+ * named, "today 1400Z" or "tomorrow 1400Z". "Tomorrow" is the first 1400Z at
+ * least 12 hours ahead, which is the pilot's tomorrow whether they ask in the
+ * morning or the evening of any US time zone (a UTC-date "tomorrow" would skip
+ * a day for a pilot asking in the evening). Throws a message the model can act
  * on otherwise.
  */
 export function parseUtcInstant(value: string, now: () => number = Date.now): Date {
-  const clock = UTC_CLOCK.exec(value)
-  if (clock) {
-    const current = now()
-    const today = new Date(current)
-    const candidate = Date.UTC(
-      today.getUTCFullYear(),
-      today.getUTCMonth(),
-      today.getUTCDate(),
-      Number(clock[1]),
-      Number(clock[2]),
-    )
-    return new Date(candidate < current ? candidate + DAY_MS : candidate)
+  const trimmed = value.trim()
+  const clock = UTC_CLOCK.exec(trimmed)
+  if (clock) return new Date(nextClock(now(), Number(clock[1]), Number(clock[2])))
+  const dayClock = DAY_CLOCK.exec(trimmed)
+  if (dayClock) {
+    const day = (dayClock[1] ?? dayClock[6] ?? "").toLowerCase()
+    const hours = Number(dayClock[2] ?? dayClock[4])
+    const minutes = Number(dayClock[3] ?? dayClock[5])
+    const from = now() + (day === "tomorrow" ? TOMORROW_MIN_AHEAD_MS : 0)
+    return new Date(nextClock(from, hours, minutes))
   }
-  const date = new Date(value)
-  if (!UTC_INSTANT.test(value) || Number.isNaN(date.getTime())) {
+  const date = new Date(trimmed)
+  if (!UTC_INSTANT.test(trimmed) || Number.isNaN(date.getTime())) {
     throw new Error(
-      `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "${value}"`,
+      `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, a UTC time such as 1400Z, or "tomorrow 1400Z", got "${value}"`,
     )
   }
   return date

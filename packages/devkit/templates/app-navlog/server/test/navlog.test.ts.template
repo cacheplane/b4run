@@ -160,10 +160,15 @@ describe("computeNavlog", () => {
     )
     expect(() => computeNavlog({ ...base, winds: [] })).toThrow(/one wind entry per leg/)
   })
-  it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
-    for (const departureTimeUtc of ["1500Z tomorrow", "2026-10-06T09:00:00-05:00", "2026-10-06"]) {
+  it("rejects a departure time that is not a UTC instant, a UTC clock time or a day and clock time", () => {
+    for (const departureTimeUtc of [
+      "1500 tomorrow",
+      "next week 1500Z",
+      "2026-10-06T09:00:00-05:00",
+      "2026-10-06",
+    ]) {
       expect(() => computeNavlog({ ...base, departureTimeUtc })).toThrow(
-        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "${departureTimeUtc}"`,
+        `departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, a UTC time such as 1400Z, or "tomorrow 1400Z", got "${departureTimeUtc}"`,
       )
     }
   })
