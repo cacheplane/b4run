@@ -117,14 +117,39 @@ describe("getWindsAloft", () => {
     expect(out.station).toBe("MSP")
     expect(out.wind).toEqual({ dirDegTrue: 325, speedKt: 30.5, tempC: null })
   })
-  it("rejects a forecast period the product does not offer", async () => {
+  it("reads the shortest published forecast that reaches the requested hours", async () => {
+    // AWC publishes 6-, 12- and 24-hour products. The live weather subagent asked
+    // for forecastHours 1 and got an error and a retry; it now gets the 6-hour one.
+    // A region no other test reads, so the client's URL cache starts empty here.
+    const fetchMock = vi.fn(async (_url: string) => text(product))
+    vi.stubGlobal("fetch", fetchMock)
+    const asked = [1, 6, 9, 24]
+    const read: number[] = []
+    for (const forecastHours of asked) {
+      const out = await getWindsAloft(
+        { region: "slc", station: "MSP", altitudeFt: 4500, forecastHours },
+        ctx,
+      )
+      read.push(out.forecastHours)
+    }
+    expect(read).toEqual([6, 6, 12, 24])
+    expect(fetchMock.mock.calls.map(([url]) => new URL(url).searchParams.get("fcst"))).toEqual([
+      "06",
+      "12",
+      "24",
+    ])
+  })
+  it("rejects a period beyond the longest forecast, or a negative one", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => text(product)),
     )
     await expect(
-      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: 9 }, ctx),
-    ).rejects.toThrow(/forecastHours must be one of 6, 12, 24/)
+      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: 30 }, ctx),
+    ).rejects.toThrow(/beyond the longest winds-aloft forecast \(24 hours\)/)
+    await expect(
+      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: -1 }, ctx),
+    ).rejects.toThrow(/number of hours ahead/)
   })
   it("lists the available stations when the requested one is absent", async () => {
     vi.stubGlobal(
