@@ -1,0 +1,119 @@
+name: Deploy navlog server
+
+# The live flight-planner demo (examples/navlog) runs its server on Railway.
+# Railway builds examples/navlog/server/Dockerfile.railway with the repository
+# root as the build context, so the image changes whenever the server, a
+# workspace package it depends on, or the docs the CLI bundles change. The
+# Railway GitHub App is not connected to this repository; like threadplane's
+# deploy workflows, this one uploads the checkout with the Railway CLI under a
+# project token scoped to the demo's project and environment.
+#
+# `railway up --detach` returns when the upload is accepted, so the second step
+# follows the deployment it created until Railway reports SUCCESS, and fails
+# the workflow on anything else: a broken build must not hide behind the last
+# good image. The health probe at the end confirms the new container answers.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - examples/navlog/server/**
+      - packages/**
+      - apps/web/content/docs/**
+      - apps/web/app/components/docs/nav.ts
+      - apps/web/app/components/docs/api-reference-pages.ts
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .npmrc
+      - tsconfig.json
+      - .dockerignore
+      - .github/workflows/deploy-navlog.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy navlog-server to Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+
+      - name: Upload the checkout to Railway
+        id: upload
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_NAVLOG_TOKEN }}
+        run: |
+          npx --yes @railway/cli@5.63.1 up --service navlog-server --environment production --detach | tee railway-up.log
+          deployment="$(sed -n 's/.*[?&]id=\([0-9a-f-]\{36\}\).*/\1/p' railway-up.log | head -n 1)"
+          if [ -z "$deployment" ]; then
+            echo "::error::railway up did not report a deployment id" >&2
+            exit 1
+          fi
+          echo "deployment=$deployment" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the rollout
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_NAVLOG_TOKEN }}
+          DEPLOYMENT_ID: ${{ steps.upload.outputs.deployment }}
+        run: |
+          node - <<'JS'
+          const id = process.env.DEPLOYMENT_ID
+          const deadline = Date.now() + 25 * 60 * 1000
+          const query = "query($id: String!) { deployment(id: $id) { status } }"
+          while (true) {
+            const response = await fetch("https://backboard.railway.com/graphql/v2", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "project-access-token": process.env.RAILWAY_TOKEN,
+              },
+              body: JSON.stringify({ query, variables: { id } }),
+            })
+            const body = await response.json()
+            const status = body?.data?.deployment?.status
+            if (!status) {
+              console.error("Railway did not report a status:", JSON.stringify(body))
+              process.exit(1)
+            }
+            console.log(new Date().toISOString(), status)
+            if (status === "SUCCESS") break
+            if (["FAILED", "CRASHED", "REMOVED", "SKIPPED"].includes(status)) {
+              console.error(`Deployment ${id} ended as ${status}`)
+              process.exit(1)
+            }
+            if (Date.now() > deadline) {
+              console.error(`Deployment ${id} still ${status} after 25 minutes`)
+              process.exit(1)
+            }
+            await new Promise((resolve) => setTimeout(resolve, 20000))
+          }
+          JS
+
+      - name: Probe the live server
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error --max-time 10 https://navlog-server-production.up.railway.app/healthz; then
+              echo
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::navlog-server did not answer /healthz after the rollout" >&2
+          exit 1

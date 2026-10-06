@@ -2,7 +2,7 @@
 # source, the example runs `b4 build`, and the runtime image carries the whole
 # installed workspace (simplest correct answer for workspace: links; size is a
 # non-goal for a demo). Railway builds this with the repository root as context
-# (see railway.json); locally:
+# (the service's Dockerfile-path setting; see README.md "Deploy (Railway)"); locally:
 #   docker build -f examples/navlog/server/Dockerfile.railway -t navlog-server .
 FROM node:24-slim AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=1
