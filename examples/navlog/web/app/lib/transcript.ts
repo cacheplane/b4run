@@ -15,6 +15,7 @@
  * activity, reasoning, system and developer.
  */
 
+import { B4_PLAN_ACTIVITY_TYPE } from "@b4run/ag-ui"
 import type { B4ContentPart } from "@b4run/sdk"
 import { mediaParts, partsOf } from "./parts"
 
@@ -250,7 +251,121 @@ export function buildTranscriptItems(
         break
     }
   }
-  return withNotices(items, notices)
+  return withNotices(withPlansFromTodos(items), notices)
+}
+
+/** The built-in planning tool. Live, its frames become the `b4.plan` activity; restored, they are tool calls. */
+const PLAN_TOOL = "writeTodos"
+
+/** The id prefix `AppShell`'s `withRestoredPlan` gives the plan it rebuilds from the checkpoint. */
+export const RESTORED_PLAN_ID_PREFIX = "hydrated:plan:"
+
+type TodoStatus = "pending" | "in_progress" | "completed"
+
+const TODO_STATUSES: ReadonlySet<string> = new Set(["pending", "in_progress", "completed"])
+
+/** A `writeTodos` call's todos, keeping only well-formed ones; undefined when there are none. */
+export function todosFromArgs(
+  argumentsJson: string,
+): Array<{ content: string; status: TodoStatus }> | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(argumentsJson)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined
+  const raw = (parsed as { todos?: unknown }).todos
+  if (!Array.isArray(raw)) return undefined
+  const todos = raw.flatMap((todo: unknown) => {
+    if (typeof todo !== "object" || todo === null) return []
+    const { content, status } = todo as { content?: unknown; status?: unknown }
+    if (typeof content !== "string" || content.trim().length === 0) return []
+    if (typeof status !== "string" || !TODO_STATUSES.has(status)) return []
+    return [{ content, status: status as TodoStatus }]
+  })
+  return todos.length > 0 ? todos : undefined
+}
+
+type ToolCallItem = Extract<TranscriptItem, { kind: "toolCall" }>
+
+function isPlanCall(item: TranscriptItem): item is ToolCallItem {
+  return item.kind === "toolCall" && item.toolCall.function.name === PLAN_TOOL
+}
+
+/**
+ * A restored conversation's `writeTodos` calls, shown the way a live run shows
+ * them: as the Plan card, not as tool cards with raw JSON.
+ *
+ * Live, the server's orchestration ledger drops a `writeTodos` call's tool
+ * frames and sends one `b4.plan` activity per run instead, updated in place, so
+ * the transcript never holds the calls at all. A checkpoint holds the calls and
+ * no activity. So per user turn — the nearest thing to a run a checkpoint
+ * still has — the turn's calls become ONE plan card, at the position of its
+ * first call, holding the turn's latest todos (the plan as it ended, which is
+ * what the live card shows once the run is over).
+ *
+ * Two guards keep this from doubling a card:
+ * - A turn that already carries a live plan activity just drops its calls; the
+ *   activity is the plan.
+ * - `AppShell` prepends one plan rebuilt from the checkpoint's final `todos`
+ *   (`RESTORED_PLAN_ID_PREFIX`). Once any turn's calls became a card, that
+ *   prepended copy is redundant — and misplaced, above the first message — so
+ *   it is dropped. A thread whose calls cannot be read keeps it.
+ */
+function withPlansFromTodos(items: readonly TranscriptItem[]): readonly TranscriptItem[] {
+  if (!items.some(isPlanCall)) return items
+  const turns: TranscriptItem[][] = [[]]
+  for (const item of items) {
+    if (item.kind === "user") turns.push([])
+    turns[turns.length - 1]?.push(item)
+  }
+
+  let converted = false
+  const out: TranscriptItem[] = []
+  for (const turn of turns) {
+    const calls = turn.filter(isPlanCall)
+    if (calls.length === 0) {
+      out.push(...turn)
+      continue
+    }
+    const hasLivePlan = turn.some(
+      (item) =>
+        item.kind === "activity" &&
+        item.activityType === B4_PLAN_ACTIVITY_TYPE &&
+        !item.id.startsWith(RESTORED_PLAN_ID_PREFIX),
+    )
+    const latest = hasLivePlan
+      ? undefined
+      : calls
+          .map((call) => todosFromArgs(call.toolCall.function.arguments))
+          .filter((todos) => todos !== undefined)
+          .at(-1)
+    if (!hasLivePlan && latest === undefined) {
+      // Nothing readable: keep the calls as they were rather than lose them.
+      out.push(...turn)
+      continue
+    }
+    const first = calls[0]
+    for (const item of turn) {
+      if (!isPlanCall(item)) {
+        out.push(item)
+      } else if (item === first && latest !== undefined) {
+        converted = true
+        out.push({
+          kind: "activity",
+          id: `plan:${item.id}`,
+          activityType: B4_PLAN_ACTIVITY_TYPE,
+          content: { todos: latest },
+        })
+      }
+    }
+  }
+  return converted
+    ? out.filter(
+        (item) => !(item.kind === "activity" && item.id.startsWith(RESTORED_PLAN_ID_PREFIX)),
+      )
+    : out
 }
 
 function withNotices(

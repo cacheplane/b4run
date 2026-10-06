@@ -476,3 +476,31 @@
 .wb-prose th {
   font-weight: 600;
 }
+
+/* chat dock: start */
+/*
+ * The chat dock's two signal colors: a warning (an approval waiting, a denied
+ * call) and a failure. Tokens with dark values rather than Tailwind's `dark:`
+ * variant: that variant follows the OS setting only, while the workbench also
+ * honors an explicit `data-wb-theme`.
+ */
+:root {
+  --wb-chat-warn: #b45309;
+  --wb-chat-warn-bg: rgb(245 158 11 / 0.1);
+  --wb-chat-danger: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-wb-theme="light"]) {
+    --wb-chat-warn: #fbbf24;
+    --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
+    --wb-chat-danger: #f87171;
+  }
+}
+
+:root[data-wb-theme="dark"] {
+  --wb-chat-warn: #fbbf24;
+  --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
+  --wb-chat-danger: #f87171;
+}
+/* chat dock: end */

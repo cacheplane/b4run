@@ -30,11 +30,11 @@ export interface ThreadRailProps {
 export const UNTITLED_THREAD_LABEL = "New conversation"
 
 const ROW_BASE =
-  "block w-full truncate rounded-wb px-2.5 py-1.5 text-left text-[13px] transition-colors wb-focus"
+  "block w-full truncate rounded-wb px-2.5 py-1.5 text-left text-[13px] transition-colors wb-focus pointer-coarse:py-3"
 
-const ROW_ACTIVE = "bg-wb-surface font-medium text-wb-text shadow-xs"
+const ROW_ACTIVE = "bg-wb-rail font-medium text-wb-text"
 
-const ROW_IDLE = "text-wb-muted hover:bg-wb-surface hover:text-wb-text"
+const ROW_IDLE = "text-wb-muted hover:bg-wb-rail hover:text-wb-text"
 
 export function ThreadRail({
   threads,
