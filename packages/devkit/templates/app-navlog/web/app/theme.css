@@ -114,11 +114,29 @@
   --wb-cat-vfr: #15803d;
   --wb-cat-mvfr: #1d4ed8;
   --wb-cat-ifr: #b91c1c;
-  --wb-cat-lifr: #9d174d;
+  --wb-cat-lifr: #a21caf;
   --wb-cat-vfr-bg: #dcfce7;
   --wb-cat-mvfr-bg: #dbeafe;
   --wb-cat-ifr-bg: #fee2e2;
-  --wb-cat-lifr-bg: #fce7f3;
+  --wb-cat-lifr-bg: #fae8ff;
+
+  /* Go/no-go and hazards. CAUTION and amber hazards share the amber; NO-GO and red hazards the red. */
+  --wb-go: #15803d;
+  --wb-go-bg: #f0fdf4;
+  --wb-go-border: #bbf7d0;
+  --wb-caution: #b45309;
+  --wb-caution-bg: #fffbeb;
+  --wb-caution-border: #fde68a;
+  --wb-nogo: #b91c1c;
+  --wb-nogo-bg: #fef2f2;
+  --wb-nogo-border: #fecaca;
+
+  /* The map's own surfaces: the color under the tiles while they load, and the floating panels' glass. */
+  --wb-map-bg: #e9e8e3;
+  --wb-float: rgb(255 255 255 / 0.86);
+  --wb-float-border: rgb(24 24 27 / 0.1);
+  --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
+  --wb-route-casing: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -127,11 +145,25 @@
     --wb-cat-vfr: #4ade80;
     --wb-cat-mvfr: #93c5fd;
     --wb-cat-ifr: #fca5a5;
-    --wb-cat-lifr: #f9a8d4;
+    --wb-cat-lifr: #f0abfc;
     --wb-cat-vfr-bg: #052e16;
     --wb-cat-mvfr-bg: #172554;
     --wb-cat-ifr-bg: #450a0a;
-    --wb-cat-lifr-bg: #500724;
+    --wb-cat-lifr-bg: #4a044e;
+    --wb-go: #4ade80;
+    --wb-go-bg: #052e16;
+    --wb-go-border: #14532d;
+    --wb-caution: #fbbf24;
+    --wb-caution-bg: #2a1a04;
+    --wb-caution-border: #78350f;
+    --wb-nogo: #f87171;
+    --wb-nogo-bg: #2c0b0b;
+    --wb-nogo-border: #7f1d1d;
+    --wb-map-bg: #1a1c20;
+    --wb-float: rgb(20 21 25 / 0.84);
+    --wb-float-border: rgb(255 255 255 / 0.08);
+    --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+    --wb-route-casing: #0c0d10;
   }
 }
 
@@ -140,11 +172,25 @@
   --wb-cat-vfr: #4ade80;
   --wb-cat-mvfr: #93c5fd;
   --wb-cat-ifr: #fca5a5;
-  --wb-cat-lifr: #f9a8d4;
+  --wb-cat-lifr: #f0abfc;
   --wb-cat-vfr-bg: #052e16;
   --wb-cat-mvfr-bg: #172554;
   --wb-cat-ifr-bg: #450a0a;
-  --wb-cat-lifr-bg: #500724;
+  --wb-cat-lifr-bg: #4a044e;
+  --wb-go: #4ade80;
+  --wb-go-bg: #052e16;
+  --wb-go-border: #14532d;
+  --wb-caution: #fbbf24;
+  --wb-caution-bg: #2a1a04;
+  --wb-caution-border: #78350f;
+  --wb-nogo: #f87171;
+  --wb-nogo-bg: #2c0b0b;
+  --wb-nogo-border: #7f1d1d;
+  --wb-map-bg: #1a1c20;
+  --wb-float: rgb(20 21 25 / 0.84);
+  --wb-float-border: rgb(255 255 255 / 0.08);
+  --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  --wb-route-casing: #0c0d10;
 }
 
 /* The OpenStreetMap tiles, muted in light mode and inverted in dark mode so the route carries the color. */
@@ -162,61 +208,263 @@
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
 }
 
-/* Leaflet adds `leaflet-container` to the map element itself, which also carries `wb-map`. */
+/*
+ * Leaflet adds `leaflet-container` to the map element itself, which also
+ * carries `wb-map`. Its background is the tiles' own land color (after the
+ * filters above), so the first paint is a calm, map-colored field rather than
+ * a black or white flash while the tiles load; each tile then fades in.
+ */
+.wb-map,
 .wb-map.leaflet-container {
-  background: var(--wb-bg);
+  background: var(--wb-map-bg);
   font: inherit;
 }
 
+.wb-map .leaflet-tile {
+  transition: opacity 280ms ease-out;
+}
+
 /*
- * The zoom and attribution controls sit in Leaflet's top-left corner. On
- * desktop the dock covers the map's left edge, so the left corners move past
- * it; the OpenStreetMap tile policy requires the attribution to stay visible.
- * 768px is Tailwind's `md`, the breakpoint `WorkbenchLayout` switches on.
+ * The zoom and attribution controls share Leaflet's bottom-right corner (see
+ * `RouteMap`). The weather strip owns the top and the dock the left, so
+ * nothing else floats there; the corner rises above whatever floats along the
+ * bottom (the sheet on desktop, the bottom sheet and weather row on phones) by
+ * `--wb-map-inset-bottom`, which `WorkbenchLayout` measures. The OpenStreetMap
+ * tile policy requires the attribution to stay visible.
  */
-@media (min-width: 768px) {
-  .wb-map .leaflet-left {
-    left: calc(var(--wb-dock-width) + var(--wb-gutter));
+.wb-map .leaflet-bottom.leaflet-right {
+  bottom: calc(var(--wb-map-inset-bottom, 0px) + var(--wb-gutter) - 8px);
+  right: calc(var(--wb-gutter) - 10px);
+  transition: bottom 240ms ease;
+}
+
+.wb-map .leaflet-bottom.leaflet-right .leaflet-control {
+  margin-bottom: 8px;
+}
+
+.wb-map.leaflet-container .leaflet-control-zoom {
+  border: 1px solid var(--wb-float-border);
+  border-radius: var(--wb-radius);
+  overflow: hidden;
+  box-shadow: var(--wb-shadow);
+  background: var(--wb-float);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  backdrop-filter: blur(12px) saturate(1.4);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out) {
+  width: 34px;
+  height: 34px;
+  line-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--wb-text);
+  font-weight: 500;
+}
+
+.wb-map.leaflet-container .leaflet-control-zoom-out {
+  border-top: 1px solid var(--wb-border);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out):hover {
+  background: var(--wb-rail);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out):focus-visible {
+  outline: 2px solid var(--wb-accent-from);
+  outline-offset: -2px;
+}
+
+.wb-map.leaflet-container .leaflet-control-attribution {
+  border-radius: 6px;
+  background: var(--wb-float);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: var(--wb-muted);
+}
+
+.wb-map.leaflet-container .leaflet-control-attribution > :is(a) {
+  color: inherit;
+}
+
+/* Phones pinch to zoom; the buttons would only crowd the small map. */
+@media (max-width: 767px) {
+  .wb-map.leaflet-container .leaflet-control-zoom {
+    display: none;
   }
 }
 
+/* The route: a casing under a colored line, both from tokens. */
+.wb-map .wb-route-casing {
+  stroke: var(--wb-route-casing);
+  stroke-opacity: 0.85;
+}
+
+.wb-map .wb-route-line {
+  stroke: var(--wb-route);
+}
+
+/*
+ * A waypoint: one zero-padding div icon, the dot filling its 14px box (the
+ * anchor is the box's center) and the label hanging off its right side.
+ */
+.wb-map .wb-wp {
+  overflow: visible;
+}
+
+.wb-map .wb-wp-dot {
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--wb-surface);
+  border-radius: 999px;
+  background: var(--wb-muted);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.wb-map .wb-wp-dot[data-cat="VFR"] {
+  background: var(--wb-cat-vfr);
+}
+.wb-map .wb-wp-dot[data-cat="MVFR"] {
+  background: var(--wb-cat-mvfr);
+}
+.wb-map .wb-wp-dot[data-cat="IFR"] {
+  background: var(--wb-cat-ifr);
+}
+.wb-map .wb-wp-dot[data-cat="LIFR"] {
+  background: var(--wb-cat-lifr);
+}
+
 .wb-map .wb-wp-label {
-  border: 1px solid var(--wb-border);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+  border: 1px solid var(--wb-float-border);
   border-radius: 6px;
-  background: var(--wb-surface);
+  background: var(--wb-float);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
   padding: 1px 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   color: var(--wb-text);
   white-space: nowrap;
 }
 
+.wb-map .wb-wp-label b {
+  margin-left: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--wb-muted);
+}
+
+.wb-map .wb-hdg {
+  overflow: visible;
+}
+
 .wb-map .wb-hdg-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--wb-route);
+  padding: 1px 7px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--wb-route);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--wb-surface);
   white-space: nowrap;
-  text-shadow:
-    0 0 3px var(--wb-surface),
-    0 0 3px var(--wb-surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
 
-/* A floating surface over the map. */
+/* A floating surface over the map: frosted glass, a hairline and a soft lift. */
 .wb-panel {
-  border: 1px solid var(--wb-border);
-  border-radius: var(--wb-radius);
-  background: var(--wb-surface);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.08);
+  border: 1px solid var(--wb-float-border);
+  border-radius: calc(var(--wb-radius) + 2px);
+  background: var(--wb-float);
+  box-shadow: var(--wb-shadow);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-wb-theme="light"]) .wb-panel {
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+/* The sheet holds a dense table: a little more opaque than the other panels. */
+.wb-sheet {
+  background: color-mix(in srgb, var(--wb-surface) 94%, transparent);
+}
+
+.wb-sheet.wb-sheet-flat {
+  background: transparent;
+}
+
+.wb-strip {
+  pointer-events: auto;
+}
+
+/* Small uppercase section labels. */
+.wb-eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+}
+
+.wb-route-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+/* A quiet secondary button; 44px tall on touch screens. */
+.wb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid var(--wb-border);
+  border-radius: calc(var(--wb-radius) - 3px);
+  background: var(--wb-surface);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--wb-text);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.wb-button:hover {
+  border-color: var(--wb-muted);
+  background: var(--wb-rail);
+}
+
+@media (pointer: coarse) {
+  .wb-button {
+    min-height: 44px;
+    padding: 0 12px;
   }
 }
 
-:root[data-wb-theme="dark"] .wb-panel {
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+/* The phone's tabs: 44px targets with an underline on the selected one. */
+.wb-tab {
+  min-height: 44px;
+  border-bottom: 2px solid transparent;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-tab[aria-selected="true"] {
+  border-bottom-color: var(--wb-accent-from);
+  color: var(--wb-text);
+}
+
+.wb-tab:disabled {
+  opacity: 0.45;
 }
 
 /* Flight-category chips and markers. Color never stands alone: every chip carries its text. */
@@ -228,6 +476,7 @@
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 600;
+  min-height: 28px;
 }
 .wb-cat[data-cat="VFR"] {
   background: var(--wb-cat-vfr-bg);
@@ -250,6 +499,271 @@
   color: var(--wb-text);
 }
 
+.wb-cat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* The winds chip: neutral, numbers in tabular figures. */
+.wb-winds {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: var(--wb-rail);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--wb-text);
+}
+
+/* Hazard chips: red or amber when they apply during the flight, muted when they do not. */
+.wb-hazard {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wb-hazard[data-severity="danger"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-hazard[data-severity="warn"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
+  color: var(--wb-caution);
+}
+
+.wb-hazard[data-severity="muted"] {
+  border-color: var(--wb-border);
+  background: transparent;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-hazard-when {
+  font-weight: 400;
+}
+
+/* In the card there is room to wrap; in the strip a chip stays on one line. */
+.wb-verdict .wb-hazard {
+  border-radius: 14px;
+  white-space: normal;
+}
+
+.wb-hazard.wb-prelim {
+  border-color: var(--wb-caution-border);
+  background: transparent;
+  color: var(--wb-caution);
+}
+
+/* The verdict, as a pill (strip, collapsed sheet) and as the card atop the navlog. */
+.wb-verdict-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.wb-verdict {
+  border: 1px solid;
+  border-radius: var(--wb-radius);
+  padding: 12px 14px;
+}
+
+.wb-verdict-badge {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--wb-surface);
+}
+
+.wb-verdict-word {
+  font-size: 20px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+:is(.wb-verdict, .wb-verdict-pill)[data-level="GO"] {
+  border-color: var(--wb-go-border);
+  background: var(--wb-go-bg);
+  color: var(--wb-go);
+}
+:is(.wb-verdict, .wb-verdict-pill)[data-level="CAUTION"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
+  color: var(--wb-caution);
+}
+:is(.wb-verdict, .wb-verdict-pill)[data-level="NO-GO"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-verdict[data-level="GO"] .wb-verdict-badge {
+  background: var(--wb-go);
+}
+.wb-verdict[data-level="CAUTION"] .wb-verdict-badge {
+  background: var(--wb-caution);
+}
+.wb-verdict[data-level="NO-GO"] .wb-verdict-badge {
+  background: var(--wb-nogo);
+}
+
+/* "Preliminary": the forecast horizon, when the departure is beyond the forecasts. */
+.wb-horizon {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--wb-caution);
+}
+
+.wb-strip .wb-horizon {
+  padding: 0 4px 2px;
+}
+
+/* Key totals as stat tiles. */
+.wb-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 6px;
+}
+
+.wb-stat {
+  border: 1px solid var(--wb-border);
+  border-radius: calc(var(--wb-radius) - 3px);
+  background: var(--wb-surface);
+  padding: 8px 10px;
+}
+
+.wb-stat dt {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+}
+
+.wb-stat dd {
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.wb-stat[data-tone="danger"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-stat-note {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wb-text-danger {
+  color: var(--wb-nogo);
+}
+
+/* The navlog table: tabular figures, a header that sticks while the sheet scrolls. */
+.wb-navlog-table th,
+.wb-navlog-table td {
+  border-bottom: 1px solid var(--wb-border);
+  padding: 6px 7px;
+  white-space: nowrap;
+}
+
+.wb-navlog-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--wb-surface);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+  cursor: help;
+}
+
+.wb-navlog-table tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.wb-navlog-table tbody tr:hover,
+.wb-navlog-table tbody tr:focus {
+  background: var(--wb-rail);
+}
+
+.wb-navlog-table tfoot th,
+.wb-navlog-table tfoot td {
+  border-bottom: 0;
+  font-weight: 650;
+}
+
+.wb-navlog-table .wb-col-loud {
+  font-weight: 650;
+}
+
+.wb-leg-card .wb-leg-loud {
+  color: var(--wb-text);
+}
+
+/* The planning brief. */
+.wb-bottom-line {
+  border-left: 3px solid var(--wb-accent-from);
+  padding-left: 10px;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+
+.wb-brief-item {
+  position: relative;
+  padding-left: 12px;
+}
+
+.wb-brief-item::before {
+  position: absolute;
+  top: 0.55em;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--wb-muted);
+  content: "";
+}
+
 /* Motion: subtle, and none under reduced motion. */
 .wb-sheet,
 .wb-dock {
@@ -259,7 +773,11 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .wb-sheet,
-  .wb-dock {
+  .wb-dock,
+  .wb-map .leaflet-tile,
+  .wb-map .leaflet-bottom.leaflet-right,
+  .wb-button,
+  .wb-navlog-table tbody tr {
     transition: none;
   }
 }
@@ -312,7 +830,8 @@
   }
   .wb-sheet-actions,
   .wb-sheet-grip,
-  .wb-sheet-tabs {
+  .wb-sheet-tabs,
+  .wb-sheet .wb-button {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     display: none !important;
   }
@@ -476,3 +995,31 @@
 .wb-prose th {
   font-weight: 600;
 }
+
+/* chat dock: start */
+/*
+ * The chat dock's two signal colors: a warning (an approval waiting, a denied
+ * call) and a failure. Tokens with dark values rather than Tailwind's `dark:`
+ * variant: that variant follows the OS setting only, while the workbench also
+ * honors an explicit `data-wb-theme`.
+ */
+:root {
+  --wb-chat-warn: #b45309;
+  --wb-chat-warn-bg: rgb(245 158 11 / 0.1);
+  --wb-chat-danger: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-wb-theme="light"]) {
+    --wb-chat-warn: #fbbf24;
+    --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
+    --wb-chat-danger: #f87171;
+  }
+}
+
+:root[data-wb-theme="dark"] {
+  --wb-chat-warn: #fbbf24;
+  --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
+  --wb-chat-danger: #f87171;
+}
+/* chat dock: end */

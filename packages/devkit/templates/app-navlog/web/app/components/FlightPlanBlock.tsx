@@ -42,7 +42,7 @@ export function CopyFplButton({
   return (
     <button
       type="button"
-      className={`wb-focus rounded-wb-sm border border-wb-border px-2.5 py-1 text-[12px] ${className}`}
+      className={`wb-focus wb-button ${className}`}
       onClick={() => {
         void navigator.clipboard?.writeText(fplMessage(plan)).then(() => {
           setCopied(true)
@@ -50,7 +50,19 @@ export function CopyFplButton({
         })
       }}
     >
-      {copied ? "Copied" : "Copy FPL"}
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="size-3.5"
+      >
+        <path d={copied ? "M20 6 9 17l-5-5" : "M8 8h12v12H8zM4 16V4h12"} />
+      </svg>
+      <span aria-live="polite">{copied ? "Copied" : "Copy FPL"}</span>
     </button>
   )
 }
@@ -58,16 +70,19 @@ export function CopyFplButton({
 /** ICAO flight plan items 7 to 19 laid out as the form, with a copy button. */
 export function FlightPlanBlock({ plan }: { readonly plan: FlightPlan }) {
   return (
-    <section aria-label="Flight plan" className="mt-3">
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2 text-[12px]">
+    <section aria-label="Flight plan" className="mt-4">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="wb-eyebrow">ICAO flight plan</h3>
+        <CopyFplButton plan={plan} className="print:hidden" />
+      </div>
+      <div className="mt-1.5 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-1.5 text-[12px]">
         {ITEMS.map((item) => (
           <div key={item.key} className="rounded-wb-sm bg-wb-rail px-2 py-1.5">
             <span className="block text-[11px] text-wb-muted">{item.label}</span>
-            <span className="font-medium tabular-nums">{plan[item.key]}</span>
+            <span className="font-mono text-[12px] font-medium">{plan[item.key]}</span>
           </div>
         ))}
       </div>
-      <CopyFplButton plan={plan} className="mt-2" />
     </section>
   )
 }

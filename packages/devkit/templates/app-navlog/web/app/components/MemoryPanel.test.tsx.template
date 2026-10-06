@@ -86,10 +86,13 @@ function disabledButtonCount(markup: string): number {
 }
 
 describe("memory panel view", () => {
-  test("renders a candidate's content and its namespace", () => {
-    const text = visibleText(render())
+  test("renders a candidate's content, with its namespace in the tooltip rather than the line", () => {
+    const markup = render()
+    const text = visibleText(markup)
     expect(text).toContain("Prefers concise, cited reports.")
-    expect(text).toContain("default")
+    expect(text).toContain("Suggested by the planner")
+    expect(text).not.toContain("default")
+    expect(markup).toContain('title="default · confidence 0.8"')
   })
 
   test("heads the section with the true total, not the number of rows shown", () => {

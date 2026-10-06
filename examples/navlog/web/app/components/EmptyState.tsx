@@ -30,20 +30,20 @@ export function EmptyState({ onSelectSuggestion }: EmptyStateProps) {
   }, [reloadSuggestions])
 
   return (
-    <div className="mx-auto flex h-full max-w-2xl flex-col justify-center px-6 py-16">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-5 py-10">
       <h1 className="wb-brand-mark text-3xl font-semibold tracking-tight">B4.run navlog</h1>
       <p className="mt-3 text-sm leading-6 text-wb-muted">
         A VFR flight planner for a Cessna 172N that briefs weather, reads the POH, computes the
         navlog in code, and files only when you ask.
       </p>
       {suggestions.length > 0 ? (
-        <ul className="mt-8 grid gap-2">
+        <ul className="mt-6 grid gap-2">
           {suggestions.map((suggestion) => (
             <li key={suggestion.title + suggestion.message}>
               <button
                 type="button"
                 onClick={() => onSelectSuggestion(suggestion.message)}
-                className="group block w-full rounded-wb border border-wb-border bg-wb-surface px-4 py-3 text-left transition-colors hover:border-wb-muted wb-focus"
+                className="group block min-h-11 w-full rounded-wb border border-wb-border bg-wb-surface px-4 py-3 text-left transition-colors hover:border-wb-muted hover:bg-wb-bg wb-focus"
               >
                 <span className="block text-[13px] font-medium tracking-tight">
                   {suggestion.title}

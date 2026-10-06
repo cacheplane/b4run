@@ -102,14 +102,14 @@ pattern as `examples/chat/web`, no per-component wiring needed.
 Switching threads restores that conversation. `app/lib/thread-source.ts` reads
 `GET /threads/:id/state` through the proxy and `app/lib/hydrate.ts` turns the
 checkpoint's LangChain envelopes into the same message shapes the live stream produces,
-so a restored thread and a live one render through one path. The checkpointed plan is
-put back in front of the messages as a plan card.
+so a restored thread and a live one render through one path. The checkpoint holds each
+`writeTodos` call, and `app/lib/transcript.ts` turns each turn's calls into one plan card
+where the plan was first written — the same card a live run shows.
 
-What a restore does **not** bring back is stated in the app itself, above the restored
-messages:
+What a restore does **not** bring back is stated in the app itself, as a quiet line
+above the restored messages:
 
-> Restored from this conversation's saved history. Subagent activity from earlier runs
-> isn't saved — new runs show it as it happens.
+> Restored conversation · helper details from earlier runs aren't kept
 
 A thread with no checkpoint yet (a brand-new one) 404s, and that is treated as "nothing
 to restore", not an error — no error row appears.

@@ -195,11 +195,17 @@ export function MemoryPanelView({
               >
                 {candidate.content}
               </p>
-              <p className="mt-1 truncate text-[11px] leading-4 text-wb-muted">
-                {candidate.namespace}
-                {typeof candidate.confidence === "number"
-                  ? ` · confidence ${candidate.confidence}`
-                  : ""}
+              {/* The store's namespace and the model's confidence are for a
+                  developer, so they sit in the tooltip, not in the line. */}
+              <p
+                className="mt-1 truncate text-[11px] leading-4 text-wb-muted"
+                title={`${candidate.namespace}${
+                  typeof candidate.confidence === "number"
+                    ? ` · confidence ${candidate.confidence}`
+                    : ""
+                }`}
+              >
+                Suggested by the planner
               </p>
               <div className="mt-1.5 flex gap-1.5">
                 {/*
@@ -214,7 +220,7 @@ export function MemoryPanelView({
                   disabled={isBusy}
                   aria-label={`Approve: ${shortLabel(candidate.content)}`}
                   onClick={() => onApprove(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50`}
+                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
                 >
                   Approve
                 </button>
@@ -231,7 +237,7 @@ export function MemoryPanelView({
                   disabled={isBusy}
                   aria-label={`Delete permanently: ${shortLabel(candidate.content)}`}
                   onClick={() => onReject(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50`}
+                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
                 >
                   Delete
                 </button>

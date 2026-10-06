@@ -22,13 +22,17 @@ export function RunError({ title, message, onDismiss }: RunErrorProps) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-wb border border-red-500/40 bg-red-500/5 px-3.5 py-3 text-[13px]"
+      className="flex items-start gap-3 rounded-wb border border-red-500/40 bg-red-500/5 px-3.5 py-3 text-[13px] text-wb-text"
     >
       <div className="min-w-0 flex-1">
         <p className="font-medium tracking-tight">{title}</p>
         <p className="mt-1 break-words leading-5 text-wb-muted">{message}</p>
       </div>
-      <button type="button" onClick={onDismiss} className={`${neutralButton("sm")} shrink-0`}>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className={`${neutralButton("sm")} shrink-0 pointer-coarse:min-h-11 pointer-coarse:px-4`}
+      >
         Dismiss
       </button>
     </div>

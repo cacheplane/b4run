@@ -124,6 +124,12 @@ describe("WorkbenchLayout on a phone", () => {
     expect(count(html, "<main")).toBe(1)
     expect(count(html, "transcript")).toBe(1)
   })
+  test("the bottom sheet has a grip that lowers it to a peek", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    expect(html).toMatch(
+      /<button[^>]*aria-expanded="true"[^>]*aria-label="Lower the panel to show the map"/,
+    )
+  })
   test("the Navlog tab is disabled until there is a navlog", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Navlog</)
