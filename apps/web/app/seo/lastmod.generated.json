@@ -327,9 +327,9 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-06T03:08:07.000Z",
-      "sourceDigest": "bb76b40f142cd59b13c98780cd75e40ed662af68093203074a352b32f6219f30",
-      "recordDigest": "ce99b55c6d3294909594dd870f0e5085e77d9f69685994a61e951d478932b379"
+      "lastModified": "2026-10-06T03:47:16.000Z",
+      "sourceDigest": "216d07e50c0c95c8f2b21eaedc71d7771531711b50952df3a4688f6aab43af14",
+      "recordDigest": "d05af2b2da9b1c645d4b6ea9fc89b250f2555f5123c2453414d05ea6d731181d"
     },
     "/docs/recipes/flight-planner-web-ui": {
       "lastModified": "2026-10-05T21:54:28.000Z",
