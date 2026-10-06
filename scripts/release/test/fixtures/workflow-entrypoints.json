@@ -36,7 +36,7 @@
                   "PR_NUMBER": "${{ github.event.pull_request.number }}"
                 },
                 "name": "Approve pull request",
-                "run": "gh pr review \"$PR_NUMBER\" --approve \\\n  --body \"Automated approval: this PR received an intelligent (AI) code review. See the review comments on this PR.\"\n"
+                "run": "gh pr review \"$PR_NUMBER\" --approve \\\n  --body \"Automated approval for repository bookkeeping. The maintainer reviews and merges this PR.\"\n"
               }
             }
           ]
@@ -1866,86 +1866,6 @@
                   "path": "${{ runner.temp }}/vercel-native/upload/",
                   "retention-days": 3
                 }
-              }
-            }
-          ]
-        }
-      ]
-    },
-    "claude-review.yml": {
-      "classification": "safe",
-      "descriptor": {
-        "name": "Claude Review",
-        "on": {
-          "pull_request": {
-            "types": ["opened", "synchronize", "reopened", "ready_for_review"]
-          }
-        },
-        "permissions": {
-          "contents": "read"
-        }
-      },
-      "jobs": [
-        {
-          "classification": "safe",
-          "id": "review",
-          "descriptor": {
-            "if": "github.actor != 'dependabot[bot]' && !startsWith(github.event.pull_request.head.ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]'",
-            "permissions": {
-              "contents": "read",
-              "pull-requests": "write"
-            },
-            "runs-on": "ubuntu-latest",
-            "timeout-minutes": 25
-          },
-          "steps": [
-            {
-              "classification": "safe",
-              "descriptor": {
-                "name": "Checkout",
-                "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-                "with": {
-                  "fetch-depth": 1
-                }
-              }
-            },
-            {
-              "classification": "safe",
-              "descriptor": {
-                "env": {
-                  "ANTHROPIC_API_KEY": "${{ secrets.ANTHROPIC_API_KEY }}",
-                  "REVIEW_MODEL": "claude-sonnet-4-6"
-                },
-                "id": "preflight",
-                "name": "Preflight \u2014 Anthropic credentials and model",
-                "run": "set -uo pipefail\nif [ -z \"${ANTHROPIC_API_KEY}\" ]; then\n  echo \"::warning::ANTHROPIC_API_KEY is unavailable (fork PR \u2014 secrets are not exposed to fork \\`pull_request\\` runs). Skipping review.\"\n  echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n  exit 0\nfi\n# Keep the key out of argv (and therefore out of the process list) by\n# passing it through a 0600 curl config file rather than -H.\nrc=\"$(mktemp)\"; body=\"$(mktemp)\"\ntrap 'rm -f \"$rc\" \"$body\"' EXIT\nprintf 'header = \"x-api-key: %s\"\\n' \"${ANTHROPIC_API_KEY}\" > \"$rc\"\n\ncode=\"$(curl -sS -o \"$body\" -w '%{http_code}' \\\n  --config \"$rc\" \\\n  -H 'anthropic-version: 2023-06-01' \\\n  -H 'content-type: application/json' \\\n  -d \"{\\\"model\\\":\\\"${REVIEW_MODEL}\\\",\\\"max_tokens\\\":1,\\\"messages\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"ping\\\"}]}\" \\\n  https://api.anthropic.com/v1/messages)\" || {\n    echo \"::warning::Preflight request could not be sent; continuing and letting the review step report.\"\n    echo \"skip=false\" >> \"$GITHUB_OUTPUT\"\n    exit 0\n  }\n\ncase \"$code\" in\n  200)\n    echo \"Anthropic API reachable; key valid; model ${REVIEW_MODEL} available.\"\n    echo \"skip=false\" >> \"$GITHUB_OUTPUT\"\n    ;;\n  429|5??)\n    echo \"::warning::Preflight got HTTP ${code} (rate limit / transient). Key looks valid; continuing.\"\n    echo \"skip=false\" >> \"$GITHUB_OUTPUT\"\n    ;;\n  *)\n    detail=\"$(jq -r '.error | \"\\(.type): \\(.message)\"' < \"$body\" 2>/dev/null || head -c 500 \"$body\")\"\n    echo \"::warning::Anthropic preflight failed with HTTP ${code} for model ${REVIEW_MODEL} \u2014 the review agent cannot run. Skipping review.\"\n    echo \"${detail}\"\n    echo \"401 => rotate ANTHROPIC_API_KEY. 400 mentioning credit balance => top up the Anthropic org. 404 => REVIEW_MODEL is no longer available to this org.\"\n    {\n      echo \"## Claude review skipped\"\n      echo\n      echo \"Anthropic preflight failed with HTTP ${code} for model \\`${REVIEW_MODEL}\\`:\"\n      echo\n      echo '```'\n      echo \"${detail}\"\n      echo '```'\n      echo\n      echo \"401 => rotate \\`ANTHROPIC_API_KEY\\`. 400 mentioning credit balance => top up the Anthropic org. 404 => \\`REVIEW_MODEL\\` is no longer available to this org.\"\n    } >> \"$GITHUB_STEP_SUMMARY\"\n    echo \"skip=true\" >> \"$GITHUB_OUTPUT\"\n    exit 0\n    ;;\nesac\n"
-              }
-            },
-            {
-              "classification": "safe",
-              "descriptor": {
-                "id": "claude",
-                "if": "steps.preflight.outputs.skip != 'true'",
-                "name": "Claude review",
-                "uses": "anthropics/claude-code-action@a874e9ecd7bb36efdad65429c6b35815f5a08f10",
-                "with": {
-                  "anthropic_api_key": "${{ secrets.ANTHROPIC_API_KEY }}",
-                  "claude_args": "--model claude-sonnet-4-6\n--max-turns 40\n--allowedTools \"Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)\"\n",
-                  "github_token": "${{ secrets.GITHUB_TOKEN }}",
-                  "prompt": "REPO: ${{ github.repository }}\nPR NUMBER: ${{ github.event.pull_request.number }}\n\nReview this pull request and post your findings as ONE top-level\nGitHub PR comment via `gh pr comment`. Do NOT post inline review\ncomments (they create review threads that block auto-merge under\nthis repo's branch protection).\nRead the diff with `gh pr diff` and the description with `gh pr view`.\nFocus on:\n- Correctness bugs\n- Security issues (injection, secrets, unsafe input handling)\n- TypeScript type-safety problems\n- Missing or weak test coverage for the change\n\nIn the comment, reference specific locations as `path/to/file.ts:123`\ncode-formatted paths with a short quoted snippet, so findings are easy\nto locate without inline threads. Order findings most-severe first.\nBe brief; skip nitpicks and style unless they affect correctness. If\nthe PR looks good, say so briefly. If a prior review comment of yours\nexists on this PR, post a fresh comment covering only what changed\nsince (do not repeat findings that were addressed).\n",
-                  "track_progress": true
-                }
-              }
-            },
-            {
-              "classification": "safe",
-              "descriptor": {
-                "env": {
-                  "EXECUTION_FILE": "${{ steps.claude.outputs.execution_file }}"
-                },
-                "if": "always() && steps.claude.conclusion != 'skipped'",
-                "name": "Verify the review actually ran",
-                "run": "set -uo pipefail\nif [ -z \"${EXECUTION_FILE}\" ] || [ ! -f \"${EXECUTION_FILE}\" ]; then\n  echo \"::error::No Claude execution log was produced \u2014 the review agent never reported a result.\"\n  exit 1\nfi\n\nresult=\"$(jq -c '[.[] | select(.type == \"result\")] | last // empty' \"${EXECUTION_FILE}\")\"\nif [ -z \"${result}\" ]; then\n  echo \"::error::Claude execution log contains no result message \u2014 the agent did not finish.\"\n  exit 1\nfi\n\nis_error=\"$(jq -r '.is_error // false' <<<\"${result}\")\"\nsubtype=\"$(jq -r '.subtype // \"unknown\"' <<<\"${result}\")\"\nif [ \"${is_error}\" = \"true\" ] || [ \"${subtype}\" != \"success\" ]; then\n  echo \"::error::Claude review failed (subtype=${subtype}, is_error=${is_error}). No review was posted.\"\n  echo \"--- agent error detail (truncated) ---\"\n  jq -r '.result // .error // \"no detail in result message\"' <<<\"${result}\" | head -c 2000\n  echo\n  exit 1\nfi\n\nturns=\"$(jq -r '.num_turns // 0' <<<\"${result}\")\"\ncost=\"$(jq -r '.total_cost_usd // 0' <<<\"${result}\")\"\necho \"Review completed: ${turns} turn(s), \\$${cost}.\"\n"
               }
             }
           ]
