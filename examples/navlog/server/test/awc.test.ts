@@ -36,6 +36,15 @@ describe("AwcClient", () => {
     await client.getJson("metar", { ids: "KSTP" })
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
+  it("refetches after clearCache inside the TTL", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ n: 1 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const client = new AwcClient({ baseUrl: "https://awc.test/api/data", now: () => 0 })
+    await client.getJson("metar", { ids: "KSTP" })
+    client.clearCache()
+    await client.getJson("metar", { ids: "KSTP" })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
   it("reads a 204 No Content answer as an empty array", async () => {
     vi.stubGlobal(
       "fetch",

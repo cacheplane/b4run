@@ -1,5 +1,6 @@
 import type { B4ToolContext } from "@b4run/sdk"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { awc } from "../src/lib/awc.ts"
 import getAdvisories from "../src/tools/getAdvisories.ts"
 import getMetar from "../src/tools/getMetar.ts"
 import getWindsAloft from "../src/tools/getWindsAloft.ts"
@@ -9,7 +10,12 @@ const ctx = { signal: new AbortController().signal } as unknown as B4ToolContext
 const json = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200 })
 const text = (body: string): Response => new Response(body, { status: 200 })
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  // The tools share one client whose cache is keyed by URL; one test's stubbed
+  // response must not answer the next test's request.
+  awc.clearCache()
+})
 
 describe("lookupAirport", () => {
   it("returns the fields the planner needs from the FAA record", async () => {
@@ -197,21 +203,15 @@ describe("getAdvisories", () => {
       {
         product: "G-AIRMET",
         hazard: "ICE",
-        severity: "",
-        validFrom: "2026-10-04T03:00:00Z",
-        validTo: "2026-10-04T06:00:00Z",
-        base: "",
-        top: "",
-        raw: "",
+        validFrom: "2026-10-04T03:00:00.000Z",
+        validTo: "2026-10-04T06:00:00.000Z",
       },
       {
         product: "SIGMET",
         hazard: "CONVECTIVE",
         severity: "1",
-        validFrom: "1791090000",
-        validTo: "1791097200",
-        base: "",
-        top: "",
+        validFrom: "2026-10-04T05:00:00.000Z",
+        validTo: "2026-10-04T07:00:00.000Z",
         raw: "CONVECTIVE SIGMET 12C",
       },
     ])
@@ -219,5 +219,117 @@ describe("getAdvisories", () => {
       "https://aviationweather.gov/api/data/gairmet",
       "https://aviationweather.gov/api/data/airsigmet",
     ])
+  })
+
+  it("normalizes the fields AWC sends as null, hundreds of feet, or epoch seconds", async () => {
+    // Shapes copied from live AWC responses (2026-10-05): G-AIRMET altitudes are
+    // hundreds of feet as strings ("040", "SFC"), absent fields are null, the
+    // expiry is epoch seconds while validTime is ISO, and a freezing-level
+    // contour is a LINE that carries `level` instead of base and top (#955).
+    const area = [
+      { lat: 44.0, lon: -94.0 },
+      { lat: 46.0, lon: -94.0 },
+      { lat: 46.0, lon: -92.0 },
+      { lat: 44.0, lon: -92.0 },
+    ]
+    const gairmet = [
+      {
+        hazard: "FZLVL",
+        geometryType: "LINE",
+        validTime: "2026-10-05T21:00:00.000Z",
+        expireTime: 1791234000,
+        severity: null,
+        due_to: null,
+        base: null,
+        top: null,
+        fzlbase: null,
+        fzltop: null,
+        level: "120",
+        coords: area,
+      },
+      {
+        hazard: "ICE",
+        geometryType: "AREA",
+        validTime: "2026-10-06T00:00:00.000Z",
+        expireTime: 1791255600,
+        severity: "MOD",
+        due_to: "ICE",
+        base: "040",
+        top: "130",
+        level: null,
+        coords: area,
+      },
+      {
+        hazard: "IFR",
+        geometryType: "AREA",
+        validTime: "2026-10-06T00:00:00.000Z",
+        expireTime: 1791255600,
+        severity: null,
+        due_to: "CIG BLW 010 VIS BLW 3SM BR FG",
+        base: "SFC",
+        top: null,
+        coords: area,
+      },
+    ]
+    const airsigmet = [
+      {
+        airSigmetType: "AIRMET",
+        hazard: "TURB",
+        severity: null,
+        validTimeFrom: 1791244500,
+        validTimeTo: 1791251700,
+        altitudeLow1: 18000,
+        altitudeHi1: 31000,
+        coords: area,
+        rawAirSigmet: "AIRMET TANGO",
+      },
+    ]
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        json(url.includes("/gairmet?") ? gairmet : url.includes("/airsigmet?") ? airsigmet : []),
+      ),
+    )
+    const out = await getAdvisories({ lat: 45, lon: -93 }, ctx)
+    expect(out).toEqual([
+      {
+        product: "G-AIRMET",
+        hazard: "FZLVL",
+        validFrom: "2026-10-05T21:00:00.000Z",
+        validTo: "2026-10-05T21:00:00.000Z",
+        freezingLevel: "12,000 ft",
+      },
+      {
+        product: "G-AIRMET",
+        hazard: "ICE",
+        severity: "MOD",
+        validFrom: "2026-10-06T00:00:00.000Z",
+        validTo: "2026-10-06T03:00:00.000Z",
+        base: "4,000 ft",
+        top: "13,000 ft",
+        cause: "ICE",
+      },
+      {
+        product: "G-AIRMET",
+        hazard: "IFR",
+        validFrom: "2026-10-06T00:00:00.000Z",
+        validTo: "2026-10-06T03:00:00.000Z",
+        base: "surface",
+        cause: "CIG BLW 010 VIS BLW 3SM BR FG",
+      },
+      {
+        product: "AIRMET",
+        hazard: "TURB",
+        validFrom: "2026-10-05T23:55:00.000Z",
+        validTo: "2026-10-06T01:55:00.000Z",
+        base: "18,000 ft",
+        top: "31,000 ft",
+        raw: "AIRMET TANGO",
+      },
+    ])
+    for (const advisory of out) {
+      expect(Object.values(advisory)).not.toContain("null")
+      expect(Object.values(advisory)).not.toContain("")
+    }
   })
 })

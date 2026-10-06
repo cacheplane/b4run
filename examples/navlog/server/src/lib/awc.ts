@@ -46,6 +46,11 @@ export class AwcClient {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
+  /** Forget every cached response, so the next request goes to the network. */
+  clearCache(): void {
+    this.#cache.clear()
+  }
+
   url(product: AwcProduct, params: Readonly<Record<string, string>>): string {
     const query = new URLSearchParams(params)
     return `${this.#baseUrl}/${product}?${query.toString()}`
