@@ -24,8 +24,9 @@ function text(markup: string): string {
   return markup
     .replace(/<[^>]+>/g, " ")
     .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
     .replace(/&#x27;/g, "'")
+    // Last, so an escaped entity such as "&amp;quot;" is decoded once, not twice.
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim()
 }
