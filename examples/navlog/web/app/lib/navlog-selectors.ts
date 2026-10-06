@@ -82,6 +82,34 @@ export function latestNavlogText(messages: readonly MessageLike[]): string | nul
   return null
 }
 
+/**
+ * The planning answer for the navlog on screen: the last non-empty assistant
+ * prose AFTER the latest good `computeNavlog` result and before the next user
+ * message — the reply of the turn that produced the navlog. A later turn's
+ * reply ("Filed.") is a different answer about a different question, so it
+ * never replaces the brief. Empty while that turn has not answered yet.
+ */
+export function navlogAnswerText(messages: readonly MessageLike[]): string {
+  const navlogText = latestNavlogText(messages)
+  if (navlogText === null) return ""
+  let resultAt = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role === "tool" && contentText(message.content) === navlogText) {
+      resultAt = i
+      break
+    }
+  }
+  let answer = ""
+  for (const message of messages.slice(resultAt + 1)) {
+    if (message.role === "user") break
+    if (message.role !== "assistant") continue
+    const text = contentText(message.content).trim()
+    if (text.length > 0) answer = text
+  }
+  return answer
+}
+
 /** The most recent `computeNavlog` result in the thread, or null. */
 export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
   const text = latestNavlogText(messages)

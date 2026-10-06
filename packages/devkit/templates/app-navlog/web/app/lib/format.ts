@@ -12,3 +12,10 @@ export const formatUtcHhmm = (iso: string): string => {
 }
 
 export const formatGal = (gal: number): string => gal.toFixed(1)
+
+/** Signed variation (east positive) as `3E` / `2W`; zero is `0`. */
+export const formatVariation = (deg: number): string =>
+  deg === 0 ? "0" : `${Math.abs(deg)}${deg < 0 ? "W" : "E"}`
+
+/** Feet with a thousands separator: `5,500 ft`. */
+export const formatFeet = (ft: number): string => `${Math.round(ft).toLocaleString("en-US")} ft`

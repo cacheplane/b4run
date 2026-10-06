@@ -1,3 +1,4 @@
+import type { Viewport } from "next"
 import type { ReactNode } from "react"
 import "@copilotkit/react-core/v2/styles.css"
 // Required, not optional polish: the activity cards carry no inline styles, so
@@ -8,6 +9,19 @@ import "leaflet/dist/leaflet.css"
 import "./theme.css"
 
 export const metadata = { title: "B4.run navlog — a C172N VFR flight planner" }
+
+// `viewport-fit=cover` so the phone's bottom sheet can pad itself clear of the
+// home indicator (`env(safe-area-inset-bottom)` is 0 without it); the theme
+// colors match `--wb-bg` so the browser chrome blends with the app.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0d10" },
+  ],
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

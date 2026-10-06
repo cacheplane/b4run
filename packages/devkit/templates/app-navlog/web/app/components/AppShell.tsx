@@ -6,14 +6,19 @@ import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { HydratedThread } from "../lib/hydrate"
 import {
-  lastAssistantText,
   latestNavlogText,
   type MessageLike,
+  navlogAnswerText,
   parseNavlog,
 } from "../lib/navlog-selectors"
 import type { ThreadSource, WorkbenchThread } from "../lib/thread-source"
 import { type DropNotice, type TranscriptMessage, titleFor } from "../lib/transcript"
-import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
+import {
+  latestWeatherBriefText,
+  parseWeatherBrief,
+  type WeatherMessageLike,
+  weatherBriefTextFromMessages,
+} from "../lib/weather-selectors"
 import { Composer, type ComposerMessage } from "./Composer"
 import { ConnectScreen } from "./ConnectScreen"
 import { MemoryPanel } from "./MemoryPanel"
@@ -269,13 +274,20 @@ export function AppShell({
   const subagentRuns = useSubagentRuns(agent)
   const navlogText = latestNavlogText(agent.messages as readonly MessageLike[])
   const navlog = useMemo(() => (navlogText === null ? null : parseNavlog(navlogText)), [navlogText])
-  const weatherText = latestWeatherBriefText([...subagentRuns.runs.values()])
+  // Live subagent runs first. A reloaded thread has none (runs are a record of
+  // the live stream and are not restored), so fall back to the result of the
+  // parent's `task({ subagent: "weather" })` call, which the checkpoint keeps.
+  const weatherText =
+    latestWeatherBriefText([...subagentRuns.runs.values()]) ??
+    weatherBriefTextFromMessages(agent.messages as readonly WeatherMessageLike[])
   const weatherBrief = useMemo(
     () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
     [weatherText],
   )
-  // Already a string, so it only changes when the prose does.
-  const assistantBrief = lastAssistantText(agent.messages as readonly MessageLike[])
+  // The answer of the turn that produced the navlog on screen, not whatever
+  // the latest reply is (a later "Filed." must not replace the brief). Already
+  // a string, so it only changes when the prose does.
+  const assistantBrief = navlogAnswerText(agent.messages as readonly MessageLike[])
   // Drop notices for the thread on screen, in arrival order. Not on the
   // agent: CopilotKit keeps no record of CUSTOM events, so this list is the
   // only place they live, and it goes with the thread on a switch.

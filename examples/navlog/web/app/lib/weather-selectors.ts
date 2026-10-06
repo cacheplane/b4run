@@ -10,11 +10,23 @@ export interface AirportWeather {
   readonly taf: string
 }
 
+export type VerdictLevel = "GO" | "CAUTION" | "NO-GO"
+
+/** A go/no-go call: the level and the one sentence why. */
+export interface Verdict {
+  readonly level: VerdictLevel
+  readonly reason: string
+}
+
 export interface WeatherBrief {
   readonly airports: readonly AirportWeather[]
   readonly winds: readonly string[]
   readonly advisories: readonly string[]
   readonly note: string
+  /** The "Verdict:" line, when the brief has one (briefs written before the verdict contract do not). */
+  readonly verdict?: Verdict
+  /** The "Forecast horizon:" sentence, when the brief has one. */
+  readonly horizon?: string
 }
 
 /**
@@ -49,9 +61,11 @@ export function worstCategory(airport: Pick<AirportWeather, "now" | "atEta">): F
 
 const EMPTY: WeatherBrief = { airports: [], winds: [], advisories: [], note: "" }
 
-type Section = "airports" | "winds" | "advisories" | "note"
+type Section = "airports" | "winds" | "advisories" | "note" | "verdict" | "horizon"
 
 const HEADERS: readonly { readonly section: Section; readonly pattern: RegExp }[] = [
+  { section: "verdict", pattern: /^verdict:(?:\*\*)?\s*(.*)$/i },
+  { section: "horizon", pattern: /^forecast horizon:(?:\*\*)?\s*(.*)$/i },
   { section: "airports", pattern: /^airports:(?:\*\*)?\s*(.*)$/i },
   { section: "winds", pattern: /^winds per leg:(?:\*\*)?\s*(.*)$/i },
   { section: "advisories", pattern: /^advisories:(?:\*\*)?\s*(.*)$/i },
@@ -86,10 +100,12 @@ function parseAirport(line: string): AirportWeather | null {
 
 /**
  * Parse the weather subagent's brief. The subagent is prompted to a fixed
- * shape (sections "Airports:", "Winds per leg:", "Advisories:", "Go/no-go
- * note:"), but a model may still bullet it, bold the headers, or start the
- * first airport on the header line, so each line is unwrapped from that
- * markdown first. Anything else degrades to an empty brief rather than a throw.
+ * shape (sections "Verdict:", "Forecast horizon:", "Airports:", "Winds per
+ * leg:", "Advisories:", "Go/no-go note:"; the first two are newer, so a brief
+ * without them still parses), but a model may still bullet it, bold the
+ * headers, or start the first airport on the header line, so each line is
+ * unwrapped from that markdown first. Anything else degrades to an empty brief
+ * rather than a throw.
  */
 export function parseWeatherBrief(text: string): WeatherBrief {
   let section: Section | null = null
@@ -97,6 +113,8 @@ export function parseWeatherBrief(text: string): WeatherBrief {
   const winds: string[] = []
   const advisories: string[] = []
   const note: string[] = []
+  const verdictText: string[] = []
+  const horizon: string[] = []
 
   const add = (line: string): void => {
     if (line === "") return
@@ -106,6 +124,8 @@ export function parseWeatherBrief(text: string): WeatherBrief {
     } else if (section === "winds") winds.push(line)
     else if (section === "advisories" && !/^none\.?$/i.test(line)) advisories.push(line)
     else if (section === "note") note.push(line)
+    else if (section === "verdict") verdictText.push(line)
+    else if (section === "horizon") horizon.push(line)
   }
 
   for (const raw of text.split(/\r?\n/)) {
@@ -123,9 +143,217 @@ export function parseWeatherBrief(text: string): WeatherBrief {
     }
     if (!matched) add(line)
   }
-  if (airports.length === 0 && winds.length === 0 && advisories.length === 0 && note.length === 0)
+  const verdict = verdictText.length > 0 ? parseVerdictText(verdictText.join(" ")) : null
+  const horizonText = horizon.join(" ")
+  if (
+    airports.length === 0 &&
+    winds.length === 0 &&
+    advisories.length === 0 &&
+    note.length === 0 &&
+    verdict === null
+  ) {
     return EMPTY
-  return { airports, winds, advisories, note: note.join(" ") }
+  }
+  return {
+    airports,
+    winds,
+    advisories,
+    note: note.join(" "),
+    ...(verdict !== null ? { verdict } : {}),
+    ...(horizonText !== "" ? { horizon: horizonText } : {}),
+  }
+}
+
+/**
+ * `GO — one sentence why`, `CAUTION: …`, `NO-GO - …` (also `NO GO`, `NOGO`,
+ * any case, optionally bold) into a verdict, or null when the text does not
+ * start with one of the three levels.
+ */
+export function parseVerdictText(text: string): Verdict | null {
+  const m = /^\s*(?:\*\*)?\s*(NO[\s-]?GO|CAUTION|GO)\b(?:\*\*)?\s*[—–:.,-]*\s*([\s\S]*)$/i.exec(
+    text,
+  )
+  if (!m) return null
+  const word = (m[1] as string).toUpperCase().replace(/[\s-]/g, "")
+  const level: VerdictLevel = word === "NOGO" ? "NO-GO" : word === "CAUTION" ? "CAUTION" : "GO"
+  return { level, reason: (m[2] ?? "").replace(/\*\*/g, "").trim() }
+}
+
+/**
+ * True when the forecast-horizon sentence says the departure lies beyond the
+ * forecasts, so the brief is preliminary; false when it is within them.
+ */
+export function isPreliminary(horizon: string | undefined): boolean {
+  if (horizon === undefined || horizon.trim() === "") return false
+  return /\bpreliminary\b|\bdo(?:es)? not (?:yet )?(?:reach|cover)|\bbeyond\b|\bnot yet\b/i.test(
+    horizon,
+  )
+}
+
+export type AdvisoryRelevance =
+  | "during flight"
+  | "expires before departure"
+  | "starts after arrival"
+
+/** One advisory line, parsed from `<PRODUCT> <HAZARD> | <altitudes> | valid … | <RELEVANCE>`. */
+export interface Advisory {
+  /** `G-AIRMET`, `AIRMET`, `SIGMET`, `CWA`…; empty for a free-text line. */
+  readonly product: string
+  /** `FZLVL`, `ICE`, `CONVECTIVE`…; empty for a free-text line. */
+  readonly hazard: string
+  /** `freezing level 4,000 ft`, `tops FL290`; empty when the line does not say. */
+  readonly altitudes: string
+  /** `2100Z–0300Z 07`; empty when the line does not say. */
+  readonly valid: string
+  /** Null when the line does not say (briefs written before the advisory contract). */
+  readonly relevance: AdvisoryRelevance | null
+  /** The lowest altitude the advisory names, in feet, or null. `SFC` is 0. */
+  readonly lowestFt: number | null
+  readonly raw: string
+}
+
+const RELEVANCES: readonly AdvisoryRelevance[] = [
+  "during flight",
+  "expires before departure",
+  "starts after arrival",
+]
+
+/** Every altitude the text names, in feet: `FL290`, `4,000 ft`, `SFC`. */
+function altitudesFt(text: string): number[] {
+  const out: number[] = []
+  for (const m of text.matchAll(/\bFL\s?(\d{2,3})\b/gi)) out.push(Number(m[1]) * 100)
+  for (const m of text.matchAll(/\b(\d{1,2},?\d{3})\s*(?:ft|feet)\b/gi)) {
+    out.push(Number((m[1] as string).replace(",", "")))
+  }
+  if (/\bSFC\b|\bsurface\b/i.test(text)) out.push(0)
+  return out
+}
+
+const PRODUCT = /^(CONVECTIVE SIGMET|G-AIRMET|AIRMET|SIGMET|CWA|PIREP|TFR)\s+(.*)$/i
+
+export function parseAdvisory(line: string): Advisory {
+  const raw = line.trim()
+  const parts = raw.split("|").map((part) => part.trim())
+  const head = PRODUCT.exec(parts[0] ?? "")
+  const product = head ? (head[1] as string).toUpperCase() : ""
+  const hazard = head ? (head[2] as string).trim() : ""
+  const last = (parts.at(-1) ?? "").toLowerCase().replace(/\.$/, "")
+  const relevance =
+    RELEVANCES.find((r) => last === r) ??
+    RELEVANCES.find((r) => raw.toLowerCase().includes(r)) ??
+    null
+  const valid = parts.find((part) => /^valid\b/i.test(part)) ?? ""
+  const altitudes =
+    parts.length >= 3 && !/^valid\b/i.test(parts[1] ?? "") ? (parts[1] as string) : ""
+  const alts = altitudesFt(altitudes !== "" ? altitudes : raw)
+  return {
+    product,
+    hazard,
+    altitudes,
+    valid: valid.replace(/^valid\s*/i, ""),
+    relevance,
+    lowestFt: alts.length > 0 ? Math.min(...alts) : null,
+    raw,
+  }
+}
+
+export type HazardSeverity = "danger" | "warn" | "muted"
+
+/** Hazards that turn a during-flight advisory red when they reach the cruise altitude. */
+const SEVERE = /\b(CONVECTIVE|ICE|ICING|TS|THUNDERSTORMS?)\b/i
+
+/**
+ * How loudly an advisory is shown. During the flight: amber, or red for
+ * convection or icing at or below the cruise altitude (or at an unknown
+ * altitude). Outside the flight, or when the line does not say: muted.
+ */
+export function advisorySeverity(advisory: Advisory, cruiseFt?: number): HazardSeverity {
+  if (advisory.relevance !== "during flight") return "muted"
+  if (!SEVERE.test(advisory.hazard !== "" ? advisory.hazard : advisory.raw)) return "warn"
+  if (cruiseFt === undefined || advisory.lowestFt === null) return "danger"
+  return advisory.lowestFt <= cruiseFt ? "danger" : "warn"
+}
+
+const HAZARD_NAMES: Readonly<Record<string, string>> = {
+  FZLVL: "Freezing level",
+  "M-FZLVL": "Freezing level",
+  ICE: "Icing",
+  TURB: "Turbulence",
+  "TURB-LO": "Turbulence",
+  "TURB-HI": "Turbulence",
+  LLWS: "Low-level wind shear",
+  SFC_WND: "Surface wind",
+  MT_OBSC: "Mountain obscuration",
+  IFR: "IFR",
+  CONVECTIVE: "Convective",
+}
+
+/** A hazard chip's short text: `Freezing level 4,000 ft`, `SIGMET Convective tops FL290`. */
+export function advisoryLabel(advisory: Advisory): string {
+  if (advisory.hazard === "") {
+    return advisory.raw.length > 48 ? `${advisory.raw.slice(0, 47)}…` : advisory.raw
+  }
+  const name = HAZARD_NAMES[advisory.hazard.toUpperCase()] ?? advisory.hazard
+  const prefix = /SIGMET|CWA/.test(advisory.product) ? `${advisory.product} ` : ""
+  // "freezing level 4,000 ft" under a "Freezing level" name reads twice.
+  const where = advisory.altitudes.replace(/^freezing level\s*/i, "").trim()
+  return `${prefix}${name}${where !== "" ? ` ${where}` : ""}`
+}
+
+/** One "Winds per leg" line, read for display. */
+export interface WindsAloft {
+  readonly leg: number | null
+  readonly dir: number
+  readonly kt: number
+  readonly tempC: number | null
+  readonly altitudeFt: number | null
+  readonly station: string
+  /** `24` for "24-hour forecast used", or null. */
+  readonly forecastHours: number | null
+  readonly raw: string
+}
+
+/**
+ * `leg 1: 320/29 -3C at 4500 ft, MSP, valid 040600Z`, and the older, wordier
+ * `leg 1: 318/26, temp NA at 5,500 ft, MSP, based on 060000Z, valid 070000Z
+ * (FB chi region, 24-hour forecast used)`. Null when there is no `dir/kt`.
+ */
+export function parseWindsLine(line: string): WindsAloft | null {
+  const wind = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/.exec(line)
+  if (!wind) return null
+  const leg = /^\s*leg\s*(\d+)/i.exec(line)
+  const afterWind = line.slice(wind.index + wind[0].length)
+  const temp = /^[\s,]*(?:temp\s*)?([+-]?\d{1,2})\s*°?\s*C\b/i.exec(afterWind)
+  const alt = /\bat\s+([\d,]{3,6})\s*ft\b/i.exec(line)
+  const afterAlt = alt ? line.slice(alt.index + alt[0].length) : ""
+  const station = /^\s*,\s*([A-Z]{3,4})\b/.exec(afterAlt)
+  const hours = /(\d{1,2})[\s-]*(?:hour|hr|h)\b[^)]*\bforecast/i.exec(line)
+  return {
+    leg: leg ? Number(leg[1]) : null,
+    dir: Number(wind[1]),
+    kt: Number(wind[2]),
+    tempC: temp ? Number(temp[1]) : null,
+    altitudeFt: alt ? Number((alt[1] as string).replace(/,/g, "")) : null,
+    station: station ? (station[1] as string) : "",
+    forecastHours: hours ? Number(hours[1]) : null,
+    raw: line,
+  }
+}
+
+/**
+ * `Winds 5,500 ft: 318° at 26 kt (MSP, 24 h forecast)`, with the temperature
+ * when the line has one, or the raw line when it does not parse.
+ */
+export function windsSummary(line: string): string {
+  const w = parseWindsLine(line)
+  if (w === null) return line
+  const at = w.altitudeFt !== null ? ` ${w.altitudeFt.toLocaleString("en-US")} ft` : ""
+  const dir = String(w.dir).padStart(3, "0")
+  const temp = w.tempC !== null ? `, ${w.tempC < 0 ? "−" : ""}${Math.abs(w.tempC)} °C` : ""
+  const source = [w.station, w.forecastHours !== null ? `${w.forecastHours} h forecast` : ""]
+    .filter((part) => part !== "")
+    .join(", ")
+  return `Winds${at}: ${dir}° at ${w.kt} kt${temp}${source !== "" ? ` (${source})` : ""}`
 }
 
 /**
@@ -146,4 +374,84 @@ export function latestWeatherBriefText(runs: readonly SubagentRunLike[]): string
 export function latestWeatherBrief(runs: readonly SubagentRunLike[]): WeatherBrief | null {
   const text = latestWeatherBriefText(runs)
   return text === null ? null : parseWeatherBrief(text)
+}
+
+/** The subset of a thread message the restored-weather selector reads. */
+export interface WeatherMessageLike {
+  readonly role: string
+  readonly content?: unknown
+  readonly toolCallId?: string
+  readonly toolCalls?: readonly {
+    readonly id: string
+    readonly function: { readonly name: string; readonly arguments?: string }
+  }[]
+}
+
+const toolText = (content: unknown): string => {
+  if (typeof content === "string") {
+    // A result that arrived JSON-encoded (`"Verdict: …"`) is unwrapped once.
+    if (content.startsWith('"')) {
+      try {
+        const inner: unknown = JSON.parse(content)
+        if (typeof inner === "string") return inner
+      } catch {
+        // Not JSON: the text itself.
+      }
+    }
+    return content
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) =>
+        typeof part === "object" &&
+        part !== null &&
+        typeof (part as { text?: unknown }).text === "string"
+          ? (part as { text: string }).text
+          : "",
+      )
+      .join("")
+  }
+  return ""
+}
+
+const isWeatherTask = (args: string | undefined): boolean => {
+  if (args === undefined) return false
+  try {
+    const parsed: unknown = JSON.parse(args)
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { subagent?: unknown }).subagent === "weather"
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The weather brief from the thread's messages: the result of the latest
+ * `task({ subagent: "weather" })` call that parses to a brief. This is what a
+ * restored thread has — subagent runs are a live-stream record and are not
+ * restored on reload, but the parent's `task` call and its result are in the
+ * checkpoint like any other tool call.
+ */
+export function weatherBriefTextFromMessages(
+  messages: readonly WeatherMessageLike[],
+): string | null {
+  const callIds = new Set<string>()
+  for (const message of messages) {
+    for (const call of message.toolCalls ?? []) {
+      if (call.function.name === "task" && isWeatherTask(call.function.arguments)) {
+        callIds.add(call.id)
+      }
+    }
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== "tool" || message.toolCallId === undefined) continue
+    if (!callIds.has(message.toolCallId)) continue
+    const text = toolText(message.content)
+    if (parseWeatherBrief(text).airports.length > 0) return text
+  }
+  return null
 }
