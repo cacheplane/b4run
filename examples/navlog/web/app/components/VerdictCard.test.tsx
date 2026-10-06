@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest"
 import { SAMPLE_NAVLOG } from "../lib/navlog-types"
 import { parseAdvisory, parseWeatherBrief } from "../lib/weather-selectors"
 import { NavlogSheet } from "./NavlogSheet"
-import { VerdictCard } from "./VerdictCard"
+import { partitionAdvisories, VerdictCard } from "./VerdictCard"
 import { WeatherStrip } from "./WeatherStrip"
 
 const FZLVL = "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight"
@@ -150,5 +150,27 @@ describe("NavlogSheet verdict", () => {
     expect(html.indexOf("Go/no-go verdict")).toBeLessThan(html.indexOf("KSTP → KRST"))
     expect(html).toContain("Fuel rem")
     expect(html).toContain("WCA")
+  })
+})
+
+describe("partitionAdvisories", () => {
+  const line = (text: string) => parseAdvisory(text)
+  test("collapses repeats and moves advisories outside the flight window out of the way", () => {
+    const { relevant, outside } = partitionAdvisories(
+      [
+        line("G-AIRMET ICE | 11,000–17,000 ft | valid 0000Z–0300Z 06 | expires before departure"),
+        line("G-AIRMET ICE | 11,000–17,000 ft | valid 0300Z–0600Z 06 | expires before departure"),
+        line("G-AIRMET FZLVL | freezing level 4,000 ft | valid 1200Z–1800Z 06 | during flight"),
+        line("SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure"),
+      ],
+      5500,
+    )
+    expect(relevant.map((a) => a.hazard)).toEqual(["FZLVL"])
+    expect(outside.map((a) => a.hazard)).toEqual(["ICE", "CONVECTIVE"])
+  })
+  test("keeps an advisory with no relevance (an older brief) on its own chip", () => {
+    const { relevant, outside } = partitionAdvisories([line("Freezing level near 4,000 ft")])
+    expect(relevant).toHaveLength(1)
+    expect(outside).toHaveLength(0)
   })
 })

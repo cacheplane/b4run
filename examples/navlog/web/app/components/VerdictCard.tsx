@@ -114,6 +114,42 @@ export function sortAdvisories(
   )
 }
 
+/**
+ * The advisories worth a chip, and the rest. A G-AIRMET repeats per forecast
+ * hour and per contour, so identical labels collapse to one. Advisories that
+ * expire before departure or start after arrival do not change the flight;
+ * they become one quiet "N outside the flight window" chip instead of a row
+ * each, so the hazards that matter are not drowned out. An advisory with no
+ * relevance (an older brief) cannot be placed, so it keeps its own chip.
+ */
+export function partitionAdvisories(
+  advisories: readonly Advisory[],
+  cruiseFt?: number,
+): { readonly relevant: readonly Advisory[]; readonly outside: readonly Advisory[] } {
+  const seen = new Set<string>()
+  const relevant: Advisory[] = []
+  const outside: Advisory[] = []
+  for (const advisory of sortAdvisories(advisories, cruiseFt)) {
+    const key = `${advisoryLabel(advisory)}|${advisory.relevance ?? ""}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const quiet = advisorySeverity(advisory, cruiseFt) === "muted" && advisory.relevance !== null
+    ;(quiet ? outside : relevant).push(advisory)
+  }
+  return { relevant, outside }
+}
+
+/** One muted chip standing for every advisory outside the flight window. */
+export function OutsideWindowChip({ advisories }: { readonly advisories: readonly Advisory[] }) {
+  if (advisories.length === 0) return null
+  const list = advisories.map((a) => `${advisoryLabel(a)} · ${a.relevance}`).join("\n")
+  return (
+    <span className="wb-hazard" data-severity="muted" title={list}>
+      {advisories.length} outside the flight window
+    </span>
+  )
+}
+
 export interface VerdictCardProps {
   readonly verdict: Verdict
   readonly advisories?: readonly Advisory[]
@@ -124,7 +160,7 @@ export interface VerdictCardProps {
 
 /** The go/no-go call at the top of the navlog: level, why, the hazards behind it. */
 export function VerdictCard({ verdict, advisories = [], cruiseFt, horizon }: VerdictCardProps) {
-  const sorted = sortAdvisories(advisories, cruiseFt)
+  const { relevant, outside } = partitionAdvisories(advisories, cruiseFt)
   return (
     <section className="wb-verdict" data-level={verdict.level} aria-label="Go/no-go verdict">
       <div className="flex items-start gap-3">
@@ -139,13 +175,18 @@ export function VerdictCard({ verdict, advisories = [], cruiseFt, horizon }: Ver
           ) : null}
         </div>
       </div>
-      {sorted.length > 0 ? (
+      {relevant.length + outside.length > 0 ? (
         <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Hazards">
-          {sorted.map((advisory) => (
+          {relevant.map((advisory) => (
             <li key={advisory.raw}>
               <HazardChip advisory={advisory} cruiseFt={cruiseFt} />
             </li>
           ))}
+          {outside.length > 0 ? (
+            <li>
+              <OutsideWindowChip advisories={outside} />
+            </li>
+          ) : null}
         </ul>
       ) : null}
       {isPreliminary(horizon) ? <HorizonNote text={horizon as string} className="mt-2.5" /> : null}

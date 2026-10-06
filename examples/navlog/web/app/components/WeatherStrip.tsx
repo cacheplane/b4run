@@ -6,7 +6,13 @@ import {
   windsSummary,
   worstCategory,
 } from "../lib/weather-selectors"
-import { HazardChip, HorizonNote, sortAdvisories, VerdictPill } from "./VerdictCard"
+import {
+  HazardChip,
+  HorizonNote,
+  OutsideWindowChip,
+  partitionAdvisories,
+  VerdictPill,
+} from "./VerdictCard"
 
 /**
  * One airport's chip text. It always names the category the chip is colored
@@ -45,7 +51,10 @@ export function WeatherStrip({ brief, layout = "wrap", cruiseFt }: WeatherStripP
       ? "fixed inset-x-3 top-3 max-h-[40vh] overflow-auto"
       : "absolute right-0 top-full mt-1.5 w-[24rem] max-w-[80vw]"
   }`
-  const advisories = sortAdvisories(brief.advisories.map(parseAdvisory), cruiseFt)
+  const { relevant: advisories, outside } = partitionAdvisories(
+    brief.advisories.map(parseAdvisory),
+    cruiseFt,
+  )
   const firstWinds = brief.winds[0]
   const preliminary = isPreliminary(brief.horizon)
   return (
@@ -86,6 +95,11 @@ export function WeatherStrip({ brief, layout = "wrap", cruiseFt }: WeatherStripP
             <HazardChip advisory={advisory} cruiseFt={cruiseFt} />
           </span>
         ))}
+        {outside.length > 0 ? (
+          <span className="shrink-0">
+            <OutsideWindowChip advisories={outside} />
+          </span>
+        ) : null}
         {firstWinds ? (
           <details className={row ? "shrink-0" : "relative"}>
             <summary className="wb-focus wb-winds cursor-pointer list-none whitespace-nowrap">

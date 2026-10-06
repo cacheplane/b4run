@@ -392,10 +392,19 @@ export function Transcript({
           </div>
         )
       case "notice":
+        // A quiet disclosure, not a line of prose: the pilot only needs to know
+        // the planner could not see something (a chart image, say); the
+        // verbatim reason codes stay one click away for a developer.
         return (
-          <p key={item.id} className="text-[12px] leading-5 text-wb-muted">
-            {dropNoticeText(item.parts)}
-          </p>
+          <details key={item.id} className="group text-[12px] leading-5 text-wb-muted">
+            <summary className="wb-focus inline-flex cursor-pointer list-none items-center gap-1 rounded-wb-sm">
+              <span aria-hidden="true">ⓘ</span>
+              {item.parts.length === 1
+                ? "The planner could not see this content"
+                : `The planner could not see ${item.parts.length} items`}
+            </summary>
+            <p className="mt-1 font-mono text-[11px]">{dropNoticeText(item.parts)}</p>
+          </details>
         )
       default: {
         // Exhaustiveness, not a fallback. A new `TranscriptItem` kind must fail

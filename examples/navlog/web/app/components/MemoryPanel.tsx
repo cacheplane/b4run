@@ -195,11 +195,17 @@ export function MemoryPanelView({
               >
                 {candidate.content}
               </p>
-              <p className="mt-1 truncate text-[11px] leading-4 text-wb-muted">
-                {candidate.namespace}
-                {typeof candidate.confidence === "number"
-                  ? ` · confidence ${candidate.confidence}`
-                  : ""}
+              {/* The store's namespace and the model's confidence are for a
+                  developer, so they sit in the tooltip, not in the line. */}
+              <p
+                className="mt-1 truncate text-[11px] leading-4 text-wb-muted"
+                title={`${candidate.namespace}${
+                  typeof candidate.confidence === "number"
+                    ? ` · confidence ${candidate.confidence}`
+                    : ""
+                }`}
+              >
+                Suggested by the planner
               </p>
               <div className="mt-1.5 flex gap-1.5">
                 {/*
