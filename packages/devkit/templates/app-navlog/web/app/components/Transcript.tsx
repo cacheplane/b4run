@@ -12,6 +12,7 @@ import {
   useRenderToolCall,
 } from "@copilotkit/react-core/v2"
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { stripToolEchoes } from "../lib/assistant-text"
 import { nextFollowing, showJumpToLatest } from "../lib/stick-to-bottom"
 import type { ThreadSource } from "../lib/thread-source"
 import {
@@ -335,10 +336,11 @@ export function Transcript({
         // the renderer, not `CopilotChatAssistantMessage` itself, which would
         // drag in the copy/thumbs/regenerate toolbar. The look is `.wb-prose`
         // in `app/theme.css`. No bubble: the assistant's answer is the page's
-        // prose, the user's turn is the bubble.
+        // prose, the user's turn is the bubble. A tool call the model echoed
+        // into its answer is plumbing, not prose, so it is dropped here too.
         return (
           <div key={item.id} className="wb-prose break-words">
-            <CopilotChatAssistantMessage.MarkdownRenderer content={item.text} />
+            <CopilotChatAssistantMessage.MarkdownRenderer content={stripToolEchoes(item.text)} />
           </div>
         )
       case "reasoning":

@@ -176,7 +176,9 @@ export function parseVerdictText(text: string): Verdict | null {
   if (!m) return null
   const word = (m[1] as string).toUpperCase().replace(/[\s-]/g, "")
   const level: VerdictLevel = word === "NOGO" ? "NO-GO" : word === "CAUTION" ? "CAUTION" : "GO"
-  return { level, reason: (m[2] ?? "").replace(/\*\*/g, "").trim() }
+  const reason = (m[2] ?? "").replace(/\*\*/g, "").trim()
+  // The reason reads as a sentence under the verdict word, whatever case the model used.
+  return { level, reason: reason.charAt(0).toUpperCase() + reason.slice(1) }
 }
 
 /**

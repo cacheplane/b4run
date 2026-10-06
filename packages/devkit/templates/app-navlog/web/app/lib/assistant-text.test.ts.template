@@ -51,7 +51,7 @@ Assumptions: 2400 RPM, standard temperature`
     const answer = parsePlanningAnswer(ANSWER)
     expect(answer?.verdict).toEqual({
       level: "CAUTION",
-      reason: "the freezing level (4,000 ft) is below the 5,500 ft cruise.",
+      reason: "The freezing level (4,000 ft) is below the 5,500 ft cruise.",
     })
     expect(answer?.sections).toEqual([
       { title: "Watch for", items: ["Icing above 4,000 ft", "Gusts at KDLH"] },

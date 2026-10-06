@@ -31,7 +31,7 @@ describe("the verdict contract", () => {
     const brief = parseWeatherBrief(NEW_BRIEF)
     expect(brief.verdict).toEqual({
       level: "CAUTION",
-      reason: "the freezing level is 4,000 ft, below the 5,500 ft cruise.",
+      reason: "The freezing level is 4,000 ft, below the 5,500 ft cruise.",
     })
     expect(brief.horizon).toMatch(/^Departure is 37 hours out/)
     expect(isPreliminary(brief.horizon)).toBe(true)
@@ -51,7 +51,7 @@ describe("the verdict contract", () => {
     const brief = parseWeatherBrief(
       `- **Verdict:** **NO-GO** - icing in the clouds.\nAirports:\nKSTP: VFR now, VFR at ETA`,
     )
-    expect(brief.verdict).toEqual({ level: "NO-GO", reason: "icing in the clouds." })
+    expect(brief.verdict).toEqual({ level: "NO-GO", reason: "Icing in the clouds." })
   })
   test("verdict words: GO, CAUTION, NO-GO, NO GO, NOGO; anything else is null", () => {
     expect(parseVerdictText("GO — clear skies")?.level).toBe("GO")
