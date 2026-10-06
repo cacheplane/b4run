@@ -1,7 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { readParkedInterrupts } from "../lib/thread-source"
-import { MultipleGatesNotice, PermissionPrompt } from "./PermissionPrompt"
+import {
+  FLIGHT_PLAN_NOTE,
+  flightPlanGateSummary,
+  MultipleGatesNotice,
+  PermissionPrompt,
+} from "./PermissionPrompt"
 
 /**
  * The card is pure, so it is tested as markup — no DOM, no agent, no
@@ -169,5 +174,66 @@ describe("PermissionPrompt", () => {
     expect(markup(<MultipleGatesNotice count={0} />)).toBe("")
     expect(markup(<MultipleGatesNotice count={1} />)).toBe("")
     expect(markup(<MultipleGatesNotice count={2} />)).toContain("stopped on 2 requests")
+  })
+})
+
+describe("the flight plan gate", () => {
+  const FLIGHT_PLAN = {
+    item7: "N738ZU",
+    item8: "VG",
+    item9: "C172/L",
+    item10: "SG/C",
+    item13: "KFCM1500",
+    item15: "N0109VFR DCT",
+    item16: "KDLH0125",
+    item18: "DOF/261007",
+    item19: "E/0716 P/1",
+  }
+  const GATE = {
+    interruptId: "perm-7",
+    type: "permission-request",
+    kind: "tool",
+    detail: {
+      toolName: "fileFlightPlan",
+      argsPreview: JSON.stringify({ flightPlan: FLIGHT_PLAN }),
+      suggestedPattern: "fileFlightPlan",
+    },
+  }
+
+  test("says what will be recorded, in plain words, and that nothing is transmitted", () => {
+    const html = markup(
+      <PermissionPrompt metadata={GATE} isResolving={false} onDecide={() => {}} />,
+    )
+    expect(html).toContain(
+      "Record flight plan N738ZU · KFCM → KDLH · depart 1500Z 7 Oct · 109 kt VFR direct · en route 1:25 · endurance 7:16 · 1 aboard",
+    )
+    expect(html).toContain(FLIGHT_PLAN_NOTE)
+    expect(html).not.toContain("&quot;item7&quot;")
+  })
+
+  test("keeps role=alert, the tool name and Allow once — and offers no Allow always", () => {
+    const html = markup(
+      <PermissionPrompt metadata={GATE} isResolving={false} onDecide={() => {}} />,
+    )
+    expect(html).toContain('role="alert"')
+    expect(html).toContain(">fileFlightPlan<")
+    expect(html).toContain(">Allow once<")
+    expect(html).toContain(">Deny<")
+    expect(html).not.toContain("Allow always")
+  })
+
+  test("a preview cut short still renders a card that names the tool", () => {
+    const cut = { ...GATE, detail: { ...GATE.detail, argsPreview: '{"flightPlan":{"item7":"N7…' } }
+    const html = markup(<PermissionPrompt metadata={cut} isResolving={false} onDecide={() => {}} />)
+    expect(html).toContain("fileFlightPlan")
+    expect(html).toContain("Allow once")
+  })
+
+  test("flightPlanGateSummary reads the args preview", () => {
+    expect(flightPlanGateSummary(JSON.stringify({ flightPlan: FLIGHT_PLAN }))).toMatch(
+      /^Record flight plan N738ZU · KFCM → KDLH/,
+    )
+    expect(flightPlanGateSummary("not json")).toBeUndefined()
+    expect(flightPlanGateSummary(undefined)).toBeUndefined()
   })
 })

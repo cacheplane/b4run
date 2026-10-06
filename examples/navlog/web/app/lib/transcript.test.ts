@@ -292,3 +292,85 @@ describe("titleFor", () => {
     expect(titleFor(42)).toBe("")
   })
 })
+
+describe("restored writeTodos calls", () => {
+  function todosCall(id: string, todos: unknown) {
+    return {
+      id,
+      type: "function" as const,
+      function: { name: "writeTodos", arguments: JSON.stringify({ todos }) },
+    }
+  }
+  const FIRST = [
+    { content: "Brief weather", status: "in_progress" },
+    { content: "Compute navlog", status: "pending" },
+  ]
+  const LAST = [
+    { content: "Brief weather", status: "completed" },
+    { content: "Compute navlog", status: "completed" },
+  ]
+  const HYDRATED_PLAN: TranscriptMessage = {
+    id: "hydrated:plan:thread-a",
+    role: "activity",
+    activityType: "b4.plan",
+    content: { todos: LAST },
+  }
+
+  test("become one Plan card per turn, where the first call ran, with the turn's latest todos", () => {
+    const items = buildTranscriptItems([
+      HYDRATED_PLAN,
+      { id: "u1", role: "user", content: "plan KFCM to KDLH" },
+      { id: "a1", role: "assistant", toolCalls: [todosCall("t1", FIRST)] },
+      { id: "r1", role: "tool", toolCallId: "t1", content: "ok" },
+      { id: "a2", role: "assistant", toolCalls: [toolCall("c1", "readDoc")] },
+      { id: "a3", role: "assistant", toolCalls: [todosCall("t2", LAST)] },
+      { id: "a4", role: "assistant", content: "Done." },
+    ])
+    expect(items.map((item) => item.kind)).toEqual(["user", "activity", "toolCall", "assistant"])
+    expect(items[1]).toEqual({
+      kind: "activity",
+      id: "plan:t1",
+      activityType: "b4.plan",
+      content: { todos: LAST },
+    })
+    // The prepended checkpoint plan is redundant once the calls became a card.
+    expect(items.some((item) => item.id === "hydrated:plan:thread-a")).toBe(false)
+    // And no raw writeTodos tool card is left.
+    expect(
+      items.some(
+        (item) => item.kind === "toolCall" && item.toolCall.function.name === "writeTodos",
+      ),
+    ).toBe(false)
+  })
+
+  test("each turn keeps its own plan", () => {
+    const items = buildTranscriptItems([
+      { id: "u1", role: "user", content: "one" },
+      { id: "a1", role: "assistant", toolCalls: [todosCall("t1", FIRST)] },
+      { id: "u2", role: "user", content: "two" },
+      { id: "a2", role: "assistant", toolCalls: [todosCall("t2", LAST)] },
+    ])
+    expect(items.filter((item) => item.kind === "activity").map((item) => item.id)).toEqual([
+      "plan:t1",
+      "plan:t2",
+    ])
+  })
+
+  test("a turn that already has a live plan activity only drops its calls", () => {
+    const items = buildTranscriptItems([
+      { id: "u1", role: "user", content: "one" },
+      { id: "b4:plan:run-1", role: "activity", activityType: "b4.plan", content: { todos: LAST } },
+      { id: "a1", role: "assistant", toolCalls: [todosCall("t1", FIRST)] },
+    ])
+    expect(items.map((item) => item.id)).toEqual(["u1", "b4:plan:run-1"])
+  })
+
+  test("unreadable calls stay as they were, and the checkpoint plan stays too", () => {
+    const items = buildTranscriptItems([
+      HYDRATED_PLAN,
+      { id: "u1", role: "user", content: "one" },
+      { id: "a1", role: "assistant", toolCalls: [todosCall("t1", [{ content: "", status: "x" }])] },
+    ])
+    expect(items.map((item) => item.id)).toEqual(["hydrated:plan:thread-a", "u1", "t1"])
+  })
+})

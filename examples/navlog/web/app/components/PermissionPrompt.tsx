@@ -1,5 +1,6 @@
 "use client"
 import { type ReactNode, useEffect, useRef } from "react"
+import { flightPlanSummary } from "../lib/tool-presentation"
 import { neutralButton } from "./ui"
 
 /**
@@ -81,7 +82,35 @@ export interface PermissionPromptProps {
 
 const ROW = "mt-1 text-[13px] leading-5 text-wb-muted"
 const CODE = "rounded bg-wb-bg px-1 py-0.5 font-mono text-[12px] text-wb-text"
-const BUTTON = neutralButton("sm")
+const BUTTON = `${neutralButton("sm")} inline-flex min-h-8 items-center pointer-coarse:min-h-11 pointer-coarse:px-4`
+/** The card's first, affirmative decision: the one filled button, in the text color. */
+const PRIMARY_BUTTON =
+  "wb-focus inline-flex min-h-8 items-center rounded-wb-sm border border-transparent bg-wb-text px-2.5 py-1 text-[12px] font-medium tracking-tight text-wb-bg transition-opacity hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-4"
+
+/** The tool whose gate this card describes in pilot terms rather than as a tool name. */
+export const FLIGHT_PLAN_TOOL = "fileFlightPlan"
+
+export const FLIGHT_PLAN_NOTE =
+  "Recorded in the demo workspace — not transmitted to Flight Service."
+
+/**
+ * A `fileFlightPlan` gate's arguments in one line, read from the gate's
+ * `argsPreview` — the call's arguments as JSON, cut at 500 characters by the
+ * server (`buildArgsPreview` in `packages/core`). A cut or unreadable preview
+ * yields undefined and the card falls back to naming the tool.
+ */
+export function flightPlanGateSummary(argsPreview: string | undefined): string | undefined {
+  if (argsPreview === undefined) return undefined
+  let args: unknown
+  try {
+    args = JSON.parse(argsPreview)
+  } catch {
+    return undefined
+  }
+  if (typeof args !== "object" || args === null) return undefined
+  const line = flightPlanSummary((args as { flightPlan?: unknown }).flightPlan)
+  return line === undefined ? undefined : `Record flight plan ${line}`
+}
 
 /**
  * The note above a group of cards. Rendered by whichever source owns the group
@@ -143,9 +172,25 @@ function InterruptCard({
     <div
       role="alert"
       aria-busy={isResolving}
-      className="rounded-wb border border-amber-500/40 bg-amber-500/5 px-3.5 py-3 text-[13px]"
+      className="rounded-wb border border-amber-500/40 bg-[var(--wb-chat-warn-bg)] px-3.5 py-3 text-[13px]"
     >
-      <p className="text-[13px] font-medium tracking-tight">{title}</p>
+      <p className="flex items-center gap-2 text-[13px] font-semibold tracking-tight">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className="shrink-0 text-[var(--wb-chat-warn)]"
+        >
+          <path d="M7 1.5 1.25 12h11.5L7 1.5ZM7 5.5v3M7 10.25v.25" />
+        </svg>
+        {title}
+      </p>
       {children}
       <div
         ref={actionsRef}
@@ -223,7 +268,7 @@ export function PermissionPrompt({
   const allow = (decision: "once" | "always", label: string) => (
     <button
       type="button"
-      className={BUTTON}
+      className={decision === "once" ? PRIMARY_BUTTON : BUTTON}
       aria-disabled={isResolving}
       onClick={() => onDecide(decision)}
     >
@@ -254,6 +299,41 @@ export function PermissionPrompt({
         </p>
         <p className={ROW}>Input: {detail?.inputPreview ?? "no input preview"}</p>
         {detail?.reason ? <p className={ROW}>Reason: {detail.reason}</p> : null}
+      </InterruptCard>
+    )
+  }
+
+  // Filing a flight plan, said as what it is. Only "Allow once": a standing
+  // approval to file every future plan is not a decision anyone should make
+  // from a demo card, so "Allow always" is not offered for this tool. The tool
+  // name stays on the card (as a tag) — the journeys find the gate by it.
+  const flightPlanLine =
+    metadata.kind === "tool" && metadata.detail?.toolName === FLIGHT_PLAN_TOOL
+      ? flightPlanGateSummary(metadata.detail.argsPreview)
+      : undefined
+  if (metadata.kind === "tool" && metadata.detail?.toolName === FLIGHT_PLAN_TOOL) {
+    return (
+      <InterruptCard
+        title="Record this flight plan?"
+        autoFocus={autoFocus}
+        focusKey={focusKey}
+        isResolving={isResolving}
+        actions={
+          <>
+            {allow("once", "Allow once")}
+            {deny}
+          </>
+        }
+      >
+        <p className="mt-1.5 text-[13px] leading-5 text-wb-text [overflow-wrap:anywhere]">
+          {flightPlanLine ?? "Record a flight plan"}
+        </p>
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-5 text-wb-muted">
+          <span>{FLIGHT_PLAN_NOTE}</span>
+          <code className="rounded-[5px] border border-wb-border bg-wb-bg px-1.5 py-px font-mono text-[10.5px] leading-4">
+            {FLIGHT_PLAN_TOOL}
+          </code>
+        </p>
       </InterruptCard>
     )
   }

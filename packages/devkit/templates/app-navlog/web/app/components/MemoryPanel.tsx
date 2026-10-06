@@ -214,7 +214,7 @@ export function MemoryPanelView({
                   disabled={isBusy}
                   aria-label={`Approve: ${shortLabel(candidate.content)}`}
                   onClick={() => onApprove(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50`}
+                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
                 >
                   Approve
                 </button>
@@ -231,7 +231,7 @@ export function MemoryPanelView({
                   disabled={isBusy}
                   aria-label={`Delete permanently: ${shortLabel(candidate.content)}`}
                   onClick={() => onReject(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50`}
+                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
                 >
                   Delete
                 </button>
