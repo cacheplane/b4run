@@ -35,8 +35,34 @@ describe("ICAO flight plan", () => {
   })
   it("rejects a departure time that is not an ISO 8601 UTC instant", () => {
     expect(() => buildFlightPlan({ ...planInput(), departureTimeUtc: "tomorrow 9am" })).toThrow(
-      'departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z or a UTC time such as 1400Z, got "tomorrow 9am"',
+      'departureTimeUtc must be an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z, a UTC time such as 1400Z, or "tomorrow 1400Z", got "tomorrow 9am"',
     )
+  })
+  it('reads "tomorrow 1500Z" as the first 1500Z at least 12 hours ahead', () => {
+    // The live demo, 2026-10-06 at 1450Z: "tomorrow, leaving around 1500Z" is
+    // 7 October, not today's 1500Z ten minutes away.
+    const lateMorning = () => Date.parse("2026-10-06T14:50:00Z")
+    expect(parseUtcInstant("tomorrow 1500Z", lateMorning).toISOString()).toBe(
+      "2026-10-07T15:00:00.000Z",
+    )
+    // A US pilot at 8 pm Central (0100Z on the 7th) also means the 7th.
+    const usEvening = () => Date.parse("2026-10-07T01:00:00Z")
+    expect(parseUtcInstant("Tomorrow 1500Z", usEvening).toISOString()).toBe(
+      "2026-10-07T15:00:00.000Z",
+    )
+    // "today" is the plain next occurrence.
+    expect(parseUtcInstant("today 1500Z", lateMorning).toISOString()).toBe(
+      "2026-10-06T15:00:00.000Z",
+    )
+    expect(parseUtcInstant("1500Z tomorrow", lateMorning).toISOString()).toBe(
+      "2026-10-07T15:00:00.000Z",
+    )
+    const plan = buildFlightPlan(
+      { ...planInput(), departureTimeUtc: "tomorrow 1500Z" },
+      lateMorning,
+    )
+    expect(plan.item13).toBe("KSTP1500")
+    expect(plan.item18).toBe("DOF/261007")
   })
   it("reads a UTC clock time as its next occurrence", () => {
     const before = () => Date.parse("2026-10-06T09:30:00Z")
@@ -45,7 +71,7 @@ describe("ICAO flight plan", () => {
     expect(parseUtcInstant("1400Z", after).toISOString()).toBe("2026-10-07T14:00:00.000Z")
     expect(parseUtcInstant("1400z", before).toISOString()).toBe("2026-10-06T14:00:00.000Z")
     expect(() => parseUtcInstant("2460Z", before)).toThrow(
-      /or a UTC time such as 1400Z, got "2460Z"/,
+      /a UTC time such as 1400Z, or "tomorrow 1400Z", got "2460Z"/,
     )
     const plan = buildFlightPlan({ ...planInput(), departureTimeUtc: "1400Z" }, after)
     expect(plan.item13).toBe("KSTP1400")
