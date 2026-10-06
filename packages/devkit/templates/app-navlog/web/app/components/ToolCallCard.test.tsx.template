@@ -21,14 +21,16 @@ function render(props: Parameters<typeof ToolCallView>[0]): string {
 
 /** The visible text, tags stripped, so assertions read like what a person sees. */
 function text(markup: string): string {
-  return markup
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    // Last, so an escaped entity such as "&amp;quot;" is decoded once, not twice.
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim()
+  return (
+    markup
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+      // Last, so an escaped entity such as "&amp;quot;" is decoded once, not twice.
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ")
+      .trim()
+  )
 }
 
 describe("tool card headline", () => {
