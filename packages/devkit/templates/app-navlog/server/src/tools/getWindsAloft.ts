@@ -16,6 +16,23 @@ export type WindsAloftRegion = (typeof WINDS_ALOFT_REGIONS)[number]
 
 const FORECAST_HOURS: readonly number[] = [6, 12, 24]
 
+/**
+ * The shortest published forecast that reaches `hours` ahead. A model asking for
+ * the wind "in 1 hour" means the 6-hour product, not an error and a retry.
+ */
+export function forecastProduct(hours: number): number {
+  if (!Number.isFinite(hours) || hours < 0) {
+    throw new Error(`forecastHours must be a number of hours ahead, got ${hours}`)
+  }
+  const product = FORECAST_HOURS.find((published) => hours <= published)
+  if (product === undefined) {
+    throw new Error(
+      `forecastHours ${hours} is beyond the longest winds-aloft forecast (${FORECAST_HOURS.at(-1)} hours)`,
+    )
+  }
+  return product
+}
+
 export interface WindsAloft {
   readonly region: string
   readonly station: string
@@ -31,6 +48,9 @@ export interface WindsAloft {
  * Forecast wind and temperature at an altitude, from the FB winds-aloft
  * product for a region and one of its stations. Pick the station nearest the
  * leg; when the station is not in the product, the error lists the ones that are.
+ * forecastHours is how far ahead the leg is flown, in hours (default 6): AWC
+ * publishes 6-, 12- and 24-hour forecasts, and the shortest one that reaches
+ * that far is used, so 1 or 3 reads the 6-hour product.
  */
 export default async (
   input: {
@@ -44,13 +64,7 @@ export default async (
   if (!(WINDS_ALOFT_REGIONS as readonly string[]).includes(input.region)) {
     throw new Error(`region must be one of ${WINDS_ALOFT_REGIONS.join(", ")}`)
   }
-  // Typegen flattens a numeric literal union, so the allowed values are checked here.
-  const forecastHours = input.forecastHours ?? 6
-  if (!FORECAST_HOURS.includes(forecastHours)) {
-    throw new Error(
-      `forecastHours must be one of ${FORECAST_HOURS.join(", ")}, got ${forecastHours}`,
-    )
-  }
+  const forecastHours = forecastProduct(input.forecastHours ?? 6)
   const text = await awc.getText(
     "windtemp",
     { region: input.region, level: "low", fcst: String(forecastHours).padStart(2, "0") },
