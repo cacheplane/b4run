@@ -105,10 +105,6 @@ export function pgvectorMemoryStore(opts: {
       const c = await pool.connect()
       try {
         await initSchema(c, { prefix, schema, dimensions: opts.dimensions, m, efConstruction })
-        // Register pgvector type parsers on this connection (needs the extension
-        // to exist, which initSchema just guaranteed). New pool connections get
-        // registration via the "connect" handler below.
-        await pgvector.registerTypes(c)
       } finally {
         c.release()
       }
@@ -116,18 +112,14 @@ export function pgvectorMemoryStore(opts: {
     return initP
   }
 
-  // Register vector type parsers on every future pooled connection. Safe once the
-  // extension exists; the very first connection is registered inside ready().
-  // Only attach to a pool WE built — an injected pool is the caller's to manage;
-  // we must not mutate its listeners.
-  if (ownsPool) {
-    pool.on("connect", (c) => {
-      pgvector.registerTypes(c).catch(() => {
-        // Extension not yet present on a brand-new database — ready() registers the
-        // first connection explicitly, so ignore the race here.
-      })
-    })
-  }
+  // No pgvector type parsers are registered, on purpose. Nothing here reads a
+  // vector-typed column: records never select `embedding`, getEmbeddingRow casts
+  // it `::text` and parses the literal itself, and writes send `pgvector.toSql`
+  // strings. Registering them from the pool's 'connect' event, as this store used
+  // to, cannot be awaited: pg hands the new client to the caller while
+  // `registerTypes` is still querying it, so the caller's first statement lands
+  // on a busy client, which is pg's "Calling client.query() when the client is
+  // already executing a query" deprecation and an error from pg@9 (#956).
 
   // -------------------------------------------------------------------------
   // Row-level helpers

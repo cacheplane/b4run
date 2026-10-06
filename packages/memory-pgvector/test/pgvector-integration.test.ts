@@ -1,5 +1,5 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
-import { Pool } from "pg"
+import pg, { Pool } from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { initSchema, pgvectorMemoryStore } from "../src/index.js"
 
@@ -249,9 +249,8 @@ describe.skipIf(!enabled)("pgvector integration", () => {
         // Bound to the real pool, not to the proxy: pg's internals must never see a
         // proxied `this`.
         if (prop !== "connect") return typeof value === "function" ? value.bind(target) : value
-        // Unwrapped unless armed, and returned without an extra turn: schema init
-        // fires an un-awaited registerTypes from the pool's 'connect' handler, and
-        // any delay here lets that collide with initSchema on the same client.
+        // Unwrapped unless armed, and returned without an extra turn, so the
+        // proxy changes nothing about how schema init sees the pool.
         return () =>
           armed
             ? target.connect().then(
@@ -317,6 +316,45 @@ describe.skipIf(!enabled)("pgvector integration", () => {
       const out = await store.search({ namespace: "ns", query: "parallel" })
       expect(out.length).toBeGreaterThan(0)
     } finally {
+      await store.close()
+    }
+  })
+
+  test("never sends a statement to a pooled client that is still running one", async () => {
+    // pg@8 queues such a statement with a deprecation warning and pg@9 rejects it.
+    // The store used to fire pgvector.registerTypes from the pool's 'connect'
+    // event, un-awaited, so every freshly opened connection reached its caller
+    // while that lookup was still in flight (#956). Parallel puts on a cold store
+    // open several connections at once, which is the shape that surfaced it.
+    const proto = pg.Client.prototype as unknown as {
+      query: (...args: unknown[]) => unknown
+    }
+    const original = proto.query
+    const inFlight = new WeakMap<object, number>()
+    const overlaps: string[] = []
+    proto.query = function (this: object, ...args: unknown[]) {
+      const busy = inFlight.get(this) ?? 0
+      if (busy > 0) overlaps.push(typeof args[0] === "string" ? args[0].slice(0, 60) : "query")
+      inFlight.set(this, busy + 1)
+      const settle = () => inFlight.set(this, (inFlight.get(this) ?? 1) - 1)
+      const result = original.apply(this, args)
+      if (result instanceof Promise) result.then(settle, settle)
+      else settle()
+      return result
+    }
+    const store = pgvectorMemoryStore({
+      connectionString: url,
+      dimensions: 3,
+      tablePrefix: "overlap",
+    })
+    try {
+      await Promise.all(
+        Array.from({ length: 8 }, (_, i) => store.put(rec(`o${i}`, "ns", `overlap row ${i}`))),
+      )
+      await store.search({ namespace: "ns", query: "overlap" })
+      expect(overlaps).toEqual([])
+    } finally {
+      proto.query = original
       await store.close()
     }
   })
