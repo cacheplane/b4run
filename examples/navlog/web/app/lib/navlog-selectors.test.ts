@@ -1,23 +1,48 @@
+import { EMPTY_TURNS, reduceTurns, type TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
-import { lastAssistantText, latestNavlog, latestNavlogText, parseNavlog } from "./navlog-selectors"
+import {
+  isAwaitingApproval,
+  latestNavlogResult,
+  latestToolResult,
+  parseNavlog,
+} from "./navlog-selectors"
 import { SAMPLE_NAVLOG } from "./navlog-types"
 
-const toolCall = (id: string, name: string) => ({
-  id: `m-${id}`,
-  role: "assistant" as const,
-  content: "",
-  toolCalls: [{ id, type: "function" as const, function: { name, arguments: "{}" } }],
-})
-const toolResult = (id: string, content: string) => ({
-  id: `r-${id}`,
-  role: "tool" as const,
-  toolCallId: id,
-  content,
-})
+type BaseEvent = Parameters<typeof reduceTurns>[1]
+const T = (type: string, rest: Record<string, unknown>) =>
+  ({ type, ...rest }) as unknown as BaseEvent
+/** Fold AG-UI events through the real reducer, as the activity does. */
+const fold = (events: readonly BaseEvent[]): TurnsView =>
+  events.reduce((view, event) => reduceTurns(view, event, { now: () => 1 }), EMPTY_TURNS)
+const runStart = T("RUN_STARTED", { threadId: "th", runId: "r1" })
+const toolCall = (id: string, name: string, result: string, owner?: string): BaseEvent[] => [
+  T("TOOL_CALL_START", {
+    toolCallId: id,
+    toolCallName: name,
+    ...(owner ? { subagentRunId: owner } : {}),
+  }),
+  T("TOOL_CALL_END", { toolCallId: id, ...(owner ? { subagentRunId: owner } : {}) }),
+  T("TOOL_CALL_RESULT", {
+    messageId: `r-${id}`,
+    toolCallId: id,
+    content: result,
+    ...(owner ? { subagentRunId: owner } : {}),
+  }),
+]
+const subagent = (id: string, name: string, result: unknown, outcome = "success"): BaseEvent[] => [
+  T("SUBAGENT_STARTED", { subagentRunId: id, name, parentToolCallId: id }),
+  T("SUBAGENT_FINISHED", {
+    subagentRunId: id,
+    outcome: { type: outcome },
+    ...(result !== undefined ? { result } : {}),
+  }),
+]
+
+const GOOD = JSON.stringify(SAMPLE_NAVLOG)
 
 describe("parseNavlog", () => {
   test("accepts the server's Navlog JSON", () => {
-    expect(parseNavlog(JSON.stringify(SAMPLE_NAVLOG))?.totals.distanceNm).toBe(66)
+    expect(parseNavlog(GOOD)?.totals.distanceNm).toBe(66)
   })
   test("unwraps a { result } envelope and rejects anything else", () => {
     expect(parseNavlog(JSON.stringify({ result: SAMPLE_NAVLOG }))?.legs).toHaveLength(2)
@@ -26,65 +51,69 @@ describe("parseNavlog", () => {
   })
 })
 
-describe("latestNavlog", () => {
-  test("returns the most recent computeNavlog result in the thread", () => {
-    const older = { ...SAMPLE_NAVLOG, totals: { ...SAMPLE_NAVLOG.totals, distanceNm: 1 } }
-    const messages = [
-      toolCall("c1", "computeNavlog"),
-      toolResult("c1", JSON.stringify(older)),
-      toolCall("c2", "readDoc"),
-      toolResult("c2", '{"content":"x"}'),
-      toolCall("c3", "computeNavlog"),
-      toolResult("c3", JSON.stringify(SAMPLE_NAVLOG)),
-    ]
-    expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
+describe("latestNavlogResult", () => {
+  test("returns the newest computeNavlog result with its tool-call id", () => {
+    const older = JSON.stringify({
+      ...SAMPLE_NAVLOG,
+      totals: { ...SAMPLE_NAVLOG.totals, distanceNm: 1 },
+    })
+    const view = fold([
+      runStart,
+      ...toolCall("c1", "computeNavlog", older),
+      ...toolCall("c2", "readDoc", '{"content":"x"}'),
+      ...toolCall("c3", "computeNavlog", GOOD),
+    ])
+    expect(latestNavlogResult(view)).toEqual({ id: "c3", result: GOOD })
   })
-  test("reads a tool result delivered as an array of text content parts", () => {
-    const json = JSON.stringify(SAMPLE_NAVLOG)
-    const half = Math.floor(json.length / 2)
-    const messages = [
-      toolCall("c1", "computeNavlog"),
-      {
-        id: "r-c1",
-        role: "tool" as const,
-        toolCallId: "c1",
-        content: [
-          { type: "text", text: json.slice(0, half) },
-          { type: "text", text: json.slice(half) },
-        ],
-      },
-    ]
-    expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
+  test("a later failed call leaves the last good navlog up", () => {
+    const view = fold([
+      runStart,
+      ...toolCall("c1", "computeNavlog", GOOD),
+      ...toolCall("c2", "computeNavlog", "Error: computeNavlog needs one wind entry per leg (1)"),
+    ])
+    expect(latestNavlogResult(view)).toEqual({ id: "c1", result: GOOD })
   })
-  test("skips a later failed call so the last good navlog stays, and exposes its text", () => {
-    const messages = [
-      toolCall("c1", "computeNavlog"),
-      toolResult("c1", JSON.stringify(SAMPLE_NAVLOG)),
-      toolCall("c2", "computeNavlog"),
-      toolResult("c2", "Error: computeNavlog needs one wind entry per leg (1)"),
-    ]
-    expect(latestNavlogText(messages)).toBe(JSON.stringify(SAMPLE_NAVLOG))
-    expect(latestNavlog(messages)?.totals.distanceNm).toBe(66)
+  test("searches newer turns first and recurses into subagent turns", () => {
+    const view = fold([
+      runStart,
+      ...subagent("sa", "performance", "ok"),
+      ...toolCall("n1", "computeNavlog", GOOD, "sa"),
+      T("RUN_FINISHED", { threadId: "th", runId: "r1" }),
+    ])
+    expect(latestNavlogResult(view)?.id).toBe("n1")
   })
-  test("is null with no navlog, and ignores a call whose result has not arrived", () => {
-    expect(latestNavlog([toolCall("c1", "computeNavlog")])).toBeNull()
-    expect(latestNavlog([])).toBeNull()
+  test("is null with no navlog, with a call still running, and for an empty view", () => {
+    const running = fold([
+      runStart,
+      T("TOOL_CALL_START", { toolCallId: "c1", toolCallName: "computeNavlog" }),
+    ])
+    expect(latestNavlogResult(running)).toBeNull()
+    expect(latestNavlogResult(EMPTY_TURNS)).toBeNull()
+  })
+  test("latestToolResult filters by name and accept", () => {
+    const view = fold([
+      runStart,
+      ...toolCall("a", "readDoc", "one"),
+      ...toolCall("b", "readDoc", "two"),
+    ])
+    expect(latestToolResult(view, "readDoc", () => true)?.id).toBe("b")
+    expect(latestToolResult(view, "readDoc", (r) => r === "one")?.id).toBe("a")
+    expect(latestToolResult(view, "other", () => true)).toBeNull()
   })
 })
 
-describe("lastAssistantText", () => {
-  test("picks the last non-empty assistant message", () => {
-    const messages = [
-      { id: "a1", role: "assistant", content: "First plan." },
-      { id: "u1", role: "user", content: "Again?" },
-      { id: "a2", role: "assistant", content: [{ type: "text", text: "Second plan." }] },
-      toolCall("c1", "computeNavlog"),
-      toolResult("c1", JSON.stringify(SAMPLE_NAVLOG)),
-    ]
-    expect(lastAssistantText(messages)).toBe("Second plan.")
-  })
-  test("is empty when no assistant has spoken", () => {
-    expect(lastAssistantText([{ id: "u1", role: "user", content: "hi" }])).toBe("")
-    expect(lastAssistantText([])).toBe("")
+describe("isAwaitingApproval", () => {
+  test("is true only when the last turn is awaiting", () => {
+    expect(isAwaitingApproval(EMPTY_TURNS)).toBe(false)
+    expect(isAwaitingApproval(fold([runStart]))).toBe(false)
+    const awaiting = fold([
+      runStart,
+      T("RUN_FINISHED", {
+        threadId: "th",
+        runId: "r1",
+        outcome: { type: "interrupt", interrupts: [{ id: "i1", reason: "tool", message: "ok?" }] },
+      }),
+    ])
+    expect(isAwaitingApproval(awaiting)).toBe(true)
   })
 })

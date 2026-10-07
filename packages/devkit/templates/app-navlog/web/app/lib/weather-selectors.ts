@@ -1,3 +1,5 @@
+import type { StepView, TurnsView, TurnView } from "@b4run/ag-ui/view"
+
 export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR" | "UNKNOWN"
 
 export interface AirportWeather {
@@ -358,21 +360,67 @@ export function windsSummary(line: string): string {
   return `Winds${at}: ${dir}° at ${w.kt} kt${temp}${source !== "" ? ` (${source})` : ""}`
 }
 
+/** A result that arrived JSON-encoded (`"Verdict: …"`) is unwrapped once. */
+function unwrapText(result: unknown): string | null {
+  if (typeof result !== "string") return null
+  if (result.startsWith('"')) {
+    try {
+      const inner: unknown = JSON.parse(result)
+      if (typeof inner === "string") return inner
+    } catch {
+      // Not JSON: the text itself.
+    }
+  }
+  return result
+}
+
+function findWeatherText(turn: TurnView): string | null {
+  for (let i = turn.steps.length - 1; i >= 0; i--) {
+    const step: StepView | undefined = turn.steps[i]
+    if (step?.kind !== "subagent") continue
+    const nested = findWeatherText(step.turn)
+    if (nested !== null) return nested
+    if (step.name !== "weather" || step.status !== "done") continue
+    const text = unwrapText(step.result)
+    if (text !== null && parseWeatherBrief(text).airports.length > 0) return text
+  }
+  return null
+}
+
 /**
- * The most recent completed `weather` subagent run's brief text, or null. A
- * string so the shell can memoize the parse on it (see `latestNavlogText`).
+ * The latest `weather` subagent step with status "done" (any depth) whose
+ * result (a string, or a JSON-encoded string unwrapped once) parses to at
+ * least one airport. A string so callers can memoize the parse on it.
  */
-export function latestWeatherBriefText(runs: readonly SubagentRunLike[]): string | null {
-  for (let i = runs.length - 1; i >= 0; i--) {
-    const run = runs[i]
-    if (run?.name !== "weather" || run.status !== "completed") continue
-    if (typeof run.result !== "string") continue
-    return run.result
+export function latestWeatherBriefText(view: TurnsView): string | null
+/** Legacy runs form: removed in Task 5. */
+export function latestWeatherBriefText(runs: readonly SubagentRunLike[]): string | null
+export function latestWeatherBriefText(
+  source: TurnsView | readonly SubagentRunLike[],
+): string | null {
+  if (Array.isArray(source)) {
+    // legacy — removed in Task 5
+    const runs = source as readonly SubagentRunLike[]
+    for (let i = runs.length - 1; i >= 0; i--) {
+      const run = runs[i]
+      if (run?.name !== "weather" || run.status !== "completed") continue
+      if (typeof run.result !== "string") continue
+      return run.result
+    }
+    return null
+  }
+  const { turns } = source as TurnsView
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]
+    if (turn === undefined) continue
+    const found = findWeatherText(turn)
+    if (found !== null) return found
   }
   return null
 }
 
 /** The most recent completed `weather` subagent run's brief, or null. */
+// removed in Task 5
 export function latestWeatherBrief(runs: readonly SubagentRunLike[]): WeatherBrief | null {
   const text = latestWeatherBriefText(runs)
   return text === null ? null : parseWeatherBrief(text)
