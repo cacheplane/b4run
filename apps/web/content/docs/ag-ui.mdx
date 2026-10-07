@@ -484,7 +484,7 @@ const runtime = new CopilotRuntime({ agents: { default: agent }, runner: new B4A
 export const POST = createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })
 ```
 
-The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events.
+The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events. The read carries only the headers your `fetch` adds, never the browser's: if your B4 server needs auth or a caller identity, pass the same `fetch` you give `B4HttpAgent` (`new B4AgentRunner({ url: b4Url, fetch })`).
 
 Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 
