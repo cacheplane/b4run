@@ -467,7 +467,7 @@ export default function Page() {
 }
 ```
 
-Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. Host UI outside the chat reads the same turns through `useB4ActivityContext`: the navlog example drives its map and sheet from it, and mounts `<CopilotChat>` with `useB4ChatSlots` inside `B4Activity`. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly.
+Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. Host UI outside the chat reads the same turns through `useB4ActivityContext`: the navlog example drives its map and sheet from it, and mounts `<CopilotChat>` with `useB4ChatSlots` inside `B4Activity`. `<CopilotSidebar>` takes the same `messageView` slots; the chat example uses it that way. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly.
 
 ### Restoring a conversation after a reload
 
@@ -515,22 +515,7 @@ The runner reads `GET /threads/:thread_id/events`, so the thread-access policy a
 
 The read carries only the headers your `fetch` adds, never the browser's. That `fetch` must carry the current caller's identity, derived per request as above (the navlog example does the same with its visitor id), never a fixed service credential: a fixed credential lets any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error.
 
-Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
-
-```tsx
-import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
-import { useAgent } from "@copilotkit/react-core/v2"
-
-function Subagents() {
-  const { agent } = useAgent()
-  const { runs } = useSubagentRuns(agent)
-  return <SubagentPanel runs={runs} />
-}
-```
-
-`useSubagentRuns` subscribes to the agent and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations — each with its name, status, tool calls, plan, reasoning, prose and result — which `SubagentPanel` renders nested, with the same stylesheet and customization ladder as the plan card. The stylesheet import gives both B4.run's default look in light and dark mode. Without it, they still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components`. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
-
-React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. The server-side `/copilotkit-runtime` entry, which only a CopilotKit runtime route imports, never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class to `createB4AgentRunner`, so the runner extends the copy the route resolves. Its `rxjs` is a regular dependency of the package. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. The server-side `/copilotkit-runtime` entry, which only a CopilotKit runtime route imports, never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class to `createB4AgentRunner`, so the runner extends the copy the route resolves. Its `rxjs` is a regular dependency of the package. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) for a client that presents the activities its own way. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [flight-planner web UI recipe](/docs/recipes/flight-planner-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
 
@@ -625,10 +610,10 @@ The rule fails open. When the adapter can't prove the suppression is safe, the c
 At a permission interrupt that belongs to the held call, the adapter drops the held frames rather than flushing them. The resumed run presents the same call again under the same tool-call id, and the client merges the two into one card. Unrelated held calls still flush before the interrupt.
 
 <Callout type="warn" title="Activities are the only surface for writeTodos">
-  A client with no activity renderer shows less for `writeTodos` than a generic
-  tool renderer used to. In React, pass `b4ActivityRenderers` to CopilotKit's
-  `renderActivityMessages`, as shown above. Subagents need no renderer
-  registration: mount `SubagentPanel` on the agent's event stream.
+  A client that reads only tool frames shows nothing for `writeTodos`. `reduceTurns`
+  folds the `b4.plan` snapshots into the turn's plan step, so `B4Activity` (or
+  `TurnActivity` over `useB4Turns`) shows the plan and the subagents' nested steps
+  with no registration, as shown above.
 </Callout>
 
 ### Inbound input

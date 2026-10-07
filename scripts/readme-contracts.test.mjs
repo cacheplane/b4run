@@ -272,34 +272,33 @@ const capabilityCaveatContracts = new Map([
     "@b4run/ag-ui",
     [
       [
-        "React renderer entry",
-        /## React renderers/u,
-        (readme) => readme.replace("## React renderers", "## Client rendering"),
+        "activity kit entry",
+        /^## Activity components$/mu,
+        (readme) => readme.replace("## Activity components", "## Components"),
       ],
       [
-        "drop-in renderers",
-        /\bb4ActivityRenderers\b/u,
-        (readme) => readme.replaceAll("b4ActivityRenderers", "customRenderers"),
+        "CopilotKit connector entry",
+        /^## CopilotKit connector$/mu,
+        (readme) => readme.replace("## CopilotKit connector", "## CopilotKit"),
       ],
       [
-        "tokens rung",
-        /^\*\*Rung 1\s+—\s+tokens\.\*\*/mu,
-        (readme) => readme.replace("**Rung 1 — tokens.**", "**Rung 1 — templates.**"),
+        "chat slots",
+        /\buseB4ChatSlots\b/u,
+        (readme) => readme.replaceAll("useB4ChatSlots", "useChatSlots"),
       ],
       [
-        "classNames rung",
-        /^\*\*Rung 2\s+—\s+`classNames`\.\*\*/mu,
-        (readme) => readme.replace("**Rung 2 — `classNames`.**", "**Rung 2 — themes.**"),
+        "layered stylesheet",
+        /`@layer b4-activity`, so any unlayered app CSS wins/u,
+        (readme) =>
+          readme.replace(
+            "`@layer b4-activity`, so any unlayered app CSS wins",
+            "`@layer b4-activity`, so it wins over app CSS",
+          ),
       ],
       [
-        "components rung",
-        /^\*\*Rung 3\s+—\s+`components`\.\*\*/mu,
-        (readme) => readme.replace("**Rung 3 — `components`.**", "**Rung 3 — hooks.**"),
-      ],
-      [
-        "eject rung",
-        /^\*\*Rung 4\s+—\s+eject\.\*\*/mu,
-        (readme) => readme.replace("**Rung 4 — eject.**", "**Rung 4 — presets.**"),
+        "host-driven dark mode",
+        /Dark follows the host, not the OS/u,
+        (readme) => readme.replace("Dark follows the host, not the OS", "Dark follows the OS"),
       ],
     ],
   ],

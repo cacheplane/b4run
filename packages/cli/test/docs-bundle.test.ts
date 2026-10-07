@@ -169,8 +169,8 @@ describe("current AG-UI documentation", () => {
     // Retired B4.run/adapter vocabulary. `useInterrupt` and `PermissionInterrupt`
     // are deliberately NOT listed: the canonicalized adapter still surfaces
     // permission gates as AG-UI standard interrupts, and the example UIs render
-    // them with CopilotKit's current `useInterrupt` hook (see each example's
-    // PermissionInterrupt.tsx). Exact `b4.subagent` is now a valid standard
+    // them through CopilotKit's current `useInterrupt` hook (inside `B4Activity`
+    // from `@b4run/ag-ui/copilotkit`). Exact `b4.subagent` is now a valid standard
     // activity type. What must stay gone is the *legacy* vocabulary below — the
     // dotted custom-event family, custom-event interrupt, and `forwardedProps`
     // resume path.

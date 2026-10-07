@@ -34,19 +34,21 @@ curl -N "http://127.0.0.1:3002/agui/%2Fnavlog%23agent" \
 ```
 
 That's the [AG-UI](https://github.com/ag-ui-protocol/ag-ui) endpoint (`/agui/<route>`).
-Alongside text, root tools, and interrupts, it emits standard replacement
-`b4.plan` and `b4.subagent` activity messages for valid planning and matched
-delegated-work progress. Those activities are the whole presentation of the
-`writeTodos` and `task` calls behind them: a call whose activity was emitted
-produces no root tool events, while every other tool is unchanged.
+Alongside text, tools, and interrupts, it emits standard replacement `b4.plan`
+activity snapshots for valid planning, and AG-UI 1.0 `SUBAGENT_STARTED/FINISHED/ERROR`
+events, with the child's own events tagged `subagentRunId`, for each `task`
+dispatch. The plan activity is the whole presentation of the root `writeTodos`
+call behind it: a call whose activity was emitted produces no root tool events,
+while every other tool is unchanged.
 
 The **web UI** over this endpoint is the sibling [`web/`](../web) package — the
-B4.run Workbench: the streamed plan and brief, tool cards, suggestion prompts,
-the flight-plan approval, and memory-candidate review. Start it with
+B4.run Workbench: the streamed plan and brief, each turn's activity, suggestion
+prompts, the flight-plan approval, and memory-candidate review. Start it with
 `npm run dev:web` from the app root. If you write your own client instead, do
-not hand-build the plan card or the subagent panel — `@b4run/ag-ui/react` ships
-them: a React client passes `b4ActivityRenderers` to CopilotKit's
-`renderActivityMessages` and mounts `SubagentPanel` from `useSubagentRuns(agent)`.
+not hand-build the activity view — `@b4run/ag-ui/copilotkit` ships it: a React
+client wraps CopilotKit's `<CopilotChat>` in `B4Activity` and spreads
+`useB4ChatSlots()` onto it, so each turn renders its plan, tool steps and
+subagents, and a parked approval renders as a card.
 That is what `web/` does, and the
 [Flight planner web UI](https://b4.run/docs/recipes/flight-planner-web-ui)
 recipe walks through building one.
