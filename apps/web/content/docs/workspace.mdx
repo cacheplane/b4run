@@ -248,7 +248,7 @@ Agent memory lives in `workspace/AGENTS.md`, and B4.run adds it to the system pr
 
   Give each tenant its own app root (or its own prompt-memory trust domain). A per-thread sandbox won't separate them, because every thread reads the same host file. Limit or deny writes from untrusted agents that can reach it, review the seeded content, and never copy raw untrusted text into `workspace/AGENTS.md`.
 
-  To make the file read-only guidance, set [`agentsMd: { writable: false }`](/docs/configuration#agentsmd). The prompt then tells the model not to modify it. That's prompt guidance only, so also refuse writes to `AGENTS.md` with a [filesystem middleware](#middleware).
+  To make the file read-only guidance, set [`agentsMd: { writable: false }`](/docs/configuration#agentsmd). The prompt then tells the model not to modify it. That's prompt guidance only, so also refuse writes to `AGENTS.md` with a [filesystem middleware](#middleware), and deny or gate `runBash` for routes that can reach the workspace, since a shell command bypasses that middleware.
 </Callout>
 
 ## Tool-output offloading

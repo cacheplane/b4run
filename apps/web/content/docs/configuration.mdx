@@ -20,7 +20,7 @@ import { config } from "@b4run/cli"
 export default config({
   appDir: "src/app",
 
-  // false: workspace/AGENTS.md is read-only guidance, not agent memory.
+  // Set writable to false to make workspace/AGENTS.md read-only guidance.
   agentsMd: { writable: true },
 
   // A configured sandbox overrides these backends for sandboxed threads.
@@ -174,11 +174,14 @@ and tells the model not to modify it.
 This only changes the prompt. It doesn't block a write, so enforce it with a
 `FilesystemMiddleware` that refuses writes to `AGENTS.md`, composed over
 `backends.filesystem` (see [Workspace middleware](/docs/workspace#middleware)).
+That middleware doesn't see shell commands, so also deny or gate `runBash` for
+routes that can reach the workspace.
 
 `b4 check` and route preparation reject, with `B4_E1010`, an `agentsMd` that
 isn't an object (`agentsMd: false` included), any key other than `writable`
 (a typo such as `writeable` included), and a `writable` that isn't a boolean.
-A near miss never falls back to writable.
+A misspelled or mistyped key inside `agentsMd` is an error, not a silent
+fallback to writable.
 
 ### `backends`
 
