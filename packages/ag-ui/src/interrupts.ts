@@ -26,6 +26,8 @@ export interface B4InterruptEnvelope {
   readonly detail?: Readonly<Record<string, unknown>>
   readonly message?: string
   readonly toolCallId?: string
+  /** `false` on a tool prompt that must ask every call: no "always" answer. */
+  readonly allowAlways?: boolean
   readonly [key: string]: unknown
 }
 
@@ -64,6 +66,13 @@ const PERMISSION_KINDS: ReadonlySet<string> = new Set([
 const PERMISSION_RESPONSE_SCHEMA = { type: "string", enum: ["once", "always", "deny"] } as const
 
 /**
+ * The schema for a prompt whose envelope says `allowAlways: false` (a
+ * `tools.approve` entry `{ tool, allowAlways: false }`): every call asks, so
+ * there is no "always" answer. A client that sends one anyway gets "once".
+ */
+const EVERY_CALL_RESPONSE_SCHEMA = { type: "string", enum: ["once", "deny"] } as const
+
+/**
  * Map a B4.run interrupt envelope to an AG-UI `Interrupt`. The full envelope is
  * preserved under `metadata` so no capability-specific information is lost on
  * the way to the client.
@@ -100,7 +109,12 @@ export function toAguiInterrupt(data: unknown): B4AguiInterrupt | null {
     ...(toolCallId !== undefined ? { toolCallId } : {}),
     ...(subagentRunId !== undefined ? { subagentRunId } : {}),
     metadata: env,
-    ...(isPermission ? { responseSchema: PERMISSION_RESPONSE_SCHEMA } : {}),
+    ...(isPermission
+      ? {
+          responseSchema:
+            env.allowAlways === false ? EVERY_CALL_RESPONSE_SCHEMA : PERMISSION_RESPONSE_SCHEMA,
+        }
+      : {}),
   }
 }
 

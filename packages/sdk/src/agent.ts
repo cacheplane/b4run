@@ -46,6 +46,39 @@ export type ConstraintPredicate = (
   ctx: ConstraintContext,
 ) => ConstraintVerdict | Promise<ConstraintVerdict>
 
+/**
+ * One `tools.approve` entry. A bare tool name prompts per call until someone
+ * answers "always" (or the permissions config allows the tool). The object
+ * form with `allowAlways: false` prompts on EVERY call: no standing approval
+ * can exist for the tool — an allow rule for it is ignored, the prompt offers
+ * only "once" and "deny", and an "always" answer is treated as "once" with
+ * nothing persisted. Use it for tools whose effect is per-call (filing,
+ * sending, paying), especially behind a shared permissions store.
+ */
+export type ApproveEntry = string | { readonly tool: string; readonly allowAlways: false }
+
+/** A `tools.approve` entry in its one normalized shape. */
+export interface NormalizedApproveEntry {
+  readonly tool: string
+  /** `false` only for an entry written `{ tool, allowAlways: false }`. */
+  readonly allowAlways: boolean
+}
+
+/**
+ * Normalize `tools.approve` entries (bare names and `{ tool, allowAlways }`)
+ * to one shape. Only `allowAlways: false`, exactly, opts out of standing
+ * approvals; any other object keeps today's behavior.
+ */
+export function normalizeApproveEntries(
+  entries: readonly ApproveEntry[] | undefined,
+): readonly NormalizedApproveEntry[] {
+  return (entries ?? []).map((entry) =>
+    typeof entry === "string"
+      ? { tool: entry, allowAlways: true }
+      : { tool: entry.tool, allowAlways: entry.allowAlways !== false },
+  )
+}
+
 export interface ToolScope {
   readonly allow?: readonly string[]
   readonly deny?: readonly string[]
@@ -53,9 +86,12 @@ export interface ToolScope {
    * Tools that require human approval per call (HITL interrupt) unless
    * pre-approved via permissions allow.tool or a persisted "always" decision.
    * Name-level: the prompt shows the call's args, but the decision covers the
-   * tool name. See docs/permissions.
+   * tool name. Write `{ tool: "name", allowAlways: false }` instead of the
+   * bare name to require approval on EVERY call: allow rules are ignored for
+   * it, the prompt offers only "once"/"deny", and an "always" answer counts
+   * as "once" and persists nothing. See docs/permissions.
    */
-  readonly approve?: readonly string[]
+  readonly approve?: readonly ApproveEntry[]
   /**
    * Per-call argument constraints: a predicate per tool name, run at call time
    * against the model's arguments. Return `true` to allow, a string to deny

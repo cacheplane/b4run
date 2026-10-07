@@ -175,3 +175,32 @@ describe("latestWeatherBriefText", () => {
     expect(latestWeatherBriefText(EMPTY_TURNS)).toBeNull()
   })
 })
+
+describe("parseWeatherBrief tolerates the markdown variants a model writes", () => {
+  // A live run on 2026-10-07 drew no weather strip: the brief parsed to no
+  // airports. These are the shapes a model plausibly used instead of the
+  // contract's plain `KFCM: …` under a plain `Airports:` header.
+  const metar = "METAR KFCM 071453Z 29013G23KT 10SM CLR 18/09 A2981"
+  const cases: ReadonlyArray<readonly [string, string]> = [
+    ["bold header, colon outside the bold", `**Airports**:\n- KFCM: VFR now, VFR at ETA. ${metar}`],
+    ["bold header, colon inside the bold", `**Airports:**\n- KFCM: VFR now, VFR at ETA. ${metar}`],
+    ["heading marker", `### Airports\n- KFCM: VFR now, VFR at ETA. ${metar}`],
+    ["em dash after the id", `Airports:\n- KFCM — VFR now, VFR at ETA. ${metar}`],
+    ["en dash after the id", `Airports:\n- KFCM – VFR now, VFR at ETA. ${metar}`],
+    ["hyphen after the id", `Airports:\n- KFCM - VFR now, VFR at ETA. ${metar}`],
+    [
+      "airport name in parentheses",
+      `Airports:\n- KFCM (Flying Cloud): VFR now, VFR at ETA. ${metar}`,
+    ],
+    ["bold id and an em dash", `Airports:\n- **KFCM** — VFR now, VFR at ETA. ${metar}`],
+    ["bullet dot", `Airports:\n• KFCM: VFR now, VFR at ETA. ${metar}`],
+    ["numbered", `Airports:\n1. KFCM: VFR now, VFR at ETA. ${metar}`],
+  ]
+  for (const [name, text] of cases) {
+    test(name, () => {
+      const brief = parseWeatherBrief(text)
+      expect(brief.airports.map((a) => [a.id, a.now, a.atEta])).toEqual([["KFCM", "VFR", "VFR"]])
+      expect(brief.airports[0]?.metar).toBe(metar)
+    })
+  }
+})

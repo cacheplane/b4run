@@ -651,6 +651,29 @@
   line-height: 1.15;
 }
 
+/* "Raised from GO: …": the floor's reasons, in the text color so they read as the why. */
+.wb-verdict-raised {
+  font-weight: 600;
+  color: var(--wb-text);
+}
+
+/* The pill's "raised" word: smaller and lighter than the level it qualifies. */
+.wb-verdict-pill-raised {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+/* The planning brief's bottom line, when the verdict above outranks what the planner wrote. */
+.wb-bottom-line-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--wb-muted);
+}
+
 :is(.wb-verdict, .wb-verdict-pill)[data-level="GO"] {
   border-color: var(--wb-go-border);
   background: var(--wb-go-bg);

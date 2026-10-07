@@ -118,6 +118,19 @@ export async function gateBashOp(
   return { allowed: true, decision }
 }
 
+/** Options for the per-tool approval gate. */
+export interface ToolGateOptions extends GateCallOptions {
+  readonly interruptCapable?: boolean
+  /**
+   * `false` makes every call prompt (`tools.approve` entry
+   * `{ tool, allowAlways: false }`): an allow rule for the tool is ignored,
+   * the envelope says `allowAlways: false` so clients offer only "once" and
+   * "deny", and an "always" answer is treated as "once" and persists nothing.
+   * Bypass mode, deny rules and the fail-closed paths are unchanged.
+   */
+  readonly allowAlways?: boolean
+}
+
 /**
  * Generic per-tool approval gate (tools.approve). Name-level: the decision
  * covers the tool name; argsPreview is display-only. Persisted decisions live
@@ -128,13 +141,17 @@ export async function gateToolOp(
   permissions: PermissionsStore | undefined,
   toolName: string,
   argsPreview: string,
-  opts?: { readonly interruptCapable?: boolean } & GateCallOptions,
+  opts?: ToolGateOptions,
 ): Promise<GateResult> {
   if (!permissions) return { allowed: true }
   if (permissions.mode === "bypass") return { allowed: true }
 
+  const everyCall = opts?.allowAlways === false
   const rule = permissions.match("tool", toolName)
-  if (rule === "allow") return { allowed: true }
+  // A standing approval must not exist for an every-call tool: an allow rule
+  // (configured, or persisted by an "always" answer before the route opted
+  // in) falls through to the prompt like an unknown one.
+  if (rule === "allow" && !everyCall) return { allowed: true }
   if (rule === "deny") {
     return {
       allowed: false,
@@ -163,6 +180,7 @@ export async function gateToolOp(
     kind: "tool",
     toolName,
     argsPreview,
+    ...(everyCall ? { allowAlways: false as const } : {}),
     ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
     permissions,
   })
@@ -345,7 +363,11 @@ export function wrapToolWithApproval<
     readonly name: string
     readonly run: (input: unknown, context: C) => Promise<unknown> | unknown
   },
->(tool: T, permissions: PermissionsStore, opts?: { readonly interruptCapable?: boolean }): T {
+>(
+  tool: T,
+  permissions: PermissionsStore,
+  opts?: { readonly interruptCapable?: boolean; readonly allowAlways?: boolean },
+): T {
   return {
     ...tool,
     run: async (input: unknown, context: C) => {
@@ -463,6 +485,8 @@ type InterruptArgs =
       kind: "tool"
       toolName: string
       argsPreview: string
+      /** `false`: every call prompts; "always" is answered as "once". */
+      allowAlways?: false
       toolCallId?: string | undefined
       permissions: PermissionsStore
     }
@@ -506,6 +530,8 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
     type: "permission-request" as const,
     kind: args.kind,
     ...(args.kind === "subagent" ? { callId: args.callId, threadId: args.threadId } : {}),
+    // Tells clients this prompt has no "always" answer (only "once"/"deny").
+    ...(args.kind === "tool" && args.allowAlways === false ? { allowAlways: false } : {}),
     // The model's id for the gated call, so a client can show the prompt on
     // the call it belongs to. A subagent dispatch gate names its call as
     // `callId` instead (the two coexist on a child's own gate: `callId` is the
@@ -564,7 +590,12 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
   // unexported internal, which is the worse bargain at the one site that must
   // stay obviously correct.
   const grant = await mintGrantForPark(interruptId)
-  const decision = interrupt(grant === undefined ? payload : { ...payload, grant }) as GateDecision
+  const answered = interrupt(grant === undefined ? payload : { ...payload, grant }) as GateDecision
+  // Fail safe: a client that answers "always" to a prompt that offered no
+  // such answer gets "once" — the call runs, nothing is persisted, and the
+  // step records "once".
+  const decision: GateDecision =
+    answered === "always" && args.kind === "tool" && args.allowAlways === false ? "once" : answered
   if (decision === "always") {
     const tool =
       args.kind === "command"

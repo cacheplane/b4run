@@ -1,10 +1,10 @@
+import { type EffectiveVerdict, raiseNote } from "../lib/verdict"
 import {
   type Advisory,
   advisoryLabel,
   advisorySeverity,
   type HazardSeverity,
   isPreliminary,
-  type Verdict,
   type VerdictLevel,
 } from "../lib/weather-selectors"
 
@@ -44,16 +44,25 @@ export function VerdictIcon({
   )
 }
 
-/** The compact verdict: icon and word, the reason as its tooltip. */
-export function VerdictPill({ verdict }: { readonly verdict: Verdict }) {
+/**
+ * The compact verdict: icon and word, the reason as its tooltip. A level the
+ * floor raised says so in words ("raised"), with the reasons in the tooltip,
+ * so the pill never shows a level the agent did not call without saying so.
+ */
+export function VerdictPill({ verdict }: { readonly verdict: EffectiveVerdict }) {
+  const note = raiseNote(verdict)
+  const raised = verdict.raisedFrom !== undefined && verdict.raisedFrom !== null
+  const tooltip = [note ?? "", verdict.reason].filter((part) => part !== "").join("\n")
   return (
     <span
       className="wb-verdict-pill"
       data-level={verdict.level}
-      title={verdict.reason !== "" ? verdict.reason : undefined}
+      data-raised={raised ? "true" : undefined}
+      title={tooltip !== "" ? tooltip : undefined}
     >
       <VerdictIcon level={verdict.level} className="size-3.5 shrink-0" />
       <span>{verdict.level}</span>
+      {raised ? <span className="wb-verdict-pill-raised">raised</span> : null}
     </span>
   )
 }
@@ -151,16 +160,24 @@ export function OutsideWindowChip({ advisories }: { readonly advisories: readonl
 }
 
 export interface VerdictCardProps {
-  readonly verdict: Verdict
+  /** The verdict to show (`resolveVerdict`): the agent's call, raised to the floor when needed. */
+  readonly verdict: EffectiveVerdict
   readonly advisories?: readonly Advisory[]
   readonly cruiseFt?: number | undefined
   /** The brief's forecast-horizon sentence; shown when it says the brief is preliminary. */
   readonly horizon?: string | undefined
 }
 
-/** The go/no-go call at the top of the navlog: level, why, the hazards behind it. */
+/**
+ * The go/no-go call at the top of the navlog: level, why, the hazards behind
+ * it. When the floor raised the agent's call, the card shows the raised level
+ * with its reasons first ("Raised from GO: gusts 25 kt at KDLH, forecast
+ * preliminary.") and keeps the agent's own sentence under it.
+ */
 export function VerdictCard({ verdict, advisories = [], cruiseFt, horizon }: VerdictCardProps) {
   const { relevant, outside } = partitionAdvisories(advisories, cruiseFt)
+  const note = raiseNote(verdict)
+  const raisedFrom = verdict.raisedFrom ?? null
   return (
     <section className="wb-verdict" data-level={verdict.level} aria-label="Go/no-go verdict">
       <div className="flex items-start gap-3">
@@ -170,7 +187,15 @@ export function VerdictCard({ verdict, advisories = [], cruiseFt, horizon }: Ver
         <div className="min-w-0 flex-1">
           <p className="wb-eyebrow">Go / no-go</p>
           <p className="wb-verdict-word">{verdict.level}</p>
-          {verdict.reason !== "" ? (
+          {note !== null ? (
+            <p className="wb-verdict-raised mt-0.5 text-[13.5px] leading-snug">{note}</p>
+          ) : null}
+          {verdict.reason !== "" && raisedFrom !== null ? (
+            // The agent's own sentence stays visible, as the secondary line under the raise.
+            <p className="mt-1 text-[12.5px] leading-snug text-wb-muted">
+              <span className="font-semibold">The agent said {raisedFrom}:</span> {verdict.reason}
+            </p>
+          ) : verdict.reason !== "" ? (
             <p className="mt-0.5 text-[13.5px] leading-snug text-wb-text">{verdict.reason}</p>
           ) : null}
         </div>

@@ -18,9 +18,17 @@ const SERVER_PARITY_ROOTS = [
   "test",
   "workspace",
 ] as const
-const NAVLOG_PARITY_RUNTIME_PATHS = ["workspace/tool-outputs", "workspace/reports"] as const
+const NAVLOG_PARITY_RUNTIME_PATHS = [
+  "workspace/tool-outputs",
+  "workspace/reports",
+  "workspace/flight-plans",
+] as const
 
-const SERVER_PARITY_IGNORED_PATHS = new Set(["workspace/reports", "workspace/tool-outputs"])
+const SERVER_PARITY_IGNORED_PATHS = new Set([
+  "workspace/reports",
+  "workspace/tool-outputs",
+  "workspace/flight-plans",
+])
 
 const WEB_PARITY_ROOTS = [
   ".env.example",
@@ -340,6 +348,7 @@ describe("navlog template parity with examples/navlog/server", () => {
       await Promise.all([
         mkdir(join(fixtureExampleRoot, "workspace/reports"), { recursive: true }),
         mkdir(join(fixtureExampleRoot, "workspace/tool-outputs"), { recursive: true }),
+        mkdir(join(fixtureExampleRoot, "workspace/flight-plans"), { recursive: true }),
         mkdir(join(fixtureTemplateRoot, "workspace"), { recursive: true }),
       ])
       await Promise.all([
@@ -348,6 +357,10 @@ describe("navlog template parity with examples/navlog/server", () => {
         writeFile(
           join(fixtureExampleRoot, "workspace/tool-outputs/readDoc-call_read_big_1.txt"),
           "runtime tool output",
+        ),
+        writeFile(
+          join(fixtureExampleRoot, "workspace/flight-plans/261008-KFCM-KDLH.txt"),
+          "a recorded flight plan",
         ),
         writeFile(join(fixtureTemplateRoot, "workspace/gitignore.template"), "same"),
       ])
@@ -517,7 +530,7 @@ describe("navlog template parity with examples/navlog/web", () => {
     const templateSuffixedPaths = await collectTemplateSuffixedPaths(templateWebRoot)
 
     expect(templateSuffixedPaths.filter((path) => path.endsWith(".test.ts.template"))).toHaveLength(
-      13,
+      14,
     )
     expect(
       templateSuffixedPaths.filter((path) => path.endsWith(".test.tsx.template")),

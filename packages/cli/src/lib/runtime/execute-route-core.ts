@@ -92,7 +92,7 @@ import type {
   InterruptGrantStore,
   ThreadAccessPolicy,
 } from "@b4run/sdk"
-import { type B4Agent, isB4Agent, type WorkspaceFs } from "@b4run/sdk"
+import { type B4Agent, isB4Agent, normalizeApproveEntries, type WorkspaceFs } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
@@ -1810,17 +1810,24 @@ async function prepareRouteExecutionForInvocation(
     // unaffected; `b4 check` warns on redundant overlap. A tool that ALSO has
     // a constraint predicate is excluded here — `constrain` is authoritative and
     // can itself escalate via `{ approve }`, so wrapping both would double-gate.
+    // An entry written `{ tool, allowAlways: false }` prompts on every call
+    // (no standing approval); a bare name keeps the "always" answer.
     const constrain = descriptor?.tools?.constrain
-    const approveSet = new Set((descriptor?.tools?.approve ?? []).filter((n) => !constrain?.[n]))
-    if (approveSet.size > 0) {
-      tools = tools.map((t) =>
-        approveSet.has(t.name)
+    const approveByTool = new Map(
+      normalizeApproveEntries(descriptor?.tools?.approve)
+        .filter((entry) => !constrain?.[entry.tool])
+        .map((entry) => [entry.tool, entry] as const),
+    )
+    if (approveByTool.size > 0) {
+      tools = tools.map((t) => {
+        const entry = approveByTool.get(t.name)
+        return entry
           ? wrapToolWithApproval<
               Parameters<DiscoveredToolDefinition["run"]>[1],
               DiscoveredToolDefinition
-            >(t, permissionsStore)
-          : t,
-      )
+            >(t, permissionsStore, entry.allowAlways ? undefined : { allowAlways: false })
+          : t
+      })
     }
 
     // Per-tool argument constraints (tools.constrain): wrap surviving tools so
@@ -2595,7 +2602,7 @@ function findReservedTaskPolicyError(
     ?.tools
   if (!tools || typeof tools !== "object") return undefined
   for (const field of ["allow", "deny", "approve"] as const) {
-    if (Array.isArray(tools[field]) && tools[field].includes("task")) {
+    if (Array.isArray(tools[field]) && toolScopeEntryNames(tools[field]).includes("task")) {
       return `[B4_E1004] Parent route "${routeId}": tools.${field} references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
     }
   }
@@ -2607,6 +2614,15 @@ function findReservedTaskPolicyError(
     return `[B4_E1004] Parent route "${routeId}": tools.constrain references the reserved internal "task" tool. Remove that entry and use delegation to control subagent dispatch.`
   }
   return undefined
+}
+
+/** Tool names in an allow/deny/approve list; an approve entry may be `{ tool, allowAlways }`. */
+function toolScopeEntryNames(entries: readonly unknown[]): readonly unknown[] {
+  return entries.map((entry) =>
+    typeof entry === "object" && entry !== null
+      ? (entry as { readonly tool?: unknown }).tool
+      : entry,
+  )
 }
 
 function readB4Metadata(config: RunnableConfig): Record<string, unknown> {
