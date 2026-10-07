@@ -31,7 +31,7 @@ const DARK_CLASS_SCRIPT = `(function(){try{var m=matchMedia("(prefers-color-sche
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    // suppressHydrationWarning: the inline script adds `class="dark"` before React hydrates.
+    // suppressHydrationWarning: the inline script adds `class="dark"` before hydration.
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a static constant, no user input */}

@@ -15,6 +15,7 @@ import { useMediaQuery } from "../lib/use-media-query"
 import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { NavlogSheet } from "./NavlogSheet"
+import { type SheetControl, SheetControlContext } from "./sheet-control"
 import { WeatherStrip } from "./WeatherStrip"
 
 const RouteMap = dynamic(() => import("./RouteMap").then((m) => m.RouteMap), { ssr: false })
@@ -28,8 +29,12 @@ export interface WorkbenchLayoutProps {
   readonly status?: string | undefined
   readonly rail: ReactNode
   readonly memory: ReactNode
-  readonly dock: ReactNode
-  readonly composer: ReactNode
+  /** The dock's failure banner (`RunError`), or nothing. */
+  readonly banner?: ReactNode
+  /** The dock's content-parts-dropped notices, or nothing. */
+  readonly notices?: ReactNode
+  /** The conversation (`NavlogChat`): messages and input. */
+  readonly chat: ReactNode
   readonly onNewConversation: () => void
 }
 
@@ -88,8 +93,12 @@ function useMeasuredHeight(): [RefObject<HTMLDivElement | null>, number] {
  * more map.
  *
  * Only the layout that applies is rendered, not both hidden by CSS: the dock
- * holds `Transcript` and `Composer`, and two copies would mean two `<main>`
- * elements, two sets of CopilotKit subscriptions and two composers.
+ * holds the chat, and two copies would mean two `<main>` elements, two
+ * `CopilotChat`s connecting the same thread and two inputs.
+ *
+ * Provides `SheetControlContext`, so a step view inside the chat ("See the
+ * navlog sheet") can bring the sheet into view: on a desktop it opens the
+ * sheet, on a phone it selects the Navlog tab.
  *
  * `wb-root` and `wb-sheet-wrap` are what the print rules in `theme.css` flatten
  * so the sheet prints in the page flow instead of clipped to the viewport.
@@ -102,8 +111,9 @@ export function WorkbenchLayout({
   status,
   rail,
   memory,
-  dock,
-  composer,
+  banner,
+  notices,
+  chat: conversation,
   onNewConversation,
 }: WorkbenchLayoutProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
@@ -159,10 +169,11 @@ export function WorkbenchLayout({
       status={status}
       rail={rail}
       memory={memory}
-      composer={composer}
+      banner={banner}
+      notices={notices}
       onNewConversation={onNewConversation}
     >
-      {dock}
+      {conversation}
     </ChatDock>
   )
 
@@ -171,136 +182,157 @@ export function WorkbenchLayout({
     setPhoneExpanded(true)
   }
 
+  // Read the layout at the click, through the memo's dependency: a desktop
+  // opens the sheet beside the dock, a phone switches to the Navlog tab.
+  const sheetControl = useMemo<SheetControl>(
+    () => ({
+      openSheet: () => {
+        if (isDesktop) {
+          setSheetOpen(true)
+        } else {
+          setTab("navlog")
+          setPhoneExpanded(true)
+        }
+      },
+    }),
+    [isDesktop],
+  )
+
   return (
-    <div
-      className="wb-root relative h-dvh overflow-hidden"
-      style={{ "--wb-map-inset-bottom": `${bottomInset}px` } as CSSProperties}
-    >
-      <RouteMap
-        geometry={geometry}
-        categories={categories}
-        highlightedLeg={highlightedLeg}
-        padding={padding}
-      />
-      {isDesktop ? (
-        <>
-          <div
-            ref={stripRef}
-            className="pointer-events-none absolute left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex justify-end *:pointer-events-auto"
-          >
-            <WeatherStrip brief={brief} {...cruise} />
-          </div>
-          <div className="absolute bottom-[var(--wb-gutter)] left-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex w-[var(--wb-dock-width)]">
-            {chat}
-          </div>
-          {/*
-            Beside the dock rather than under it: the sheet opens to
-            --wb-sheet-max, and spanning the full width would cover the
-            dock's composer whenever it is open.
-          */}
-          {navlog ? (
+    <SheetControlContext.Provider value={sheetControl}>
+      <div
+        className="wb-root relative h-dvh overflow-hidden"
+        style={{ "--wb-map-inset-bottom": `${bottomInset}px` } as CSSProperties}
+      >
+        <RouteMap
+          geometry={geometry}
+          categories={categories}
+          highlightedLeg={highlightedLeg}
+          padding={padding}
+        />
+        {isDesktop ? (
+          <>
             <div
-              ref={bottomRef}
-              className="wb-sheet-wrap absolute bottom-[var(--wb-gutter)] left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] z-10"
+              ref={stripRef}
+              className="pointer-events-none absolute left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex justify-end *:pointer-events-auto"
             >
-              <NavlogSheet
-                navlog={navlog}
-                brief={assistantBrief}
-                weather={brief}
-                open={sheetOpen}
-                onToggle={() => setSheetOpen((value) => !value)}
-                onHoverLeg={setHoveredLeg}
-              />
+              <WeatherStrip brief={brief} {...cruise} />
             </div>
-          ) : null}
-        </>
-      ) : (
-        <div
-          ref={bottomRef}
-          className="wb-sheet-wrap pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2"
-        >
-          <div className="px-3">
-            <WeatherStrip brief={brief} layout="row" {...cruise} />
-          </div>
-          <div
-            className={`wb-panel wb-phone-sheet pointer-events-auto flex flex-col rounded-b-none pb-[env(safe-area-inset-bottom)] ${
-              phoneExpanded ? "h-[58vh]" : ""
-            }`}
-          >
-            <button
-              type="button"
-              className="wb-focus wb-sheet-grip flex h-8 w-full shrink-0 items-center justify-center"
-              aria-expanded={phoneExpanded}
-              aria-label={phoneExpanded ? "Lower the panel to show the map" : "Raise the panel"}
-              onClick={() => setPhoneExpanded((value) => !value)}
-            >
-              <span className="h-1 w-10 rounded-full bg-wb-border" />
-            </button>
-            <div className="wb-sheet-tabs flex gap-1 border-b border-wb-border px-3" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                id="wb-tab-chat"
-                aria-selected={activeTab === "chat"}
-                aria-controls="wb-panel-chat"
-                className="wb-focus wb-tab"
-                onClick={() => selectTab("chat")}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                role="tab"
-                id="wb-tab-navlog"
-                aria-selected={activeTab === "navlog"}
-                aria-controls="wb-panel-navlog"
-                disabled={navlog === null}
-                className="wb-focus wb-tab"
-                onClick={() => selectTab("navlog")}
-              >
-                Navlog
-              </button>
-            </div>
-            {/*
-              Both panels stay mounted and the inactive one is hidden with a
-              class, not unmounted: a switch keeps the transcript's scroll
-              position, the composer's draft and any parked approval card, and
-              the navlog panel still prints (`print:block`) from the Chat tab.
-              A lowered (peeking) sheet hides both the same way.
-            */}
-            <div
-              role="tabpanel"
-              id="wb-panel-chat"
-              aria-labelledby="wb-tab-chat"
-              className={`min-h-0 flex-1 flex-col print:hidden ${
-                activeTab === "chat" && phoneExpanded ? "flex" : "hidden"
-              }`}
-            >
+            <div className="absolute bottom-[var(--wb-gutter)] left-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex w-[var(--wb-dock-width)]">
               {chat}
             </div>
+            {/*
+            Beside the dock rather than under it: the sheet opens to
+            --wb-sheet-max, and spanning the full width would cover the
+            dock's input whenever it is open.
+          */}
             {navlog ? (
               <div
-                role="tabpanel"
-                id="wb-panel-navlog"
-                aria-labelledby="wb-tab-navlog"
-                className={`min-h-0 flex-1 overflow-auto ${
-                  activeTab === "navlog" && phoneExpanded ? "" : "hidden print:block"
-                }`}
+                ref={bottomRef}
+                className="wb-sheet-wrap absolute bottom-[var(--wb-gutter)] left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] z-10"
               >
                 <NavlogSheet
                   navlog={navlog}
                   brief={assistantBrief}
                   weather={brief}
-                  open={true}
-                  onToggle={() => {}}
-                  variant="cards"
-                  collapsible={false}
+                  open={sheetOpen}
+                  onToggle={() => setSheetOpen((value) => !value)}
+                  onHoverLeg={setHoveredLeg}
                 />
               </div>
             ) : null}
+          </>
+        ) : (
+          <div
+            ref={bottomRef}
+            className="wb-sheet-wrap pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2"
+          >
+            <div className="px-3">
+              <WeatherStrip brief={brief} layout="row" {...cruise} />
+            </div>
+            <div
+              className={`wb-panel wb-phone-sheet pointer-events-auto flex flex-col rounded-b-none pb-[env(safe-area-inset-bottom)] ${
+                phoneExpanded ? "h-[58vh]" : ""
+              }`}
+            >
+              <button
+                type="button"
+                className="wb-focus wb-sheet-grip flex h-8 w-full shrink-0 items-center justify-center"
+                aria-expanded={phoneExpanded}
+                aria-label={phoneExpanded ? "Lower the panel to show the map" : "Raise the panel"}
+                onClick={() => setPhoneExpanded((value) => !value)}
+              >
+                <span className="h-1 w-10 rounded-full bg-wb-border" />
+              </button>
+              <div
+                className="wb-sheet-tabs flex gap-1 border-b border-wb-border px-3"
+                role="tablist"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  id="wb-tab-chat"
+                  aria-selected={activeTab === "chat"}
+                  aria-controls="wb-panel-chat"
+                  className="wb-focus wb-tab"
+                  onClick={() => selectTab("chat")}
+                >
+                  Chat
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="wb-tab-navlog"
+                  aria-selected={activeTab === "navlog"}
+                  aria-controls="wb-panel-navlog"
+                  disabled={navlog === null}
+                  className="wb-focus wb-tab"
+                  onClick={() => selectTab("navlog")}
+                >
+                  Navlog
+                </button>
+              </div>
+              {/*
+              Both panels stay mounted and the inactive one is hidden with a
+              class, not unmounted: a switch keeps the chat's scroll
+              position, the input's draft and any parked approval card, and
+              the navlog panel still prints (`print:block`) from the Chat tab.
+              A lowered (peeking) sheet hides both the same way.
+            */}
+              <div
+                role="tabpanel"
+                id="wb-panel-chat"
+                aria-labelledby="wb-tab-chat"
+                className={`min-h-0 flex-1 flex-col print:hidden ${
+                  activeTab === "chat" && phoneExpanded ? "flex" : "hidden"
+                }`}
+              >
+                {chat}
+              </div>
+              {navlog ? (
+                <div
+                  role="tabpanel"
+                  id="wb-panel-navlog"
+                  aria-labelledby="wb-tab-navlog"
+                  className={`min-h-0 flex-1 overflow-auto ${
+                    activeTab === "navlog" && phoneExpanded ? "" : "hidden print:block"
+                  }`}
+                >
+                  <NavlogSheet
+                    navlog={navlog}
+                    brief={assistantBrief}
+                    weather={brief}
+                    open={true}
+                    onToggle={() => {}}
+                    variant="cards"
+                    collapsible={false}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </SheetControlContext.Provider>
   )
 }
