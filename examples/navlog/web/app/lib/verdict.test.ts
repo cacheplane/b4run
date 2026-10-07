@@ -312,3 +312,28 @@ describe("resolveVerdict", () => {
     expect(resolveVerdict({ weather: fz, cruiseFt: 8000 })?.level).toBe("CAUTION")
   })
 })
+
+describe("a headerless brief from a live run", () => {
+  // The brief behind the 2026-10-07 run that showed GO with no strip: once the
+  // airports parse, its own gusts raise the verdict.
+  const brief = parseWeatherBrief(
+    [
+      "Verdict: GO — both departure and destination are VFR at the planned time.",
+      "Forecast horizon: Departure is within TAF and winds-aloft coverage.",
+      "KFCM: VFR now, unknown at ETA (TAF unavailable), wind 290 at 11G21 kt. METAR KFCM 072153Z 29011G21KT 10SM CLR 22/03 A2991",
+      "KDLH: VFR now, VFR at ETA, wind 320 at 15G25 kt. METAR KDLH 072155Z 32015G25KT 10SM FEW070 16/00 A2984. TAF KDLH 071720Z 0718/0818 29016G27KT P6SM FEW060",
+      "Advisories:",
+      "none",
+    ].join("\n"),
+  )
+
+  test("raises GO to CAUTION on the gusts it reports", () => {
+    const floor = verdictFloor(brief, { cruiseFt: 5500 })
+    expect(floor.level).toBe("CAUTION")
+    expect(floor.reasons.join("; ")).toMatch(/gusts 21 kt at KFCM/)
+    expect(floor.reasons.join("; ")).toMatch(/gusts 25 kt at KDLH/)
+    const shown = effectiveVerdict(brief.verdict, floor)
+    expect(shown?.level).toBe("CAUTION")
+    expect(shown?.raisedFrom).toBe("GO")
+  })
+})

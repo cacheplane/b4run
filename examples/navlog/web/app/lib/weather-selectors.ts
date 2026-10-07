@@ -91,6 +91,14 @@ const AIRPORT_LINE =
 /** Where the raw report starts: a routine METAR or a special SPECI. */
 const RAW_REPORT = /\b(METAR|SPECI)\b/
 
+/** An airport line by its content, not its section: id, separator, a category, and "now" or a METAR. */
+function looksLikeAirportLine(line: string): boolean {
+  const m = AIRPORT_LINE.exec(line)
+  if (!m) return false
+  const rest = m[2] ?? ""
+  return /\b(LIFR|MVFR|IFR|VFR)\b/.test(rest) && /\bnow\b|\b(METAR|SPECI)\b/i.test(rest)
+}
+
 function parseAirport(line: string): AirportWeather | null {
   const m = AIRPORT_LINE.exec(line)
   if (!m) return null
@@ -148,7 +156,14 @@ export function parseWeatherBrief(text: string): WeatherBrief {
       matched = true
       break
     }
-    if (!matched) add(line)
+    if (!matched) {
+      // A model sometimes drops the "Airports:" header and writes the airport
+      // lines straight after "Forecast horizon:". An unmistakable airport line
+      // (an id, a separator, a flight category, and "now" or a raw METAR) opens
+      // the airports section wherever it appears.
+      if (section !== "airports" && looksLikeAirportLine(line)) section = "airports"
+      add(line)
+    }
   }
   const verdict = verdictText.length > 0 ? parseVerdictText(verdictText.join(" ")) : null
   const horizonText = horizon.join(" ")
