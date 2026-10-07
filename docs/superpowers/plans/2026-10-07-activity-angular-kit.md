@@ -54,7 +54,7 @@ The React component tests that build these views inline import them from the fix
 
 | Path | What |
 |---|---|
-| `package.json` | `private: true`, version of the fixed group, MIT, `engines.node >=24`, `files: ["dist"]`, hand-written `exports` into ng-packagr's output (`dist/fesm2022/*.mjs`, `dist/types/*.d.ts`) and `./styles.css`; Angular 22 peers; exact devDeps (Angular 22.2.1, ng-packagr 22.2.4, compiler-cli, `typescript` 6.0.3, analog 2.8.0, `@angular/build` for analog, jsdom, axe-core). |
+| `package.json` | `private: true`, version of the fixed group, MIT, `engines.node >=24`, `files: ["dist"]`, hand-written `exports` into ng-packagr's output (`dist/fesm2022/*.mjs`, `dist/types/*.d.ts`) and `./styles.css`; Angular 22 peers; exact devDeps (Angular 22.2.1, ng-packagr 22.2.4, compiler-cli, `typescript` 6.0.2 (the version `@b4run/core` already pins: a second 6.0.x makes pnpm move core's `@typescript/old` range onto it), analog 2.8.0, `@angular/build` for analog, jsdom, axe-core). |
 | `ng-package.json` | `dest: dist`, entry `src/index.ts`, `allowedNonPeerDependencies: ["@b4run/ag-ui", "tslib"]`. |
 | `tsconfig.json` / `tsconfig.lib.json` / `tsconfig.spec.json` | strict, `exactOptionalPropertyTypes`, Angular strict templates; outputs under `dist/` per `check:build-cache`. |
 | `scripts/copy-styles.mjs` | Copies `@b4run/ag-ui/react/styles.css` to `dist/styles.css` after ng-packagr. A copy, not `@import`: it works with every bundler and a plain `<link>`, and bare-specifier `@import` resolution differs between CSS toolchains. |

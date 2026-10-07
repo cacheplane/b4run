@@ -66,6 +66,6 @@
     "axe-core": "4.14.0",
     "jsdom": "30.0.1",
     "ng-packagr": "22.2.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.2"
   }
 }
