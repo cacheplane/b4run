@@ -453,17 +453,17 @@ describe("local Mermaid UI compatibility harness", () => {
       expect(lockUiDependencyChain(importerName)).toEqual({
         dompurify: "3.4.13",
         mermaid: "11.16.1",
-        reactCore: { specifier: "1.76.0", version: "1.76.0" },
+        reactCore: { specifier: "1.77.1", version: "1.77.1" },
         streamdown: "1.6.11",
       })
     }
     for (const receipt of receipts) {
       expect(receipt).toMatchObject({
-        appReactCoreRange: "1.76.0",
+        appReactCoreRange: "1.77.1",
         dompurify: "3.4.13",
         mermaid: "11.16.1",
         mermaidDompurifyRange: "^3.3.3",
-        reactCore: "1.76.0",
+        reactCore: "1.77.1",
         reactCoreStreamdownRange: "^1.3.0",
         streamdown: "1.6.11",
         streamdownMermaidRange: "^11.11.0",

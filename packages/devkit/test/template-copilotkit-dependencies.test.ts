@@ -15,9 +15,9 @@ describe("navlog web template dependency alignment", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as WebManifest
 
     expect(manifest.dependencies).toMatchObject({
-      "@ag-ui/client": "1.0.1",
-      "@copilotkit/react-core": "1.76.0",
-      "@copilotkit/runtime": "1.76.0",
+      "@ag-ui/client": "1.0.2",
+      "@copilotkit/react-core": "1.77.1",
+      "@copilotkit/runtime": "1.77.1",
     })
   })
 })
