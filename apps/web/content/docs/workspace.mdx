@@ -247,6 +247,8 @@ Agent memory lives in `workspace/AGENTS.md`, and B4.run adds it to the system pr
   A sandbox or custom backend may send `writeFile` to a different filesystem, and then the host file stays the same. Raw graph, workflow, and chain routes never read this file.
 
   Give each tenant its own app root (or its own prompt-memory trust domain). A per-thread sandbox won't separate them, because every thread reads the same host file. Limit or deny writes from untrusted agents that can reach it, review the seeded content, and never copy raw untrusted text into `workspace/AGENTS.md`.
+
+  To make the file read-only guidance, set [`agentsMd: { writable: false }`](/docs/configuration#agentsmd). The prompt then tells the model not to modify it. That's prompt guidance only, so also refuse writes to `AGENTS.md` with a [filesystem middleware](#middleware).
 </Callout>
 
 ## Tool-output offloading
