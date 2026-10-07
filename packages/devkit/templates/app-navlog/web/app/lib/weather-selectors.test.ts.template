@@ -204,3 +204,47 @@ describe("parseWeatherBrief tolerates the markdown variants a model writes", () 
     })
   }
 })
+
+describe("parseWeatherBrief without an Airports header", () => {
+  // Verbatim from a local run on 2026-10-07 that drew no weather strip: the
+  // weather subagent left out the "Airports:" header, so its airport lines
+  // followed "Forecast horizon:" and were read as more of the horizon.
+  const HEADERLESS = [
+    "Verdict: GO — both departure and destination are VFR at the planned time and there are no in‑flight icing AIRMETs or SIGMETs affecting the route.",
+    "Forecast horizon: Departure is within TAF and winds-aloft coverage.",
+    "KFCM: VFR now, unknown at ETA (TAF unavailable), ceiling unlimited, visibility 10 mi, wind 290 at 11G21 kt. METAR KFCM 072153Z 29011G21KT 10SM CLR 22/03 A2991 RMK AO2 PK WND 28027/2113 SLP129 T02220028 TAF KFCM unavailable",
+    "KDLH: VFR now, VFR at ETA, ceiling FEW 7,000 ft, visibility 10 mi, wind 320 at 15G25 kt. METAR KDLH 072155Z 32015G25KT 10SM FEW070 SCT090 16/00 A2984 RMK AO2 SLPNO T01610000. TAF KDLH 071720Z 0718/0818 29016G27KT P6SM FEW060 FM080100 31009KT P6SM SKC",
+    "Winds per leg:",
+    "leg 1: 313/25 temp N/A at 5,500 ft, MSP, valid 080600Z (24-hr FB based on 070600Z)",
+    "Advisories:",
+    "G-AIRMET FZLVL | freezing level 8,000 ft | valid 0000Z–0300Z 08 | expires before departure",
+    "G-AIRMET FZLVL | freezing level 12,000 ft | valid 0000Z–0300Z 08 | expires before departure",
+    "Go/no-go note: TAF for KFCM was unavailable from the service; I used KDLH TAF and the FB winds-aloft (MSP) product for the route.",
+  ].join("\n")
+
+  test("reads the airport lines anyway, and keeps the horizon to its own sentence", () => {
+    const brief = parseWeatherBrief(HEADERLESS)
+    expect(brief.airports.map((a) => [a.id, a.now, a.atEta])).toEqual([
+      ["KFCM", "VFR", "UNKNOWN"],
+      ["KDLH", "VFR", "VFR"],
+    ])
+    expect(brief.airports[1]?.metar).toMatch(/^METAR KDLH 072155Z 32015G25KT/)
+    expect(brief.airports[1]?.taf).toMatch(/^TAF KDLH 071720Z/)
+    expect(brief.horizon).toBe("Departure is within TAF and winds-aloft coverage.")
+    expect(brief.winds).toHaveLength(1)
+    expect(brief.advisories).toHaveLength(2)
+    expect(brief.verdict?.level).toBe("GO")
+  })
+
+  test("is found as the latest brief, so the strip and the verdict floor see it", () => {
+    expect(parseWeatherBrief(HEADERLESS).airports.length).toBeGreaterThan(0)
+  })
+
+  test("does not mistake prose that starts with an airport id for an airport line", () => {
+    const brief = parseWeatherBrief(
+      "Airports:\nKFCM: VFR now, VFR at ETA. METAR KFCM 071453Z 29013KT 10SM CLR\nGo/no-go note:\nKFCM has no TAF; the KDLH TAF covers the arrival.",
+    )
+    expect(brief.airports.map((a) => a.id)).toEqual(["KFCM"])
+    expect(brief.note).toMatch(/^KFCM has no TAF/)
+  })
+})
