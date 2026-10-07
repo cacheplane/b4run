@@ -109,7 +109,7 @@ export function NavlogChat({ threadId, canAttachImages, className }: NavlogChatP
       textArea: {
         "aria-label": "Message",
         disabled: awaiting,
-        placeholder: awaiting ? "Answer the approval above to continue" : "Ask the planner…",
+        placeholder: awaiting ? "Answer the approval first" : "Ask the planner…",
       },
       // One button toggles between send and stop; name it for what it does now.
       // While an approval is open, text typed before it arrived must not go out.

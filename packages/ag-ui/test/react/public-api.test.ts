@@ -4,16 +4,13 @@ import { describe, expect, test } from "vitest"
 import * as react from "../../src/react/index.js"
 
 describe("@b4run/ag-ui/react public API", () => {
-  test("exports the activity kit, the blocks, the hooks and the legacy cards", () => {
+  test("exports the activity kit, the blocks and the hooks", () => {
     expect(Object.keys(react).sort()).toEqual(
       [
-        "ActivityChecklist",
         "ApprovalCard",
         "Checklist",
         "Chevron",
         "Disclosure",
-        "EMPTY_SUBAGENT_RUNS",
-        "PlanActivityCard",
         "PlanStep",
         "ReasoningStep",
         "SourceChips",
@@ -22,21 +19,15 @@ describe("@b4run/ag-ui/react public API", () => {
         "StepDetail",
         "StepGroup",
         "StepIcon",
-        "SubagentPanel",
         "SubagentStep",
         "TurnActivity",
         "approvalPayload",
-        "cx",
         "formatDuration",
-        "isSubagentMessage",
-        "planActivityContentSchema",
-        "reduceSubagentRuns",
         "scopeLine",
         "summaryLine",
         "useDisclosure",
         "useElapsed",
         "useLive",
-        "useSubagentRuns",
       ].sort(),
     )
   })

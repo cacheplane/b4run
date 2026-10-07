@@ -201,49 +201,30 @@ The user sees the chart in the opened `renderChart` step. The model, `gpt-5-mini
 
 The navlog example gets the plan and the subagents from `B4Activity`: each turn's `TurnActivity` shows the plan as a step and nests the `weather` and `performance` subagents with their own plan and tool steps, from the same AG-UI events. Choose **Plan a flight** on the empty chat to watch them update before the brief.
 
-A client that doesn't use `B4Activity` can render the plan and subagent cards that ship with the adapter on their own. Install the package and hand its renderer array to CopilotKit:
-
-```bash
-npm install @b4run/ag-ui
-```
+A client that doesn't use `B4Activity` gets the same view from the same events. `useB4Turns(agent)` from `@b4run/ag-ui/copilotkit` (or `reduceTurns` from `@b4run/ag-ui/view`, with no React) folds the agent's event stream into turns, and `TurnActivity` from `@b4run/ag-ui/react` renders one:
 
 ```tsx
-import { b4ActivityRenderers } from "@b4run/ag-ui/react"
-
-<CopilotKit
-  runtimeUrl="/api/copilotkit"
-  useSingleEndpoint={false}
-  renderActivityMessages={b4ActivityRenderers}
->
-```
-
-Then import the stylesheet once, in your root layout:
-
-```tsx title="app/layout.tsx"
 import "@b4run/ag-ui/react/styles.css"
+import { useB4Turns } from "@b4run/ag-ui/copilotkit"
+import { TurnActivity } from "@b4run/ag-ui/react"
+import { useAgent } from "@copilotkit/react-core/v2"
+
+function Activity() {
+  const { agent } = useAgent()
+  const { turns } = useB4Turns(agent)
+  return turns.turns.map((turn) => <TurnActivity key={turn.runId} turn={turn} />)
+}
 ```
 
-The cards carry no inline styles, so without that import they render as bare markup. To restyle them, override the `--b4-activity-*` custom properties in your own CSS. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every customization option.
+The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/theme.css`.
 
-`b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Its renderer is keyed by the adapter's own activity-type constant and validates the activity content with a strict runtime schema, so it rejects a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
+React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
 
-The packaged `SubagentPanel` (`useSubagentRuns(agent)` on the `useAgent()` instance) is the standalone way to show subagents: the hook subscribes to the agent's event stream and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations, and the panel renders them nested — name, status, reasoning, prose, plan, tool calls with arguments and results, and the final result or error.
+Plan snapshots replace `b4:plan:${runId}` (the root agent's) or `b4:plan:${call_id}` (a subagent's, tagged `subagentRunId`) and carry the complete todo list; the plan step shows every todo.
 
-There's one catch with the `classNames` prop on those components. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are layered. For the properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, use the `--b4-activity-*` tokens. Set them in your own CSS, as the navlog example does in `app/theme.css` for the activity tokens.
+The plan activity is the whole presentation of `writeTodos`: when a `writeTodos` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call. A `task` call is an ordinary tool call, and the turn shows it as the subagent step it starts.
 
-React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses the root or `./sse` entry installs nothing extra.
-
-To present the same activities your own way, the subpath also exports the pieces behind that array:
-
-- `b4PlanActivityRenderer`, `PlanActivityCard` and `ActivityChecklist`: the plan renderer, and the plain React components behind it (they take a `content` prop and need no CopilotKit context).
-- `planActivityContentSchema`, to validate plan content before you render it yourself.
-- `reduceSubagentRuns`, the pure reducer behind `useSubagentRuns`, to build the subagent tree from events in a non-React client.
-
-Plan snapshots replace `b4:plan:${runId}` (the root agent's) or `b4:plan:${call_id}` (a subagent's, tagged `subagentRunId`) and carry the complete todo list. The checklist views show at most eight todos, but the snapshots keep the complete valid lists.
-
-The plan activity is the whole presentation of `writeTodos`: when a `writeTodos` call produced its activity, B4.run's AG-UI adapter emits no tool call/result events for that call, so the wildcard tool card never receives it. A `task` call is an ordinary tool call — the wildcard card renders it, and the subagent it starts shows up in the panel.
-
-The wildcard card is still the fail-open fallback for `writeTodos`. If the plan activity cannot be produced (no tool-call id, a malformed payload), the ordinary tool events survive and the generic card renders them.
+If the plan activity cannot be produced (no tool-call id, a malformed payload), the adapter fails open and the ordinary tool events survive; the view still places a plan step for the call, empty until a snapshot arrives.
 
 The live planning flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 

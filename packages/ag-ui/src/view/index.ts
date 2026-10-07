@@ -13,16 +13,9 @@ export {
   type StepLabelOverrides,
   stepLabel,
 } from "./labels.js"
+export { isSubagentMessage } from "./messages.js"
 export { blocksToParts } from "./parts.js"
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, readStepEvent } from "./step.js"
-export {
-  EMPTY_SUBAGENT_RUNS,
-  isSubagentMessage,
-  reduceSubagentRuns,
-  type SubagentRun,
-  type SubagentRunsState,
-  type SubagentToolCall,
-} from "./subagent-runs.js"
 export {
   type ApprovalView,
   EMPTY_TURNS,

@@ -100,6 +100,20 @@ function approvalOf(interrupt: Interrupt): ApprovalView {
 const lowerFirst = (s: string): string => (s.length > 0 ? `${s[0]?.toLowerCase()}${s.slice(1)}` : s)
 
 /**
+ * What follows "wants to" on an approval card: the step's running label (an
+ * app override's, else the server's `display.running`), lower-cased. With
+ * neither — a restored parked call carries no running label — `stepLabel`
+ * falls back on a progressive "Using X…", which cannot follow "wants to", so
+ * the card says "use X" instead.
+ */
+function approvalLabel(step: ToolStep, labels: StepLabelOverrides | undefined): string {
+  const label = stepLabel({ ...step, status: "running" }, labels)
+  return step.label === undefined && label === `Using ${step.name}…`
+    ? `use ${step.name}`
+    : lowerFirst(label)
+}
+
+/**
  * Drives a stock `<CopilotChat>` with B4.run's activity kit (spec §6.2): hides
  * CopilotKit's generic tool rows, renders one `ApprovalCard` per parked
  * interrupt, and provides the thread's turns to `useB4ChatSlots`.
@@ -118,7 +132,8 @@ const lowerFirst = (s: string): string => (s.length > 0 ? `${s[0]?.toLowerCase()
  * step's running label with its first letter lower-cased, verbatim. Tool
  * authors: phrase `display.running` as an infinitive ("run a command") so the
  * card reads "The agent wants to run a command"; a progressive label
- * ("Running node x") reads "wants to running node x".
+ * ("Running node x") reads "wants to running node x". A step with no running
+ * label at all (a restored parked call) reads "wants to use <tool>".
  */
 export function B4Activity({
   agentId,
@@ -156,9 +171,7 @@ export function B4Activity({
               : ((subagentRunId !== undefined
                   ? subagentName(turns.turns, subagentRunId)
                   : undefined) ?? ROOT_AGENT)
-          const label = located.step
-            ? lowerFirst(stepLabel({ ...located.step, status: "running" }, labels))
-            : "continue"
+          const label = located.step ? approvalLabel(located.step, labels) : "continue"
           const onDecide = async (decision: ApprovalDecision) => {
             markResuming()
             try {

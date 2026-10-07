@@ -64,6 +64,20 @@ describe("ApprovalCard", () => {
     )
     expect(approvalPayload({ foo: 1, suggestedPattern: "p" })).toBe('{\n  "foo": 1\n}')
     expect(approvalPayload({})).toBe("No details")
+    // A subagent dispatch gate (`kind: "subagent"`) reads as labelled lines, not JSON.
+    expect(
+      approvalPayload({
+        parentRouteId: "/coordinator",
+        subagentName: "research",
+        subagentRouteId: "/coordinator/subagents/research",
+        inputPreview: "Find three sources on VFR minimums",
+        reason: "Delegation needs approval",
+        suggestedPattern: "subagent:/coordinator:research",
+      }),
+    ).toBe(
+      "Subagent: research (/coordinator/subagents/research)\nInput: Find three sources on VFR minimums\nReason: Delegation needs approval",
+    )
+    expect(approvalPayload({ subagentName: "research" })).toBe("Subagent: research")
     expect(approvalPayload({ suggestedPattern: "p" })).toBe("No details")
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic

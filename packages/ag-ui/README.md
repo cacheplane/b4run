@@ -115,59 +115,26 @@ export default function Page() {
 - `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows.
 - `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed, for a host with its own transcript.
 
-`b4ActivityRenderers` and `b4PlanActivityRenderer` moved here from `./react`.
-
-## React renderers
-
-Deprecated: the legacy cards and the `classNames`/`components` rungs go away once the navlog example adopts the kit. `b4ActivityRenderers` renders the legacy plan card from the plan activity snapshots. The drop-in is one prop:
-
-```tsx
-import { CopilotKit } from "@copilotkit/react-core/v2"
-import { b4ActivityRenderers } from "@b4run/ag-ui/copilotkit"
-
-<CopilotKit
-  runtimeUrl="/api/copilotkit"
-  useSingleEndpoint={false}
-  renderActivityMessages={b4ActivityRenderers}
->
-```
-
-The legacy surfaces, each in layers from drop-in to build-your-own:
-
-- Activities: `b4ActivityRenderers` (the plan renderer, ready to pass to CopilotKit's `renderActivityMessages`) and `b4PlanActivityRenderer` on its own, both from `@b4run/ag-ui/copilotkit`; and from `@b4run/ag-ui/react`, `PlanActivityCard` plus `ActivityChecklist` — plain React components taking `content` — with `planActivityContentSchema`, the strict validator behind the renderer, for presenting the plan another way.
-- Subagents: `useSubagentRuns(agent)` subscribes to an `@ag-ui/client` agent (the one CopilotKit's `useAgent()` returns) and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree; `SubagentPanel` renders it nested; `reduceSubagentRuns` is the pure reducer behind the hook, for a non-React client.
-
-```tsx
-import { SubagentPanel, useSubagentRuns } from "@b4run/ag-ui/react"
-import { useAgent } from "@copilotkit/react-core/v2"
-
-function Subagents() {
-  const { agent } = useAgent()
-  const { runs } = useSubagentRuns(agent)
-  return <SubagentPanel runs={runs} />
-}
-```
-
 `react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by the `./react` and `./copilotkit` subpaths; only `./copilotkit` imports CopilotKit. Importing the root or `./sse` entry never loads them, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
 
-### Customizing the activity cards
+## Styling
 
-The kit and the legacy cards ship with B4.run's visual identity via an optional stylesheet (`@layer b4-activity`, so any unlayered app CSS wins), plus a four-rung customization ladder for the legacy cards. A card renders structured-but-unstyled markup if the stylesheet is not imported.
-
-**Rung 1 — tokens.** Import the stylesheet once, then override its CSS custom properties in your own CSS to restyle without touching markup:
+The kit ships with B4.run's visual identity via an optional stylesheet. Every rule sits in `@layer b4-activity`, so any unlayered app CSS wins without specificity games. Without the stylesheet, the components render structured, unstyled markup.
 
 ```ts
 import "@b4run/ag-ui/react/styles.css"
 ```
 
+To restyle, override the design tokens in your own CSS:
+
 ```css
 :root {
-  --b4-activity-radius: 4px;
-  --b4-activity-padding: 12px 14px;
+  --b4-activity-radius-card: 8px;
+  --b4-activity-font-mono: "JetBrains Mono", monospace;
 }
 ```
 
-Palette tokens are the one case worth care. Your `:root` block now wins in dark
+Palette tokens are the one case worth care. Your `:root` block wins in dark
 mode too, so a single hard-coded colour applies to BOTH themes — pick values
 that work in each, or scope them the way the sheet does, on the host's dark
 selectors:
@@ -184,57 +151,13 @@ selectors:
 }
 ```
 
-Dark does not follow the OS unless the root carries `data-b4-theme="auto"`; add a `prefers-color-scheme` block only if you set that.
+The design tokens are `--b4-activity-` plus `surface`, `surface-alt`, `border`, `text`, `muted`, `running`, `running-bg`, `complete`, `failed`, `failed-bg`, `primary`, `on-primary`, `radius`, `radius-card`, `radius-pill`, and `font-mono`.
 
-The design tokens are `--b4-activity-` plus `surface`, `surface-alt`, `border`, `text`, `muted`, `running`, `running-bg`, `complete`, `failed`, `failed-bg`, `primary`, `on-primary`, `radius`, `radius-card`, `radius-pill`, and `font-mono`; the legacy geometry tokens `gap`, `font-size`, `margin`, `padding`, `header-weight` and `badge-bg` remain until the legacy cards go. `--b4-activity-badge-bg` defaults to `var(--b4-activity-border)`, so the depth badge follows the palette until you point it elsewhere — `transparent`, plus a border through `classNames.badge`, gives an outline chip.
-
-Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block is not a substitute: token values declared there lose to this sheet in every configuration tested.
+Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block is not a substitute: token values declared there lose to this sheet.
 
 Light and dark values ship out of the box. Dark follows the host, not the OS: a `.dark` or `[data-theme="dark"]` ancestor selects it; set `data-b4-theme="dark"` or `data-b4-theme="light"` on the root element to force one, or `data-b4-theme="auto"` to follow `prefers-color-scheme`. All three of the sheet's token blocks are wrapped in `:where()`, so they carry no specificity at all and your own `:root` block wins in every theme, whichever sheet the browser parses first.
 
-**Rung 2 — `classNames`.** Pass per-part class names; they are appended to the package defaults, never substituted:
-
-```tsx
-<PlanActivityCard content={content} classNames={{ root: "my-plan-card", title: "font-mono" }} />
-```
-
-Appended is not the same as applied. `styles.css` is plain, unlayered CSS, and an unlayered rule beats a layered one regardless of specificity, so a Tailwind utility touching a property the sheet already sets on that same element loses silently. **A `classNames` entry only takes effect on a property the sheet leaves unset there.** Most of what it does claim is reachable at rung 1 instead: background, border color, radius, text color, font-size, margin and padding on the card, and the header's weight, all have tokens. Reachable at neither rung, and needing rung 4: the badge's radius, font-size, weight and padding; the section label's weight and size; the item-status and overflow font-sizes; and the list and item geometry.
-
-A class is applied to every element of that part the card renders, so a part that repeats gets it more than once. `item` lands on each row, and on `SubagentPanel` `list`, `itemGlyph`, `itemLabel` and `itemStatus` land on both a child's plan checklist and its tools list.
-
-Three keys are easy to confuse. `section` is a card's labelled region and exists only on `SubagentPanel`; `checklist` is `ActivityChecklist`'s own wrapper, which both surfaces render; `marker` is the disclosure triangle, an `aria-hidden` span that is the first child of the header.
-
-> **Upgrading from 0.8.21 or earlier.** `classNames.section` used to land on the checklist wrapper as well as the labelled region — pass `classNames.checklist` for the wrapper now. Three changes fail silently rather than erroring. `.b4-activity__header::before` is gone, replaced by `.b4-activity__marker`; `.b4-activity__section` no longer matches the checklist wrapper, which is `.b4-activity__checklist`; and the marker is now the FIRST CHILD of `<summary>`, so `:first-child` and `nth-child()` selectors against the header shift by one. A plain `:root` palette override also now wins in dark mode and under `data-b4-theme`, where the package's dark rules used to outrank it — so a partial override that used to lose now leaks through; set palette tokens as a set. A `<summary>` `textContent` assertion also now sees the `▸` glyph, which a pseudo-element never contributed.
-
-**Rung 3 — `components`.** Replace a leaf's rendering while the card keeps ownership of validation, ordering, and the bounded-content rules:
-
-```tsx
-<PlanActivityCard
-  content={content}
-  components={{
-    TodoRow: ({ content, status, glyph, label }) => (
-      <span>
-        <span aria-hidden="true">{glyph}</span> {content} ({label})
-      </span>
-    ),
-  }}
-/>
-```
-
-`ActivityChecklist`, `PlanActivityCard`, and `SubagentPanel` all accept `classNames` and `components`; `SubagentPanel` also has a `ToolRow` slot for its tool rows.
-
-**Rung 4 — eject.** For anything the ladder does not cover, copy `PlanActivityCard.tsx`, `SubagentPanel.tsx`, and `ActivityChecklist.tsx` into your own app. Each carries package-internal imports that do not exist in your tree, so repoint them — note they resolve to two *different* entries:
-
-| File | Rewrite | To |
-|---|---|---|
-| `ActivityChecklist.tsx` | `"../activities.js"` | `"@b4run/ag-ui"` |
-| `ActivityChecklist.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
-| `PlanActivityCard.tsx` | `"../activities.js"` | `"@b4run/ag-ui"` |
-| `PlanActivityCard.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
-| `SubagentPanel.tsx` | `"./parts.js"` | `"@b4run/ag-ui/react"` |
-| `SubagentPanel.tsx` | `"./useSubagentRuns.js"` | `"@b4run/ag-ui/react"` |
-
-`B4PlanActivityContent` lives on the root entry; `cx`, the `classNames`/`components` types, and the `SubagentRun` types come from `/react`. The `"./ActivityChecklist.js"` imports need no change — they resolve to the sibling file you copied. After those rewrites the components are yours to change freely.
+Beyond tokens, the kit is markup with stable classes (`.b4-turn`, `.b4-step`, `.b4-approval` and their `__` parts) and `data-state`/`data-kind` attributes, so unlayered app CSS can target any part. For a step whose detail needs its own view, pass `renderStep` (per tool) to `B4Activity` or `TurnActivity`; for a wholly different presentation, build on `reduceTurns` from `./view` and the blocks `./react` exports.
 
 ## Framework-free view
 
@@ -256,7 +179,7 @@ for (const event of events) view = reduceTurns(view, event)
 - `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other entries never load it.
 - `@b4run/ag-ui/copilotkit` is a supported React application surface recorded as `browser-only`: it imports CopilotKit, whose bundle imports its own CSS, so it needs a bundler. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime. The other entries never load it.
 - `@b4run/ag-ui/copilotkit-runtime` is a supported application surface recorded as `edge-safe`: `createB4AgentRunner(InMemoryAgentRunner, options)` extends the CopilotKit runner class the route passes in (the entry never imports `@copilotkit/runtime`; it imports only `rxjs`, a regular dependency, and uses `fetch`), so it runs wherever your CopilotKit runtime route runs, Node or an edge runtime. It belongs on the server, beside that route. The other entries never load it.
-- `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the cards' default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
+- `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the kit's default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
 They translate protocol data; they do not authenticate callers or make client-provided state authoritative.
 

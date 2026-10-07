@@ -26,8 +26,8 @@
   `summarizer`) via an auto-generated `task({ subagent, input })` tool. Subagent runs
   bubble `subagent.*` Agent Protocol stream events with `call_id` correlation, and the
   AG-UI adapter presents them as AG-UI 1.0 `SUBAGENT_STARTED/FINISHED/ERROR` with the
-  child's own text and tool calls tagged `subagentRunId` (`@b4run/ag-ui/react` renders
-  that tree with `useSubagentRuns` + `SubagentPanel`). The basic web client drives only
+  child's own text and tool calls tagged `subagentRunId` (`B4Activity` from
+  `@b4run/ag-ui/copilotkit` nests the child's steps under the `task` call). The basic web client drives only
   `/chat` and does not expose `/coordinator`, so drive coordinator runs through Agent
   Protocol instead.
 - **HITL permissions** — `b4.config.ts` seeds allow/deny lists for `runBash`. Unknown
@@ -38,7 +38,8 @@
   B4.run's AG-UI endpoint (`POST /agui/{routeId}`, see `@b4run/ag-ui`) for basic `/chat`
   messages. The browser uses CopilotKit's same-origin multi-route runtime under
   `/api/copilotkit/*`; the runtime's `B4HttpAgent` owns the server-to-server B4.run call. The
-  client presents plan/subagent activities and the standard permission decision control.
+  client renders each turn's activity with `B4Activity` + `useB4ChatSlots`, shows a
+  permission prompt as an approval card, and restores the thread after a reload.
 
 ## Model choice
 

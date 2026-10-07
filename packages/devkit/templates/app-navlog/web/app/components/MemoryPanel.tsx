@@ -170,7 +170,7 @@ export function MemoryPanelView({
           `list-none` hides the platform marker (which is a filled triangle on
           the left, at a size that fights an 11px uppercase label), so the
           disclosure needs its own affordance or "Memory · 2" reads as a plain
-          heading. Same idea as the packaged activity cards: one glyph, rotated
+          heading. Same idea as the activity kit's chevron: one glyph, rotated
           by CSS on the open state. `group-open:` needs the `group` class on
           the `<details>`, which is why it is there.
         */}

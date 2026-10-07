@@ -4,6 +4,7 @@ import { EventType } from "@ag-ui/core"
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, test } from "vitest"
 import { useB4Turns } from "../../src/copilotkit/useB4Turns.js"
+import { summaryLine } from "../../src/react/activity/format.js"
 import { FakeAgent } from "./fake-agent.js"
 
 const started = (runId: string): BaseEvent =>
@@ -101,6 +102,45 @@ describe("useB4Turns", () => {
 
     unmount()
     expect(second.subscribers).toBe(0)
+  })
+
+  test("a replayed event's timestamp is its clock; live events without one use the configured clock", () => {
+    const agent = new FakeAgent()
+    let clock = 5_000_000
+    const { result } = renderHook(() => useB4Turns(agent as never, { now: () => clock }))
+    const t0 = 1_700_000_000_000
+    act(() => {
+      // A restored thread: the server replays the run with each event stamped.
+      agent.emit({ ...started("r1"), timestamp: t0 } as BaseEvent)
+      agent.emit({ ...finished("r1"), timestamp: t0 + 3 * 60_000 + 5_000 } as BaseEvent)
+    })
+    const restored = result.current.turns.turns[0]
+    expect(restored?.startedAt).toBe(t0)
+    expect(restored && summaryLine(restored, Date.now()).text).toBe("Worked for 3m 5s")
+
+    // A live run after the replay carries no stamp: the configured clock drives it.
+    act(() => {
+      agent.emit(started("r2"))
+    })
+    clock += 2_000
+    act(() => {
+      agent.emit(finished("r2"))
+    })
+    const live = result.current.turns.turns[1]
+    expect(live?.startedAt).toBe(5_000_000)
+    expect(live && summaryLine(live, clock).text).toBe("Worked for 2s")
+  })
+
+  test("a restored turn still working ticks against the live clock from its stamped start", () => {
+    const agent = new FakeAgent()
+    const { result } = renderHook(() => useB4Turns(agent as never))
+    const t0 = Date.now() - 90_000
+    act(() => {
+      agent.emit({ ...started("r1"), timestamp: t0 } as BaseEvent)
+    })
+    const turn = result.current.turns.turns[0]
+    expect(turn?.status).toBe("working")
+    expect(turn && summaryLine(turn, t0 + 90_000).meta).toBe("· 1m 30s")
   })
 
   test("is empty without an agent", () => {

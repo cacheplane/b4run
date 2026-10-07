@@ -144,12 +144,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `B4StepEventValue` | A `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
 | `B4StepStatus` | `running`, `completed`, `failed` or `denied`. |
 | `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
-| `reduceSubagentRuns` | The pure subagent-tree reducer (also re-exported from `./react`). |
-| `EMPTY_SUBAGENT_RUNS` | The initial subagent-tree state. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
-| `SubagentRun` | Everything known about one subagent invocation. |
-| `SubagentRunsState` | The thread id and the invocations keyed by `subagentRunId`. |
-| `SubagentToolCall` | One tool call a subagent made, with its streamed arguments and result. |
 
 ### `@b4run/ag-ui/react`
 
@@ -170,7 +165,7 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `PlanStep` | "Made a plan · 2 of 4 done" with the checklist; updates in place. |
 | `PlanStepProps` | Props for `PlanStep`: the plan step and whether the owning turn is live. |
 | `ReasoningStep` | "Thinking…", "Thought for 4s" or "Show reasoning"; opens to the text. |
-| `SubagentStep` | "Asked researcher to …" with the child's own activity nested; folds to "researcher finished · N steps". |
+| `SubagentStep` | "Asked researcher", its description as a muted line beneath, with the child's own activity nested; folds to "researcher finished · N steps". |
 | `SubagentStepProps` | Props for `SubagentStep`: the subagent step, label overrides, step renderers and the clock. |
 | `ApprovalCard` | A parked interrupt: who wants what, why, the payload, Allow once / Always allow / Deny on one row, and the scope line. |
 | `ApprovalCardProps` | Props for `ApprovalCard`: the approval, the agent's name, the gated step's label and the decision callback. |
@@ -187,31 +182,12 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `summaryLine` | The summary sentence and meta for a turn at a given time. |
 | `SummaryLine` | A summary line: its text, its muted meta, and whether it shows the running treatment. |
 | `formatDuration` | `<1s`, `Ns`, `Nm Ms`; undefined for an unknown duration. |
-| `approvalPayload` | The payload an approval card shows: args preview, command, or detail JSON. |
+| `approvalPayload` | The payload an approval card shows: args preview, command, a subagent gate's name, input and reason, or detail JSON. |
 | `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |
 | `useLive` | Whether a running step shows its running treatment (after 300 ms). |
 | `useElapsed` | A clock re-sampled once a second while active. |
-| `useSubagentRuns` | Fold the agent's events into the subagent tree (`SubagentRunsState`). |
-| `reduceSubagentRuns` | Re-export of the pure reducer from `@b4run/ag-ui/view`. |
-| `EMPTY_SUBAGENT_RUNS` | Re-export from `@b4run/ag-ui/view`. |
-| `isSubagentMessage` | Re-export from `@b4run/ag-ui/view`. |
-| `SubagentEventSource` | The subscription seam `useSubagentRuns` needs from an agent. |
-| `SubagentRun` | Re-export from `@b4run/ag-ui/view`: everything known about one subagent invocation. |
-| `SubagentRunsState` | Re-export from `@b4run/ag-ui/view`: the thread id and the invocations keyed by `subagentRunId`. |
-| `SubagentToolCall` | Re-export from `@b4run/ag-ui/view`: one tool call a subagent made, with its streamed arguments and result. |
-| `planActivityContentSchema` | Zod schema for the `b4.plan` activity content. |
-| `PlanActivityCard` | Deprecated legacy plan card; removed when the navlog example adopts `TurnActivity`. |
-| `ActivityChecklist` | Deprecated legacy checklist; removed with `PlanActivityCard`. |
-| `SubagentPanel` | Deprecated legacy subagent tree; removed when the navlog example adopts `SubagentStep`. |
-| `B4ActivityClassNames` | Deprecated: the per-part classes the legacy cards append to their defaults (customization rung 2). |
-| `B4ActivityComponents` | Deprecated: the leaf slots (`TodoRow`, `ToolRow`) the legacy cards let a consumer replace (customization rung 3). |
-| `B4TodoRowProps` | Deprecated: the props passed to a replacement `TodoRow`. |
-| `B4ToolRowProps` | Deprecated: the props passed to a replacement `ToolRow`. |
-| `cx` | Deprecated class joiner for the legacy cards' `classNames` slots. |
 
 `TurnActivity` is the drop-in: give it a `TurnView` from `reduceTurns` and it renders the turn. The kit components are plain React and don't need CopilotKit; the CopilotKit connector is `@b4run/ag-ui/copilotkit`.
-
-Deprecated: `ActivityChecklist`, `PlanActivityCard` and `SubagentPanel` still accept the `classNames` and `components` props built from `B4ActivityClassNames` and `B4ActivityComponents`, and `SubagentPanel` still renders the tree `useSubagentRuns` builds from the agent's `SUBAGENT_*` events. They go away once the navlog example adopts the kit. See [`@b4run/ag-ui/react/styles.css`](#b4runag-uireactstylescss) below for the tokens and the [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) for the legacy ladder.
 
 ### `@b4run/ag-ui/copilotkit`
 
@@ -229,8 +205,6 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 | `UseB4TurnsOptions` | Options for `useB4Turns`: the clock and the tools whose frames the view drops. |
 | `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView`, `markResuming` and `clearResuming`. |
 | `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
-| `b4ActivityRenderers` | CopilotKit `renderActivityMessages` for hosts not using `B4Activity`: the legacy plan card. Moved here from `./react`. |
-| `b4PlanActivityRenderer` | The plan renderer alone. Moved here from `./react`. |
 
 ### `@b4run/ag-ui/copilotkit-runtime`
 
@@ -257,8 +231,6 @@ The sheet also declares `--b4-activity-*` design tokens on `:root`. To restyle t
 - `--b4-activity-surface`, `--b4-activity-surface-alt`, `--b4-activity-border`, `--b4-activity-text`, `--b4-activity-muted`
 - `--b4-activity-running`, `--b4-activity-running-bg`, `--b4-activity-complete`, `--b4-activity-failed`, `--b4-activity-failed-bg`, `--b4-activity-primary`, `--b4-activity-on-primary`
 - `--b4-activity-radius`, `--b4-activity-radius-card`, `--b4-activity-radius-pill`, and `--b4-activity-font-mono`
-
-The legacy geometry tokens (`--b4-activity-gap`, `--b4-activity-font-size`, `--b4-activity-margin`, `--b4-activity-padding`, `--b4-activity-header-weight`) and `--b4-activity-badge-bg` remain until the legacy cards go.
 
 Put the overrides in plain, unlayered CSS. A Tailwind `@theme` block won't work, because token values declared there lose to this sheet. Dark mode follows the host, not the OS: the dark palette applies under a `.dark` or `[data-theme="dark"]` ancestor, or when `data-b4-theme="dark"` is set on the root element. `data-b4-theme="light"` pins light, and `data-b4-theme="auto"` follows `prefers-color-scheme` instead. The token blocks are wrapped in `:where()`, so your own `:root` override wins in every theme.
 

@@ -14,7 +14,7 @@ import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities
 import { toAguiInterrupt } from "../interrupts.js"
 import { B4_STEP_EVENT_NAME } from "../step.js"
 import { blocksToParts, keptToolParts, mediaPartsOf } from "./parts.js"
-import { readPlan } from "./subagent-runs.js"
+import { readPlan } from "./plan.js"
 import { EMPTY_TURNS, reduceTurns, type TurnsView } from "./turns.js"
 
 /** One decoded checkpoint of one namespace, oldest first in a history. */

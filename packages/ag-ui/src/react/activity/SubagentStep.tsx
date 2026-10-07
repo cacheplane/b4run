@@ -20,7 +20,12 @@ export interface SubagentStepProps {
 /** A paused subagent is waiting on an approval, so its row reads as awaiting. */
 const STATE = { running: "running", paused: "awaiting", done: "done", failed: "failed" } as const
 
-/** "Asked researcher to …" with the child's own activity nested (spec §3 `SubagentStep`). */
+/**
+ * "Asked researcher", its description as a muted line beneath, with the
+ * child's own activity nested (spec §3 `SubagentStep`). Descriptions are
+ * third-person summaries ("Briefs the weather …"), so they are never spliced
+ * into the sentence.
+ */
 export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProps): ReactElement {
   const live = step.status === "running" || step.status === "paused"
   const autoOpen = live || step.status === "failed"
@@ -28,7 +33,8 @@ export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProp
   const steps = countSteps(step.turn)
   const text = live ? (
     <>
-      Asked <b>{step.name}</b> to {step.description ?? "help"}
+      Asked <b>{step.name}</b>
+      {step.description ? <span className="b4-step__note">{step.description}</span> : null}
     </>
   ) : step.status === "failed" ? (
     `${step.name} failed`

@@ -29,7 +29,7 @@ const KIT_SOURCES = [
   .join("\n")
 const emittedClasses = [
   ...new Set(
-    [...KIT_SOURCES.matchAll(/className=\{?["'`]([^"'`$]+)/g)].flatMap((m) =>
+    [...KIT_SOURCES.matchAll(/[cC]lassName=\{?["'`]([^"'`$]+)/g)].flatMap((m) =>
       (m[1] ?? "").split(/\s+/),
     ),
   ),
@@ -92,6 +92,17 @@ describe("styles.css", () => {
       }
     }
   })
+  test("carries no rule or token beyond the kit's (the legacy cards' are gone)", () => {
+    const sheetClasses = new Set(
+      [...withoutComments.matchAll(/\.(b4-[\w-]+)/g)].map((m) => m[1] ?? ""),
+    )
+    for (const cls of sheetClasses) expect(emittedClasses, cls).toContain(cls)
+    expect(withoutComments).not.toMatch(/\.b4-activity\b/)
+    const tokens = new Set(
+      [...withoutComments.matchAll(/--b4-activity-([\w-]+):/g)].map((m) => m[1] ?? ""),
+    )
+    expect([...tokens].sort()).toEqual([...TOKENS].sort())
+  })
   test("motion: the shimmer, the 200ms chevron, and a reduced-motion block that turns both off", () => {
     expect(withoutComments).toMatch(
       /\.b4-turn__text\[data-live="true"\][^}]*animation:\s*b4-shimmer 2\.2s linear infinite/,
@@ -109,5 +120,10 @@ describe("styles.css", () => {
     )
     expect(withoutComments).toMatch(/\.b4-step__line\s*\{[^}]*min-height:\s*26px/)
     expect(withoutComments).toMatch(/\.b4-visually-hidden\s*\{[^}]*clip/)
+  })
+  test("a subagent's description sits on its own muted line beneath the step", () => {
+    expect(withoutComments).toMatch(
+      /\.b4-step__note\s*\{[^}]*display:\s*block[^}]*color:\s*var\(--b4-activity-muted\)/,
+    )
   })
 })
