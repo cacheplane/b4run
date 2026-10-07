@@ -12,6 +12,7 @@ import {
 import type { Navlog } from "../lib/navlog-types"
 import { pairIndexOf, routeGeometry } from "../lib/route-geometry"
 import { useMediaQuery } from "../lib/use-media-query"
+import { resolveVerdict } from "../lib/verdict"
 import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { NavlogSheet } from "./NavlogSheet"
@@ -162,6 +163,12 @@ export function WorkbenchLayout({
   }, [isDesktop, navlog, sheetOpen, phoneExpanded, stripHeight])
   const highlightedLeg = navlog && hoveredLeg !== null ? pairIndexOf(navlog, hoveredLeg) : null
   const cruise = navlog ? { cruiseFt: navlog.altitudeFt } : {}
+  // The same inputs the sheet resolves its verdict from, so the strip's pill
+  // and the sheet's card always show the same level.
+  const verdict = useMemo(
+    () => resolveVerdict({ weather: brief, answer: assistantBrief, navlog }),
+    [brief, assistantBrief, navlog],
+  )
 
   const chat = (
     <ChatDock
@@ -216,7 +223,7 @@ export function WorkbenchLayout({
               ref={stripRef}
               className="pointer-events-none absolute left-[calc(var(--wb-dock-width)+2*var(--wb-gutter))] right-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex justify-end *:pointer-events-auto"
             >
-              <WeatherStrip brief={brief} {...cruise} />
+              <WeatherStrip brief={brief} verdict={verdict} {...cruise} />
             </div>
             <div className="absolute bottom-[var(--wb-gutter)] left-[var(--wb-gutter)] top-[var(--wb-gutter)] z-10 flex w-[var(--wb-dock-width)]">
               {chat}
@@ -248,7 +255,7 @@ export function WorkbenchLayout({
             className="wb-sheet-wrap pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2"
           >
             <div className="px-3">
-              <WeatherStrip brief={brief} layout="row" {...cruise} />
+              <WeatherStrip brief={brief} layout="row" verdict={verdict} {...cruise} />
             </div>
             <div
               className={`wb-panel wb-phone-sheet pointer-events-auto flex flex-col rounded-b-none pb-[env(safe-area-inset-bottom)] ${

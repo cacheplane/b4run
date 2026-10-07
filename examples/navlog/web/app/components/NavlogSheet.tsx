@@ -1,9 +1,9 @@
 "use client"
 import { useId, useMemo } from "react"
-import { parsePlanningAnswer } from "../lib/assistant-text"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
-import { parseAdvisory, type Verdict, type WeatherBrief } from "../lib/weather-selectors"
+import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
+import { parseAdvisory, type WeatherBrief } from "../lib/weather-selectors"
 import { CopyFplButton, FlightPlanBlock } from "./FlightPlanBlock"
 import { NavlogTable } from "./NavlogTable"
 import { PlanningBrief } from "./PlanningBrief"
@@ -29,14 +29,17 @@ export interface NavlogSheetProps {
 }
 
 /**
- * The verdict to show: the weather brief's "Verdict:" line, else the planning
- * answer's "Bottom line:", else none (briefs from before either contract).
+ * The verdict to show: the worse of the weather brief's "Verdict:" and the
+ * planning answer's "Bottom line:", raised to the verdict floor (the brief's
+ * written rules, checked against its data and this navlog's reserve). None
+ * when neither call exists and the floor finds nothing.
  */
 export function sheetVerdict(
   weather: WeatherBrief | null | undefined,
   brief: string,
-): Verdict | null {
-  return weather?.verdict ?? parsePlanningAnswer(brief)?.verdict ?? null
+  navlog?: Navlog | null,
+): EffectiveVerdict | null {
+  return resolveVerdict({ weather, answer: brief, navlog })
 }
 
 /**
@@ -66,7 +69,7 @@ export function NavlogSheet({
     ? `${formatHhmm(totals.reserveMin)} reserve`
     : "Reserve under 45 min"
   const shown = open || !collapsible
-  const verdict = useMemo(() => sheetVerdict(weather, brief), [weather, brief])
+  const verdict = useMemo(() => sheetVerdict(weather, brief, navlog), [weather, brief, navlog])
   const advisories = useMemo(() => (weather?.advisories ?? []).map(parseAdvisory), [weather])
   const meta = [
     navlog.aircraft.tailNumber,
@@ -207,7 +210,7 @@ export function NavlogSheet({
           <NavlogTable navlog={navlog} variant={variant} {...(onHoverLeg ? { onHoverLeg } : {})} />
         </div>
         <FlightPlanBlock plan={navlog.flightPlan} />
-        {brief ? <PlanningBrief text={brief} /> : null}
+        {brief ? <PlanningBrief text={brief} verdict={verdict} /> : null}
       </div>
     </section>
   )
