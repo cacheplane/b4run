@@ -106,7 +106,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 ### `@b4run/ag-ui/view`
 
-The framework-free half of the client: pure reducers and selectors over AG-UI events, with no React and no CopilotKit. `./react` builds on it; so can any other framework. The runtime uses the same entry to serve `GET /threads/:thread_id/turns`, so a restored thread folds into the same `TurnsView` a live stream builds.
+The framework-free half of the client: pure reducers and selectors over AG-UI events, with no React and no CopilotKit. `./react` builds on it; so can any other framework. The runtime uses the same entry to serve `GET /threads/:thread_id/turns`, so a restored thread folds into the same `TurnsView` a live stream builds. It also holds the activity kit's framework-free rules (wording, durations, the open/closed rule, the clocks, the glyphs), so every kit words, times and draws a turn the same way.
 
 | Export | Responsibility |
 |---|---|
@@ -145,11 +145,6 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `B4StepStatus` | `running`, `completed`, `failed` or `denied`. |
 | `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
-
-The activity kits' shared rules live here too, framework-free, so the React kit and the Angular kit word, time and draw a turn the same way:
-
-| Export | Responsibility |
-|---|---|
 | `summaryLine` | The summary sentence and meta for a turn at a given time. |
 | `nestedSummaryLine` | The summary of a subagent's own turn: like any turn while it runs, then "researcher · paused", "researcher finished · 5 steps" or "researcher failed · boom". |
 | `NestedTurn` | A subagent's name and status, as its nested turn's summary needs them. |
