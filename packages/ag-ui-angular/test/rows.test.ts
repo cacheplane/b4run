@@ -20,19 +20,10 @@ import { PlanStepComponent } from "../src/lib/plan-step.component"
 import { ReasoningStepComponent } from "../src/lib/reasoning-step.component"
 import { StepGroupComponent } from "../src/lib/step-group.component"
 import { SubagentStepComponent } from "../src/lib/subagent-step.component"
-import { click, mount } from "./render"
+import { click, markupWithoutComments, mount } from "./render"
 
 const zero = () => 0
-/** innerHTML without the comment anchors Angular leaves for control flow (removed as nodes, not by pattern). */
-const markup = (element: Element | null): string | undefined => {
-  if (element === null) return undefined
-  const copy = element.cloneNode(true) as Element
-  const walker = copy.ownerDocument.createTreeWalker(copy, NodeFilter.SHOW_COMMENT)
-  const comments: Node[] = []
-  while (walker.nextNode()) comments.push(walker.currentNode)
-  for (const comment of comments) comment.parentNode?.removeChild(comment)
-  return copy.innerHTML
-}
+const markup = markupWithoutComments
 const thousand = () => 1000
 
 @Component({

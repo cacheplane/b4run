@@ -63,3 +63,14 @@ export function mountApproval(
 export function button(root: Element, text: string): HTMLButtonElement | undefined {
   return Array.from(root.querySelectorAll("button")).find((b) => b.textContent?.trim() === text)
 }
+
+/** innerHTML without the comment anchors Angular leaves for control flow (removed as nodes, not by pattern). */
+export function markupWithoutComments(element: Element | null | undefined): string | undefined {
+  if (element === null || element === undefined) return undefined
+  const copy = element.cloneNode(true) as Element
+  const walker = copy.ownerDocument.createTreeWalker(copy, NodeFilter.SHOW_COMMENT)
+  const comments: Node[] = []
+  while (walker.nextNode()) comments.push(walker.currentNode)
+  for (const comment of comments) comment.parentNode?.removeChild(comment)
+  return copy.innerHTML
+}

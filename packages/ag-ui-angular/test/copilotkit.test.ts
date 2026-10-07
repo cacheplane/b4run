@@ -30,7 +30,7 @@ import {
   toolResult,
   toolStart,
 } from "./agui-events"
-import { button, click, mount } from "./render"
+import { button, click, markupWithoutComments, mount } from "./render"
 import { ScriptedAgent } from "./scripted-agent"
 
 const committed = JSON.parse(readFileSync(CONTRACT_SNAPSHOT_PATH, "utf8")) as ContractSnapshot
@@ -249,7 +249,7 @@ describe("<b4-activity-assistant-message>: CopilotChat's assistant message slot"
       })
   }
 
-  const visible = (root: HTMLElement | undefined) => root?.innerHTML.replace(/<!--.*?-->/g, "")
+  const visible = (root: HTMLElement | undefined) => markupWithoutComments(root)
 
   test("text through CopilotKit's assistant message; one activity block, on the turn's first assistant message", async () => {
     const { agent } = await thread()
