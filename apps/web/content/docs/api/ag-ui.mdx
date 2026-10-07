@@ -39,10 +39,13 @@ A CopilotKit chat connects the kit through the `./copilotkit` subpath, which is 
 import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
 ```
 
-A CopilotKit runtime route restores a conversation from B4's storage with `B4AgentRunner` from the `./copilotkit-runtime` subpath. It imports `@copilotkit/runtime` and `rxjs`, so install them beside the package:
+A CopilotKit runtime route restores a conversation from B4's storage with `createB4AgentRunner` from the `./copilotkit-runtime` subpath. The entry never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class in, so the runner extends whichever copy the route resolves, wherever the package manager placed it. It depends on `rxjs`, which installs with the package:
 
 ```ts
-import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import { InMemoryAgentRunner } from "@copilotkit/runtime/v2"
+import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+
+const runner = createB4AgentRunner(InMemoryAgentRunner, { url, fetch })
 ```
 
 ## Compatibility and audience
@@ -235,7 +238,8 @@ The server half of the CopilotKit connector, for the CopilotKit runtime route in
 
 | Export | Responsibility |
 |---|---|
-| `B4AgentRunner` | A CopilotKit runtime runner (`new CopilotRuntime({ agents, runner })`): runs are CopilotKit's in-memory runner's; `connect` replays `GET /threads/:id/events` from the B4 server, and while a run is live in this process it continues with that run's events, so a reload or a new instance restores the chat, its activity and a parked approval. |
+| `createB4AgentRunner` | `createB4AgentRunner(Base, options)` builds a CopilotKit runtime runner (`new CopilotRuntime({ agents, runner })`) from `Base`, CopilotKit's `InMemoryAgentRunner` class: an instance of a subclass that overrides only `connect`, so runs, `stop`, `isRunning` and the local-thread endpoints are the base runner's; `connect` replays `GET /threads/:id/events` from the B4 server, and while a run is live in this process it continues with that run's events, so a reload or a new instance restores the chat, its activity and a parked approval. |
+| `B4AgentRunnerBase` | The shape `createB4AgentRunner` extends: a class whose instances have `connect` (returning an observable of events) and `isRunning`. CopilotKit's `InMemoryAgentRunner` fits it; the returned runner has the base class's type. |
 | `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with, and `onWarnings` for replays that carried warnings. The read carries only the headers that `fetch` adds, never the browser request's, so it must carry the current caller's identity, derived per request (for example from an `AsyncLocalStorage`), never a fixed service credential, which would let any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error. |
 
 ### `@b4run/ag-ui/react/styles.css`

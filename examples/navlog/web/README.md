@@ -88,7 +88,7 @@ browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new B4HttpAgent(...) }`, with `runner: new B4AgentRunner(...)` from `@b4run/ag-ui/copilotkit-runtime`, served through
+  `agents: { default: new B4HttpAgent(...) }`, with `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.
@@ -105,7 +105,7 @@ pattern as `examples/chat/web`, no per-component wiring needed.
 ## Thread history
 
 Switching threads restores that conversation. The chat mounts per thread and calls
-CopilotKit's `connect`; the runtime route's `B4AgentRunner` answers by replaying
+CopilotKit's `connect`; the runtime route's runner (`createB4AgentRunner`) answers by replaying
 `GET /threads/:id/events` from B4.run's checkpoints as the AG-UI events a live run would
 have sent — messages, the turns (plan, subagents, tool steps), attachments and tool
 media, and a parked approval. A restored thread and a live one therefore render through

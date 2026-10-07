@@ -202,7 +202,7 @@ Threads written before these stamps existed do not restore. The gate is the one
 `pending_interrupts` enforces: a denied read is the same `404` as a miss. Responses carry
 `cache-control: no-store`.
 
-`GET /threads/:thread_id/events` serves the same restore as AG-UI events instead of a view: each turn's `RUN_STARTED` carries its user message, and a parked turn ends with `RUN_FINISHED` carrying the interrupt. A chat client that restores by replaying events, such as CopilotKit through `B4AgentRunner`, reads this one. It shares `/turns`' gate, cap and warnings.
+`GET /threads/:thread_id/events` serves the same restore as AG-UI events instead of a view: each turn's `RUN_STARTED` carries its user message, and a parked turn ends with `RUN_FINISHED` carrying the interrupt. A chat client that restores by replaying events, such as CopilotKit through `createB4AgentRunner`, reads this one. It shares `/turns`' gate, cap and warnings.
 
 ## One run at a time per thread
 

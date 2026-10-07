@@ -56,8 +56,12 @@ The Next.js runtime route registers a `B4HttpAgent`, an AG-UI `HttpAgent` that a
 
 ```ts title="examples/navlog/web/app/api/copilotkit/[...path]/route.ts"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
-import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
-import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
+import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import {
+  CopilotRuntime,
+  createCopilotRuntimeHandler,
+  InMemoryAgentRunner,
+} from "@copilotkit/runtime/v2"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -69,7 +73,7 @@ const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
     agents: { default: new B4HttpAgent({ url: agUiUrl }) },
     // Restores a thread on `connect` from B4.run's storage.
-    runner: new B4AgentRunner({ url: b4Url }),
+    runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url }),
   }),
   basePath: "/api/copilotkit",
 })
@@ -132,7 +136,7 @@ The map and the sheet sit outside the chat but inside `B4Activity`. `useB4Activi
 
 ### Restoring a thread
 
-`<CopilotChat>` calls `connect` when it mounts, and the runtime route's `B4AgentRunner` answers it by replaying `GET /threads/:id/events` from B4.run's checkpoints as AG-UI events, so a restored thread and a live one go through the same path: the chat messages, the turns, and a parked approval all come back, with the media the thread carried. The browser never reads thread state itself, so the proxy has no thread routes. A brand-new thread has nothing to replay and restores as an empty chat. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload) for the runner and the per-request identity it needs.
+`<CopilotChat>` calls `connect` when it mounts, and the runtime route's runner (`createB4AgentRunner`) answers it by replaying `GET /threads/:id/events` from B4.run's checkpoints as AG-UI events, so a restored thread and a live one go through the same path: the chat messages, the turns, and a parked approval all come back, with the media the thread carried. The browser never reads thread state itself, so the proxy has no thread routes. A brand-new thread has nothing to replay and restores as an empty chat. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload) for the runner and the per-request identity it needs.
 
 To restyle the app, edit `examples/navlog/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
 
@@ -255,7 +259,7 @@ POST /memory/candidates/:id/reject
 
 The browser cannot call those routes directly unless the server sets [`server.cors`](/docs/configuration#server). Without it, the B4.run dev server sends no CORS headers, so the example reaches them through a same-origin catch-all, `app/api/b4/[...path]/route.ts`.
 
-That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function listing the exact method and path shape of every route the browser may reach: the three memory routes above and nothing else. Thread history isn't proxied: the runtime route's `B4AgentRunner` reads it server to server. Anything else is rejected with 403 and never forwarded. That keeps `POST /threads/:id/resume` and the rest of the agent surface out of reach in a template every B4.run developer copies.
+That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function listing the exact method and path shape of every route the browser may reach: the three memory routes above and nothing else. Thread history isn't proxied: the runtime route's runner reads it server to server. Anything else is rejected with 403 and never forwarded. That keeps `POST /threads/:id/resume` and the rest of the agent surface out of reach in a template every B4.run developer copies.
 
 <Callout title="Allowlist before you extend">
   Running, resuming, and cancelling a thread are left off the list on purpose.

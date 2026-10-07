@@ -79,7 +79,7 @@ npm run build --workspace web
 | Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
 | Chat | `app/components/NavlogChat.tsx` | `<CopilotChat>` with B4.run's slots: turns, approvals, attachments |
 | Notices | `app/components/DropNotices.tsx`, `RunError.tsx` | parts the model never saw, and run errors |
-| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint, and a `B4AgentRunner` that restores threads |
+| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint, and a `createB4AgentRunner(InMemoryAgentRunner, ...)` runner that restores threads |
 | Server proxy | `app/api/b4/[...path]/route.ts` | forwards the three memory routes to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
 | Thread list | `app/lib/thread-source.ts` | the rail's ids, titles and recency (restoring a thread is the runner's replay) |
@@ -133,7 +133,7 @@ three requests and nothing else:
 Anything else — an unlisted path, or a listed path with the wrong method — is
 rejected with **403** and never forwarded. Running, resuming, and cancelling a
 thread are deliberately absent: those go through CopilotKit's own runtime route.
-Thread history is absent too: the runtime route's `B4AgentRunner` replays
+Thread history is absent too: the runtime route's runner (`createB4AgentRunner`) replays
 `GET /threads/:id/events` from B4.run's storage server to server when the chat
 connects.
 
