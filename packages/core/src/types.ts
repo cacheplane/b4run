@@ -326,7 +326,8 @@ export interface B4Config {
      *
      * Prompt guidance only: this does not block a write. Enforce it with a
      * `FilesystemMiddleware` that refuses writes to `AGENTS.md`, composed
-     * over `backends.filesystem`.
+     * over `backends.filesystem`, and deny or gate `runBash` for routes that
+     * can reach the workspace — a shell command bypasses that middleware.
      *
      * Validated by `b4 check` and at route preparation: a non-object
      * `agentsMd`, an unknown key in it, or a non-boolean `writable` is

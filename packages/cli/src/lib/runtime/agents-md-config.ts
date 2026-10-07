@@ -12,6 +12,16 @@ function invalidAgentsMdConfig(detail: string): B4AppError {
   return new B4AppError(`Invalid agentsMd config:\n${detail}`, "B4_E1010")
 }
 
+/** A value as the author wrote it, even where JSON has no spelling for it. */
+function describe(value: unknown): string {
+  if (value === null) return "null"
+  if (typeof value === "string") return JSON.stringify(value)
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint")
+    return String(value)
+  if (Array.isArray(value)) return "an array"
+  return `a ${typeof value}`
+}
+
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -38,7 +48,7 @@ export function resolveAgentsMdConfig(
   if (agentsMd === undefined) return { writable: true }
   if (!isRecord(agentsMd)) {
     throw invalidAgentsMdConfig(
-      `agentsMd must be an object; received ${JSON.stringify(agentsMd)}. Use agentsMd: { writable: false } to make workspace/AGENTS.md read-only.`,
+      `agentsMd must be an object; received ${describe(agentsMd)}. Use agentsMd: { writable: false } to make workspace/AGENTS.md read-only.`,
     )
   }
   const unknownKeys = Object.keys(agentsMd)
@@ -53,7 +63,7 @@ export function resolveAgentsMdConfig(
   if (writable === undefined) return { writable: true }
   if (typeof writable !== "boolean") {
     throw invalidAgentsMdConfig(
-      `agentsMd.writable must be a boolean; received ${JSON.stringify(writable)}.`,
+      `agentsMd.writable must be a boolean; received ${describe(writable)}.`,
     )
   }
   return { writable }

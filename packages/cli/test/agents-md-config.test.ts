@@ -62,4 +62,15 @@ describe("resolveAgentsMdConfig", () => {
     expect(error).toMatchObject({ code: "B4_E1010" })
     expect(String((error as Error).message)).toMatch(/agentsMd\.writable must be a boolean/)
   })
+
+  test("names a function-valued writable instead of printing undefined", () => {
+    const message = String((rejection({ writable: () => false }) as Error).message)
+    expect(message).toContain("agentsMd.writable must be a boolean; received a function.")
+    expect(message).not.toContain("undefined")
+  })
+
+  test("names an array-valued agentsMd", () => {
+    const message = String((rejection([false]) as Error).message)
+    expect(message).toContain("agentsMd must be an object; received an array.")
+  })
 })
