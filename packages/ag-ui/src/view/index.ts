@@ -52,6 +52,18 @@ export {
   stepGlyph,
 } from "./activity-glyphs.js"
 export {
+  type ApprovalPrompt,
+  approvalFromInterrupt,
+  approvalLabel,
+  approvalPrompt,
+  type MessageTurn,
+  type PendingApproval,
+  pendingApprovals,
+  type TranscriptMessage,
+  turnForMessage,
+  turnForToolCalls,
+} from "./activity-lookup.js"
+export {
   ELAPSED_TICK_MS,
   NO_FLASH_MS,
   noFlashRemaining,

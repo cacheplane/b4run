@@ -9,7 +9,12 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "importHelpers": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@b4run/ag-ui-angular": ["./src/index.ts"],
+      "@b4run/ag-ui-angular/events": ["./events/src/index.ts"],
+      "@b4run/ag-ui-angular/copilotkit": ["./copilotkit/src/index.ts"]
+    }
   },
   "angularCompilerOptions": {
     "strictInjectionParameters": true,
@@ -19,5 +24,5 @@
       "defaultCategory": "error"
     }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "events/src/**/*.ts", "copilotkit/src/**/*.ts", "test/**/*.ts"]
 }
