@@ -40,6 +40,8 @@ export {
 } from "./turns.js"
 export {
   type CheckpointForTurns,
+  type EventsFromStateResult,
+  eventsFromState,
   type PendingInterruptForTurns,
   type ThreadStateForTurns,
   type TurnsFromStateResult,

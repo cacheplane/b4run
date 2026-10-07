@@ -8,6 +8,7 @@ it("exports the framework-free view surface", () => {
     "BUILT_IN_GROUP_LABELS",
     "EMPTY_SUBAGENT_RUNS",
     "EMPTY_TURNS",
+    "eventsFromState",
     "groupSteps",
     "isSubagentMessage",
     "readStepEvent",
