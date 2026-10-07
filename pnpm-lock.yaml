@@ -393,6 +393,9 @@ importers:
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../../../packages/sdk
+      '@b4run/workspace':
+        specifier: workspace:*
+        version: link:../../../packages/workspace
       zod:
         specifier: ^4.4.3
         version: 4.4.3
