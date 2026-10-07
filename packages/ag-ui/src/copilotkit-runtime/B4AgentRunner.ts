@@ -100,6 +100,13 @@ function liveTurnStart(replayed: readonly BaseEvent[], currentStart: number): nu
   return parked ? parkedStart : currentStart
 }
 
+/** `url` without trailing slashes; a loop, not a regex, so a long run of slashes stays linear. */
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end--
+  return url.slice(0, end)
+}
+
 /**
  * CopilotKit's in-memory runner with `connect` served from B4's storage. Runs
  * are the in-memory runner's (a run forwards to the route's agent and keeps
@@ -125,7 +132,7 @@ export class B4AgentRunner extends InMemoryAgentRunner {
 
   constructor(options: B4AgentRunnerOptions) {
     super()
-    this.#url = options.url.replace(/\/+$/, "")
+    this.#url = withoutTrailingSlashes(options.url)
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#onWarnings =
       options.onWarnings ??
