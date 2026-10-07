@@ -5,7 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { EMPTY_TURNS, type ReduceTurnsOptions, reduceTurns, type TurnsView } from "../view/turns.js"
 
 export interface UseB4TurnsOptions {
-  /** The clock; defaults to `Date.now`. Inject in tests. */
+  /**
+   * The clock for events that carry no `timestamp` (live events); defaults to
+   * `Date.now`. An event with a numeric `timestamp` (a restored thread's
+   * replay) is folded at that time instead. Inject in tests.
+   */
   readonly now?: (() => number) | undefined
   /** Tools whose frames the view drops entirely (`ReduceTurnsOptions.hiddenTools`). */
   readonly hiddenTools?: readonly string[] | undefined
@@ -25,7 +29,7 @@ export interface UseB4TurnsResult {
 /**
  * The agent's thread as turns, kept current from its event stream (replayed
  * events included — CopilotKit's `connect` replay reaches `agent.subscribe`
- * like a live run). Options are read through a ref so a new `hiddenTools`
+ * like a live run, and each replayed event's `timestamp` is its clock). Options are read through a ref so a new `hiddenTools`
  * array literal on every render never re-subscribes (which would reset the view).
  */
 export function useB4Turns(
@@ -43,8 +47,13 @@ export function useB4Turns(
       onEvent: ({ event }: { event: BaseEvent }) => {
         const { now, hiddenTools } = latest.current
         const isRunStart = event.type === EventType.RUN_STARTED
+        // A replayed event is folded at the time it happened, not when it
+        // arrived, so a restored turn keeps its real durations.
+        const stamped = event.timestamp
+        const clock =
+          typeof stamped === "number" && Number.isFinite(stamped) ? () => stamped : now
         const reducerOptions: ReduceTurnsOptions = {
-          ...(now !== undefined ? { now } : {}),
+          ...(clock !== undefined ? { now: clock } : {}),
           ...(hiddenTools !== undefined ? { hiddenTools } : {}),
           ...(isRunStart && resuming.current ? { resuming: true } : {}),
         }
