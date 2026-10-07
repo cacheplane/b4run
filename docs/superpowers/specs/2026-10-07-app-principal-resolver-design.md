@@ -10,6 +10,10 @@ Decided with Brian on 2026-10-07:
 - **Breaking changes are allowed.** No compatibility shims.
 - **The LangSmith target compiles `src/auth.ts` into `langgraph.json` `auth.path`** instead of
   refusing it. The spike (§5) shows this works, with three caveats that the build must handle.
+- **Ship `ownedThreads({ owner, adminsRead })`** (§5.4) as a branded `defineThreadAccess` value.
+  Both runtimes understand it, and it becomes the scaffold default.
+- **On LangSmith, clients create the thread with `POST /threads` first.** A run on an unknown
+  client-chosen id returns 404 there, and the docs say so. The node runtime keeps implicit create.
 
 ## 1. Problem
 
@@ -502,9 +506,3 @@ defense in depth). It isn't folded into the resolver.
    requests resolve the same principal?
 6. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
    ambient module like `b4:routes`?
-7. **LangSmith implicit thread creation.** The compiled owner filter makes `if_not_exists: "create"`
-   runs 404, so clients must `POST /threads` first. Is that acceptable for the LangSmith target,
-   or should B4 compile thread access differently?
-8. **LangSmith thread-access subset.** Should B4 ship the declarative `ownedThreads({ owner, adminsRead })` helper
-   (§5.4) that both runtimes understand, rather than a source analyzer for arbitrary policies? It
-   would also become the scaffold default, replacing the hand-written owner policy.
