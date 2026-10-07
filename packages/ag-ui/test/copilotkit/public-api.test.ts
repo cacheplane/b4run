@@ -9,6 +9,7 @@ describe("@b4run/ag-ui/copilotkit public API", () => {
         "b4ActivityRenderers",
         "b4PlanActivityRenderer",
         "mergeTurnMessages",
+        "useB4ActivityContext",
         "useB4ChatSlots",
         "useB4Turns",
       ].sort(),

@@ -16,10 +16,13 @@ export interface B4ActivityContextValue {
 
 const Context = createContext<B4ActivityContextValue | undefined>(undefined)
 
-/** The turns and render options `B4Activity` provides; throws outside it. */
+/**
+ * The turns, labels, `renderStep` and clock `B4Activity` provides, for host UI
+ * outside the chat (a map, a sheet); throws outside `B4Activity`.
+ */
 export function useB4ActivityContext(): B4ActivityContextValue {
   const value = useContext(Context)
-  if (value === undefined) throw new Error("useB4ChatSlots must be used inside <B4Activity>")
+  if (value === undefined) throw new Error("useB4ActivityContext must be used inside <B4Activity>")
   return value
 }
 

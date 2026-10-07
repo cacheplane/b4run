@@ -217,6 +217,8 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 |---|---|
 | `B4Activity` | Provider around your chat: hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt (in the chat by default; `renderInChat={false}` renders them after its children for a host with its own transcript), and keeps the thread's turns current from the agent's events. Supports `approvals.grants: "off"` today. |
 | `B4ActivityProps` | Props for `B4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep`, `renderInChat`, the clock and children. |
+| `useB4ActivityContext` | The turns, labels and `renderStep` `B4Activity` provides, for host UI outside the chat (a map, a sheet); throws outside `B4Activity`. |
+| `B4ActivityContextValue` | What `useB4ActivityContext` returns: the `TurnsView`, the `labels` and `renderStep` passed to `B4Activity`, and its clock. |
 | `useB4ChatSlots` | Props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows. |
 | `B4ChatSlots` | The `messageView` slots `useB4ChatSlots` returns: `transformMessages` and `assistantMessage`. |
 | `useB4Turns` | The agent's thread as turns (`reduceTurns`), plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed. |

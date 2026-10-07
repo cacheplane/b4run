@@ -28,6 +28,15 @@
     "test": {
       "dependsOn": ["build", "^test"]
     },
+    "@b4run/ag-ui#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/pnpm-lock.yaml",
+        "$TURBO_ROOT$/examples/chat/web/package.json",
+        "$TURBO_ROOT$/examples/navlog/web/package.json"
+      ]
+    },
     "@b4run/cli#test": {
       "dependsOn": [
         "build",
