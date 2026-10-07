@@ -7,13 +7,29 @@
  * only biome lint — so a signature change in the .mjs (params, return shape)
  * must be mirrored here by hand, or these declarations silently drift stale.
  */
-import type { Page } from "@playwright/test"
+import type { Locator, Page, Response } from "@playwright/test"
+
+/** A root conversation turn (`section.b4-turn`), never a subagent's nested one. */
+export const ROOT_TURN_SELECTOR: string
+
+/** A root turn that has settled: done, failed or stopped. */
+export const SETTLED_ROOT_TURN_SELECTOR: string
 
 export function openReadyWorkbench(page: Page, url: string): Promise<void>
 
 export function fillActiveWorkbenchComposer(page: Page, prompt: string): Promise<void>
 
 export function waitForWorkbenchRunCompletion(page: Page): Promise<void>
+
+export function expandLatestTurn(
+  page: Page,
+  options?: { readonly timeout?: number },
+): Promise<Locator>
+
+export function isThreadConnectResponse(
+  response: Response,
+  target: { readonly origin: string; readonly threadId: string },
+): boolean
 
 export function restoreWorkbenchThread(
   page: Page,
@@ -24,4 +40,4 @@ export function restoreWorkbenchThread(
     readonly tools: readonly string[]
     readonly answer: string
   },
-): Promise<{ readonly stateUrl: string }>
+): Promise<{ readonly connectUrl: string }>

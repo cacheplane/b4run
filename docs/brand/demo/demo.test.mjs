@@ -2093,10 +2093,11 @@ test("failed Workbench navigation handles its later readiness rejection and clos
   }
 })
 
-test("Workbench completion waits for Stop to leave and the real composer to return", async () => {
+test("Workbench completion waits for the turn to settle, Stop to leave and the real composer to return", async () => {
   const calls = []
   const page = {
     getByRole(role, options) {
+      if (role === "main") return recordingLocator(calls, "main")
       if (role === "button" && options.name === "Stop") {
         return {
           async waitFor(waitOptions) {
@@ -2124,52 +2125,103 @@ test("Workbench completion waits for Stop to leave and the real composer to retu
 
   await waitForWorkbenchRunCompletion(page)
   assert.deepEqual(calls, [
+    // The run's own turn settling comes first: Stop and Send are one button,
+    // so a wait that started before the run showed Stop would pass at once.
+    [
+      "waitFor",
+      'main > section.b4-turn:not(.b4-step__children *):is([data-state="done"], [data-state="failed"], [data-state="stopped"]) .last',
+      "visible",
+    ],
     ["stop", { state: "hidden", timeout: 120_000 }],
     ["send", { state: "visible", timeout: 120_000 }],
     ["composer", "", { timeout: 120_000 }],
   ])
 })
 
-test("restoration scopes state GET to Workbench and proves canonical transcript evidence", async () => {
-  const calls = []
+/**
+ * A fake locator chain: every step it takes is recorded in `calls` under the
+ * chain's description, so a test can assert what was located and in what
+ * order. `answers` decides counts and attributes, and sees each click.
+ */
+function recordingLocator(calls, desc, answers = {}) {
+  const child = (suffix) => recordingLocator(calls, `${desc} ${suffix}`, answers)
+  return {
+    locator: (selector) => child(`> ${selector}`),
+    getByText: (text, options) =>
+      child(`> text=${JSON.stringify(text)}${options?.exact ? " (exact)" : ""}`),
+    first: () => child(".first"),
+    last: () => child(".last"),
+    async waitFor(waitOptions) {
+      calls.push(["waitFor", desc, waitOptions.state])
+    },
+    async count() {
+      calls.push(["count", desc])
+      return answers.count?.(desc) ?? 1
+    },
+    async getAttribute(name) {
+      calls.push(["attribute", desc, name])
+      return answers.attribute?.(desc, name) ?? null
+    },
+    async click() {
+      calls.push(["click", desc])
+      answers.click?.(desc)
+    },
+  }
+}
+
+/** A turn summary that starts folded and opens on its first click, like a restored turn's. */
+function foldedSummary() {
+  let expanded = false
+  return {
+    attribute: (desc, name) =>
+      name === "aria-expanded" && desc.includes("b4-turn__summary") ? String(expanded) : null,
+    click: (desc) => {
+      if (desc.includes("b4-turn__summary")) expanded = true
+    },
+  }
+}
+
+const RESTORE_ORIGIN = "http://127.0.0.1:4101"
+const CONNECT_URL = `${RESTORE_ORIGIN}/api/copilotkit/agent/default/connect`
+
+function connectResponse({
+  url = CONNECT_URL,
+  method = "POST",
+  body = JSON.stringify({ threadId: "thread-unit-1", runId: "r", messages: [] }),
+  ok = true,
+} = {}) {
+  return {
+    ok: () => ok,
+    status: () => (ok ? 200 : 500),
+    request: () => ({ method: () => method, postData: () => body }),
+    url: () => url,
+  }
+}
+
+/** A Workbench page for the restore: the dock, the thread list and the transcript. */
+function restorePage(calls, { answers = {}, response = connectResponse() } = {}) {
   const toggle = threadsToggle(calls)
-  let responsePredicate
-  const stateUrl = "http://127.0.0.1:4101/api/b4/threads/thread-unit-1/state"
-  const response = {
-    ok: () => true,
-    status: () => 200,
-    request: () => ({ method: () => "GET" }),
-    url: () => stateUrl,
-    async finished() {
-      calls.push("response finished")
-    },
-  }
-  const transcript = {
-    getByText(text, options) {
-      return {
-        last() {
-          return {
-            async waitFor(waitOptions) {
-              calls.push(["transcript", text, options, waitOptions])
-            },
-          }
-        },
-      }
-    },
-  }
   const page = {
+    predicate: undefined,
     waitForResponse(predicate, options) {
-      responsePredicate = predicate
-      calls.push(["arm state", options])
+      page.predicate = predicate
+      calls.push(["arm connect", options])
       return Promise.resolve(response)
     },
     async reload(options) {
       calls.push(["reload", options])
     },
     getByRole(role, options) {
-      if (role === "main") return transcript
+      if (role === "main") return recordingLocator(calls, "main", answers)
       if (role === "button" && options.name === "Threads") return toggle
       if (role === "navigation" && options.name === "Conversations") return threadList(calls)
+      if (role === "heading") {
+        return {
+          async waitFor(waitOptions) {
+            calls.push(["heading", options, waitOptions.state])
+          },
+        }
+      }
       if (role === "button" && options.name === DEMO_PROMPT) {
         return {
           async scrollIntoViewIfNeeded() {
@@ -2181,52 +2233,138 @@ test("restoration scopes state GET to Workbench and proves canonical transcript 
           async click() {
             calls.push("click row")
           },
-          async getAttribute(name) {
-            calls.push(["attribute", name])
-            return "true"
-          },
         }
       }
       throw new Error(`unexpected role: ${role}`)
     },
   }
+  return page
+}
 
-  const result = await restoreWorkbenchThread(page, {
-    workbenchUrl: "http://127.0.0.1:4101",
-    threadId: "thread-unit-1",
-    prompt: DEMO_PROMPT,
-    tools: ["computeNavlog"],
-    answer: EXPECTED_ANSWER,
-  })
-  assert.equal(responsePredicate(response), true)
-  assert.equal(
-    responsePredicate({
-      ...response,
-      url: () => "http://public.example/api/b4/threads/thread-unit-1/state",
-    }),
-    false,
-  )
-  assert.equal(result.stateUrl, stateUrl)
-  // The row is reached through the dock's Threads disclosure, closed again after.
-  const order = (step) => calls.indexOf(step)
-  assert.equal(order("open threads") > calls.findIndex((c) => c[0] === "reload"), true)
-  assert.equal(order("open threads") < order("click row"), true)
-  assert.equal(order("click row") < order("close threads"), true)
-  for (const evidence of [DEMO_PROMPT, "computeNavlog", EXPECTED_ANSWER]) {
-    assert.equal(
-      calls.some((call) => Array.isArray(call) && call[0] === "transcript" && call[1] === evidence),
-      true,
-    )
-  }
+const RESTORE_OPTIONS = {
+  workbenchUrl: RESTORE_ORIGIN,
+  threadId: "thread-unit-1",
+  prompt: DEMO_PROMPT,
+  tools: ["computeNavlog"],
+  answer: EXPECTED_ANSWER,
+}
+
+const ROOT_TURN = "section.b4-turn:not(.b4-step__children *)"
+const SETTLED_ROOT_TURN = `${ROOT_TURN}:is([data-state="done"], [data-state="failed"], [data-state="stopped"])`
+const TURN_SUMMARY = `main > ${SETTLED_ROOT_TURN} .last > :scope > button.b4-turn__summary`
+const ROOT_TOOL_STEPS = `main > ${SETTLED_ROOT_TURN} .last > :scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]`
+
+test("restoration connects the thread, then proves the restored turn, its steps and the answer", async () => {
+  const calls = []
+  const page = restorePage(calls, { answers: foldedSummary() })
+
+  const result = await restoreWorkbenchThread(page, RESTORE_OPTIONS)
+
+  assert.equal(result.connectUrl, CONNECT_URL)
+  // Selecting the thread: reload, open the list, click the row, then the dock
+  // title (an h2) is the evidence — the row detaches when the workbench remounts.
+  assert.deepEqual(calls.slice(0, 9), [
+    ["arm connect", { timeout: 120_000 }],
+    ["reload", { waitUntil: "domcontentloaded" }],
+    ["threads toggle", { state: "visible", timeout: 60_000 }],
+    "open threads",
+    ["thread list", "visible"],
+    "scroll row",
+    ["row", { state: "visible", timeout: 60_000 }],
+    "click row",
+    ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"],
+  ])
+  // Re-selecting the thread the reload already showed remounts nothing.
+  assert.equal(calls[9], "close threads")
+  assert.deepEqual(calls.slice(10), [
+    ["waitFor", `main > text=${JSON.stringify(DEMO_PROMPT)} (exact) .last`, "visible"],
+    ["waitFor", `main > ${SETTLED_ROOT_TURN} .first`, "visible"],
+    ["count", `main > ${ROOT_TURN}`],
+    ["waitFor", `main > ${SETTLED_ROOT_TURN} .last`, "visible"],
+    ["attribute", TURN_SUMMARY, "aria-expanded"],
+    ["click", TURN_SUMMARY],
+    ["attribute", TURN_SUMMARY, "aria-expanded"],
+    ["waitFor", `${ROOT_TOOL_STEPS} .first`, "visible"],
+    ["count", ROOT_TOOL_STEPS],
+    ["waitFor", `main > text=${JSON.stringify(EXPECTED_ANSWER)} (exact) .last`, "visible"],
+  ])
 })
 
-test("failed restoration interaction handles its later state rejection and closes once", async () => {
+test("restoration matches only this Workbench's connect POST for this thread", async () => {
+  const calls = []
+  const page = restorePage(calls, { answers: foldedSummary() })
+  await restoreWorkbenchThread(page, RESTORE_OPTIONS)
+  const { predicate } = page
+  assert.equal(predicate(connectResponse()), true)
+  assert.equal(predicate(connectResponse({ method: "GET" })), false)
+  assert.equal(
+    predicate(connectResponse({ url: "http://public.example/api/copilotkit/agent/default/connect" })),
+    false,
+  )
+  assert.equal(
+    predicate(connectResponse({ url: `${RESTORE_ORIGIN}/api/copilotkit/agent/default/run` })),
+    false,
+  )
+  assert.equal(
+    predicate(connectResponse({ body: JSON.stringify({ threadId: "thread-other" }) })),
+    false,
+  )
+  assert.equal(predicate(connectResponse({ body: "{not json" })), false)
+  assert.equal(predicate(connectResponse({ body: null })), false)
+})
+
+test("restoration fails on a failed connect", async () => {
+  const calls = []
+  const page = restorePage(calls, {
+    answers: foldedSummary(),
+    response: connectResponse({ ok: false }),
+  })
+  await assert.rejects(
+    restoreWorkbenchThread(page, RESTORE_OPTIONS),
+    /Thread restoration failed with HTTP 500/,
+  )
+})
+
+test("restoration fails when the thread renders more than one turn", async () => {
+  const calls = []
+  const page = restorePage(calls, {
+    answers: { ...foldedSummary(), count: (desc) => (desc === `main > ${ROOT_TURN}` ? 2 : 1) },
+  })
+  await assert.rejects(
+    restoreWorkbenchThread(page, RESTORE_OPTIONS),
+    /rendered 2 turns, expected exactly 1/,
+  )
+})
+
+test("restoration fails when the restored turn's tool steps do not match the run", async () => {
+  const calls = []
+  const page = restorePage(calls, {
+    answers: { ...foldedSummary(), count: (desc) => (desc === ROOT_TOOL_STEPS ? 2 : 1) },
+  })
+  await assert.rejects(
+    restoreWorkbenchThread(page, RESTORE_OPTIONS),
+    /rendered 2 tool steps, expected 1 \(computeNavlog\)/,
+  )
+})
+
+test("restoration fails when the restored turn's summary will not open", async () => {
+  const calls = []
+  const page = restorePage(calls, {
+    answers: { attribute: (_desc, name) => (name === "aria-expanded" ? "false" : null) },
+  })
+  await assert.rejects(
+    restoreWorkbenchThread(page, RESTORE_OPTIONS),
+    /summary did not expand/,
+  )
+})
+
+test("failed restoration interaction handles its later connect rejection and closes once", async () => {
   const fixture = orchestrationFixture()
   const originalOpen = fixture.adapters.browser.open
   const reloadError = new Error("Workbench reload failed")
-  const stateError = new Error("state waiter closed later")
+  const connectError = new Error("connect waiter closed later")
   const unhandled = []
-  let rejectState
+  let rejectConnect
   let closeCount = 0
   const onUnhandled = (error) => unhandled.push(error)
   process.on("unhandledRejection", onUnhandled)
@@ -2238,7 +2376,7 @@ test("failed restoration interaction handles its later state rejection and close
           {
             waitForResponse() {
               return new Promise((_, reject) => {
-                rejectState = reject
+                rejectConnect = reject
               })
             },
             async reload() {
@@ -2263,7 +2401,7 @@ test("failed restoration interaction handles its later state rejection and close
       }),
       (error) => error === reloadError,
     )
-    rejectState(stateError)
+    rejectConnect(connectError)
     await new Promise((resolve) => setImmediate(resolve))
 
     assert.deepEqual(unhandled, [])
@@ -2988,7 +3126,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
     tools: ["computeNavlog"],
     answer: EXPECTED_ANSWER,
     threadId: "thread-unit-1",
-    stateUrl: undefined,
+    connectUrl: undefined,
   })
 })
 

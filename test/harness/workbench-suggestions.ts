@@ -1,9 +1,11 @@
 /**
- * W8, the Workbench suggestion journeys: click each of the three empty-state
- * suggestions in a real browser and assert what the scaffolded Workbench draws
- * back — the plan and subagent cards, the fileFlightPlan approval resolving
+ * W8, the Workbench suggestion journeys: click each of the three suggestions
+ * in a real browser and assert what the scaffolded Workbench draws back — the
+ * turn's plan, subagent and tool steps (the activity kit's DOM, `@b4run/ag-ui`
+ * `TurnActivity`), the fileFlightPlan approval card resolved by keyboard
  * through `Allow once`, and a remembered aircraft profile appearing in the
- * memory panel and surviving approval.
+ * memory panel and surviving approval. With the approval card open, the dock
+ * is scanned with axe.
  *
  * The browser session itself — launch, console-error collection, abort race,
  * screenshot, cleanup — is the shared seam in `workbench-page.ts`. W7 lives in
@@ -25,16 +27,21 @@ import type { Locator, Page } from "@playwright/test"
 
 import {
   openReadyWorkbench,
+  ROOT_TURN_SELECTOR,
   waitForWorkbenchRunCompletion,
 } from "../../docs/brand/demo/capture.mjs"
+import { type AxeFactory, assertNoSeriousAxeViolations, tabUntilFocused } from "./workbench-a11y.ts"
 import { type WorkbenchPageDeps, withWorkbenchPage } from "./workbench-page.ts"
 
 export interface SuggestionJourneyOptions {
   readonly webUrl: string
   /** Directory for per-journey failure screenshots (`workbench-browser-<key>.png`). */
   readonly screenshotDir: string
-  /** The tool whose approval gate the "File the plan" journey resolves. */
-  readonly approvalToolName: string
+  /**
+   * The approval card's title for the gated call: "The agent wants to " plus
+   * the tool's running label, first letter lower-cased (`B4Activity`).
+   */
+  readonly approvalTitle: string
   readonly gatedReply: string
   readonly planReply: string
   readonly teachContent: string
@@ -51,6 +58,8 @@ export interface SuggestionJourneyDeps extends WorkbenchPageDeps {
     readonly openReadyWorkbench: typeof openReadyWorkbench
     readonly waitForWorkbenchRunCompletion: typeof waitForWorkbenchRunCompletion
   }
+  /** Builds the axe scan; defaults to `@axe-core/playwright`'s `AxeBuilder`. */
+  readonly axe?: AxeFactory
 }
 
 type SuggestionJourneyHelpers = NonNullable<SuggestionJourneyDeps["journey"]>
@@ -114,12 +123,6 @@ async function expectExactlyOne(locator: Locator, what: string): Promise<void> {
   if (count !== 1) throw new Error(`expected exactly one ${what} in this thread, found ${count}`)
 }
 
-/** Insists nothing matches — used to prove where something is NOT rendered. */
-async function expectNone(locator: Locator, what: string): Promise<void> {
-  const count = await locator.count()
-  if (count !== 0) throw new Error(`expected no ${what}, found ${count}`)
-}
-
 /**
  * Starts one suggestion from a clean slate. Creating a thread is what makes
  * each journey its own — without it the second journey would append to the
@@ -136,8 +139,9 @@ async function expectNone(locator: Locator, what: string): Promise<void> {
  * `handleCreate` no-ops when the active thread is already untitled, so clicking
  * the real button on a fresh load behaves exactly as before.
  *
- * The suggestion button's accessible name is the title followed by its message
- * (EmptyState.tsx), so match on the escaped title as a prefix.
+ * The suggestions are CopilotChat's pills (`DemoSuggestions.tsx` configures
+ * them), whose accessible name is the title alone. Matched on the escaped
+ * title as a prefix, which holds for either shape.
  */
 async function startSuggestion(page: Page, title: string): Promise<void> {
   await page
@@ -148,6 +152,22 @@ async function startSuggestion(page: Page, title: string): Promise<void> {
     .click({ timeout: LOCATOR_TIMEOUT_MS })
 }
 
+/** The turn's own steps, not a subagent's (those sit inside `.b4-step__children`). */
+const OWN_STEPS = ":scope > ol.b4-turn__steps > li.b4-step"
+
+/**
+ * Clicks a disclosure (`b4-turn__summary`, `b4-step__line`) and insists it
+ * reads `aria-expanded="true"` afterwards. Asserting the DISCLOSURE, not just
+ * its consequence: if a row ever ships already open, the click closes it, and
+ * the waits after it would read as "never rendered" instead of "the open state
+ * flipped".
+ */
+async function expand(button: Locator, what: string): Promise<void> {
+  await button.click({ timeout: LOCATOR_TIMEOUT_MS })
+  const expanded = await button.getAttribute("aria-expanded", { timeout: LOCATOR_TIMEOUT_MS })
+  if (expanded !== "true") throw new Error(`${what} did not expand (aria-expanded=${expanded})`)
+}
+
 async function planJourney(
   page: Page,
   options: SuggestionJourneyOptions,
@@ -156,42 +176,53 @@ async function planJourney(
   await startSuggestion(page, "Plan a flight")
   await journey.waitForWorkbenchRunCompletion(page)
   const main = page.getByRole("main")
-  // Substring matches, never { exact: true }: every card summary begins with the
-  // `▸` marker, a real aria-hidden element and therefore part of textContent.
-  // The plan card stays expanded (open={hasActiveTodo}; the fixture leaves one
-  // todo in_progress), so its checklist needs no click.
+  // One turn: a second would be the run's events glued onto a new turn.
+  const turn = main.locator(ROOT_TURN_SELECTOR)
+  await expectExactlyOne(turn, "turn")
+  // A settled turn folds; its steps are in the DOM only once it is open.
+  await expand(turn.locator(":scope > button.b4-turn__summary"), "The turn")
+  // Substring matches, never { exact: true }: the step text shares its button
+  // with an icon and a status tail ("Made a plan · 1 of 4 done").
   await expectExactlyOne(
-    main.locator("details").filter({ hasText: "Plan · 1/4 complete" }),
-    "plan card",
+    turn.locator(`${OWN_STEPS}[data-kind="plan"]`).filter({ hasText: "Made a plan" }),
+    "plan step",
   )
-  const subagentCard = main.locator("details").filter({ hasText: "performance · completed" })
-  await expectExactlyOne(subagentCard, "performance subagent card")
-  await subagentCard.getByText(/performance · completed · 1 tool/).waitFor(VISIBLE)
-  // The subagent card collapses the moment its subagent finishes
-  // (open={content.status === "running"}), so the tools list is in the DOM but
-  // hidden. Expanding it is the only way to see the list — and is itself a real
-  // user action worth gating.
-  await subagentCard.locator("summary").click({ timeout: LOCATOR_TIMEOUT_MS })
-  // Assert the DISCLOSURE, not just its consequence. If the card ever ships
-  // already-open, the click above collapses it and the tool waits below would
-  // read as "the tools never rendered" instead of "the open state flipped".
-  await main
-    .locator("details[open]")
-    .filter({ hasText: "performance · completed" })
-    .waitFor(VISIBLE)
-  const tools = subagentCard.getByLabel("Subagent tools")
-  await tools.getByText("readDoc", { exact: true }).waitFor(VISIBLE)
-  // `computeNavlog` and `writeFile` are ROOT tool calls, so each renders as a
-  // plain ToolCallCard and must NOT appear inside any activity card's
-  // <details>. Asserting both halves is what distinguishes "the root ran it"
-  // from "some subagent did".
-  for (const rootTool of ["computeNavlog", "writeFile"]) {
-    await expectExactlyOne(main.getByText(rootTool, { exact: true }), `${rootTool} tool card`)
-    await expectNone(
-      main.locator("details").getByText(rootTool, { exact: true }),
-      `${rootTool} inside an activity card`,
+  const subagent = turn
+    .locator(`${OWN_STEPS}[data-kind="subagent"]`)
+    .filter({ hasText: "performance finished" })
+  await expectExactlyOne(subagent, "performance subagent step")
+  // A finished subagent folds, and so does its own (settled) turn inside it:
+  // two disclosures to the child's tool call — each a real user action.
+  await expand(subagent.locator(":scope > button.b4-step__line"), "The performance subagent step")
+  const childTurn = subagent.locator(":scope > .b4-step__children > section.b4-turn")
+  await expectExactlyOne(childTurn, "performance subagent turn")
+  await expand(
+    childTurn.locator(":scope > button.b4-turn__summary"),
+    "The performance subagent's turn",
+  )
+  await expectExactlyOne(
+    childTurn.locator(`${OWN_STEPS}[data-kind="tool"]`),
+    "tool step inside the performance subagent",
+  )
+  // `computeNavlog` and `writeFile` are ROOT calls (with `recall`): they are the
+  // turn's own steps, which is what tells "the root ran it" from "a subagent
+  // did" — the `:scope >` chain never reaches into `.b4-step__children`.
+  const rootTools = turn.locator(`${OWN_STEPS}[data-kind="tool"]`)
+  await rootTools.first().waitFor(VISIBLE)
+  const rootToolCount = await rootTools.count()
+  if (rootToolCount < 2) {
+    throw new Error(
+      `expected at least 2 root tool steps (computeNavlog, writeFile), found ${rootToolCount}`,
     )
   }
+  // The navlog step's own view (`NavlogStepView`), opened: the way to the sheet.
+  const navlogStep = rootTools.filter({ hasText: "Computed the navlog" })
+  await expectExactlyOne(navlogStep, "computeNavlog step")
+  await expand(navlogStep.locator(":scope > button.b4-step__line"), "The computeNavlog step")
+  await navlogStep
+    .locator(".b4-step__detail")
+    .getByRole("button", { name: "See the navlog sheet", exact: true })
+    .waitFor(VISIBLE)
   // Exactly one, not `.last()`: Playwright's text engine drops an ancestor whose
   // child also matches, so ONE message — however deeply the markdown renderer
   // nests it — counts 1. A count of 2 therefore means two messages, which is
@@ -203,23 +234,33 @@ async function gateJourney(
   page: Page,
   options: SuggestionJourneyOptions,
   journey: SuggestionJourneyHelpers,
+  axe: AxeFactory | undefined,
 ): Promise<void> {
   await startSuggestion(page, "File the plan")
-  // PermissionPrompt puts role="alert" on the wrapper and renders the gated
-  // tool's name inside it, so the filter matches the card for this tool.
-  const alert = page.getByRole("alert").filter({ hasText: options.approvalToolName })
-  await expectExactlyOne(alert, "approval gate for this tool")
-  await alert
-    .getByRole("button", { name: "Allow once", exact: true })
-    .click({ timeout: LOCATOR_TIMEOUT_MS })
-  await alert.waitFor(HIDDEN)
+  const main = page.getByRole("main")
+  // `B4Activity` renders one `ApprovalCard` per parked interrupt, inside the chat.
+  const card = main.locator('.b4-approval[role="alert"]')
+  await expectExactlyOne(card, "approval card")
+  // The title is the gated call's running label as an infinitive.
+  await card.getByRole("heading", { name: options.approvalTitle, exact: true }).waitFor(VISIBLE)
+  await assertNoSeriousAxeViolations(page, {
+    ...(axe === undefined ? {} : { axe }),
+    when: "with the approval card open",
+  })
+  // Keyboard only: from the dock's header into the conversation, Tab to the
+  // card's primary action and press Enter. The message box is disabled while
+  // the approval is open, so the dock's Threads button is the entry point.
+  const allowOnce = card.getByRole("button", { name: "Allow once", exact: true })
+  await page
+    .getByRole("button", { name: "Threads", exact: true })
+    .focus({ timeout: LOCATOR_TIMEOUT_MS })
+  await tabUntilFocused(page, allowOnce, { maxTabs: 40, what: "Allow once" })
+  await page.keyboard.press("Enter")
+  await card.waitFor(HIDDEN)
   await journey.waitForWorkbenchRunCompletion(page)
   // Exactly one: see the plan journey's reply — a nested message still
   // counts 1, so 2 means the reply was emitted twice.
-  await expectExactlyOne(
-    page.getByRole("main").getByText(options.gatedReply, { exact: true }),
-    "gated reply",
-  )
+  await expectExactlyOne(main.getByText(options.gatedReply, { exact: true }), "gated reply")
 }
 
 async function teachJourney(
@@ -308,6 +349,7 @@ const JOURNEYS = [
     page: Page,
     options: SuggestionJourneyOptions,
     journey: SuggestionJourneyHelpers,
+    axe: AxeFactory | undefined,
   ) => Promise<void>
 }[]
 
@@ -342,7 +384,7 @@ export async function runWorkbenchSuggestionJourneys(
       for (const next of JOURNEYS) {
         current = next
         try {
-          await next.run(page, options, journey)
+          await next.run(page, options, journey, deps.axe)
           // Per journey, not once at the end: a console error from the plan
           // journey must not be reported against "Teach it the aircraft" with a
           // screenshot of the memory panel.

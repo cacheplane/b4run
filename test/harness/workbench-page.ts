@@ -3,9 +3,8 @@
  * journey that drives the scaffolded web client.
  *
  * `withWorkbenchPage` owns everything around a journey's own steps — the
- * Chromium launch, the abort wiring, console and page-error collection with
- * the hydrate-probe allowlist, the collected-errors backstop, the failure
- * screenshot, and the cleanup — so the journeys cannot drift apart on any of
+ * Chromium launch, the abort wiring, console and page-error collection, the
+ * collected-errors backstop, the failure screenshot, and the cleanup — so the journeys cannot drift apart on any of
  * it. `chromium` is injected, so this file's unit test never launches a
  * browser.
  *
@@ -163,35 +162,16 @@ async function raceAbort<T>(signal: AbortSignal | undefined, work: () => Promise
 }
 
 /**
- * The Workbench hydrates a thread by probing its state and its pending
- * interrupts. On a brand-new thread the B4.run server answers both with 404 —
- * that is the designed "nothing recorded yet" answer, asserted directly over
- * HTTP by W2 of the activation harness — and the browser logs the failed fetch
- * as a console error. Tolerate exactly that: a 404 resource error on exactly
- * those two paths. A 500 on them, a 404 anywhere else, and every non-resource
- * console error still fail the gate.
+ * Every console error and uncaught page error fails the journey. There is no
+ * allowlist: the Workbench restores a thread through CopilotKit's connect,
+ * which answers an unknown thread with an empty replay rather than a 404, so
+ * nothing in a healthy session logs a failed resource.
  */
-const HYDRATE_PROBE_404_PREFIX =
-  "Failed to load resource: the server responded with a status of 404"
-const HYDRATE_PROBE_PATHNAME = /^\/api\/b4\/threads\/[^/]+\/(state|pending_interrupts)$/
-
-export function isExpectedHydrateProbeError(text: string, url: string): boolean {
-  if (!text.startsWith(HYDRATE_PROBE_404_PREFIX)) return false
-  let pathname: string
-  try {
-    pathname = new URL(url).pathname
-  } catch {
-    return false
-  }
-  return HYDRATE_PROBE_PATHNAME.test(pathname)
-}
-
 function collectPageErrors(page: Page): string[] {
   const errors: string[] = []
   page.on("console", (message) => {
     if (message.type() !== "error") return
     const { url } = message.location()
-    if (isExpectedHydrateProbeError(message.text(), url)) return
     errors.push(url === "" ? message.text() : `${message.text()} [${url}]`)
   })
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`))

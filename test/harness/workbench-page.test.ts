@@ -164,38 +164,29 @@ describe("withWorkbenchPage", () => {
     expect(calls).toContain("browser.close")
   })
 
-  it("tolerates the hydrate probes' 404s on a brand-new thread", async () => {
+  it("fails on a 404 from the thread-state read the Workbench no longer makes", async () => {
+    // No allowlist: the restore goes through CopilotKit's connect now, so a
+    // client that still probes `/state` is a regression, not noise.
     const { deps, emitConsoleError } = fakePage()
     await expect(
-      withWorkbenchPage({ screenshotPath: "/tmp/never-written.png" }, deps, async () => {
+      withWorkbenchPage({ screenshotPath: "/tmp/probe-404.png" }, deps, async () => {
         emitConsoleError(PROBE_404, "http://127.0.0.1:4712/api/b4/threads/t-1/state")
-        emitConsoleError(PROBE_404, "http://127.0.0.1:4712/api/b4/threads/t-1/pending_interrupts")
         return "ok"
       }),
-    ).resolves.toBe("ok")
+    ).rejects.toThrow(/status of 404[\s\S]*threads\/t-1\/state/)
   })
 
-  it("fails on a 500 from a hydrate probe", async () => {
+  it("fails on a 500 from any resource", async () => {
     const { deps, emitConsoleError } = fakePage()
     await expect(
       withWorkbenchPage({ screenshotPath: "/tmp/probe-500.png" }, deps, async () => {
         emitConsoleError(
           "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-          "http://127.0.0.1:4712/api/b4/threads/t-1/state",
+          "http://127.0.0.1:4712/api/copilotkit/agent/default/connect",
         )
         return "ok"
       }),
-    ).rejects.toThrow(/status of 500[\s\S]*threads\/t-1\/state/)
-  })
-
-  it("fails on a 404 from a path that is not a hydrate probe", async () => {
-    const { deps, emitConsoleError } = fakePage()
-    await expect(
-      withWorkbenchPage({ screenshotPath: "/tmp/probe-404.png" }, deps, async () => {
-        emitConsoleError(PROBE_404, "http://127.0.0.1:4712/api/b4/threads/x/other")
-        return "ok"
-      }),
-    ).rejects.toThrow(/threads\/x\/other/)
+    ).rejects.toThrow(/status of 500[\s\S]*agent\/default\/connect/)
   })
 
   it("collects an uncaught page error", async () => {
