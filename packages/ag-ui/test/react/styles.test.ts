@@ -29,7 +29,7 @@ const KIT_SOURCES = [
   .join("\n")
 const emittedClasses = [
   ...new Set(
-    [...KIT_SOURCES.matchAll(/className=\{?["'`]([^"'`$]+)/g)].flatMap((m) =>
+    [...KIT_SOURCES.matchAll(/[cC]lassName=\{?["'`]([^"'`$]+)/g)].flatMap((m) =>
       (m[1] ?? "").split(/\s+/),
     ),
   ),
@@ -91,6 +91,17 @@ describe("styles.css", () => {
         expect(ok, selector).toBe(true)
       }
     }
+  })
+  test("carries no rule or token beyond the kit's (the legacy cards' are gone)", () => {
+    const sheetClasses = new Set(
+      [...withoutComments.matchAll(/\.(b4-[\w-]+)/g)].map((m) => m[1] ?? ""),
+    )
+    for (const cls of sheetClasses) expect(emittedClasses, cls).toContain(cls)
+    expect(withoutComments).not.toMatch(/\.b4-activity\b/)
+    const tokens = new Set(
+      [...withoutComments.matchAll(/--b4-activity-([\w-]+):/g)].map((m) => m[1] ?? ""),
+    )
+    expect([...tokens].sort()).toEqual([...TOKENS].sort())
   })
   test("motion: the shimmer, the 200ms chevron, and a reduced-motion block that turns both off", () => {
     expect(withoutComments).toMatch(

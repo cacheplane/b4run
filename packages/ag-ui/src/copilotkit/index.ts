@@ -11,6 +11,5 @@ export {
   useB4ActivityContext,
 } from "./B4Activity.js"
 export { mergeTurnMessages } from "./messages.js"
-export { b4ActivityRenderers, b4PlanActivityRenderer } from "./renderers.js"
 export { type B4ChatSlots, useB4ChatSlots } from "./useB4ChatSlots.js"
 export { type UseB4TurnsOptions, type UseB4TurnsResult, useB4Turns } from "./useB4Turns.js"

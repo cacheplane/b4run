@@ -1,7 +1,7 @@
+import type { AbstractAgent } from "@ag-ui/client"
 import type { BaseEvent } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { SubagentEventSource } from "../react/useSubagentRuns.js"
 import { EMPTY_TURNS, type ReduceTurnsOptions, reduceTurns, type TurnsView } from "../view/turns.js"
 
 export interface UseB4TurnsOptions {
@@ -29,7 +29,7 @@ export interface UseB4TurnsResult {
  * array literal on every render never re-subscribes (which would reset the view).
  */
 export function useB4Turns(
-  agent: SubagentEventSource | undefined,
+  agent: Pick<AbstractAgent, "subscribe"> | undefined,
   options: UseB4TurnsOptions = {},
 ): UseB4TurnsResult {
   const [turns, setTurns] = useState<TurnsView>(EMPTY_TURNS)

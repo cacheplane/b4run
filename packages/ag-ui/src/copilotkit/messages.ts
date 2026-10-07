@@ -1,5 +1,5 @@
 import type { AssistantMessage, Message, ToolCall } from "@ag-ui/core"
-import { isSubagentMessage } from "../view/subagent-runs.js"
+import { isSubagentMessage } from "../view/messages.js"
 
 const toolOnly = (m: Message): m is AssistantMessage & { toolCalls: ToolCall[] } =>
   m.role === "assistant" &&

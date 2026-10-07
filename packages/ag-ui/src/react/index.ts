@@ -9,14 +9,8 @@
  * render the DOM contract in the activity-components spec: `TurnActivity` for a
  * turn, `ApprovalCard` for a parked interrupt, and the step rows and building
  * blocks (`Disclosure`, `StepIcon`, `StatusText`, `Checklist`) for custom steps.
- *
- * Deprecated, removed in a later release once the research example adopts the
- * kit: `PlanActivityCard`, `ActivityChecklist`, `SubagentPanel`, the
- * `classNames`/`components` slots and `cx`.
  */
 
-/** @deprecated Legacy card; removed when the research example adopts `TurnActivity`. */
-export { ActivityChecklist } from "./ActivityChecklist.js"
 export {
   ApprovalCard,
   type ApprovalCardProps,
@@ -37,26 +31,3 @@ export { StepGroup, type StepGroupProps } from "./activity/StepGroup.js"
 export { SubagentStep, type SubagentStepProps } from "./activity/SubagentStep.js"
 export { TurnActivity, type TurnActivityProps } from "./activity/TurnActivity.js"
 export { useElapsed, useLive } from "./activity/useLive.js"
-/** @deprecated Legacy card; removed when the research example adopts `TurnActivity`. */
-export { PlanActivityCard } from "./PlanActivityCard.js"
-/** @deprecated Legacy customization slots; the kit is styled through `@layer b4-activity` and tokens. */
-export {
-  type B4ActivityClassNames,
-  type B4ActivityComponents,
-  type B4TodoRowProps,
-  type B4ToolRowProps,
-  cx,
-} from "./parts.js"
-/** @deprecated Legacy card; removed when the research example adopts `SubagentStep`. */
-export { SubagentPanel } from "./SubagentPanel.js"
-export { planActivityContentSchema } from "./schemas.js"
-export {
-  EMPTY_SUBAGENT_RUNS,
-  isSubagentMessage,
-  reduceSubagentRuns,
-  type SubagentEventSource,
-  type SubagentRun,
-  type SubagentRunsState,
-  type SubagentToolCall,
-  useSubagentRuns,
-} from "./useSubagentRuns.js"
