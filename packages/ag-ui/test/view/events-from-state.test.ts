@@ -341,6 +341,46 @@ describe("eventsFromState", () => {
     await expect(verified(events)).resolves.toHaveLength(events.length)
   })
 
+  it("replays a busy thread with its head run left open: verifier-clean, user message and announced call restored", async () => {
+    const call = { id: "c2", name: "runBash", args: { command: "ls" }, type: "tool_call" }
+    const turn1 = [human("u1", "one"), ai("a1", "first")]
+    const turn2 = [...turn1, human("u2", "two"), ai("a2", "", [call])]
+    const state = base(
+      [
+        ckpt("k0", 0, turn1.slice(0, 1)),
+        ckpt("k1", 1, turn1, { metadata: { "b4:turn": { status: "done", endedAt: iso(1) } } }),
+        ckpt("k2", 2, turn2.slice(0, 3)),
+        ckpt("k3", 3, turn2),
+      ],
+      {},
+      [],
+      "busy",
+    )
+    const { events, warnings } = eventsFromState(state)
+    expect(warnings).toEqual([])
+    const terminals = events.filter(
+      (e) => e.type === EventType.RUN_FINISHED || e.type === EventType.RUN_ERROR,
+    )
+    expect(terminals).toEqual([expect.objectContaining({ runId: "u1" })])
+    const starts = ofType(events, EventType.RUN_STARTED)
+    expect(starts.map((e) => e.runId)).toEqual(["u1", "u2"])
+    expect(starts[1]?.input).toMatchObject({
+      runId: "u2",
+      messages: [{ id: "u2", role: "user", content: "two" }],
+    })
+    expect(events.at(-1)).toMatchObject({ type: EventType.TOOL_CALL_END, toolCallId: "c2" })
+    await expect(verified(events)).resolves.toHaveLength(events.length)
+
+    const messages = await messagesAfterConnect(events)
+    expect(messages.filter((m) => m.role === "user").map((m) => m.content)).toEqual(["one", "two"])
+    const announced = messages.at(-1) as Extract<Message, { role: "assistant" }>
+    expect(announced.role).toBe("assistant")
+    expect(announced.toolCalls?.[0]).toMatchObject({
+      id: "c2",
+      function: { name: "runBash", arguments: '{"command":"ls"}' },
+    })
+  })
+
   it("turnsFromState is the fold of eventsFromState through reduceTurns", () => {
     const states = [
       drained(),
