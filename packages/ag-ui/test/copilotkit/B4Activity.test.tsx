@@ -181,6 +181,33 @@ describe("B4Activity", () => {
     expect(container.querySelectorAll("li.b4-step")).toHaveLength(1)
   })
 
+  test("a gated step with no running label reads 'wants to use <tool>'; an override's running label wins", () => {
+    render(
+      <B4Activity
+        now={() => 5000}
+        labels={{ planRoute: { running: () => "Plan the route" } }}
+      >
+        <Host />
+      </B4Activity>,
+    )
+    act(() => {
+      // A restored parked call: no b4.step label arrived for it.
+      current.agent.emit(started("r1"))
+      current.agent.emit(toolStart("c1", "fileFlightPlan"))
+      current.agent.emit(toolStart("c2", "planRoute"))
+    })
+    const gate = (id: string, toolCallId: string) => ({
+      id,
+      reason: "approval",
+      toolCallId,
+      responseSchema: { enum: ["once", "deny"] },
+    })
+    render(renderCards([gate("i1", "c1"), gate("i2", "c2")]))
+    expect(screen.getByText("The agent wants to use fileFlightPlan")).toBeTruthy()
+    expect(screen.getByText("The agent wants to plan the route")).toBeTruthy()
+    expect(screen.queryByText(/wants to using/)).toBeNull()
+  })
+
   test("names the subagent on a child's gate, says 'continue' without a step, and offers Always only when the schema does", () => {
     render(
       <B4Activity now={() => 5000}>
