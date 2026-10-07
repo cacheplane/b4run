@@ -121,4 +121,9 @@ describe("styles.css", () => {
     expect(withoutComments).toMatch(/\.b4-step__line\s*\{[^}]*min-height:\s*26px/)
     expect(withoutComments).toMatch(/\.b4-visually-hidden\s*\{[^}]*clip/)
   })
+  test("a subagent's description sits on its own muted line beneath the step", () => {
+    expect(withoutComments).toMatch(
+      /\.b4-step__note\s*\{[^}]*display:\s*block[^}]*color:\s*var\(--b4-activity-muted\)/,
+    )
+  })
 })

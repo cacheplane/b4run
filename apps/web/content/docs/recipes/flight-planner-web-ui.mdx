@@ -216,7 +216,7 @@ function Activity() {
 }
 ```
 
-The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather to …", with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/theme.css`.
+The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/theme.css`.
 
 React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
 

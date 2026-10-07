@@ -172,6 +172,11 @@
     font-weight: 500;
     color: var(--b4-activity-text);
   }
+  .b4-step__note {
+    display: block;
+    font-size: 12.5px;
+    color: var(--b4-activity-muted);
+  }
   .b4-step__detail,
   .b4-step__children {
     margin: 6px 0 0 26px;

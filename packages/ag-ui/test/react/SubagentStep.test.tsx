@@ -47,7 +47,7 @@ const zero = () => 0
 const thousand = () => 1000
 
 describe("SubagentStep", () => {
-  test("running reads Asked researcher to …, is open, and nests the child's activity", () => {
+  test("running reads Asked researcher with the description beneath, is open, and nests the child's activity", () => {
     const markup = renderToStaticMarkup(
       <SubagentStep
         step={sub({ status: "running", settledAt: undefined, turn: nested("working") })}
@@ -58,11 +58,27 @@ describe("SubagentStep", () => {
       '<li class="b4-step" data-state="running" data-kind="subagent" data-expanded="true">',
     )
     expect(markup).toContain(
-      '<span class="b4-step__text">Asked <b>researcher</b> to summarize ReAct</span>',
+      '<span class="b4-step__text">Asked <b>researcher</b><span class="b4-step__note">summarize ReAct</span></span>',
     )
     expect(markup).toContain(
       '<div class="b4-step__children"><section class="b4-turn" data-state="working"',
     )
+  })
+
+  test("a running subagent without a description reads Asked researcher and nothing more", () => {
+    const markup = renderToStaticMarkup(
+      <SubagentStep
+        step={sub({
+          status: "running",
+          settledAt: undefined,
+          description: undefined,
+          turn: nested("working"),
+        })}
+        now={thousand}
+      />,
+    )
+    expect(markup).toContain('<span class="b4-step__text">Asked <b>researcher</b></span>')
+    expect(markup).not.toContain("b4-step__note")
   })
 
   test("paused maps to awaiting; done folds to researcher finished · N steps", () => {
