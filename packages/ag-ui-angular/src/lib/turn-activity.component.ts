@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from "@angular/core"
+import { ChangeDetectionStrategy, Component, computed, forwardRef, input } from "@angular/core"
 import {
   CHEVRON_GLYPH,
   type GroupedStep,
@@ -14,6 +14,8 @@ import { ReasoningStepComponent } from "./reasoning-step.component"
 import { disclosure, elapsedSignal } from "./state"
 import { defaultNow, StepComponent, type StepRenderers } from "./step.component"
 import { StepGroupComponent } from "./step-group.component"
+// Circular with subagent-step.component.ts (a subagent nests a turn): both
+// sides reference the other through `forwardRef`, so either may load first.
 import { SubagentStepComponent } from "./subagent-step.component"
 import { CHEVRON_TEMPLATE, SvgAttrsDirective } from "./svg"
 
@@ -34,7 +36,7 @@ const trackItem = (item: GroupedStep): string =>
     ReasoningStepComponent,
     StepComponent,
     StepGroupComponent,
-    SubagentStepComponent,
+    forwardRef(() => SubagentStepComponent),
     SvgAttrsDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

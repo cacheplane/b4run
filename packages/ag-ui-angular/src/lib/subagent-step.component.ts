@@ -12,8 +12,8 @@ import { disclosure } from "./state"
 import { defaultNow, type StepRenderers } from "./step.component"
 import { StepIconComponent } from "./step-icon.component"
 import { CHEVRON_TEMPLATE, SvgAttrsDirective } from "./svg"
-// Circular with turn-activity.component.ts: each references the other only
-// inside `imports` (through `forwardRef` here), never at module top level.
+// Circular with turn-activity.component.ts: both sides reference the other
+// through `forwardRef`, so either may load first.
 import { TurnActivityComponent } from "./turn-activity.component"
 
 /**
