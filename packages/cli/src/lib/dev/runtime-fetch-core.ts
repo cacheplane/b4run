@@ -1,4 +1,4 @@
-import { turnsFromState } from "@b4run/ag-ui/view"
+import { eventsFromState, turnsFromState } from "@b4run/ag-ui/view"
 import type { B4Config } from "@b4run/core"
 import { configureApprovalGrants, loadB4Config, seedB4Config } from "@b4run/core"
 import type { MemoryStore } from "@b4run/memory"
@@ -2227,6 +2227,25 @@ export function buildRouteTable(ctx: {
     },
 
     // ------------------------------------------------------------------
+    // GET /threads/:thread_id/events — the thread replayed as AG-UI events, from storage
+    // ------------------------------------------------------------------
+    {
+      handle: async (request, params) =>
+        handleApThreadEventsRequest({
+          checkpointer: getCheckpointer(request),
+          middleware,
+          registry,
+          request,
+          threadAccess,
+          threadId: params.thread_id ?? "",
+          threadRouteMap,
+          threadsStore: getThreadsStore(request),
+        }),
+      method: "GET",
+      pattern: /^\/threads\/(?<thread_id>[^/?#]+)\/events(?:\?.*)?$/,
+    },
+
+    // ------------------------------------------------------------------
     // POST /threads/:thread_id/workspace/inspect — read a thread's workspace
     // ------------------------------------------------------------------
     // Order: thread lookup, gate, THEN the feature check and the body. An unauthorized
@@ -3578,13 +3597,16 @@ interface ThreadReadOptions {
  * under `operation`, then the parking route's identity and its middleware
  * (409 `thread_route_unknown`, or the middleware's own rejection). Returns
  * the row on success so the handler can read its status. Shared by
- * `GET /pending_interrupts` and `GET /turns`, which must answer every refusal with the same bytes
- * on every refusal: `/turns` serves the parked prompt and its grant too, so a
+ * `GET /pending_interrupts`, `GET /turns` and `GET /events`, which must answer every refusal with the same bytes
+ * on every refusal: `/turns` and `/events` serve the parked prompt and its grant too, so a
  * looser gate on either would be the wider door.
  */
 async function gateThreadRead(
   options: ThreadReadOptions,
-  operation: Extract<ThreadOperation, "thread.pending_interrupts" | "thread.turns">,
+  operation: Extract<
+    ThreadOperation,
+    "thread.pending_interrupts" | "thread.turns" | "thread.events"
+  >,
 ): Promise<
   | { readonly ok: true; readonly thread: Thread }
   | { readonly ok: false; readonly response: Response }
@@ -3850,6 +3872,26 @@ async function handleApThreadTurnsRequest(options: ThreadReadOptions): Promise<R
     { threadId, status, turns, warnings, truncated },
     // Checkpoint state changes under the client; a cached answer would show a
     // turn that has since ended or a prompt that has been answered.
+    { headers: { "cache-control": "no-store" }, status: 200 },
+  )
+}
+
+/**
+ * `GET /threads/:id/events`: the same gates as `/turns` under `thread.events`,
+ * then the thread replayed as the AG-UI events its live runs would have
+ * carried (`eventsFromState`): a chat client's `connect` restores its
+ * messages, activity and any parked approval from it. A busy thread gets the
+ * last written checkpoint and never waits on the run.
+ */
+async function handleApThreadEventsRequest(options: ThreadReadOptions): Promise<Response> {
+  const gated = await gateThreadRead(options, "thread.events")
+  if (!gated.ok) return gated.response
+  const { checkpointer, threadId } = options
+  const status = gated.thread.status
+  const { state, truncated } = await loadThreadStateForTurns(checkpointer, threadId, status)
+  const { events, warnings } = eventsFromState(state)
+  return Response.json(
+    { threadId, status, events, warnings, truncated },
     { headers: { "cache-control": "no-store" }, status: 200 },
   )
 }
