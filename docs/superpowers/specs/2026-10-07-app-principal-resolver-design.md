@@ -1,8 +1,15 @@
 # One app-level principal resolver — design proposal
 
-Status: **proposal, not decided.** Research for a single "who is calling" seam that every
-authorization consumer reads, so no consumer parses headers itself. Related: cacheplane/b4run#940
-(memory scope cannot see the request principal).
+Status: **proposal.** Research for a single "who is calling" seam that every authorization consumer
+reads, so no consumer parses headers itself. Related: cacheplane/b4run#940 (memory scope cannot see
+the request principal).
+
+Decided with Brian on 2026-10-07:
+
+- **Reuse `src/auth.ts`.** It must default-export `defineAuth(...)`.
+- **Breaking changes are allowed.** No compatibility shims.
+- **The LangSmith target compiles `src/auth.ts` into `langgraph.json` `auth.path`** instead of
+  refusing it. The spike (§5) shows this works, with three caveats that the build must handle.
 
 ## 1. Problem
 
@@ -165,8 +172,10 @@ execute: async (input, ctx) => ctx.principal?.id
    - `B4ToolContext.principal`, including subagents
    - the `/memory/*` handlers
 
-   `headers` stays on both request types (no breaking change), but the docs mark it as "transport
-   detail; authorize against `principal`".
+   **Breaking:** `headers` is removed from `ThreadAccessRequest`. Its only job there was identity,
+   and leaving it in keeps the second-parser hazard alive. `MiddlewareRequest` keeps `headers` for
+   non-identity uses such as locale, feature flags and rate-limit keys, and its docs say "authorize
+   against `principal`".
 4. **Never persisted.** It is captured the way `middlewareContext` is: closures only, never
    `configurable` or the checkpoint. A resume runs under the resumer's principal, matching today's
    middleware semantics. A non-`undefined` principal must bypass the materialized-graph cache the
@@ -175,7 +184,7 @@ execute: async (input, ctx) => ctx.principal?.id
 5. **Typing.** Typegen discovers `src/auth.ts` and emits an ambient
    `declare module "@b4run/sdk" { interface B4Register { principal: Exclude<Awaited<ReturnType<typeof auth.authenticate>>, RejectResult | undefined> } }`.
    SDK types read `B4Register["principal"]`, falling back to `B4PrincipalShape` when there is no
-   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. The alternative is a `b4:auth` virtual module the SDK types import, which is open question 8.
+   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. The alternative is a `b4:auth` virtual module the SDK types import, which is open question 6.
 
 **Pros:**
 - Matches the two existing discovered files.
@@ -185,10 +194,11 @@ execute: async (input, ctx) => ctx.principal?.id
 
 **Cons:**
 - A third reserved file.
-- Reusing `src/auth.ts` means apps that already have a non-B4 `auth.ts` with a default export would
-  break. Mitigate with a branded `defineAuth` return: an unbranded default is a boot error (`B4_E3005`),
-  and a file with no default export is inert with no warning, so today's navlog and scaffold
-  `auth.ts` files (named export only) keep working unchanged.
+- `src/auth.ts` becomes reserved. **Decided: it must default-export a branded `defineAuth(...)`.**
+  A missing or unbranded default is a boot and build error (`B4_E3005`, currently unused), with a
+  message pointing at `defineAuth`. There is no inert mode, because an `auth.ts` the runtime ignores
+  is exactly the convention-only state this design removes. So today's navlog and scaffold
+  `auth.ts` files (named `principalOf` only) migrate in the same PR that lands the runtime.
 
 ### Option B — `config({ auth })` in `b4.config.ts`
 
@@ -214,7 +224,153 @@ Passing `middleware` to `resolveScope` fixes #940 for run endpoints and is a one
 So thread access would still have to parse headers itself. It's a reasonable stopgap only if A is
 deferred.
 
-## 5. Recommendation
+## 5. LangSmith: compiling `src/auth.ts` to `auth.path` (spike, 2026-10-07)
+
+### 5.1 What LangGraph does
+
+These facts come from `@langchain/langgraph-api` source (`src/auth/index.mts`, `custom.mts`,
+`utils/run-auth.mts`), checked against `langgraphjs dev` (`@langchain/langgraph-cli` latest,
+Node 24):
+
+- **Loading.** `langgraph.json` `auth.path` (`"./file.ts:export"`) is imported once at boot and
+  must be an `Auth` instance from `@langchain/langgraph-sdk/auth`. The check is `"~handlerCache" in
+  module`.
+- **`authenticate`.** `authenticate(request: Request)` runs once per request on every path except
+  `/info` and `GET /ui*`. It must return a string or `{ identity, permissions?, ...extra }`.
+  - Anything else, including `undefined`, throws and becomes a **500**.
+  - A thrown `HTTPException(status, { message })` becomes that status with the message as body.
+  - Any other throw becomes a 500.
+- **`auth.on(event, cb)` handlers.** They see `{ user, permissions, value }`. For threads, `value` is
+  the request payload (`thread_id`, `metadata`). **They never see the stored row.**
+  - Returning `false` → 403.
+  - Returning `undefined` or `true` → allowed.
+  - Returning an object → a metadata **filter** (`{ key: value }` or `$eq`/`$contains`) that the
+    server matches against the stored thread's `metadata`. A mismatch reads as 404.
+  - Mutating `value.metadata` on `threads:create` stamps the row.
+  - Handler lookup goes `resource:action` → `resource` → `*:action` → `*`. With no handler at all,
+    the request is allowed.
+- **User in graphs.** The user reaches graphs as `config.configurable.langgraph_auth_user`, with
+  `langgraph_auth_user_id` and `langgraph_auth_permissions` alongside it.
+- **Header copying.** Every `x-*` request header except `x-api-key`, `x-tenant-id` and
+  `x-service-key`, plus `user-agent`, is **copied into `config.configurable`**.
+- **Studio bypass.** `x-auth-scheme: langsmith` skips `authenticate` entirely and authenticates as
+  `langgraph-studio-user`, unless `auth.disable_studio_auth: true`.
+
+### 5.2 The compiled adapter
+
+What `b4 build --target langsmith` would emit as `.b4/build/auth.ts`, with `auth.path` pointing at
+it:
+
+```ts
+import { Auth, HTTPException } from "@langchain/langgraph-sdk/auth" // via a @b4run/langgraph re-export
+import app from "../../src/auth.js"
+
+export const auth = new Auth()
+  .authenticate(async (request) => {
+    const url = new URL(request.url)
+    const result = await app.authenticate({
+      headers: headersToRecord(request.headers),
+      method: request.method,
+      url: url.pathname + url.search,
+    })
+    if (isReject(result)) throw new HTTPException(result.status, { message: JSON.stringify(result.body ?? {}) })
+    if (result === undefined) throw new HTTPException(401) // LangGraph cannot represent anonymous
+    return { identity: result.id, permissions: [], b4_principal: result }
+  })
+  // Compiled only from the declarative owner policy (§5.4).
+  .on("threads:create", ({ user, value }) => { value.metadata ??= {}; value.metadata["b4:owner"] = user.identity })
+  .on("threads:update", ({ user, value }) =>
+    value.metadata && "b4:owner" in value.metadata ? false : { "b4:owner": user.identity })
+  .on(["threads:read", "threads:delete", "threads:search", "threads:create_run"], ({ user }) => ({ "b4:owner": user.identity }))
+  .on(["assistants:read", "assistants:search"], () => true)
+  .on("*", () => false) // deny-by-default floor, like thread access's required `fallback`
+```
+
+`langgraph.json` gets `"auth": { "path": "./.b4/build/auth.ts:auth", "disable_studio_auth": true }`.
+
+### 5.3 Results
+
+The probes ran against a `langgraphjs dev` server. Visitors A and B each send a valid token.
+
+| # | Probe | Result |
+|---|---|---|
+| 1 | No token | **401** with the app's `reject` body |
+| 2 | Resolver throws | **500** (fail closed) |
+| 3 | Resolver returns `undefined` | **401** (mapped) |
+| 4 | A creates a thread with forged `metadata["b4:owner"] = B` | Stamp overwritten to A ✓ |
+| 5 | A runs on it | Graph sees `langgraph_auth_user.b4_principal = { id, isAdmin, org }` ✓ |
+| 6–8 | B reads, runs on, or searches A's thread | 404 / 404 / `[]` ✓ |
+| 9 | A `PATCH`es `b4:owner` to B (first version, no update guard) | **200, and B could then read the thread.** Fixed by the `threads:update` reserved-key guard → 403 |
+| 10 | B creates A's id via `runs/wait` `if_not_exists: "create"` | 404 ✓ |
+| 11 | `x-auth-scheme: langsmith`, no token (`disable_studio_auth: false`) | **200, thread created as `langgraph-studio-user`.** Fixed by `disable_studio_auth: true` → 401 |
+| 12 | `assistants/search` under the bare `*` floor | 403. That breaks LangGraph SDK clients, hence the explicit `assistants:read/search` allow |
+| 13 | `store` put | 403. B4 memory doesn't use the LangGraph store, so this is correct |
+
+**Three caveats the build must handle:**
+
+1. **Implicit thread creation is lost.** A run on a new client-chosen id (`if_not_exists: "create"`)
+   returns 404 under the owner filter. `threads:create_run` filters before the row exists, and
+   stamping its `value.metadata` stamps the run, not the thread.
+   - B4's node runtime creates and stamps in this case. On LangSmith, clients must `POST /threads`
+     first.
+   - This is fail closed. It's a documented divergence, not a hole.
+2. **Header secrets leak to thread owners.** The `x-*` copy put `x-internal-token` (navlog's shared
+   proxy secret) into the run config, stored on the thread. **Any authenticated visitor can read it
+   back** with `GET`/`PATCH /threads/:id`, then mint any visitor id. navlog's pattern is therefore
+   unsafe on LangSmith.
+   - The build should refuse (or at least loudly warn) when `src/auth.ts` reads an `x-*` header as a
+     secret. Detection is heuristic: a `headers["x-…"]` read inside a `safeEqual`/`timingSafeEqual`
+     call.
+   - The docs should say to use `authorization` there. It isn't copied.
+3. **The principal is persisted.** `langgraph_auth_user`, including the full `b4_principal`, is stored
+   in the thread's config and returned to the owner.
+   - "Never persisted" holds on node and web targets, not on LangSmith.
+   - The rule becomes target-independent: **a principal must carry no secrets.**
+
+### 5.4 What compiles and what doesn't
+
+- **`defineAuth` compiles fully.**
+  - `reject` → `HTTPException`; throw → 500.
+  - `undefined` → 401. LangGraph has no anonymous user, so a B4 app that relies on anonymous
+    callers can't target LangSmith, and the build says so when the resolver's return type includes
+    `undefined`.
+  - `setup` runs lazily on first `authenticate`, as on node.
+  - `dispose` has no hook on that target.
+- **`defineThreadAccess` does not compile in general.** B4 policies are arbitrary functions over the
+  stored row (`req.thread.access`). LangGraph handlers never see the row and can only return
+  equality filters on metadata. Only the owner policy compiles, and only from a **declarative**
+  form B4 can recognize without reading user code. Sketch:
+
+  ```ts
+  export default ownedThreads({ owner: (p) => p.id, adminsRead: (p) => p.isAdmin })
+  ```
+
+  - This needs a B4 helper that returns a branded `defineThreadAccess` value. On node it is the
+    navlog policy above; on LangSmith it compiles to the §5.2 handlers.
+  - `adminsRead` can't be expressed as a filter, so on LangSmith admins read nothing. The build
+    warns.
+  - A hand-written `defineThreadAccess` keeps today's `B4_E1005` refusal on this target.
+- **The principal reaches tools.** `convertToolToLangChain` already reads `threadId`/`params` from
+  `config.configurable` per call, so `ctx.principal` comes from
+  `configurable.langgraph_auth_user.b4_principal` on this target. Graphs are materialized once at
+  module load, so nothing is cached per principal.
+- **Memory scope (#940) needs invoke-time resolution here.** `materializeResolvedRouteGraph` runs
+  `prepareRouteExecution` once at module load (`execute-route-core.ts:519`), which fixes the
+  namespace before any request. Per-principal scope on LangSmith means resolving the memory
+  namespace in the remember/recall tools from `config.configurable`, not at preparation.
+- **Middleware** is still not materialized on this target. With `src/auth.ts` compiled, an app that
+  used middleware only for authentication no longer needs it there. The silent drop of
+  `src/middleware.ts` should become a build warning in the same PR.
+- **Dependency.** The emitted file imports `@langchain/langgraph-sdk/auth`. Re-export it from
+  `@b4run/langgraph` so the app's dependency set (`extractDeploymentConfig`) doesn't need a new
+  direct dependency.
+- **What the spike did not verify:** hosted LangSmith Deployment, only the open-source
+  `langgraphjs dev` server. Whether the hosted platform also trusts `x-auth-scheme` and copies `x-*`
+  headers the same way needs one deploy before the docs make claims. `disable_studio_auth: true`
+  and the `x-*` refusal are safe either way.
+
+
+## 6. Recommendation
 
 **Option A**, landed in three PRs:
 
@@ -233,19 +389,31 @@ deferred.
 2. **Memory (#940).**
    - Add `principal` to the `resolveScope` ctx.
    - Gate `/memory/*` on the principal. The default when an auth file exists is open; the gate
-     itself is open question 3.
+     itself is open question 1.
    - Scope candidate listing by namespace when `resolveScope` uses the principal.
-3. **Migration.** navlog, the scaffold templates, the software-factory server, and docs.
+3. **Migration.** navlog, the scaffold templates, the software-factory server, and docs. This must
+   land together with PR 1, because PR 1 makes a named-export-only `src/auth.ts` a boot error.
+   In practice PRs 1 and 3 are one PR, or PR 3 is stacked on PR 1 and merged with it.
+4. **LangSmith compile (§5).**
+   - The `auth.path` emitter.
+   - The thread-access compile, or the refusal for policies it can't compile.
+   - `ctx.principal` from `langgraph_auth_user` (the user record LangGraph puts in `config.configurable`).
+   - The `x-*` secret refusal.
+   - Invoke-time memory namespace.
+   - A `langgraphjs dev` harness lane.
 
 serve's `guard` stays a transport-level, pre-routing gate (it also covers non-runtime paths and is
 defense in depth). It isn't folded into the resolver.
 
-## 6. Migration and compatibility
+## 7. Migration and compatibility
 
-- **Optional, defaulting to today.** No `src/auth.ts` default export means `principal` is
-  `undefined` everywhere and every existing policy behaves exactly as now.
-  `examples/chat`, `examples/memory`, and `examples/code-fixer` have no auth files and need no
-  change.
+- **Optional, but not convention-only.** With no `src/auth.ts`, `principal` is `undefined`
+  everywhere and every policy behaves as now, apart from the removed `ThreadAccessRequest.headers`.
+  If a `src/auth.ts` exists, it must default-export `defineAuth`.
+  - `examples/chat`, `examples/memory`, and `examples/code-fixer` have no auth files and need no
+    change.
+  - Any thread-access policy that read `req.headers` must move that read into `src/auth.ts`. This
+    applies to navlog, software-factory `server` and `drafter`, and the app-basic example.
 - **navlog** (`examples/navlog/server` and `packages/devkit/templates/app-navlog/server`):
   - `auth.ts` gains the default export.
   - `middleware.ts` drops `principalOf`. Since auth now rejects untokened requests globally, it
@@ -253,7 +421,7 @@ defense in depth). It isn't folded into the resolver.
     reader).
   - `thread-access.ts` reads `req.principal`.
   - `memory.ts` adds the `user` dimension once PR 2 lands. **This is a product change**: per-visitor
-    memory instead of shared candidates, so it's Brian's call (open question 4).
+    memory instead of shared candidates, so it's Brian's call (open question 2).
   - `main.mjs` keeps `tokenGuard`.
 - **app-basic template:**
   - `auth.ts.example` gains `export default defineAuth(...)`.
@@ -282,11 +450,13 @@ defense in depth). It isn't folded into the resolver.
     80), and the SEO lastmod manifest.
   - The `b4 docs` topic for the new page.
   - A patch changeset (fixed group).
-- **LangSmith target.** `src/auth.ts` with a default export is refused like thread access
-  (`B4_E1005`-style). Middleware is silently dropped there, and an auth file dropped silently
-  would fail open. See open question 1 for the better long-term answer.
+- **LangSmith target.** `src/auth.ts` compiles to `auth.path` (§5).
+  - `deployment/langsmith.mdx` loses "enforce authentication on the platform" as the only story.
+  - `check-docs.mjs` pins on that page (`:2626-2634`) change with it.
+  - navlog itself stays on the node target, because its auth pattern is the `x-*` secret the
+    LangSmith build refuses (§5.3, item 2).
 
-## 7. Security properties to preserve
+## 8. Security properties to preserve
 
 - **Fail closed.**
   - A resolver throw, a malformed return, or a `setup` failure → 500 for that request (the `setup`
@@ -308,29 +478,33 @@ defense in depth). It isn't folded into the resolver.
 - **Existence oracle.** A global `reject` from `authenticate` happens before thread lookup, so it
   can't distinguish "not yours" from "never existed". Policies keep the
   `thread === undefined → deny` line.
-- **LangSmith.** Refuse the build when an auth file exists, until open question 1 is answered.
+- **LangSmith.** On this target "never persisted" can't hold. LangGraph stamps the user into the
+  run's `config.configurable`, which is stored on the thread and returned to its owner (§5.3,
+  item 3). The principal must therefore carry no secrets on any target, and the docs say so.
+  Studio auth is disabled in the emitted config, and `x-*` header secrets are refused at build
+  time.
 
-## 8. Open questions
+## 9. Open questions
 
-1. **LangSmith.** LangGraph's `auth.authenticate` has almost exactly this resolver's shape. Should
-   the langsmith target *compile* `src/auth.ts` into the deployment's `auth.path` (and, later,
-   thread access into `auth.on("threads")` handlers), turning today's refusal into parity? This
-   needs a spike on how the LangSmith build packages app modules.
-2. **Filename.** Should it reuse `src/auth.ts`, which has the migration win but an ambiguity risk
-   with existing default exports, or use a fresh `src/principal.ts`?
-3. **`/memory/*` gate.** Should it be a fixed rule (principal required when an auth file exists), a
+1. **`/memory/*` gate.** Should it be a fixed rule (principal required when an auth file exists), a
    predicate on `defineAuth` (`canReviewMemory(principal)`), or thread-access-style policy actions
    (`memory.candidates.list|approve|reject`)?
-4. **navlog per-visitor memory.** Should navlog switch from shared candidate memory to per-visitor
+2. **navlog per-visitor memory.** Should navlog switch from shared candidate memory to per-visitor
    memory once #940 lands, or keep the shared memory as the demo?
-5. **Grant audit.** Should a consumed approval grant record `consumedBy: principal.id`? The grant
+3. **Grant audit.** Should a consumed approval grant record `consumedBy: principal.id`? The grant
    stays caller-unbound by design; this would be audit only.
-6. **Anonymous default.** Is "`undefined` = anonymous, consumers decide" right, or should an
+4. **Anonymous default.** Is "`undefined` = anonymous, consumers decide" right, or should an
    existing auth file make `undefined` a global 401 unless `defineAuth({ anonymous: "allow" })` is
    set? The latter is safer by default, but it can't express navlog's public `/healthz`-style
    paths without a per-endpoint escape hatch.
-7. **CopilotKit runner.** `createB4AgentRunner` deliberately forwards no browser headers. Should
+5. **CopilotKit runner.** `createB4AgentRunner` deliberately forwards no browser headers. Should
    the runner forward a server-minted principal assertion instead (signed, short-lived), so replay
    requests resolve the same principal?
-8. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
+6. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
    ambient module like `b4:routes`?
+7. **LangSmith implicit thread creation.** The compiled owner filter makes `if_not_exists: "create"`
+   runs 404, so clients must `POST /threads` first. Is that acceptable for the LangSmith target,
+   or should B4 compile thread access differently?
+8. **LangSmith thread-access subset.** Should B4 ship the declarative `ownedThreads({ owner, adminsRead })` helper
+   (§5.4) that both runtimes understand, rather than a source analyzer for arbitrary policies? It
+   would also become the scaffold default, replacing the hand-written owner policy.
