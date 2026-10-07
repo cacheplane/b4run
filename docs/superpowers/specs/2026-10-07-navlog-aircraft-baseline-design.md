@@ -125,9 +125,9 @@ export function readOnlyPaths(protectedPaths: readonly string[]): FilesystemMidd
 |---|---|
 | `examples/navlog/server` | workspace file, `readDoc`, prompt, `memory.md`, `plan.md`, `AGENTS.md`, `b4.config.ts`, `src/lib/read-only-paths.ts`, `package.json` |
 | `packages/devkit/templates/app-navlog/server` | The same, as template files (`.template` suffix where the existing file has one) |
-| `navlog-quality.eval.ts` (+ `.template`) | `PROFILE` becomes the new recall query, a `readDoc({ path: "aircraft/c172n.md" })` step is added before `recall` in the parent script, the first todo text changes, and non-teach scenarios script `tailNumber: "N734ST"` |
-| `test/generated/run-generated-navlog-activation.test.ts` | Its pinned recall query and todo text |
-| `examples/navlog/web` tests (+ templates) quoting the recall text (`VerdictCard.test.tsx`, `assistant-text.test.ts`) | The new text |
+| `navlog-quality.eval.ts` (+ `.template`) | `PROFILE` becomes the new recall query, a `readDoc({ path: "aircraft/c172n.md" })` step is added before `recall` in the parent script, the first todo text changes, and every existing case names N738ZU in its input and keeps it. A new case, *plan on the baseline aircraft*, names no aircraft and asserts `computeNavlog` ran on N734ST |
+| `test/generated/run-generated-navlog-activation.test.ts` | The pinned recall query, first todo and step label; no `readDoc` step, because a new root call would shift its positional call ids |
+| `examples/navlog/web` tests (+ templates) quoting the recall text (`VerdictCard.test.tsx`, `assistant-text.test.ts`) | Unchanged: they feed the old recall text to a sanitizer as arbitrary echoed text |
 | `apps/web/content/docs/recipes/flight-planner.mdx` | Baseline file, read-only corpus, and the recall query |
 | `apps/web/content/docs/workspace.mdx` | The navlog tree gains `aircraft/`; a note that this app guards the corpus with a filesystem middleware, linked from the Middleware section |
 | `apps/web/app/seo/lastmod.generated.json` | Regenerated after the content commit |
