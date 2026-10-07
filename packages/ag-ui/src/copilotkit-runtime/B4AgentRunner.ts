@@ -5,7 +5,13 @@ import { Observable, type Subscription } from "rxjs"
 export interface B4AgentRunnerOptions {
   /** The B4 server's base URL: the origin `B4HttpAgent` posts `/agui/...` to. */
   readonly url: string
-  /** Fetch for the replay read; pass the same one your `B4HttpAgent` uses to add auth headers. */
+  /**
+   * Fetch for the replay read, and the only way to authenticate it: the runner
+   * never forwards the connect request's headers (CopilotKit copies the
+   * browser's `authorization` and `x-*` headers there, and forwarding them would
+   * let a browser name another caller). Pass the same fetch your `B4HttpAgent`
+   * uses to add the server-side auth headers.
+   */
   readonly fetch?: typeof fetch
   /** Called once per replay that carried warnings (stamps the server could not read). Defaults to `console.warn`. */
   readonly onWarnings?: (threadId: string, warnings: readonly string[]) => void
@@ -14,11 +20,6 @@ export interface B4AgentRunnerOptions {
 interface EventsBody {
   readonly events?: readonly BaseEvent[]
   readonly warnings?: readonly string[]
-}
-
-/** Header names are case-insensitive; a request's `Accept` would otherwise be merged with ours. */
-function withoutHeader(headers: Record<string, string>, name: string): Record<string, string> {
-  return Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== name))
 }
 
 /** `Array.prototype.findLastIndex` (ES2023; this package compiles against ES2022). */
@@ -77,7 +78,8 @@ function withLastUserMessageOnly(event: BaseEvent): BaseEvent {
  * the live tail in this process). `connect` always reads the thread's history
  * from `GET /threads/:id/events`, so a reload, a restart or another instance
  * restores the chat, its activity and any parked approval from the checkpoint.
- * While a run is live here, the history drops its open head and the runner
+ * The read carries only what the configured `fetch` adds; the browser's
+ * headers on the connect request are never forwarded. While a run is live here, the history drops its open head and the runner
  * appends this process's current run, from its `RUN_STARTED`, then passes the
  * live events through as they arrive.
  */
@@ -104,7 +106,8 @@ export class B4AgentRunner extends InMemoryAgentRunner {
     const response = await this.#fetch(
       `${this.#url}/threads/${encodeURIComponent(request.threadId)}/events`,
       {
-        headers: { ...withoutHeader(request.headers ?? {}, "accept"), accept: "application/json" },
+        // Deliberately not `request.headers`: those come from the browser.
+        headers: { accept: "application/json" },
         signal,
       },
     )
@@ -133,8 +136,16 @@ export class B4AgentRunner extends InMemoryAgentRunner {
         const wasRunning = await this.isRunning({ threadId: request.threadId })
         const history = await this.#history(request, controller.signal)
         if (controller.signal.aborted) return
-        if (!wasRunning || !(await this.isRunning({ threadId: request.threadId }))) {
+        if (!wasRunning) {
           for (const event of history) subscriber.next(event)
+          subscriber.complete()
+          return
+        }
+        if (!(await this.isRunning({ threadId: request.threadId }))) {
+          // The run ended while the history was read busy; its open head is stale.
+          const settled = await this.#history(request, controller.signal)
+          if (controller.signal.aborted) return
+          for (const event of settled) subscriber.next(event)
           subscriber.complete()
           return
         }
@@ -145,10 +156,18 @@ export class B4AgentRunner extends InMemoryAgentRunner {
         // RUN_STARTED) is new to the B4 history. Later events pass straight through.
         let buffer: BaseEvent[] | undefined = []
         let ended: { error: unknown } | "complete" | undefined
+        // Set when the current run has not emitted yet: its RUN_STARTED arrives live.
+        let cutNextRunStart = false
         live = connectLive(request).subscribe({
           next: (event) => {
-            if (buffer !== undefined) buffer.push(event)
-            else subscriber.next(event)
+            if (buffer !== undefined) {
+              buffer.push(event)
+            } else if (cutNextRunStart && isRunStart(event)) {
+              cutNextRunStart = false
+              subscriber.next(withLastUserMessageOnly(event))
+            } else {
+              subscriber.next(event)
+            }
           },
           error: (error: unknown) => {
             if (buffer !== undefined) ended = { error }
@@ -162,7 +181,12 @@ export class B4AgentRunner extends InMemoryAgentRunner {
         const replayed = buffer
         buffer = undefined
         const currentStart = lastIndexOf(replayed, isRunStart)
-        if (currentStart !== -1) {
+        const lastRunClosed = currentStart !== -1 && replayed.slice(currentStart + 1).some(isRunEnd)
+        if (currentStart === -1 || (lastRunClosed && ended === undefined)) {
+          // Connected between run() and the run's first event: the batch holds
+          // only finished runs the B4 history already has.
+          cutNextRunStart = true
+        } else {
           subscriber.next(withLastUserMessageOnly(replayed[currentStart] as BaseEvent))
           for (const event of replayed.slice(currentStart + 1)) subscriber.next(event)
         }

@@ -55,7 +55,7 @@ describe("B4AgentRunner.connect", () => {
     expect(String(fetch.mock.calls[0]?.[0])).toBe("http://b4.test/threads/a%2Fb/events")
   })
 
-  it("forwards the connect request's headers", async () => {
+  it("never forwards the connect request's headers (auth comes from the host's fetch)", async () => {
     const fetch = jsonFetch(200, {
       threadId: "t-1",
       status: "idle",
@@ -65,10 +65,20 @@ describe("B4AgentRunner.connect", () => {
     })
     await lastValueFrom(
       new B4AgentRunner({ url: "http://b4.test", fetch })
-        .connect({ threadId: "t-1", headers: { authorization: "Bearer x" } })
+        .connect({
+          threadId: "t-1",
+          headers: {
+            authorization: "Bearer browser",
+            "x-b4-visitor": "someone-else",
+            Accept: "text/event-stream",
+          },
+        })
         .pipe(toArray()),
     )
-    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer x")
+    const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)
+    expect(headers.get("authorization")).toBeNull()
+    expect(headers.get("x-b4-visitor")).toBeNull()
+    expect(headers.get("accept")).toBe("application/json")
   })
 
   it.each([404, 409])("completes empty on %i (nothing to restore)", async (status) => {
@@ -87,24 +97,6 @@ describe("B4AgentRunner.connect", () => {
     await expect(
       lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray())),
     ).rejects.toThrow(/503/)
-  })
-
-  it("replaces a request Accept header of any case instead of duplicating it", async () => {
-    const fetch = jsonFetch(200, {
-      threadId: "t-1",
-      status: "idle",
-      events: [],
-      warnings: [],
-      truncated: false,
-    })
-    await lastValueFrom(
-      new B4AgentRunner({ url: "http://b4.test", fetch })
-        .connect({ threadId: "t-1", headers: { Accept: "text/event-stream", "X-Trace": "1" } })
-        .pipe(toArray()),
-    )
-    const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)
-    expect(headers.get("accept")).toBe("application/json")
-    expect(headers.get("x-trace")).toBe("1")
   })
 
   describe("while a run for the thread is live in this process", () => {
@@ -163,11 +155,13 @@ describe("B4AgentRunner.connect", () => {
       } as BaseEvent,
     ]
 
-    function liveInner() {
+    function liveInner(
+      replayed: readonly BaseEvent[] = [...historic, currentStarted, currentText],
+    ) {
       const later = new Subject<BaseEvent>()
       let unsubscribed = false
       const inner = new Observable<BaseEvent>((subscriber) => {
-        for (const event of [...historic, currentStarted, currentText]) subscriber.next(event)
+        for (const event of replayed) subscriber.next(event)
         const subscription = later.subscribe(subscriber)
         return () => {
           unsubscribed = true
@@ -221,20 +215,57 @@ describe("B4AgentRunner.connect", () => {
       ])
     })
 
-    it("emits the full replay when the run ended while the history was being read", async () => {
-      const events = [...closed, ...openHead]
+    it("emits only the new run when the in-memory batch holds just finished runs", async () => {
       const fetch = jsonFetch(200, {
         threadId: "t-1",
-        status: "idle",
-        events,
+        status: "busy",
+        events: closed,
         warnings: [],
         truncated: false,
       })
       const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const { later, spy } = liveInner(historic)
+      const seen: BaseEvent[] = []
+      runner.connect({ threadId: "t-1" }).subscribe({ next: (event) => seen.push(event) })
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+      const finished = {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId: "live-3",
+        outcome: { type: "success" },
+      } as BaseEvent
+      later.next(currentStarted)
+      later.next(currentText)
+      later.next(finished)
+      expect(seen).toEqual([
+        ...closed,
+        {
+          ...currentStarted,
+          input: {
+            ...(currentStarted as unknown as { input: object }).input,
+            messages: [{ id: "c-3", role: "user", content: "three" }],
+          },
+        },
+        currentText,
+        finished,
+      ])
+    })
+
+    it("re-reads the replay when the run ended while the history was being read", async () => {
+      const bodies = [
+        { threadId: "t-1", status: "busy", events: [...closed, ...openHead] },
+        { threadId: "t-1", status: "idle", events: [...closed, ...turn("r-3", "three")] },
+      ]
+      const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        Response.json({ ...bodies.shift(), warnings: [], truncated: false }),
+      )
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValueOnce(true).mockResolvedValueOnce(false)
       const { spy } = liveInner()
       const seen = await lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray()))
-      expect(seen).toEqual(events)
+      expect(seen).toEqual([...closed, ...turn("r-3", "three")])
+      expect(fetch).toHaveBeenCalledTimes(2)
       expect(spy).not.toHaveBeenCalled()
     })
 
