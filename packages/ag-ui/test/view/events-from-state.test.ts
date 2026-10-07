@@ -2,7 +2,7 @@ import { AbstractAgent, type BaseEvent, type Message, verifyEvents } from "@ag-u
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import { EMPTY, from, lastValueFrom, toArray } from "rxjs"
 import { describe, expect, it } from "vitest"
-import { reduceTurns, type TurnsView } from "../../src/view/turns.ts"
+import { reduceTurns, type SubagentStep, type TurnsView } from "../../src/view/turns.ts"
 import {
   eventsFromState,
   type ThreadStateForTurns,
@@ -104,20 +104,37 @@ function parkedChild(): ThreadStateForTurns {
 }
 
 /** A turn that ended (`status`) with its `task` call still open, followed by a second turn. */
-function endedWithOpenChild(status: "stopped" | "done"): ThreadStateForTurns {
+function endedWithOpenChild(
+  status: "stopped" | "done" | "failed",
+  { childAt = 2, error }: { childAt?: number; error?: string } = {},
+): ThreadStateForTurns {
   const child = [
     ckpt("x0", 1, [human("cu", "dig")]),
-    ckpt("x1", 2, [human("cu", "dig"), ai("ca1", "half")]),
+    ckpt("x1", childAt, [human("cu", "dig"), ai("ca1", "half")]),
   ]
   const turn1 = [human("u1", "go"), ai("a1", "", [task("ct", "dig")])]
   const turn2 = [...turn1, human("u2", "again"), ai("a2", "ok")]
   const root = [
     ckpt("k0", 0, turn1.slice(0, 1)),
-    ckpt("k1", 1, turn1, { metadata: { "b4:turn": { status, endedAt: iso(3) } } }),
+    ckpt("k1", 1, turn1, {
+      metadata: { "b4:turn": { status, endedAt: iso(3), ...(error ? { error } : {}) } },
+    }),
     ckpt("k2", 4, turn2.slice(0, 3)),
-    ckpt("k3", 5, turn2, { metadata: { "b4:turn": { status: "done", endedAt: iso(5) } } }),
+    ckpt("k3", 6, turn2, { metadata: { "b4:turn": { status: "done", endedAt: iso(6) } } }),
   ]
   return base(root, { "tools:ct": child })
+}
+
+/** Two turns, the first stamped as ending after the second's user message was checkpointed (clock skew). */
+function skewedEnd(): ThreadStateForTurns {
+  const turn1 = [human("u1", "one"), ai("a1", "first")]
+  const turn2 = [...turn1, human("u2", "two"), ai("a2", "second")]
+  return base([
+    ckpt("k0", 0, turn1.slice(0, 1)),
+    ckpt("k1", 1, turn1, { metadata: { "b4:turn": { status: "done", endedAt: iso(5) } } }),
+    ckpt("k2", 4, turn2.slice(0, 3)),
+    ckpt("k3", 6, turn2, { metadata: { "b4:turn": { status: "done", endedAt: iso(6) } } }),
+  ])
 }
 
 /** A finished `task` whose stamp settled before the child's last checkpoint. */
@@ -249,6 +266,81 @@ describe("eventsFromState", () => {
     await expect(verified(events)).resolves.toHaveLength(events.length)
   })
 
+  it.each([
+    [
+      "a stopped turn whose open child checkpointed after the next user message",
+      () => endedWithOpenChild("stopped", { childAt: 5 }),
+      "stopped",
+    ],
+    ["a turn stamped as ending after the next user message", skewedEnd, "done"],
+  ] as const)("keeps each root turn contiguous: %s", async (_, state, firstStatus) => {
+    const { events, warnings } = eventsFromState(state())
+    expect(warnings).toEqual([expect.stringMatching(/^clamped clocks on turn u2 /)])
+    await expect(verified(events)).resolves.toHaveLength(events.length)
+    const starts = events.flatMap((e, i) => (e.type === EventType.RUN_STARTED ? [i] : []))
+    const ends = events.flatMap((e, i) =>
+      e.type === EventType.RUN_FINISHED || e.type === EventType.RUN_ERROR ? [i] : [],
+    )
+    expect(starts).toHaveLength(2)
+    expect(ends).toHaveLength(2)
+    expect(ends[0] as number).toBeLessThan(starts[1] as number)
+    const { turns } = turnsFromState(state())
+    expect(turns.turns.map((t) => [t.runId, t.status])).toEqual([
+      ["u1", firstStatus],
+      ["u2", "done"],
+    ])
+  })
+
+  it("abandons an open subagent on RUN_ERROR, as live: the reducer fails it with the run's error", async () => {
+    const state = endedWithOpenChild("failed", { error: "boom" })
+    const { events, warnings } = eventsFromState(state)
+    expect(warnings).toEqual([])
+    const runError = events.findIndex((e) => e.type === EventType.RUN_ERROR)
+    expect(events[runError]).toMatchObject({ runId: "u1", message: "boom" })
+    expect(
+      events.filter(
+        (e) => e.type === EventType.SUBAGENT_ERROR || e.type === EventType.SUBAGENT_FINISHED,
+      ),
+    ).toEqual([])
+    await expect(verified(events)).resolves.toHaveLength(events.length)
+    const [first, second] = turnsFromState(state).turns.turns
+    expect(first).toMatchObject({ runId: "u1", status: "failed", error: "boom" })
+    expect(first?.steps[0]).toMatchObject({
+      kind: "subagent",
+      id: "ct",
+      status: "failed",
+      error: "boom",
+    })
+    expect((first?.steps[0] as SubagentStep | undefined)?.turn.status).toBe("failed")
+    expect(second).toMatchObject({ runId: "u2", status: "done" })
+  })
+
+  it("attributes a dispatch gate's interrupt to the subagent it suspended", async () => {
+    const state = parkedChild()
+    const dispatch = {
+      interruptId: "perm-d",
+      resumeKey: "d".repeat(32),
+      value: {
+        interruptId: "perm-d",
+        type: "permission-request",
+        kind: "command",
+        callId: "ct",
+        detail: {},
+      },
+    }
+    const { events } = eventsFromState({ ...state, pendingInterrupts: [dispatch] })
+    expect(events.at(-2)).toMatchObject({
+      type: EventType.SUBAGENT_FINISHED,
+      subagentRunId: "ct",
+      outcome: { type: "suspended", interruptIds: ["perm-d"] },
+    })
+    const outcome = (events.at(-1) as BaseEvent & { outcome: { interrupts: unknown[] } }).outcome
+    expect(outcome.interrupts).toEqual([
+      expect.objectContaining({ id: "perm-d", toolCallId: "ct", subagentRunId: "ct" }),
+    ])
+    await expect(verified(events)).resolves.toHaveLength(events.length)
+  })
+
   it("turnsFromState is the fold of eventsFromState through reduceTurns", () => {
     const states = [
       drained(),
@@ -256,6 +348,9 @@ describe("eventsFromState", () => {
       parkedChild(),
       endedWithOpenChild("stopped"),
       endedWithOpenChild("done"),
+      endedWithOpenChild("failed", { error: "boom" }),
+      endedWithOpenChild("stopped", { childAt: 5 }),
+      skewedEnd(),
       lateChild(),
     ]
     for (const state of states) {

@@ -94,6 +94,13 @@ interface Synth {
   readonly attached: Set<string>
   /** Subagent run ids (task call ids) started and not yet finished, in start order. */
   readonly open: string[]
+  /**
+   * The root turn being synthesised and the end of the turn before it: no
+   * event of that turn (its children's included) is timed earlier, so each
+   * root turn stays contiguous under the sort. A skewed clock is clamped once
+   * per turn, with a warning.
+   */
+  readonly turnFloor: { at: number; runId: string | undefined; clamped: Set<string> }
 }
 
 /** An interrupt as the `RUN_FINISHED` outcome carries it. */
@@ -163,8 +170,13 @@ function stringifyArgs(args: unknown): string {
 }
 
 function push(s: Synth, at: number, event: BaseEvent, owner?: string): void {
+  const floor = s.turnFloor
+  if (at < floor.at && floor.runId !== undefined && !floor.clamped.has(floor.runId)) {
+    floor.clamped.add(floor.runId)
+    s.warnings.push(`clamped clocks on turn ${floor.runId} to the end of the turn before it`)
+  }
   s.events.push({
-    at,
+    at: Math.max(at, floor.at),
     event: owner === undefined ? event : ({ ...event, subagentRunId: owner } as BaseEvent),
   })
 }
@@ -391,7 +403,8 @@ function synthesiseNamespace(
       push(s, lastAt, event as BaseEvent)
     } else if (resolved?.end.status === "failed") {
       const message = resolved.end.error ?? "The run failed."
-      closeOpen(s, endAt, { kind: "unterminated" })
+      // Live, RUN_ERROR abandons open subagents (the reducer fails them with its message): nothing closes them.
+      s.open.length = 0
       push(s, endAt, { type: EventType.RUN_ERROR, threadId, runId, message } as BaseEvent)
     } else if (resolved?.end.status === "stopped") {
       closeOpen(s, endAt, { kind: "cancelled" })
@@ -477,6 +490,8 @@ function synthesiseNamespace(
       openRun = id
       openRunStart = index
       if (!nested) {
+        s.turnFloor.at = s.events.reduce((max, e) => Math.max(max, e.at), 0)
+        s.turnFloor.runId = id
         // Live carries the protocol version; the input is what puts the user's message in a client's list.
         push(s, at, {
           type: EventType.RUN_STARTED,
@@ -767,6 +782,7 @@ function synthesise(input: unknown): {
     unstamped: { missing: [], malformed: [] },
     attached: new Set(),
     open: [],
+    turnFloor: { at: 0, runId: undefined, clamped: new Set() },
   }
   const normalised = normalise(input, s.warnings)
   if (normalised === undefined) return { normalised, events: [], warnings: s.warnings }
