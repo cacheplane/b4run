@@ -1,6 +1,6 @@
 # Flight Planner Web UI
 
-B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. It renders its own thread rail, transcript, and composer in place of `CopilotSidebar`, so the streamed brief and the plan, subagent, tool, and approval cards all appear inline in message order.
+B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. CopilotKit's stock `<CopilotChat>` sits in a floating dock over a route map, inside B4.run's `<B4Activity>`, so the streamed brief, the turn's plan, subagent and tool steps, and the approval card all appear in message order, while the map, the navlog sheet, and the weather strip read the same turns from outside the chat.
 
 This recipe covers the application wiring. For the endpoint, events, threading, and interrupt outcomes, see [AG-UI and Web Clients](/docs/ag-ui).
 
@@ -9,17 +9,17 @@ This recipe covers the application wiring. For the endpoint, events, threading, 
 The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
 - **Thread rail:** "New conversation" plus the list of threads, each titled from its first user message.
-- **Chat + report:** streamed markdown output and citations in the app's own transcript.
-- **Plan cards:** the root checklist updates in place while the plan runs.
-- **Subagent cards:** the `weather` and `performance` subagents' delegated-work status, child checklist progress, and a bounded trail of child-tool names and statuses.
-- **Suggestions + tools:** three discovery prompts on the empty state, and generic root-tool cards in the transcript.
-- **Permissions:** the standard interrupt UI owns the approve and deny actions, rendered at the end of the transcript where the run stopped.
-- **Composer:** send, attach an image when the route's model takes one, and stop while a run is in flight. It's blocked while the agent is running or waiting on an approval, and the header says which.
+- **Chat + report:** streamed markdown output and citations in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in.
+- **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
+- **Map, sheet and weather strip:** the route, the navlog legs, and the weather chips are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
+- **Suggestions:** three discovery prompts on the empty chat.
+- **Permissions:** the kit's `ApprovalCard` owns approve and deny, rendered in the chat where the run stopped.
+- **Input:** `<CopilotChat>`'s own input, with an image attachment when the route's model takes one. It waits while an approval is open.
 - **Media:** images, audio, video, and documents in user messages and tool results, plus a notice for each part the model never saw.
 
-The plan and subagent cards only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
+The activity steps only display progress. Interrupts are resolved through the standard AG-UI fields described on the protocol page.
 
-The Workbench also reviews durable memory. A small panel reaches B4.run through the same allowlisted, same-origin proxy used for thread hydration. See [Approve memory candidates](#approve-memory-candidates) below.
+The Workbench also reviews durable memory. A small panel reaches B4.run through an allowlisted, same-origin proxy. See [Approve memory candidates](#approve-memory-candidates) below.
 
 ## Run it
 
@@ -56,6 +56,7 @@ The Next.js runtime route registers a `B4HttpAgent`, an AG-UI `HttpAgent` that a
 
 ```ts title="examples/navlog/web/app/api/copilotkit/[...path]/route.ts"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
+import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
 
 export const runtime = "nodejs"
@@ -67,6 +68,8 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
     agents: { default: new B4HttpAgent({ url: agUiUrl }) },
+    // Restores a thread on `connect` from B4.run's storage.
+    runner: new B4AgentRunner({ url: b4Url }),
   }),
   basePath: "/api/copilotkit",
 })
@@ -78,22 +81,15 @@ export const POST = handler
 ```tsx title="examples/navlog/web/app/page.tsx"
 // Excerpt: the provider tree. Thread state and its handlers live in the same
 // file, over `app/lib/thread-source.ts`.
-<CopilotKit
-  runtimeUrl="/api/copilotkit"
-  useSingleEndpoint={false}
-  defaultThrottleMs={100}
-  renderActivityMessages={workbenchActivityRenderers}
->
+<CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false} defaultThrottleMs={100}>
   <CopilotChatConfigurationProvider threadId={activeThreadId}>
     <DemoSuggestions />
-    <ToolCallCard />
     <AppShell
       threads={threads}
       activeThreadId={activeThreadId}
       onSelectThread={handleSelect}
       onCreateThread={handleCreate}
       onUserMessage={handleUserMessage}
-      threadSource={source}
     />
   </CopilotChatConfigurationProvider>
 </CopilotKit>
@@ -108,26 +104,35 @@ The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths u
   B4.run agent under that id, or set the same explicit id on every consumer.
 </Callout>
 
-Three pieces of that tree matter most:
+Two pieces of that tree matter most, plus the suggestions:
 
 - `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full planning run streams hundreds of events, which pegs the renderer.
 - `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a row in the rail would change nothing.
-- `<DemoSuggestions />` and `<ToolCallCard />` render nothing. They publish into CopilotKit's registries, and the transcript reads them back.
+- `<DemoSuggestions />` renders nothing. It publishes the starter prompts into CopilotKit's suggestion registry, and `<CopilotChat>` shows them on an empty thread.
 
 ## The workbench shell
 
-`AppShell` is the only component that talks to the agent. It calls `useAgent()` with no arguments. That unscoped form takes its thread from the surrounding chat configuration, so the transcript, `useInterrupt`, `useSuggestions`, and the tool-call renderers all resolve the same agent and thread.
+`AppShell` is the only component that talks to the agent. It calls `useAgent()` with no arguments. That unscoped form takes its thread from the surrounding chat configuration, so `<CopilotChat>`, `B4Activity`'s interrupt handling, `useSuggestions`, and the shell all resolve the same agent and thread.
 
-Dropping the sidebar has two consequences you'll want to handle if you build your own shell:
+The workbench lives inside `<B4Activity key={threadId}>`. The key matters: B4Activity's pending approval card is cleared only by a new run, so an activity that outlived a thread switch would show the previous thread's approval on the next one. The key also restarts the turns from empty and remounts the chat, which connects the new thread.
 
-- **Run failures need a subscription.** `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the sidebar used to do for you.
-- **The permission gate needs `renderInChat: false`.** The default (`true`) publishes the element into `<CopilotChat>`/`<CopilotSidebar>`. With neither mounted, the gate renders nowhere: the run parks with no approve or deny UI, no error, and green tests. With it set, `useInterrupt` returns the element and `Transcript` places it at the end of the message list.
+```tsx title="examples/navlog/web/app/components/NavlogChat.tsx"
+// Inside B4Activity: the stock chat with B4.run's slots.
+const slots = useB4ChatSlots()
+<CopilotChat threadId={threadId} messageView={slots.messageView} input={input} attachments={attachments} />
+```
 
-Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`.
+`useB4ChatSlots` renders each turn as a `TurnActivity` and a parked interrupt as an `ApprovalCard`. The example's `NavlogChat` adds echo-free prose, named input controls, and the image attachment below. `renderStep` on `B4Activity` (`app/components/StepViews.tsx`) gives `computeNavlog` a one-line totals view with a link to the sheet, and `renderChart` its image.
 
-The same seam restores history when you switch threads. CopilotKit's own replay path (`connectAgent`) only runs inside `<CopilotChat>`, which this app leaves out. So the shell reads `GET /threads/:id/state` through the proxy and maps the checkpoint's LangChain envelopes into the shapes the transcript already renders (`app/lib/hydrate.ts`). Messages, tool calls and results, and the plan come back. Subagent activity cards from earlier runs aren't checkpointed, so they don't, and the app says so in a line above the restored messages.
+Run failures still need a subscription. `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the shell turns into a banner above the chat.
 
-The same seam also carries `GET /threads/:id/pending_interrupts`, which lets a permission prompt survive a reload. `useInterrupt` only gets its state from live run events, so after a reload the server is still holding the gate and nothing on screen says so. `app/components/HydratedInterrupts.tsx` asks for the parked interrupts and reports their count upward, so the composer stays blocked until one is answered.
+Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`. The rail holds ids, titles and recency only.
+
+The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `weather-selectors.ts`) pick the latest `computeNavlog` result and `weather` brief from them.
+
+### Restoring a thread
+
+`<CopilotChat>` calls `connect` when it mounts, and the runtime route's `B4AgentRunner` answers it by replaying `GET /threads/:id/events` from B4.run's checkpoints as AG-UI events, so a restored thread and a live one go through the same path: the chat messages, the turns, and a parked approval all come back, with the media the thread carried. The browser never reads thread state itself, so the proxy has no thread routes. A brand-new thread has nothing to replay and restores as an empty chat. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload) for the runner and the per-request identity it needs.
 
 To restyle the app, edit `examples/navlog/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
 
@@ -142,37 +147,36 @@ const canAttachImages = capabilities?.multimodal?.input?.image === true
 
 There is no browser call to make here. In the browser, the agent is CopilotKit's runtime proxy, and it carries what the runtime's `/info` sync fetched through `B4HttpAgent.getCapabilities()`. `useCapabilities()` returns `undefined` until that handshake lands, which keeps the control hidden until then.
 
-The composer reads a picked file as an inline `image` part, with the bytes and `mimeType` split out of the `data:` URL and the filename in `metadata`. On send, the shell puts the text first and adds the message itself:
+`NavlogChat` hands `<CopilotChat>` an `attachments` prop with `enabled: canAttachImages`, the accepted image types, and a size cap. The chat reads a picked file into an inline `image` part and sends it with the message; a text-only turn stays a plain string.
 
-```tsx title="examples/navlog/web/app/components/AppShell.tsx"
-const content: string | B4ContentPart[] =
-  parts.length > 0
-    ? [...(text.length > 0 ? [{ type: "text" as const, text }] : []), ...parts]
-    : text
-agent.addMessage({ id: globalThis.crypto.randomUUID(), role: "user", content })
+```tsx title="examples/navlog/web/app/components/NavlogChat.tsx"
+const attachments = {
+  enabled: canAttachImages,
+  accept: ATTACHABLE_IMAGE_TYPES.join(","),
+  maxSize: MAX_ATTACHMENT_BYTES,
+  onUploadFailed: (failure) => setAttachNotice(attachmentFailureText(failure)),
+}
 ```
 
-A text-only turn stays a plain string, so it's exactly what it was before attachments existed.
+It accepts PNG, JPEG, GIF and WebP images, the types OpenAI's vision input takes, and refuses any file over 4 MB with one dismissible line above the chat. The cap matters because every turn sends the whole conversation to `/agui`, whose request body limit is 8 MiB, so one large image would break every turn after it.
 
-The composer accepts PNG, JPEG, GIF and WebP images, the types OpenAI's vision input takes, and refuses any file over 4 MB. The cap matters because every turn sends the whole conversation to `/agui`, whose request body limit is 8 MiB, so one large image would break every turn after it.
+### Media in the chat
 
-### Media in the transcript
-
-User bubbles and tool cards draw their media with `app/components/MediaParts.tsx`: an `<img>` for an image, the native players for audio and video, a download chip for a document, and a chip naming the handle for a provider `file` source, which the browser can't load. A `url` source is loaded only when it's `http(s)`, because tool results are model-driven.
+Tool steps draw their media with `app/components/MediaParts.tsx` (user messages carry theirs through `<CopilotChat>`): an `<img>` for an image, the native players for audio and video, a download chip for a document, and a chip naming the handle for a provider `file` source, which the browser can't load. A `url` source is loaded only when it's `http(s)`, because tool results are model-driven.
 
 Each part's MIME type has to match what the part claims to be. An image part whose type isn't `image/*` renders as a chip, and so does audio or video with the wrong type. Only PDF, CSV, Markdown and plain-text documents get a download link, and the downloaded file is named from the type (`document.pdf`), never from the part's filename, which is shown only as the label.
 
-Tool-result media is drawn beside the card, not inside it. CopilotKit's tool renderer only receives `contentToText(content)`, so the parts are flattened to text before `ToolCallCard` sees them. The app's `Transcript` keeps the result's parts and renders `MediaParts` under the card itself.
+A tool result's media arrives on the step as `parts`, live and after a restore, so `ChartStepView` (`app/components/StepViews.tsx`, registered for `renderChart` through `B4Activity`'s `renderStep`) draws it inside the opened step with `MediaParts`.
 
 ### Parts the model didn't see
 
-When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and the transcript turns each event into a muted line, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`. A notice with a `toolCallId` follows that tool call. One without it is about the user's own message, so the shell stamps it with the newest user message's id and it stays after that turn.
+When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and shows each event as a muted line in the dock above the chat, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`.
 
 CopilotKit keeps no record of `CUSTOM` events, so the notices live only in the shell's state. Switching threads clears them, and a reload or a restored thread doesn't bring them back.
 
-### Restored threads
+### Media after a restore
 
-Hydration (`app/lib/hydrate.ts`) brings media back too. A checkpointed user message holds LangChain content blocks, not AG-UI parts, so `blocksToParts` in `app/lib/parts.ts` maps them back. A tool that returned parts keeps the full list in the tool message's `additional_kwargs.b4_content_parts`, while its `content` holds only what the model could take. The UI shows what the tool produced, so those parts win.
+The replay carries media. A user message that held an attachment comes back as AG-UI content parts, and a tool that returned parts keeps the full list in the tool message's `additional_kwargs.b4_content_parts`, which the replay sends as the tool result's parts. The UI shows what the tool produced, even where the model's own copy held only text.
 
 A user image the adapter dropped is a different case. It never reached the model, so it isn't in the checkpoint, and it doesn't come back when the thread is restored.
 
@@ -187,11 +191,13 @@ return [
 ]
 ```
 
-The user sees the chart under the tool card. The model, `gpt-5-mini`, sees only the summary, because media in a tool result never reaches an OpenAI model. So every `renderChart` call also produces a dropped-part notice. That's expected: the notice is telling you the truth about what the model saw.
+The user sees the chart in the opened `renderChart` step. The model, `gpt-5-mini`, sees only the summary, because media in a tool result never reaches an OpenAI model. So every `renderChart` call also produces a dropped-part notice. That's expected: the notice is telling you the truth about what the model saw.
 
 ## Render plan and subagent activities
 
-The plan and subagent cards ship with the adapter. Install the package and hand its renderer array to CopilotKit:
+The navlog example gets the plan and the subagents from `B4Activity`: each turn's `TurnActivity` shows the plan as a step and nests the `weather` and `performance` subagents with their own plan and tool steps, from the same AG-UI events. Choose **Plan a flight** on the empty chat to watch them update before the brief.
+
+A client that doesn't use `B4Activity` can render the plan and subagent cards that ship with the adapter on their own. Install the package and hand its renderer array to CopilotKit:
 
 ```bash
 npm install @b4run/ag-ui
@@ -217,11 +223,9 @@ The cards carry no inline styles, so without that import they render as bare mar
 
 `b4ActivityRenderers` is a module-scope constant, so the registry keeps a stable identity across React renders. Its renderer is keyed by the adapter's own activity-type constant and validates the activity content with a strict runtime schema, so it rejects a payload with unknown or incompatible fields rather than dump arbitrary JSON into the transcript.
 
-The example passes its own `workbenchActivityRenderers`, from `examples/navlog/web/app/components/activity-renderers.tsx`. It wraps the packaged `PlanActivityCard` and passes the packaged content schema, adding only per-part classes through the `classNames` prop, so validation and bounds stay in the package, where they're tested.
+The packaged `SubagentPanel` (`useSubagentRuns(agent)` on the `useAgent()` instance) is the standalone way to show subagents: the hook subscribes to the agent's event stream and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations, and the panel renders them nested — name, status, reasoning, prose, plan, tool calls with arguments and results, and the final result or error.
 
-Subagents are not activities. The transcript (`app/components/Transcript.tsx`) calls `useSubagentRuns(agent)` on the `useAgent()` instance and mounts the packaged `SubagentPanel` on the result: the hook subscribes to the agent's event stream and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations, and the panel renders them nested — name, status, reasoning, prose, plan, tool calls with arguments and results, and the final result or error. The same `classNames` rule applies to the panel.
-
-There's one catch with `classNames`. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are layered. For the properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, use the `--b4-activity-*` tokens. The app sets those in `app/theme.css`.
+There's one catch with the `classNames` prop on those components. An entry can only set a property that the package stylesheet leaves unset on that element, because the package's CSS is unlayered and Tailwind's utilities are layered. For the properties the stylesheet does set on the card's own box (background, border color, radius, text color, font-size, margin, and padding), plus the header's font weight and the depth badge's background, use the `--b4-activity-*` tokens. Set them in your own CSS, as the navlog example does in `app/theme.css` for the activity tokens.
 
 React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` subpath needs them. A server that uses the root or `./sse` entry installs nothing extra.
 
@@ -237,7 +241,7 @@ The plan activity is the whole presentation of `writeTodos`: when a `writeTodos`
 
 The wildcard card is still the fail-open fallback for `writeTodos`. If the plan activity cannot be produced (no tool-call id, a malformed payload), the ordinary tool events survive and the generic card renders them.
 
-Choose **Plan a flight** on the empty transcript to see the root plan and the `weather` and `performance` progress update before the brief. This live flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
+The live planning flow uses the B4.run server's model key. The automated browser check only proves V2 transport selection.
 
 ## Approve memory candidates
 
@@ -251,7 +255,7 @@ POST /memory/candidates/:id/reject
 
 The browser cannot call those routes directly unless the server sets [`server.cors`](/docs/configuration#server). Without it, the B4.run dev server sends no CORS headers, so the example reaches them through a same-origin catch-all, `app/api/b4/[...path]/route.ts`.
 
-That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function listing the exact method and path shape of every route the browser may reach: the three memory routes above plus `GET /threads/:id/state` and `GET /threads/:id/pending_interrupts`. Anything else is rejected with 403 and never forwarded. That keeps `POST /threads/:id/resume` and the rest of the agent surface out of reach in a template every B4.run developer copies.
+That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function listing the exact method and path shape of every route the browser may reach: the three memory routes above and nothing else. Thread history isn't proxied: the runtime route's `B4AgentRunner` reads it server to server. Anything else is rejected with 403 and never forwarded. That keeps `POST /threads/:id/resume` and the rest of the agent surface out of reach in a template every B4.run developer copies.
 
 <Callout title="Allowlist before you extend">
   Running, resuming, and cancelling a thread are left off the list on purpose.
@@ -259,8 +263,9 @@ That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function l
   only when the browser really needs it, and prefer reads. Note, the proxy
   forwards with no authentication and the example installs no `threadAccess`
   policy. The allowlist limits which routes are reachable, not who can reach
-  them, so anything that can reach the Next app can read any thread's
-  transcript by guessing its id. Add a `threadAccess` policy on the B4.run side
+  them, so anything that can reach the Next app and holds a thread id can
+  restore that thread through the runtime route unless the runner's `fetch`
+  carries a per-request caller. Add a `threadAccess` policy on the B4.run side
   before this leaves your own machine.
 </Callout>
 
