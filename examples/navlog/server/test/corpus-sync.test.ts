@@ -44,3 +44,26 @@ describe("workspace/poh matches src/lib/poh-tables", () => {
     }
   })
 })
+
+describe("workspace/aircraft/c172n.md matches the POH", () => {
+  const aircraft = readFileSync(
+    fileURLToPath(new URL("../workspace/aircraft/c172n.md", import.meta.url)),
+    "utf8",
+  )
+  it("usable fuel for long range and standard tanks", () => {
+    const fuel = doc("weights-and-fuel")
+    expect(fuel).toContain("| Long range (2) | 27 US gal | 54 US gal | 50 US gal | 4 US gal |")
+    expect(fuel).toContain("| Standard (2) | 21.5 US gal | 43 US gal | 40 US gal | 3 US gal |")
+    expect(aircraft).toContain(
+      "| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |",
+    )
+  })
+  it("start, taxi and takeoff fuel", () => {
+    expect(doc("time-fuel-distance-to-climb")).toContain(
+      "Add 1.1 gallons for engine start, taxi and takeoff.",
+    )
+    expect(aircraft).toContain(
+      "| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |",
+    )
+  })
+})
