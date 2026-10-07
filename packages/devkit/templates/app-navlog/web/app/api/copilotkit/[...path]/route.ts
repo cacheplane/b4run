@@ -15,9 +15,12 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
  * Every upstream call (the run, `/info`'s capabilities read, and the runner's
  * replay of `/threads/:id/events`) carries THIS request's visitor id and, when
  * deployed, the internal token. The id travels by context rather than
- * constructor because the agent and runner are shared across requests. CopilotKit
- * forwards inbound `x-*` headers into the runner's connect request, so a
- * browser-sent `x-b4-visitor` is dropped here before the real one is set. See
+ * constructor because the agent and runner are shared across requests.
+ * CopilotKit copies the browser's `authorization` and `x-*` headers onto the
+ * agent for a run (and hands them to the runner's connect, which never
+ * forwards them — `B4AgentRunner` builds its replay request from scratch), so
+ * the strip protects the run path: a browser-sent `x-b4-visitor` or
+ * `x-internal-token` is dropped here before the real one is set. See
  * `lib/proxy-guard.ts` for the guards themselves.
  */
 const guardedFetch = ((input: RequestInfo | URL, init?: RequestInit) => {

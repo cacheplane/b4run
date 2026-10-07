@@ -66,6 +66,10 @@ type WorkbenchThread = import("../lib/thread-source").WorkbenchThread
 
 interface FakeSubscriber {
   onCustomEvent?: (params: { event: { name: string; value: unknown } }) => void
+  onNewMessage?: (params: { message: { id: string; role: string; content?: unknown } }) => void
+  onRunStartedEvent?: () => void
+  onRunFinalized?: () => void
+  onRunFailed?: () => void
 }
 
 interface FakeAgent {
@@ -142,6 +146,31 @@ const text = (): string => container.textContent ?? ""
 const alert = (): Element | null => container.querySelector('[role="alert"]')
 const button = (name: string): HTMLButtonElement | undefined =>
   [...container.querySelectorAll("button")].find((b) => b.textContent === name)
+
+/**
+ * A message the user sends: `CopilotChat` (submit or a suggestion pill) calls
+ * `agent.addMessage`, which pushes it and fires `onNewMessage`. A restore
+ * does neither — the replayed messages arrive through `RUN_STARTED.input`.
+ */
+function send(id: string, content: unknown): void {
+  act(() => {
+    const message = { id, role: "user", content }
+    mocks.agent.messages = [...mocks.agent.messages, message]
+    for (const subscriber of mocks.agent.subscribers) subscriber.onNewMessage?.({ message })
+  })
+}
+
+/** A restore: the replay lands on the agent with no `onNewMessage`. */
+function restore(messages: FakeAgent["messages"], activeThreadId: string): void {
+  mocks.agent.messages = messages
+  rerender(activeThreadId)
+}
+
+function agentEvent(name: "onRunStartedEvent" | "onRunFinalized" | "onRunFailed"): void {
+  act(() => {
+    for (const subscriber of mocks.agent.subscribers) subscriber[name]?.()
+  })
+}
 
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -241,15 +270,48 @@ describe("app shell workbench", () => {
     expect(mocks.chatProps.at(-1)?.canAttachImages).toBe(true)
   })
 
-  test("the status badge reads Running from the agent and Awaiting approval from the turns", async () => {
+  test("the status badge reads Running from a working turn and Awaiting approval from the turns", async () => {
     await render("thread-a")
     expect(text()).toContain("Ready")
     mocks.turns = { turns: [{ status: "awaiting", steps: [] }] }
     rerender("thread-a")
     expect(text()).toContain("Awaiting approval")
-    mocks.agent.isRunning = true
+    mocks.turns = { turns: [{ status: "working", steps: [] }] }
     rerender("thread-a")
     expect(text()).toContain("Running")
+  })
+
+  test("a restore is not a run: the agent's connect-time isRunning alone reads Ready", async () => {
+    await render("thread-a")
+    mocks.agent.isRunning = true
+    mocks.turns = { turns: [{ status: "done", steps: [] }] }
+    rerender("thread-a")
+    expect(text()).toContain("Ready")
+    expect(text()).not.toContain("Running")
+  })
+
+  test("a send reads Running at once, before its run's first event lands", async () => {
+    await render("thread-a")
+    mocks.agent.isRunning = true
+    send("u1", "Plan KSTP to KRST")
+    expect(text()).toContain("Running")
+    // RUN_STARTED hands over to the turns, which now carry the run.
+    mocks.turns = { turns: [{ status: "working", steps: [] }] }
+    agentEvent("onRunStartedEvent")
+    expect(text()).toContain("Running")
+    mocks.turns = { turns: [{ status: "done", steps: [] }] }
+    mocks.agent.isRunning = false
+    agentEvent("onRunFinalized")
+    rerender("thread-a")
+    expect(text()).toContain("Ready")
+  })
+
+  test("a send that fails before its run starts does not leave the badge on Running", async () => {
+    await render("thread-a")
+    send("u1", "Plan KSTP to KRST")
+    expect(text()).toContain("Running")
+    agentEvent("onRunFailed")
+    expect(text()).not.toContain("Running")
   })
 })
 
@@ -312,6 +374,17 @@ describe("app shell errors", () => {
     consoleError.mockRestore()
   })
 
+  test("the server coming back clears a banner from while it was down", async () => {
+    probeStatus = 502
+    await render("thread-a")
+    act(() => mocks.onError?.({ error: new Error("fetch failed"), code: "agent_connect_failed" }))
+    probeStatus = 200
+    act(() => button("Try again")?.click())
+    await act(async () => {})
+    expect(text()).not.toContain(CONNECT_SCREEN_HEADING)
+    expect(alert()).toBeNull()
+  })
+
   test("a thread switch clears the banner", async () => {
     await render("thread-a")
     act(() => mocks.onError?.({ error: new Error("boom"), code: "agent_run_failed" }))
@@ -320,8 +393,58 @@ describe("app shell errors", () => {
   })
 })
 
+describe("app shell rail recency", () => {
+  test("every message the user sends touches the thread, not just the first", async () => {
+    await render("thread-b")
+    send("u1", "Duluth tomorrow")
+    send("u2", "File it")
+    expect(onUserMessage.mock.calls).toEqual([["Duluth tomorrow"], ["File it"]])
+  })
+
+  test("the first send in an untitled thread touches it once, with its title", async () => {
+    await render("thread-a")
+    send("u1", "Plan KSTP to KRST")
+    rerender("thread-a")
+    expect(onUserMessage.mock.calls).toEqual([["Plan KSTP to KRST"]])
+  })
+
+  test("a message delivered twice touches once", async () => {
+    await render("thread-b")
+    act(() => {
+      const message = { id: "u1", role: "user", content: "again" }
+      for (const subscriber of mocks.agent.subscribers) {
+        subscriber.onNewMessage?.({ message })
+        subscriber.onNewMessage?.({ message })
+      }
+    })
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test("assistant messages do not touch", async () => {
+    await render("thread-b")
+    act(() => {
+      for (const subscriber of mocks.agent.subscribers)
+        subscriber.onNewMessage?.({ message: { id: "a1", role: "assistant", content: "Hi" } })
+    })
+    expect(onUserMessage).not.toHaveBeenCalled()
+  })
+
+  test("restoring a titled thread does not touch it", async () => {
+    await render("thread-b")
+    restore(
+      [
+        { id: "u1", role: "user", content: "Duluth tomorrow" },
+        { id: "a1", role: "assistant", content: "VFR." },
+        { id: "u2", role: "user", content: "File it" },
+      ],
+      "thread-b",
+    )
+    expect(onUserMessage).not.toHaveBeenCalled()
+  })
+})
+
 describe("app shell titling", () => {
-  test("titles an untitled thread from its first user message, once", async () => {
+  test("titles a restored untitled thread from its first user message, once", async () => {
     await render("thread-a")
     expect(onUserMessage).not.toHaveBeenCalled()
     mocks.agent.messages = [{ id: "u1", role: "user", content: "Plan KSTP to KRST" }]

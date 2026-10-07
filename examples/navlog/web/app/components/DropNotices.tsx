@@ -21,12 +21,6 @@ export interface DropNotice {
   readonly provider?: string
   readonly model?: string
   readonly toolCallId?: string
-  /**
-   * Not on the wire: stamped by the shell when a user-turn notice (no
-   * `toolCallId`) arrives — the id of the newest user message at that moment,
-   * which is the turn whose parts were dropped.
-   */
-  readonly anchorMessageId?: string
   readonly parts: readonly DroppedPartLike[]
 }
 

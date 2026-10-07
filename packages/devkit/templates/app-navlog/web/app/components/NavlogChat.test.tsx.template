@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
 import type { Message } from "@ag-ui/client"
 import type { TurnsView } from "@b4run/ag-ui/view"
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 
@@ -27,7 +30,7 @@ vi.mock("@b4run/ag-ui/copilotkit", () => ({
   useB4ActivityContext: () => ({ turns: mocks.turns }),
 }))
 
-const { NavlogChat, stripEchoMessages } = await import("./NavlogChat")
+const { NavlogChat, attachmentFailureText, stripEchoMessages } = await import("./NavlogChat")
 
 type Slot = Record<string, unknown>
 function render(props: { canAttachImages?: boolean } = {}) {
@@ -91,8 +94,51 @@ describe("NavlogChat", () => {
       enabled: true,
       accept: "image/png,image/jpeg,image/gif,image/webp",
       maxSize: 4 * 1024 * 1024,
+      onUploadFailed: expect.any(Function),
     })
     expect((render({ canAttachImages: false }).chat.attachments as Slot).enabled).toBe(false)
+  })
+
+  test("the slot objects keep their identity across renders with the same inputs", () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    act(() => root.render(<NavlogChat threadId="t1" canAttachImages />))
+    const first = mocks.chatProps ?? {}
+    act(() => root.render(<NavlogChat threadId="t1" canAttachImages />))
+    const second = mocks.chatProps ?? {}
+    expect(second.input).toBe(first.input)
+    expect(second.scrollView).toBe(first.scrollView)
+    expect(second.attachments).toBe(first.attachments)
+    // A changed input is a new object: CopilotChat must see the new label.
+    mocks.isRunning = true
+    act(() => root.render(<NavlogChat threadId="t1" canAttachImages />))
+    expect(mocks.chatProps?.input).not.toBe(first.input)
+    act(() => root.unmount())
+  })
+
+  test("a rejected attachment shows a dismissible line in the dock", () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    act(() => root.render(<NavlogChat threadId="t1" canAttachImages />))
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    const attachments = mocks.chatProps?.attachments as {
+      onUploadFailed: (error: { reason: string; file: File; message: string }) => void
+    }
+    const file = new File(["x"], "chart.png", { type: "image/png" })
+    act(() => attachments.onUploadFailed({ reason: "file-too-large", file, message: "too big" }))
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "chart.png is larger than 4 MB",
+    )
+    const dismiss = [...container.querySelectorAll("button")].find(
+      (b) => b.textContent === "Dismiss",
+    )
+    act(() => dismiss?.click())
+    expect(container.querySelector('[role="status"]')).toBeNull()
+    act(() => root.unmount())
+    container.remove()
   })
 
   test("transformMessages merges turns, then strips echoed tool calls", () => {
@@ -105,6 +151,21 @@ describe("NavlogChat", () => {
     const out = transform([])
     expect(mocks.merge).toHaveBeenCalledTimes(1)
     expect(out).toEqual([{ id: "a1", role: "assistant", content: "The winds are calm." }])
+  })
+})
+
+describe("attachmentFailureText", () => {
+  const file = new File(["x"], "notes.heic", { type: "image/heic" })
+  test("names the file that is too large, and the types that can be attached", () => {
+    expect(attachmentFailureText({ reason: "file-too-large", file, message: "" })).toBe(
+      "notes.heic is larger than 4 MB",
+    )
+    expect(attachmentFailureText({ reason: "invalid-type", file, message: "" })).toBe(
+      "Only PNG, JPEG, GIF or WebP images can be attached.",
+    )
+    expect(attachmentFailureText({ reason: "upload-failed", file, message: "" })).toBe(
+      "Could not read notes.heic",
+    )
   })
 })
 

@@ -151,11 +151,15 @@ function asDropNotice(value: unknown): DropNotice | undefined {
   return value as DropNotice
 }
 
-/** The content of the first user message, which titles the thread. */
-function firstUserMessageContent(
-  messages: readonly { role: string; content?: unknown }[],
-): unknown {
-  return messages.find((message) => message.role === "user")?.content
+interface MessageShape {
+  readonly id: string
+  readonly role: string
+  readonly content?: unknown
+}
+
+/** The first user message, which titles the thread. */
+function firstUserMessage(messages: readonly MessageShape[]): MessageShape | undefined {
+  return messages.find((message) => message.role === "user")
 }
 
 interface RunErrorState {
@@ -169,7 +173,14 @@ export interface AppShellProps {
   readonly activeThreadId: string | undefined
   readonly onSelectThread: (threadId: string) => void
   readonly onCreateThread: () => void
-  /** Reported once per untitled thread so the rail can title it from its first user message. */
+  /**
+   * Reported for every message the user sends in the active thread (a typed
+   * submit or a suggestion pill), so the rail can move the thread to the top;
+   * the argument is that message's title text (`titleFor`), which titles the
+   * thread if it has no title yet and is otherwise ignored. A restore reports
+   * nothing — replaying a conversation is not activity in it — except once,
+   * with the first user message, for a restored thread that was never titled.
+   */
   readonly onUserMessage: (message: string) => void
 }
 
@@ -288,15 +299,25 @@ export function AppShell({
     }
   }, [copilotkit])
 
+  // A banner raised while the server was down (a load that failed because
+  // B4.run was gone) is stale once it is back: recovery remounts the
+  // workbench, which connects the thread again on its own.
+  const previousServerStatusRef = useRef(serverStatus)
+  useEffect(() => {
+    if (previousServerStatusRef.current === "down" && serverStatus === "up") setRunError(null)
+    previousServerStatusRef.current = serverStatus
+  }, [serverStatus])
+
   // A thread switch. The keyed `B4Activity` remounts the chat, which connects
   // the new thread; what lives on the SHARED agent does not go with it.
-  // `pendingInterrupts` must be cleared by hand: an explicit-thread connect
-  // does not clear them, and a parked interrupt from the abandoned thread
-  // makes the next run throw ("pending interrupt(s) not addressed by
-  // resume"). The messages are cleared too, so the thread's title and the
-  // selectors never read the previous thread's history in the beat before
-  // the replay lands. Child effects run before this one, but the chat's
-  // connect is asynchronous, so the clear lands before its replay.
+  // Clearing `pendingInterrupts` here is a safety net: CopilotKit's
+  // `connectAgent` already clears them when the thread changes, but a parked
+  // interrupt from the abandoned thread would make the next run throw
+  // ("pending interrupt(s) not addressed by resume"), so the shell does not
+  // depend on that ordering. The messages are cleared too, so the thread's
+  // title and the selectors never read the previous thread's history in the
+  // beat before the replay lands. Child effects run before this one, but the
+  // chat's connect is asynchronous, so the clear lands before its replay.
   //
   // The ref keeps an agent swap (the provisional stand-in replaced by the
   // runtime's agent after `/info`) from counting as a switch.
@@ -311,10 +332,39 @@ export function AppShell({
     setNotices([])
   }, [activeThreadId, agent])
 
-  // Titles an untitled thread from its first user message, once. `CopilotChat`
-  // sends on its own, so the first user message is read off the agent rather
-  // than caught at a send call; a restored thread that was never titled gets
-  // its title the same way once the replay lands.
+  // Rail recency: every message the user sends touches the thread. Read off
+  // the agent rather than caught at a send call, because `CopilotChat` sends
+  // on its own: its submit and its suggestion pills both go through
+  // `agent.addMessage`, which fires `onNewMessage`. A restore does not: the
+  // replayed user messages arrive inside `RUN_STARTED.input`, which
+  // `@ag-ui/client` merges into the messages without `onNewMessage`, so
+  // opening an old conversation never moves it up the rail. `onNewMessage`
+  // also fires for assistant messages (at `TEXT_MESSAGE_END`), hence the role
+  // check, and ids are deduped per subscription so a message reported twice
+  // touches once. The callback is read through a ref so a new `onUserMessage`
+  // (it closes over the active thread id) does not resubscribe.
+  const onUserMessageRef = useRef(onUserMessage)
+  onUserMessageRef.current = onUserMessage
+  const touchedIdsRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const touched = new Set<string>()
+    touchedIdsRef.current = touched
+    const subscription = agent.subscribe({
+      onNewMessage: ({ message }) => {
+        if (message.role !== "user" || touched.has(message.id)) return
+        touched.add(message.id)
+        onUserMessageRef.current(titleFor(message.content))
+      },
+    })
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [agent])
+
+  // Titles a RESTORED thread that was never titled (the conversation exists
+  // on B4.run but the rail has no title for it), once the replay lands. A
+  // thread whose first message was sent here was titled by the touch above,
+  // so a first user message that subscription already reported is skipped.
   const activeThread = threads.find((thread) => thread.id === activeThreadId)
   //
   // The messages are read when the effect runs, not at render: on a switch the
@@ -322,16 +372,18 @@ export function AppShell({
   // run by now (effects run in order). `firstUserContent` is a dependency
   // only so the effect runs again when the first user message arrives.
   const titledRef = useRef<string | undefined>(undefined)
-  const firstUserContent = firstUserMessageContent(agent.messages)
+  const firstUserContent = firstUserMessage(agent.messages)?.content
   useEffect(() => {
     void firstUserContent
     if (activeThreadId === undefined || activeThread === undefined) return
     if (activeThread.title !== undefined || titledRef.current === activeThreadId) return
-    const title = titleFor(firstUserMessageContent(agent.messages))
+    const first = firstUserMessage(agent.messages)
+    if (first === undefined || touchedIdsRef.current.has(first.id)) return
+    const title = titleFor(first.content)
     if (title.length === 0) return
     titledRef.current = activeThreadId
-    onUserMessage(title)
-  }, [activeThreadId, activeThread, agent, firstUserContent, onUserMessage])
+    onUserMessageRef.current(title)
+  }, [activeThreadId, activeThread, agent, firstUserContent])
 
   // Parts the model never saw (`b4.content_parts_dropped`, emitted by the
   // langchain adapter when the provider or model cannot take a part), as
@@ -465,11 +517,38 @@ function ThreadWorkbench({
     navlogRef === null
       ? ""
       : navlogAnswerText(agent.messages as readonly MessageLike[], navlogRef.id)
-  const status = agent.isRunning
-    ? "running"
-    : isAwaitingApproval(turns)
-      ? "awaiting approval"
-      : undefined
+  // The badge says "running" for a run, never for a restore. `agent.isRunning`
+  // cannot tell them apart: `connectAgent` holds it for the whole replay, so
+  // every thread opened would read "running". The turns can: a turn is
+  // `working` from its `RUN_STARTED` until it settles, and a replayed run that
+  // already finished replays its settle too. The one gap is a send's first
+  // beat — `CopilotChat` adds the message and starts the run, but the turn
+  // appears only once `RUN_STARTED` comes back — so a user message added here
+  // (`onNewMessage` fires for a send, never for a replay) counts as running
+  // until that event, or the run's end if it fails before it. The send button
+  // keeps `agent.isRunning` (see `NavlogChat`), because that is what decides
+  // what clicking it does.
+  const [sendPending, setSendPending] = useState(false)
+  useEffect(() => {
+    const settle = () => setSendPending(false)
+    const subscription = agent.subscribe({
+      onNewMessage: ({ message }) => {
+        if (message.role === "user") setSendPending(true)
+      },
+      onRunStartedEvent: settle,
+      onRunFailed: settle,
+      onRunFinalized: settle,
+    })
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [agent])
+  const status =
+    sendPending || turns.turns.at(-1)?.status === "working"
+      ? "running"
+      : isAwaitingApproval(turns)
+        ? "awaiting approval"
+        : undefined
 
   return (
     <WorkbenchLayout
