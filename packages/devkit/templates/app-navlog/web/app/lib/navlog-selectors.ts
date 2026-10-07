@@ -48,41 +48,6 @@ const contentText = (content: unknown): string => {
   return ""
 }
 
-/** removed in Task 5. The latest assistant prose in the thread, for the sheet's brief. */
-export function lastAssistantText(messages: readonly MessageLike[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message?.role !== "assistant") continue
-    const text = contentText(message.content).trim()
-    if (text.length > 0) return text
-  }
-  return ""
-}
-
-/**
- * removed in Task 5. The text of the most recent `computeNavlog` result that holds a navlog, or
- * null. A string on purpose: the shell memoizes the parse on it, so the map
- * sees one `Navlog` object per computation rather than a new one per streamed
- * token (each new object would refit the map).
- */
-export function latestNavlogText(messages: readonly MessageLike[]): string | null {
-  const callIds = new Set<string>()
-  for (const message of messages) {
-    for (const call of message.toolCalls ?? []) {
-      if (call.function.name === "computeNavlog") callIds.add(call.id)
-    }
-  }
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message?.role !== "tool" || message.toolCallId === undefined) continue
-    if (!callIds.has(message.toolCallId)) continue
-    const text = contentText(message.content)
-    // A failed call's error text is skipped, so the last good plan stays up.
-    if (parseNavlog(text)) return text
-  }
-  return null
-}
-
 export interface ToolResultRef {
   readonly id: string
   readonly result: string
@@ -142,29 +107,12 @@ export function isAwaitingApproval(view: TurnsView): boolean {
  * prose AFTER the tool message `toolCallId` and before the next user message —
  * the reply of the turn that produced the navlog. A later turn's reply
  * ("Filed.") never replaces the brief. Empty while that turn has not answered.
- *
- * Legacy form `navlogAnswerText(messages)` (anchors on the latest navlog text)
- * is kept only until AppShell is rewritten.
  */
-export function navlogAnswerText(messages: readonly MessageLike[], toolCallId?: string): string {
-  let resultAt = -1
-  if (toolCallId === undefined) {
-    // legacy — removed in Task 5
-    const navlogText = latestNavlogText(messages)
-    if (navlogText === null) return ""
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i]
-      if (message?.role === "tool" && contentText(message.content) === navlogText) {
-        resultAt = i
-        break
-      }
-    }
-  } else {
-    resultAt = messages.findIndex(
-      (message) => message.role === "tool" && message.toolCallId === toolCallId,
-    )
-    if (resultAt < 0) return ""
-  }
+export function navlogAnswerText(messages: readonly MessageLike[], toolCallId: string): string {
+  const resultAt = messages.findIndex(
+    (message) => message.role === "tool" && message.toolCallId === toolCallId,
+  )
+  if (resultAt < 0) return ""
   let answer = ""
   for (const message of messages.slice(resultAt + 1)) {
     if (message.role === "user") break
@@ -173,10 +121,4 @@ export function navlogAnswerText(messages: readonly MessageLike[], toolCallId?: 
     if (text.length > 0) answer = text
   }
   return answer
-}
-
-/** removed in Task 5. The most recent `computeNavlog` result in the thread, or null. */
-export function latestNavlog(messages: readonly MessageLike[]): Navlog | null {
-  const text = latestNavlogText(messages)
-  return text === null ? null : parseNavlog(text)
 }
