@@ -20,6 +20,7 @@ const NEVER_IN_ANSWER = [
   /\brecall\(/,
   /\[(completed|pending|in_progress)\]/,
   /reports\//,
+  /aircraft\//,
   /engine-on/i,
 ]
 
