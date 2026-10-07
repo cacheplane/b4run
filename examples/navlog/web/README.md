@@ -4,9 +4,10 @@ A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/navlog` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
-workbench rather than a chat widget: the app renders its own transcript and composer
-instead of mounting `CopilotSidebar`, so the plan card and the `weather` and
-`performance` subagent cards appear inline in the conversation.
+workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in a
+floating dock inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
+`performance` subagents, tool steps and approval appear in the conversation, and the
+map, sheet and weather strip read the same turns from outside the chat.
 
 The live app uses a real model; there is no aimock/demo mode. Its browser test is
 model-free and proves the page discovers `GET /api/copilotkit/info` instead of sending
@@ -31,7 +32,7 @@ a legacy base-URL POST.
   list (`app/components/ThreadRail.tsx`, each thread titled from its first user
   message), the memory panel (`app/components/MemoryPanel.tsx`, the candidates the agent
   proposed with `remember()`, with Approve and Delete on each; it takes no space until
-  one is waiting), the transcript and the composer.
+  one is waiting), and the chat (`app/components/NavlogChat.tsx`, below).
 - **Weather strip** (floating top right, `app/components/WeatherStrip.tsx`) — one chip
   per airport in the `weather` subagent's brief, colored by the worse of the category
   now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,
@@ -45,32 +46,35 @@ a legacy base-URL POST.
   7 to 19 (`FlightPlanBlock.tsx`) and the assistant's brief. **Print** prints the sheet
   alone on one landscape page (the `@media print` rules in `app/theme.css`); **Copy FPL**
   copies the filing-ready `(FPL-…)` message. Hovering or focusing a row highlights that
-  leg on the map. The transcript shows a compact `computeNavlog` card
-  (`NavlogCard.tsx`) that points at the sheet.
+  leg on the map. The chat's opened `computeNavlog` step
+  (`StepViews.tsx`) shows the totals and a link that opens the sheet.
 - **Phones** (under 768 px) — the dock and the sheet become one bottom sheet with
   **Chat** and **Navlog** tabs, the navlog as one card per leg; the map stays behind it
   and the weather chips sit just above. Only the layout that applies is rendered
-  (`app/lib/use-media-query.ts`), so there is always exactly one transcript and composer.
-- **Transcript** (`app/components/Transcript.tsx`) — user and assistant messages,
-  with the plan card, the `weather` / `performance` subagent cards, tool cards, the
-  `fileFlightPlan` approval, and run
-  errors inline in message order. Before the first message it shows an empty state with
-  clickable suggestions.
-- **Composer** (`app/components/Composer.tsx`) — send, and stop while a run is in
-  flight. It is blocked while the agent is running or waiting on an approval; the dock
-  header says which.
+  (`app/lib/use-media-query.ts`), so there is always exactly one chat.
+- **Chat** (`app/components/NavlogChat.tsx`) — `<CopilotChat>` with B4.run's slots
+  (`useB4ChatSlots`): one `TurnActivity` per turn (summary line, the plan, the `weather` /
+  `performance` subagents nested, each tool call as a step) and the kit's `ApprovalCard`
+  for the `fileFlightPlan` approval. `StepViews.tsx` gives `computeNavlog` a totals view
+  and `renderChart` its image, through `B4Activity`'s `renderStep`. Before the first
+  message the chat shows the starter suggestions (`DemoSuggestions.tsx`). The input waits
+  while an approval is open, and takes PNG, JPEG, GIF and WebP attachments up to 4 MB when
+  the route's model takes images; a refused file gets one dismissible line above the chat.
+  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the dock
+  (`DropNotices.tsx`), and run errors as a banner (`RunError.tsx`).
 
 ### How data reaches the map and the sheet
 
-Nothing new is stored. `AppShell` derives every surface from the thread the client
-already holds, through pure selectors with their own unit tests:
+Nothing new is stored. The workbench derives every surface from the activity turns
+`B4Activity` provides (`useB4ActivityContext`), through pure selectors with their own
+unit tests:
 
-- `latestNavlog(messages)` (`app/lib/navlog-selectors.ts`) — the most recent
-  `computeNavlog` tool result, parsed into the `Navlog` shape (`app/lib/navlog-types.ts`
-  mirrors the server's type field for field).
-- `latestWeatherBrief(runs)` (`app/lib/weather-selectors.ts`) — the most recent completed
-  `weather` subagent run from `useSubagentRuns`, parsed from the brief the subagent is
-  prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
+- `latestNavlogResult(turns)` and `parseNavlog` (`app/lib/navlog-selectors.ts`) — the most
+  recent `computeNavlog` tool result, parsed into the `Navlog` shape
+  (`app/lib/navlog-types.ts` mirrors the server's type field for field).
+- `latestWeatherBriefText(turns)` and `parseWeatherBrief` (`app/lib/weather-selectors.ts`)
+  — the most recent completed `weather` subagent step, parsed from the brief the
+  subagent is prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
   brief it cannot read leaves the strip empty rather than throwing.
 - `routeGeometry(navlog)` (`app/lib/route-geometry.ts`) — the polyline, markers, heading
   labels and bounds the map draws.
@@ -84,14 +88,15 @@ browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new B4HttpAgent(...) }`, served through
+  `agents: { default: new B4HttpAgent(...) }`, with `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.
 - `app/page.tsx` — `CopilotKit` (`runtimeUrl="/api/copilotkit"`,
-  `useSingleEndpoint={false}`) plus a `CopilotChatConfigurationProvider` carrying the
-  active thread id. The workbench renders its own transcript and composer, with
-  `renderActivityMessages={workbenchActivityRenderers}` and a 100 ms render throttle.
+  `useSingleEndpoint={false}`, a 100 ms render throttle) plus a
+  `CopilotChatConfigurationProvider` carrying the active thread id. `AppShell` mounts
+  `<B4Activity key={threadId}>` (keyed so a thread switch resets the turns and any open
+  approval) and the dock's `NavlogChat` inside it.
 
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
 (`"default"`), which the runtime route registers as the B4.run `/navlog` agent — same
@@ -99,52 +104,42 @@ pattern as `examples/chat/web`, no per-component wiring needed.
 
 ## Thread history
 
-Switching threads restores that conversation. `app/lib/thread-source.ts` reads
-`GET /threads/:id/state` through the proxy and `app/lib/hydrate.ts` turns the
-checkpoint's LangChain envelopes into the same message shapes the live stream produces,
-so a restored thread and a live one render through one path. The checkpoint holds each
-`writeTodos` call, and `app/lib/transcript.ts` turns each turn's calls into one plan card
-where the plan was first written — the same card a live run shows.
+Switching threads restores that conversation. The chat mounts per thread and calls
+CopilotKit's `connect`; the runtime route's runner (`createB4AgentRunner`) answers by replaying
+`GET /threads/:id/events` from B4.run's checkpoints as the AG-UI events a live run would
+have sent — messages, the turns (plan, subagents, tool steps), attachments and tool
+media, and a parked approval. A restored thread and a live one therefore render through
+one path, and the browser never reads thread state itself. The thread rail
+(`app/lib/thread-source.ts`) keeps only ids, titles and recency in `localStorage`.
 
-What a restore does **not** bring back is stated in the app itself, as a quiet line
-above the restored messages:
-
-> Restored conversation · helper details from earlier runs aren't kept
-
-A thread with no checkpoint yet (a brand-new one) 404s, and that is treated as "nothing
-to restore", not an error — no error row appears.
+A thread with no checkpoint yet (a brand-new one) restores as an empty chat, not an
+error. What a restore does not bring back: drop notices (they come from stream-only
+events), and a user image the adapter dropped (it never reached the checkpoint).
 
 ## Permission gates
 
-A run parked on a permission gate survives a reload.
-`app/components/HydratedInterrupts.tsx` asks the server for
-`GET /threads/:id/pending_interrupts` and re-renders the prompt, because CopilotKit's own
-`useInterrupt` state is fed only by live run events and is empty after a reload. It
-reports the count upward so the composer stays blocked — sending into a parked thread
-without resuming is the failure this prevents. It deliberately does not write those
-interrupts onto `agent.pendingInterrupts`; the server's ids for an interrupt can be
-aliases CopilotKit's resume path never minted.
+The `fileFlightPlan` call is approval-gated. `B4Activity` handles the interrupt and
+renders it as the kit's `ApprovalCard` in the chat; the input stays disabled until it is
+answered. A run parked on a gate survives a reload, because the replay carries the
+parked interrupt and the card comes back with it.
 
 ## The proxy
 
-The B4.run dev server sets no CORS headers, so the browser reaches it through the
-same-origin catch-all at `app/api/b4/[...path]/route.ts`. That proxy is **not** open.
-`app/lib/proxy-allowlist.ts` is a pure function listing every route the browser may
-reach — five of them:
+The B4.run dev server sets no CORS headers, so the browser reaches the memory routes
+through the same-origin catch-all at `app/api/b4/[...path]/route.ts`. That proxy is
+**not** open. `app/lib/proxy-allowlist.ts` is a pure function listing every route the
+browser may reach — three of them:
 
 | Method | Path |
 | --- | --- |
 | GET | `/memory/candidates` |
 | POST | `/memory/candidates/:id/approve` |
 | POST | `/memory/candidates/:id/reject` |
-| GET | `/threads/:id/state` |
-| GET | `/threads/:id/pending_interrupts` |
 
 Anything else — a path that is not listed, or a listed path with the wrong method — is
-rejected with **403** and never forwarded. Running, resuming, and cancelling a thread are
-deliberately absent: those go through CopilotKit's own runtime route. Verified live:
-a not-allowlisted POST and a right-path/wrong-method request both returned 403, while
-the allowlisted reads returned 200.
+rejected with **403** and never forwarded. Thread history is not on the list: the
+runner reads it server to server. Running, resuming, and cancelling a thread go through
+CopilotKit's own runtime route.
 
 ## Memory review
 
@@ -200,37 +195,32 @@ The palette follows the OS light/dark setting. To pin one regardless, set
 `data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>` — `theme.css` defines both
 branches.
 
-The plan card and the subagent panel are **not forks**. They are the packaged
-`@b4run/ag-ui/react` components (`PlanActivityCard`, and `SubagentPanel` fed by
-`useSubagentRuns(agent)` from the agent's AG-UI `SUBAGENT_*` events), customized through
-that package's `classNames` ladder. To change how they look, edit
-`app/components/PlanCard.tsx` (and the `SubagentPanel` props in
-`app/components/Transcript.tsx`) — validation, bounds, and layout stay in the package
-where they are tested. One constraint is worth
-knowing before you add a class: a `classNames` entry can only set a property the package
-stylesheet leaves unset on that element, because the package's CSS is unlayered and
-Tailwind's utilities are not. `app/components/activity-renderers.tsx` states the rule and
-what it puts out of reach.
+The plan and subagent steps are **not forks**. They are the packaged
+`@b4run/ag-ui/react` components `B4Activity` renders (`TurnActivity` and its steps),
+themed through the `--b4-activity-*` tokens in `app/theme.css` and extended per tool in
+`app/components/StepViews.tsx` — validation, bounds, and layout stay in the package
+where they are tested. The package's CSS is unlayered and Tailwind's utilities are not,
+so a utility cannot override a property the package stylesheet sets; use the tokens for
+those.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs 27 test files: the proxy route and
-its allowlist, the thread source, the checkpoint hydrator, the transcript mapping, the
-renderer registry, the thread rail, the composer, the connect screen, the memory panel,
-the tool-call card, media parts, all three permission surfaces (`PermissionPrompt`,
-`PermissionInterrupt`, `HydratedInterrupts`), the shell's thread-switch and
+`pnpm --filter @b4-example/navlog-web test` runs 28 test files: the proxy and
+CopilotKit runtime routes and the allowlist, the thread source, the thread rail, the
+chat (attachments, echo stripping, approval gating), the step views, drop notices,
+the connect screen, the memory panel, media parts, the shell's thread-switch and
 server-probe behaviour, and the map workbench: the navlog and weather selectors, route
-geometry, formatting, the navlog table, sheet, flight plan block and in-transcript
-card, the weather strip, and the desktop and phone layouts. The navlog fixture
-(`SAMPLE_NAVLOG`) is the server's own `computeNavlog` output, not hand-written numbers.
-`RouteMap` itself needs a real DOM and is exercised in the browser, not in Vitest.
-`typecheck` and `build` prove the CopilotKit/AG-UI wiring compiles. The activity cards
-themselves are tested in `@b4run/ag-ui`.
+geometry, formatting, the navlog table, sheet, flight plan block, the weather strip, and
+the desktop and phone layouts. The navlog fixture (`SAMPLE_NAVLOG`) is the server's own
+`computeNavlog` output, not hand-written numbers. `RouteMap` itself needs a real DOM and
+is exercised in the browser, not in Vitest. `typecheck` and `build` prove the
+CopilotKit/AG-UI wiring compiles. The activity components themselves are tested in
+`@b4run/ag-ui`.
 
 The model-free `test:e2e` browser test proves the V2 transport begins with
 `GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`. The connect
-screen, its auto-recovery, the empty state, thread hydration including the new-thread
-404, and every proxy allow/reject case were also verified by hand in a real browser
+screen, its auto-recovery, the empty chat, thread restore including the new-thread
+case, and every proxy allow/reject case were also verified by hand in a real browser
 against a real server. A full planning run — streaming, activity cards, the approval
 gate live and across a reload, memory candidates appearing and superseding — needs a
 real `OPENAI_API_KEY` and has not been exercised in this repo; those paths are covered
@@ -249,12 +239,12 @@ by unit tests only.
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer
   know their ids.
-- **Restores are lossy.** Only what the checkpoint stores comes back: messages, tool
-  calls and results, and the plan. Subagent activity cards from earlier runs are not
-  saved and do not return.
+- **Restores replay stored events.** Only what the checkpoint stores comes back:
+  messages, the turns (plan, subagents, tool steps), attachments and tool media, and a
+  parked approval. Notices for parts the model never saw do not return.
 - **Memory review is candidates only** — see above. No browsing, searching, or editing.
 - **A connection loss costs you your draft.** When a probe finds the B4.run server down,
-  the connect screen replaces the whole shell — which unmounts the composer, so anything
+  the connect screen replaces the whole shell — which unmounts the chat input, so anything
   typed but not sent is gone when the server comes back.
 
 ## Security caveat

@@ -4,7 +4,12 @@
  * optional peer dependencies of `@b4run/ag-ui`; this is the only entry that
  * imports CopilotKit.
  */
-export { B4Activity, type B4ActivityProps } from "./B4Activity.js"
+export {
+  B4Activity,
+  type B4ActivityContextValue,
+  type B4ActivityProps,
+  useB4ActivityContext,
+} from "./B4Activity.js"
 export { mergeTurnMessages } from "./messages.js"
 export { b4ActivityRenderers, b4PlanActivityRenderer } from "./renderers.js"
 export { type B4ChatSlots, useB4ChatSlots } from "./useB4ChatSlots.js"

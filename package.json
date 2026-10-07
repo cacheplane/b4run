@@ -68,6 +68,7 @@
     "code-fixer:consumer": "tsx test/code-fixer/scripts/consumer.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "2.5.6",
     "@changesets/cli": "2.31.1",
     "@copilotkit/aimock": "^1.43.0",

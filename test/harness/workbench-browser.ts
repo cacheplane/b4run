@@ -10,8 +10,12 @@
  * console-error collection, abort race, screenshot, cleanup — is the shared
  * seam in `workbench-page.ts`, which every Workbench journey uses.
  *
+ * After the restore it scans the dock with axe and drives the restored turn
+ * by keyboard alone (`workbench-a11y.ts`).
+ *
  * Fail closed: a missing browser, a missing persisted thread id, a console
- * error, or an uncaught page error each fail the journey. There is no skip.
+ * error, an uncaught page error, or a serious axe violation each fail the
+ * journey. There is no skip.
  */
 import type { Page } from "@playwright/test"
 
@@ -19,8 +23,10 @@ import {
   fillActiveWorkbenchComposer,
   openReadyWorkbench,
   restoreWorkbenchThread,
+  SETTLED_ROOT_TURN_SELECTOR,
   waitForWorkbenchRunCompletion,
 } from "../../docs/brand/demo/capture.mjs"
+import { type AxeFactory, assertRestoredTurnAccessible } from "./workbench-a11y.ts"
 import {
   type WorkbenchPageDeps,
   type WorkbenchPageOptions,
@@ -32,6 +38,8 @@ export interface WorkbenchBrowserJourney {
   readonly fillActiveWorkbenchComposer: typeof fillActiveWorkbenchComposer
   readonly waitForWorkbenchRunCompletion: typeof waitForWorkbenchRunCompletion
   readonly restoreWorkbenchThread: typeof restoreWorkbenchThread
+  /** The axe scan and keyboard pass over the restored thread (`workbench-a11y.ts`). */
+  readonly assertRestoredTurnAccessible: (page: Page, axe: AxeFactory | undefined) => Promise<void>
 }
 
 /**
@@ -41,6 +49,8 @@ export interface WorkbenchBrowserJourney {
  */
 export interface WorkbenchBrowserDeps extends WorkbenchPageDeps {
   readonly journey?: WorkbenchBrowserJourney
+  /** Builds the axe scan; defaults to `@axe-core/playwright`'s `AxeBuilder`. */
+  readonly axe?: AxeFactory
 }
 
 export interface WorkbenchBrowserOptions extends WorkbenchPageOptions {
@@ -48,7 +58,7 @@ export interface WorkbenchBrowserOptions extends WorkbenchPageOptions {
   readonly webUrl: string
   /** The prompt to send; must match an aimock fixture's `userMessage`. */
   readonly prompt: string
-  /** Tool names the fixture calls, in order — asserted as cards after reload. */
+  /** Tool names the fixture calls, in order — counted as the restored turn's tool steps. */
   readonly tools: readonly string[]
   /** The fixture's final reply — asserted on screen after reload. */
   readonly answer: string
@@ -59,6 +69,11 @@ const DEFAULT_JOURNEY: WorkbenchBrowserJourney = {
   fillActiveWorkbenchComposer,
   waitForWorkbenchRunCompletion,
   restoreWorkbenchThread,
+  assertRestoredTurnAccessible: (page, axe) =>
+    assertRestoredTurnAccessible(page, {
+      turnSelector: SETTLED_ROOT_TURN_SELECTOR,
+      ...(axe === undefined ? {} : { axe }),
+    }),
 }
 
 /**
@@ -129,9 +144,9 @@ export async function runWorkbenchBrowserJourney(
   options: WorkbenchBrowserOptions,
   deps: WorkbenchBrowserDeps,
 ): Promise<{ readonly threadId: string }> {
-  // `restoreWorkbenchThread` matches the prompt against BOTH the thread rail's
-  // row (which shows the truncated, trimmed title) and the transcript's message
-  // text (which shows the prompt verbatim). A prompt that does not survive
+  // `restoreWorkbenchThread` matches the prompt against BOTH the thread title
+  // (the rail's row and the dock's h2, which show the truncated, trimmed
+  // title) and the transcript's message text (which shows the prompt verbatim). A prompt that does not survive
   // `touch()`'s normalisation unchanged can therefore never match both, so
   // reject it here rather than time out in the browser.
   if (options.prompt !== options.prompt.trim() || options.prompt.length > MAX_THREAD_TITLE_LENGTH) {
@@ -160,6 +175,7 @@ export async function runWorkbenchBrowserJourney(
       tools: options.tools,
       answer: options.answer,
     })
+    await journey.assertRestoredTurnAccessible(page, deps.axe)
     if (errors.length > 0) {
       throw new Error("Workbench console errors during the browser gate")
     }

@@ -2,10 +2,7 @@
 import { CopilotChatConfigurationProvider, CopilotKit } from "@copilotkit/react-core/v2"
 import { useCallback, useEffect, useState } from "react"
 import { AppShell } from "./components/AppShell"
-import { workbenchActivityRenderers } from "./components/activity-renderers"
 import { DemoSuggestions } from "./components/DemoSuggestions"
-import { NavlogCard } from "./components/NavlogCard"
-import { ToolCallCard } from "./components/ToolCallCard"
 import {
   createLocalThreadSource,
   type ThreadSource,
@@ -19,26 +16,28 @@ import {
 //   Its props are a superset of CopilotKitProviderProps (so `runtimeUrl` applies).
 // - The compatibility wrapper still defaults `useSingleEndpoint` to true. V2 transport
 //   requires false so `/info` reaches the catch-all `api/copilotkit/[...path]/route.ts`.
-// - `CopilotSidebar` ships from `@copilotkit/react-core/v2`, not `@copilotkit/react-ui`
-//   (react-ui's root export is the v1 CopilotSidebar, incompatible with the v2 context;
-//   react-ui exposes no `/v2` JS export, only `/v2/styles.css`). This app no longer uses
-//   it — the workbench renders its own transcript and composer — but the import path is
-//   recorded because the mistake is easy to repeat.
+// - `CopilotChat`/`CopilotSidebar` ship from `@copilotkit/react-core/v2`, not
+//   `@copilotkit/react-ui` (react-ui's root export is the v1 components, incompatible with
+//   the v2 context; react-ui exposes no `/v2` JS export, only `/v2/styles.css`). The dock's
+//   chat is the v2 `CopilotChat` inside B4.run's `B4Activity` (`NavlogChat`).
 // - Components/hooks that omit agentId resolve CopilotKit's default id ("default").
 //   The catch-all route (api/copilotkit/[...path]/route.ts) registers the B4.run /navlog route
 //   under "default", so every hook binds without per-component agentId wiring.
-// - `defaultThrottleMs` coalesces the useAgent re-renders that the transcript and panels
+// - `defaultThrottleMs` coalesces the useAgent re-renders that the chat and panels
 //   get from OnMessagesChanged/OnStateChanged. It defaults to UNTHROTTLED,
 //   and a full planning run streams hundreds of events, which pegs the renderer
 //   (the UI froze outright). 100ms keeps it live-feeling while capping re-renders.
 //
 // Why `CopilotChatConfigurationProvider` is mounted here: `CopilotKit` does not
-// provide one — `<CopilotChat>`/`<CopilotSidebar>` did, and those are gone. Without
-// it `useCopilotChatConfiguration()` returns null and every thread-aware hook falls
-// back to the default agent's own auto-minted thread, so selecting a row in the rail
-// would change nothing. With `threadId` set, the provider is thread-controlled and
-// `useAgent()` writes that id onto the agent (it only does so when the configuration
-// reports `hasExplicitThreadId`, which a `threadId` prop implies).
+// provide one, and `<CopilotChat>` provides one only for its own subtree. The shell's
+// `useAgent()`, `B4Activity` and `DemoSuggestions` sit OUTSIDE the chat, and without
+// this provider they would fall back to the default agent's own auto-minted thread.
+// With `threadId` set, the provider is thread-controlled and `useAgent()` writes that
+// id onto the agent (it only does so when the configuration reports
+// `hasExplicitThreadId`, which a `threadId` prop implies).
+//
+// No `renderActivityMessages`: B4.run's plan is a step in the turn's activity
+// (`B4Activity`'s `PlanStep`), not a separate activity card.
 export default function Home() {
   // `createLocalThreadSource` touches localStorage, which does not exist during
   // SSR — hence the guard. It stays null on the server; the effect below runs
@@ -97,24 +96,18 @@ export default function Home() {
       // This is the first screen of a freshly scaffolded app; it should be the
       // agent, not an ad. Set it to `true` if you want CopilotKit's inspector.
       enableInspector={false}
-      renderActivityMessages={workbenchActivityRenderers}
     >
       <CopilotChatConfigurationProvider threadId={activeThreadId}>
-        {/* Registration-only: all three publish into CopilotKit's registries
-            rather than rendering. `DemoSuggestions` is read back by `EmptyState`
-            (useSuggestions); `ToolCallCard` (the "*" wildcard) and `NavlogCard`
-            (the name-specific computeNavlog renderer, which wins over the
-            wildcard) by `Transcript` (useRenderToolCall). */}
+        {/* Registration-only: publishes the starter prompts into CopilotKit's
+            suggestion registry, which `CopilotChat` shows as pills on an empty
+            thread. */}
         <DemoSuggestions />
-        <ToolCallCard />
-        <NavlogCard />
         <AppShell
           threads={threads}
           activeThreadId={activeThreadId}
           onSelectThread={handleSelect}
           onCreateThread={handleCreate}
           onUserMessage={handleUserMessage}
-          threadSource={source}
         />
       </CopilotChatConfigurationProvider>
     </CopilotKit>

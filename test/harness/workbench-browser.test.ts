@@ -19,6 +19,7 @@ function fakeDeps(
     readonly title?: string
     readonly consoleErrors?: readonly string[]
     readonly failRestore?: boolean
+    readonly failAccessibility?: boolean
   } = {},
 ) {
   const calls: string[] = []
@@ -74,11 +75,18 @@ function fakeDeps(
     restoreWorkbenchThread: vi.fn(async () => {
       calls.push("restore")
       if (overrides.failRestore) throw new Error("thread rail did not list the prompt")
-      return { stateUrl: "http://127.0.0.1:4712/api/b4/threads/t-1/state" }
+      return { connectUrl: "http://127.0.0.1:4712/api/copilotkit/agent/default/connect" }
+    }),
+    assertRestoredTurnAccessible: vi.fn(async () => {
+      calls.push("a11y")
+      if (overrides.failAccessibility) {
+        throw new Error('axe found serious violations in section[aria-label="Chat"]')
+      }
     }),
   }
-  const deps: WorkbenchBrowserDeps = { chromium, journey }
-  return { calls, deps, page, chromium }
+  const axe = vi.fn() as unknown as NonNullable<WorkbenchBrowserDeps["axe"]>
+  const deps: WorkbenchBrowserDeps = { chromium, journey, axe }
+  return { calls, deps, page, chromium, journey, axe }
 }
 
 const baseOptions = {
@@ -90,8 +98,8 @@ const baseOptions = {
 }
 
 describe("runWorkbenchBrowserJourney", () => {
-  it("drives open → fill → send → complete → restore, then closes context and browser", async () => {
-    const { calls, deps, chromium, page } = fakeDeps({ threadId: "t-1" })
+  it("drives open → fill → send → complete → restore → a11y, then closes context and browser", async () => {
+    const { calls, deps, chromium, page, journey, axe } = fakeDeps({ threadId: "t-1" })
     const result = await runWorkbenchBrowserJourney(baseOptions, deps)
     expect(calls).toEqual([
       "open",
@@ -99,10 +107,13 @@ describe("runWorkbenchBrowserJourney", () => {
       "click:Send",
       "complete",
       "restore",
+      "a11y",
       "context.close",
       "browser.close",
     ])
     expect(result).toEqual({ threadId: "t-1" })
+    // The injected axe reaches the accessibility pass, so the unit test stays browserless.
+    expect(journey.assertRestoredTurnAccessible).toHaveBeenCalledWith(page, axe)
     expect(chromium.launch).toHaveBeenCalledWith({ headless: true })
     expect(page.getByRole).toHaveBeenCalledWith("button", { name: "Send", exact: true })
     expect(page.evaluate).toHaveBeenCalledWith(
@@ -152,6 +163,14 @@ describe("runWorkbenchBrowserJourney", () => {
     const { deps, page } = fakeDeps({ threadId: "t-1", failRestore: true })
     await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
       /thread rail did not list the prompt/,
+    )
+    expect(page.screenshot).toHaveBeenCalledTimes(1)
+  })
+
+  it("fails, with a screenshot, when the restored thread fails the accessibility pass", async () => {
+    const { deps, page } = fakeDeps({ threadId: "t-1", failAccessibility: true })
+    await expect(runWorkbenchBrowserJourney(baseOptions, deps)).rejects.toThrow(
+      /axe found serious violations/,
     )
     expect(page.screenshot).toHaveBeenCalledTimes(1)
   })

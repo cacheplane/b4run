@@ -1,3 +1,5 @@
+import type { StepView, TurnsView, TurnView } from "@b4run/ag-ui/view"
+
 export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR" | "UNKNOWN"
 
 export interface AirportWeather {
@@ -27,16 +29,6 @@ export interface WeatherBrief {
   readonly verdict?: Verdict
   /** The "Forecast horizon:" sentence, when the brief has one. */
   readonly horizon?: string
-}
-
-/**
- * The subset of a subagent run this selector reads: a `SubagentRun` from
- * `useSubagentRuns(agent).runs.values()`, in start order.
- */
-export interface SubagentRunLike {
-  readonly name: string
-  readonly status: string
-  readonly result?: unknown
 }
 
 export function categoryOf(text: string): FlightCategory {
@@ -358,102 +350,45 @@ export function windsSummary(line: string): string {
   return `Winds${at}: ${dir}° at ${w.kt} kt${temp}${source !== "" ? ` (${source})` : ""}`
 }
 
-/**
- * The most recent completed `weather` subagent run's brief text, or null. A
- * string so the shell can memoize the parse on it (see `latestNavlogText`).
- */
-export function latestWeatherBriefText(runs: readonly SubagentRunLike[]): string | null {
-  for (let i = runs.length - 1; i >= 0; i--) {
-    const run = runs[i]
-    if (run?.name !== "weather" || run.status !== "completed") continue
-    if (typeof run.result !== "string") continue
-    return run.result
+/** A result that arrived JSON-encoded (`"Verdict: …"`) is unwrapped once. */
+function unwrapText(result: unknown): string | null {
+  if (typeof result !== "string") return null
+  if (result.startsWith('"')) {
+    try {
+      const inner: unknown = JSON.parse(result)
+      if (typeof inner === "string") return inner
+    } catch {
+      // Not JSON: the text itself.
+    }
+  }
+  return result
+}
+
+function findWeatherText(turn: TurnView): string | null {
+  for (let i = turn.steps.length - 1; i >= 0; i--) {
+    const step: StepView | undefined = turn.steps[i]
+    if (step?.kind !== "subagent") continue
+    const nested = findWeatherText(step.turn)
+    if (nested !== null) return nested
+    if (step.name !== "weather" || step.status !== "done") continue
+    const text = unwrapText(step.result)
+    if (text !== null && parseWeatherBrief(text).airports.length > 0) return text
   }
   return null
 }
 
-/** The most recent completed `weather` subagent run's brief, or null. */
-export function latestWeatherBrief(runs: readonly SubagentRunLike[]): WeatherBrief | null {
-  const text = latestWeatherBriefText(runs)
-  return text === null ? null : parseWeatherBrief(text)
-}
-
-/** The subset of a thread message the restored-weather selector reads. */
-export interface WeatherMessageLike {
-  readonly role: string
-  readonly content?: unknown
-  readonly toolCallId?: string
-  readonly toolCalls?: readonly {
-    readonly id: string
-    readonly function: { readonly name: string; readonly arguments?: string }
-  }[]
-}
-
-const toolText = (content: unknown): string => {
-  if (typeof content === "string") {
-    // A result that arrived JSON-encoded (`"Verdict: …"`) is unwrapped once.
-    if (content.startsWith('"')) {
-      try {
-        const inner: unknown = JSON.parse(content)
-        if (typeof inner === "string") return inner
-      } catch {
-        // Not JSON: the text itself.
-      }
-    }
-    return content
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((part) =>
-        typeof part === "object" &&
-        part !== null &&
-        typeof (part as { text?: unknown }).text === "string"
-          ? (part as { text: string }).text
-          : "",
-      )
-      .join("")
-  }
-  return ""
-}
-
-const isWeatherTask = (args: string | undefined): boolean => {
-  if (args === undefined) return false
-  try {
-    const parsed: unknown = JSON.parse(args)
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      (parsed as { subagent?: unknown }).subagent === "weather"
-    )
-  } catch {
-    return false
-  }
-}
-
 /**
- * The weather brief from the thread's messages: the result of the latest
- * `task({ subagent: "weather" })` call that parses to a brief. This is what a
- * restored thread has — subagent runs are a live-stream record and are not
- * restored on reload, but the parent's `task` call and its result are in the
- * checkpoint like any other tool call.
+ * The latest `weather` subagent step with status "done" (any depth) whose
+ * result (a string, or a JSON-encoded string unwrapped once) parses to at
+ * least one airport. A string so callers can memoize the parse on it.
  */
-export function weatherBriefTextFromMessages(
-  messages: readonly WeatherMessageLike[],
-): string | null {
-  const callIds = new Set<string>()
-  for (const message of messages) {
-    for (const call of message.toolCalls ?? []) {
-      if (call.function.name === "task" && isWeatherTask(call.function.arguments)) {
-        callIds.add(call.id)
-      }
-    }
-  }
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]
-    if (message?.role !== "tool" || message.toolCallId === undefined) continue
-    if (!callIds.has(message.toolCallId)) continue
-    const text = toolText(message.content)
-    if (parseWeatherBrief(text).airports.length > 0) return text
+export function latestWeatherBriefText(view: TurnsView): string | null {
+  const { turns } = view
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i]
+    if (turn === undefined) continue
+    const found = findWeatherText(turn)
+    if (found !== null) return found
   }
   return null
 }

@@ -13,6 +13,7 @@ export {
   type StepLabelOverrides,
   stepLabel,
 } from "./labels.js"
+export { blocksToParts } from "./parts.js"
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, readStepEvent } from "./step.js"
 export {
   EMPTY_SUBAGENT_RUNS,

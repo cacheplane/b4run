@@ -42,9 +42,9 @@
       "recordDigest": "9c823bb6e0c77817744984458823169e48c1921d1b3e3234569240927e23e8d1"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-07T03:13:31.000Z",
-      "sourceDigest": "b5749c7df83ab536c84ce81d0c5135cc90c814ec4d05317d2da248378b481e5e",
-      "recordDigest": "be89f637d6375d32c33666a286ddd4febc29575469adda9cde42a99ed311d65d"
+      "lastModified": "2026-10-07T04:26:43.000Z",
+      "sourceDigest": "89e3ae007afc0f0cad8340495a221a774a44f45d95bda6d8ed97e21a22e55e0e",
+      "recordDigest": "54a63ba31ca0de2f07f16034fde7a3ad466ae76fbb99acd48769013399afbad1"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -52,14 +52,14 @@
       "recordDigest": "9a2f56470ff04b657f58469496322427159324ac53712215c98689d69f8a2926"
     },
     "/docs/api": {
-      "lastModified": "2026-10-07T03:05:47.000Z",
-      "sourceDigest": "a68b6d35c1d7be8064ef643d750320371dfc9361ebac9d73af9228f8b90f8236",
-      "recordDigest": "08b52b48dd510a79da1ba7426702256f9455779f7e25f6d1c29ab33cf2a01f79"
+      "lastModified": "2026-10-07T05:01:08.000Z",
+      "sourceDigest": "d033044249dbbfda38b796a59196a427f9baf891ea12507dd11ef4678a7b9518",
+      "recordDigest": "c98c68b6ef74665db0597bcace17cfd086e2f15d6ed9405d69c3dadd0f667a55"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-07T03:13:31.000Z",
-      "sourceDigest": "4d88fbcfb44f39eb50f26b44093fc3f9982990430ddd05be8dcbcb44cbbb383a",
-      "recordDigest": "44263cc760d786df64ff4bc680b7a6082f9d6707c0bb19d6cb4d652b76dae048"
+      "lastModified": "2026-10-07T05:01:08.000Z",
+      "sourceDigest": "ad489228ff2591ce560986513ae3e3ea13341b07f06523dd74939081b0d58219",
+      "recordDigest": "c55bda61d7e52b6c6e165e6e4c5085507e5103586905f28a52d5883da66cf80c"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-04T22:35:08.000Z",
@@ -197,9 +197,9 @@
       "recordDigest": "80c35fa2ed1ac036a6f052d0349a5bb13570467c95423908aff1f3e1b7871126"
     },
     "/docs/dev-server/agent-protocol": {
-      "lastModified": "2026-10-07T03:05:47.000Z",
-      "sourceDigest": "08f4c7f2465df2ba36a5bbb670e9d78b3f4b1af18b8b790f87322a3c9eac1a7c",
-      "recordDigest": "2a7d940da2cfa22e271ab44cbabcfbafcb630c6fc36a72b803131d2283f6338a"
+      "lastModified": "2026-10-07T04:26:43.000Z",
+      "sourceDigest": "e929aea823d357e96aba767c56fd168285f530c6fd562d6c965adbcb294e9bac",
+      "recordDigest": "652273a5cc67243ce91c39fb378c109952d5413cb95dd1c10e367140d781b9ba"
     },
     "/docs/embedding": {
       "lastModified": "2026-10-04T23:07:54.000Z",
@@ -332,9 +332,9 @@
       "recordDigest": "cb6721d88357a863d824b0dbe94a7433b4622ab765fb848367849e5b922634b6"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-05T21:54:28.000Z",
-      "sourceDigest": "ab1116cd4533be249c21135858620c25682ef5e65250deabf65fbb0334cccc7f",
-      "recordDigest": "3962131f6157041d2d8f61702e7a3110ef1c7de5ad11a099c4aeafd6a1336c92"
+      "lastModified": "2026-10-07T04:26:43.000Z",
+      "sourceDigest": "da1b4fd78c850be8eb9d60e421da1d008b53bf267407a2c2f0a51ec894f33361",
+      "recordDigest": "750ce6e900c1b63ee2f5ed79a227321fa52cca8fec88d439a133a3b37dfb5726"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

@@ -31,11 +31,11 @@ describe("b4 proxy route", () => {
         new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
       )
 
-    await call(["threads", "t1", "state"])
+    await call(["memory", "candidates"])
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url] = fetchSpy.mock.calls[0] as [string]
-    expect(url).toBe("http://127.0.0.1:3002/threads/t1/state")
+    expect(url).toBe("http://127.0.0.1:3002/memory/candidates")
   })
 
   test("passes status, content-type and cache-control through untouched", async () => {
@@ -56,7 +56,7 @@ describe("b4 proxy route", () => {
   test("defaults to no-store when upstream sends no cache-control", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(new Response("{}", { status: 200 }))
 
-    const response = await call(["threads", "t1", "pending_interrupts"])
+    const response = await call(["memory", "candidates"])
 
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
@@ -69,9 +69,8 @@ describe("b4 proxy route", () => {
     expect(response.headers.has("content-type")).toBe(false)
   })
 
-  // 403 rather than 404 on purpose: hydration reads a 404 on
-  // `/threads/:id/state` as "no checkpoint yet, show an empty thread", so a
-  // 404 here would turn a broken allowlist into silently blank conversations.
+  // 403 rather than 404 on purpose: a 404 would read as "no such thing yet",
+  // which hides a broken allowlist.
   test("rejects a path that is not on the allowlist without calling fetch", async () => {
     const fetchSpy = vi.spyOn(global, "fetch")
 
@@ -79,6 +78,15 @@ describe("b4 proxy route", () => {
 
     expect(response.status).toBe(403)
     expect(await response.json()).toEqual({ error: "Not proxied" })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  test("no longer proxies thread state", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch")
+
+    const response = await call(["threads", "t1", "state"])
+
+    expect(response.status).toBe(403)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
@@ -90,7 +98,7 @@ describe("b4 proxy route", () => {
       Object.assign(new TypeError("fetch failed"), { cause }),
     )
 
-    const response = await call(["threads", "t1", "state"])
+    const response = await call(["memory", "candidates"])
 
     expect(response.status).toBe(502)
     const body = (await response.json()) as { error: string }
@@ -101,7 +109,7 @@ describe("b4 proxy route", () => {
     vi.stubEnv("B4_INTERNAL_TOKEN", "")
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("{}"))
 
-    const response = await call(["threads", "t1", "state"])
+    const response = await call(["memory", "candidates"])
 
     const cookie = response.headers.get("set-cookie") ?? ""
     const minted = /b4_visitor=(v-[A-Za-z0-9_-]+)/.exec(cookie)?.[1]
@@ -117,7 +125,7 @@ describe("b4 proxy route", () => {
     vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret-0123456789abcdefghijkl")
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response("{}"))
 
-    const response = await call(["threads", "t1", "state"], {
+    const response = await call(["memory", "candidates"], {
       headers: { cookie: "__Host-b4_visitor=v-returning01" },
     })
 
@@ -131,7 +139,7 @@ describe("b4 proxy route", () => {
     vi.stubEnv("B4_DEMO_ORIGINS", "https://navlog.b4.run")
     const fetchSpy = vi.spyOn(global, "fetch")
 
-    const response = await call(["threads", "t1", "state"], {
+    const response = await call(["memory", "candidates"], {
       headers: { origin: "https://evil.example" },
     })
 

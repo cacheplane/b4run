@@ -45,8 +45,9 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   ),
 }))
 
-const { B4Activity, useB4ChatSlots } = await import("../../src/copilotkit/index.js")
-const { useB4ActivityContext } = await import("../../src/copilotkit/B4Activity.js")
+const { B4Activity, useB4ActivityContext, useB4ChatSlots } = await import(
+  "../../src/copilotkit/index.js"
+)
 
 const call = (id: string, name: string) => ({
   id,
@@ -258,5 +259,9 @@ describe("B4Activity", () => {
 
   test("useB4ChatSlots throws outside the provider", () => {
     expect(() => render(<Host />)).toThrow(/inside <B4Activity>/)
+  })
+
+  test("useB4ActivityContext throws outside the provider, naming itself", () => {
+    expect(() => render(<Probe />)).toThrow("useB4ActivityContext must be used inside <B4Activity>")
   })
 })

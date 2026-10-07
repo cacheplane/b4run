@@ -37,7 +37,8 @@ export default async (
 
 export const display = {
   icon: "write",
+  // An infinitive: the approval card reads "The agent wants to <running>".
   running: ({ flightPlan }) =>
-    `Filing ${flightPlan.item7} ${flightPlan.item13.slice(0, 4)} to ${flightPlan.item16.slice(0, 4)}`,
+    `File ${flightPlan.item7} ${flightPlan.item13.slice(0, 4)} to ${flightPlan.item16.slice(0, 4)}`,
   done: (_input, out) => `Recorded the flight plan at ${out.path} (not transmitted)`,
 } satisfies ToolDisplay<{ readonly flightPlan: FlightPlan }, FiledFlightPlan>

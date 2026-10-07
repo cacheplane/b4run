@@ -4,9 +4,9 @@
  * The workbench palette, its Tailwind tokens, and the markdown styling.
  * Restyling the app is editing this file.
  *
- * (The packaged activity cards' status colors — --b4-activity-running/
- * -complete/-failed — deliberately stay defined in @b4run/ag-ui; they are
- * already correct and semantic, so this sheet does not override them.)
+ * (The packaged activity cards' tokens are all mapped onto this palette in the
+ * "Rung 1" block below, status colors included, so the cards and CopilotChat
+ * follow the workbench in both schemes.)
  *
  * The b4 gradient has exactly two ROLES by design — the brand mark and the
  * primary action — so the app reads as a tool that happens to be named B4.run
@@ -75,6 +75,43 @@
   --b4-activity-text: var(--wb-text);
   --b4-activity-muted: var(--wb-muted);
   --b4-activity-radius: var(--wb-radius);
+  --b4-activity-surface-alt: var(--wb-rail);
+  --b4-activity-running: var(--wb-route);
+  --b4-activity-running-bg: color-mix(in srgb, var(--wb-route) 10%, var(--wb-surface));
+  --b4-activity-complete: var(--wb-go);
+  --b4-activity-failed: var(--wb-nogo);
+  --b4-activity-failed-bg: var(--wb-nogo-bg);
+  --b4-activity-primary: var(--wb-text);
+  --b4-activity-on-primary: var(--wb-surface);
+}
+
+/* CopilotChat's shadcn tokens (declared unlayered on [data-copilotkit] and
+   .dark [data-copilotkit]). (0,2,0) and imported after the CopilotKit sheet in
+   layout.tsx, so these win in both schemes; :root rather than .wb-dock so
+   Radix tooltip/menu portals match too. */
+:root [data-copilotkit] {
+  --background: var(--wb-surface);
+  --foreground: var(--wb-text);
+  --card: var(--wb-surface);
+  --card-foreground: var(--wb-text);
+  --popover: var(--wb-surface);
+  --popover-foreground: var(--wb-text);
+  --primary: var(--wb-text);
+  --primary-foreground: var(--wb-surface);
+  --secondary: var(--wb-rail);
+  --secondary-foreground: var(--wb-text);
+  --muted: var(--wb-rail);
+  --muted-foreground: var(--wb-muted);
+  --accent: var(--wb-rail);
+  --accent-foreground: var(--wb-text);
+  --destructive: var(--wb-chat-danger);
+  --border: var(--wb-border);
+  --input: var(--wb-border);
+  --ring: var(--wb-accent-from);
+  --radius: var(--wb-radius);
+}
+.wb-dock .copilotKitChat {
+  background: transparent;
 }
 
 @media (prefers-color-scheme: dark) {

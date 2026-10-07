@@ -1,11 +1,27 @@
+import { EMPTY_TURNS, reduceTurns, type TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
 import {
   categoryOf,
-  latestWeatherBrief,
   latestWeatherBriefText,
   parseWeatherBrief,
   worstCategory,
 } from "./weather-selectors"
+
+type BaseEvent = Parameters<typeof reduceTurns>[1]
+const T = (type: string, rest: Record<string, unknown>) =>
+  ({ type, ...rest }) as unknown as BaseEvent
+/** Fold AG-UI events through the real reducer, as the activity does. */
+const fold = (events: readonly BaseEvent[]): TurnsView =>
+  events.reduce((view, event) => reduceTurns(view, event, { now: () => 1 }), EMPTY_TURNS)
+const runStart = T("RUN_STARTED", { threadId: "th", runId: "r1" })
+const subagent = (id: string, name: string, result: unknown, outcome = "success"): BaseEvent[] => [
+  T("SUBAGENT_STARTED", { subagentRunId: id, name, parentToolCallId: id }),
+  T("SUBAGENT_FINISHED", {
+    subagentRunId: id,
+    outcome: { type: outcome },
+    ...(result !== undefined ? { result } : {}),
+  }),
+]
 
 const BRIEF = `Airports:
 KSTP: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 270 at 5. METAR KSTP 040253Z 27005KT 10SM CLR 14/12 A3008. TAF KSTP 040230Z ...
@@ -116,28 +132,46 @@ describe("categoryOf", () => {
   })
 })
 
-describe("latestWeatherBrief", () => {
-  test("picks the most recent completed weather run", () => {
-    const runs = [
-      {
-        id: "a",
+describe("latestWeatherBriefText", () => {
+  const AIRPORTS = "Airports:\nKSTP: VFR now, VFR at ETA, x. METAR a. TAF b\n"
+  test("picks the newest done weather subagent, ignoring other names and unfinished runs", () => {
+    const view = fold([
+      runStart,
+      ...subagent("a", "weather", AIRPORTS),
+      ...subagent("b", "performance", "Cruise…"),
+      T("SUBAGENT_STARTED", { subagentRunId: "c", name: "weather", parentToolCallId: "c" }),
+    ])
+    const text = latestWeatherBriefText(view)
+    expect(text).toBe(AIRPORTS)
+    expect(parseWeatherBrief(text as string).airports[0]?.id).toBe("KSTP")
+  })
+  test("skips a done weather run whose result has no airports, and a non-string result", () => {
+    const view = fold([
+      runStart,
+      ...subagent("a", "weather", AIRPORTS),
+      ...subagent("b", "weather", "getMetar failed; no brief."),
+      ...subagent("c", "weather", { not: "text" }),
+    ])
+    expect(latestWeatherBriefText(view)).toBe(AIRPORTS)
+  })
+  test("unwraps a JSON-encoded result once, and finds a nested subagent", () => {
+    const view = fold([
+      runStart,
+      ...subagent("outer", "planner", "plan"),
+      T("SUBAGENT_STARTED", {
+        subagentRunId: "w",
         name: "weather",
-        status: "completed" as const,
-        result: "Airports:\nKSTP: VFR now, VFR at ETA, x. METAR a. TAF b\n",
-        toolCalls: [],
-      },
-      {
-        id: "b",
-        name: "performance",
-        status: "completed" as const,
-        result: "Cruise…",
-        toolCalls: [],
-      },
-      { id: "c", name: "weather", status: "running" as const, toolCalls: [] },
-    ]
-    expect(latestWeatherBrief(runs)?.airports[0]?.id).toBe("KSTP")
-    expect(latestWeatherBriefText(runs)).toBe(runs[0]?.result)
-    expect(latestWeatherBrief([])).toBeNull()
-    expect(latestWeatherBriefText([])).toBeNull()
+        parentSubagentRunId: "outer",
+      }),
+      T("SUBAGENT_FINISHED", {
+        subagentRunId: "w",
+        outcome: { type: "success" },
+        result: JSON.stringify(AIRPORTS),
+      }),
+    ])
+    expect(latestWeatherBriefText(view)).toBe(AIRPORTS)
+  })
+  test("is null for an empty view", () => {
+    expect(latestWeatherBriefText(EMPTY_TURNS)).toBeNull()
   })
 })

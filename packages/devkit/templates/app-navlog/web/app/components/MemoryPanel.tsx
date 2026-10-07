@@ -354,7 +354,7 @@ export function MemoryPanel() {
       const response = await fetch("/api/b4/memory/candidates", signal ? { signal } : {})
       // 502 is the proxy's one dedicated "I cannot reach B4.run" signal (see
       // `route.ts`), and it belongs to another surface: the connect screen
-      // owns this during "checking" and after a failed hydrate, and while the
+      // owns this once a probe reports the server down, and while the
       // shell is up a run failure is the surface. Either way a second
       // "couldn't load" line in the rail would compete. See the error-surface
       // note at the top of `AppShell.tsx`.

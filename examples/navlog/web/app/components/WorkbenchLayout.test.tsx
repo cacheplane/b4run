@@ -1,6 +1,10 @@
+// @vitest-environment jsdom
+import { act, useContext } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SheetControlContext } from "./sheet-control"
 import { WorkbenchLayout, type WorkbenchLayoutProps } from "./WorkbenchLayout"
 
 const viewport = vi.hoisted(() => ({ desktop: true }))
@@ -33,8 +37,7 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
   navlog: SAMPLE_NAVLOG,
   brief: null,
   assistantBrief: "ok",
-  dock: <p>transcript</p>,
-  composer: <p>composer</p>,
+  chat: <p>transcript</p>,
   rail: <p>rail</p>,
   memory: <p>memory</p>,
   header: "Thread one",
@@ -133,5 +136,49 @@ describe("WorkbenchLayout on a phone", () => {
   test("the Navlog tab is disabled until there is a navlog", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Navlog</)
+  })
+})
+
+/** A step view's "See the navlog sheet", as a chat would hold it. */
+function OpenSheet() {
+  const { openSheet } = useContext(SheetControlContext)
+  return (
+    <button type="button" data-open-sheet="" onClick={openSheet}>
+      See the navlog sheet
+    </button>
+  )
+}
+
+function mount(overrides: Partial<WorkbenchLayoutProps> = {}) {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement("div")
+  document.body.append(container)
+  const root = createRoot(container)
+  act(() => root.render(<WorkbenchLayout {...props({ chat: <OpenSheet />, ...overrides })} />))
+  const click = (selector: string) =>
+    act(() => (container.querySelector(selector) as HTMLElement).click())
+  return { container, click, unmount: () => act(() => root.unmount()) }
+}
+
+describe("WorkbenchLayout sheet control", () => {
+  test("on a desktop, a step's openSheet opens the collapsed sheet", () => {
+    viewport.desktop = true
+    const view = mount()
+    const toggle = () =>
+      view.container.querySelector('section[aria-label="Navlog"] button[aria-expanded]')
+    view.click('section[aria-label="Navlog"] button[aria-expanded]')
+    expect(toggle()?.getAttribute("aria-expanded")).toBe("false")
+    view.click("[data-open-sheet]")
+    expect(toggle()?.getAttribute("aria-expanded")).toBe("true")
+    view.unmount()
+  })
+  test("on a phone, a step's openSheet selects the Navlog tab", () => {
+    viewport.desktop = false
+    const view = mount()
+    const navlogTab = () => view.container.querySelector("#wb-tab-navlog")
+    expect(navlogTab()?.getAttribute("aria-selected")).toBe("false")
+    view.click("[data-open-sheet]")
+    expect(navlogTab()?.getAttribute("aria-selected")).toBe("true")
+    view.unmount()
   })
 })

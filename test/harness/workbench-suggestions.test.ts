@@ -16,7 +16,7 @@ import {
  */
 const PLAN_REPLY =
   "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
-const APPROVAL_TOOL_NAME = "fileFlightPlan"
+const APPROVAL_TITLE = "The agent wants to file N738ZU KSTP to KRST"
 const GATED_REPLY =
   "Recorded the flight plan at flight-plans/261006-KSTP-KRST.txt. It was not transmitted."
 const TEACH_CONTENT = "N738ZU is a Cessna 172N, cruise 2400 RPM, 50 gal usable"
@@ -24,7 +24,7 @@ const TEACH_CONTENT = "N738ZU is a Cessna 172N, cruise 2400 RPM, 50 gal usable"
 const baseOptions: SuggestionJourneyOptions = {
   webUrl: "http://127.0.0.1:4712",
   screenshotDir: "/tmp/shots",
-  approvalToolName: APPROVAL_TOOL_NAME,
+  approvalTitle: APPROVAL_TITLE,
   gatedReply: GATED_REPLY,
   planReply: PLAN_REPLY,
   teachContent: TEACH_CONTENT,
@@ -66,12 +66,23 @@ const DEFAULT_WIRE: readonly WireResponse[] = [
   },
 ]
 
+/** The plan fixture's root tool calls: recall, computeNavlog and writeFile. */
+const ROOT_TOOL_STEPS = 3
+
+/** The plan journey's unfiltered locator for the turn's own tool steps. */
+function isRootToolSteps(desc: string): boolean {
+  return (
+    desc.endsWith(':scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]') &&
+    !desc.includes(":scope > .b4-step__children")
+  )
+}
+
 /**
  * A fake browser whose locators record every chained step as a readable
  * description, so a test can assert both WHAT was located and in what order.
  *
  * `onCall` sees each recorded call and may throw — that is how a test injects a
- * failure at one exact step (say the `Allow once` click) without teaching the
+ * failure at one exact step (say the `Allow once` focus) without teaching the
  * fake anything about journeys.
  */
 function fakeBrowser(
@@ -81,6 +92,12 @@ function fakeBrowser(
     readonly candidates?: readonly { readonly content: string }[]
     readonly candidatesOk?: boolean
     readonly wire?: readonly WireResponse[]
+    readonly expandedFor?: (desc: string) => string | null | undefined
+    readonly axeViolations?: readonly {
+      id: string
+      impact: string
+      nodes: { target: string[] }[]
+    }[]
   } = {},
 ) {
   const calls: string[] = []
@@ -98,15 +115,7 @@ function fakeBrowser(
   const baseDesc = (desc: string): string => desc.replace(/ \.(first|last)$/, "")
   const countOf = (desc: string): number => {
     const base = baseDesc(desc)
-    return (
-      overrides.countFor?.(base) ??
-      // The locators the journey expects to find NOTHING: the root tools,
-      // computeNavlog and writeFile, must not be rendered inside an activity
-      // card's <details>.
-      (base.includes("details") && (base.includes("writeFile") || base.includes("computeNavlog"))
-        ? 0
-        : 1)
-    )
+    return overrides.countFor?.(base) ?? (isRootToolSteps(base) ? ROOT_TOOL_STEPS : 1)
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Locator.
@@ -121,6 +130,20 @@ function fakeBrowser(
       getByText: (text: unknown) => locator(`${desc} > text=${name(text)}`),
       getByLabel: (label: string) => locator(`${desc} > label=${label}`),
       locator: (selector: string) => locator(`${desc} > ${selector}`),
+      getAttribute: async (attribute: string) => {
+        record(`getAttribute:${attribute} ${desc}`)
+        // Every disclosure the journey clicks opens, unless a test says otherwise.
+        return overrides.expandedFor?.(desc) ?? (attribute === "aria-expanded" ? "true" : null)
+      },
+      focus: async () => {
+        record(`focus ${desc}`)
+      },
+      // `tabUntilFocused`'s focus check: the target is focused at once, so no
+      // Tab is pressed (its own unit test covers the presses).
+      evaluate: async () => {
+        record(`focused? ${desc}`)
+        return true
+      },
       filter: (options: { hasText?: unknown }) =>
         locator(`${desc} | hasText=${name(options.hasText)}`),
       first: () => locator(`${desc} .first`),
@@ -176,6 +199,11 @@ function fakeBrowser(
     getByText: (text: unknown) => locator(`page > text=${name(text)}`),
     getByLabel: (label: string) => locator(`page > label=${label}`),
     locator: (selector: string) => locator(`page > ${selector}`),
+    keyboard: {
+      press: vi.fn(async (key: string) => {
+        record(`press ${key}`)
+      }),
+    },
     // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Response.
     waitForResponse: vi.fn(async (predicate: (response: any) => boolean) => {
       record("waitForResponse")
@@ -215,7 +243,21 @@ function fakeBrowser(
       record("complete")
     }),
   } as unknown as NonNullable<SuggestionJourneyDeps["journey"]>
-  const deps: SuggestionJourneyDeps = { chromium, journey }
+  const axe = vi.fn(() => {
+    const scan = {
+      include: (selector: string) => {
+        record(`axe include ${selector}`)
+        return scan
+      },
+      withTags: () => scan,
+      analyze: async () => {
+        record("axe analyze")
+        return { violations: overrides.axeViolations ?? [] }
+      },
+    }
+    return scan
+  })
+  const deps: SuggestionJourneyDeps = { chromium, journey, axe }
   const emitConsoleError = (text: string) => {
     listeners.get("console")?.({
       type: () => "error",
@@ -236,14 +278,26 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
   throw new Error("expected the call to reject, but it resolved")
 }
 
+// The locator chains the plan journey builds, spelled once so the golden list
+// below reads as steps rather than selectors.
+const TURN = "page > main > section.b4-turn:not(.b4-step__children *)"
+const OWN_STEPS = `${TURN} > :scope > ol.b4-turn__steps > li.b4-step`
+const PLAN_STEP = `${OWN_STEPS}[data-kind="plan"] | hasText="Made a plan"`
+const SUBAGENT = `${OWN_STEPS}[data-kind="subagent"] | hasText="performance finished"`
+const CHILD_TURN = `${SUBAGENT} > :scope > .b4-step__children > section.b4-turn`
+const CHILD_TOOLS = `${CHILD_TURN} > :scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]`
+const ROOT_TOOLS = `${OWN_STEPS}[data-kind="tool"]`
+const NAVLOG_STEP = `${ROOT_TOOLS} | hasText="Computed the navlog"`
+const CARD = 'page > main > .b4-approval[role="alert"]'
+
 /**
  * Every locator the three journeys touch, in order.
  *
- * Pinned as ONE array on purpose. Asserting only "the Allow once click
+ * Pinned as ONE array on purpose. Asserting only "the Allow once press
  * happened" leaves the assertions most likely to drift against the template —
- * the plan-card summary, the subagent card, the writeFile card — deletable with
- * every test still green. A golden list makes any locator change, deletion or
- * reordering show up as a diff a reviewer has to look at.
+ * the plan step, the subagent's nested tool, the navlog step's view —
+ * deletable with every test still green. A golden list makes any locator
+ * change, deletion or reordering show up as a diff a reviewer has to look at.
  */
 const GOLDEN_CALLS: readonly string[] = [
   "open",
@@ -251,29 +305,43 @@ const GOLDEN_CALLS: readonly string[] = [
   'click page > button="+ New conversation"',
   "click page > button=/^Plan a flight/",
   "complete",
-  'waitFor:visible page > main > details | hasText="Plan · 1/4 complete" .first',
-  'count page > main > details | hasText="Plan · 1/4 complete"',
-  'waitFor:visible page > main > details | hasText="performance · completed" .first',
-  'count page > main > details | hasText="performance · completed"',
-  'waitFor:visible page > main > details | hasText="performance · completed" > text=/performance · completed · 1 tool/',
-  'click page > main > details | hasText="performance · completed" > summary',
-  'waitFor:visible page > main > details[open] | hasText="performance · completed"',
-  'waitFor:visible page > main > details | hasText="performance · completed" > label=Subagent tools > text="readDoc"',
-  'waitFor:visible page > main > text="computeNavlog" .first',
-  'count page > main > text="computeNavlog"',
-  'count page > main > details > text="computeNavlog"',
-  'waitFor:visible page > main > text="writeFile" .first',
-  'count page > main > text="writeFile"',
-  'count page > main > details > text="writeFile"',
+  `waitFor:visible ${TURN} .first`,
+  `count ${TURN}`,
+  `click ${TURN} > :scope > button.b4-turn__summary`,
+  `getAttribute:aria-expanded ${TURN} > :scope > button.b4-turn__summary`,
+  `waitFor:visible ${PLAN_STEP} .first`,
+  `count ${PLAN_STEP}`,
+  `waitFor:visible ${SUBAGENT} .first`,
+  `count ${SUBAGENT}`,
+  `click ${SUBAGENT} > :scope > button.b4-step__line`,
+  `getAttribute:aria-expanded ${SUBAGENT} > :scope > button.b4-step__line`,
+  `waitFor:visible ${CHILD_TURN} .first`,
+  `count ${CHILD_TURN}`,
+  `click ${CHILD_TURN} > :scope > button.b4-turn__summary`,
+  `getAttribute:aria-expanded ${CHILD_TURN} > :scope > button.b4-turn__summary`,
+  `waitFor:visible ${CHILD_TOOLS} .first`,
+  `count ${CHILD_TOOLS}`,
+  `waitFor:visible ${ROOT_TOOLS} .first`,
+  `count ${ROOT_TOOLS}`,
+  `waitFor:visible ${NAVLOG_STEP} .first`,
+  `count ${NAVLOG_STEP}`,
+  `click ${NAVLOG_STEP} > :scope > button.b4-step__line`,
+  `getAttribute:aria-expanded ${NAVLOG_STEP} > :scope > button.b4-step__line`,
+  `waitFor:visible ${NAVLOG_STEP} > .b4-step__detail > button="See the navlog sheet"`,
   `waitFor:visible page > main > text=${JSON.stringify(PLAN_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(PLAN_REPLY)}`,
   // File the plan
   'click page > button="+ New conversation"',
   "click page > button=/^File the plan/",
-  `waitFor:visible page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)} .first`,
-  `count page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)}`,
-  `click page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)} > button="Allow once"`,
-  `waitFor:hidden page > alert | hasText=${JSON.stringify(APPROVAL_TOOL_NAME)}`,
+  `waitFor:visible ${CARD} .first`,
+  `count ${CARD}`,
+  `waitFor:visible ${CARD} > heading=${JSON.stringify(APPROVAL_TITLE)}`,
+  'axe include section[aria-label="Chat"]',
+  "axe analyze",
+  'focus page > button="Threads"',
+  `focused? ${CARD} > button="Allow once"`,
+  "press Enter",
+  `waitFor:hidden ${CARD}`,
   "complete",
   `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(GATED_REPLY)}`,
@@ -337,24 +405,69 @@ describe("runWorkbenchSuggestionJourneys", () => {
     expect(rejection.message).toMatch(/^Teach it the aircraft: locator\.click: Timeout 45000ms/)
   })
 
-  it("fails when a second plan card is rendered in the same thread", async () => {
+  it("fails when the run renders a second turn", async () => {
     const { deps } = fakeBrowser({
-      countFor: (desc) => (desc.includes("Plan · 1/4 complete") ? 2 : undefined),
+      countFor: (desc) => (desc === TURN ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/^Plan a flight: expected exactly one plan card/)
+    expect(rejection.message).toMatch(/^Plan a flight: expected exactly one turn in this thread/)
     expect(rejection.message).toContain("found 2")
   })
 
-  it("fails when a second performance subagent card is rendered", async () => {
+  it("fails when a second plan step is rendered in the same turn", async () => {
     const { deps } = fakeBrowser({
-      countFor: (desc) =>
-        desc.includes("performance · completed") && desc.endsWith('"performance · completed"')
-          ? 2
-          : undefined,
+      countFor: (desc) => (desc === PLAN_STEP ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/expected exactly one performance subagent card/)
+    expect(rejection.message).toMatch(/^Plan a flight: expected exactly one plan step/)
+    expect(rejection.message).toContain("found 2")
+  })
+
+  it("fails when a second performance subagent step is rendered", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc === SUBAGENT ? 2 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/expected exactly one performance subagent step/)
+  })
+
+  it("fails when a disclosure the journey opens stays closed", async () => {
+    const { deps } = fakeBrowser({
+      expandedFor: (desc) =>
+        desc === `${SUBAGENT} > :scope > button.b4-step__line` ? "false" : undefined,
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(
+      /^Plan a flight: The performance subagent step did not expand \(aria-expanded=false\)/,
+    )
+  })
+
+  it("fails when the subagent's tool call is not inside its step", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc === CHILD_TOOLS ? 0 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Plan a flight: locator\.waitFor: Timeout 45000ms/)
+    expect(rejection.message).toContain(CHILD_TOOLS)
+  })
+
+  it("fails when fewer than two tool steps are the turn's own", async () => {
+    // computeNavlog and writeFile are root calls; rendered under a subagent
+    // they would leave the turn's own list short.
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc === ROOT_TOOLS ? 1 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Plan a flight: expected at least 2 root tool steps/)
+  })
+
+  it("fails when the opened navlog step does not offer the sheet", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (desc.endsWith('button="See the navlog sheet"') ? 0 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(/^Plan a flight: locator\.waitFor: Timeout 45000ms/)
+    expect(rejection.message).toContain("See the navlog sheet")
   })
 
   it("fails when the assistant reply is rendered twice", async () => {
@@ -377,21 +490,43 @@ describe("runWorkbenchSuggestionJourneys", () => {
     expect(rejection.message).toMatch(/^File the plan: expected exactly one gated reply/)
   })
 
-  it("fails when writeFile is rendered inside an activity card", async () => {
+  it("fails when two approval cards are open", async () => {
     const { deps } = fakeBrowser({
-      countFor: (desc) => (desc.includes("details") && desc.includes("writeFile") ? 1 : undefined),
+      countFor: (desc) => (desc === CARD ? 2 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/expected no writeFile inside an activity card/)
+    expect(rejection.message).toMatch(/^File the plan: expected exactly one approval card/)
   })
 
-  it("fails when computeNavlog is rendered inside an activity card", async () => {
+  it("fails when the approval card's title is not the infinitive label", async () => {
     const { deps } = fakeBrowser({
-      countFor: (desc) =>
-        desc.includes("details") && desc.includes("computeNavlog") ? 1 : undefined,
+      countFor: (desc) => (desc.includes("> heading=") ? 0 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
-    expect(rejection.message).toMatch(/expected no computeNavlog inside an activity card/)
+    expect(rejection.message).toMatch(/^File the plan: locator\.waitFor: Timeout 45000ms/)
+    expect(rejection.message).toContain(APPROVAL_TITLE)
+  })
+
+  it("fails on a serious axe violation with the approval card open, before answering it", async () => {
+    const { calls, deps } = fakeBrowser({
+      axeViolations: [{ id: "button-name", impact: "critical", nodes: [{ target: ["button"] }] }],
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(
+      /^File the plan: axe found serious violations in section\[aria-label="Chat"\] with the approval card open: button-name/,
+    )
+    expect(calls).not.toContain("press Enter")
+  })
+
+  it("answers the approval by keyboard, not by a click", async () => {
+    const { calls, deps } = fakeBrowser()
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    expect(calls.some((call) => call.startsWith("click") && call.includes("Allow once"))).toBe(
+      false,
+    )
+    const focused = calls.indexOf(`focused? ${CARD} > button="Allow once"`)
+    expect(focused).toBeGreaterThan(-1)
+    expect(calls[focused + 1]).toBe("press Enter")
   })
 
   it("watches for the approve POST specifically, turning down the reject POST", async () => {

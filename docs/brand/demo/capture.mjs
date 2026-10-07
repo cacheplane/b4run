@@ -816,7 +816,27 @@ export async function fillActiveWorkbenchComposer(page, prompt) {
   await messageBox.fill(prompt)
 }
 
+/**
+ * A turn of the root conversation, never a subagent's nested one: the
+ * activity kit (`TurnActivity`) renders a subagent's own turn inside its
+ * step's `.b4-step__children` panel, with the same `section.b4-turn` markup.
+ */
+export const ROOT_TURN_SELECTOR = "section.b4-turn:not(.b4-step__children *)"
+
+/** A root turn that has settled: finished, failed or stopped — not working, not awaiting approval. */
+export const SETTLED_ROOT_TURN_SELECTOR = `${ROOT_TURN_SELECTOR}:is([data-state="done"], [data-state="failed"], [data-state="stopped"])`
+
+const CONNECT_PATHNAME = "/api/copilotkit/agent/default/connect"
+
 export async function waitForWorkbenchRunCompletion(page) {
+  // The run's own turn settling is the proof the run ended. Stop and Send are
+  // one button, so without this a wait that starts before the run renders its
+  // Stop state would pass on the idle composer the click left behind.
+  await page
+    .getByRole("main")
+    .locator(SETTLED_ROOT_TURN_SELECTOR)
+    .last()
+    .waitFor({ state: "visible", timeout: 120_000 })
   await page
     .getByRole("button", { name: "Stop", exact: true })
     .waitFor({ state: "hidden", timeout: 120_000 })
@@ -828,14 +848,62 @@ export async function waitForWorkbenchRunCompletion(page) {
   await page.getByRole("textbox", { name: "Message" }).fill("", { timeout: 120_000 })
 }
 
+/**
+ * Opens the latest settled root turn's activity and returns the turn. A turn
+ * folds once it settles, and a restored one starts folded, so its steps are
+ * not in the DOM until its summary is expanded.
+ */
+export async function expandLatestTurn(page, { timeout = 120_000 } = {}) {
+  const turn = page.getByRole("main").locator(SETTLED_ROOT_TURN_SELECTOR).last()
+  await turn.waitFor({ state: "visible", timeout })
+  const summary = turn.locator(":scope > button.b4-turn__summary")
+  if ((await summary.getAttribute("aria-expanded")) !== "true") {
+    await summary.click({ timeout })
+  }
+  if ((await summary.getAttribute("aria-expanded")) !== "true") {
+    throw new Error("The latest turn's summary did not expand (aria-expanded stayed false)")
+  }
+  return turn
+}
+
+/**
+ * The turn's own tool steps: not a subagent's (inside `.b4-step__children`),
+ * and not the members of a folded group of repeated calls.
+ */
+function rootToolSteps(turn) {
+  return turn.locator(':scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]')
+}
+
+/**
+ * Whether `response` is the CopilotKit connect POST for `threadId` on this
+ * Workbench: `CopilotChat` restores a thread by connecting to it, and the
+ * runtime route replays the thread from B4.run's storage. Under StrictMode
+ * the first connect is aborted and a second follows; either may match, which
+ * is why the DOM waits after it are the evidence, not this response.
+ */
+export function isThreadConnectResponse(response, { origin, threadId }) {
+  let url
+  try {
+    url = new URL(response.url())
+  } catch {
+    return false
+  }
+  if (response.request().method() !== "POST") return false
+  if (url.origin !== origin || url.pathname !== CONNECT_PATHNAME) return false
+  try {
+    return JSON.parse(response.request().postData() ?? "{}").threadId === threadId
+  } catch {
+    return false
+  }
+}
+
 export async function restoreWorkbenchThread(
   page,
   { workbenchUrl, threadId, prompt, tools, answer },
 ) {
   const origin = new URL(workbenchUrl).origin
-  const stateUrl = new URL(`/api/b4/threads/${encodeURIComponent(threadId)}/state`, origin).href
-  const stateResponsePromise = page.waitForResponse(
-    (response) => response.request().method() === "GET" && response.url() === stateUrl,
+  const connected = page.waitForResponse(
+    (response) => isThreadConnectResponse(response, { origin, threadId }),
     { timeout: 120_000 },
   )
   const interaction = Promise.resolve().then(async () => {
@@ -844,24 +912,41 @@ export async function restoreWorkbenchThread(
     const row = await threadRow(page, prompt)
     await row.waitFor({ state: "visible", timeout: 60_000 })
     await row.click()
-    if ((await row.getAttribute("aria-current")) !== "true") {
-      throw new Error(`Reload did not select the captured thread ${threadId}`)
-    }
+    // Selecting another thread remounts the workbench (the activity is keyed
+    // by the thread), which closes the list and detaches this row: the dock
+    // title is the evidence the selection took, not the row's aria-current.
+    await page
+      .getByRole("heading", { level: 2, name: prompt, exact: true })
+      .waitFor({ state: "visible", timeout: 60_000 })
+    // The reload usually lands on this thread already (the newest is active),
+    // and re-selecting it remounts nothing, so the list is still open.
     await closeThreadList(threads)
   })
-  const [response] = await Promise.all([stateResponsePromise, interaction])
+  const [response] = await Promise.all([connected, interaction])
   if (!response.ok()) {
     throw new Error(`Thread restoration failed with HTTP ${response.status()}`)
   }
-  await response.finished()
-  const transcript = page.getByRole("main")
-  for (const evidence of [prompt, ...tools, answer]) {
-    await transcript
-      .getByText(evidence, { exact: true })
-      .last()
-      .waitFor({ state: "visible", timeout: 120_000 })
+  const main = page.getByRole("main")
+  const visible = { state: "visible", timeout: 120_000 }
+  await main.getByText(prompt, { exact: true }).last().waitFor(visible)
+  const turns = main.locator(SETTLED_ROOT_TURN_SELECTOR)
+  await turns.first().waitFor(visible)
+  const turnCount = await main.locator(ROOT_TURN_SELECTOR).count()
+  if (turnCount !== 1) {
+    throw new Error(`The restored thread rendered ${turnCount} turns, expected exactly 1`)
   }
-  return { stateUrl: response.url() }
+  // A restored turn starts folded; its steps are in the DOM only once opened.
+  const turn = await expandLatestTurn(page)
+  const steps = rootToolSteps(turn)
+  if (tools.length > 0) await steps.first().waitFor(visible)
+  const stepCount = await steps.count()
+  if (stepCount !== tools.length) {
+    throw new Error(
+      `The restored turn rendered ${stepCount} tool steps, expected ${tools.length} (${tools.join(", ")})`,
+    )
+  }
+  await main.getByText(answer, { exact: true }).last().waitFor(visible)
+  return { connectUrl: response.url() }
 }
 
 export async function closeBrowserResources({ context, video, browser }) {
@@ -992,17 +1077,22 @@ function createBrowserAdapter() {
             await openReadyWorkbench(page, url)
             await fillActiveWorkbenchComposer(page, prompt)
             await page.getByRole("button", { name: "Send", exact: true }).click()
-            for (const tool of tools) {
-              await page.getByText(tool, { exact: true }).last().waitFor({
-                state: "visible",
-                timeout: 120_000,
-              })
+            await waitForWorkbenchRunCompletion(page)
+            // The settled turn is folded: open it so its steps are on screen
+            // (and in the recording) before they are counted.
+            const turn = await expandLatestTurn(page)
+            const steps = rootToolSteps(turn)
+            await steps.first().waitFor({ state: "visible", timeout: 120_000 })
+            const stepCount = await steps.count()
+            if (stepCount < tools.length) {
+              throw new Error(
+                `The run rendered ${stepCount} tool steps, expected at least ${tools.length}`,
+              )
             }
-            await page.getByText(answer, { exact: true }).last().waitFor({
+            await page.getByRole("main").getByText(answer, { exact: true }).last().waitFor({
               state: "visible",
               timeout: 120_000,
             })
-            await waitForWorkbenchRunCompletion(page)
             const threadId = await page.evaluate((title) => {
               const raw = localStorage.getItem("b4.workbench.threads")
               const threads = raw === null ? [] : JSON.parse(raw)
@@ -1349,7 +1439,7 @@ export async function captureDemo({
       threadId: scenario.threadId,
       serverPort: serverStart.port,
       workbenchPort: workbenchStart.port,
-      ...(restoration?.stateUrl !== undefined ? { stateUrl: restoration.stateUrl } : {}),
+      ...(restoration?.connectUrl !== undefined ? { connectUrl: restoration.connectUrl } : {}),
       videoTimeline: timeline.manifest(),
     }
 
@@ -1370,7 +1460,7 @@ export async function captureDemo({
         tools: [...EXPECTED_TOOLS],
         answer: EXPECTED_ANSWER,
         threadId: scenario.threadId,
-        stateUrl: restoration?.stateUrl,
+        connectUrl: restoration?.connectUrl,
       },
     }
     const summaryPath = join(artifactsDir, "capture-summary.json")

@@ -9,9 +9,25 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
  * across requests, so the id travels through `AsyncLocalStorage`; this pins
  * that it survives into the run and the capabilities read.
  */
-const seen: { method: string; headers: IncomingHttpHeaders }[] = []
+const seen: { method: string; url: string; headers: IncomingHttpHeaders }[] = []
 let server: Server
 let route: typeof import("./route")
+
+function connectRequest(threadId: string, headers: Record<string, string> = {}): Request {
+  return new Request("http://navlog.test/api/copilotkit/agent/default/connect", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify({
+      threadId,
+      runId: "c-1",
+      messages: [],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: {},
+    }),
+  })
+}
 
 function runRequest(headers: Record<string, string> = {}): Request {
   return new Request("http://navlog.test/api/copilotkit/agent/default/run", {
@@ -31,8 +47,28 @@ function runRequest(headers: Record<string, string> = {}): Request {
 
 beforeAll(async () => {
   server = createServer((request, response) => {
-    seen.push({ method: request.method ?? "", headers: request.headers })
+    seen.push({ method: request.method ?? "", url: request.url ?? "", headers: request.headers })
     request.resume()
+    const replay = /^\/threads\/([^/]+)\/events$/.exec(request.url ?? "")
+    if (request.method === "GET" && replay !== null) {
+      if (replay[1] === "t-404") {
+        response.writeHead(404, { "content-type": "application/json" })
+        response.end(JSON.stringify({ error: "not_found" }))
+        return
+      }
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end(
+        JSON.stringify({
+          events: [
+            { type: "RUN_STARTED", threadId: "t-1", runId: "r-0", input: { messages: [] } },
+            { type: "RUN_FINISHED", threadId: "t-1", runId: "r-0" },
+          ],
+          warnings: [],
+          truncated: false,
+        }),
+      )
+      return
+    }
     if (request.method === "GET") {
       response.writeHead(200, { "content-type": "application/json" })
       response.end(JSON.stringify({ tools: { supported: true } }))
@@ -108,5 +144,49 @@ describe("copilotkit proxy route", () => {
 
     expect(response.status).toBe(403)
     expect(seen).toHaveLength(0)
+  })
+
+  test("connect replays the thread with the visitor id from the cookie, and the token when deployed", async () => {
+    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret")
+    const response = await route.POST(
+      connectRequest("t-1", { cookie: "__Host-b4_visitor=v-returning01" }),
+    )
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(seen.map((entry) => `${entry.method} ${entry.url}`)).toEqual(["GET /threads/t-1/events"])
+    expect(seen[0]?.headers["x-b4-visitor"]).toBe("v-returning01")
+    expect(seen[0]?.headers["x-internal-token"]).toBe("server-secret")
+    expect(body).toContain("RUN_STARTED")
+  })
+
+  test("connecting to a thread the server does not know is an empty stream, not an error", async () => {
+    const response = await route.POST(
+      connectRequest("t-404", { cookie: "b4_visitor=v-returning01" }),
+    )
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(seen.map((entry) => entry.url)).toEqual(["/threads/t-404/events"])
+    expect(body).not.toContain("RUN_STARTED")
+  })
+
+  test("a browser-sent visitor header reaches neither the replay nor the run", async () => {
+    vi.stubEnv("B4_INTERNAL_TOKEN", "server-secret")
+    const attack = {
+      cookie: "__Host-b4_visitor=v-returning01",
+      "x-b4-visitor": "v-attacker",
+      "x-internal-token": "attacker-token",
+    }
+    const connect = await route.POST(connectRequest("t-1", attack))
+    await connect.text()
+    const run = await route.POST(runRequest(attack))
+    await run.text()
+
+    expect(seen.length).toBeGreaterThanOrEqual(2)
+    for (const entry of seen) {
+      expect(entry.headers["x-b4-visitor"]).toBe("v-returning01")
+      expect(entry.headers["x-internal-token"]).toBe("server-secret")
+    }
   })
 })

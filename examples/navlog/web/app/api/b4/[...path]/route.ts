@@ -37,12 +37,8 @@ async function forward(
   const { path } = await context.params
   const target = resolveProxyTarget(request.method, path ?? [], SERVER_URL)
   if (target === null) {
-    // 403, NOT 404. The workbench gives 404 a specific meaning on
-    // `/threads/:id/state` — "this thread has no checkpoint yet", which
-    // hydration treats as an ordinary empty thread — so a rejection that
-    // answered 404 would make a broken allowlist indistinguishable from a
-    // brand-new thread, and every conversation would restore as blank with no
-    // error anywhere. "Refused, and deliberately" is what actually happened.
+    // 403, NOT 404: a 404 would read as "no such thing yet" and hide a broken
+    // allowlist. "Refused, and deliberately" is what actually happened.
     return guarded.finish(NextResponse.json({ error: "Not proxied" }, { status: 403 }))
   }
   // Approving a memory changes what the agent believes for every visitor, so

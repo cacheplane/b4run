@@ -28,11 +28,9 @@ const ALLOWED: readonly AllowedRoute[] = [
   { method: "GET", shape: ["memory", "candidates"] },
   { method: "POST", shape: ["memory", "candidates", null, "approve"] },
   { method: "POST", shape: ["memory", "candidates", null, "reject"] },
-  // Thread reads the workbench hydrates from. Deliberately read-only: running,
-  // resuming and cancelling a thread all go through CopilotKit's own runtime
-  // route, which is separately wired.
-  { method: "GET", shape: ["threads", null, "state"] },
-  { method: "GET", shape: ["threads", null, "pending_interrupts"] },
+  // Thread history is NOT proxied: the CopilotKit route's runner
+  // (`createB4AgentRunner`) reads /threads/:id/events server-to-server on
+  // `connect`.
 ]
 
 /**

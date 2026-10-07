@@ -1,17 +1,48 @@
+import { EMPTY_TURNS, reduceTurns, type TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
-import { navlogAnswerText } from "./navlog-selectors"
+import { latestNavlogResult, navlogAnswerText } from "./navlog-selectors"
 import { SAMPLE_NAVLOG } from "./navlog-types"
 import {
   advisoryLabel,
   advisorySeverity,
   isPreliminary,
+  latestWeatherBriefText,
   parseAdvisory,
   parseVerdictText,
   parseWeatherBrief,
   parseWindsLine,
-  weatherBriefTextFromMessages,
   windsSummary,
 } from "./weather-selectors"
+
+type BaseEvent = Parameters<typeof reduceTurns>[1]
+const T = (type: string, rest: Record<string, unknown>) =>
+  ({ type, ...rest }) as unknown as BaseEvent
+/** Fold AG-UI events through the real reducer, as the activity does. */
+const fold = (events: readonly BaseEvent[]): TurnsView =>
+  events.reduce((view, event) => reduceTurns(view, event, { now: () => 1 }), EMPTY_TURNS)
+const runStart = T("RUN_STARTED", { threadId: "th", runId: "r1" })
+const toolCall = (id: string, name: string, result: string, owner?: string): BaseEvent[] => [
+  T("TOOL_CALL_START", {
+    toolCallId: id,
+    toolCallName: name,
+    ...(owner ? { subagentRunId: owner } : {}),
+  }),
+  T("TOOL_CALL_END", { toolCallId: id, ...(owner ? { subagentRunId: owner } : {}) }),
+  T("TOOL_CALL_RESULT", {
+    messageId: `r-${id}`,
+    toolCallId: id,
+    content: result,
+    ...(owner ? { subagentRunId: owner } : {}),
+  }),
+]
+const subagent = (id: string, name: string, result: unknown, outcome = "success"): BaseEvent[] => [
+  T("SUBAGENT_STARTED", { subagentRunId: id, name, parentToolCallId: id }),
+  T("SUBAGENT_FINISHED", {
+    subagentRunId: id,
+    outcome: { type: outcome },
+    ...(result !== undefined ? { result } : {}),
+  }),
+]
 
 /** The weather brief in the verdict contract: verdict and horizon first, advisories as fields. */
 const NEW_BRIEF = `Verdict: CAUTION — the freezing level is 4,000 ft, below the 5,500 ft cruise.
@@ -153,81 +184,81 @@ describe("winds aloft", () => {
   })
 })
 
-const call = (id: string, name: string, args: unknown) => ({
-  id: `m-${id}`,
-  role: "assistant",
-  content: "",
-  toolCalls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }],
-})
-const result = (id: string, content: string) => ({
-  id: `r-${id}`,
-  role: "tool",
-  toolCallId: id,
-  content,
-})
-
-describe("weather after a reload", () => {
-  test("reads the weather brief from the parent's task call result", () => {
-    const messages = [
-      { id: "u", role: "user", content: "Plan KFCM to KDLH" },
-      call("t1", "task", { subagent: "performance", input: "cruise numbers" }),
-      result("t1", "Cruise 2400 RPM…"),
-      call("t2", "task", { subagent: "weather", input: "brief the route" }),
-      result("t2", NEW_BRIEF),
-    ]
-    const text = weatherBriefTextFromMessages(messages)
+describe("the brief after a restore", () => {
+  test("reads the weather brief from the nested weather subagent's result", () => {
+    const view = fold([
+      runStart,
+      ...subagent("p", "performance", "Cruise 2400 RPM…"),
+      ...subagent("w", "weather", NEW_BRIEF),
+    ])
+    const text = latestWeatherBriefText(view)
     expect(text).toBe(NEW_BRIEF)
     expect(parseWeatherBrief(text as string).airports[0]?.id).toBe("KFCM")
   })
-  test("the latest weather task wins, a JSON-encoded result is unwrapped, and no task is null", () => {
-    const older = NEW_BRIEF.replace("KFCM", "KSTP")
-    const messages = [
-      call("a", "task", { subagent: "weather", input: "x" }),
-      result("a", older),
-      call("b", "task", { subagent: "weather", input: "y" }),
-      result("b", JSON.stringify(NEW_BRIEF)),
-      call("c", "task", { subagent: "weather", input: "z" }),
-      result("c", "getMetar failed; no brief."),
-    ]
-    expect(weatherBriefTextFromMessages(messages)).toBe(NEW_BRIEF)
-    expect(weatherBriefTextFromMessages([])).toBeNull()
+  test("the latest weather run wins and a JSON-encoded result is unwrapped", () => {
+    const view = fold([
+      runStart,
+      ...subagent("a", "weather", NEW_BRIEF.replace("KFCM", "KSTP")),
+      ...subagent("b", "weather", JSON.stringify(NEW_BRIEF)),
+      ...subagent("c", "weather", "getMetar failed; no brief."),
+    ])
+    expect(latestWeatherBriefText(view)).toBe(NEW_BRIEF)
   })
 })
 
 describe("navlogAnswerText", () => {
   const navlog = JSON.stringify(SAMPLE_NAVLOG)
-  test("is the planning answer of the turn that computed the navlog, not a later reply", () => {
+  const call = (id: string) => ({
+    id: `m-${id}`,
+    role: "assistant",
+    content: "",
+    toolCalls: [{ id, function: { name: "computeNavlog" } }],
+  })
+  const result = (id: string, content: string) => ({
+    id: `r-${id}`,
+    role: "tool",
+    toolCallId: id,
+    content,
+  })
+  test("is the answer after the result, not the preamble or a later reply", () => {
     const messages = [
       { id: "u1", role: "user", content: "Plan it" },
       { id: "a0", role: "assistant", content: 'recall({ query: "aircraft profile" })' },
-      call("n", "computeNavlog", {}),
+      call("n"),
       result("n", navlog),
       { id: "a1", role: "assistant", content: "Bottom line: GO — VFR all the way." },
       { id: "u2", role: "user", content: "File it" },
       { id: "a2", role: "assistant", content: "Filed." },
     ]
-    expect(navlogAnswerText(messages)).toBe("Bottom line: GO — VFR all the way.")
+    expect(navlogAnswerText(messages, "n")).toBe("Bottom line: GO — VFR all the way.")
   })
-  test("is empty until the navlog turn answers, and with no navlog", () => {
-    expect(
-      navlogAnswerText([
-        { id: "u1", role: "user", content: "Plan it" },
-        call("n", "computeNavlog", {}),
-        result("n", navlog),
-      ]),
-    ).toBe("")
-    expect(navlogAnswerText([{ id: "a", role: "assistant", content: "Hi" }])).toBe("")
-  })
-  test("follows a recomputed navlog to its own turn", () => {
+  test("is empty until the navlog turn answers, and when the id is not in the messages", () => {
     const messages = [
-      call("n1", "computeNavlog", {}),
+      { id: "u1", role: "user", content: "Plan it" },
+      call("n"),
+      result("n", navlog),
+    ]
+    expect(navlogAnswerText(messages, "n")).toBe("")
+    expect(navlogAnswerText(messages, "missing")).toBe("")
+  })
+  test("follows a recomputed navlog (found in the turns) to its own turn", () => {
+    const second = JSON.stringify({ ...SAMPLE_NAVLOG, altitudeFt: 6500 })
+    const messages = [
+      call("n1"),
       result("n1", navlog),
       { id: "a1", role: "assistant", content: "First answer." },
       { id: "u2", role: "user", content: "Try 6500" },
-      call("n2", "computeNavlog", {}),
-      result("n2", JSON.stringify({ ...SAMPLE_NAVLOG, altitudeFt: 6500 })),
-      { id: "a2", role: "assistant", content: "Second answer." },
+      call("n2"),
+      result("n2", second),
+      { id: "a2", role: "assistant", content: [{ type: "text", text: "Second answer." }] },
     ]
-    expect(navlogAnswerText(messages)).toBe("Second answer.")
+    const view = fold([
+      runStart,
+      ...toolCall("n1", "computeNavlog", navlog),
+      ...toolCall("n2", "computeNavlog", second),
+    ])
+    const ref = latestNavlogResult(view)
+    expect(ref?.id).toBe("n2")
+    expect(navlogAnswerText(messages, ref?.id as string)).toBe("Second answer.")
   })
 })

@@ -7,8 +7,12 @@ export interface ChatDockProps {
   readonly status?: string | undefined
   readonly rail: ReactNode
   readonly memory: ReactNode
+  /** A failure to show above the conversation (`RunError`), or nothing. */
+  readonly banner?: ReactNode
+  /** Content-parts-dropped notices for the open thread (`DropNotices`), or nothing. */
+  readonly notices?: ReactNode
+  /** The conversation: `NavlogChat`, which holds the messages and the input. */
   readonly children: ReactNode
-  readonly composer: ReactNode
   /** Starts a new conversation; the header button that calls it is always in view. */
   readonly onNewConversation: () => void
 }
@@ -36,7 +40,7 @@ export function statusPresentation(status: string | undefined): {
 
 const TONE_CLASS = {
   running:
-    "border-transparent bg-[color-mix(in_srgb,var(--b4-activity-running,#2563eb)_12%,transparent)] text-[var(--b4-activity-running,currentColor)]",
+    "border-transparent bg-[color-mix(in_srgb,var(--b4-activity-running)_12%,transparent)] text-[var(--b4-activity-running,currentColor)]",
   attention: "border-amber-500/30 bg-[var(--wb-chat-warn-bg)] text-[var(--wb-chat-warn)]",
   idle: "border-wb-border text-wb-muted",
 } as const
@@ -63,7 +67,7 @@ function StatusBadge({ status }: { status: string | undefined }) {
  * The floating chat panel. The thread list lives behind a "Threads"
  * disclosure in the header instead of a permanent column; "+ New
  * conversation" stays in the header itself, always reachable. The memory
- * panel sits inline above the transcript rather than behind a second
+ * panel sits inline above the conversation rather than behind a second
  * disclosure: it renders nothing until a candidate is waiting, so it costs no
  * space until there is something to approve, and then it is in view (the
  * teach journey and a person both need to see it without hunting for it).
@@ -77,8 +81,9 @@ export function ChatDock({
   status,
   rail,
   memory,
+  banner,
+  notices,
   children,
-  composer,
   onNewConversation,
 }: ChatDockProps) {
   const [threadsOpen, setThreadsOpen] = useState(false)
@@ -105,13 +110,15 @@ export function ChatDock({
         One wrapping row, reordered by width. Desktop: the brand and the two
         buttons on top, the title and status on a full-width row below, so the
         title is never squeezed beside a badge. Phone (below `md`, the layout's
-        breakpoint): the dock is short, so the brand drops out and the title
-        shares the one row with the buttons — every pixel there is transcript.
+        breakpoint): the dock is short, so the brand leaves the row and the
+        title shares it with the buttons — every pixel there is conversation.
+        The brand is the page's one h1, so on a phone it stays in the
+        accessibility tree (`sr-only`) rather than leaving it.
       */}
       <header className="relative flex shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1.5 border-b border-wb-border px-3 py-2 md:pb-2.5">
-        <span className="wb-brand-mark mr-auto shrink-0 text-[13px] font-semibold tracking-tight max-md:hidden">
+        <h1 className="wb-brand-mark mr-auto shrink-0 text-[13px] font-semibold tracking-tight max-md:sr-only">
           B4.run navlog
-        </span>
+        </h1>
         {/*
           The visible text is short for the dock's width; the accessible name
           is the rail's full "+ New conversation", which contains it.
@@ -143,8 +150,7 @@ export function ChatDock({
         </button>
         <div className="order-last flex min-w-0 basis-full items-center gap-2 max-md:order-first max-md:flex-1 max-md:basis-0">
           {/*
-            An h2: the page's one h1 is the empty state's "B4.run navlog". The
-            title gets the whole row; `title` carries the full text when it
+            An h2 under the brand's h1. The title gets the whole row; `title` carries the full text when it
             truncates.
           */}
           <h2
@@ -171,8 +177,9 @@ export function ChatDock({
       <div className="max-h-[40%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-md:max-h-[30%]">
         {memory}
       </div>
+      {banner ? <div className="shrink-0 px-3 pt-2">{banner}</div> : null}
+      {notices}
       <main className="flex min-h-0 flex-1 flex-col">{children}</main>
-      {composer}
     </section>
   )
 }

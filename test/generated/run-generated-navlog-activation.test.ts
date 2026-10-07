@@ -142,6 +142,9 @@ const TEACH_REPLY = "Remembered: N738ZU is a 172N, cruise 2400 RPM, 50 gallons u
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
+// Where `CopilotChat` restores a thread: the runtime route's runner
+// (`createB4AgentRunner`) replays it from B4.run's storage (`GET /threads/:id/events`) as AG-UI events.
+const COPILOTKIT_CONNECT_PATH = "/api/copilotkit/agent/default/connect"
 // The allowlisted read the generated app itself treats as "the B4.run server
 // answered" (`AppShell.tsx`'s SERVER_PROBE_PATH). A 2xx means the route's whole
 // module graph compiled AND the proxy reached a B4.run server.
@@ -1766,35 +1769,52 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
             const denied = await fetchWeb(webUrl, "/api/b4/threads", lifecycleSignal)
             expect(denied.status).toBe(403)
             await expect(denied.json()).resolves.toEqual({ error: "Not proxied" })
-
-            // W2 — the proxy reached THIS server. A mis-wired B4_SERVER_URL
-            // cannot pass: only this server has a checkpoint for the thread the
-            // safe journey just drove, so a stray B4.run server on the hard-coded
-            // :3002 default answers 404 here while W1 and W3 stay green. Do not
-            // weaken the 200 to a "not 502" check — that is the whole assertion.
-            const state = await fetchWeb(
+            // The thread-state read is no longer proxied either: a thread is
+            // restored through the CopilotKit runtime's connect (W2), never by
+            // the browser reading raw checkpoints.
+            const deniedState = await fetchWeb(
               webUrl,
               `/api/b4/threads/${encodeURIComponent(safeThreadId)}/state`,
               lifecycleSignal,
             )
-            expect(state.status).toBe(200)
-            const threadState = (await state.json()) as {
-              readonly config?: unknown
-              readonly values?: unknown
-            }
-            expect(JSON.stringify(threadState.config)).toContain(safeThreadId)
-            expect(JSON.stringify(threadState.values)).toContain(
+            expect(deniedState.status).toBe(403)
+
+            // W2 — the runtime route reached THIS server. A mis-wired
+            // B4_SERVER_URL cannot pass: only this server has a checkpoint for
+            // the thread the safe journey just drove, so a stray B4.run server
+            // on the hard-coded :3002 default replays nothing here while W1 and
+            // W3 stay green. Do not weaken the replayed run to a "200" check —
+            // the connect answers 200 for a thread it knows nothing about.
+            const restored = await postAgui({
+              baseUrl: webUrl,
+              endpointPath: COPILOTKIT_CONNECT_PATH,
+              messages: [],
+              recorder: agUiRecorder,
+              runId: `connect-${randomUUID()}`,
+              signal: lifecycleSignal,
+              threadId: safeThreadId,
+            })
+            expect(restored.status).toBe(200)
+            const restoredStarts = restored.events.filter((event) => event.type === "RUN_STARTED")
+            expect(restoredStarts.length).toBeGreaterThan(0)
+            for (const started of restoredStarts) expect(started.threadId).toBe(safeThreadId)
+            expect(reconstructAssistantText(restored.events)).toContain(
               "[poh/cruise-performance.md, Figure 5-7]",
             )
-            // 403 (refused) and 404 (no checkpoint) stay distinguishable, which
-            // is the distinction the proxy route argues for — and it is what
-            // makes the 200 above evidence rather than coincidence.
-            const absent = await fetchWeb(
-              webUrl,
-              `/api/b4/threads/${encodeURIComponent(`absent-${randomUUID()}`)}/state`,
-              lifecycleSignal,
-            )
-            expect(absent.status).toBe(404)
+            expect(restored.events.filter((event) => event.type === "RUN_ERROR")).toEqual([])
+            // An unknown thread replays as an empty stream: the 200 alone is
+            // not evidence, the replayed run above is.
+            const absent = await postAgui({
+              baseUrl: webUrl,
+              endpointPath: COPILOTKIT_CONNECT_PATH,
+              messages: [],
+              recorder: agUiRecorder,
+              runId: `connect-${randomUUID()}`,
+              signal: lifecycleSignal,
+              threadId: `absent-${randomUUID()}`,
+            })
+            expect(absent.status).toBe(200)
+            expect(absent.events.filter((event) => event.type === "RUN_STARTED")).toEqual([])
 
             // W3 — the CopilotKit runtime is mounted at the basePath the client
             // uses, under the agent id every hook resolves. Never assert
@@ -1835,13 +1855,28 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
             expect(webJourney.status).toBe(200)
             expect(activeAimock.getRequests()).toHaveLength(webJournalStart + 2)
             assertWebHopJourney(webJourney.events)
-            // Our thread id survived the hop into B4.run's checkpointer.
-            const webState = await fetchWeb(
-              webUrl,
-              `/api/b4/threads/${encodeURIComponent(webThreadId)}/state`,
-              lifecycleSignal,
-            )
-            expect(webState.status).toBe(200)
+            // Our thread id survived the hop into B4.run's checkpointer: the
+            // connect replays it, opening on the prompt this hop sent.
+            const webRestored = await postAgui({
+              baseUrl: webUrl,
+              endpointPath: COPILOTKIT_CONNECT_PATH,
+              messages: [],
+              recorder: agUiRecorder,
+              runId: `connect-${randomUUID()}`,
+              signal: lifecycleSignal,
+              threadId: webThreadId,
+            })
+            expect(webRestored.status).toBe(200)
+            const webRestoredStart = webRestored.events.find(
+              (event) => event.type === "RUN_STARTED",
+            ) as
+              | {
+                  readonly threadId?: unknown
+                  readonly input?: { readonly messages?: readonly { readonly content?: unknown }[] }
+                }
+              | undefined
+            expect(webRestoredStart?.threadId).toBe(webThreadId)
+            expect(webRestoredStart?.input?.messages?.[0]?.content).toBe(WEB_PROMPT)
 
             // W5 — the interrupt outcome and the resume envelope survive the
             // hop. Highest-risk contract in the app; it regressed once.
@@ -1919,7 +1954,8 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
               {
                 webUrl,
                 screenshotDir: dirname(browserScreenshotPath),
-                approvalToolName: "fileFlightPlan",
+                // fileFlightPlan's running label, as the card's infinitive title.
+                approvalTitle: "The agent wants to file N738ZU KSTP to KRST",
                 gatedReply: FILE_REPLY,
                 planReply: PLAN_REPLY,
                 teachContent: TEACH_CONTENT,
