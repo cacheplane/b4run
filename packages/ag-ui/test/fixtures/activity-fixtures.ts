@@ -280,7 +280,7 @@ export const TURN_FIXTURES: Readonly<Record<string, TurnFixture>> = {
           sources: [
             { title: "MDN", href: "https://developer.mozilla.org" },
             { title: "script", href: "javascript:alert(1)" },
-            { title: "local", href: "/docs/a" },
+            { title: "local", href: "/files/a.md" },
             { title: "mail", href: "mailto:a@b.c" },
             { title: "plain" },
           ],
