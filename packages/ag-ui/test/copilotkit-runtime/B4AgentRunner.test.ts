@@ -1,7 +1,7 @@
 import type { BaseEvent } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
 import { InMemoryAgentRunner } from "@copilotkit/runtime/v2"
-import { lastValueFrom, of, toArray } from "rxjs"
+import { lastValueFrom, Observable, Subject, toArray } from "rxjs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { B4AgentRunner } from "../../src/copilotkit-runtime/index.js"
 
@@ -89,15 +89,187 @@ describe("B4AgentRunner.connect", () => {
     ).rejects.toThrow(/503/)
   })
 
-  it("delegates to the in-memory runner while a run for the thread is live in this process", async () => {
-    const fetch = jsonFetch(200, {})
-    const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
-    vi.spyOn(runner, "isRunning").mockResolvedValue(true)
-    const live = vi.spyOn(InMemoryAgentRunner.prototype, "connect").mockReturnValue(of(...EVENTS))
-    const events = await lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray()))
-    expect(events).toEqual(EVENTS)
-    expect(live).toHaveBeenCalledWith({ threadId: "t-1" })
-    expect(fetch).not.toHaveBeenCalled()
+  it("replaces a request Accept header of any case instead of duplicating it", async () => {
+    const fetch = jsonFetch(200, {
+      threadId: "t-1",
+      status: "idle",
+      events: [],
+      warnings: [],
+      truncated: false,
+    })
+    await lastValueFrom(
+      new B4AgentRunner({ url: "http://b4.test", fetch })
+        .connect({ threadId: "t-1", headers: { Accept: "text/event-stream", "X-Trace": "1" } })
+        .pipe(toArray()),
+    )
+    const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)
+    expect(headers.get("accept")).toBe("application/json")
+    expect(headers.get("x-trace")).toBe("1")
+  })
+
+  describe("while a run for the thread is live in this process", () => {
+    const turn = (runId: string, text: string): BaseEvent[] => [
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "t-1",
+        runId,
+        input: { messages: [{ id: `${runId}-m`, role: "user", content: text }] },
+      } as unknown as BaseEvent,
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: `${runId}-a`,
+        role: "assistant",
+      } as BaseEvent,
+      { type: EventType.TEXT_MESSAGE_END, messageId: `${runId}-a` } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId,
+        outcome: { type: "success" },
+      } as BaseEvent,
+    ]
+    const closed = [...turn("r-1", "one"), ...turn("r-2", "two")]
+    const openHead: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t-1", runId: "r-3" } as BaseEvent,
+      { type: EventType.TEXT_MESSAGE_START, messageId: "ckpt-a", role: "assistant" } as BaseEvent,
+    ]
+    const currentStarted = {
+      type: EventType.RUN_STARTED,
+      threadId: "t-1",
+      runId: "live-3",
+      input: {
+        threadId: "t-1",
+        runId: "live-3",
+        messages: [
+          { id: "c-1", role: "user", content: "one" },
+          { id: "c-2", role: "assistant", content: "hi" },
+          { id: "c-3", role: "user", content: "three" },
+          { id: "c-4", role: "assistant", content: "draft" },
+        ],
+      },
+    } as unknown as BaseEvent
+    const currentText = {
+      type: EventType.TEXT_MESSAGE_START,
+      messageId: "live-a",
+      role: "assistant",
+    } as BaseEvent
+    const historic: BaseEvent[] = [
+      { type: EventType.RUN_STARTED, threadId: "t-1", runId: "old" } as BaseEvent,
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId: "old",
+        outcome: { type: "success" },
+      } as BaseEvent,
+    ]
+
+    function liveInner() {
+      const later = new Subject<BaseEvent>()
+      let unsubscribed = false
+      const inner = new Observable<BaseEvent>((subscriber) => {
+        for (const event of [...historic, currentStarted, currentText]) subscriber.next(event)
+        const subscription = later.subscribe(subscriber)
+        return () => {
+          unsubscribed = true
+          subscription.unsubscribe()
+        }
+      })
+      const spy = vi.spyOn(InMemoryAgentRunner.prototype, "connect").mockReturnValue(inner)
+      return { later, spy, isUnsubscribed: () => unsubscribed }
+    }
+
+    it("emits B4 history without its open head, then this process's current run, then later live events", async () => {
+      const fetch = jsonFetch(200, {
+        threadId: "t-1",
+        status: "busy",
+        events: [...closed, ...openHead],
+        warnings: [],
+        truncated: false,
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const { later, spy } = liveInner()
+      const seen: BaseEvent[] = []
+      let done = false
+      runner.connect({ threadId: "t-1" }).subscribe({
+        next: (event) => seen.push(event),
+        complete: () => {
+          done = true
+        },
+      })
+      await vi.waitFor(() => expect(spy).toHaveBeenCalledWith({ threadId: "t-1" }))
+      const finished = {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId: "live-3",
+        outcome: { type: "success" },
+      } as BaseEvent
+      later.next(finished)
+      later.complete()
+      expect(done).toBe(true)
+      expect(seen).toEqual([
+        ...closed,
+        {
+          ...currentStarted,
+          input: {
+            ...(currentStarted as unknown as { input: object }).input,
+            messages: [{ id: "c-3", role: "user", content: "three" }],
+          },
+        },
+        currentText,
+        finished,
+      ])
+    })
+
+    it("emits the full replay when the run ended while the history was being read", async () => {
+      const events = [...closed, ...openHead]
+      const fetch = jsonFetch(200, {
+        threadId: "t-1",
+        status: "idle",
+        events,
+        warnings: [],
+        truncated: false,
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+      const { spy } = liveInner()
+      const seen = await lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray()))
+      expect(seen).toEqual(events)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    it("aborts the history read when the subscriber unsubscribes before it lands", async () => {
+      let signal: AbortSignal | undefined
+      const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        signal = init?.signal ?? undefined
+        return new Promise<Response>(() => {})
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const { spy } = liveInner()
+      const subscription = runner.connect({ threadId: "t-1" }).subscribe()
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+      subscription.unsubscribe()
+      expect(signal?.aborted).toBe(true)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    it("unsubscribes the live inner stream when the subscriber unsubscribes", async () => {
+      const fetch = jsonFetch(200, {
+        threadId: "t-1",
+        status: "busy",
+        events: closed,
+        warnings: [],
+        truncated: false,
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const { spy, isUnsubscribed } = liveInner()
+      const subscription = runner.connect({ threadId: "t-1" }).subscribe()
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+      subscription.unsubscribe()
+      expect(isUnsubscribed()).toBe(true)
+    })
   })
 
   it("reports replay warnings once through onWarnings", async () => {
