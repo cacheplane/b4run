@@ -211,7 +211,13 @@ async function createThread(handler: Handler, metadata?: Record<string, unknown>
 type Ev = BaseEvent & {
   readonly [key: string]: unknown
   readonly delta?: string
-  readonly outcome?: { readonly type: string; readonly interrupts: ReadonlyArray<{ id: string }> }
+  readonly outcome?: {
+    readonly type: string
+    readonly interrupts: ReadonlyArray<{
+      id: string
+      metadata?: { grant?: string }
+    }>
+  }
   readonly runId?: string
 }
 
@@ -361,6 +367,26 @@ describe("GET /threads/:thread_id/events", () => {
     expect(doneLast.outcome?.type).toBe("success")
     expect(of(done, "RUN_STARTED")).toHaveLength(1)
   }, 90_000)
+
+  it("carries the minted grant on the parked interrupt when the app discloses grants", async () => {
+    await withAimock(script().user("deploy").callsTool("deployProd", { env: "staging" }).build())
+    const handler = await createHandler(
+      await fixtureApp({
+        "b4.config.ts": 'export default { approvals: { grants: "optional" } }\n',
+      }),
+    )
+    await readSseText(await handler.fetch(parkRunRequest("t-grant", "deploy")))
+
+    const parked = await readEvents(handler, "t-grant")
+
+    const last = parked.events.at(-1) as Ev
+    expect(last.type).toBe("RUN_FINISHED")
+    const pending = (await (await handler.fetch(pendingInterruptsRequest("t-grant"))).json()) as {
+      interrupts: Array<{ grant?: string }>
+    }
+    expect(typeof pending.interrupts[0]?.grant).toBe("string")
+    expect(last.outcome?.interrupts[0]?.metadata?.grant).toBe(pending.interrupts[0]?.grant)
+  }, 60_000)
 
   it("caps decoding and reports truncated", async () => {
     const saver = new MemorySaver()

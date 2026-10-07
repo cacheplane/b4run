@@ -71,6 +71,13 @@ export type ThreadOperation =
    * to the same policy as the prompt itself.
    */
   | "thread.turns"
+  /**
+   * `GET /threads/:id/events`: the same read as `thread.turns`, served as the
+   * AG-UI events the thread's live runs carried. Gated before the parking
+   * route's middleware, composed as AND, and a denied read answers the same
+   * 404 a missing thread returns. The replay carries the parked prompt and
+   * its grant, so it answers to the same policy as the prompt itself.
+   */
   | "thread.events"
   /**
    * `GET /threads/:id/runs/stream`, the attach/reattach endpoint. Discloses
