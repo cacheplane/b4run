@@ -5,3 +5,4 @@ dist/
 # Runtime workspace outputs (the agent writes these at run time).
 workspace/reports/
 workspace/tool-outputs/
+workspace/flight-plans/
