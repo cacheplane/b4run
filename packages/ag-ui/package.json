@@ -54,6 +54,10 @@
       "types": "./dist/copilotkit/index.d.ts",
       "default": "./dist/copilotkit/index.js"
     },
+    "./copilotkit-runtime": {
+      "types": "./dist/copilotkit-runtime/index.d.ts",
+      "default": "./dist/copilotkit-runtime/index.js"
+    },
     "./react/styles.css": "./dist/react/styles.css"
   },
   "publishConfig": {
@@ -74,7 +78,9 @@
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",
     "@copilotkit/react-core": ">=1.76.0",
-    "react": ">=19.0.0"
+    "@copilotkit/runtime": ">=1.76.0",
+    "react": ">=19.0.0",
+    "rxjs": ">=7.8.0 <8.0.0"
   },
   "peerDependenciesMeta": {
     "@ag-ui/client": {
@@ -83,7 +89,13 @@
     "@copilotkit/react-core": {
       "optional": true
     },
+    "@copilotkit/runtime": {
+      "optional": true
+    },
     "react": {
+      "optional": true
+    },
+    "rxjs": {
       "optional": true
     }
   },
@@ -91,6 +103,7 @@
     "@ag-ui/client": "1.0.1",
     "@ag-ui/proto": "1.0.1",
     "@copilotkit/react-core": "1.76.0",
+    "@copilotkit/runtime": "1.76.0",
     "@b4run/config-typescript": "workspace:*",
     "@testing-library/dom": "10.4.1",
     "@testing-library/react": "16.3.2",
