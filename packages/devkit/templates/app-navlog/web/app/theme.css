@@ -110,8 +110,14 @@
   --ring: var(--wb-accent-from);
   --radius: var(--wb-radius);
 }
-.wb-dock .copilotKitChat {
-  background: transparent;
+/* CopilotKit paints `background-color: var(--background)` on every
+   [data-copilotkit] element (the chat root, the message list, each message,
+   the suggestions row, the input's full-width wrapper), so the dock's
+   translucent .wb-panel showed through none of them. Clear them in the dock.
+   Elements with a data-slot (suggestion pills, tooltips, menus) keep their
+   own fill, and the input box's fill is a class, not this attribute. */
+.wb-dock [data-copilotkit]:not([data-slot]) {
+  background-color: transparent;
 }
 
 @media (prefers-color-scheme: dark) {
