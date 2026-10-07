@@ -3,7 +3,7 @@ import { EventType } from "@ag-ui/core"
 import { InMemoryAgentRunner } from "@copilotkit/runtime/v2"
 import { lastValueFrom, Observable, Subject, toArray } from "rxjs"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { B4AgentRunner } from "../../src/copilotkit-runtime/index.js"
+import { createB4AgentRunner } from "../../src/copilotkit-runtime/index.js"
 
 const EVENTS: BaseEvent[] = [
   { type: EventType.RUN_STARTED, threadId: "t-1", runId: "u-1" } as BaseEvent,
@@ -23,7 +23,7 @@ function jsonFetch(status: number, body: unknown) {
 
 afterEach(() => vi.restoreAllMocks())
 
-describe("B4AgentRunner.connect", () => {
+describe("createB4AgentRunner(...).connect", () => {
   it("replays /threads/:id/events from the B4 server when no run is live here", async () => {
     const fetch = jsonFetch(200, {
       threadId: "t-1",
@@ -32,7 +32,7 @@ describe("B4AgentRunner.connect", () => {
       warnings: [],
       truncated: false,
     })
-    const runner = new B4AgentRunner({ url: "http://b4.test/", fetch })
+    const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test/", fetch })
     const events = await lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray()))
     expect(events).toEqual(EVENTS)
     expect(fetch).toHaveBeenCalledTimes(1)
@@ -48,7 +48,7 @@ describe("B4AgentRunner.connect", () => {
       truncated: false,
     })
     await lastValueFrom(
-      new B4AgentRunner({ url: "http://b4.test", fetch })
+      createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
         .connect({ threadId: "a/b" })
         .pipe(toArray()),
     )
@@ -64,7 +64,7 @@ describe("B4AgentRunner.connect", () => {
       truncated: false,
     })
     await lastValueFrom(
-      new B4AgentRunner({ url: "http://b4.test", fetch })
+      createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
         .connect({
           threadId: "t-1",
           headers: {
@@ -82,7 +82,7 @@ describe("B4AgentRunner.connect", () => {
   })
 
   it.each([404, 409])("completes empty on %i (nothing to restore)", async (status) => {
-    const runner = new B4AgentRunner({
+    const runner = createB4AgentRunner(InMemoryAgentRunner, {
       url: "http://b4.test",
       fetch: jsonFetch(status, { error: {} }),
     })
@@ -90,7 +90,7 @@ describe("B4AgentRunner.connect", () => {
   })
 
   it("errors with the status on any other failure", async () => {
-    const runner = new B4AgentRunner({
+    const runner = createB4AgentRunner(InMemoryAgentRunner, {
       url: "http://b4.test",
       fetch: jsonFetch(503, { error: {} }),
     })
@@ -180,7 +180,7 @@ describe("B4AgentRunner.connect", () => {
         warnings: [],
         truncated: false,
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const { later, spy } = liveInner()
       const seen: BaseEvent[] = []
@@ -224,7 +224,7 @@ describe("B4AgentRunner.connect", () => {
         warnings: [],
         truncated: false,
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const messages = [
         { id: "c-1", role: "user", content: "one" },
@@ -308,7 +308,7 @@ describe("B4AgentRunner.connect", () => {
         warnings: [],
         truncated: false,
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const resumeStart = {
         type: EventType.RUN_STARTED,
@@ -331,7 +331,7 @@ describe("B4AgentRunner.connect", () => {
         warnings: [],
         truncated: false,
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const { later, spy } = liveInner(historic)
       const seen: BaseEvent[] = []
@@ -368,7 +368,7 @@ describe("B4AgentRunner.connect", () => {
       const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
         Response.json({ ...bodies.shift(), warnings: [], truncated: false }),
       )
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValueOnce(true).mockResolvedValueOnce(false)
       const { spy } = liveInner()
       const seen = await lastValueFrom(runner.connect({ threadId: "t-1" }).pipe(toArray()))
@@ -383,7 +383,7 @@ describe("B4AgentRunner.connect", () => {
         signal = init?.signal ?? undefined
         return new Promise<Response>(() => {})
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const { spy } = liveInner()
       const subscription = runner.connect({ threadId: "t-1" }).subscribe()
@@ -401,7 +401,7 @@ describe("B4AgentRunner.connect", () => {
         warnings: [],
         truncated: false,
       })
-      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      const runner = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       vi.spyOn(runner, "isRunning").mockResolvedValue(true)
       const { spy, isUnsubscribed } = liveInner()
       const subscription = runner.connect({ threadId: "t-1" }).subscribe()
@@ -421,7 +421,7 @@ describe("B4AgentRunner.connect", () => {
       truncated: false,
     })
     await lastValueFrom(
-      new B4AgentRunner({ url: "http://b4.test", fetch, onWarnings })
+      createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch, onWarnings })
         .connect({ threadId: "t-1" })
         .pipe(toArray()),
     )
@@ -434,11 +434,63 @@ describe("B4AgentRunner.connect", () => {
       signal = init?.signal ?? undefined
       return new Promise<Response>(() => {})
     })
-    const subscription = new B4AgentRunner({ url: "http://b4.test", fetch })
+    const subscription = createB4AgentRunner(InMemoryAgentRunner, { url: "http://b4.test", fetch })
       .connect({ threadId: "t-1" })
       .subscribe()
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
     subscription.unsubscribe()
     expect(signal?.aborted).toBe(true)
+  })
+})
+
+describe("createB4AgentRunner", () => {
+  it("returns an instance of the host's runner class, keeping everything but connect", async () => {
+    const runner = createB4AgentRunner(InMemoryAgentRunner, {
+      url: "http://b4.test",
+      fetch: jsonFetch(404, {}),
+    })
+    expect(runner).toBeInstanceOf(InMemoryAgentRunner)
+    expect(runner.ɵsupportsLocalThreadEndpoints).toBe(true)
+    expect(runner.run).toBe(InMemoryAgentRunner.prototype.run)
+    expect(runner.stop).toBe(InMemoryAgentRunner.prototype.stop)
+    expect(runner.isRunning).toBe(InMemoryAgentRunner.prototype.isRunning)
+    expect(runner.listThreads).toBe(InMemoryAgentRunner.prototype.listThreads)
+    expect(runner.connect).not.toBe(InMemoryAgentRunner.prototype.connect)
+    expect(await runner.isRunning({ threadId: "t-1" })).toBe(false)
+  })
+
+  it("extends any runner of the right shape, joining its live connect stream", async () => {
+    const live = new Subject<BaseEvent>()
+    const connects: unknown[] = []
+    class FakeRunner {
+      readonly marker = "fake"
+      connect(request: { threadId: string; agentId?: string }) {
+        connects.push(request)
+        return live
+      }
+      async isRunning(_request: { threadId: string }) {
+        return true
+      }
+    }
+    const runner = createB4AgentRunner(FakeRunner, {
+      url: "http://b4.test",
+      fetch: jsonFetch(200, { events: [], warnings: [] }),
+    })
+    expect(runner).toBeInstanceOf(FakeRunner)
+    expect(runner.marker).toBe("fake")
+    const seen: BaseEvent[] = []
+    let done = false
+    runner.connect({ threadId: "t-1", agentId: "a" }).subscribe({
+      next: (event: BaseEvent) => seen.push(event),
+      complete: () => {
+        done = true
+      },
+    })
+    await vi.waitFor(() => expect(connects).toEqual([{ threadId: "t-1", agentId: "a" }]))
+    live.next(EVENTS[0] as BaseEvent)
+    live.next(EVENTS[1] as BaseEvent)
+    live.complete()
+    expect(done).toBe(true)
+    expect(seen).toEqual(EVENTS)
   })
 })

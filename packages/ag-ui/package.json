@@ -73,14 +73,13 @@
     "@ag-ui/core": "1.0.1",
     "@ag-ui/encoder": "1.0.1",
     "@b4run/sdk": "workspace:*",
+    "rxjs": "^7.8.1",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",
     "@copilotkit/react-core": ">=1.76.0",
-    "@copilotkit/runtime": ">=1.76.0",
-    "react": ">=19.0.0",
-    "rxjs": ">=7.8.0 <8.0.0"
+    "react": ">=19.0.0"
   },
   "peerDependenciesMeta": {
     "@ag-ui/client": {
@@ -89,13 +88,7 @@
     "@copilotkit/react-core": {
       "optional": true
     },
-    "@copilotkit/runtime": {
-      "optional": true
-    },
     "react": {
-      "optional": true
-    },
-    "rxjs": {
       "optional": true
     }
   },
@@ -112,7 +105,6 @@
     "@types/react-dom": "19.2.4",
     "jsdom": "30.0.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "rxjs": "7.8.1"
+    "react-dom": "19.2.8"
   }
 }

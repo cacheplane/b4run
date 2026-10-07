@@ -1,6 +1,39 @@
 import { type BaseEvent, EventType } from "@ag-ui/core"
-import { type AgentRunnerConnectRequest, InMemoryAgentRunner } from "@copilotkit/runtime/v2"
-import { Observable, type Subscription } from "rxjs"
+import { Observable } from "rxjs"
+
+/**
+ * What the runner reads from a connect request. The host's request carries
+ * more (agent id, the browser's headers, a join code); it is passed through to
+ * the base runner's `connect` unchanged, and its headers are never read.
+ */
+export interface B4RunnerConnectRequest {
+  readonly threadId: string
+}
+
+/** The subscription a base runner's `connect` hands back (rxjs's `Subscription` by shape). */
+export interface B4RunnerSubscription {
+  unsubscribe(): void
+}
+
+/** An observer of a base runner's `connect` stream (rxjs's `Observer` by shape). */
+export interface B4RunnerObserver {
+  next(event: unknown): void
+  error(error: unknown): void
+  complete(): void
+}
+
+/**
+ * The runner `createB4AgentRunner` extends, by shape: CopilotKit's
+ * `InMemoryAgentRunner` (from `@copilotkit/runtime/v2`) fits it. Only
+ * `connect` is overridden; `run`, `stop`, `isRunning` and the local-thread
+ * methods stay the base runner's.
+ */
+export interface B4AgentRunnerBase {
+  connect(request: B4RunnerConnectRequest): {
+    subscribe(observer: B4RunnerObserver): B4RunnerSubscription
+  }
+  isRunning(request: { readonly threadId: string }): Promise<boolean>
+}
 
 export interface B4AgentRunnerOptions {
   /** The B4 server's base URL: the origin `B4HttpAgent` posts `/agui/...` to. */
@@ -108,8 +141,11 @@ function withoutTrailingSlashes(url: string): string {
 }
 
 /**
- * CopilotKit's in-memory runner with `connect` served from B4's storage. Runs
- * are the in-memory runner's (a run forwards to the route's agent and keeps
+ * A CopilotKit runtime runner: an instance of a subclass of `Base` (pass
+ * CopilotKit's `InMemoryAgentRunner`) with `connect` served from B4's storage.
+ * `@b4run/ag-ui` never imports `@copilotkit/runtime`: the host supplies the
+ * class, so the runner always extends the copy the host's runtime uses. Runs
+ * are the base runner's (a run forwards to the route's agent and keeps
  * the live tail in this process). `connect` always reads the thread's history
  * from `GET /threads/:id/events`, so a reload, a restart or another instance
  * restores the chat, its activity and any parked approval from the checkpoint.
@@ -125,28 +161,24 @@ function withoutTrailingSlashes(url: string): string {
  * the turn restores from the resume's `RUN_STARTED` only, until the next
  * reload after the run ends.
  */
-export class B4AgentRunner extends InMemoryAgentRunner {
-  readonly #url: string
-  readonly #fetch: typeof fetch
-  readonly #onWarnings: (threadId: string, warnings: readonly string[]) => void
-
-  constructor(options: B4AgentRunnerOptions) {
-    super()
-    this.#url = withoutTrailingSlashes(options.url)
-    this.#fetch = options.fetch ?? globalThis.fetch
-    this.#onWarnings =
-      options.onWarnings ??
-      ((threadId, warnings) =>
-        console.warn(`B4 replay of thread ${threadId}: ${warnings.join("; ")}`))
-  }
+export function createB4AgentRunner<R extends B4AgentRunnerBase>(
+  Base: new () => R,
+  options: B4AgentRunnerOptions,
+): R {
+  const url = withoutTrailingSlashes(options.url)
+  const fetchImpl = options.fetch ?? globalThis.fetch
+  const onWarnings =
+    options.onWarnings ??
+    ((threadId: string, warnings: readonly string[]) =>
+      console.warn(`B4 replay of thread ${threadId}: ${warnings.join("; ")}`))
 
   /** The thread's replayed events; empty when there is nothing to restore. */
-  async #history(
-    request: AgentRunnerConnectRequest,
+  async function readHistory(
+    request: B4RunnerConnectRequest,
     signal: AbortSignal,
   ): Promise<readonly BaseEvent[]> {
-    const response = await this.#fetch(
-      `${this.#url}/threads/${encodeURIComponent(request.threadId)}/events`,
+    const response = await fetchImpl(
+      `${url}/threads/${encodeURIComponent(request.threadId)}/events`,
       {
         // Deliberately not `request.headers`: those come from the browser.
         headers: { accept: "application/json" },
@@ -164,87 +196,91 @@ export class B4AgentRunner extends InMemoryAgentRunner {
     }
     const body = (await response.json()) as EventsBody
     if (body.warnings !== undefined && body.warnings.length > 0) {
-      this.#onWarnings(request.threadId, body.warnings)
+      onWarnings(request.threadId, body.warnings)
     }
     return body.events ?? []
   }
 
-  override connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
-    const connectLive = (live: AgentRunnerConnectRequest) => super.connect(live)
-    return new Observable<BaseEvent>((subscriber) => {
-      const controller = new AbortController()
-      let live: Subscription | undefined
-      const restore = async (): Promise<void> => {
-        // Narrow race: a run that starts in this process during the history read
-        // is replayed as an open head with no live tail until the next reload.
-        const wasRunning = await this.isRunning({ threadId: request.threadId })
-        const history = await this.#history(request, controller.signal)
-        if (controller.signal.aborted) return
-        if (!wasRunning) {
-          for (const event of history) subscriber.next(event)
-          subscriber.complete()
-          return
-        }
-        if (!(await this.isRunning({ threadId: request.threadId }))) {
-          // The run ended while the history was read busy; its open head is stale.
-          const settled = await this.#history(request, controller.signal)
+  class B4AgentRunner extends (Base as new () => B4AgentRunnerBase) {
+    override connect(request: B4RunnerConnectRequest): Observable<BaseEvent> {
+      const connectLive = (live: B4RunnerConnectRequest) => super.connect(live)
+      return new Observable<BaseEvent>((subscriber) => {
+        const controller = new AbortController()
+        let live: B4RunnerSubscription | undefined
+        const restore = async (): Promise<void> => {
+          // Narrow race: a run that starts in this process during the history read
+          // is replayed as an open head with no live tail until the next reload.
+          const wasRunning = await this.isRunning({ threadId: request.threadId })
+          const history = await readHistory(request, controller.signal)
           if (controller.signal.aborted) return
-          for (const event of settled) subscriber.next(event)
-          subscriber.complete()
-          return
-        }
-        if (controller.signal.aborted) return
-        for (const event of withoutOpenTurn(history)) subscriber.next(event)
-        // The in-memory runner replays its retained runs and the current run's
-        // buffer synchronously during subscribe; only the current run (from its
-        // RUN_STARTED) is new to the B4 history. Later events pass straight through.
-        let buffer: BaseEvent[] | undefined = []
-        let ended: { error: unknown } | "complete" | undefined
-        // Set when the current run has not emitted yet: its RUN_STARTED arrives live.
-        let cutNextRunStart = false
-        live = connectLive(request).subscribe({
-          next: (event) => {
-            if (buffer !== undefined) {
-              buffer.push(event)
-            } else if (cutNextRunStart && isRunStart(event)) {
-              cutNextRunStart = false
-              subscriber.next(withLastUserMessageOnly(event))
-            } else {
-              subscriber.next(event)
-            }
-          },
-          error: (error: unknown) => {
-            if (buffer !== undefined) ended = { error }
-            else subscriber.error(error)
-          },
-          complete: () => {
-            if (buffer !== undefined) ended = "complete"
-            else subscriber.complete()
-          },
-        })
-        const replayed = buffer
-        buffer = undefined
-        const currentStart = lastIndexOf(replayed, isRunStart)
-        const lastRunClosed = currentStart !== -1 && replayed.slice(currentStart + 1).some(isRunEnd)
-        if (currentStart === -1 || (lastRunClosed && ended === undefined)) {
-          // Connected between run() and the run's first event: the batch holds
-          // only finished runs the B4 history already has.
-          cutNextRunStart = true
-        } else {
-          for (const event of replayed.slice(liveTurnStart(replayed, currentStart))) {
-            subscriber.next(isRunStart(event) ? withLastUserMessageOnly(event) : event)
+          if (!wasRunning) {
+            for (const event of history) subscriber.next(event)
+            subscriber.complete()
+            return
           }
+          if (!(await this.isRunning({ threadId: request.threadId }))) {
+            // The run ended while the history was read busy; its open head is stale.
+            const settled = await readHistory(request, controller.signal)
+            if (controller.signal.aborted) return
+            for (const event of settled) subscriber.next(event)
+            subscriber.complete()
+            return
+          }
+          if (controller.signal.aborted) return
+          for (const event of withoutOpenTurn(history)) subscriber.next(event)
+          // The in-memory runner replays its retained runs and the current run's
+          // buffer synchronously during subscribe; only the current run (from its
+          // RUN_STARTED) is new to the B4 history. Later events pass straight through.
+          let buffer: BaseEvent[] | undefined = []
+          let ended: { error: unknown } | "complete" | undefined
+          // Set when the current run has not emitted yet: its RUN_STARTED arrives live.
+          let cutNextRunStart = false
+          live = connectLive(request).subscribe({
+            next: (event) => {
+              if (buffer !== undefined) {
+                buffer.push(event as BaseEvent)
+              } else if (cutNextRunStart && isRunStart(event as BaseEvent)) {
+                cutNextRunStart = false
+                subscriber.next(withLastUserMessageOnly(event as BaseEvent))
+              } else {
+                subscriber.next(event as BaseEvent)
+              }
+            },
+            error: (error: unknown) => {
+              if (buffer !== undefined) ended = { error }
+              else subscriber.error(error)
+            },
+            complete: () => {
+              if (buffer !== undefined) ended = "complete"
+              else subscriber.complete()
+            },
+          })
+          const replayed = buffer
+          buffer = undefined
+          const currentStart = lastIndexOf(replayed, isRunStart)
+          const lastRunClosed =
+            currentStart !== -1 && replayed.slice(currentStart + 1).some(isRunEnd)
+          if (currentStart === -1 || (lastRunClosed && ended === undefined)) {
+            // Connected between run() and the run's first event: the batch holds
+            // only finished runs the B4 history already has.
+            cutNextRunStart = true
+          } else {
+            for (const event of replayed.slice(liveTurnStart(replayed, currentStart))) {
+              subscriber.next(isRunStart(event) ? withLastUserMessageOnly(event) : event)
+            }
+          }
+          if (ended === "complete") subscriber.complete()
+          else if (ended !== undefined) subscriber.error(ended.error)
         }
-        if (ended === "complete") subscriber.complete()
-        else if (ended !== undefined) subscriber.error(ended.error)
-      }
-      restore().catch((error: unknown) => {
-        if (!controller.signal.aborted) subscriber.error(error)
+        restore().catch((error: unknown) => {
+          if (!controller.signal.aborted) subscriber.error(error)
+        })
+        return () => {
+          controller.abort()
+          live?.unsubscribe()
+        }
       })
-      return () => {
-        controller.abort()
-        live?.unsubscribe()
-      }
-    })
+    }
   }
+  return new B4AgentRunner() as unknown as R
 }

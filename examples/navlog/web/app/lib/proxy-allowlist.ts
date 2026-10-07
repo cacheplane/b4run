@@ -28,8 +28,9 @@ const ALLOWED: readonly AllowedRoute[] = [
   { method: "GET", shape: ["memory", "candidates"] },
   { method: "POST", shape: ["memory", "candidates", null, "approve"] },
   { method: "POST", shape: ["memory", "candidates", null, "reject"] },
-  // Thread history is NOT proxied: the CopilotKit route's B4AgentRunner reads
-  // /threads/:id/events server-to-server on `connect`.
+  // Thread history is NOT proxied: the CopilotKit route's runner
+  // (`createB4AgentRunner`) reads /threads/:id/events server-to-server on
+  // `connect`.
 ]
 
 /**

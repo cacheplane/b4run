@@ -16,7 +16,7 @@
  *
  * The conversation itself is not read through this seam: CopilotChat connects
  * the thread, and the runtime route restores it from B4.run's storage
- * (`B4AgentRunner`), so the rail holds only ids, titles and recency.
+ * (`createB4AgentRunner`), so the rail holds only ids, titles and recency.
  *
  * Known limitation: the localStorage backend below does read-modify-write with
  * no merge, so concurrent tabs can clobber each other's writes (e.g. a

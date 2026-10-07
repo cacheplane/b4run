@@ -1,6 +1,10 @@
 import { B4HttpAgent } from "@b4run/ag-ui/client"
-import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
-import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
+import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import {
+  CopilotRuntime,
+  createCopilotRuntimeHandler,
+  InMemoryAgentRunner,
+} from "@copilotkit/runtime/v2"
 import { guardRequest } from "../../../lib/guarded-request"
 import { guardConfigFromEnv, upstreamHeaders } from "../../../lib/proxy-guard"
 import { visitorContext } from "../../../lib/visitor-context"
@@ -18,7 +22,7 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
  * constructor because the agent and runner are shared across requests.
  * CopilotKit copies the browser's `authorization` and `x-*` headers onto the
  * agent for a run (and hands them to the runner's connect, which never
- * forwards them — `B4AgentRunner` builds its replay request from scratch), so
+ * forwards them — the B4 runner builds its replay request from scratch), so
  * the strip protects the run path: a browser-sent `x-b4-visitor` or
  * `x-internal-token` is dropped here before the real one is set. See
  * `lib/proxy-guard.ts` for the guards themselves.
@@ -45,7 +49,9 @@ const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
     agents: { default: agent },
     // Restores a thread on `connect` by replaying the server's stored events.
-    runner: new B4AgentRunner({ url: b4Url, fetch: guardedFetch }),
+    // CopilotKit's own runner class is passed in, so `@b4run/ag-ui` never has to
+    // resolve `@copilotkit/runtime` itself.
+    runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url, fetch: guardedFetch }),
   }),
   basePath: "/api/copilotkit",
 })

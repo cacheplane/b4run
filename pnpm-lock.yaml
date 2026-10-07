@@ -603,6 +603,9 @@ importers:
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk
+      rxjs:
+        specifier: ^7.8.1
+        version: 7.8.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -646,9 +649,6 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
-      rxjs:
-        specifier: 7.8.1
-        version: 7.8.1
 
   packages/cli:
     dependencies:

@@ -142,8 +142,8 @@ const TEACH_REPLY = "Remembered: N738ZU is a 172N, cruise 2400 RPM, 50 gallons u
 // CopilotKit's fetch-router matches `agent/<agentId>/run`; `default` is the id
 // the runtime route registers and every CopilotKit hook resolves.
 const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
-// Where `CopilotChat` restores a thread: the runtime route's `B4AgentRunner`
-// replays it from B4.run's storage (`GET /threads/:id/events`) as AG-UI events.
+// Where `CopilotChat` restores a thread: the runtime route's runner
+// (`createB4AgentRunner`) replays it from B4.run's storage (`GET /threads/:id/events`) as AG-UI events.
 const COPILOTKIT_CONNECT_PATH = "/api/copilotkit/agent/default/connect"
 // The allowlisted read the generated app itself treats as "the B4.run server
 // answered" (`AppShell.tsx`'s SERVER_PROBE_PATH). A 2xx means the route's whole

@@ -7,14 +7,9 @@ import { parseDocument } from "yaml"
 const testDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = resolve(testDirectory, "../..")
 const exampleImporters = ["examples/chat/web", "examples/navlog/web"] as const
-/**
- * Workspace packages that may reach `@copilotkit/runtime` (and so the affected
- * provider-utils path below it) only as a devDependency: `@b4run/ag-ui` tests
- * its `./copilotkit-runtime` runner against the real runtime, and consumers
- * bring their own copy through the optional peer, so it is never shipped.
- * Pinned dev-only by "keeps @copilotkit/runtime a dev-only dependency of
- * @b4run/ag-ui".
- */
+// Importers that hold `@copilotkit/runtime` only to test against it: a
+// devDependency, never installed for a consumer (pinned by "keeps
+// @copilotkit/runtime a dev-only dependency of @b4run/ag-ui").
 const devOnlyRuntimeImporters = ["packages/ag-ui"] as const
 const forbiddenOverrideSelector =
   /(^|>)(?:@copilotkit\/|@ag-ui\/|@ai-sdk\/provider-utils(?:@|$)|@hono\/node-server(?:@|$)|hono(?:@|$)|uuid(?:@|$))/
@@ -539,11 +534,12 @@ function providerUtilsRootPathFailure(
   targetIdentity: string,
   path: readonly string[],
 ): string | undefined {
+  const root = path[0] ?? "<missing>"
   if (
-    !exampleImporters.includes(path[0] as (typeof exampleImporters)[number]) &&
-    !devOnlyRuntimeImporters.includes(path[0] as (typeof devOnlyRuntimeImporters)[number])
+    !exampleImporters.includes(root as (typeof exampleImporters)[number]) &&
+    !devOnlyRuntimeImporters.includes(root as (typeof devOnlyRuntimeImporters)[number])
   ) {
-    return `${targetIdentity} starts at unexpected importer ${path[0] ?? "<missing>"}`
+    return `${targetIdentity} starts at unexpected importer ${root}`
   }
   const runtimeIndex = path.findIndex((identity) =>
     isPackageIdentity(identity, "@copilotkit/runtime", (candidate) => candidate === "1.76.0"),
@@ -636,6 +632,44 @@ describe("dependency security graph invariants", () => {
       "react-dom": ["../../examples/chat/web/node_modules/@types/react-dom/index.d.ts"],
       "react-dom/client": ["../../examples/chat/web/node_modules/@types/react-dom/client.d.ts"],
     })
+  })
+
+  it("keeps @copilotkit/runtime a dev-only dependency of @b4run/ag-ui", () => {
+    const workspace = readWorkspace()
+    const agUiManifestPath = "packages/ag-ui/package.json"
+    const agUiManifest = parseJsonRecord(
+      readFileSync(resolve(repositoryRoot, agUiManifestPath), "utf8"),
+      agUiManifestPath,
+    )
+    const agUiDependencies = requireStringMap(
+      agUiManifest.dependencies,
+      `${agUiManifestPath}.dependencies`,
+    )
+    const agUiDevDependencies = requireStringMap(
+      agUiManifest.devDependencies,
+      `${agUiManifestPath}.devDependencies`,
+    )
+    // The host passes CopilotKit's runner class in (`createB4AgentRunner`), so the
+    // published package never resolves `@copilotkit/runtime` itself: npm may place
+    // it where a hoisted `@b4run/ag-ui` cannot see it.
+    expect(agUiDevDependencies["@copilotkit/runtime"]).toBe("1.76.0")
+    expect(agUiDependencies["@copilotkit/runtime"]).toBeUndefined()
+    expect(
+      requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
+        "@copilotkit/runtime"
+      ],
+    ).toBeUndefined()
+    expect(Object.keys((agUiManifest.peerDependenciesMeta ?? {}) as object)).not.toContain(
+      "@copilotkit/runtime",
+    )
+    // rxjs is a regular dependency, so npm always places it where ag-ui resolves it.
+    expect(agUiDependencies.rxjs).toBe("^7.8.1")
+    expect(
+      requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`).rxjs,
+    ).toBeUndefined()
+    expect(
+      importerDependency(workspace, "packages/ag-ui", "devDependencies", "@copilotkit/runtime"),
+    ).toEqual({ specifier: "1.76.0", version: expect.stringMatching(/^1\.76\.0/) })
   })
 
   it("makes the examples and AG-UI package stable CopilotKit owners", () => {
@@ -830,28 +864,6 @@ describe("dependency security graph invariants", () => {
 
   it("scopes affected provider-utils 3.x paths to private CopilotKit Vertex", () => {
     expect(providerUtilsPathFailures(readWorkspace())).toEqual([])
-  })
-
-  it("keeps @copilotkit/runtime a dev-only dependency of @b4run/ag-ui", () => {
-    for (const importer of devOnlyRuntimeImporters) {
-      const manifest = requireRecord(
-        JSON.parse(readFileSync(resolve(repositoryRoot, importer, "package.json"), "utf8")),
-        `${importer} package.json`,
-      )
-      const dependencies = (manifest.dependencies ?? {}) as JsonRecord
-      const devDependencies = (manifest.devDependencies ?? {}) as JsonRecord
-      const peerMeta = (manifest.peerDependenciesMeta ?? {}) as Record<string, JsonRecord>
-      expect(dependencies["@copilotkit/runtime"]).toBeUndefined()
-      expect(devDependencies["@copilotkit/runtime"]).toBeDefined()
-      expect(peerMeta["@copilotkit/runtime"]?.optional).toBe(true)
-      const lockImporter = requireRecord(
-        readWorkspace().importers[importer],
-        `${importer} importer`,
-      )
-      expect((lockImporter.dependencies ?? {}) as JsonRecord).not.toHaveProperty(
-        "@copilotkit/runtime",
-      )
-    }
   })
 
   it("rejects malformed peer suffixes", () => {
