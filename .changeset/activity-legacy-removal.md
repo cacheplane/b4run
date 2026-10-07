@@ -8,3 +8,5 @@
 The navlog template's READMEs describe the activity kit instead of the removed renderers and `b4.subagent` activity.
 
 `ApprovalCard` (via `approvalPayload`) shows a subagent dispatch gate as readable lines (the subagent and its route, the input preview, the reason) instead of a JSON dump of its detail.
+
+Activity-kit fixes: `useB4Turns` folds an event that carries a numeric `timestamp` (a restored thread's replay) at that time instead of on arrival, so a restored turn reads its real duration ("Worked for 3m 12s", not "<1s") and live events keep the configured clock. `SubagentStep` reads "Asked researcher" with the subagent's description on a muted `.b4-step__note` line beneath, instead of splicing the description into "Asked researcher to …". An approval card for a step with no running label (a restored parked call) reads "The agent wants to use fileFlightPlan" instead of "wants to using fileFlightPlan…". The navlog template's chat sits on the dock's translucent panel, and its awaiting-approval placeholder fits the dock.
