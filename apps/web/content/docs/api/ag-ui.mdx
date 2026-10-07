@@ -150,7 +150,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `TranscriptMessage` | What `turnForMessage` reads of a message: id, role and the assistant's tool calls. AG-UI's `Message` fits. |
 | `MessageTurn` | A message's turn and whether the message is the turn's first assistant message. |
 | `approvalFromInterrupt` | A parked AG-UI interrupt as an `ApprovalView`: kind, detail, message, grant, and whether "Always allow" is offered. |
-| `approvalPrompt` | The card's "{agent} wants to {label}" for a parked interrupt: the gated step's running label and the subagent it sits in, else "The agent" and "continue". |
+| `approvalPrompt` | The card's title, `{agent} wants to {label}`, for a parked interrupt: the gated step's running label and the subagent it sits in, else "The agent" and "continue". |
 | `approvalLabel` | A gated step's running label, lower-cased, as it follows "wants to"; "use X" when the step has none. |
 | `ApprovalPrompt` | An approval card's agent and label. |
 | `pendingApprovals` | The approval cards an awaiting thread shows, read from its turns alone: every awaiting step's approval in the last turn and its paused subagents, then the interrupts that named no step. |
