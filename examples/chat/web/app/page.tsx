@@ -1,39 +1,69 @@
 "use client"
-import { b4ActivityRenderers } from "@b4run/ag-ui/copilotkit"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
 import { CopilotKit, CopilotSidebar } from "@copilotkit/react-core/v2"
+import { useEffect, useState } from "react"
 import { DemoSuggestions } from "./components/DemoSuggestions"
-import { PermissionInterrupt } from "./components/PermissionInterrupt"
 
-// Notes (verified against installed @copilotkit/react-core@1.70.0 types):
+// Notes (verified against installed @copilotkit/react-core@1.76.0 types):
 // - Use the `CopilotKit` wrapper (not bare `CopilotKitProvider`) per CopilotKit's own v2
 //   guidance: it adds the error boundary, toasts, and threads provider around the context.
-//   Its props are a superset of CopilotKitProviderProps (so `runtimeUrl` applies).
 // - The compatibility wrapper still defaults `useSingleEndpoint` to true. V2 transport
 //   requires false so `/info` reaches the catch-all `api/copilotkit/[...path]/route.ts`.
-// - `CopilotSidebar` ships from `@copilotkit/react-core/v2`, not `@copilotkit/react-ui`
-//   (react-ui's root export is the v1 CopilotSidebar, incompatible with the v2 context;
-//   react-ui exposes no `/v2` JS export, only `/v2/styles.css`).
+// - `CopilotSidebar` ships from `@copilotkit/react-core/v2` and takes the same
+//   `messageView` slots as `CopilotChat`, so `useB4ChatSlots` skins it unchanged.
 // - The runtime route registers the B4.run /chat agent under CopilotKit's default id.
-// - `labels` is `Partial<CopilotChatLabels>`, whose header title field is `modalHeaderTitle`.
-// - `renderActivityMessages` is required here, not optional polish: this route ships
-//   `src/app/chat/plan.md`, so the agent plans with `writeTodos`, and B4.run presents
-//   planning ONLY as an activity — no generic tool frames. CopilotKit renders nothing
-//   for an activity it has no renderer for, so without `b4ActivityRenderers` the user
-//   would see the agent go silent while it plans. (Subagents are not activities; a
-//   client that drives a delegating route renders them with the activity kit's `SubagentStep`.)
-export default function Home() {
+// - `B4Activity` renders what the agent did: one `TurnActivity` per turn (its tool calls,
+//   the `writeTodos` plan, reasoning, any subagent's nested steps) in place of
+//   CopilotKit's generic tool rows, and one `ApprovalCard` per parked permission prompt.
+//   It owns CopilotKit's single interrupt slot, so the app registers no `useInterrupt`.
+
+const THREAD_KEY = "b4-chat-thread"
+
+/**
+ * This tab's thread id, kept in `sessionStorage` so a reload reconnects to the same
+ * thread and the runtime route's B4 runner restores it from the server. Read after
+ * mount (the server render has no storage); `undefined` until then.
+ */
+function useTabThreadId(): string | undefined {
+  const [threadId, setThreadId] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    let id: string | null = null
+    try {
+      id = sessionStorage.getItem(THREAD_KEY)
+      if (id === null) {
+        id = crypto.randomUUID()
+        sessionStorage.setItem(THREAD_KEY, id)
+      }
+    } catch {
+      id = crypto.randomUUID()
+    }
+    setThreadId(id)
+  }, [])
+  return threadId
+}
+
+function Sidebar({ threadId }: { readonly threadId: string }) {
+  const { messageView } = useB4ChatSlots()
   return (
-    <CopilotKit
-      runtimeUrl="/api/copilotkit"
-      useSingleEndpoint={false}
-      defaultThrottleMs={100}
-      renderActivityMessages={b4ActivityRenderers}
-    >
+    <CopilotSidebar
+      defaultOpen
+      threadId={threadId}
+      messageView={messageView}
+      labels={{ modalHeaderTitle: "B4.run chat" }}
+    />
+  )
+}
+
+export default function Home() {
+  const threadId = useTabThreadId()
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false} defaultThrottleMs={100}>
       <DemoSuggestions />
-      <PermissionInterrupt />
-      <main style={{ height: "100vh" }}>
-        <CopilotSidebar defaultOpen labels={{ modalHeaderTitle: "B4.run chat" }} />
-      </main>
+      <B4Activity>
+        <main style={{ height: "100vh" }}>
+          {threadId === undefined ? null : <Sidebar threadId={threadId} />}
+        </main>
+      </B4Activity>
     </CopilotKit>
   )
 }

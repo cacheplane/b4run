@@ -11,16 +11,17 @@ smoke client.
 This app runs **live** against a real model — there is no aimock/demo mode here. The
 deterministic, no-key checks cover both boundaries: a loopback integration drives the
 real CopilotKit handler through `B4HttpAgent` and forwards a schema-valid AG-UI stream,
-while the package-owned browser test loads this page and proves it discovers
-`GET /api/copilotkit/info` without a legacy base-URL POST. Neither check calls a model.
+while the package-owned browser test loads this page, proves it discovers
+`GET /api/copilotkit/info` without a legacy base-URL POST, and answers the sidebar's
+`connect` with a recorded replay to pin the activity kit's DOM (a restored turn and a
+restored permission prompt). Neither check calls a model.
 
-Scope: basic chat with the `/chat` route. B4.run's AG-UI adapter emits standard
-replacement `b4.plan` activity snapshots when the agent plans, and this client
-registers `b4ActivityRenderers` from `@b4run/ag-ui/react` so planning is
-presented rather than silent — the
-`/chat` route ships a `plan.md`, so the agent plans with `writeTodos`, and B4.run
-presents that only as an activity. It still drives only `/chat`, so it remains a
-transport-wiring example, not a coordinator UI.
+Scope: basic chat with the `/chat` route. The sidebar runs inside `B4Activity` from
+`@b4run/ag-ui/copilotkit` and takes its `messageView` slots from `useB4ChatSlots()`, so
+each turn renders as one `TurnActivity` (the tool calls, the `writeTodos` plan, the
+model's reasoning) instead of CopilotKit's generic tool rows, and a permission prompt
+renders as an `ApprovalCard` with Allow once, Always allow and Deny. It still drives only
+`/chat`, so it remains a transport-wiring example, not a coordinator UI.
 
 ## Architecture
 
@@ -33,13 +34,23 @@ browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new B4HttpAgent(...) }`, served through
-  `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
-  `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
-  live here; the B4.run server holds `OPENAI_API_KEY`.
+  `agents: { default: new B4HttpAgent(...) }` and
+  `runner: createB4AgentRunner(InMemoryAgentRunner, { url })` from
+  `@b4run/ag-ui/copilotkit-runtime`, served through `createCopilotRuntimeHandler` from
+  `@copilotkit/runtime/v2` with `basePath: "/api/copilotkit"` and shared `GET`/`POST`
+  exports. The runner answers the sidebar's `connect` by replaying
+  `GET /threads/:id/events` from the B4.run server, so a reload restores the
+  conversation, its activity and a parked approval. No LLM credentials live here; the
+  B4.run server holds `OPENAI_API_KEY`.
 - `app/page.tsx` — `CopilotKit` (`runtimeUrl="/api/copilotkit"`,
-  `useSingleEndpoint={false}`) wrapping a `CopilotSidebar` chat transcript and the
-  B4.run activity renderers.
+  `useSingleEndpoint={false}`) wrapping `B4Activity` and a `CopilotSidebar` with
+  `useB4ChatSlots()`'s `messageView`. The tab's thread id lives in `sessionStorage`, so a
+  reload reconnects to the same thread.
+
+This example has no users to tell apart, so the runner's replay uses the default
+`fetch`. An app with users passes a `fetch` that carries the current caller's identity,
+derived per request (see `examples/navlog/web` and the AG-UI docs' "Restoring a
+conversation after a reload").
 
 CopilotKit's sidebar falls back to the literal agent id `"default"`. This example
 registers the B4.run `/chat#agent` route under that id.
@@ -72,6 +83,9 @@ intentionally has no demo/mock mode.
    streamed assistant reply in the sidebar.
 4. Confirm a second message in the same thread continues the conversation without
    replaying prior user messages to the B4.run route.
+5. Choose **Trigger a permission prompt**. Expect an approval card ("The agent wants
+   to …") with Allow once, Always allow and Deny; reload while it is open and confirm
+   the card comes back; choose Allow once and confirm the turn finishes.
 
 ## Security caveat
 
