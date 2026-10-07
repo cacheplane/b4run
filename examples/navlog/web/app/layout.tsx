@@ -23,9 +23,20 @@ export const viewport: Viewport = {
   ],
 }
 
+// CopilotChat's dark mode is `.dark`-only (its tokens sit on `.dark
+// [data-copilotkit]` and its `cpk:dark:` utilities compile to `:is(.dark *)`),
+// while this app's dark theme is a media query. Mirror the media query onto
+// `<html class="dark">` before first paint and keep it in sync.
+const DARK_CLASS_SCRIPT = `(function(){try{var m=matchMedia("(prefers-color-scheme: dark)"),r=document.documentElement,t=function(){r.classList.toggle("dark",m.matches)};t();m.addEventListener("change",t)}catch(e){}})()`
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the inline script adds `class="dark"` before React hydrates.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a static constant, no user input */}
+        <script dangerouslySetInnerHTML={{ __html: DARK_CLASS_SCRIPT }} />
+      </head>
       <body className="m-0 font-sans bg-wb-bg text-wb-text">{children}</body>
     </html>
   )

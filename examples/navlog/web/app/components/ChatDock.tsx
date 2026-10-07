@@ -36,7 +36,7 @@ export function statusPresentation(status: string | undefined): {
 
 const TONE_CLASS = {
   running:
-    "border-transparent bg-[color-mix(in_srgb,var(--b4-activity-running,#2563eb)_12%,transparent)] text-[var(--b4-activity-running,currentColor)]",
+    "border-transparent bg-[color-mix(in_srgb,var(--b4-activity-running)_12%,transparent)] text-[var(--b4-activity-running,currentColor)]",
   attention: "border-amber-500/30 bg-[var(--wb-chat-warn-bg)] text-[var(--wb-chat-warn)]",
   idle: "border-wb-border text-wb-muted",
 } as const
