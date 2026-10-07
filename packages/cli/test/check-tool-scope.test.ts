@@ -240,3 +240,66 @@ test("does not flag a tool that merely contains client_", async () => {
   })
   expect(result.errors).toEqual([])
 })
+
+test("accepts the every-call object form of an approve entry", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ approve: [{ tool: "deployProd", allowAlways: false }] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings).toEqual([])
+})
+
+test("flags an unknown tool name in the object form of approve", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ approve: [{ tool: "deployPord", allowAlways: false }] }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors.join("\n")).toMatch(/\/research.*unknown tool.*deployPord/s)
+})
+
+test("flags a malformed approve entry", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ approve: [{ name: "deployProd" }] as never }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors.join("\n")).toMatch(
+    /\/research.*approve entries must be a tool name or \{ tool: "name", allowAlways: false \}.*"name":"deployProd"/s,
+  )
+})
+
+test("warns when an object approve entry does not set allowAlways: false", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({ approve: [{ tool: "deployProd", allowAlways: true }] as never }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings.join("\n")).toMatch(
+    /\/research.*"deployProd".*behaves like the bare name/s,
+  )
+})
+
+test("runs the overlap warnings for the object form too (approve + deny)", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({
+      deny: ["deployProd"],
+      approve: [{ tool: "deployProd", allowAlways: false }],
+    }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.warnings.join("\n")).toMatch(/approve lists "deployProd" but deny revokes it/)
+})
+
+test("warns that an every-call approve entry has no effect when constrain also names the tool", async () => {
+  const result = await collectToolScopeIssues(manifest, {
+    loadScope: async () => ({
+      approve: [{ tool: "deployProd", allowAlways: false }],
+      constrain: { deployProd: () => true },
+    }),
+    routeLocalToolNames: async () => ["deployProd"],
+  })
+  expect(result.errors).toEqual([])
+  expect(result.warnings.join("\n")).toMatch(
+    /\/research.*"deployProd".*allowAlways: false.*constrain wins.*still offers "always"/s,
+  )
+})

@@ -121,6 +121,33 @@ describe("toAguiInterrupt", () => {
     expect(Object.hasOwn(interrupt as object, "subagentRunId")).toBe(false)
   })
 
+  test("a tool prompt with allowAlways: false offers only once and deny", () => {
+    const envelope = {
+      interruptId: "perm-every",
+      type: "permission-request",
+      kind: "tool",
+      allowAlways: false,
+      toolCallId: "call-file",
+      detail: {
+        toolName: "fileFlightPlan",
+        argsPreview: "{}",
+        suggestedPattern: "fileFlightPlan",
+      },
+    }
+    expect(toAguiInterrupt(envelope)).toEqual({
+      id: "perm-every",
+      reason: "tool",
+      toolCallId: "call-file",
+      metadata: envelope,
+      responseSchema: { type: "string", enum: ["once", "deny"] },
+    })
+  })
+
+  test("only allowAlways: false, exactly, drops the always answer", () => {
+    const envelope = { interruptId: "perm-x", kind: "tool", allowAlways: "false" }
+    expect(toAguiInterrupt(envelope)?.responseSchema).toEqual(PERMISSION_RESPONSE)
+  })
+
   test("a non-permission interrupt has no responseSchema", () => {
     const envelope = { interruptId: "x-1", kind: "custom" }
     const interrupt = toAguiInterrupt(envelope)

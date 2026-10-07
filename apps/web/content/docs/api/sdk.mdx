@@ -50,6 +50,9 @@ import { scenarios } from "@b4run/sdk/testing"
 | `RetryConfig` | Configure model-call retry attempts and delay. |
 | `SubagentMap` | Map local subagent names to agents. |
 | `ToolScope` | Select and gate route tools. |
+| `ApproveEntry` | Name one `tools.approve` tool, or `{ tool, allowAlways: false }` to approve every call. |
+| `NormalizedApproveEntry` | Describe a `tools.approve` entry as `{ tool, allowAlways }`. |
+| `normalizeApproveEntries` | Normalize `tools.approve` entries to `{ tool, allowAlways }`. |
 | `agent` | Declare an agent route. |
 | `isB4Agent` | Test whether a value is an authored B4.run agent. |
 | `BackendAdapter` | Define a route backend adapter contract. |

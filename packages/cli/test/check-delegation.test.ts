@@ -216,6 +216,7 @@ export default descriptor
     ["allow", 'tools: { allow: ["task"] }'],
     ["deny", 'tools: { deny: ["task"] }'],
     ["approve", 'tools: { approve: ["task"] }'],
+    ["approve", 'tools: { approve: [{ tool: "task", allowAlways: false }] }'],
     ["constrain", "tools: { constrain: { task: async () => true } }"],
   ])("reports tools.%s task references as E1004 errors", async (field, body) => {
     const errors = await collect({ "src/app/parent/index.ts": parent(body) })

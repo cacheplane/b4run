@@ -1,6 +1,7 @@
 export type {
   AgentConfig,
   AnthropicReasoningConfig,
+  ApproveEntry,
   B4Agent,
   ConstraintContext,
   ConstraintPredicate,
@@ -12,13 +13,14 @@ export type {
   DelegationRule,
   DelegationRules,
   DelegationVerdict,
+  NormalizedApproveEntry,
   OpenAIReasoningConfig,
   ReasoningConfig,
   RetryConfig,
   SubagentMap,
   ToolScope,
 } from "./agent.js"
-export { agent, isB4Agent } from "./agent.js"
+export { agent, isB4Agent, normalizeApproveEntries } from "./agent.js"
 export type { BackendAdapter } from "./backend-adapter.js"
 export type {
   ClientToolCallAnswer,

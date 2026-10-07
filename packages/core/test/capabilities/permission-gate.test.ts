@@ -801,3 +801,167 @@ describe("gate decisions reach the tool context", () => {
     expect(await gateToolOp(undefined, "x", "{}")).toEqual({ allowed: true })
   })
 })
+
+describe("every-call approval (allowAlways: false)", () => {
+  let appRoot: string
+  beforeEach(() => {
+    appRoot = mkdtempSync(join(tmpdir(), "b4-gate-every-call-test-"))
+  })
+  afterEach(() => {
+    rmSync(appRoot, { recursive: true, force: true })
+  })
+
+  interface EveryCallContext {
+    readonly signal: AbortSignal
+    readonly toolCallId?: string
+    readonly onGateDecision?: (decision: GateDecision) => void
+  }
+  interface EveryCallTool {
+    readonly name: string
+    readonly run: (input: unknown, context: EveryCallContext) => Promise<unknown> | unknown
+  }
+
+  async function store(
+    mode: "interactive" | "non-interactive" | "bypass",
+    config?: {
+      allow?: Record<string, readonly string[]>
+      deny?: Record<string, readonly string[]>
+    },
+  ) {
+    const permissions = createPermissionsStore({
+      appRoot,
+      config: config
+        ? { version: 1, allow: config.allow ?? {}, deny: config.deny ?? {} }
+        : undefined,
+      mode,
+    })
+    await permissions.load()
+    return permissions
+  }
+
+  /** Run `call` in a graph; return the parked payload, or undefined when it did not park. */
+  async function run(
+    call: () => Promise<unknown>,
+    decision: GateDecision,
+  ): Promise<{ payload: unknown; result: unknown }> {
+    const State = Annotation.Root({ result: Annotation<unknown>() })
+    const graph = new StateGraph(State)
+      .addNode("call", async () => ({ result: await call() }))
+      .addEdge(START, "call")
+      .addEdge("call", END)
+      .compile({ checkpointer: new MemorySaver() })
+    const config = { configurable: { checkpoint_ns: "", thread_id: `every-${decision}` } }
+    const first = await graph.invoke({}, config)
+    const payload = (await graph.getState(config)).tasks[0]?.interrupts[0]?.value
+    if (payload === undefined) return { payload, result: first.result }
+    const resumed = await graph.invoke(new Command({ resume: decision }), config)
+    return { payload, result: resumed.result }
+  }
+
+  it("prompts despite a configured allow rule, and the envelope says allowAlways: false", async () => {
+    const permissions = await store("interactive", { allow: { tool: ["fileFlightPlan"] } })
+    const { payload, result } = await run(
+      () =>
+        gateToolOp(permissions, "fileFlightPlan", "{}", {
+          allowAlways: false,
+          toolCallId: "call_1",
+        }),
+      "once",
+    )
+    expect(payload).toEqual({
+      interruptId: expect.stringMatching(/^perm-/),
+      type: "permission-request",
+      kind: "tool",
+      allowAlways: false,
+      toolCallId: "call_1",
+      detail: { toolName: "fileFlightPlan", argsPreview: "{}", suggestedPattern: "fileFlightPlan" },
+    })
+    expect(result).toEqual({ allowed: true, decision: "once" })
+  })
+
+  it("prompts despite an allow rule a previous 'always' answer persisted", async () => {
+    const permissions = await store("interactive")
+    await permissions.addAllow("tool", "fileFlightPlan")
+    expect(permissions.match("tool", "fileFlightPlan")).toBe("allow")
+    const { payload } = await run(
+      () => gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false }),
+      "once",
+    )
+    expect(payload).toMatchObject({ kind: "tool", allowAlways: false })
+  })
+
+  it("treats an 'always' answer as 'once' and persists nothing", async () => {
+    const permissions = await store("interactive")
+    const decisions: GateDecision[] = []
+    const context: EveryCallContext = {
+      signal: new AbortController().signal,
+      onGateDecision: (d) => decisions.push(d),
+    }
+    const wrapped = wrapToolWithApproval<EveryCallContext, EveryCallTool>(
+      { name: "fileFlightPlan", run: async () => "filed" },
+      permissions,
+      { allowAlways: false },
+    )
+    const { result } = await run(() => Promise.resolve(wrapped.run({}, context)), "always")
+    expect(result).toBe("filed")
+    expect(decisions).toEqual(["once"])
+    expect(permissions.match("tool", "fileFlightPlan")).toBe("unknown")
+    // The next call prompts again.
+    const again = await run(
+      () => gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false }),
+      "once",
+    )
+    expect(again.payload).toMatchObject({ kind: "tool", allowAlways: false })
+  })
+
+  it("a deny answer still denies", async () => {
+    const permissions = await store("interactive")
+    const { result } = await run(
+      () => gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false }),
+      "deny",
+    )
+    expect(result).toMatchObject({ allowed: false, code: "B4_E3001", decision: "deny" })
+  })
+
+  it("bypass mode still allows without prompting", async () => {
+    const permissions = await store("bypass")
+    expect(await gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false })).toEqual({
+      allowed: true,
+    })
+  })
+
+  it("a deny rule still denies without prompting", async () => {
+    const permissions = await store("interactive", { deny: { tool: ["fileFlightPlan"] } })
+    const result = await gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false })
+    expect(result.allowed).toBe(false)
+    if (!result.allowed) expect(result.reason).toMatch(/denied by user.*fileFlightPlan/i)
+  })
+
+  it("non-interactive mode fails closed, even with an allow rule", async () => {
+    const permissions = await store("non-interactive", { allow: { tool: ["fileFlightPlan"] } })
+    const result = await gateToolOp(permissions, "fileFlightPlan", "{}", { allowAlways: false })
+    expect(result.allowed).toBe(false)
+    if (!result.allowed) expect(result.reason).toMatch(/fail-closed/)
+  })
+
+  it("fails closed when interrupts are unavailable, even with an allow rule", async () => {
+    const permissions = await store("interactive", { allow: { tool: ["fileFlightPlan"] } })
+    const result = await gateToolOp(permissions, "fileFlightPlan", "{}", {
+      allowAlways: false,
+      interruptCapable: false,
+    })
+    expect(result.allowed).toBe(false)
+    if (!result.allowed) expect(result.reason).toMatch(/allow rule/)
+  })
+
+  it("a bare-name gate still persists 'always' and omits allowAlways from the envelope", async () => {
+    const permissions = await store("interactive")
+    const { payload, result } = await run(
+      () => gateToolOp(permissions, "fileFlightPlan", "{}"),
+      "always",
+    )
+    expect(payload).not.toHaveProperty("allowAlways")
+    expect(result).toEqual({ allowed: true, decision: "always" })
+    expect(permissions.match("tool", "fileFlightPlan")).toBe("allow")
+  })
+})

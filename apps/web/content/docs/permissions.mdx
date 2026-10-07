@@ -23,7 +23,7 @@ export default {
 }
 ```
 
-`allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. For example, the navlog scaffold sets `tools: { deny: ["runBash"], approve: ["fileFlightPlan"] }` on its route, so the agent never runs a shell command and a person approves every flight-plan filing.
+`allow` and `deny` each map a gate key (`bash`, `readFile`, `memory`, and so on) to an array of pattern strings. For example, the navlog scaffold sets `tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] }` on its route, so the agent never runs a shell command and a person approves every flight-plan filing.
 
 Static entries stay in `b4.config.ts`. The runtime evaluates them alongside its own decisions but keeps them out of the runtime permission store. Only an `always` decision adds an allow entry to that store. The default Node store persists runtime entries in `.b4/permissions.json`. Custom stores and the Postgres store persist them in their own backend.
 
@@ -108,6 +108,27 @@ Resuming a `kind: "tool"` interrupt uses the same `once` / `always` / `deny` dec
 | `once` | This call runs. The next call to the same tool prompts again. |
 | `always` | Adds the tool **name** under the reserved `tool` key in the configured permission store. Matching is **exact-name**, not prefix. |
 | `deny` | The call is blocked and nothing is persisted. Unlike the workspace gates (which surface a thrown error), the denial reason is **returned as the tool result**. The model sees it as a normal tool response and can adapt. |
+
+### Approve every call
+
+Some tools should never get a standing approval: filing, sending or paying is a per-call decision, and behind a shared permission store one person's "Always" would approve the tool for everyone. Write the entry as an object with `allowAlways: false`:
+
+```ts title="src/app/navlog/index.ts"
+export default agent({
+  model: "gpt-5-mini",
+  systemPrompt: "…",
+  tools: { approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+})
+```
+
+A bare name and the object form can be mixed in one list. For a tool approved this way:
+
+- Every call prompts in `interactive` mode, even when the permission store holds an allow rule for the tool, whether configured under `permissions.allow.tool` or persisted by an earlier "Always" answer.
+- The interrupt envelope carries `"allowAlways": false`, and the AG-UI interrupt advertises `responseSchema.enum: ["once", "deny"]`, so the activity kit's approval card shows only **Allow once** and **Deny**.
+- A client that answers `always` anyway gets `once`: the call runs, nothing is persisted, and the step records `once`.
+- `bypass` still skips the gate, a deny rule still denies, and `non-interactive` mode fails closed, so a headless run of such a tool needs `bypass`.
+
+A [constraint](/docs/tools#constraining-arguments) on the same tool wins over its `approve` entry, and a `{ approve: true }` escalation still offers "Always". `b4 check` warns when a route has both.
 
 ### Pre-approval in config
 

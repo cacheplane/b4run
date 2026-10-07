@@ -99,7 +99,7 @@ Run these in order: `build` writes the configured deployment artifacts, then
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
 | Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
-| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before each call |
+| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before every call (`allowAlways: false`: no "Always allow") |
 | Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans, behind a path-jail |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
@@ -128,7 +128,8 @@ This is a starter — extend the parts you want and delete the rest:
   `<route>/tools/` for route-local tools, then run `npm run typegen` followed by
   `npm run check`.
 - **File for real:** `fileFlightPlan` records the FPL message in the workspace;
-  replace its body with a call to your filing service, and keep `tools.approve`.
+  replace its body with a call to your filing service, and keep its
+  `tools.approve` entry (`allowAlways: false`, so every filing asks a person).
 - **Enable summarization:** uncomment the `summarization` block in
   `b4.config.ts` once your threads get long.
 - **Throw it away:** delete `src/app/navlog/` and start from a single

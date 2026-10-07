@@ -1,5 +1,5 @@
-import type { AgentConfig, B4Agent } from "@b4run/sdk"
-import { agent, isB4Agent } from "@b4run/sdk"
+import type { AgentConfig, ApproveEntry, B4Agent } from "@b4run/sdk"
+import { agent, isB4Agent, normalizeApproveEntries } from "@b4run/sdk"
 import { describe, expect, expectTypeOf, test } from "vitest"
 
 describe("agent()", () => {
@@ -106,6 +106,26 @@ describe("agent() tool scope", () => {
     })
     expect(a.tools?.approve).toEqual(["deployProd"])
     expect(a.tools?.deny).toEqual(["runBash"])
+  })
+
+  test("accepts and passes through the every-call approve entry form", () => {
+    const a = agent({
+      model: "gpt-5-mini",
+      systemPrompt: "x",
+      tools: { approve: ["deployProd", { tool: "fileFlightPlan", allowAlways: false }] },
+    })
+    expect(a.tools?.approve).toEqual(["deployProd", { tool: "fileFlightPlan", allowAlways: false }])
+    expect(normalizeApproveEntries(a.tools?.approve)).toEqual([
+      { tool: "deployProd", allowAlways: true },
+      { tool: "fileFlightPlan", allowAlways: false },
+    ])
+    expect(normalizeApproveEntries(undefined)).toEqual([])
+  })
+
+  test("only allowAlways: false is accepted in the object form", () => {
+    expectTypeOf<{ tool: "x"; allowAlways: false }>().toMatchTypeOf<ApproveEntry>()
+    expectTypeOf<{ tool: "x"; allowAlways: true }>().not.toMatchTypeOf<ApproveEntry>()
+    expectTypeOf<{ tool: "x" }>().not.toMatchTypeOf<ApproveEntry>()
   })
 
   test("passes tools.constrain predicates through to the descriptor", () => {
