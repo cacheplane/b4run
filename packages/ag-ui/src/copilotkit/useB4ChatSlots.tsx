@@ -4,7 +4,8 @@ import {
 } from "@copilotkit/react-core/v2"
 import type { ReactElement } from "react"
 import { TurnActivity } from "../react/activity/TurnActivity.js"
-import { turnForToolCalls, useB4ActivityContext } from "./B4Activity.js"
+import { turnForToolCalls } from "../view/activity-lookup.js"
+import { useB4ActivityContext } from "./B4Activity.js"
 import { mergeTurnMessages } from "./messages.js"
 
 function B4ToolCallsView({
