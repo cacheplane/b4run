@@ -12,6 +12,9 @@ import type { BackendContext, FilesystemBackend, FilesystemMiddleware } from "@b
  * AGENTS.md for everyone. Backend methods receive an already-resolved
  * absolute path inside `ctx.workspaceRoot`; matching is case-insensitive
  * because a case-insensitive filesystem resolves `POH/x.md` to `poh/x.md`.
+ * Matching is on the resolved path, not a symlink's target. That is safe here
+ * because this backend cannot create symlinks and the route denies runBash;
+ * an app that enables shell execution must revisit this.
  */
 export function readOnlyPaths(protectedPaths: readonly string[]): FilesystemMiddleware {
   const entries = protectedPaths.map((entry) => entry.toLowerCase())
