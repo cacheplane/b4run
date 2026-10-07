@@ -20,6 +20,7 @@ const NEVER_IN_ANSWER = [
   /\brecall\(/,
   /\[(completed|pending|in_progress)\]/,
   /reports\//,
+  /aircraft\//,
   /engine-on/i,
 ]
 
@@ -92,12 +93,15 @@ const KRST = {
   magneticVariationDeg: 0,
 }
 const AIRCRAFT = { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 }
+const BASELINE_AIRCRAFT = { tailNumber: "N734ST", cruiseRpm: 2400, usableFuelGal: 50 }
+const BASELINE_INPUT = "Plan KSTP to KRST at 4500 departing 1400Z. Do not file it."
 const WIND = { dirDegTrue: 320, speedKt: 20 }
-const PROFILE = "aircraft profile and pilot preferences"
+const PROFILE = "pilot aircraft overrides and preferences"
 const PLAN_TODOS = {
   todos: [
     {
-      content: "Recall the aircraft profile and parse the route, altitude and departure time",
+      content:
+        "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
       status: "completed",
     },
     { content: "Brief the weather and look up POH performance", status: "in_progress" },
@@ -112,6 +116,7 @@ interface PlanScript {
   readonly waypoints: readonly (typeof KSTP)[]
   readonly navlogTable: string
   readonly brief: string
+  readonly aircraft?: typeof AIRCRAFT
 }
 
 /**
@@ -130,6 +135,7 @@ function planFixtures(plan: PlanScript) {
   const performanceInput = `Performance for ${ids.join(", ")} at 4500 ft, cruise 2400 RPM.`
   let builder = script()
     .user(plan.input)
+    .callsTool("readDoc", { path: "aircraft/c172n.md" })
     .callsTool("recall", { query: PROFILE })
     .callsTool("writeTodos", PLAN_TODOS)
   for (const id of ids) builder = builder.callsTool("lookupAirport", { id })
@@ -137,7 +143,7 @@ function planFixtures(plan: PlanScript) {
     .callsTool("task", { subagent: "weather", input: weatherInput })
     .callsTool("task", { subagent: "performance", input: performanceInput })
     .callsTool("computeNavlog", {
-      aircraft: AIRCRAFT,
+      aircraft: plan.aircraft ?? AIRCRAFT,
       altitudeFt: 4500,
       departureTimeUtc: plan.departureTimeUtc,
       waypoints: plan.waypoints,
@@ -231,6 +237,26 @@ export default defineEval({
         ].join("\n"),
       }),
     },
+    {
+      // No aircraft in the request: the plan runs on the workspace baseline, N734ST.
+      name: "plan on the baseline aircraft",
+      input: BASELINE_INPUT,
+      fixtures: planFixtures({
+        input: BASELINE_INPUT,
+        aircraft: BASELINE_AIRCRAFT,
+        departureTimeUtc: "2026-10-06T14:00:00Z",
+        waypoints: [KSTP, KRST],
+        navlogTable:
+          "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
+        brief: [
+          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
+          "Watch for: none during the flight.",
+          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min [poh/cruise-performance.md, Figure 5-7].",
+          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different; demo aircraft N734ST, 50 gal usable, 2400 RPM.",
+          "As asked, I have not filed it; I can try another altitude or re-brief closer to departure.",
+        ].join("\n"),
+      }),
+    },
   ],
   scorers: [
     toolCalled("computeNavlog", { threshold: 1 }),
@@ -250,6 +276,14 @@ export default defineEval({
           : 0
       },
       { name: "totals-add-up-and-reserve", threshold: 1 },
+    ),
+    custom(
+      (run, testCase) => {
+        if (testCase.input !== BASELINE_INPUT) return 1
+        const parsed = navlogSchema.safeParse(navlogResult(run))
+        return parsed.success && parsed.data.flightPlan.item7 === "N734ST" ? 1 : 0
+      },
+      { name: "baseline-aircraft", threshold: 1 },
     ),
     // At least one [poh/<file>.md citation, and every cited file exists.
     custom(
