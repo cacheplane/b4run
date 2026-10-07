@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "The B4.run activity kit for Angular: standalone components that render a turn's steps, plan, reasoning, subagents and approvals.",
+  "description": "The B4.run activity kit for Angular: standalone components that render a turn's steps, plan, reasoning, subagents and approvals, with connectors for any AG-UI event stream and for CopilotKit.",
   "keywords": [
     "b4",
     "typescript",
@@ -34,12 +34,20 @@
       "types": "./dist/types/b4run-ag-ui-angular.d.ts",
       "default": "./dist/fesm2022/b4run-ag-ui-angular.mjs"
     },
+    "./events": {
+      "types": "./dist/types/b4run-ag-ui-angular-events.d.ts",
+      "default": "./dist/fesm2022/b4run-ag-ui-angular-events.mjs"
+    },
+    "./copilotkit": {
+      "types": "./dist/types/b4run-ag-ui-angular-copilotkit.d.ts",
+      "default": "./dist/fesm2022/b4run-ag-ui-angular-copilotkit.mjs"
+    },
     "./styles.css": "./dist/styles.css",
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json -c tsconfig.lib.json && node scripts/copy-styles.mjs",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json ng-package.json scripts src test tsconfig.json tsconfig.lib.json tsconfig.spec.json vitest.config.ts",
+    "lint": "biome check --config-path ../config-biome/biome.json package.json ng-package.json scripts src events copilotkit test tsconfig.json tsconfig.lib.json tsconfig.spec.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts",
     "typecheck": "ngc -p tsconfig.json"
   },
@@ -51,21 +59,31 @@
     "@angular/common": "^22.0.0",
     "@angular/compiler": "^22.0.0",
     "@angular/core": "^22.0.0",
-    "@angular/platform-browser": "^22.0.0"
+    "@angular/platform-browser": "^22.0.0",
+    "@copilotkit/angular": ">=0.5.3"
+  },
+  "peerDependenciesMeta": {
+    "@copilotkit/angular": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@ag-ui/client": "1.0.2",
     "@analogjs/vite-plugin-angular": "2.8.0",
     "@analogjs/vitest-angular": "2.8.0",
     "@angular/build": "22.2.1",
+    "@angular/cdk": "22.2.1",
     "@angular/common": "22.2.1",
     "@angular/compiler": "22.2.1",
     "@angular/compiler-cli": "22.2.1",
     "@angular/core": "22.2.1",
     "@angular/platform-browser": "22.2.1",
+    "@copilotkit/angular": "0.5.3",
     "@types/node": "26.1.2",
     "axe-core": "4.14.0",
     "jsdom": "30.0.1",
     "ng-packagr": "22.2.4",
+    "rxjs": "7.8.2",
     "typescript": "6.0.2"
   }
 }

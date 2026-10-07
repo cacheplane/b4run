@@ -12,11 +12,15 @@ const require = createRequire(import.meta.url)
 const CSS = readFileSync(require.resolve("@b4run/ag-ui/react/styles.css"), "utf8")
 const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, "")
 
-const LIB = `${import.meta.dirname}/../src/lib`
-const SOURCES = readdirSync(LIB)
-  .filter((file) => file.endsWith(".ts"))
-  .map((file) => readFileSync(`${LIB}/${file}`, "utf8"))
-  .join("\n")
+/** The kit and its connectors (`./events`, `./copilotkit`): every template the package ships. */
+const DIRS = ["src/lib", "events/src", "copilotkit/src"].map(
+  (dir) => `${import.meta.dirname}/../${dir}`,
+)
+const SOURCES = DIRS.flatMap((dir) =>
+  readdirSync(dir)
+    .filter((file) => file.endsWith(".ts"))
+    .map((file) => readFileSync(`${dir}/${file}`, "utf8")),
+).join("\n")
 
 /** Static `class="…"` in templates and `class: "…"` in host metadata. */
 const emittedClasses = [
