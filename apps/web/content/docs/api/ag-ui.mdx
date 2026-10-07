@@ -39,6 +39,12 @@ A CopilotKit chat connects the kit through the `./copilotkit` subpath, which is 
 import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
 ```
 
+A CopilotKit runtime route restores a conversation from B4's storage with `B4AgentRunner` from the `./copilotkit-runtime` subpath. It imports `@copilotkit/runtime` and `rxjs`, so install them beside the package:
+
+```ts
+import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+```
+
 ## Compatibility and audience
 
 | Surface | Runtime | Purity | Audience | Stability |
@@ -104,6 +110,8 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `reduceTurns` | Fold one AG-UI event into the turns of a thread: steps in order, nested subagent turns, the plan, reasoning, prose, and approvals attached to the calls they gate. Pure given `now`; an event that changes nothing returns the same state. |
 | `EMPTY_TURNS` | The initial turns state. |
 | `turnsFromState` | Rebuild a thread's turns from its checkpoint history and parked interrupts: the AG-UI events the stream would have carried are synthesised and folded through `reduceTurns`, so a restored view matches a live one. Never throws; ignored or missing stamps are named in `warnings`. |
+| `eventsFromState` | The thread as the AG-UI events its live runs would have carried, synthesised from the same input as `turnsFromState`: each turn's `RUN_STARTED` carries the user message, a parked turn ends with `RUN_FINISHED { outcome: interrupt }`. What `GET /threads/:id/events` serves. Never throws. |
+| `EventsFromStateResult` | What `eventsFromState` returns: `events` (each with `timestamp`) and `warnings`. |
 | `ThreadStateForTurns` | What `GET /threads/:id/turns` assembles: thread id and status, the root namespace's history, child namespaces, and parked interrupts. |
 | `CheckpointForTurns` | One decoded checkpoint: id, timestamp, metadata, and `values.messages`/`values.todos` as serialized LangChain envelopes. |
 | `PendingInterruptForTurns` | A parked interrupt as `/pending_interrupts` returns it, with its grant. |
@@ -217,6 +225,15 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 | `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
 | `b4ActivityRenderers` | CopilotKit `renderActivityMessages` for hosts not using `B4Activity`: the legacy plan card. Moved here from `./react`. |
 | `b4PlanActivityRenderer` | The plan renderer alone. Moved here from `./react`. |
+
+### `@b4run/ag-ui/copilotkit-runtime`
+
+The server half of the CopilotKit connector, for the CopilotKit runtime route in your app (Node only).
+
+| Export | Responsibility |
+|---|---|
+| `B4AgentRunner` | A CopilotKit runtime runner (`new CopilotRuntime({ agents, runner })`): runs are CopilotKit's in-memory runner's; `connect` replays `GET /threads/:id/events` from the B4 server, and while a run is live in this process it continues with that run's events, so a reload or a new instance restores the chat, its activity and a parked approval. |
+| `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with (pass the one your `B4HttpAgent` uses), and `onWarnings` for replays that carried warnings. |
 
 ### `@b4run/ag-ui/react/styles.css`
 

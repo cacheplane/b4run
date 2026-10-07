@@ -122,6 +122,7 @@ function buildLlmsTxt(): string {
       "- `GET /threads/:thread_id/state`",
       "- `GET /threads/:thread_id/pending_interrupts`",
       "- `GET /threads/:thread_id/turns`",
+      "- `GET /threads/:thread_id/events`",
       "- `POST /threads/:thread_id/resume`",
       "- `GET /memory/candidates`",
       "- `POST /memory/candidates/:id/approve`",

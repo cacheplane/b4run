@@ -1038,6 +1038,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/ag-ui:./view", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./copilotkit", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./copilotkit-runtime", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
   ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/memory:./browse", "detailed", "surfaceKind", "typescript-runtime"],
@@ -2804,6 +2805,7 @@ const accuracyContracts = [
       "GET /threads/:thread_id/state",
       "GET /threads/:thread_id/pending_interrupts",
       "GET /threads/:thread_id/turns",
+      "GET /threads/:thread_id/events",
       "POST /threads/:thread_id/runs/wait",
       "POST /threads/:thread_id/runs/stream",
       "POST /threads/:thread_id/resume",
@@ -4262,15 +4264,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 52 || new Set(artifactAddresses).size !== 52) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 52 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 53 || new Set(artifactAddresses).size !== 53) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 53 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 48 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 49 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 48 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 49 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(
@@ -5042,6 +5044,7 @@ for (const endpoint of [
   "POST /threads/:thread_id/cancel",
   "GET /threads/:thread_id/pending_interrupts",
   "GET /threads/:thread_id/turns",
+  "GET /threads/:thread_id/events",
   "GET /memory/candidates",
   "POST /memory/candidates/:id/approve",
   "POST /memory/candidates/:id/reject",

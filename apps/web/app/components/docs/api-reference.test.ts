@@ -72,6 +72,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/ag-ui", "./view"],
   ["@b4run/ag-ui", "./react"],
   ["@b4run/ag-ui", "./copilotkit"],
+  ["@b4run/ag-ui", "./copilotkit-runtime"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
   ["@b4run/memory", "./namespace"],
@@ -715,7 +716,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(48)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(49)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
