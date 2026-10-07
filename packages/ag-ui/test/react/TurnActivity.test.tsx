@@ -3,42 +3,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { TurnActivity } from "../../src/react/activity/TurnActivity.js"
-import type { ToolStep, TurnView } from "../../src/view/turns.js"
+import { tool, turn } from "../fixtures/activity-fixtures.ts"
 
-/**
- * `Partial` that also accepts an explicit `undefined`, so a case can unset a
- * default (`endedAt: undefined`); {@link compact} then drops the key, which
- * `exactOptionalPropertyTypes` requires of the built view.
- */
-type Loose<T> = { [K in keyof T]?: T[K] | undefined }
-const compact = <T extends object>(o: Loose<T>): T =>
-  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T
-
-const tool = (id: string, o: Loose<ToolStep> = {}): ToolStep =>
-  compact<ToolStep>({
-    kind: "tool",
-    id,
-    name: "searchCorpus",
-    status: "done",
-    args: "",
-    startedAt: 0,
-    settledAt: 500,
-    label: "Searched the corpus",
-    icon: "search",
-    ...o,
-  })
-const turn = (o: Loose<TurnView>): TurnView =>
-  compact<TurnView>({
-    runId: "r",
-    status: "done",
-    startedAt: 0,
-    endedAt: 72_000,
-    steps: [tool("a"), tool("b")],
-    text: "",
-    approvals: [],
-    failed: 0,
-    ...o,
-  })
 const zero = () => 0
 
 describe("TurnActivity", () => {
