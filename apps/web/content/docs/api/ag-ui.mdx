@@ -233,7 +233,7 @@ The server half of the CopilotKit connector, for the CopilotKit runtime route in
 | Export | Responsibility |
 |---|---|
 | `B4AgentRunner` | A CopilotKit runtime runner (`new CopilotRuntime({ agents, runner })`): runs are CopilotKit's in-memory runner's; `connect` replays `GET /threads/:id/events` from the B4 server, and while a run is live in this process it continues with that run's events, so a reload or a new instance restores the chat, its activity and a parked approval. |
-| `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with (pass the one your `B4HttpAgent` uses; the read carries only the headers it adds, never the browser request's), and `onWarnings` for replays that carried warnings. |
+| `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with, and `onWarnings` for replays that carried warnings. The read carries only the headers that `fetch` adds, never the browser request's, so it must carry the current caller's identity, derived per request (for example from an `AsyncLocalStorage`), never a fixed service credential, which would let any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error. |
 
 ### `@b4run/ag-ui/react/styles.css`
 

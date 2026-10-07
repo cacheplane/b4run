@@ -474,17 +474,45 @@ Each turn renders as one `TurnActivity` (the summary line and the step list, nes
 CopilotKit's chat calls `connect` when it mounts. Its default in-memory runner only remembers runs this process served, so give the runtime `B4AgentRunner` and the chat restores from B4's checkpoints instead:
 
 ```ts
+import { AsyncLocalStorage } from "node:async_hooks"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
 import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
 
 const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3001"
-const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}` })
-const runtime = new CopilotRuntime({ agents: { default: agent }, runner: new B4AgentRunner({ url: b4Url }) })
-export const POST = createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })
+
+// The caller of the request being served. The agent and runner are built once
+// per process, so the identity travels by context, not by constructor.
+const caller = new AsyncLocalStorage<{ userId: string }>()
+
+// Every B4 request, run and restore alike, carries the current caller.
+const callerFetch: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers)
+  const userId = caller.getStore()?.userId
+  if (userId !== undefined) headers.set("x-user-id", userId) // the header your thread-access policy reads
+  return fetch(input, { ...init, headers })
+}
+
+const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}`, fetch: callerFetch })
+const runtime = new CopilotRuntime({
+  agents: { default: agent },
+  runner: new B4AgentRunner({ url: b4Url, fetch: callerFetch }),
+})
+const handler = createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })
+
+async function serve(request: Request): Promise<Response> {
+  const userId = await authenticate(request) // your session lookup
+  return caller.run({ userId }, () => handler(request))
+}
+
+// CopilotKit's handler serves `GET /info` as well as the POST routes.
+export const GET = serve
+export const POST = serve
 ```
 
-The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events. The read carries only the headers your `fetch` adds, never the browser's: if your B4 server needs auth or a caller identity, pass the same `fetch` you give `B4HttpAgent` (`new B4AgentRunner({ url: b4Url, fetch })`).
+The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events; a resumed run continues from the parked run it answers.
+
+The read carries only the headers your `fetch` adds, never the browser's. That `fetch` must carry the current caller's identity, derived per request as above (the navlog example does the same with its visitor id), never a fixed service credential: a fixed credential lets any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error.
 
 Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 

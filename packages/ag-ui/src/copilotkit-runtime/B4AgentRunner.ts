@@ -9,11 +9,17 @@ export interface B4AgentRunnerOptions {
    * Fetch for the replay read, and the only way to authenticate it: the runner
    * never forwards the connect request's headers (CopilotKit copies the
    * browser's `authorization` and `x-*` headers there, and forwarding them would
-   * let a browser name another caller). Pass the same fetch your `B4HttpAgent`
-   * uses to add the server-side auth headers.
+   * let a browser name another caller). It must carry the CURRENT caller's
+   * identity, derived per request (for example from an `AsyncLocalStorage` the
+   * route handler fills), never a fixed service credential: a fixed credential
+   * lets any browser restore any thread whose id it knows. A read the thread
+   * gate refuses (404) restores as an empty chat, with no error.
    */
   readonly fetch?: typeof fetch
-  /** Called once per replay that carried warnings (stamps the server could not read). Defaults to `console.warn`. */
+  /**
+   * Called once per replay that carried warnings (stamps the server could not
+   * read). Defaults to `console.warn`.
+   */
   readonly onWarnings?: (threadId: string, warnings: readonly string[]) => void
 }
 
@@ -72,16 +78,45 @@ function withLastUserMessageOnly(event: BaseEvent): BaseEvent {
   } as BaseEvent
 }
 
+/** True when the `RUN_STARTED` opens a run that answers interrupts (`input.resume`). */
+function isResumeStart(event: BaseEvent): boolean {
+  const input = (event as { input?: { resume?: unknown } }).input
+  return Array.isArray(input?.resume) && input.resume.length > 0
+}
+
+/**
+ * Where the live turn starts in the in-memory batch. A resumed run continues
+ * the turn its parked run opened (B4 replays both as one turn), so when the
+ * run right before it in the batch ended on an interrupt, the turn starts at
+ * that parked run's `RUN_STARTED`.
+ */
+function liveTurnStart(replayed: readonly BaseEvent[], currentStart: number): number {
+  if (!isResumeStart(replayed[currentStart] as BaseEvent)) return currentStart
+  const parkedStart = lastIndexOf(replayed.slice(0, currentStart), isRunStart)
+  if (parkedStart === -1) return currentStart
+  const parkedEnd = replayed[currentStart - 1] as { type: string; outcome?: { type?: unknown } }
+  const parked =
+    parkedEnd.type === EventType.RUN_FINISHED && parkedEnd.outcome?.type === "interrupt"
+  return parked ? parkedStart : currentStart
+}
+
 /**
  * CopilotKit's in-memory runner with `connect` served from B4's storage. Runs
  * are the in-memory runner's (a run forwards to the route's agent and keeps
  * the live tail in this process). `connect` always reads the thread's history
  * from `GET /threads/:id/events`, so a reload, a restart or another instance
  * restores the chat, its activity and any parked approval from the checkpoint.
- * The read carries only what the configured `fetch` adds; the browser's
- * headers on the connect request are never forwarded. While a run is live here, the history drops its open head and the runner
+ * The read carries only what the configured `fetch` adds, so that fetch must
+ * carry the current caller's identity; the browser's headers on the connect
+ * request are never forwarded.
+ *
+ * While a run is live here, the history drops its open head and the runner
  * appends this process's current run, from its `RUN_STARTED`, then passes the
- * live events through as they arrive.
+ * live events through as they arrive. A resumed run is appended from the
+ * parked run it answers, so the turn keeps its start. Limitation: when the
+ * parked run ran on another instance (it is not in this process's memory),
+ * the turn restores from the resume's `RUN_STARTED` only, until the next
+ * reload after the run ends.
  */
 export class B4AgentRunner extends InMemoryAgentRunner {
   readonly #url: string
@@ -133,6 +168,8 @@ export class B4AgentRunner extends InMemoryAgentRunner {
       const controller = new AbortController()
       let live: Subscription | undefined
       const restore = async (): Promise<void> => {
+        // Narrow race: a run that starts in this process during the history read
+        // is replayed as an open head with no live tail until the next reload.
         const wasRunning = await this.isRunning({ threadId: request.threadId })
         const history = await this.#history(request, controller.signal)
         if (controller.signal.aborted) return
@@ -187,8 +224,9 @@ export class B4AgentRunner extends InMemoryAgentRunner {
           // only finished runs the B4 history already has.
           cutNextRunStart = true
         } else {
-          subscriber.next(withLastUserMessageOnly(replayed[currentStart] as BaseEvent))
-          for (const event of replayed.slice(currentStart + 1)) subscriber.next(event)
+          for (const event of replayed.slice(liveTurnStart(replayed, currentStart))) {
+            subscriber.next(isRunStart(event) ? withLastUserMessageOnly(event) : event)
+          }
         }
         if (ended === "complete") subscriber.complete()
         else if (ended !== undefined) subscriber.error(ended.error)

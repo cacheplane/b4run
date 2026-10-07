@@ -215,6 +215,114 @@ describe("B4AgentRunner.connect", () => {
       ])
     })
 
+    it("rejoins a resumed run from the parked run it answers, so the turn keeps its start", async () => {
+      // While the resume is in flight, B4 replays park + resume as one open turn.
+      const fetch = jsonFetch(200, {
+        threadId: "t-1",
+        status: "busy",
+        events: [...closed, ...openHead],
+        warnings: [],
+        truncated: false,
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const messages = [
+        { id: "c-1", role: "user", content: "one" },
+        { id: "c-3", role: "user", content: "three" },
+        { id: "c-4", role: "assistant", content: "draft" },
+      ]
+      const parkedStart = {
+        type: EventType.RUN_STARTED,
+        threadId: "t-1",
+        runId: "park",
+        input: { threadId: "t-1", runId: "park", messages },
+      } as unknown as BaseEvent
+      const parkedText = {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: "park-a",
+        role: "assistant",
+      } as BaseEvent
+      const parked = {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId: "park",
+        outcome: { type: "interrupt", interrupts: [{ id: "i-1", reason: "tool_call" }] },
+      } as unknown as BaseEvent
+      const resumeStart = {
+        type: EventType.RUN_STARTED,
+        threadId: "t-1",
+        runId: "resume",
+        input: {
+          threadId: "t-1",
+          runId: "resume",
+          messages,
+          resume: [{ interruptId: "i-1", status: "resolved", payload: { approved: true } }],
+        },
+      } as unknown as BaseEvent
+      const resumeText = {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: "resume-a",
+        role: "assistant",
+      } as BaseEvent
+      const { later, spy } = liveInner([
+        ...historic,
+        parkedStart,
+        parkedText,
+        parked,
+        resumeStart,
+        resumeText,
+      ])
+      const seen: BaseEvent[] = []
+      runner.connect({ threadId: "t-1" }).subscribe({ next: (event) => seen.push(event) })
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+      const finished = {
+        type: EventType.RUN_FINISHED,
+        threadId: "t-1",
+        runId: "resume",
+        outcome: { type: "success" },
+      } as BaseEvent
+      later.next(finished)
+      const cut = (event: BaseEvent) => ({
+        ...event,
+        input: {
+          ...(event as unknown as { input: object }).input,
+          messages: [{ id: "c-3", role: "user", content: "three" }],
+        },
+      })
+      expect(seen).toEqual([
+        ...closed,
+        cut(parkedStart),
+        parkedText,
+        parked,
+        cut(resumeStart),
+        resumeText,
+        finished,
+      ])
+    })
+
+    it("rejoins a resumed run from its own start when the parked run ran elsewhere", async () => {
+      const fetch = jsonFetch(200, {
+        threadId: "t-1",
+        status: "busy",
+        events: closed,
+        warnings: [],
+        truncated: false,
+      })
+      const runner = new B4AgentRunner({ url: "http://b4.test", fetch })
+      vi.spyOn(runner, "isRunning").mockResolvedValue(true)
+      const resumeStart = {
+        type: EventType.RUN_STARTED,
+        threadId: "t-1",
+        runId: "resume",
+        input: { messages: [], resume: [{ interruptId: "i-1", status: "resolved" }] },
+      } as unknown as BaseEvent
+      const { spy } = liveInner([...historic, resumeStart, currentText])
+      const seen: BaseEvent[] = []
+      runner.connect({ threadId: "t-1" }).subscribe({ next: (event) => seen.push(event) })
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+      expect(seen).toEqual([...closed, resumeStart, currentText])
+    })
+
     it("emits only the new run when the in-memory batch holds just finished runs", async () => {
       const fetch = jsonFetch(200, {
         threadId: "t-1",
