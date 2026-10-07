@@ -16,6 +16,7 @@ import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
 import { resolveDistillRetry } from "../lib/memory/distill-retry-config.js"
 import { loadB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
+import { resolveAgentsMdConfig } from "../lib/runtime/agents-md-config.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
 import { collectSandboxErrors } from "../lib/runtime/collect-sandbox-errors.js"
 import { collectToolScopeIssues } from "../lib/runtime/collect-tool-scope-errors.js"
@@ -89,7 +90,7 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     // without them still satisfies `assertEdgeCapabilities`. The tests below the
     // gate are what actually catch a narrowed argument; this is what stops the
     // TYPE from claiming the command loads less than the gate inspects.
-    let loadedConfig: EdgeCapabilityInput["config"] & Pick<B4Config, "build"> = {}
+    let loadedConfig: EdgeCapabilityInput["config"] & Pick<B4Config, "agentsMd" | "build"> = {}
     try {
       const loaded = await loadB4Config({ appRoot: manifest.appRoot })
       loadedConfig = loaded.config
@@ -102,6 +103,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     // The same validation `b4 memory consolidate`/`reflect` apply before
     // building their model, surfaced here so a near miss fails check too.
     resolveDistillRetry(loadedConfig.memory)
+    // The same resolver route preparation reads, so a mistyped read-only
+    // opt-out fails check instead of leaving AGENTS.md writable.
+    resolveAgentsMdConfig(loadedConfig)
 
     // Typed as known names, but a JS config arrives untyped — keep validating.
     const buildTargets: readonly string[] | undefined = loadedConfig.build?.targets

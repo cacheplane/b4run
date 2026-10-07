@@ -99,6 +99,7 @@ import type { RunnableConfig } from "@langchain/core/runnables"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { stripReservedThreadMetadata } from "../dev/thread-metadata.js"
+import { type ResolvedAgentsMdConfig, resolveAgentsMdConfig } from "./agents-md-config.js"
 import { createB4Context } from "./b4-context.js"
 import { checkToolNameUniqueness } from "./check-tool-name-uniqueness.js"
 import { routeCheckpointer } from "./checkpoint-route-provenance.js"
@@ -1672,6 +1673,14 @@ async function prepareRouteExecutionForInvocation(
     // memory.md, and skills/*/SKILL.md — from the manifest instead;
     // workspace/AGENTS.md stays absent there.
     const markerFs = fallbacks ? fallbacks.markerFs : getStaticMarkerFs(options.staticModules)
+    // Validated here as well as by `b4 check`, through the one resolver, so a
+    // mistyped read-only opt-out fails the route instead of staying writable.
+    let agentsMd: ResolvedAgentsMdConfig
+    try {
+      agentsMd = resolveAgentsMdConfig(loadedB4Config)
+    } catch (error) {
+      return { message: formatErrorMessage(error), ok: false }
+    }
     const applied = await applyCapabilities(registry, routeDir, {
       routeManifest,
       descriptor,
@@ -1694,6 +1703,7 @@ async function prepareRouteExecutionForInvocation(
       appRoot: options.appRoot,
       ...(sandboxWorkspaceRoot ? { workspaceRoot: sandboxWorkspaceRoot } : {}),
       ...(memoryContext ? { memory: memoryContext } : {}),
+      agentsMd,
     })
 
     if (applied.errors.length > 0) {

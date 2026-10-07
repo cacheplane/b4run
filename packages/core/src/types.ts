@@ -312,6 +312,28 @@ export interface B4Config {
       readonly clientToolStore?: ClientToolCallStore
     }
   }
+  /**
+   * How `workspace/AGENTS.md` is presented to agent routes. The built-in
+   * agents-md capability injects the file into the system prompt every turn.
+   */
+  readonly agentsMd?: {
+    /**
+     * `true` (default) injects the file as the agent's own memory and tells
+     * the model to update it with `writeFile`. `false` injects it as
+     * read-only project guidance maintained by the app's authors and tells
+     * the model not to modify it — for an app where `AGENTS.md` is shared,
+     * reviewed prompt input that one thread must not change for every other.
+     *
+     * Prompt guidance only: this does not block a write. Enforce it with a
+     * `FilesystemMiddleware` that refuses writes to `AGENTS.md`, composed
+     * over `backends.filesystem`.
+     *
+     * Validated by `b4 check` and at route preparation: a non-object
+     * `agentsMd`, an unknown key in it, or a non-boolean `writable` is
+     * rejected (B4_E1010) rather than silently left writable.
+     */
+    readonly writable?: boolean
+  }
   readonly memory?: {
     readonly enabled?: boolean
     /** Custom memory store. Defaults to an SQLite-backed store at <appRoot>/.b4/memory.sqlite. */

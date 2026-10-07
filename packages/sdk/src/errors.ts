@@ -73,6 +73,11 @@ export const B4_ERRORS = {
     title: "Invalid memory config",
     docsPath: "/docs/configuration#memory",
   },
+  B4_E1010: {
+    code: "B4_E1010",
+    title: "Invalid agentsMd config",
+    docsPath: "/docs/configuration#agentsmd",
+  },
   B4_E2001: {
     code: "B4_E2001",
     title: "Sandbox unavailable",

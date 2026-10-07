@@ -7,10 +7,16 @@ const MEMORY_HEADER = `# Memory
 The block below is the live contents of \`workspace/AGENTS.md\`, re-read on every turn. This IS your persistent memory — do NOT re-read this file with any tool; the content here is always current. Update it by calling \`writeFile({ path: "AGENTS.md", content: "..." })\` when you learn something worth remembering.
 
 ---`
+const READ_ONLY_HEADER = `# Project guidance
+
+The block below is the live contents of \`workspace/AGENTS.md\`, re-read on every turn. It is read-only project guidance maintained by this app's authors — do NOT re-read this file with any tool; the content here is always current. Do NOT modify \`AGENTS.md\`: follow it, and keep anything you learn out of it.
+
+---`
 
 /**
  * Auto-injects the contents of <appRoot>/workspace/AGENTS.md into the
- * agent's system prompt under a "# Memory" heading. Always-on: the presence
+ * agent's system prompt under a "# Memory" heading (or "# Project guidance"
+ * when the app made it read-only). Always-on: the presence
  * of the file IS the opt-in. Re-reads the file on every model turn (through
  * the injected MarkerFs) so the agent sees its own updated memory
  * immediately after it calls writeFile. With no MarkerFs (edge runtimes)
@@ -19,6 +25,10 @@ The block below is the live contents of \`workspace/AGENTS.md\`, re-read on ever
  * Uses context.appRoot (not process.cwd()) so in-process test harnesses that
  * pass an explicit app root activate this capability regardless of the test
  * runner's working directory. In production (b4 dev), appRoot === cwd.
+ *
+ * `context.agentsMd.writable === false` (the app's `agentsMd: { writable:
+ * false }`) swaps the header for a read-only one that drops the writeFile
+ * instruction. That is prompt guidance only: nothing here blocks a write.
  */
 export function createAgentsMdMarker(): CapabilityMarker {
   return {
@@ -27,10 +37,11 @@ export function createAgentsMdMarker(): CapabilityMarker {
     load: async (_routeDir, context) => {
       const agentsMdPath = workspaceAgentsMdPath(context.appRoot)
       const markerFs = context.markerFs
+      const header = context.agentsMd?.writable === false ? READ_ONLY_HEADER : MEMORY_HEADER
       return {
         promptFragment: {
           placement: "after_user_prompt",
-          render: () => (markerFs ? renderMemoryFragment(agentsMdPath, markerFs) : ""),
+          render: () => (markerFs ? renderMemoryFragment(agentsMdPath, markerFs, header) : ""),
         },
       }
     },
@@ -45,14 +56,14 @@ function workspaceAgentsMdPath(appRoot: string): string {
   return pureResolve(appRoot, "workspace", "AGENTS.md")
 }
 
-function renderMemoryFragment(path: string, markerFs: MarkerFs): string {
+function renderMemoryFragment(path: string, markerFs: MarkerFs, header: string): string {
   if (!markerFs.existsSync(path)) return ""
 
   const size = markerFs.statSizeSync(path)
   if (size === undefined) return ""
 
   if (size > MAX_MEMORY_BYTES) {
-    return `${MEMORY_HEADER}\n\n(workspace/AGENTS.md is ${size} bytes; exceeds 64 KiB limit — not loaded)`
+    return `${header}\n\n(workspace/AGENTS.md is ${size} bytes; exceeds 64 KiB limit — not loaded)`
   }
 
   const raw = markerFs.readFileSync(path)
@@ -61,5 +72,5 @@ function renderMemoryFragment(path: string, markerFs: MarkerFs): string {
   const trimmed = raw.trim()
   if (trimmed.length === 0) return ""
 
-  return `${MEMORY_HEADER}\n\n${trimmed}`
+  return `${header}\n\n${trimmed}`
 }

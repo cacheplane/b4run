@@ -71,6 +71,36 @@ describe("b4 check emits error codes", () => {
     expect(result.exitCode).toBe(0)
   })
 
+  test("a misspelled agentsMd.writable → [B4_E1010] with docs link", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default { agentsMd: { writeable: false } };\n",
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Unknown agentsMd option(s): writeable")
+    expect(result.stderr).toContain("[B4_E1010]")
+    expect(result.stderr).toContain("https://b4.run/docs/configuration#agentsmd")
+  })
+
+  test("agentsMd: false → [B4_E1010]", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default { agentsMd: false };\n",
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("agentsMd must be an object")
+    expect(result.stderr).toContain("[B4_E1010]")
+  })
+
+  test("a valid agentsMd passes check", async () => {
+    const appRoot = await createFixtureApp({
+      "b4.config.ts": "export default { agentsMd: { writable: false } };\n",
+    })
+    const result = await invoke(["check", "--cwd", appRoot])
+    expect(result.stderr).toBe("")
+    expect(result.exitCode).toBe(0)
+  })
+
   test("invalid delegation policy → [B4_E1004] with docs link", async () => {
     const appRoot = await createFixtureApp({
       "src/app/hello/index.ts": `import { agent } from "@b4run/sdk"
