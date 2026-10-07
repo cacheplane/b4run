@@ -94,10 +94,13 @@ function parseLockfile(source: string): {
     throw new Error("pnpm-lock.yaml must parse without errors or warnings")
   }
   const lockfile = requireRecord(document.toJS({ maxAliasCount: 0 }), "pnpm-lock.yaml")
+  // `packageExtensionsChecksum` records the root `pnpm.packageExtensions`,
+  // which "pins the reviewed package extensions" holds to one entry.
   const expectedKeys = [
     "importers",
     "lockfileVersion",
     "overrides",
+    "packageExtensionsChecksum",
     "packages",
     "settings",
     "snapshots",
@@ -860,6 +863,21 @@ describe("dependency security graph invariants", () => {
 
   it("contains no Hono, node-server, or UUID package below its patched floor", () => {
     expect(patchedFloorFailures(readWorkspace())).toEqual([])
+  })
+
+  it("pins the reviewed package extensions", () => {
+    // An extension edits another package's manifest, so it can change the
+    // dependency graph; each one is reviewed. The Angular test plugin declares
+    // no TypeScript peer, so without this it would load the root's TypeScript 7,
+    // which has no compiler API, instead of the Angular kit's TypeScript 6.
+    const manifest = requireRecord(
+      JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")),
+      "root package.json",
+    )
+    const pnpmConfig = requireRecord(manifest.pnpm, "root package.json pnpm")
+    expect(pnpmConfig.packageExtensions).toEqual({
+      "@analogjs/vite-plugin-angular@2": { peerDependencies: { typescript: ">=6.0 <6.1" } },
+    })
   })
 
   it("scopes affected provider-utils 3.x paths to private CopilotKit Vertex", () => {
