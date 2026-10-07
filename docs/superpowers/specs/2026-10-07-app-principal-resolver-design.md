@@ -14,6 +14,8 @@ Decided with Brian on 2026-10-07:
   Both runtimes understand it, and it becomes the scaffold default.
 - **On LangSmith, clients create the thread with `POST /threads` first.** A run on an unknown
   client-chosen id returns 404 there, and the docs say so. The node runtime keeps implicit create.
+- **navlog memory becomes per-visitor, with auto writes, and its baseline moves into `workspace/`**
+  (§7.1).
 
 ## 1. Problem
 
@@ -188,7 +190,7 @@ execute: async (input, ctx) => ctx.principal?.id
 5. **Typing.** Typegen discovers `src/auth.ts` and emits an ambient
    `declare module "@b4run/sdk" { interface B4Register { principal: Exclude<Awaited<ReturnType<typeof auth.authenticate>>, RejectResult | undefined> } }`.
    SDK types read `B4Register["principal"]`, falling back to `B4PrincipalShape` when there is no
-   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. The alternative is a `b4:auth` virtual module the SDK types import, which is open question 6.
+   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. The alternative is a `b4:auth` virtual module the SDK types import, which is open question 5.
 
 **Pros:**
 - Matches the two existing discovered files.
@@ -424,8 +426,8 @@ defense in depth). It isn't folded into the resolver.
     becomes redundant and can be deleted (no tool reads `ctx.middleware.visitorId`; grep finds no
     reader).
   - `thread-access.ts` reads `req.principal`.
-  - `memory.ts` adds the `user` dimension once PR 2 lands. **This is a product change**: per-visitor
-    memory instead of shared candidates, so it's Brian's call (open question 2).
+  - `memory.ts` adds the `user` dimension once PR 2 lands. The decision and its consequences are
+    in §7.1.
   - `main.mjs` keeps `tokenGuard`.
 - **app-basic template:**
   - `auth.ts.example` gains `export default defineAuth(...)`.
@@ -460,6 +462,51 @@ defense in depth). It isn't folded into the resolver.
   - navlog itself stays on the node target, because its auth pattern is the `x-*` secret the
     LangSmith build refuses (§5.3, item 2).
 
+### 7.1 navlog per-visitor memory (decided 2026-10-07)
+
+**Today.** One namespace is shared by every visitor (`["workspace", "route"]`) with
+`writes: "candidate"`. A visitor's `remember` only proposes a write, and only the demo owner can
+approve it (owner cookie, `web/app/lib/proxy-guard.ts:138`). Approved facts then apply to everyone.
+For example, an approved `aircraft.tail_number` becomes every visitor's tail number.
+
+**Decided.**
+
+- **Scope.**
+  - `memory.ts` declares `scope: ["workspace", "route", "user"]`.
+  - `b4.config.ts` sets `resolveScope: ({ principal }) => (principal ? { user: principal.id } : {})`.
+  - Each visitor (one browser: the `__Host-b4_visitor` cookie, one-year `Max-Age`) gets their own
+    namespace.
+  - `LOCAL_PRINCIPAL` (`local`) owns the namespace in development, harness and test runs.
+- **`writes: "auto"`.** Isolation is what makes unreviewed writes acceptable on a public demo. A
+  prompt-injected fact reaches only the visitor who planted it. The model still trusts its own
+  memory, but the blast radius is one browser.
+- **Baseline into `workspace/`.**
+  - The C172N defaults the prompt now inlines (usable fuel 40/50 gal, cruise 2400 RPM, and the
+    rest of `src/app/navlog/index.ts:13`) move to a workspace file, for example
+    `workspace/aircraft/c172n.md`. The agent reads it alongside the POH tables.
+  - `memory.md` and `plan.md` change from "recall the aircraft profile" to "read the baseline,
+    then recall this pilot's overrides".
+  - Memory holds only what the visitor said.
+  - This part doesn't depend on the resolver and can land first.
+- **The owner review flow leaves navlog.** No candidates are created, so the web proxy's
+  owner-only `/memory/*` approve/reject branch, the owner cookie, and
+  `npm run memory:approve` go. The docs drop "candidate review" as a navlog feature, and
+  `examples/memory` remains the candidate-review example.
+- **The principal must be resolvable wherever memory is.** Per-visitor memory on node and web
+  targets needs PR 2. navlog stays on the node target, so the LangSmith invoke-time namespace work
+  (§5.4) isn't on its critical path.
+
+**Follow-ups this creates:**
+
+- **Semantic records never expire.** `memory.episodes.ttlMs` covers episodes only, and
+  `b4 memory prune` deletes only expired and over-cap episodic rows. Abandoned visitor namespaces
+  accumulate forever in the demo's Postgres. This needs a semantic TTL, or a prune by
+  namespace-last-write, before the change ships to the live demo.
+- **Per-namespace caps.** A visitor can write unboundedly into their own namespace. This needs a
+  write cap per namespace, enforced by `remember`.
+- **Evals.** `navlog-quality.eval.ts` and the harness fixtures that seed or expect a shared aircraft
+  profile must seed it per principal (`local`), or read it from the workspace file.
+
 ## 8. Security properties to preserve
 
 - **Fail closed.**
@@ -493,16 +540,14 @@ defense in depth). It isn't folded into the resolver.
 1. **`/memory/*` gate.** Should it be a fixed rule (principal required when an auth file exists), a
    predicate on `defineAuth` (`canReviewMemory(principal)`), or thread-access-style policy actions
    (`memory.candidates.list|approve|reject`)?
-2. **navlog per-visitor memory.** Should navlog switch from shared candidate memory to per-visitor
-   memory once #940 lands, or keep the shared memory as the demo?
-3. **Grant audit.** Should a consumed approval grant record `consumedBy: principal.id`? The grant
+2. **Grant audit.** Should a consumed approval grant record `consumedBy: principal.id`? The grant
    stays caller-unbound by design; this would be audit only.
-4. **Anonymous default.** Is "`undefined` = anonymous, consumers decide" right, or should an
+3. **Anonymous default.** Is "`undefined` = anonymous, consumers decide" right, or should an
    existing auth file make `undefined` a global 401 unless `defineAuth({ anonymous: "allow" })` is
    set? The latter is safer by default, but it can't express navlog's public `/healthz`-style
    paths without a per-endpoint escape hatch.
-5. **CopilotKit runner.** `createB4AgentRunner` deliberately forwards no browser headers. Should
+4. **CopilotKit runner.** `createB4AgentRunner` deliberately forwards no browser headers. Should
    the runner forward a server-minted principal assertion instead (signed, short-lived), so replay
    requests resolve the same principal?
-6. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
+5. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
    ambient module like `b4:routes`?
