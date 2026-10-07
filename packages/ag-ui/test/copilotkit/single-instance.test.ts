@@ -11,6 +11,12 @@ import { describe, expect, test } from "vitest"
  * connector's `useAgent`/`useInterrupt` read a React context the app's
  * `<CopilotKit>` never provides. The apps pin `zod` to this package's version so
  * the variants match; this test keeps them matched.
+ *
+ * That is also why `zod` stays a regular dependency of `@b4run/ag-ui` although
+ * no source file imports it: `@ag-ui/core` declares `zod` as an (optional)
+ * peer and its `@ag-ui/core/schemas` validators, which `./client` imports, need
+ * it at runtime, and pinning this version is what keeps the apps on one
+ * CopilotKit copy.
  */
 const packageRoot = fileURLToPath(new URL("../..", import.meta.url))
 const repoRoot = join(packageRoot, "..", "..")

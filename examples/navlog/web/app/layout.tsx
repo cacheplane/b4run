@@ -1,8 +1,8 @@
 import type { Viewport } from "next"
 import type { ReactNode } from "react"
 import "@copilotkit/react-core/v2/styles.css"
-// Required, not optional polish: the activity cards carry no inline styles, so
-// without this import the plan and subagent cards render as bare markup.
+// Required, not optional polish: the activity kit carries no inline styles, so
+// without this import each turn's plan, steps and subagents render as bare markup.
 // Restyle by overriding the `--b4-activity-*` tokens.
 import "@b4run/ag-ui/react/styles.css"
 import "leaflet/dist/leaflet.css"
@@ -27,7 +27,7 @@ export const viewport: Viewport = {
 // [data-copilotkit]` and its `cpk:dark:` utilities compile to `:is(.dark *)`),
 // while this app's dark theme is a media query. Mirror the media query onto
 // `<html class="dark">` before first paint and keep it in sync.
-// `data-b4-theme="auto"` makes the activity cards' tokens follow the same media
+// `data-b4-theme="auto"` makes the activity kit's tokens follow the same media
 // query on their own (`@b4run/ag-ui/react/styles.css`), so they are right even
 // before the script runs or where it cannot.
 const DARK_CLASS_SCRIPT = `(function(){try{var m=matchMedia("(prefers-color-scheme: dark)"),r=document.documentElement,t=function(){r.classList.toggle("dark",m.matches)};t();m.addEventListener("change",t)}catch(e){}})()`

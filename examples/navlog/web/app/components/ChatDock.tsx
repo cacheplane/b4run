@@ -23,7 +23,7 @@ const HEADER_BUTTON =
 
 /**
  * The run's state, as a word a person reads plus a dot: Running (pulsing,
- * the activity cards' running blue), Awaiting approval (amber, the gate's
+ * the activity kit's running color), Awaiting approval (amber, the gate's
  * color), Ready (muted). `status` is the shell's string — "running",
  * "awaiting approval", or nothing — so the mapping is here, not in the shell.
  * The dot is decoration; the word carries the meaning.

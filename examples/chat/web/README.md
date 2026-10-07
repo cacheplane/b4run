@@ -45,7 +45,8 @@ browser
 - `app/page.tsx` — `CopilotKit` (`runtimeUrl="/api/copilotkit"`,
   `useSingleEndpoint={false}`) wrapping `B4Activity` and a `CopilotSidebar` with
   `useB4ChatSlots()`'s `messageView`. The tab's thread id lives in `sessionStorage`, so a
-  reload reconnects to the same thread.
+  reload reconnects to the same thread. Duplicating the tab copies `sessionStorage`, so
+  the duplicate shares that thread; open a new tab for a new one.
 
 This example has no users to tell apart, so the runner's replay uses the default
 `fetch`. An app with users passes a `fetch` that carries the current caller's identity,

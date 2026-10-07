@@ -197,4 +197,27 @@ test("restores a parked permission prompt as an approval card", async ({ page })
   await expect(card.getByRole("button", { name: "Allow once" })).toBeVisible()
   await expect(card.getByRole("button", { name: "Always allow" })).toBeVisible()
   await expect(card.getByRole("button", { name: "Deny" })).toBeVisible()
+
+  // "Allow once" resumes the parked run: the next run carries the decision for
+  // that interrupt in the standard top-level `resume` array.
+  let runBody: { threadId?: unknown; resume?: unknown } | undefined
+  await page.route("**/api/copilotkit/agent/default/run", async (route) => {
+    runBody = route.request().postDataJSON()
+    const threadId = String(runBody?.threadId)
+    await route.fulfill({
+      status: 200,
+      headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+      body: sse([
+        { type: "RUN_STARTED", threadId, runId: "run-3" },
+        { type: "RUN_FINISHED", threadId, runId: "run-3" },
+      ]),
+    })
+  })
+  await card.getByRole("button", { name: "Allow once" }).click()
+  await expect
+    .poll(() => runBody?.resume)
+    .toEqual([
+      expect.objectContaining({ interruptId: "interrupt-1", status: "resolved", payload: "once" }),
+    ])
+  await expect(card).toHaveCount(0)
 })
