@@ -67,7 +67,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ag-ui/core": "1.0.1",
+    "@ag-ui/core": "1.0.2",
     "@b4run/ag-ui": "workspace:*",
     "@b4run/core": "workspace:*",
     "@b4run/langchain": "workspace:*",
@@ -82,7 +82,7 @@
     "tsx": "^4.23.5"
   },
   "devDependencies": {
-    "@ag-ui/proto": "1.0.1",
+    "@ag-ui/proto": "1.0.2",
     "@b4run/config-typescript": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@hono/node-server": "^2.1.0",

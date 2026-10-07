@@ -295,7 +295,7 @@ describe.each(routeCases)(
 
       expect(info.status).toBe(200)
       expect(await info.json()).toMatchObject({
-        version: "1.76.0",
+        version: "1.77.1",
         mode: "sse",
         agents: { default: { name: "default", capabilities: capabilitiesDocument } },
       })

@@ -542,7 +542,7 @@ function providerUtilsRootPathFailure(
     return `${targetIdentity} starts at unexpected importer ${root}`
   }
   const runtimeIndex = path.findIndex((identity) =>
-    isPackageIdentity(identity, "@copilotkit/runtime", (candidate) => candidate === "1.76.0"),
+    isPackageIdentity(identity, "@copilotkit/runtime", (candidate) => candidate === "1.77.1"),
   )
   const vertexIndex = path.findIndex((identity) =>
     isPackageIdentity(
@@ -652,7 +652,7 @@ describe("dependency security graph invariants", () => {
     // The host passes CopilotKit's runner class in (`createB4AgentRunner`), so the
     // published package never resolves `@copilotkit/runtime` itself: npm may place
     // it where a hoisted `@b4run/ag-ui` cannot see it.
-    expect(agUiDevDependencies["@copilotkit/runtime"]).toBe("1.76.0")
+    expect(agUiDevDependencies["@copilotkit/runtime"]).toBe("1.77.1")
     expect(agUiDependencies["@copilotkit/runtime"]).toBeUndefined()
     expect(
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
@@ -669,7 +669,7 @@ describe("dependency security graph invariants", () => {
     ).toBeUndefined()
     expect(
       importerDependency(workspace, "packages/ag-ui", "devDependencies", "@copilotkit/runtime"),
-    ).toEqual({ specifier: "1.76.0", version: expect.stringMatching(/^1\.76\.0/) })
+    ).toEqual({ specifier: "1.77.1", version: expect.stringMatching(/^1\.77\.1/) })
   })
 
   it("makes the examples and AG-UI package stable CopilotKit owners", () => {
@@ -685,13 +685,13 @@ describe("dependency security graph invariants", () => {
         manifest.dependencies,
         `${manifestPath}.dependencies`,
       )
-      expect(manifestDependencies["@copilotkit/react-core"]).toBe("1.76.0")
-      expect(manifestDependencies["@copilotkit/runtime"]).toBe("1.76.0")
-      expect(manifestDependencies["@ag-ui/client"]).toBe("1.0.1")
+      expect(manifestDependencies["@copilotkit/react-core"]).toBe("1.77.1")
+      expect(manifestDependencies["@copilotkit/runtime"]).toBe("1.77.1")
+      expect(manifestDependencies["@ag-ui/client"]).toBe("1.0.2")
 
       for (const dependency of ["@copilotkit/react-core", "@copilotkit/runtime"] as const) {
         const owned = importerDependency(workspace, importerName, "dependencies", dependency)
-        expect(owned.specifier).toBe("1.76.0")
+        expect(owned.specifier).toBe("1.77.1")
         const target = importerDependencyLocator(
           workspace,
           importerName,
@@ -700,12 +700,12 @@ describe("dependency security graph invariants", () => {
         )
         expect({ name: target.name, version: target.version }).toEqual({
           name: dependency,
-          version: "1.76.0",
+          version: "1.77.1",
         })
       }
       expect(importerDependency(workspace, importerName, "dependencies", "@ag-ui/client")).toEqual({
-        specifier: "1.0.1",
-        version: "1.0.1",
+        specifier: "1.0.2",
+        version: "1.0.2",
       })
       const agUiTarget = importerDependencyLocator(
         workspace,
@@ -715,7 +715,7 @@ describe("dependency security graph invariants", () => {
       )
       expect({ name: agUiTarget.name, version: agUiTarget.version }).toEqual({
         name: "@ag-ui/client",
-        version: "1.0.1",
+        version: "1.0.2",
       })
     }
 
@@ -732,10 +732,10 @@ describe("dependency security graph invariants", () => {
       agUiManifest.devDependencies,
       `${agUiManifestPath}.devDependencies`,
     )
-    expect(agUiDependencies["@ag-ui/core"]).toBe("1.0.1")
-    expect(agUiDependencies["@ag-ui/encoder"]).toBe("1.0.1")
-    expect(agUiDevDependencies["@ag-ui/client"]).toBe("1.0.1")
-    expect(agUiDevDependencies["@copilotkit/react-core"]).toBe("1.76.0")
+    expect(agUiDependencies["@ag-ui/core"]).toBe("1.0.2")
+    expect(agUiDependencies["@ag-ui/encoder"]).toBe("1.0.2")
+    expect(agUiDevDependencies["@ag-ui/client"]).toBe("1.0.2")
+    expect(agUiDevDependencies["@copilotkit/react-core"]).toBe("1.77.1")
     expect(
       requireStringMap(agUiManifest.peerDependencies, `${agUiManifestPath}.peerDependencies`)[
         "@copilotkit/react-core"
@@ -747,15 +747,15 @@ describe("dependency security graph invariants", () => {
       ],
     ).toBe(">=1.0.1 <2.0.0")
     for (const name of ["@copilotkit/react-core", "@copilotkit/runtime"] as const) {
-      const clientVersions = snapshotDependencyVersions(workspace, name, "1.76.0", "@ag-ui/client")
+      const clientVersions = snapshotDependencyVersions(workspace, name, "1.77.1", "@ag-ui/client")
       expect(clientVersions.length).toBeGreaterThan(0)
       for (const clientVersion of clientVersions) {
-        expect(clientVersion.startsWith("1.0.1")).toBe(true)
+        expect(clientVersion.startsWith("1.0.2")).toBe(true)
       }
     }
     expect(
       importerDependency(workspace, "packages/ag-ui", "devDependencies", "@ag-ui/client"),
-    ).toEqual({ specifier: "1.0.1", version: "1.0.1" })
+    ).toEqual({ specifier: "1.0.2", version: "1.0.2" })
     const agUiClientOwner = importerDependencyLocator(
       workspace,
       "packages/ag-ui",
@@ -764,7 +764,7 @@ describe("dependency security graph invariants", () => {
     )
     expect({ name: agUiClientOwner.name, version: agUiClientOwner.version }).toEqual({
       name: "@ag-ui/client",
-      version: "1.0.1",
+      version: "1.0.2",
     })
     const agUiOwner = importerDependency(
       workspace,
@@ -772,7 +772,7 @@ describe("dependency security graph invariants", () => {
       "devDependencies",
       "@copilotkit/react-core",
     )
-    expect(agUiOwner.specifier).toBe("1.76.0")
+    expect(agUiOwner.specifier).toBe("1.77.1")
     const agUiReactCoreOwner = importerDependencyLocator(
       workspace,
       "packages/ag-ui",
@@ -781,7 +781,7 @@ describe("dependency security graph invariants", () => {
     )
     expect({ name: agUiReactCoreOwner.name, version: agUiReactCoreOwner.version }).toEqual({
       name: "@copilotkit/react-core",
-      version: "1.76.0",
+      version: "1.77.1",
     })
 
     const cliManifestPath = "packages/cli/package.json"
@@ -791,20 +791,20 @@ describe("dependency security graph invariants", () => {
     )
     expect(
       requireStringMap(cliManifest.dependencies, `${cliManifestPath}.dependencies`)["@ag-ui/core"],
-    ).toBe("1.0.1")
+    ).toBe("1.0.2")
   })
 
-  it("contains only CopilotKit 1.76.0 package identities", () => {
+  it("contains only CopilotKit 1.77.1 package identities", () => {
     const workspace = readWorkspace()
     for (const name of ["@copilotkit/react-core", "@copilotkit/runtime"] as const) {
-      expect(packageVersions(workspace, name)).toEqual(["1.76.0"])
+      expect(packageVersions(workspace, name)).toEqual(["1.77.1"])
     }
   })
 
-  it("keeps direct AG-UI on 1.0.1 and confines the legacy 0.0.59 to CopilotKit channels", () => {
+  it("keeps direct AG-UI on 1.0.2 and confines the legacy 0.0.59 to CopilotKit channels", () => {
     const workspace = readWorkspace()
     const versions = packageVersions(workspace, "@ag-ui/client")
-    expect(versions).toContain("1.0.1")
+    expect(versions).toContain("1.0.2")
     expect(versions).not.toContain("0.0.58")
     expect(versions).not.toContain("0.0.54")
     expect(legacyAgUiParentFailures(workspace)).toEqual([])
@@ -1032,7 +1032,7 @@ describe("dependency security graph invariants", () => {
 
   it("rejects malformed provider-utils root paths", () => {
     const target = "@ai-sdk/provider-utils@3.0.50(zod@3.25.76)"
-    const runtime = "@copilotkit/runtime@1.76.0(zod@3.25.76)"
+    const runtime = "@copilotkit/runtime@1.77.1(zod@3.25.76)"
     const vertex = "@ai-sdk/google-vertex@3.0.1(zod@3.25.76)"
     expect(
       providerUtilsRootPathFailure(target, ["examples/chat/web", runtime, vertex, target]),
@@ -1067,8 +1067,8 @@ describe("dependency security graph invariants", () => {
         "examples/chat/web": {
           dependencies: {
             "@copilotkit/runtime": {
-              specifier: "1.76.0",
-              version: "1.76.0(zod@3.25.76)",
+              specifier: "1.77.1",
+              version: "1.77.1(zod@3.25.76)",
             },
           },
         },
@@ -1077,7 +1077,7 @@ describe("dependency security graph invariants", () => {
       packages: {
         "@ai-sdk/google-vertex@3.0.1": {},
         "@ai-sdk/provider-utils@3.0.50": {},
-        "@copilotkit/runtime@1.76.0": {},
+        "@copilotkit/runtime@1.77.1": {},
       },
       snapshots: {
         "@ai-sdk/google-vertex@3.0.1(zod@3.25.76)": {
@@ -1087,7 +1087,7 @@ describe("dependency security graph invariants", () => {
         },
         [approvedProvider]: {},
         [orphanProvider]: {},
-        "@copilotkit/runtime@1.76.0(zod@3.25.76)": {
+        "@copilotkit/runtime@1.77.1(zod@3.25.76)": {
           dependencies: {
             "@ai-sdk/google-vertex": "3.0.1(zod@3.25.76)",
           },

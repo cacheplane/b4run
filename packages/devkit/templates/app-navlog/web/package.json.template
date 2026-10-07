@@ -11,9 +11,9 @@
     "typecheck": "tsc -p . --noEmit"
   },
   "dependencies": {
-    "@ag-ui/client": "1.0.1",
-    "@copilotkit/react-core": "1.76.0",
-    "@copilotkit/runtime": "1.76.0",
+    "@ag-ui/client": "1.0.2",
+    "@copilotkit/react-core": "1.77.1",
+    "@copilotkit/runtime": "1.77.1",
     "@b4run/ag-ui": "{{b4AgUiSpecifier}}",
     "@b4run/sdk": "{{b4SdkSpecifier}}",
     "@tailwindcss/postcss": "^4.3.3",
