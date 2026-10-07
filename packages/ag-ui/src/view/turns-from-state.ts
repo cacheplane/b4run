@@ -13,6 +13,7 @@ import {
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
 import { toAguiInterrupt } from "../interrupts.js"
 import { B4_STEP_EVENT_NAME } from "../step.js"
+import { blocksToParts, keptToolParts, mediaPartsOf } from "./parts.js"
 import { readPlan } from "./subagent-runs.js"
 import { EMPTY_TURNS, reduceTurns, type TurnsView } from "./turns.js"
 
@@ -158,6 +159,16 @@ function reasoningOf(content: unknown): string {
       return ""
     })
     .join("")
+}
+
+/**
+ * A user message's content as a client sends it: the text, or — when the
+ * checkpoint holds media blocks — the AG-UI part list they map back to, the
+ * shape a multimodal client put in `RunAgentInput.messages`.
+ */
+function userContent(content: unknown): string | ReturnType<typeof blocksToParts> {
+  const parts = blocksToParts(content)
+  return mediaPartsOf(parts).length > 0 ? parts : textOf(content)
 }
 
 function stringifyArgs(args: unknown): string {
@@ -501,7 +512,7 @@ function synthesiseNamespace(
           input: {
             threadId: input.threadId,
             runId: id,
-            messages: [{ id, role: "user", content: textOf(kwargs.content) }],
+            messages: [{ id, role: "user", content: userContent(kwargs.content) }],
             tools: [],
             context: [],
             state: {},
@@ -711,7 +722,9 @@ function synthesiseNamespace(
         type: EventType.TOOL_CALL_RESULT,
         toolCallId,
         messageId: `tr:${id}`,
-        content: textOf(kwargs.content),
+        // Live `toResultContent` (outbound.ts) sends the parts a ToolMessage
+        // kept for the UI as the content, else the text the model saw.
+        content: keptToolParts(kwargs) ?? textOf(kwargs.content),
       }
       push(s, settledAt, result as BaseEvent, owner)
       if (failed) push(s, settledAt, stepEvent("failed"), owner)

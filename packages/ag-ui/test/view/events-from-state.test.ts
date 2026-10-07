@@ -8,7 +8,7 @@ import {
   type ThreadStateForTurns,
   turnsFromState,
 } from "../../src/view/turns-from-state.ts"
-import { ai, base, ckpt, human, iso, toolMsg } from "./state-fixtures.ts"
+import { ai, base, ckpt, env, human, iso, toolMsg } from "./state-fixtures.ts"
 
 /** An agent whose `connect` replays `events`: the path CopilotKit's chat takes on mount. */
 class ReplayAgent extends AbstractAgent {
@@ -168,6 +168,44 @@ function lateChild(): ThreadStateForTurns {
     ckpt("k2", 7, turn, { metadata: { "b4:turn": { status: "done", endedAt: iso(7) } } }),
   ]
   return base(root, { "tools:ct": child })
+}
+
+const PNG = "iVBORw0KGgo="
+const SVG = "PHN2Zy8+"
+const chartPart = { type: "image", source: { type: "data", value: SVG, mimeType: "image/svg+xml" } }
+
+/**
+ * user text + an attached image → a `renderChart` call → its result, which
+ * kept an SVG image part for the UI (`b4_content_parts`) while the model saw
+ * only the text → "Here is the chart."
+ */
+function withMedia(): ThreadStateForTurns {
+  const user = env("HumanMessage", {
+    id: "u1",
+    content: [
+      { type: "text", text: "chart this" },
+      { type: "image", data: PNG, mimeType: "image/png" },
+    ],
+  })
+  const render = { id: "c1", name: "renderChart", args: { kind: "winds" }, type: "tool_call" }
+  const stamp = { status: "completed", startedAt: iso(1), settledAt: iso(2) }
+  const result = env("ToolMessage", {
+    tool_call_id: "c1",
+    name: "renderChart",
+    status: "success",
+    content: [{ type: "text", text: "Rendered the winds chart." }],
+    additional_kwargs: {
+      b4_step: stamp,
+      b4_content_parts: [{ type: "text", text: "Rendered the winds chart." }, chartPart],
+    },
+  })
+  const turn = [user, ai("a1", "", [render]), result, ai("a2", "Here is the chart.")]
+  return base([
+    ckpt("k0", 0, turn.slice(0, 1)),
+    ckpt("k1", 1, turn.slice(0, 2)),
+    ckpt("k2", 2, turn.slice(0, 3)),
+    ckpt("k3", 3, turn, { metadata: { "b4:turn": { status: "done", endedAt: iso(3) } } }),
+  ])
 }
 
 describe("eventsFromState", () => {
@@ -381,6 +419,56 @@ describe("eventsFromState", () => {
     })
   })
 
+  it("replays media: the user's attachment and a tool's image parts, as live carries them", async () => {
+    const { events, warnings } = eventsFromState(withMedia())
+    expect(warnings).toEqual([])
+    const userParts = [
+      { type: "text", text: "chart this" },
+      { type: "image", source: { type: "data", value: PNG, mimeType: "image/png" } },
+    ]
+    const started = ofType(events, EventType.RUN_STARTED)[0] as unknown as {
+      input: { messages: unknown[] }
+    }
+    expect(started.input.messages).toEqual([{ id: "u1", role: "user", content: userParts }])
+    // Live `toResultContent` sends the kept parts as the result's content.
+    const [result] = ofType(events, EventType.TOOL_CALL_RESULT)
+    expect(result?.content).toEqual([
+      { type: "text", text: "Rendered the winds chart." },
+      chartPart,
+    ])
+    expect(await verified(events)).toHaveLength(events.length)
+
+    const messages = await messagesAfterConnect(events)
+    expect(messages[0]).toMatchObject({ id: "u1", role: "user", content: userParts })
+    expect(messages.find((m) => m.role === "tool")).toMatchObject({
+      toolCallId: "c1",
+      content: [{ type: "text", text: "Rendered the winds chart." }, chartPart],
+    })
+  })
+
+  it("keeps a text-only user message and a partless tool result as strings", () => {
+    const { events } = eventsFromState(drained())
+    const started = ofType(events, EventType.RUN_STARTED)[0] as unknown as {
+      input: { messages: unknown[] }
+    }
+    expect(started.input.messages).toEqual([{ id: "u1", role: "user", content: "search" }])
+    expect(ofType(events, EventType.TOOL_CALL_RESULT)[0]?.content).toBe("3 hits")
+  })
+
+  it("restores a tool step's media parts in turnsFromState", () => {
+    const { turns } = turnsFromState(withMedia())
+    const step = turns.turns[0]?.steps.find((s) => s.kind === "tool")
+    expect(step).toMatchObject({
+      kind: "tool",
+      name: "renderChart",
+      status: "done",
+      result: "Rendered the winds chart.",
+      parts: [chartPart],
+    })
+    const plain = turnsFromState(drained()).turns.turns[0]?.steps.find((s) => s.kind === "tool")
+    expect(plain).not.toHaveProperty("parts")
+  })
+
   it("turnsFromState is the fold of eventsFromState through reduceTurns", () => {
     const states = [
       drained(),
@@ -392,6 +480,7 @@ describe("eventsFromState", () => {
       endedWithOpenChild("stopped", { childAt: 5 }),
       skewedEnd(),
       lateChild(),
+      withMedia(),
     ]
     for (const state of states) {
       let view: TurnsView = { threadId: state.threadId, turns: [] }

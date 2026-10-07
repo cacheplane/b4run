@@ -110,7 +110,8 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `reduceTurns` | Fold one AG-UI event into the turns of a thread: steps in order, nested subagent turns, the plan, reasoning, prose, and approvals attached to the calls they gate. Pure given `now`; an event that changes nothing returns the same state. |
 | `EMPTY_TURNS` | The initial turns state. |
 | `turnsFromState` | Rebuild a thread's turns from its checkpoint history and parked interrupts: the AG-UI events the stream would have carried are synthesised and folded through `reduceTurns`, so a restored view matches a live one. Never throws; ignored or missing stamps are named in `warnings`. |
-| `eventsFromState` | The thread as the AG-UI events its live runs would have carried, synthesised from the same input as `turnsFromState`: each turn's `RUN_STARTED` carries the user message, a parked turn ends with `RUN_FINISHED { outcome: interrupt }`. What `GET /threads/:id/events` serves. Never throws. |
+| `eventsFromState` | The thread as the AG-UI events its live runs would have carried, synthesised from the same input as `turnsFromState`: each turn's `RUN_STARTED` carries the user message (as content parts when it had media), a tool result that kept parts replays them as live sends them, a parked turn ends with `RUN_FINISHED { outcome: interrupt }`. What `GET /threads/:id/events` serves. Never throws. |
+| `blocksToParts` | A checkpointed message's LangChain content blocks mapped back to AG-UI content parts (text, image, audio, video, document; the legacy `image_url` block too), the reverse of what the runtime hands the model. `eventsFromState` uses it so a restored user attachment replays as parts. Never throws. |
 | `EventsFromStateResult` | What `eventsFromState` returns: `events` (each with `timestamp`) and `warnings`. |
 | `ThreadStateForTurns` | What `GET /threads/:id/turns` assembles: thread id and status, the root namespace's history, child namespaces, and parked interrupts. |
 | `CheckpointForTurns` | One decoded checkpoint: id, timestamp, metadata, and `values.messages`/`values.todos` as serialized LangChain envelopes. |
@@ -119,7 +120,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `TurnsView` | The thread id and its turns. |
 | `TurnView` | One turn: its run id, status, timing, steps, prose, unattached approvals, error and failure count (nested subagents included). |
 | `StepView` | A tool, plan, reasoning or subagent step. |
-| `ToolStep` | One tool call with its streamed args, result, `b4.step` icon, label and sources, timing and approval. |
+| `ToolStep` | One tool call with its streamed args, result text, non-text result `parts` (an image a tool rendered, live or restored), `b4.step` icon, label and sources, timing and approval. |
 | `PlanStep` | The plan as its latest snapshot of todos. |
 | `ReasoningStep` | One reasoning span and its text, streaming or done. |
 | `SubagentStep` | A subagent invocation holding its nested turn. |

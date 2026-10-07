@@ -18,7 +18,7 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
-import type { ToolDisplaySource } from "@b4run/sdk"
+import { type B4MediaPart, isContentPart, type ToolDisplaySource } from "@b4run/sdk"
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
 import type { B4StepEventValue } from "../step.js"
 import { readStepEvent } from "./step.js"
@@ -50,7 +50,13 @@ export interface ToolStep {
   readonly status: StepStatus
   /** The arguments text streamed so far. */
   readonly args: string
+  /** The result's text: a string result, or the text parts of a part list joined. */
   readonly result?: string
+  /**
+   * The result's non-text parts (an image a chart tool rendered), in order;
+   * present only when the result carried any, live or restored.
+   */
+  readonly parts?: readonly B4MediaPart[]
   readonly icon?: string
   /** The server's `b4.step` label, when one arrived; a client falls back on the tool name. */
   readonly label?: string
@@ -626,34 +632,47 @@ export function reduceTurns(
     case EventType.TOOL_CALL_RESULT: {
       const { toolCallId, content } = event as ToolCallResultEvent
       // A string, or the text parts of a parts array; anything else reads as empty.
+      const list: readonly unknown[] = Array.isArray(content) ? content : []
       const result =
         typeof content === "string"
           ? content
-          : Array.isArray(content)
-            ? content
-                .map((part) =>
-                  isRecord(part) && part.type === "text" && typeof part.text === "string"
-                    ? part.text
-                    : "",
-                )
-                .join("")
-            : ""
+          : list
+              .map((part) =>
+                isRecord(part) && part.type === "text" && typeof part.text === "string"
+                  ? part.text
+                  : "",
+              )
+              .join("")
+      const media = list.filter(
+        (part): part is B4MediaPart => isContentPart(part) && part.type !== "text",
+      )
       const at = now()
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
           mapStep(turn, toolCallId, (s) => {
+            const sameParts =
+              media.length === 0
+                ? s.parts === undefined
+                : JSON.stringify(s.parts) === JSON.stringify(media)
             if (
               s.result === result &&
+              sameParts &&
               (s.status === "done" || s.status === "failed" || s.status === "denied")
             ) {
               return s
             }
+            const { parts: _parts, ...rest } = s
+            const withResult: ToolStep = {
+              ...rest,
+              result,
+              ...(media.length > 0 ? { parts: media } : {}),
+            }
             // A `failed` or `denied` step already said how this ended; a
             // `completed` one already settled it, so its time stands.
             return s.status === "failed" || s.status === "denied"
-              ? { ...s, result }
-              : { ...s, result, status: "done", settledAt: s.settledAt ?? at }
+              ? withResult
+              : { ...withResult, status: "done", settledAt: s.settledAt ?? at }
           }),
         ),
       )

@@ -416,6 +416,46 @@ describe("reduceTurns", () => {
     expect(twice).toEqual(once)
   })
 
+  it("keeps a tool result's media parts on the step, from the live translator", async () => {
+    const chart = {
+      type: "image",
+      source: { type: "data", value: "PHN2Zy8+", mimeType: "image/svg+xml" },
+    } as const
+    const view = await fold([
+      { type: "tool_call", data: { id: "r1", name: "renderChart", input: {} } },
+      {
+        type: "tool_result",
+        data: {
+          id: "r1",
+          name: "renderChart",
+          output: [{ type: "text", text: "Rendered." }, chart],
+        },
+      },
+      { type: "done", data: {} },
+    ])
+    const step = view.turns[0]?.steps[0] as ToolStep
+    expect(step).toMatchObject({ status: "done", result: "Rendered.", parts: [chart] })
+
+    // Re-applying the same result keeps the step's identity; a text result has no `parts`.
+    const again = reduceTurns(
+      view,
+      {
+        type: EventType.TOOL_CALL_RESULT,
+        messageId: "m",
+        toolCallId: "r1",
+        content: [{ type: "text", text: "Rendered." }, chart],
+      } as BaseEvent,
+      { now: fixedClock() },
+    )
+    expect(again).toBe(view)
+    const plain = await fold([
+      { type: "tool_call", data: { id: "r1", name: "searchCorpus", input: {} } },
+      { type: "tool_result", data: { id: "r1", name: "searchCorpus", output: "ok" } },
+      { type: "done", data: {} },
+    ])
+    expect(plain.turns[0]?.steps[0]).not.toHaveProperty("parts")
+  })
+
   it("leaves a client-executed tool pending when the run finishes with it outstanding", () => {
     const view = foldEvents([
       { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,

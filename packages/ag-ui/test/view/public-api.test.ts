@@ -8,6 +8,7 @@ it("exports the framework-free view surface", () => {
     "BUILT_IN_GROUP_LABELS",
     "EMPTY_SUBAGENT_RUNS",
     "EMPTY_TURNS",
+    "blocksToParts",
     "eventsFromState",
     "groupSteps",
     "isSubagentMessage",
@@ -25,6 +26,7 @@ it("imports nothing from React", async () => {
       [
         "index.ts",
         "labels.ts",
+        "parts.ts",
         "subagent-runs.ts",
         "step.ts",
         "turns.ts",
