@@ -875,7 +875,7 @@ it("an upstream error is RUN_ERROR with its code intact", async () => {
     throw Object.assign(new Error("after rejected"), { code: "after_rejected" })
   }
   const { url } = await startCannedServer([{ stream: failing }])
-  // @ag-ui/client 1.0.1's runAgent RESOLVES on a RUN_ERROR rather than
+  // @ag-ui/client 1.0.2's runAgent RESOLVES on a RUN_ERROR rather than
   // rejecting; what matters is that the event reached the subscriber with its
   // code, and nothing was stripped on the way.
   const { events, result } = await runThroughClient(url, { runId: "r1" })
