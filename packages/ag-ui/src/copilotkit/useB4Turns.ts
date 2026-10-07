@@ -50,8 +50,7 @@ export function useB4Turns(
         // A replayed event is folded at the time it happened, not when it
         // arrived, so a restored turn keeps its real durations.
         const stamped = event.timestamp
-        const clock =
-          typeof stamped === "number" && Number.isFinite(stamped) ? () => stamped : now
+        const clock = typeof stamped === "number" && Number.isFinite(stamped) ? () => stamped : now
         const reducerOptions: ReduceTurnsOptions = {
           ...(clock !== undefined ? { now: clock } : {}),
           ...(hiddenTools !== undefined ? { hiddenTools } : {}),

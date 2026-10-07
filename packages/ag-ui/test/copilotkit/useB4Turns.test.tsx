@@ -3,8 +3,8 @@ import type { BaseEvent } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, test } from "vitest"
-import { summaryLine } from "../../src/react/activity/format.js"
 import { useB4Turns } from "../../src/copilotkit/useB4Turns.js"
+import { summaryLine } from "../../src/react/activity/format.js"
 import { FakeAgent } from "./fake-agent.js"
 
 const started = (runId: string): BaseEvent =>

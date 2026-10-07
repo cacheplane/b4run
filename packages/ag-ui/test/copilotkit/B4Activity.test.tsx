@@ -183,10 +183,7 @@ describe("B4Activity", () => {
 
   test("a gated step with no running label reads 'wants to use <tool>'; an override's running label wins", () => {
     render(
-      <B4Activity
-        now={() => 5000}
-        labels={{ planRoute: { running: () => "Plan the route" } }}
-      >
+      <B4Activity now={() => 5000} labels={{ planRoute: { running: () => "Plan the route" } }}>
         <Host />
       </B4Activity>,
     )

@@ -171,9 +171,7 @@ export function B4Activity({
               : ((subagentRunId !== undefined
                   ? subagentName(turns.turns, subagentRunId)
                   : undefined) ?? ROOT_AGENT)
-          const label = located.step
-            ? approvalLabel(located.step, labels)
-            : "continue"
+          const label = located.step ? approvalLabel(located.step, labels) : "continue"
           const onDecide = async (decision: ApprovalDecision) => {
             markResuming()
             try {
