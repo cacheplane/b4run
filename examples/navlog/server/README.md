@@ -51,10 +51,10 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
 | Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
-| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
+| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the pilot's own aircraft facts and preferences, which override the `aircraft/c172n.md` baseline |
 | Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
 | HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before every call (`allowAlways: false`: no "Always allow") |
-| Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans |
+| Workspace | `workspace/` | POH and regulation excerpts, the aircraft baseline, saved navlogs, recorded flight plans; `AGENTS.md`, `aircraft/`, `poh/` and `regs/` are read-only via `b4.config.ts` |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
@@ -132,8 +132,8 @@ local development. Because the thread-access policy cannot ship to LangSmith,
 **Memory is shared.** Long-term memory is one store for the whole demo. Any
 visitor's agent may propose a memory, and the proposed candidates are visible
 to every visitor in the memory panel; only the demo owner can approve or reject
-one (see the web README). Approved memories are the demo's curated aircraft
-profile.
+one (see the web README). Approved memories are the pilot's own aircraft facts and
+preferences, which override the `aircraft/c172n.md` baseline.
 
 **What does not survive a redeploy.** Reports and recorded flight plans the
 agent writes under `workspace/`, and "Always allow" approval grants (they stay

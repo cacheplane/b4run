@@ -108,9 +108,17 @@ export default agent({
 
 ```ts title="server/b4.config.ts"
 import { config } from "@b4run/cli"
+import { compose } from "@b4run/workspace"
+import { localFilesystem } from "@b4run/workspace/node"
+import { readOnlyPaths } from "./src/lib/read-only-paths.js"
 
 export default config({
   appDir: "src/app",
+  backends: {
+    filesystem: compose(readOnlyPaths(["AGENTS.md", "aircraft/", "poh/", "regs/"]))(
+      localFilesystem(),
+    ),
+  },
   toolOutput: {
     offloadThresholdChars: 12000,
     previewLines: 10,
