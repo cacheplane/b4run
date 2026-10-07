@@ -1529,9 +1529,9 @@ describe("API reference compatibility guards", () => {
       guardIds: ["browser-import-bundle"],
     })
     expect(byAddress.get("import:@b4run/ag-ui:./copilotkit-runtime")).toMatchObject({
-      runtime: "node-only",
+      runtime: "edge-safe",
       purity: "not-claimed",
-      guardIds: ["node-import-bundle", "browser-import-negative-control"],
+      guardIds: ["edge-import-bundle"],
     })
   })
 

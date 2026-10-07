@@ -1222,7 +1222,7 @@ export const ARTIFACT_REGISTRY = [
   runtimeImport("@b4run/ag-ui", "./view", "detailed", "edge-safe", "integration"),
   runtimeImport("@b4run/ag-ui", "./react", "detailed", "node-only", "application"),
   runtimeImport("@b4run/ag-ui", "./copilotkit", "detailed", "browser-only", "application"),
-  runtimeImport("@b4run/ag-ui", "./copilotkit-runtime", "detailed", "node-only", "application"),
+  runtimeImport("@b4run/ag-ui", "./copilotkit-runtime", "detailed", "edge-safe", "application"),
   staticImport(
     "@b4run/ag-ui",
     "./react/styles.css",

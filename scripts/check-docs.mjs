@@ -1334,6 +1334,7 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/langgraph:./route-module",
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
+  "import:@b4run/ag-ui:./copilotkit-runtime",
   "import:@b4run/sdk:.",
   "import:@b4run/sdk:./pure",
   "import:@b4run/cli:./fetch",

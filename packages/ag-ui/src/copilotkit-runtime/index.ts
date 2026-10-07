@@ -4,7 +4,7 @@
  * from B4's storage. It never imports `@copilotkit/runtime`: the host passes
  * CopilotKit's `InMemoryAgentRunner` class in, so the runner extends the copy
  * the host's runtime resolves, wherever the package manager placed it.
- * Node only.
+ * Server side; edge-safe (it uses only `fetch` and `rxjs`).
  *
  * ```ts
  * import { InMemoryAgentRunner } from "@copilotkit/runtime/v2"
