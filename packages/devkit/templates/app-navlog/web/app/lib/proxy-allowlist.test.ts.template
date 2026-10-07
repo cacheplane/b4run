@@ -16,18 +16,15 @@ describe("proxy allowlist", () => {
     )
   })
 
-  test("forwards the two thread reads", () => {
-    expect(resolveProxyTarget("GET", ["threads", "t1", "state"], BASE)).toBe(
-      "http://localhost:3002/threads/t1/state",
-    )
-    expect(resolveProxyTarget("GET", ["threads", "t1", "pending_interrupts"], BASE)).toBe(
-      "http://localhost:3002/threads/t1/pending_interrupts",
-    )
+  test("does not proxy thread state: the runtime route's runner reads it server-side", () => {
+    expect(resolveProxyTarget("GET", ["threads", "t1", "state"], BASE)).toBeNull()
+    expect(resolveProxyTarget("GET", ["threads", "t1", "pending_interrupts"], BASE)).toBeNull()
+    expect(resolveProxyTarget("GET", ["threads", "t1", "events"], BASE)).toBeNull()
   })
 
   test("rejects the wrong method on an allowed path", () => {
     expect(resolveProxyTarget("POST", ["memory", "candidates"], BASE)).toBeNull()
-    expect(resolveProxyTarget("DELETE", ["threads", "t1", "state"], BASE)).toBeNull()
+    expect(resolveProxyTarget("DELETE", ["memory", "candidates"], BASE)).toBeNull()
   })
 
   test("rejects everything not on the list", () => {
@@ -39,21 +36,21 @@ describe("proxy allowlist", () => {
   })
 
   test("rejects a segment that tries to climb out of the allowed path", () => {
-    expect(resolveProxyTarget("GET", ["threads", ".", "state"], BASE)).toBeNull()
-    expect(resolveProxyTarget("GET", ["threads", "..", "state"], BASE)).toBeNull()
-    expect(resolveProxyTarget("GET", ["threads", "a/b", "state"], BASE)).toBeNull()
-    expect(resolveProxyTarget("GET", ["threads", "", "state"], BASE)).toBeNull()
+    expect(resolveProxyTarget("POST", ["memory", "candidates", ".", "approve"], BASE)).toBeNull()
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "..", "approve"], BASE)).toBeNull()
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "a/b", "approve"], BASE)).toBeNull()
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "", "approve"], BASE)).toBeNull()
   })
 
   test("encodes the id rather than letting it forge a path", () => {
-    expect(resolveProxyTarget("GET", ["threads", "a b", "state"], BASE)).toBe(
-      "http://localhost:3002/threads/a%20b/state",
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "a b", "approve"], BASE)).toBe(
+      "http://localhost:3002/memory/candidates/a%20b/approve",
     )
-    expect(resolveProxyTarget("GET", ["threads", "a?b", "state"], BASE)).toBe(
-      "http://localhost:3002/threads/a%3Fb/state",
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "a?b", "approve"], BASE)).toBe(
+      "http://localhost:3002/memory/candidates/a%3Fb/approve",
     )
-    expect(resolveProxyTarget("GET", ["threads", "a#b", "state"], BASE)).toBe(
-      "http://localhost:3002/threads/a%23b/state",
+    expect(resolveProxyTarget("POST", ["memory", "candidates", "a#b", "approve"], BASE)).toBe(
+      "http://localhost:3002/memory/candidates/a%23b/approve",
     )
   })
 
