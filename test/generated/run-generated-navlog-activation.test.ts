@@ -151,7 +151,8 @@ const COPILOTKIT_CONNECT_PATH = "/api/copilotkit/agent/default/connect"
 const WEB_READY_PATH = "/api/b4/memory/candidates"
 const todos = [
   {
-    content: "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
+    content:
+      "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
     status: "completed",
   },
   { content: "Brief the weather and look up POH performance", status: "in_progress" },
