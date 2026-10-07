@@ -1,4 +1,5 @@
 import type { ReactElement } from "react"
+import { groupMeta } from "../../view/activity-format.js"
 import type { StepGroup as StepGroupView, StepLabelOverrides } from "../../view/labels.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
 import { StepIcon } from "./icons.js"
@@ -19,7 +20,6 @@ export interface StepGroupProps {
  */
 export function StepGroup({ group, labels, renderStep, now }: StepGroupProps): ReactElement {
   const { open, toggle } = useDisclosure(false, false)
-  const sources = group.steps.reduce((n, step) => n + (step.sources?.length ?? 0), 0)
   return (
     <li
       className="b4-step"
@@ -36,9 +36,7 @@ export function StepGroup({ group, labels, renderStep, now }: StepGroupProps): R
           <>
             <StepIcon name={group.steps[0]?.icon} />
             <span className="b4-step__text">{group.label}</span>
-            <StatusText>
-              {sources > 0 ? `· ${sources} source${sources === 1 ? "" : "s"}` : ""}
-            </StatusText>
+            <StatusText>{groupMeta(group)}</StatusText>
           </>
         }
       >

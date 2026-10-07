@@ -212,13 +212,18 @@
     background: var(--b4-activity-failed-bg);
     color: var(--b4-activity-failed);
   }
-  .b4-step__children > .b4-turn {
+  /*
+   * Descendant, not child: Angular's <b4-turn-activity> host (display: contents)
+   * sits between the panel and the nested turn. In the React DOM every .b4-turn
+   * under a .b4-step__children is a direct child, so both match the same turns.
+   */
+  .b4-step__children .b4-turn {
     border-radius: 12px;
     background: var(--b4-activity-surface-alt);
     padding: 8px 12px;
     font-size: 13.5px;
   }
-  .b4-step__children > .b4-turn > .b4-turn__steps {
+  .b4-step__children .b4-turn > .b4-turn__steps {
     margin-left: 4px;
   }
 

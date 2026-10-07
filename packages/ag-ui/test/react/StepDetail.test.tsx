@@ -2,12 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { SourceChips } from "../../src/react/activity/SourceChips.js"
 import { StatusText } from "../../src/react/activity/StatusText.js"
-import {
-  capDetail,
-  MAX_DETAIL_CHARS,
-  prettyValue,
-  StepDetail,
-} from "../../src/react/activity/StepDetail.js"
+import { StepDetail } from "../../src/react/activity/StepDetail.js"
+import { capDetail, MAX_DETAIL_CHARS, prettyValue } from "../../src/view/activity-format.js"
 
 describe("StatusText", () => {
   test("renders the muted meta fragment, or nothing when empty", () => {

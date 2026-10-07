@@ -6,7 +6,7 @@ import {
   planProgress,
   reasoningLabel,
   summaryLine,
-} from "../../src/react/activity/format.js"
+} from "../../src/view/activity-format.js"
 import type { ToolStep, TurnView } from "../../src/view/turns.js"
 
 /**

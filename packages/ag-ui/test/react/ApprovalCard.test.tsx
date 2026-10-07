@@ -2,7 +2,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
-import { ApprovalCard, approvalPayload, scopeLine } from "../../src/react/activity/ApprovalCard.js"
+import { ApprovalCard } from "../../src/react/activity/ApprovalCard.js"
+import { approvalPayload, scopeLine } from "../../src/view/activity-approval.js"
 import type { ApprovalView } from "../../src/view/turns.js"
 
 const approval = (o: Partial<ApprovalView> = {}): ApprovalView => ({

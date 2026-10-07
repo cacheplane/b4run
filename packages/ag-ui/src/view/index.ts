@@ -5,6 +5,59 @@
  */
 export type { B4StepEventValue, B4StepStatus } from "../step.js"
 export {
+  type ApprovalDecision,
+  approvalErrorLine,
+  approvalPayload,
+  dispatchDecision,
+  scopeLine,
+} from "./activity-approval.js"
+export {
+  type DisclosureMemory,
+  initialDisclosure,
+  isDisclosureOpen,
+  observeDisclosure,
+  toggleDisclosure,
+} from "./activity-disclosure.js"
+export {
+  capDetail,
+  countSources,
+  countSteps,
+  formatDuration,
+  groupMeta,
+  isSafeHref,
+  isSubagentLive,
+  MAX_DETAIL_CHARS,
+  type NestedTurn,
+  nestedSummaryLine,
+  ownEntry,
+  planProgress,
+  prettyValue,
+  reasoningLabel,
+  type SummaryLine,
+  stepDetailText,
+  stepMeta,
+  subagentMeta,
+  subagentRowState,
+  subagentSettledText,
+  summaryLine,
+  todoStatusLabel,
+} from "./activity-format.js"
+export {
+  CHECKLIST_TICK,
+  CHEVRON_GLYPH,
+  checklistBox,
+  type Glyph,
+  type GlyphShape,
+  STEP_GLYPHS,
+  stepGlyph,
+} from "./activity-glyphs.js"
+export {
+  ELAPSED_TICK_MS,
+  NO_FLASH_MS,
+  noFlashRemaining,
+  sampleElapsed,
+} from "./activity-timing.js"
+export {
   BUILT_IN_GROUP_LABELS,
   type GroupedStep,
   groupSteps,

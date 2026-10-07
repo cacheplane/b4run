@@ -43,6 +43,7 @@ Every `packages/*` directory is a pnpm workspace member (verify: `pnpm -r list -
 | Package | Purpose |
 |---|---|
 | `@b4run/ag-ui` | AG-UI protocol translation for B4.run's local runtime — maps runtime stream chunks to AG-UI events and back, so CopilotKit and other AG-UI clients can drive B4.run agents. |
+| `@b4run/ag-ui-angular` | The activity kit for Angular — standalone components that render a turn's steps, plan, reasoning, subagents and approvals with the same DOM contract and stylesheet as `@b4run/ag-ui/react`. Private (not yet on the release train). |
 | `@b4run/permissions` | Permission and access-control primitives for B4.run agents — gating tool and resource access at runtime. |
 | `@b4run/workspace` | Filesystem-backed workspace utilities for B4.run agents — reading, writing, and managing files in an agent's working directory. |
 | `@b4run/sandbox` | Reference sandbox providers for B4.run workspace execution — a Docker-backed `SandboxProvider` that redirects the workspace filesystem and shell tools into a per-thread isolated environment. |

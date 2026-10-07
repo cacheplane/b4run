@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from "react"
+import { ownEntry, stepMeta } from "../../view/activity-format.js"
 import { type StepLabelOverrides, stepLabel } from "../../view/labels.js"
 import type { ToolStep } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
@@ -19,22 +20,6 @@ export interface StepProps {
   readonly now: () => number
 }
 
-/** The muted tail: awaiting approval, denied, or failed with no error text to open. */
-function meta(step: ToolStep): string {
-  if (step.status === "awaiting") return "· awaiting approval"
-  if (step.status === "denied") return "· denied"
-  if (step.status === "failed" && step.result === undefined) return "· failed"
-  return ""
-}
-
-/** Own-key lookup: tool names come off the wire, so `toString` must not find `Object.prototype`. */
-function customRenderer(
-  renderers: StepRenderers | undefined,
-  name: string,
-): StepRenderer | undefined {
-  return renderers !== undefined && Object.hasOwn(renderers, name) ? renderers[name] : undefined
-}
-
 /** One tool call as a sentence; opens to its inputs and output (spec §3 `Step`). */
 export function Step({ step, labels, renderStep, now }: StepProps): ReactElement {
   const live = useLive(step, now)
@@ -43,7 +28,8 @@ export function Step({ step, labels, renderStep, now }: StepProps): ReactElement
   // Keyed by `startedAt`: the same call going awaiting → running keeps what
   // the user opened; a re-presented call hands control back to automation.
   const { open, toggle } = useDisclosure(failed, live, step.startedAt)
-  const custom = customRenderer(renderStep, step.name)
+  // Own-key lookup: tool names come off the wire.
+  const custom = ownEntry(renderStep, step.name)
   return (
     <li
       className="b4-step"
@@ -59,7 +45,7 @@ export function Step({ step, labels, renderStep, now }: StepProps): ReactElement
           <>
             <StepIcon name={failed ? "alert" : step.icon} />
             <span className="b4-step__text">{stepLabel(step, labels)}</span>
-            <StatusText>{meta(step)}</StatusText>
+            <StatusText>{stepMeta(step)}</StatusText>
           </>
         }
       >

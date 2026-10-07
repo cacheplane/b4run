@@ -1,8 +1,8 @@
 import { type RefObject, useEffect, useRef, useState } from "react"
+import { NO_FLASH_MS, noFlashRemaining, sampleElapsed } from "../../view/activity-timing.js"
 import type { ToolStep } from "../../view/turns.js"
 
-/** A step settling within this window never shows its running treatment (spec §3.1). */
-export const NO_FLASH_MS = 300
+export { NO_FLASH_MS }
 
 /**
  * The latest `value` behind a stable ref, so a timer callback reads the
@@ -22,10 +22,11 @@ export function useElapsed(active: boolean, now: () => number): number {
   const clock = useLatest(now)
   const [tick, setTick] = useState(() => now())
   useEffect(() => {
-    setTick(clock.current())
-    if (!active) return
-    const id = setInterval(() => setTick(clock.current()), 1000)
-    return () => clearInterval(id)
+    if (!active) {
+      setTick(clock.current())
+      return
+    }
+    return sampleElapsed(() => clock.current(), setTick)
   }, [active, clock])
   return tick
 }
@@ -34,11 +35,11 @@ export function useElapsed(active: boolean, now: () => number): number {
 export function useLive(step: Pick<ToolStep, "status" | "startedAt">, now: () => number): boolean {
   const clock = useLatest(now)
   const running = step.status === "running"
-  const [past, setPast] = useState(() => now() - step.startedAt >= NO_FLASH_MS)
+  const [past, setPast] = useState(() => noFlashRemaining(step.startedAt, now()) === 0)
   useEffect(() => {
     if (!running) return
-    const remaining = NO_FLASH_MS - (clock.current() - step.startedAt)
-    if (remaining <= 0) {
+    const remaining = noFlashRemaining(step.startedAt, clock.current())
+    if (remaining === 0) {
       setPast(true)
       return
     }
