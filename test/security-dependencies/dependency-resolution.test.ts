@@ -7,6 +7,15 @@ import { parseDocument } from "yaml"
 const testDirectory = dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = resolve(testDirectory, "../..")
 const exampleImporters = ["examples/chat/web", "examples/navlog/web"] as const
+/**
+ * Workspace packages that may reach `@copilotkit/runtime` (and so the affected
+ * provider-utils path below it) only as a devDependency: `@b4run/ag-ui` tests
+ * its `./copilotkit-runtime` runner against the real runtime, and consumers
+ * bring their own copy through the optional peer, so it is never shipped.
+ * Pinned dev-only by "keeps @copilotkit/runtime a dev-only dependency of
+ * @b4run/ag-ui".
+ */
+const devOnlyRuntimeImporters = ["packages/ag-ui"] as const
 const forbiddenOverrideSelector =
   /(^|>)(?:@copilotkit\/|@ag-ui\/|@ai-sdk\/provider-utils(?:@|$)|@hono\/node-server(?:@|$)|hono(?:@|$)|uuid(?:@|$))/
 
@@ -530,7 +539,10 @@ function providerUtilsRootPathFailure(
   targetIdentity: string,
   path: readonly string[],
 ): string | undefined {
-  if (!exampleImporters.includes(path[0] as (typeof exampleImporters)[number])) {
+  if (
+    !exampleImporters.includes(path[0] as (typeof exampleImporters)[number]) &&
+    !devOnlyRuntimeImporters.includes(path[0] as (typeof devOnlyRuntimeImporters)[number])
+  ) {
     return `${targetIdentity} starts at unexpected importer ${path[0] ?? "<missing>"}`
   }
   const runtimeIndex = path.findIndex((identity) =>
@@ -818,6 +830,28 @@ describe("dependency security graph invariants", () => {
 
   it("scopes affected provider-utils 3.x paths to private CopilotKit Vertex", () => {
     expect(providerUtilsPathFailures(readWorkspace())).toEqual([])
+  })
+
+  it("keeps @copilotkit/runtime a dev-only dependency of @b4run/ag-ui", () => {
+    for (const importer of devOnlyRuntimeImporters) {
+      const manifest = requireRecord(
+        JSON.parse(readFileSync(resolve(repositoryRoot, importer, "package.json"), "utf8")),
+        `${importer} package.json`,
+      )
+      const dependencies = (manifest.dependencies ?? {}) as JsonRecord
+      const devDependencies = (manifest.devDependencies ?? {}) as JsonRecord
+      const peerMeta = (manifest.peerDependenciesMeta ?? {}) as Record<string, JsonRecord>
+      expect(dependencies["@copilotkit/runtime"]).toBeUndefined()
+      expect(devDependencies["@copilotkit/runtime"]).toBeDefined()
+      expect(peerMeta["@copilotkit/runtime"]?.optional).toBe(true)
+      const lockImporter = requireRecord(
+        readWorkspace().importers[importer],
+        `${importer} importer`,
+      )
+      expect((lockImporter.dependencies ?? {}) as JsonRecord).not.toHaveProperty(
+        "@copilotkit/runtime",
+      )
+    }
   })
 
   it("rejects malformed peer suffixes", () => {

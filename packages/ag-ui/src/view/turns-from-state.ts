@@ -1,5 +1,5 @@
 import type { BaseEvent } from "@ag-ui/core"
-import { EventType } from "@ag-ui/core"
+import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import {
   B4_STEP_KEY,
   B4_SUBAGENT_KEY,
@@ -55,6 +55,13 @@ export interface TurnsFromStateResult {
   readonly warnings: readonly string[]
 }
 
+export interface EventsFromStateResult {
+  /** The thread as the AG-UI stream its live runs would have carried, in order, each with `timestamp`. */
+  readonly events: readonly BaseEvent[]
+  /** The same lines `turnsFromState` reports. */
+  readonly warnings: readonly string[]
+}
+
 type Timed = { readonly at: number; readonly event: BaseEvent }
 
 interface Envelope {
@@ -85,7 +92,25 @@ interface Synth {
   readonly unstamped: { readonly missing: string[]; readonly malformed: string[] }
   /** Child namespaces a `task` call claimed, so the rest can be reported. */
   readonly attached: Set<string>
+  /** Subagent run ids (task call ids) started and not yet finished, in start order. */
+  readonly open: string[]
+  /**
+   * The root turn being synthesised and the end of the turn before it: no
+   * event of that turn (its children's included) is timed earlier, so each
+   * root turn stays contiguous under the sort. A skewed clock is clamped once
+   * per turn, with a warning.
+   */
+  readonly turnFloor: { at: number; runId: string | undefined; clamped: Set<string> }
 }
+
+/** An interrupt as the `RUN_FINISHED` outcome carries it. */
+type OutcomeInterrupt = NonNullable<ReturnType<typeof toAguiInterrupt>>
+
+/** Why the still-open subagents close when a root turn ends: `outbound.ts`'s `SubagentCloseReason` kinds. */
+type CloseReason =
+  | { readonly kind: "interrupt"; readonly interrupts: readonly OutcomeInterrupt[] }
+  | { readonly kind: "unterminated" }
+  | { readonly kind: "cancelled" }
 
 /** The one built-in tool whose root frames the live ledger replaces with the plan snapshot. */
 const PLAN_TOOL = "writeTodos"
@@ -145,10 +170,49 @@ function stringifyArgs(args: unknown): string {
 }
 
 function push(s: Synth, at: number, event: BaseEvent, owner?: string): void {
+  const floor = s.turnFloor
+  if (at < floor.at && floor.runId !== undefined && !floor.clamped.has(floor.runId)) {
+    floor.clamped.add(floor.runId)
+    s.warnings.push(`clamped clocks on turn ${floor.runId} to the end of the turn before it`)
+  }
   s.events.push({
-    at,
+    at: Math.max(at, floor.at),
     event: owner === undefined ? event : ({ ...event, subagentRunId: owner } as BaseEvent),
   })
+}
+
+/**
+ * Close the subagents still open when a root turn ends, newest first, as
+ * `outbound.ts` does live: an interrupt suspends them, naming the interrupts
+ * each raised; anything else fails them. Returns the ids that were open.
+ */
+function closeOpen(s: Synth, at: number, reason: CloseReason): ReadonlySet<string> {
+  const closed = new Set<string>()
+  for (const id of [...s.open].reverse()) {
+    closed.add(id)
+    if (reason.kind === "interrupt") {
+      const interruptIds = reason.interrupts
+        .filter((i) => (i.subagentRunId ?? i.toolCallId) === id)
+        .map((i) => i.id)
+      push(s, at, {
+        type: EventType.SUBAGENT_FINISHED,
+        subagentRunId: id,
+        outcome: { type: "suspended", ...(interruptIds.length > 0 ? { interruptIds } : {}) },
+      } as BaseEvent)
+    } else {
+      push(s, at, {
+        type: EventType.SUBAGENT_ERROR,
+        subagentRunId: id,
+        message:
+          reason.kind === "cancelled"
+            ? "The run was cancelled."
+            : "The run ended before the subagent finished.",
+        code: reason.kind,
+      } as BaseEvent)
+    }
+  }
+  s.open.length = 0
+  return closed
 }
 
 /** The `b4_step` of a ToolMessage envelope's `additional_kwargs`, when it names this tool. */
@@ -313,24 +377,37 @@ function synthesiseNamespace(
     const endAt = resolved === undefined ? lastAt : Math.max(resolved.at, latest)
     const parked = head && input.status === "interrupted" && input.pendingInterrupts.length > 0
     if (parked) {
-      const interrupts = input.pendingInterrupts.flatMap((p) => {
+      const interrupts = input.pendingInterrupts.flatMap((p): OutcomeInterrupt[] => {
         const interrupt = toAguiInterrupt(p.value)
         if (interrupt === null) return []
         return typeof p.grant === "string"
           ? [{ ...interrupt, metadata: { ...interrupt.metadata, grant: p.grant } }]
           : [interrupt]
       })
+      // Live `finishInterrupted`: suspend the open children, then attribute each interrupt a suspended child raised.
+      const suspended = closeOpen(s, lastAt, { kind: "interrupt", interrupts })
       const event = {
         type: EventType.RUN_FINISHED,
         threadId,
         runId,
-        outcome: { type: "interrupt", interrupts },
+        outcome: {
+          type: "interrupt",
+          interrupts: interrupts.map((interrupt) => {
+            const run = interrupt.subagentRunId ?? interrupt.toolCallId
+            return run !== undefined && suspended.has(run) && interrupt.subagentRunId === undefined
+              ? { ...interrupt, subagentRunId: run }
+              : interrupt
+          }),
+        },
       }
       push(s, lastAt, event as BaseEvent)
     } else if (resolved?.end.status === "failed") {
       const message = resolved.end.error ?? "The run failed."
+      // Live, RUN_ERROR abandons open subagents (the reducer fails them with its message): nothing closes them.
+      s.open.length = 0
       push(s, endAt, { type: EventType.RUN_ERROR, threadId, runId, message } as BaseEvent)
     } else if (resolved?.end.status === "stopped") {
+      closeOpen(s, endAt, { kind: "cancelled" })
       const event = {
         type: EventType.RUN_FINISHED,
         threadId,
@@ -342,6 +419,7 @@ function synthesiseNamespace(
       // No stamp on a turn that is not the running head: the run ended before
       // the stamp existed, or its stamp was lost; the turn still ended, at its
       // last checkpoint.
+      closeOpen(s, endAt, { kind: "unterminated" })
       const event = { type: EventType.RUN_FINISHED, threadId, runId, outcome: { type: "success" } }
       push(s, endAt, event as BaseEvent)
     }
@@ -367,7 +445,11 @@ function synthesiseNamespace(
     }
   }
 
-  /** Open a subagent under `toolCallId` and synthesise its namespace, framed by that start. */
+  /**
+   * Open a subagent under `toolCallId` and synthesise its namespace, framed by
+   * that start. Returns the time of the child's latest event (0 when none), so
+   * the subagent never finishes before its own frames.
+   */
   const openSubagent = (
     toolCallId: string,
     at: number,
@@ -375,7 +457,7 @@ function synthesiseNamespace(
     description: string | undefined,
     checkpointNs: string | undefined,
     child: readonly CheckpointForTurns[] | undefined,
-  ): void => {
+  ): number => {
     push(s, at, {
       type: EventType.SUBAGENT_STARTED,
       subagentRunId: toolCallId,
@@ -384,8 +466,11 @@ function synthesiseNamespace(
       ...(owner !== undefined ? { parentSubagentRunId: owner } : {}),
       ...(description !== undefined ? { description } : {}),
     } as BaseEvent)
+    s.open.push(toolCallId)
     if (checkpointNs !== undefined) s.attached.add(checkpointNs)
+    const before = s.events.length
     if (child !== undefined) synthesiseNamespace(s, input, child, toolCallId, at)
+    return s.events.slice(before).reduce((max, e) => Math.max(max, e.at), 0)
   }
 
   for (let index = 0; index < messages.length; index++) {
@@ -405,10 +490,23 @@ function synthesiseNamespace(
       openRun = id
       openRunStart = index
       if (!nested) {
+        s.turnFloor.at = s.events.reduce((max, e) => Math.max(max, e.at), 0)
+        s.turnFloor.runId = id
+        // Live carries the protocol version; the input is what puts the user's message in a client's list.
         push(s, at, {
           type: EventType.RUN_STARTED,
           threadId: input.threadId,
           runId: id,
+          protocolVersion: PROTOCOL_VERSION,
+          input: {
+            threadId: input.threadId,
+            runId: id,
+            messages: [{ id, role: "user", content: textOf(kwargs.content) }],
+            tools: [],
+            context: [],
+            state: {},
+            forwardedProps: {},
+          },
         } as BaseEvent)
       }
       continue
@@ -554,7 +652,7 @@ function synthesiseNamespace(
             `no checkpoints for child namespace ${subagent.checkpointNs} of tool call ${toolCallId}`,
           )
         }
-        openSubagent(
+        const childLatest = openSubagent(
           toolCallId,
           startedAt,
           subagent.name,
@@ -562,9 +660,11 @@ function synthesiseNamespace(
           subagent.checkpointNs,
           child,
         )
+        // A child checkpoint can postdate the stamped settle; the verifier rejects frames after the finish.
+        const finishAt = Math.max(settledAt, childLatest)
         if (subagent.outcome === "failed") {
           const message = subagent.error ?? "The subagent failed."
-          push(s, settledAt, {
+          push(s, finishAt, {
             type: EventType.SUBAGENT_ERROR,
             subagentRunId: toolCallId,
             message,
@@ -576,7 +676,7 @@ function synthesiseNamespace(
             subagentRunId: toolCallId,
             outcome: { type: "suspended" },
           }
-          push(s, settledAt, event as BaseEvent)
+          push(s, finishAt, event as BaseEvent)
         } else {
           const event = {
             type: EventType.SUBAGENT_FINISHED,
@@ -584,8 +684,9 @@ function synthesiseNamespace(
             result: textOf(kwargs.content),
             outcome: { type: "success" },
           }
-          push(s, settledAt, event as BaseEvent)
+          push(s, finishAt, event as BaseEvent)
         }
+        s.open.splice(s.open.indexOf(toolCallId), 1)
         continue
       }
 
@@ -669,23 +770,22 @@ function normalise(input: unknown, warnings: string[]): Normalised | undefined {
   return { threadId, status, root: checkpoints(input.root, "root"), children, pendingInterrupts }
 }
 
-/**
- * The turns of a thread, rebuilt from its checkpoint chain (spec §3): the AG-UI
- * events the live stream would have carried are synthesised and folded
- * through the unchanged `reduceTurns`, with the clock driven by the stamped
- * and checkpoint times. Stamps that are missing or malformed are ignored and
- * named in `warnings`; the function never throws.
- */
-export function turnsFromState(input: ThreadStateForTurns): TurnsFromStateResult {
+/** Synthesise the thread's events in stream order; `normalised` is undefined when the input was rejected. */
+function synthesise(input: unknown): {
+  normalised: Normalised | undefined
+  events: BaseEvent[]
+  warnings: string[]
+} {
   const s: Synth = {
     events: [],
     warnings: [],
     unstamped: { missing: [], malformed: [] },
     attached: new Set(),
+    open: [],
+    turnFloor: { at: 0, runId: undefined, clamped: new Set() },
   }
   const normalised = normalise(input, s.warnings)
-  if (normalised === undefined) return { turns: EMPTY_TURNS, warnings: s.warnings }
-  let view: TurnsView = { threadId: normalised.threadId, turns: [] }
+  if (normalised === undefined) return { normalised, events: [], warnings: s.warnings }
   try {
     synthesiseNamespace(s, normalised, normalised.root, undefined, 0)
   } catch (error) {
@@ -706,15 +806,41 @@ export function turnsFromState(input: ThreadStateForTurns): TurnsFromStateResult
   // Events are already in message order; a stable sort by time keeps parallel
   // calls in that order while placing a late-settling result after an earlier one.
   const ordered = s.events.map((e, i) => ({ ...e, i })).sort((a, b) => a.at - b.at || a.i - b.i)
-  let clock = 0
-  const now = () => clock
+  const events = ordered.map(({ at, event }) => ({ ...event, timestamp: at }) as BaseEvent)
+  return { normalised, events, warnings: s.warnings }
+}
+
+/**
+ * The AG-UI events a live client would have received for this thread,
+ * synthesised from its checkpoints (spec §3), each stamped with `timestamp`
+ * from the stamped and checkpoint times — a CopilotKit `connect` replay: every
+ * root turn opens with `RUN_STARTED` carrying the user's message as `input`,
+ * and open subagents close before their turn ends, as live. Stamps that are
+ * missing or malformed are ignored and named in `warnings`; never throws.
+ */
+export function eventsFromState(input: ThreadStateForTurns): EventsFromStateResult {
+  const { events, warnings } = synthesise(input)
+  return { events, warnings }
+}
+
+/**
+ * The turns of a thread, rebuilt from its checkpoint chain (spec §3): the
+ * events `eventsFromState` synthesises, folded through the unchanged
+ * `reduceTurns` with the clock driven by each event's `timestamp`. Stamps that
+ * are missing or malformed are ignored and named in `warnings`; the function
+ * never throws.
+ */
+export function turnsFromState(input: ThreadStateForTurns): TurnsFromStateResult {
+  const { normalised, events, warnings } = synthesise(input)
+  if (normalised === undefined) return { turns: EMPTY_TURNS, warnings }
+  let view: TurnsView = { threadId: normalised.threadId, turns: [] }
   try {
-    for (const { at, event } of ordered) {
-      clock = at
-      view = reduceTurns(view, event, { now, resuming: false })
+    for (const event of events) {
+      const at = event.timestamp ?? 0
+      view = reduceTurns(view, event, { now: () => at, resuming: false })
     }
   } catch (error) {
-    s.warnings.push(`reduction stopped: ${error instanceof Error ? error.message : String(error)}`)
+    warnings.push(`reduction stopped: ${error instanceof Error ? error.message : String(error)}`)
   }
-  return { turns: view, warnings: s.warnings }
+  return { turns: view, warnings }
 }

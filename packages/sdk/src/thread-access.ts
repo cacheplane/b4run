@@ -26,6 +26,7 @@ export type ThreadAction = "create" | "read" | "update" | "delete"
  * - `thread.cancel` — `POST /threads/:id/cancel` — `update`
  * - `thread.pending_interrupts` — `GET /threads/:id/pending_interrupts` — `read`
  * - `thread.turns` — `GET /threads/:id/turns` — `read`
+ * - `thread.events` — `GET /threads/:id/events` — `read`
  * - `thread.attach` — `GET /threads/:id/runs/stream` — `read`
  * - `run.stream` — `POST /threads/:id/runs/stream` — `update`; on a thread id
  *   with no row yet, `create`, then again as the `update` recheck that follows
@@ -70,6 +71,14 @@ export type ThreadOperation =
    * to the same policy as the prompt itself.
    */
   | "thread.turns"
+  /**
+   * `GET /threads/:id/events`: the same read as `thread.turns`, served as the
+   * AG-UI events the thread's live runs carried. Gated before the parking
+   * route's middleware, composed as AND, and a denied read answers the same
+   * 404 a missing thread returns. The replay carries the parked prompt and
+   * its grant, so it answers to the same policy as the prompt itself.
+   */
+  | "thread.events"
   /**
    * `GET /threads/:id/runs/stream`, the attach/reattach endpoint. Discloses
    * everything the POST stream discloses — channel values, the live turn's

@@ -1528,6 +1528,11 @@ describe("API reference compatibility guards", () => {
       purity: "not-claimed",
       guardIds: ["browser-import-bundle"],
     })
+    expect(byAddress.get("import:@b4run/ag-ui:./copilotkit-runtime")).toMatchObject({
+      runtime: "node-only",
+      purity: "not-claimed",
+      guardIds: ["node-import-bundle", "browser-import-negative-control"],
+    })
   })
 
   it("pins the Sandbox and SQLite Storage Node runtime boundaries", async () => {

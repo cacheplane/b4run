@@ -469,6 +469,51 @@ export default function Page() {
 
 Each turn renders as one `TurnActivity` (the summary line and the step list, nested for subagents) in place of CopilotKit's generic tool rows, and a parked interrupt renders as an `ApprovalCard` in the chat. The `labels`, `hiddenTools` and `renderStep` props on `B4Activity` reword, hide or re-render steps per tool. A host with its own transcript skips the slots and uses `useB4Turns` with `TurnActivity` and `ApprovalCard` from `@b4run/ag-ui/react` directly; the navlog example does this in a later release.
 
+### Restoring a conversation after a reload
+
+CopilotKit's chat calls `connect` when it mounts. Its default in-memory runner only remembers runs this process served, so give the runtime `B4AgentRunner` and the chat restores from B4's checkpoints instead:
+
+```ts
+import { AsyncLocalStorage } from "node:async_hooks"
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+import { B4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2"
+
+const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3001"
+
+// The caller of the request being served. The agent and runner are built once
+// per process, so the identity travels by context, not by constructor.
+const caller = new AsyncLocalStorage<{ userId: string }>()
+
+// Every B4 request, run and restore alike, carries the current caller.
+const callerFetch: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers)
+  const userId = caller.getStore()?.userId
+  if (userId !== undefined) headers.set("x-user-id", userId) // the header your thread-access policy reads
+  return fetch(input, { ...init, headers })
+}
+
+const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}`, fetch: callerFetch })
+const runtime = new CopilotRuntime({
+  agents: { default: agent },
+  runner: new B4AgentRunner({ url: b4Url, fetch: callerFetch }),
+})
+const handler = createCopilotRuntimeHandler({ runtime, basePath: "/api/copilotkit" })
+
+async function serve(request: Request): Promise<Response> {
+  const userId = await authenticate(request) // your session lookup
+  return caller.run({ userId }, () => handler(request))
+}
+
+// CopilotKit's handler serves `GET /info` as well as the POST routes.
+export const GET = serve
+export const POST = serve
+```
+
+The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events; a resumed run continues from the parked run it answers.
+
+The read carries only the headers your `fetch` adds, never the browser's. That `fetch` must carry the current caller's identity, derived per request as above (the navlog example does the same with its visitor id), never a fixed service credential: a fixed credential lets any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error.
+
 Deprecated: the legacy subagent tree still ships. `SubagentPanel` renders the tree `useSubagentRuns` builds from the agent's event stream:
 
 ```tsx
@@ -484,7 +529,7 @@ function Subagents() {
 
 `useSubagentRuns` subscribes to the agent and folds `SUBAGENT_STARTED/FINISHED/ERROR` plus every event tagged `subagentRunId` into a tree of invocations — each with its name, status, tool calls, plan, reasoning, prose and result — which `SubagentPanel` renders nested, with the same stylesheet and customization ladder as the plan card. The stylesheet import gives both B4.run's default look in light and dark mode. Without it, they still render as structured, unstyled markup. To restyle them, override the `--b4-activity-*` CSS custom properties. For deeper changes, pass `classNames`/`components`. The [package README](https://github.com/cacheplane/b4run/blob/main/packages/ag-ui/README.md#customizing-the-activity-cards) walks through every option.
 
-React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. `@copilotkit/runtime` `>=1.76.0` and `rxjs` are optional peers for the server-side `/copilotkit-runtime` entry, which only a CopilotKit runtime route imports. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) and `reduceSubagentRuns` — the pure reducer behind the legacy hook — for a client that presents the activities its own way; `b4ActivityRenderers` moved to `/copilotkit`. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [flight-planner web UI recipe](/docs/recipes/flight-planner-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
 

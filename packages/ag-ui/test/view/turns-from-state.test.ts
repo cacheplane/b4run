@@ -8,58 +8,10 @@ import {
   type TurnsView,
   type TurnView,
 } from "../../src/view/turns.ts"
-import { type ThreadStateForTurns, turnsFromState } from "../../src/view/turns-from-state.ts"
+import { turnsFromState } from "../../src/view/turns-from-state.ts"
+import { ai, base, ckpt, env, human, iso, T0, toolMsg } from "./state-fixtures.ts"
 
-const T0 = Date.parse("2026-10-05T00:00:00.000Z")
 const firstTurn = (view: TurnsView): TurnView => view.turns[0] as TurnView
-const iso = (s: number) => new Date(T0 + s * 1000).toISOString()
-const env = (cls: string, kwargs: Record<string, unknown>) => ({
-  lc: 1,
-  type: "constructor",
-  id: ["langchain_core", "messages", cls],
-  kwargs,
-})
-const human = (id: string, content: string) => env("HumanMessage", { id, content })
-const ai = (id: string, content: unknown, tool_calls: unknown[] = []) =>
-  env("AIMessageChunk", { id, content, tool_calls, additional_kwargs: {} })
-const toolMsg = (
-  tool_call_id: string,
-  name: string,
-  content: string,
-  step: Record<string, unknown>,
-  extra: Record<string, unknown> = {},
-  status?: string,
-) =>
-  env("ToolMessage", {
-    tool_call_id,
-    name,
-    content,
-    ...(status ? { status } : {}),
-    additional_kwargs: { b4_step: step, ...extra },
-  })
-const ckpt = (
-  id: string,
-  s: number,
-  messages: unknown[],
-  extra: { todos?: unknown; metadata?: Record<string, unknown> } = {},
-) => ({
-  id,
-  ts: iso(s),
-  metadata: { source: "loop", step: 0, parents: {}, ...(extra.metadata ?? {}) },
-  values: { messages, ...(extra.todos ? { todos: extra.todos } : {}) },
-})
-const base = (
-  root: ReturnType<typeof ckpt>[],
-  children: Record<string, ReturnType<typeof ckpt>[]> = {},
-  pending: unknown[] = [],
-  status: ThreadStateForTurns["status"] = "idle",
-): ThreadStateForTurns => ({
-  threadId: "t-1",
-  status,
-  root,
-  children,
-  pendingInterrupts: pending as never,
-})
 
 describe("turnsFromState", () => {
   test("one turn: user message opens it, tool call + result become a done step with the stamped times, b4:turn closes it", () => {
