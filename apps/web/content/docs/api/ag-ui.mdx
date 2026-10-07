@@ -146,6 +146,54 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
 
+The activity kits' shared rules live here too, framework-free, so the React kit and the Angular kit word, time and draw a turn the same way:
+
+| Export | Responsibility |
+|---|---|
+| `summaryLine` | The summary sentence and meta for a turn at a given time. |
+| `nestedSummaryLine` | The summary of a subagent's own turn: like any turn while it runs, then "researcher · paused", "researcher finished · 5 steps" or "researcher failed · boom". |
+| `NestedTurn` | A subagent's name and status, as its nested turn's summary needs them. |
+| `SummaryLine` | A summary line: its text, its muted meta, and whether it shows the running treatment. |
+| `formatDuration` | `<1s`, `Ns`, `Nm Ms`; undefined for an unknown duration. |
+| `countSteps` | Steps in a turn and its nested subagent turns; a subagent counts as one step too. |
+| `countSources` | Sources cited by a turn's tool steps and its nested subagent turns. |
+| `stepMeta` | A tool step's muted tail: awaiting approval, denied, or failed with no error text. |
+| `groupMeta` | A merged group's muted tail: how many sources its calls cite. |
+| `ownEntry` | An own-key lookup in a per-tool table, so a wire name like `toString` never finds `Object.prototype`. |
+| `planProgress` | How many plan items are done, of how many. |
+| `todoStatusLabel` | A plan item's status as the visually hidden text after it. |
+| `reasoningLabel` | "Thinking…", "Thought for 4s", or "Show reasoning" when the duration is unknown. |
+| `subagentRowState` | A subagent row's `data-state`; a paused subagent reads as awaiting. |
+| `isSubagentLive` | Whether a subagent is running or paused on an approval. |
+| `subagentSettledText` | A settled subagent row's sentence: "researcher finished" or "researcher failed". |
+| `subagentMeta` | A subagent row's muted tail: the error once failed, the step count once done. |
+| `stepDetailText` | A step's Inputs and Output as the detail panel shows them, and whether both are empty. |
+| `prettyValue` | JSON pretty-printed with two spaces; any other text as-is. Never throws. |
+| `capDetail` | A detail text cut at `MAX_DETAIL_CHARS` with a "… (truncated)" line. |
+| `MAX_DETAIL_CHARS` | The longest inputs or output a detail panel shows, 20,000 characters. |
+| `isSafeHref` | Whether a source's link may render as a link: web, mail and same-origin paths only. |
+| `approvalPayload` | The payload an approval card shows: args preview, command, a subagent gate's name, input and reason, or detail JSON. |
+| `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |
+| `approvalErrorLine` | The line an approval card shows when its decision could not be sent. |
+| `dispatchDecision` | Run an approval decision on the click itself and report a throw or a rejection as a message. |
+| `ApprovalDecision` | `once`, `always` or `deny`. |
+| `DisclosureMemory` | What the open/closed rule remembers: the user's choice, whether the item was live, and the key it was last live under. |
+| `initialDisclosure` | The memory of a disclosure when it first renders. |
+| `observeDisclosure` | The open/closed rule: automation decides until the user toggles; the user wins until the item is live again under a new key. |
+| `toggleDisclosure` | The memory after the user toggles. |
+| `isDisclosureOpen` | Whether a disclosure is open: the user's choice, else automation's. |
+| `NO_FLASH_MS` | A step that settles within this many milliseconds (300) never shows its running treatment. |
+| `noFlashRemaining` | Milliseconds until a running step may show its running treatment. |
+| `ELAPSED_TICK_MS` | How often a live turn's elapsed time is re-sampled (1000 ms). |
+| `sampleElapsed` | Sample a clock now and once a second until stopped. |
+| `STEP_GLYPHS` | Each step icon as SVG shapes: one per `ToolDisplayIcon` name plus `alert` and `check`. |
+| `stepGlyph` | A step's glyph by icon name; unknown names draw the generic `tool` glyph. |
+| `CHEVRON_GLYPH` | The disclosure chevron's shapes. |
+| `checklistBox` | A plan item's checkbox shape, filled once done. |
+| `CHECKLIST_TICK` | The tick drawn over a done plan item's box. |
+| `Glyph` | A glyph: a list of shapes. |
+| `GlyphShape` | One SVG shape: its element name and DOM attributes. |
+
 ### `@b4run/ag-ui/react`
 
 The React activity kit. Components are pure functions of the `TurnView`/`StepView` props `@b4run/ag-ui/view` builds; interaction state (open/closed, elapsed time, the 300 ms no-flash rule) lives in the hooks next to them.

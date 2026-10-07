@@ -1,4 +1,5 @@
 import type { ReactElement } from "react"
+import { isSafeHref } from "../../view/activity-format.js"
 import type { StepSource } from "../../view/turns.js"
 
 export interface SourceChipsProps {
@@ -6,10 +7,6 @@ export interface SourceChipsProps {
   /** Chips shown before the "+N" overflow chip. */
   readonly limit?: number
 }
-
-/** Sources come off the wire: only web, mail and same-origin paths become links. */
-const SAFE_HREF = /^(?:https?:\/\/|mailto:|\/)/i
-export const isSafeHref = (href: string): boolean => SAFE_HREF.test(href)
 
 /** File or URL chips from a step's `sources` (spec §3), with "+N" overflow. */
 export function SourceChips({ sources, limit = 3 }: SourceChipsProps): ReactElement | null {

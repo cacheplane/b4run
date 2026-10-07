@@ -1,16 +1,11 @@
 import type { ReactElement } from "react"
 import type { B4PlanActivityContent } from "../../activities.js"
+import { planProgress, todoStatusLabel } from "../../view/activity-format.js"
+import { CHECKLIST_TICK, checklistBox } from "../../view/activity-glyphs.js"
 import type { PlanStep as PlanStepView } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
-import { planProgress } from "./format.js"
-import { StepIcon } from "./icons.js"
+import { GlyphShapeElement, StepIcon } from "./icons.js"
 import { StatusText } from "./StatusText.js"
-
-function statusLabel(status: B4PlanActivityContent["todos"][number]["status"]): string {
-  if (status === "completed") return " (done)"
-  if (status === "in_progress") return " (in progress)"
-  return " (pending)"
-}
 
 /** The plan's checklist (spec §3 `PlanStep`): SVG boxes, done items struck through by CSS. */
 export function Checklist({
@@ -37,29 +32,11 @@ export function Checklist({
               aria-hidden="true"
               focusable="false"
             >
-              <rect
-                x="0.7"
-                y="0.7"
-                width="12.6"
-                height="12.6"
-                rx="3"
-                fill={completed ? "currentColor" : "none"}
-                stroke="currentColor"
-                strokeWidth="1.4"
-              />
-              {completed ? (
-                <path
-                  d="m3.5 7.2 2.3 2.3 4.7-5"
-                  fill="none"
-                  stroke="var(--b4-activity-on-primary, #fff)"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : null}
+              <GlyphShapeElement shape={checklistBox(completed)} />
+              {completed ? <GlyphShapeElement shape={CHECKLIST_TICK} /> : null}
             </svg>
             <span className="b4-checklist__text">{todo.content}</span>
-            <span className="b4-visually-hidden">{statusLabel(todo.status)}</span>
+            <span className="b4-visually-hidden">{todoStatusLabel(todo.status)}</span>
           </li>
         )
       })}

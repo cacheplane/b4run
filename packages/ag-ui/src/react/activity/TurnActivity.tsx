@@ -1,8 +1,8 @@
 import { type ReactElement, useMemo } from "react"
+import { type NestedTurn, nestedSummaryLine, summaryLine } from "../../view/activity-format.js"
 import { groupSteps, type StepLabelOverrides } from "../../view/labels.js"
 import type { TurnView } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
-import { countSteps, type SummaryLine, summaryLine } from "./format.js"
 import { PlanStep } from "./PlanStep.js"
 import { ReasoningStep } from "./ReasoningStep.js"
 import { Step, type StepRenderers } from "./Step.js"
@@ -17,43 +17,11 @@ export interface TurnActivityProps {
   /** The clock; defaults to `Date.now`. Inject in tests. */
   readonly now?: (() => number) | undefined
   /** Set when this is a subagent's turn: the summary names the subagent instead. */
-  readonly nested?:
-    | { readonly name: string; readonly status: "running" | "paused" | "done" | "failed" }
-    | undefined
+  readonly nested?: NestedTurn | undefined
 }
 
 const defaultNow = () => Date.now()
 const isLive = (turn: TurnView) => turn.status === "working" || turn.status === "awaiting"
-
-/**
- * The summary of a subagent's own turn. While the subagent runs it reads like
- * any turn (spec §3.1: the active step's label, the elapsed tick); once it
- * pauses or settles it names the subagent: "researcher · paused",
- * "researcher finished · 5 steps", "researcher failed · boom".
- */
-function nestedSummary(
-  turn: TurnView,
-  nested: NonNullable<TurnActivityProps["nested"]>,
-  sampled: number,
-  labels: StepLabelOverrides | undefined,
-): SummaryLine {
-  const n = countSteps(turn)
-  const steps = `· ${n} step${n === 1 ? "" : "s"}`
-  switch (nested.status) {
-    case "running":
-      return summaryLine(turn, sampled, labels)
-    case "paused":
-      return { text: `${nested.name} · paused`, meta: "", live: false }
-    case "failed":
-      return {
-        text: `${nested.name} failed`,
-        meta: turn.error ? `· ${turn.error}` : steps,
-        live: false,
-      }
-    default:
-      return { text: `${nested.name} finished`, meta: steps, live: false }
-  }
-}
 
 /** The summary line plus the step list for one turn (spec §3 `TurnActivity`). */
 export function TurnActivity({
@@ -66,7 +34,7 @@ export function TurnActivity({
   const live = isLive(turn)
   const sampled = useElapsed(live, now)
   const line = nested
-    ? nestedSummary(turn, nested, sampled, labels)
+    ? nestedSummaryLine(turn, nested, sampled, labels)
     : summaryLine(turn, sampled, labels)
   // Open while live, folded once settled; a turn settled at mount ("restored")
   // starts folded. No key: a turn that becomes live again is automation's.

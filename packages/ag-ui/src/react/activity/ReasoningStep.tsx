@@ -1,7 +1,7 @@
 import type { ReactElement } from "react"
+import { reasoningLabel } from "../../view/activity-format.js"
 import type { ReasoningStep as ReasoningStepView } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
-import { reasoningLabel } from "./format.js"
 import { StepIcon } from "./icons.js"
 
 /**

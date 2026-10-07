@@ -12,14 +12,13 @@
  */
 
 export {
-  ApprovalCard,
-  type ApprovalCardProps,
   type ApprovalDecision,
   approvalPayload,
   scopeLine,
-} from "./activity/ApprovalCard.js"
+} from "../view/activity-approval.js"
+export { formatDuration, type SummaryLine, summaryLine } from "../view/activity-format.js"
+export { ApprovalCard, type ApprovalCardProps } from "./activity/ApprovalCard.js"
 export { Disclosure, type DisclosureProps, useDisclosure } from "./activity/Disclosure.js"
-export { formatDuration, type SummaryLine, summaryLine } from "./activity/format.js"
 export { Chevron, StepIcon } from "./activity/icons.js"
 export { Checklist, PlanStep, type PlanStepProps } from "./activity/PlanStep.js"
 export { ReasoningStep } from "./activity/ReasoningStep.js"
