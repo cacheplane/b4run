@@ -67,6 +67,12 @@ export interface PlanningAnswer {
   readonly bottomLine: string
   /** "Watch for", "Numbers", "Assumptions" and any other labelled section, in order. */
   readonly sections: readonly PlanningSection[]
+  /**
+   * The closing the answer ends on, after its last section — typically the
+   * question offering next steps ("Would you like me to file …?"). Present
+   * only when there is one, so it never lands in a section as a bullet.
+   */
+  readonly closing?: string
 }
 
 const unbold = (text: string): string => text.replace(/\*\*/g, "").trim()
@@ -78,10 +84,56 @@ const KNOWN_SECTIONS =
   /^(watch for|numbers|assumptions|sources|notes?|next steps?|weather|route|fuel)$/i
 
 /**
+ * A question offering next steps: "Would you like me to file …?", "Shall I
+ * re-brief …?", "Want me to try 6,500 ft?". It is the chat's to answer, not a
+ * section item, wherever it appears.
+ */
+const NEXT_STEP_QUESTION =
+  /^(?:would you like|would you prefer|do you want|shall i|should i|want me to|can i|may i|let me know)\b[\s\S]*\?\s*$/i
+
+interface RawItem {
+  readonly text: string
+  /** The line's position in the answer, to keep the closing in reading order. */
+  readonly at: number
+  /** Written as a bullet or numbered item. */
+  readonly bullet: boolean
+  /** Indented: a wrapped continuation, never a closing. */
+  readonly indented: boolean
+  /** The content on the section's header line ("Assumptions: 2400 RPM"). */
+  readonly onHeader: boolean
+}
+
+/**
+ * Where the closing starts in the last section's items, or the item count
+ * when there is none. A closing is a run of plain (non-bullet) lines at the
+ * very end, each a question or written after the section's bullets ("-
+ * standard temperature", then "Fly safe."). A section written as plain lines
+ * keeps them, except a trailing question.
+ */
+function closingStart(items: readonly RawItem[]): number {
+  let start = items.length
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i] as RawItem
+    if (item.bullet || item.onHeader || item.indented) break
+    const question = /\?\s*$/.test(item.text)
+    const afterBullets = items.slice(0, i).some((earlier) => earlier.bullet)
+    if (!question && !afterBullets) break
+    start = i
+  }
+  return start
+}
+
+/**
  * Reads the parent's final planning answer — "Bottom line: GO|CAUTION|NO-GO —
  * …", then "Watch for:", "Numbers:", "Assumptions:" — into sections, or null
  * when the text has no "Bottom line:" (an answer written before that
  * contract, which the sheet renders as formatted text instead).
+ *
+ * The answer usually ends on a question offering next steps after its last
+ * section's bullets. That line is the `closing`, not one more item: any
+ * question offering next steps, wherever it is, and a trailing run of plain
+ * lines after the last section's bullets (with or without a blank line
+ * before it).
  */
 export function parsePlanningAnswer(text: string): PlanningAnswer | null {
   const lines = stripToolEchoes(text).split("\n")
@@ -89,24 +141,63 @@ export function parsePlanningAnswer(text: string): PlanningAnswer | null {
   if (start < 0) return null
   const bottom = BOTTOM_LINE.exec(lines[start] as string)
   const bottomParts: string[] = [unbold(bottom?.[1] ?? "")]
-  const sections: { title: string; items: string[] }[] = []
-  let current: { title: string; items: string[] } | null = null
-  for (const line of lines.slice(start + 1)) {
+  interface OpenSection {
+    readonly title: string
+    readonly items: RawItem[]
+    /** The closing took items out of it. */
+    trimmed: boolean
+  }
+  const sections: OpenSection[] = []
+  const closing: RawItem[] = []
+  let current: OpenSection | null = null
+  for (const [at, line] of lines.slice(start + 1).entries()) {
     if (line.trim() === "") continue
-    const header = BULLET.test(line) ? null : SECTION.exec(line)
+    const bullet = BULLET.test(line)
+    const header = bullet ? null : SECTION.exec(line)
     if (header && KNOWN_SECTIONS.test((header[1] as string).trim())) {
-      current = { title: (header[1] as string).trim(), items: [] }
+      current = { title: (header[1] as string).trim(), items: [], trimmed: false }
       sections.push(current)
       const rest = unbold(header[2] ?? "")
-      if (rest !== "") current.items.push(rest)
+      if (rest !== "") {
+        current.items.push({ text: rest, at, bullet: false, indented: false, onHeader: true })
+      }
       continue
     }
-    const item = unbold(line.replace(BULLET, ""))
-    if (current === null) bottomParts.push(item)
+    const item: RawItem = {
+      text: unbold(line.replace(BULLET, "")),
+      at,
+      bullet,
+      indented: /^\s/.test(line),
+      onHeader: false,
+    }
+    if (NEXT_STEP_QUESTION.test(item.text)) {
+      closing.push(item)
+      if (current !== null) current.trimmed = true
+    } else if (current === null) bottomParts.push(item.text)
     else current.items.push(item)
   }
+  const last = sections.at(-1)
+  if (last !== undefined) {
+    const from = closingStart(last.items)
+    if (from < last.items.length) {
+      closing.push(...last.items.splice(from))
+      last.trimmed = true
+    }
+  }
   const bottomLine = bottomParts.filter((part) => part !== "").join(" ")
-  return { verdict: parseVerdictText(bottomLine), bottomLine, sections }
+  const closingText = closing
+    .sort((a, b) => a.at - b.at)
+    .map((item) => item.text)
+    .join(" ")
+  return {
+    verdict: parseVerdictText(bottomLine),
+    bottomLine,
+    // A section the closing emptied ("Assumptions:" over only the question) goes.
+    sections: sections
+      .filter((section) => !(section.trimmed && section.items.length === 0))
+      .map((section) => ({ title: section.title, items: section.items.map((item) => item.text) })),
+    ...(closingText !== "" ? { closing: closingText } : {}),
+  }
 }
 
 /** A block of markdown-ish prose: what the sheet renders for a free-text answer. */

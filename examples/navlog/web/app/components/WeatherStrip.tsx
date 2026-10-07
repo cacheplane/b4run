@@ -1,3 +1,4 @@
+import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
 import {
   type AirportWeather,
   isPreliminary,
@@ -36,6 +37,12 @@ export interface WeatherStripProps {
   readonly layout?: "wrap" | "row"
   /** The planned cruise altitude, in feet: icing or convection at or below it is shown red. */
   readonly cruiseFt?: number | undefined
+  /**
+   * The verdict for the pill (`resolveVerdict` over the brief, the planning
+   * answer and the navlog), so it matches the sheet's card. When omitted it
+   * is resolved from the brief and `cruiseFt` alone.
+   */
+  readonly verdict?: EffectiveVerdict | null | undefined
 }
 
 /**
@@ -43,8 +50,9 @@ export interface WeatherStripProps {
  * per airport, the advisories as hazard chips (the ones during the flight
  * loudest) and the winds aloft in words. Every chip opens its raw text.
  */
-export function WeatherStrip({ brief, layout = "wrap", cruiseFt }: WeatherStripProps) {
+export function WeatherStrip({ brief, layout = "wrap", cruiseFt, verdict }: WeatherStripProps) {
   if (brief === null || brief.airports.length === 0) return null
+  const shown = verdict !== undefined ? verdict : resolveVerdict({ weather: brief, cruiseFt })
   const row = layout === "row"
   const popover = `wb-panel z-30 p-3 text-[12px] ${
     row
@@ -67,7 +75,7 @@ export function WeatherStrip({ brief, layout = "wrap", cruiseFt }: WeatherStripP
           row ? "flex-nowrap overflow-x-auto [scrollbar-width:none]" : "flex-wrap justify-end"
         }`}
       >
-        {brief.verdict ? <VerdictPill verdict={brief.verdict} /> : null}
+        {shown ? <VerdictPill verdict={shown} /> : null}
         {brief.airports.map((airport) => (
           <details key={airport.id} className={row ? "shrink-0" : "relative"}>
             <summary
