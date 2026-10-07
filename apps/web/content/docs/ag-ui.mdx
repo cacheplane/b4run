@@ -635,7 +635,7 @@ Under [approval grants](/docs/approval-grants), echo the interrupt's grant back 
 
 For a permission prompt, a resolved payload can carry a B4.run decision such as `"once"` or `"always"`. The runtime treats a cancelled interrupt as a denial. Every answer must address one currently pending interrupt.
 
-A permission interrupt names the tool call it gates in `toolCallId`, whichever gate raised it: tool, command, memory or path. Inside a subagent it also carries `subagentRunId`, the `task` call that started that subagent (see [Subagents](#subagents)). A gate whose model call had no id gets the enclosing `task` call as its `toolCallId` instead. A permission prompt carries `responseSchema: { type: "string", enum: ["once", "always", "deny"] }`, so a client knows what a resolved payload may say.
+A permission interrupt names the tool call it gates in `toolCallId`, whichever gate raised it: tool, command, memory or path. Inside a subagent it also carries `subagentRunId`, the `task` call that started that subagent (see [Subagents](#subagents)). A gate whose model call had no id gets the enclosing `task` call as its `toolCallId` instead. A permission prompt carries `responseSchema: { type: "string", enum: ["once", "always", "deny"] }`, so a client knows what a resolved payload may say. A tool approved with `allowAlways: false` (see [Approve every call](/docs/permissions#approve-every-call)) carries `enum: ["once", "deny"]` instead, and its envelope in `metadata` has `allowAlways: false`; an `always` answer to it is treated as `once`.
 
 ## Response schema
 

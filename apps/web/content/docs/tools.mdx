@@ -110,6 +110,8 @@ The prompt shows the call's arguments as a JSON preview, but the decision applie
 - **Always**: saves the tool name to the permissions store, so later calls run without asking. The default Node store is `.b4/permissions.json`. Custom stores, such as Postgres, save it elsewhere.
 - **Deny**: blocks the call. The model gets the denial reason as the tool result.
 
+To ask on every call with no **Always** answer, write the entry as `{ tool: "sendEmail", allowAlways: false }`. The prompt then offers only **Once** and **Deny**, and an allow rule for the tool is ignored. See [Approve every call](/docs/permissions#approve-every-call).
+
 See [Permissions](/docs/permissions#per-tool-approval) for the full interrupt payload and resume flow.
 
 <Callout type="info" title="Don't list workspace tools in approve">

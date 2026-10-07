@@ -10,7 +10,8 @@ export interface FiledFlightPlan {
 /**
  * Record an ICAO flight plan in the workspace. This writes the FPL message to
  * flight-plans/; it does not transmit to a filing service. The route approves
- * each call (tools.approve), so a person confirms before anything is written.
+ * every call (tools.approve with allowAlways: false), so a person confirms each
+ * filing before anything is written; no standing "Always allow" can skip it.
  */
 export default async (
   input: { readonly flightPlan: FlightPlan },

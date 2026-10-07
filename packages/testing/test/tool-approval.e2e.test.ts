@@ -6,7 +6,7 @@
 // makes the denial reason the tool's RESULT (a string — rendered JSON-quoted
 // through the tool-result path, so assertions use regex, never equality).
 // Runs in CI (no API key — aimock).
-import { readFileSync, rmSync } from "node:fs"
+import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, expect, it } from "vitest"
@@ -155,6 +155,51 @@ it("subagent approve-listed tool interrupt surfaces on the parent stream", async
         .replies("Report sent."),
     })
     expectInterrupt(run).ofKind("tool").withDetail({ toolName: "sendReport" })
+  } finally {
+    await h.close()
+  }
+}, 60_000)
+
+it("an every-call tool treats resume(always) as once: nothing persists and the next call prompts", async () => {
+  const h = await createAgentHarness({ appRoot: probeRoot, route: "/approval-every-call#agent" })
+  try {
+    const run = await h.run({
+      input: "file the report",
+      fixtures: script()
+        .user("file the report")
+        .callsTool("fileReport", { title: "Q3" })
+        .replies("Filed."),
+    })
+    expectInterrupt(run).ofKind("tool").withDetail({ toolName: "fileReport" })
+
+    const resumed = await h.resume({
+      resume: run.interrupts.map((entry) => ({
+        interruptId: entry.interruptId,
+        status: "resolved" as const,
+        payload: "always",
+      })),
+    })
+    expectToolCalled(resumed, "fileReport")
+    expect(toolResultText(resumed, "fileReport")).toContain("filed Q3")
+
+    // No standing approval was written for the tool.
+    const persisted = existsSync(permissionsPath)
+      ? (JSON.parse(readFileSync(permissionsPath, "utf8")) as {
+          allow?: Record<string, string[]>
+        })
+      : {}
+    expect(persisted.allow?.tool ?? []).not.toContain("fileReport")
+
+    // Fresh thread: the next call asks again.
+    h.reset()
+    const run2 = await h.run({
+      input: "file the report",
+      fixtures: script()
+        .user("file the report")
+        .callsTool("fileReport", { title: "Q4" })
+        .replies("Filed again."),
+    })
+    expectInterrupt(run2).ofKind("tool").withDetail({ toolName: "fileReport" })
   } finally {
     await h.close()
   }

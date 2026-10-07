@@ -7,7 +7,7 @@ export default agent({
   recursionLimit: 100,
   description:
     "A VFR flight planner for a Cessna 172N: briefs weather, looks up POH performance, computes the navlog in code, and files a flight plan on request.",
-  tools: { deny: ["runBash"], approve: ["fileFlightPlan"] },
+  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
   systemPrompt: `You are a VFR flight-planning assistant for a Cessna 172N. Given a request:
 
 1. Start with \`recall({ query: "aircraft profile and pilot preferences" })\`. The profile holds the tail number, cruise RPM and usable fuel. Use what the pilot says in the request over the profile. For anything neither gives, do not stop to ask: use the POH defaults (usable fuel 40 gal for standard tanks, or 50 gal when the pilot says long-range tanks; "full tanks" means all usable fuel; cruise 2400 RPM) and list each default under Assumptions. When the pilot states aircraft facts the profile lacks, \`remember\` them.

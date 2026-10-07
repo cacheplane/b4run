@@ -1,6 +1,6 @@
 import type { MemoryWritesMode, RouteManifest } from "@b4run/core"
 import { BUILT_IN_TOOL_NAMES, CLIENT_TOOL_PREFIX, impliedToolDenials } from "@b4run/core"
-import { isB4Agent } from "@b4run/sdk"
+import { type ApproveEntry, isB4Agent, normalizeApproveEntries } from "@b4run/sdk"
 
 import { type NormalizedRouteModule, normalizeRouteModule } from "./load-route-kind.js"
 import { discoverToolDefinitions } from "./tool-discovery.js"
@@ -8,7 +8,7 @@ import { discoverToolDefinitions } from "./tool-discovery.js"
 interface ToolScopeShape {
   readonly allow?: readonly string[]
   readonly deny?: readonly string[]
-  readonly approve?: readonly string[]
+  readonly approve?: readonly ApproveEntry[]
   readonly constrain?: Readonly<Record<string, unknown>>
 }
 
@@ -79,10 +79,42 @@ export async function collectToolScopeIssues(
     if (!scope || (!scope.allow && !scope.deny && !scope.approve && !scope.constrain)) continue
     const available = new Set([...localToolNames, ...BUILT_IN_TOOL_NAMES])
     const constrainNames = Object.keys(scope.constrain ?? {})
+    // The type admits a bare name or `{ tool, allowAlways: false }`; a route
+    // module is plain JS at load time, so check the object form's shape.
+    const malformed = (scope.approve ?? []).filter(
+      (entry) =>
+        typeof entry !== "string" &&
+        (typeof entry !== "object" ||
+          entry === null ||
+          typeof (entry as { readonly tool?: unknown }).tool !== "string"),
+    )
+    if (malformed.length > 0) {
+      errors.push(
+        `✗ ${route.pathname}: approve entries must be a tool name or { tool: "name", allowAlways: false }; ` +
+          `got ${malformed.map((entry) => JSON.stringify(entry) ?? String(entry)).join(", ")}.`,
+      )
+    }
+    const approveEntries = normalizeApproveEntries(
+      (scope.approve ?? []).filter((entry) => !malformed.includes(entry)),
+    )
+    for (const entry of scope.approve ?? []) {
+      if (
+        typeof entry === "object" &&
+        entry !== null &&
+        !malformed.includes(entry) &&
+        (entry as { readonly allowAlways?: unknown }).allowAlways !== false
+      ) {
+        warnings.push(
+          `⚠ ${route.pathname}: approve entry for "${entry.tool}" does not set allowAlways: false, ` +
+            `so it behaves like the bare name. Write "${entry.tool}" or add allowAlways: false.`,
+        )
+      }
+    }
+    const approveNames = approveEntries.map((entry) => entry.tool)
     const unknown = [
       ...(scope.allow ?? []),
       ...(scope.deny ?? []),
-      ...(scope.approve ?? []),
+      ...approveNames,
       ...constrainNames,
     ].filter((n) => n !== "task" && !available.has(n))
     if (unknown.length > 0) {
@@ -97,7 +129,7 @@ export async function collectToolScopeIssues(
     // @b4run/core); an approve/constrain entry for the implied tool is dead.
     const impliedDeny = new Set(impliedToolDenials(scope))
     const routeIsSubagent = isSubagentRoute(route.routeDir)
-    for (const name of scope.approve ?? []) {
+    for (const name of approveNames) {
       if (name === "task") continue
       if (INTERNALLY_GATED.has(name)) {
         warnings.push(
@@ -137,10 +169,16 @@ export async function collectToolScopeIssues(
         )
       }
     }
-    const approveSetForConstrain = new Set(scope.approve ?? [])
+    const approveByName = new Map(approveEntries.map((entry) => [entry.tool, entry] as const))
     for (const name of constrainNames) {
       if (name === "task") continue
-      if (approveSetForConstrain.has(name)) {
+      const entry = approveByName.get(name)
+      if (entry?.allowAlways === false) {
+        warnings.push(
+          `⚠ ${route.pathname}: "${name}" is in both approve (allowAlways: false) and constrain — constrain wins, ` +
+            `and its { approve } escalation still offers "always". The approve entry has no effect.`,
+        )
+      } else if (entry) {
         warnings.push(
           `⚠ ${route.pathname}: "${name}" is in both approve and constrain — constrain wins (it can escalate via { approve }); the approve entry is redundant.`,
         )

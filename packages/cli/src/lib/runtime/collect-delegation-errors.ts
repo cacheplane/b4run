@@ -68,6 +68,13 @@ export async function collectDelegationErrors(manifest: RouteManifest): Promise<
   return errors
 }
 
+/** An allow/deny name, or an approve entry's `tool` (`{ tool, allowAlways }`). */
+function toolScopeEntryName(entry: unknown): unknown {
+  return typeof entry === "object" && entry !== null
+    ? (entry as { readonly tool?: unknown }).tool
+    : entry
+}
+
 function collectReservedTaskErrors(descriptor: B4Agent, route: RouteDefinition): readonly string[] {
   const tools = (descriptor as unknown as { readonly tools?: ToolScopeShape }).tools
   if (typeof tools !== "object" || tools === null) return []
@@ -75,7 +82,9 @@ function collectReservedTaskErrors(descriptor: B4Agent, route: RouteDefinition):
   const fields: string[] = []
   for (const field of TOOL_SCOPE_FIELDS) {
     const value = tools[field]
-    if (Array.isArray(value) && value.includes("task")) fields.push(field)
+    if (Array.isArray(value) && value.some((entry) => toolScopeEntryName(entry) === "task")) {
+      fields.push(field)
+    }
   }
   if (
     typeof tools.constrain === "object" &&

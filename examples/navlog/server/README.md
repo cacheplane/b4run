@@ -53,7 +53,7 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
 | Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
-| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before each call |
+| HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before every call (`allowAlways: false`: no "Always allow") |
 | Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
@@ -137,7 +137,9 @@ profile.
 
 **What does not survive a redeploy.** Reports and recorded flight plans the
 agent writes under `workspace/`, and "Always allow" approval grants (they stay
-in SQLite on the container disk). The navlog itself lives in the Postgres
+in SQLite on the container disk). Filing never has one: the route approves
+`fileFlightPlan` with `allowAlways: false`, so one visitor cannot approve
+filing for everyone; every call asks. The navlog itself lives in the Postgres
 checkpoint, which the Workbench reads back from the thread.
 
 **Run the production entry locally.**

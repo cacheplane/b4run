@@ -277,6 +277,38 @@ describe("turnsFromState", () => {
     })
   })
 
+  test("a restored every-call tool prompt does not offer always", () => {
+    const call = { id: "c1", name: "fileFlightPlan", args: {}, type: "tool_call" }
+    const history = [
+      ckpt("k0", 0, [human("u1", "file it")]),
+      ckpt("k1", 1, [human("u1", "file it"), ai("a1", "", [call])]),
+    ]
+    const pending = [
+      {
+        interruptId: "perm-1",
+        resumeKey: "a".repeat(32),
+        value: {
+          interruptId: "perm-1",
+          type: "permission-request",
+          kind: "tool",
+          allowAlways: false,
+          toolCallId: "c1",
+          detail: {
+            toolName: "fileFlightPlan",
+            argsPreview: "{}",
+            suggestedPattern: "fileFlightPlan",
+          },
+        },
+      },
+    ]
+    const { turns } = turnsFromState(base(history, {}, pending, "interrupted"))
+    expect(firstTurn(turns).steps[0]).toMatchObject({
+      id: "c1",
+      status: "awaiting",
+      approval: expect.objectContaining({ interruptId: "perm-1", offersAlways: false }),
+    })
+  })
+
   test("a failed and a stopped turn, two turns delimited by user messages", () => {
     const history = [
       ckpt("k0", 0, [human("u1", "one")]),

@@ -1,4 +1,4 @@
-import type { ToolScope } from "@b4run/sdk"
+import { normalizeApproveEntries, type ToolScope } from "@b4run/sdk"
 
 export type ToolOrigin = "authored" | "capability"
 
@@ -68,7 +68,7 @@ export function resolveToolScope(
   const unknown = [
     ...(scope?.allow ?? []),
     ...(scope?.deny ?? []),
-    ...(scope?.approve ?? []),
+    ...normalizeApproveEntries(scope?.approve).map((entry) => entry.tool),
   ].filter((n) => !available.has(n))
   if (unknown.length > 0) {
     throw new Error(
