@@ -26,13 +26,22 @@ describe("createAgentsMdMarker", () => {
     rmSync(workDir, { recursive: true, force: true })
   })
 
-  function makeCtx(appRoot: string): CapabilityMarkerContext {
+  function makeCtx(
+    appRoot: string,
+    agentsMd?: CapabilityMarkerContext["agentsMd"],
+  ): CapabilityMarkerContext {
     return {
       routeManifest: { appRoot, routes: [] },
       descriptor: undefined,
       appRoot,
       markerFs: nodeMarkerFs,
+      ...(agentsMd !== undefined ? { agentsMd } : {}),
     }
+  }
+
+  function writeAgentsMd(content: string): void {
+    mkdirSync(join(workDir, "workspace"), { recursive: true })
+    writeFileSync(join(workDir, "workspace", "AGENTS.md"), content)
   }
 
   it("always detects (returns true)", async () => {
@@ -104,5 +113,66 @@ describe("createAgentsMdMarker", () => {
     const second = contribution.promptFragment?.render({}) ?? ""
     expect(second).toContain("second")
     expect(second).not.toContain("first")
+  })
+
+  describe("agentsMd.writable", () => {
+    const writeInstruction = 'writeFile({ path: "AGENTS.md"'
+
+    it("tells the model to update the file by default (no agentsMd on the context)", async () => {
+      writeAgentsMd("House style: metric units.")
+      const contribution = await createAgentsMdMarker().load(routeDir, makeCtx(workDir))
+      const out = contribution.promptFragment?.render({}) ?? ""
+      expect(out).toContain("# Memory")
+      expect(out).toContain(writeInstruction)
+      expect(out).toContain("House style: metric units.")
+    })
+
+    it("keeps the memory header when writable is true", async () => {
+      writeAgentsMd("House style: metric units.")
+      const contribution = await createAgentsMdMarker().load(
+        routeDir,
+        makeCtx(workDir, { writable: true }),
+      )
+      const out = contribution.promptFragment?.render({}) ?? ""
+      expect(out).toContain("# Memory")
+      expect(out).toContain(writeInstruction)
+    })
+
+    it("renders read-only guidance with no write instruction when writable is false", async () => {
+      writeAgentsMd("House style: metric units.")
+      const contribution = await createAgentsMdMarker().load(
+        routeDir,
+        makeCtx(workDir, { writable: false }),
+      )
+      const out = contribution.promptFragment?.render({}) ?? ""
+      expect(out).toContain("# Project guidance")
+      expect(out).toContain("read-only")
+      expect(out).toContain("do NOT re-read this file with any tool")
+      expect(out).toContain("Do NOT modify `AGENTS.md`")
+      expect(out).not.toContain("# Memory")
+      expect(out).not.toContain("writeFile")
+      expect(out).toContain("House style: metric units.")
+    })
+
+    it("uses the read-only header for the over-64 KiB notice too", async () => {
+      writeAgentsMd("x".repeat(65 * 1024))
+      const contribution = await createAgentsMdMarker().load(
+        routeDir,
+        makeCtx(workDir, { writable: false }),
+      )
+      const out = contribution.promptFragment?.render({}) ?? ""
+      expect(out).toContain("# Project guidance")
+      expect(out).toContain("exceeds 64 KiB")
+      expect(out).not.toContain("writeFile")
+      expect(out).not.toContain("xxxxxxxxxxx")
+    })
+
+    it("still renders empty when the file is absent", async () => {
+      const contribution = await createAgentsMdMarker().load(
+        routeDir,
+        makeCtx(workDir, { writable: false }),
+      )
+      expect(contribution.promptFragment?.render({})).toBe("")
+    })
   })
 })

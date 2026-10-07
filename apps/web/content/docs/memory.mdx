@@ -47,6 +47,8 @@ If `workspace/AGENTS.md` exists and has content, B4.run injects it under `# Memo
 
 With the default local app root, every thread reads the same file on the host, even with a per-thread sandbox. Use separate app roots or trust domains for tenants, constrain untrusted writes, and review seeded content.
 
+If the file is house style your team maintains rather than agent memory, set [`agentsMd: { writable: false }`](/docs/configuration#agentsmd). B4.run then injects it under `# Project guidance` and tells the model not to modify it. That changes only the prompt, so enforce it with a [filesystem middleware](/docs/workspace#middleware) that refuses writes to `AGENTS.md`, and deny or gate `runBash` for routes that can reach the workspace, since a shell command bypasses that middleware.
+
 ### Updating it
 
 See [Workspace Filesystem](/docs/workspace) for controlled `writeFile` access and backend behavior.

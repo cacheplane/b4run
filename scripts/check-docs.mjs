@@ -3129,6 +3129,8 @@ if (
 }
 
 const expectedB4ConfigSchemaPaths = [
+  "agentsMd",
+  "agentsMd.writable",
   "appDir",
   "approvals",
   "approvals.grantRetentionMs",

@@ -326,6 +326,13 @@ export interface CapabilityMarkerContext {
    */
   readonly workspaceRoot?: string
   readonly memory?: MemoryContext
+  /**
+   * The app's resolved `agentsMd` config (see `B4Config.agentsMd`). Absent
+   * means the default: `workspace/AGENTS.md` is injected as writable memory.
+   * `writable: false` makes the agents-md marker inject it as read-only
+   * guidance instead.
+   */
+  readonly agentsMd?: { readonly writable: boolean }
 }
 
 export interface B4ToolDefinition {

@@ -2,8 +2,15 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "@b4run/config-typescript/node",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["b4.config.ts", "src/**/*.ts", ".b4/b4.generated.d.ts"]
+  "include": [
+    "b4.config.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "deploy/**/*.ts",
+    ".b4/b4.generated.d.ts"
+  ]
 }

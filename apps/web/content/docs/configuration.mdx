@@ -20,6 +20,9 @@ import { config } from "@b4run/cli"
 export default config({
   appDir: "src/app",
 
+  // Set writable to false to make workspace/AGENTS.md read-only guidance.
+  agentsMd: { writable: true },
+
   // A configured sandbox overrides these backends for sandboxed threads.
   backends: {
     // filesystem: customFilesystem,
@@ -149,6 +152,36 @@ appDir?: string
 Default: `"src/app"`. This is the directory, relative to the app root, where
 B4.run looks for route `index.ts` files. Keep it inside the app root. There's
 no environment variable override. See [Routes](/docs/routes) for the layout.
+
+### `agentsMd`
+
+```ts
+agentsMd?: {
+  writable?: boolean
+}
+```
+
+Default: `writable: true`. B4.run injects `workspace/AGENTS.md` into every
+agent route's system prompt on each turn. By default it's the agent's
+[memory](/docs/memory#workspace-profile-agentsmd): the prompt tells the model
+to update the file with `writeFile` when it learns something worth keeping.
+
+Set `agentsMd: { writable: false }` when the file is shared, reviewed house
+style that one thread mustn't change for every other. The prompt then presents
+it under `# Project guidance` as read-only, maintained by the app's authors,
+and tells the model not to modify it.
+
+This only changes the prompt. It doesn't block a write, so enforce it with a
+`FilesystemMiddleware` that refuses writes to `AGENTS.md`, composed over
+`backends.filesystem` (see [Workspace middleware](/docs/workspace#middleware)).
+That middleware doesn't see shell commands, so also deny or gate `runBash` for
+routes that can reach the workspace.
+
+`b4 check` and route preparation reject, with `B4_E1010`, an `agentsMd` that
+isn't an object (`agentsMd: false` included), any key other than `writable`
+(a typo such as `writeable` included), and a `writable` that isn't a boolean.
+A misspelled or mistyped key inside `agentsMd` is an error, not a silent
+fallback to writable.
 
 ### `backends`
 
