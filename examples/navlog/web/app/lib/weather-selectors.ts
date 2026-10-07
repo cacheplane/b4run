@@ -55,24 +55,39 @@ const EMPTY: WeatherBrief = { airports: [], winds: [], advisories: [], note: "" 
 
 type Section = "airports" | "winds" | "advisories" | "note" | "verdict" | "horizon"
 
+/**
+ * A section header, after `stripMarkdown`: the name, bold closed before or
+ * after the colon (`Airports**:`, `Airports:**`), then the line's content. A
+ * line that is only the name (`### Airports`) is a header too; a name followed
+ * by words and no colon ("Advisories expire before departure") is prose.
+ */
+const header = (name: string): RegExp =>
+  new RegExp(`^${name}(?:\\*\\*)?(?::(?:\\*\\*)?\\s*(.*)|\\s*)$`, "i")
+
 const HEADERS: readonly { readonly section: Section; readonly pattern: RegExp }[] = [
-  { section: "verdict", pattern: /^verdict:(?:\*\*)?\s*(.*)$/i },
-  { section: "horizon", pattern: /^forecast horizon:(?:\*\*)?\s*(.*)$/i },
-  { section: "airports", pattern: /^airports:(?:\*\*)?\s*(.*)$/i },
-  { section: "winds", pattern: /^winds per leg:(?:\*\*)?\s*(.*)$/i },
-  { section: "advisories", pattern: /^advisories:(?:\*\*)?\s*(.*)$/i },
-  { section: "note", pattern: /^go\/no-go note:(?:\*\*)?\s*(.*)$/i },
+  { section: "verdict", pattern: header("verdict") },
+  { section: "horizon", pattern: header("forecast horizon") },
+  { section: "airports", pattern: header("airports") },
+  { section: "winds", pattern: header("winds per leg") },
+  { section: "advisories", pattern: header("advisories") },
+  { section: "note", pattern: header("go\\/no-go note") },
 ]
 
-/** Drop the markdown a model tends to add: a bullet or heading marker, and bold around the line. */
+/** Drop the markdown a model tends to add: a bullet (`-`, `*`, `•`, `1.`, `1)`) or heading marker, and bold around the line. */
 const stripMarkdown = (line: string): string =>
   line
-    .replace(/^\s*(?:[-*]\s+|#+\s+)?(?:\*\*)?/, "")
+    .replace(/^\s*(?:[-*\u2022]\s+|\d+[.)]\s+|#+\s+)?(?:\*\*)?/, "")
     .replace(/\*\*\s*$/, "")
     .trim()
 
-/** `KSTP: …`, `KSTP, …` or `**KSTP**: …` (the leading `**` is already stripped). */
-const AIRPORT_LINE = /^([A-Z0-9]{3,4})(?:\*\*)?\s*[:,]\s*(.*)$/
+/**
+ * An airport line: the id (its leading `**` already stripped), an optional
+ * name in parentheses, then a colon, a comma, a dash or an en or em dash:
+ * `KSTP: …`, `**KSTP** — …`, `KSTP (St Paul): …`, `KSTP - …`. A hyphen needs
+ * spaces round it, so a hyphenated word is never read as the separator.
+ */
+const AIRPORT_LINE =
+  /^([A-Z0-9]{3,4})(?:\*\*)?(?:\s*\([^)]*\))?(?:\s*[:,]|\s*[\u2013\u2014]|\s+-\s)\s*(.*)$/
 /** Where the raw report starts: a routine METAR or a special SPECI. */
 const RAW_REPORT = /\b(METAR|SPECI)\b/
 
