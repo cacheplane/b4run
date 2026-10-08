@@ -152,35 +152,13 @@ Credentials are provider-specific: the navlog starter's OpenAI live
 path requires `OPENAI_API_KEY`, while a local Ollama route requires no provider
 key.
 
-### Published `@latest` (0.8.21)
-
-The clean-room activation recorded above resolved npm `@latest` to 0.8.21. That
-published scaffold is a single package. Set its OpenAI key and start its B4.run
-server on port 3000:
-
-```bash
-export OPENAI_API_KEY=sk-...
-npm run dev
-```
-
-Drive the backend through the
-[Agent Protocol](https://b4.run/docs/dev-server/agent-protocol), or follow
-the [Workbench guide](https://b4.run/docs/recipes/flight-planner-web-ui) to add a
-browser client; the 0.8.21 scaffold does not include the Workbench package.
-
-In a clean 0.8.21 scaffold inspected on September 1, 2026, `npm run build`
-compiles the TypeScript project. That scaffold does not define `npm start`; use
-`npm run dev` for its working server path.
-
-### Current source (unreleased 0.8.22)
-
-Current repository source scaffolds the smaller `basic` template, a single
-`/hello` agent, by default. Its navlog template (the research template of
-0.8.22 is the navlog template in current source) is a two-package workspace
-with a server and the B4.run Workbench, selected with `--template navlog`
-(`npm create b4-app@latest my-agent -- --template navlog`). These commands
-apply to a navlog scaffold generated from current repository source, not the
-published `@latest` package:
+`npm create b4-app@latest my-agent` scaffolds the smaller `basic` template, a
+single `/hello` agent, by default. The larger starter is a two-package npm
+workspace: a B4.run server and the B4.run Workbench. Published `@latest`
+(0.13.1) selects it with `--template research`; current repository source
+replaces it with the navlog flight planner, selected with `--template navlog`
+(`--template research` remains a deprecated alias that scaffolds navlog).
+Either one runs the same way:
 
 ```bash
 npm install
@@ -194,8 +172,8 @@ In a second terminal:
 npm run dev:web
 ```
 
-That source template serves the B4.run server on port 3002 and the Workbench on
-port 3010. Its root workspace defines the production build and start scripts:
+The server listens on port 3002 and the Workbench on port 3010. The root
+workspace defines the production build and start scripts:
 
 ```bash
 npm run build

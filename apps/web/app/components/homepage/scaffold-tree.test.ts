@@ -38,7 +38,7 @@ describe("the hero terminal shows what the scaffold really creates", () => {
   })
 
   it("ends on the next steps create-b4-app prints for the basic template", () => {
-    // Only the basic template's steps; the research template shares some lines.
+    // Only the basic template's steps; the navlog template shares some lines.
     const basicSteps = cli.slice(cli.indexOf("const basicSteps = ["))
     const steps = basicSteps.slice(0, basicSteps.indexOf("\n  ]"))
     expect(steps).toContain("changeDirectoryStep")

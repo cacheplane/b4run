@@ -118,7 +118,7 @@ The real `vercel-native` CI deployment lane and pinned Vercel CLI remain require
 The exact release commit must also have a successful production Vercel
 deployment and clean public-site browser verification. The
 `copilotkit-examples-e2e` lane remains required and exercises the v2 CopilotKit
-imports used by the chat and research examples.
+imports used by the chat example.
 
 ## What Exists Now
 
