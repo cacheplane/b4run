@@ -4234,16 +4234,38 @@ test("screencast concat gives each frame its real duration and the last one up t
   // A last frame at (or after) the end still lasts one output frame.
   assert.match(screencastConcat([{ file: "f.png", timestamp: 10 }], 10_000), /duration 0\.033333/)
   assert.throws(() => screencastConcat([], 1), /no frames/)
+  // A frame stamped slightly before the one ahead of it plays in timestamp order.
+  assert.equal(
+    screencastConcat(
+      [
+        { file: "a.png", timestamp: 2 },
+        { file: "b.png", timestamp: 2.1 },
+        { file: "c.png", timestamp: 2.05 },
+      ],
+      3_000,
+    ),
+    [
+      "ffconcat version 1.0",
+      "file 'a.png'",
+      "duration 0.050000",
+      "file 'c.png'",
+      "duration 0.050000",
+      "file 'b.png'",
+      "duration 0.900000",
+      "file 'b.png'",
+      "",
+    ].join("\n"),
+  )
   assert.throws(
     () =>
       screencastConcat(
         [
-          { file: "a.png", timestamp: 2 },
-          { file: "b.png", timestamp: 1 },
+          { file: "a.png", timestamp: 3 },
+          { file: "b.png", timestamp: 1.5 },
         ],
-        3_000,
+        4_000,
       ),
-    /earlier than the frame before it/,
+    /more than a second earlier than the frame before it/,
   )
   assert.throws(() => screencastConcat([{ file: "a'.png", timestamp: 1 }], 2_000), /unsafe file name/)
 })

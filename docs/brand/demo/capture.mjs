@@ -1359,27 +1359,37 @@ export function createScreencastRecorder({
   }
 }
 
+/** How far a frame's timestamp may run behind the one before it and still be reordered. */
+const SCREENCAST_REORDER_TOLERANCE_S = 1
+
 /**
  * The ffconcat list for the frames: each frame lasts until the next one's
  * timestamp, and the last until `endEpochMs` (at least one output frame).
- * A frame with the same timestamp as the next is dropped. Times are seconds.
+ * Chromium can deliver a frame stamped slightly earlier than the one before
+ * it, so frames play in timestamp order; a step back of more than a second
+ * is a broken clock, not jitter, and fails. A frame with the same timestamp
+ * as the next is dropped. Times are seconds.
  */
-export function screencastConcat(frames, endEpochMs) {
-  if (!Array.isArray(frames) || frames.length === 0) {
+export function screencastConcat(input, endEpochMs) {
+  if (!Array.isArray(input) || input.length === 0) {
     throw new Error("The screencast recorded no frames")
   }
-  for (const [index, frame] of frames.entries()) {
+  for (const [index, frame] of input.entries()) {
     if (!Number.isFinite(frame.timestamp)) {
       throw new Error(`Screencast frame ${index} has no timestamp`)
     }
-    if (index > 0 && frame.timestamp < frames[index - 1].timestamp) {
-      throw new Error(`Screencast frame ${index} is earlier than the frame before it`)
+    if (
+      index > 0 &&
+      frame.timestamp < input[index - 1].timestamp - SCREENCAST_REORDER_TOLERANCE_S
+    ) {
+      throw new Error(`Screencast frame ${index} is more than a second earlier than the frame before it`)
     }
     if (!/^[A-Za-z0-9._-]+$/u.test(frame.file)) {
       throw new Error(`Screencast frame ${index} has an unsafe file name`)
     }
   }
   if (!Number.isFinite(endEpochMs)) throw new Error("The screencast end time is not a number")
+  const frames = [...input].sort((a, b) => a.timestamp - b.timestamp)
   const lines = ["ffconcat version 1.0"]
   for (const [index, frame] of frames.entries()) {
     const last = index === frames.length - 1
@@ -1449,7 +1459,8 @@ export async function assembleScreencastVideo({
       format: SCREENCAST_OPTIONS.format,
       scale: SCREENCAST_SCALE,
       frameCount: frames.length,
-      firstFrameEpochMs: frames[0].timestamp * 1_000,
+      // The concat list plays frames in timestamp order, so video time 0 is the earliest.
+      firstFrameEpochMs: Math.min(...frames.map((frame) => frame.timestamp)) * 1_000,
       endEpochMs,
       motion: screencastMotion(frames),
     },
