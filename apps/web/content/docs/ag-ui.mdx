@@ -445,11 +445,11 @@ browser
 
 CopilotKit's sidebar uses the literal agent id `default` when none is supplied, so the example registers the B4.run route under that key. See `examples/chat/web/README.md` for the complete setup and smoke checklist.
 
-The client shows what the agent did by wrapping a stock `<CopilotChat>` in the activity connector from `@b4run/ag-ui/copilotkit`:
+The client shows what the agent did by wrapping a stock `<CopilotChat>` in the activity connector from `@b4run/ag-ui/react/copilotkit`:
 
 ```tsx
-import "@b4run/ag-ui/react/styles.css"
-import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import "@b4run/ag-ui/styles.css"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
 import { CopilotChat, CopilotKit } from "@copilotkit/react-core/v2"
 
 function Chat() {
@@ -515,9 +515,86 @@ The runner reads `GET /threads/:thread_id/events`, so the thread-access policy a
 
 The read carries only the headers your `fetch` adds, never the browser's. That `fetch` must carry the current caller's identity, derived per request as above (the navlog example does the same with its visitor id), never a fixed service credential: a fixed credential lets any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error.
 
-React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/copilotkit` entry imports CopilotKit. The server-side `/copilotkit-runtime` entry, which only a CopilotKit runtime route imports, never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class to `createB4AgentRunner`, so the runner extends the copy the route resolves. Its `rxjs` is a regular dependency of the package. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) for a client that presents the activities its own way. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
+React and `@copilotkit/react-core` `>=1.76.0` are optional peer dependencies, so a server-only consumer of the root or `/sse` entry installs nothing extra; only the `/react/copilotkit` entry imports CopilotKit. The server-side `/copilotkit-runtime` entry, which only a CopilotKit runtime route imports, never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class to `createB4AgentRunner`, so the runner extends the copy the route resolves. Its `rxjs` is a regular dependency of the package. 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves; earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75), and npm 7+ rejects the unmet peer with `ERESOLVE` where pnpm only warns. The `/react` subpath also exports the kit's building blocks (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`, `Disclosure`, `StepIcon`) for a client that presents the activities its own way. The reducers live in `@b4run/ag-ui/view`, which has no React dependency: `reduceTurns` folds a whole thread into turns, steps and approvals, for any framework.
 
 For the full application wiring (a thread rail, suggestions, generic tool cards, and permissions), see the [flight-planner web UI recipe](/docs/recipes/flight-planner-web-ui) and its [`examples/navlog/web`](https://github.com/cacheplane/b4run/tree/main/examples/navlog/web) implementation.
+
+### An Angular client
+
+The same activity kit ships for Angular in the same package: standalone components at `@b4run/ag-ui/angular` that render the same DOM contract as the React kit, styled by the same sheet. Angular 22 or later is required; `@angular/core`, `@angular/common`, `@angular/platform-browser` and `@copilotkit/angular` are optional peer dependencies of `@b4run/ag-ui`, so install the ones your app uses:
+
+```bash
+npm install @b4run/ag-ui
+```
+
+Load the stylesheet once, in `angular.json`'s `styles` or a global stylesheet:
+
+```json
+"styles": ["@b4run/ag-ui/styles.css", "src/styles.css"]
+```
+
+With CopilotKit's Angular chat (`@copilotkit/angular` 0.5.3 or later), provide the activity store next to the chat and hand `<copilot-chat>` the kit's assistant message and approvals:
+
+```ts
+import { Component, inject } from "@angular/core"
+import { CopilotChat } from "@copilotkit/angular"
+import {
+  B4ActivityApprovalsComponent,
+  B4ActivityAssistantMessageComponent,
+  B4ActivityStore,
+  provideB4Activity,
+} from "@b4run/ag-ui/angular/copilotkit"
+
+@Component({
+  selector: "app-chat",
+  imports: [CopilotChat],
+  providers: [provideB4Activity({ agentId: "default" })],
+  template: `<copilot-chat agentId="default"
+    [assistantMessageComponent]="assistant"
+    [messageViewChildrenComponent]="approvals" />`,
+})
+export class ChatComponent {
+  readonly activity = inject(B4ActivityStore) // created with the chat, so it sees every event
+  readonly assistant = B4ActivityAssistantMessageComponent
+  readonly approvals = B4ActivityApprovalsComponent
+}
+```
+
+Each assistant message renders its text through CopilotKit's own assistant message, then the turn's activity once per turn, and each parked interrupt renders as an approval card that resolves or cancels it through CopilotKit.
+
+Without a chat framework, `@b4run/ag-ui/angular/events` folds the thread's AG-UI events (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) into turns: `provideB4Turns` provides the store, `<b4-message-activity>` renders a turn's activity on its first assistant message in your own transcript, and `<b4-approvals>` renders the parked interrupts' approval cards for you to resume.
+
+```ts
+import { Component, inject, input } from "@angular/core"
+import {
+  ApprovalsComponent,
+  type B4ApprovalDecision,
+  MessageActivityComponent,
+  provideB4Turns,
+} from "@b4run/ag-ui/angular/events"
+// ThreadEvents: your service that owns the thread's AG-UI event stream and sends resumes.
+
+@Component({
+  selector: "app-chat",
+  imports: [MessageActivityComponent, ApprovalsComponent],
+  providers: [provideB4Turns(() => ({ events$: inject(ThreadEvents).events$ }))],
+  template: `
+    @for (message of messages(); track message.id) {
+      <app-message [message]="message" />
+      <b4-message-activity [messageId]="message.id" [messages]="messages()" />
+    }
+    <b4-approvals [resume]="resume" />
+  `,
+})
+export class ChatComponent {
+  readonly messages = input.required<Message[]>()
+  readonly #thread = inject(ThreadEvents)
+  readonly resume = ({ interruptId, decision }: B4ApprovalDecision) =>
+    this.#thread.resume(interruptId, decision)
+}
+```
+
+The Angular entries ship in Angular's partial compilation format, which your Angular CLI build links, so import them from an Angular application, not from Node. See [`@b4run/ag-ui` reference](/docs/api/ag-ui) for every export.
 
 ## Adapter API
 

@@ -71,7 +71,10 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/ag-ui", "./client"],
   ["@b4run/ag-ui", "./view"],
   ["@b4run/ag-ui", "./react"],
-  ["@b4run/ag-ui", "./copilotkit"],
+  ["@b4run/ag-ui", "./react/copilotkit"],
+  ["@b4run/ag-ui", "./angular"],
+  ["@b4run/ag-ui", "./angular/events"],
+  ["@b4run/ag-ui", "./angular/copilotkit"],
   ["@b4run/ag-ui", "./copilotkit-runtime"],
   ["@b4run/memory", "."],
   ["@b4run/memory", "./browse"],
@@ -98,7 +101,7 @@ const EXPECTED_DETAILED_IMPORTS = [
 
 const EXPECTED_CATALOG_AND_INTERNAL_IMPORTS = [
   ["@b4run/core", "./internal/compiler", "internal"],
-  ["@b4run/ag-ui", "./react/styles.css", "catalog-only"],
+  ["@b4run/ag-ui", "./styles.css", "catalog-only"],
   ["@b4run/config-biome", ".", "internal"],
   ["@b4run/config-biome", "./biome", "internal"],
   ["@b4run/config-typescript", ".", "internal"],
@@ -716,7 +719,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(49)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(52)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,

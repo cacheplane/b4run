@@ -33,11 +33,21 @@ In a React client, and only there, import the activity kit from the `./react` su
 import { ApprovalCard, TurnActivity } from "@b4run/ag-ui/react"
 ```
 
-A CopilotKit chat connects the kit through the `./copilotkit` subpath, which is the only entry that imports `@copilotkit/react-core`:
+A React CopilotKit chat connects the kit through the `./react/copilotkit` subpath, which is the only entry that imports `@copilotkit/react-core`:
 
 ```tsx
-import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
 ```
+
+In an Angular client, import the activity kit from the `./angular` subpath, and connect it to a thread's events with `./angular/events` or to CopilotKit's `<copilot-chat>` with `./angular/copilotkit`, the only Angular entry that imports `@copilotkit/angular`:
+
+```ts
+import { TurnActivityComponent } from "@b4run/ag-ui/angular"
+import { MessageActivityComponent, provideB4Turns } from "@b4run/ag-ui/angular/events"
+import { provideB4Activity } from "@b4run/ag-ui/angular/copilotkit"
+```
+
+Both kits share one stylesheet, `@b4run/ag-ui/styles.css`.
 
 A CopilotKit runtime route restores a conversation from B4's storage with `createB4AgentRunner` from the `./copilotkit-runtime` subpath. The entry never imports `@copilotkit/runtime`: the route passes CopilotKit's `InMemoryAgentRunner` class in, so the runner extends whichever copy the route resolves, wherever the package manager placed it. It depends on `rxjs`, which installs with the package:
 
@@ -57,14 +67,19 @@ const runner = createB4AgentRunner(InMemoryAgentRunner, { url, fetch })
 | `@b4run/ag-ui/client` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/view` | edge-safe | not-claimed | integration | supported |
 | `@b4run/ag-ui/react` | node-only | not-claimed | application | supported |
-| `@b4run/ag-ui/copilotkit` | browser-only | not-claimed | application | supported |
-| `@b4run/ag-ui/react/styles.css` | n/a | n/a | integration | supported |
+| `@b4run/ag-ui/react/copilotkit` | browser-only | not-claimed | application | supported |
+| `@b4run/ag-ui/angular` | browser-only | not-claimed | application | supported |
+| `@b4run/ag-ui/angular/events` | browser-only | not-claimed | application | supported |
+| `@b4run/ag-ui/angular/copilotkit` | browser-only | not-claimed | application | supported |
+| `@b4run/ag-ui/styles.css` | n/a | n/a | integration | supported |
 
 `@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer. Runtime validators (`RunAgentInputSchema`, `AgentCapabilitiesSchema`, `*EventSchema`) live at `@ag-ui/core/schemas` in 1.0; import types from `@ag-ui/core`.
 
 The adapter only translates protocol data, so it neither authenticates a caller nor makes client-supplied thread, run, state, tool, or context data authoritative.
 
-`@b4run/ag-ui/view` is the framework-free client entry: pure reducers over AG-UI events with no React dependency. `@b4run/ag-ui/react` is the React activity kit built on it: `TurnActivity`, `ApprovalCard` and the step rows take the view core's props and render one turn in plain language. `@b4run/ag-ui/copilotkit` connects the kit to a stock CopilotKit chat. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither; only `./copilotkit` imports CopilotKit. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The `./react` entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value. The `./copilotkit` entry is recorded as `browser-only`: CopilotKit's bundle imports its own CSS, so plain Node cannot load it either. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime.
+`@b4run/ag-ui/view` is the framework-free client entry: pure reducers over AG-UI events with no React dependency. `@b4run/ag-ui/react` is the React activity kit built on it: `TurnActivity`, `ApprovalCard` and the step rows take the view core's props and render one turn in plain language. `@b4run/ag-ui/react/copilotkit` connects the kit to a stock CopilotKit chat. React and `@copilotkit/react-core` are optional peer dependencies, so a server that imports only the root or `/sse` entry installs neither; only `./react/copilotkit` imports CopilotKit's React package. `@ag-ui/client` is the same kind of optional peer, needed only by `./client`. The `./react` entry is recorded as `node-only` because B4.run's edge guard requires an import graph free of unguarded Node globals, and React's JSX runtime reads `process.env.NODE_ENV`. It is meant for browser bundles, where your bundler substitutes that value. The `./react/copilotkit` entry is recorded as `browser-only`: CopilotKit's bundle imports its own CSS, so plain Node cannot load it either. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime.
+
+`@b4run/ag-ui/angular` is the Angular activity kit, built on the same view core and rendering the same DOM contract as `./react`; `./angular/events` and `./angular/copilotkit` connect it to a chat. `@angular/core`, `@angular/common`, `@angular/platform-browser` (`^22.0.0`) and `@copilotkit/angular` (`>=0.5.3`) are optional peer dependencies, and only `./angular/copilotkit` imports CopilotKit's Angular package. The three Angular entries ship in Angular's partial compilation format, which your Angular build's linker finishes, so they are recorded as `browser-only`: import them from an Angular application built with the Angular CLI (`@angular/build`), not from Node or an edge runtime, where a plain import fails for want of Angular's JIT compiler.
 
 ## Public exports
 
@@ -240,9 +255,9 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `useLive` | Whether a running step shows its running treatment (after 300 ms). |
 | `useElapsed` | A clock re-sampled once a second while active. |
 
-`TurnActivity` is the drop-in: give it a `TurnView` from `reduceTurns` and it renders the turn. The kit components are plain React and don't need CopilotKit; the CopilotKit connector is `@b4run/ag-ui/copilotkit`.
+`TurnActivity` is the drop-in: give it a `TurnView` from `reduceTurns` and it renders the turn. The kit components are plain React and don't need CopilotKit; the CopilotKit connector is `@b4run/ag-ui/react/copilotkit`.
 
-### `@b4run/ag-ui/copilotkit`
+### `@b4run/ag-ui/react/copilotkit`
 
 The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the activity kit.
 
@@ -259,6 +274,60 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 | `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView`, `markResuming` and `clearResuming`. |
 | `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
 
+### `@b4run/ag-ui/angular`
+
+The Angular activity kit: standalone, `OnPush` components with signal inputs that render the same DOM contract (classes, `data-*` and `aria-*` attributes, text) as the React kit, from the `TurnView`/`StepView` values `@b4run/ag-ui/view` builds. Element hosts are `display: contents`; the step rows attach to the list item itself (`<li b4-step>`).
+
+| Export | Responsibility |
+|---|---|
+| `TurnActivityComponent` | `<b4-turn-activity [turn]>`: the summary line plus the step list for one turn, nested for subagents. Inputs: `turn`, `labels`, `renderStep`, `now`, `nested`. |
+| `ApprovalCardComponent` | `<b4-approval-card [approval] [agent] [label] [onDecide]>`: a parked interrupt with Allow once / Always allow / Deny and the scope line; a throw or rejection from `onDecide` shows inline and re-enables the buttons. |
+| `StepComponent` | `<li b4-step [step]>`: one tool call as a sentence; opens to its inputs and output. |
+| `StepRenderers` | Per-tool components keyed by tool name that replace a step's detail panel; each receives the step as its `step` input. |
+| `StepGroupComponent` | `<li b4-step-group [group]>`: consecutive done calls of one tool, merged. |
+| `PlanStepComponent` | `<li b4-plan-step [step] [live]>`: "Made a plan · 2 of 4 done" with the checklist. |
+| `ReasoningStepComponent` | `<li b4-reasoning-step [step]>`: "Thinking…", "Thought for 4s" or "Show reasoning". |
+| `SubagentStepComponent` | `<li b4-subagent-step [step]>`: "Asked researcher" with the child's activity nested. |
+| `StepDetailComponent` | `<b4-step-detail [args] [result]>`: a step's Inputs and Output. |
+| `SourceChipsComponent` | `<b4-source-chips [sources] [limit]>`: file or URL chips with "+N" overflow. |
+| `DisclosureComponent` | `<b4-disclosure [open] [className] (toggle)>`: a `button[aria-expanded]` and its panel, for custom steps. |
+| `StepIconComponent` | `<b4-step-icon [name]>`: the glyph for a `ToolDisplayIcon` name. |
+| `ChecklistComponent` | `<b4-checklist [todos]>`: the plan's SVG checklist. |
+| `SvgAttrsDirective` | `[b4SvgAttrs]`: sets an SVG shape's attributes from a shared glyph. |
+| `disclosure` | The open/closed rule over signals: automation decides until the user toggles; the user's choice holds until the item is live again. |
+| `DisclosureState` | What `disclosure` returns: the open state and its toggle. |
+| `elapsedSignal` | A clock re-sampled once a second while active; call in an injection context. |
+| `liveSignal` | Whether a running step shows its running treatment (after 300 ms); call in an injection context. |
+
+### `@b4run/ag-ui/angular/events`
+
+The Angular kit's connector for any chat, with no chat framework: give it the thread's AG-UI events.
+
+| Export | Responsibility |
+|---|---|
+| `B4TurnsStore` | The thread as a `turns` signal, folded by `reduceTurns`: `connect(events$)`, `apply(event)`, `reset(turns?)` for a restored view, `markResuming()`/`clearResuming()`, `destroy()`. An event with a numeric `timestamp` (a replay) is folded at that time. |
+| `createB4Turns` | A store that stops following its stream when the calling injection context is destroyed (or pass `injector`). |
+| `provideB4Turns` | Provides a store to a subtree, from options or a function run in the injection context. |
+| `B4TurnsOptions` | The store's options: `events$`, `hiddenTools`, `labels`, `renderStep` and the clock. |
+| `B4EventStream` | A stream of AG-UI events: an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`. |
+| `B4TurnEvent` | One AG-UI event, as `reduceTurns` folds it. |
+| `MessageActivityComponent` | `<b4-message-activity [messageId] [messages]>`: the turn's `<b4-turn-activity>` on its first assistant message, nothing on the others. |
+| `ApprovalsComponent` | `<b4-approvals [resume]? (decide)>`: one approval card per parked interrupt; a click marks the resume, then emits and awaits the decision. |
+| `B4ApprovalDecision` | A decision on one parked interrupt: its id and `once`, `always` or `deny`. |
+
+### `@b4run/ag-ui/angular/copilotkit`
+
+The CopilotKit (Angular) connector, on `@copilotkit/angular`: it drives a stock `<copilot-chat>` with the activity kit.
+
+| Export | Responsibility |
+|---|---|
+| `provideB4Activity` | Provides a `B4ActivityStore` to the subtree, also as `B4TurnsStore`; inject it in the providing component so it sees every event. |
+| `B4ActivityOptions` | Options for `provideB4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep` and the clock. |
+| `B4ActivityStore` | Follows the chat's agent into `turns` and CopilotKit's parked interrupts into `interrupts`; `decide(interruptId, decision)` marks the resume, then resolves or cancels through CopilotKit. Supports `approvals.grants: "off"` today. |
+| `B4Interrupt` | A parked interrupt, as CopilotKit's interrupt controller holds it. |
+| `B4ActivityAssistantMessageComponent` | `<copilot-chat>`'s assistant message: the message's text through CopilotKit's own assistant message, then the turn's `<b4-turn-activity>` on the turn's first assistant message. |
+| `B4ActivityApprovalsComponent` | One approval card per interrupt CopilotKit holds open, as `<copilot-chat>`'s `[messageViewChildrenComponent]` or anywhere under `provideB4Activity`. |
+
 ### `@b4run/ag-ui/copilotkit-runtime`
 
 The server half of the CopilotKit connector, for the CopilotKit runtime route in your app. It uses only `fetch` and `rxjs`, so it runs in a Node or an edge runtime route.
@@ -269,13 +338,15 @@ The server half of the CopilotKit connector, for the CopilotKit runtime route in
 | `B4AgentRunnerBase` | The shape `createB4AgentRunner` extends: a class whose instances have `connect` (returning an observable of events) and `isRunning`. CopilotKit's `InMemoryAgentRunner` fits it; the returned runner has the base class's type. |
 | `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with, and `onWarnings` for replays that carried warnings. The read carries only the headers that `fetch` adds, never the browser request's, so it must carry the current caller's identity, derived per request (for example from an `AsyncLocalStorage`), never a fixed service credential, which would let any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error. |
 
-### `@b4run/ag-ui/react/styles.css`
+### `@b4run/ag-ui/styles.css`
 
-This subpath is the activity kit's default stylesheet. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
+This subpath is the activity kits' default stylesheet, one sheet for the React and Angular kits. It has no TypeScript exports, runtime classification, or purity claim. A bundler resolves it, and it is never evaluated as JavaScript. Import it once, wherever your application imports its global CSS:
 
 ```ts
-import "@b4run/ag-ui/react/styles.css"
+import "@b4run/ag-ui/styles.css"
 ```
+
+In an Angular application, list it in `angular.json`'s `styles` (`"@b4run/ag-ui/styles.css"`) or `@import` it from a global stylesheet.
 
 The sheet is optional, and the components render without it. Every rule sits in `@layer b4-activity`, so any unlayered app CSS wins, and every rule that styles an element is scoped to the `b4-` prefix, so it can't restyle the rest of your application.
 

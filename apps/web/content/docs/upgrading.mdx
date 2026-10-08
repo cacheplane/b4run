@@ -54,13 +54,25 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### `@b4run/ag-ui` has one folder per framework; the stylesheet is `@b4run/ag-ui/styles.css`
+
+Landed in the first release after **0.13.1**. Action required if you import the activity stylesheet, or the CopilotKit connector from a pre-release build.
+
+The activity stylesheet moved from `@b4run/ag-ui/react/styles.css` to `@b4run/ag-ui/styles.css`, one sheet for every kit; `./react/styles.css` is gone. Change the import:
+
+```ts
+import "@b4run/ag-ui/styles.css"
+```
+
+The React CopilotKit connector (`B4Activity`, `useB4ChatSlots`, `useB4Turns`, `useB4ActivityContext`) is at `@b4run/ag-ui/react/copilotkit`, not `./copilotkit`. The Angular activity kit ships in the same package: `@b4run/ag-ui/angular`, with its connectors at `./angular/events` and `./angular/copilotkit`; Angular and `@copilotkit/angular` are optional peer dependencies. See [AG-UI and Web Clients](/docs/ag-ui#an-angular-client).
+
 ### The legacy activity cards are gone; `@b4run/ag-ui/react` is the activity kit
 
 Landed in the first release after **0.13.1**. Action required if you render B4.run activity with the 0.13 cards, renderers or subagent hook.
 
-Removed from `@b4run/ag-ui/react`: `PlanActivityCard`, `ActivityChecklist`, `SubagentPanel`, the `classNames`/`components` props with `B4ActivityClassNames`, `B4ActivityComponents`, `B4TodoRowProps` and `B4ToolRowProps`, `cx`, `planActivityContentSchema`, and `useSubagentRuns` with `SubagentEventSource`. Removed from `@b4run/ag-ui/view` (and their `./react` re-exports): `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `SubagentRun`, `SubagentRunsState` and `SubagentToolCall`. Removed from `@b4run/ag-ui/copilotkit`: `b4ActivityRenderers` and `b4PlanActivityRenderer`, so drop `renderActivityMessages={b4ActivityRenderers}` from `<CopilotKit>`. `isSubagentMessage` now comes from `@b4run/ag-ui/view` only.
+Removed from `@b4run/ag-ui/react`: `PlanActivityCard`, `ActivityChecklist`, `SubagentPanel`, the `classNames`/`components` props with `B4ActivityClassNames`, `B4ActivityComponents`, `B4TodoRowProps` and `B4ToolRowProps`, `cx`, `planActivityContentSchema`, and `useSubagentRuns` with `SubagentEventSource`. Removed from `@b4run/ag-ui/view` (and their `./react` re-exports): `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `SubagentRun`, `SubagentRunsState` and `SubagentToolCall`. Removed from `@b4run/ag-ui/react/copilotkit`: `b4ActivityRenderers` and `b4PlanActivityRenderer`, so drop `renderActivityMessages={b4ActivityRenderers}` from `<CopilotKit>`. `isSubagentMessage` now comes from `@b4run/ag-ui/view` only.
 
-What replaces them: wrap `<CopilotChat>` (or `<CopilotSidebar>`) in `B4Activity` from `@b4run/ag-ui/copilotkit` and spread `useB4ChatSlots()` onto it. Each turn renders as one `TurnActivity`: its tool steps, its plan (the `b4.plan` snapshots), its reasoning, and each subagent as a step with the child's own steps nested. A parked interrupt renders as an `ApprovalCard`, so remove your own `useInterrupt` for B4.run permission prompts (CopilotKit has one interrupt slot, and `B4Activity` fills it). A host with its own transcript uses `useB4Turns(agent)` with `TurnActivity` and `ApprovalCard`; a non-React client folds events with `reduceTurns` from `@b4run/ag-ui/view`. To restore a thread after a reload, give the CopilotKit runtime `createB4AgentRunner(InMemoryAgentRunner, { url, fetch })` from `@b4run/ag-ui/copilotkit-runtime`.
+What replaces them: wrap `<CopilotChat>` (or `<CopilotSidebar>`) in `B4Activity` from `@b4run/ag-ui/react/copilotkit` and spread `useB4ChatSlots()` onto it. Each turn renders as one `TurnActivity`: its tool steps, its plan (the `b4.plan` snapshots), its reasoning, and each subagent as a step with the child's own steps nested. A parked interrupt renders as an `ApprovalCard`, so remove your own `useInterrupt` for B4.run permission prompts (CopilotKit has one interrupt slot, and `B4Activity` fills it). A host with its own transcript uses `useB4Turns(agent)` with `TurnActivity` and `ApprovalCard`; a non-React client folds events with `reduceTurns` from `@b4run/ag-ui/view`. To restore a thread after a reload, give the CopilotKit runtime `createB4AgentRunner(InMemoryAgentRunner, { url, fetch })` from `@b4run/ag-ui/copilotkit-runtime`.
 
 The stylesheet now sits in `@layer b4-activity` and styles only the kit. The `.b4-activity*` rules and the `--b4-activity-gap`, `-font-size`, `-margin`, `-padding`, `-header-weight` and `-badge-bg` tokens are gone; the design tokens `--b4-activity-surface-alt`, `-running-bg`, `-failed-bg`, `-primary`, `-on-primary`, `-radius-card`, `-radius-pill` and `-font-mono` are new, and `-running` (`#2563eb` → `#b45309`), `-failed` (`#9f1239` → `#b91c1c`), `-complete` (`#15803d`), `-radius` (`10px` → `8px`), `-surface`, `-border`, `-text` and `-muted` are re-valued. Dark mode no longer follows the OS by default; it follows the host (`.dark`, `[data-theme="dark"]`, or `data-b4-theme="dark"` on the root). Action required if your app relied on OS-driven dark: set `data-b4-theme="auto"` on the root element, or override the tokens in your own CSS. See [AG-UI › Consuming it from a web UI](/docs/ag-ui#consuming-it-from-a-web-ui).
 
