@@ -174,7 +174,7 @@ export function ChatDock({
           </div>
         ) : null}
       </header>
-      <div className="max-h-[40%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-md:max-h-[30%]">
+      <div className="max-h-[30%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-md:max-h-[25%]">
         {memory}
       </div>
       {banner ? <div className="shrink-0 px-3 pt-2">{banner}</div> : null}
