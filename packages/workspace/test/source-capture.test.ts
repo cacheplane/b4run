@@ -236,39 +236,78 @@ describe("captureWorkspaceSource", () => {
     const bundle = await capture
     expect(bundle.files.map((f) => f.path)).toEqual([...include].sort())
   })
-  it("still rejects an ancestor directory that is swapped out, and a source that changes", async () => {
+  /**
+   * Spy on `lstat` and run `mutate()` once, synchronously, right after the capture's first lstat
+   * of `path` resolves and before the capture sees the result. The capture awaits one filesystem
+   * call at a time, so no other lstat is in flight while `mutate()` runs: a multi-step mutation
+   * (two renames, say) is atomic from the capture's point of view, and the capture is known to
+   * have recorded `path` before it changes. Racing a real mutation against the capture from the
+   * event loop instead lets an in-flight threadpool lstat land between the steps (#941).
+   */
+  function mutateAfterFirstInspection(path: string, mutate: () => void) {
+    const original = fs.lstat
+    let mutated = false
+    return vi.spyOn(fs, "lstat").mockImplementation((async (
+      ...args: Parameters<typeof fs.lstat>
+    ) => {
+      const stats = await original(...args)
+      if (!mutated && args[0] === path) {
+        mutated = true
+        mutate()
+      }
+      return stats
+    }) as typeof fs.lstat)
+  }
+  it("still rejects an ancestor directory that is swapped out", async () => {
     await fs.mkdir(join(root, "nest", "source"), { recursive: true })
     await fs.writeFile(join(root, "nest", "source", "a"), "a")
     const real = await fs.realpath(root)
-    const lstat = vi.spyOn(fs, "lstat")
-    const swapped = captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] })
-    let swappedOnce = false
     // Once the walk has reached `nest/source`, `nest` itself has been inspected and recorded.
-    const swaps = await churnUntilSettled(
-      swapped,
-      inspected(lstat, join(real, "nest", "source")),
-      () => {
-        // Replace `nest` with a fresh directory holding the same tree: a new inode, same bytes.
-        if (swappedOnce) return
-        swappedOnce = true
-        mkdirSync(join(root, "nest2", "source"), { recursive: true })
-        writeFileSync(join(root, "nest2", "source", "a"), "a")
-        renameSync(join(root, "nest"), join(root, "nest-old"))
-        renameSync(join(root, "nest2"), join(root, "nest"))
-      },
+    const lstat = mutateAfterFirstInspection(join(real, "nest", "source"), () => {
+      // Replace `nest` with a fresh directory holding the same tree: a new inode, same bytes.
+      mkdirSync(join(root, "nest2", "source"), { recursive: true })
+      writeFileSync(join(root, "nest2", "source", "a"), "a")
+      renameSync(join(root, "nest"), join(root, "nest-old"))
+      renameSync(join(root, "nest2"), join(root, "nest"))
+    })
+    await expect(
+      captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] }),
+    ).rejects.toThrow(/changed during capture/)
+    expect(lstat.mock.calls.filter((call) => call[0] === join(real, "nest", "source"))).not.toEqual(
+      [],
     )
-    expect(swaps).toBeGreaterThan(0)
-    await expect(swapped).rejects.toThrow(/changed during capture/)
-    await fs.rm(join(root, "nest-old"), { recursive: true, force: true })
-    lstat.mockClear()
-    const changed = captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] })
-    const appends = await churnUntilSettled(
-      changed,
-      inspected(lstat, join(real, "nest", "source", "a")),
-      () => appendFileSync(join(root, "nest", "source", "a"), "a"),
+  })
+  it("rejects an ancestor directory whose identity changes, even with its source intact", async () => {
+    // The identity check itself, isolated from what a real swap also changes below the ancestor:
+    // every later lstat of `nest` reports a different inode, and nothing else moves.
+    await fs.mkdir(join(root, "nest", "source"), { recursive: true })
+    await fs.writeFile(join(root, "nest", "source", "a"), "a")
+    const real = await fs.realpath(root)
+    const nest = join(real, "nest")
+    const original = fs.lstat
+    let seen = 0
+    vi.spyOn(fs, "lstat").mockImplementation((async (...args: Parameters<typeof fs.lstat>) => {
+      const stats = await original(...args)
+      if (args[0] !== nest || seen++ === 0) return stats
+      return Object.assign(Object.create(Object.getPrototypeOf(stats)), stats, {
+        ino: (stats.ino as bigint) + 1n,
+      })
+    }) as typeof fs.lstat)
+    await expect(
+      captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] }),
+    ).rejects.toMatchObject({ message: `Source changed during capture: ${nest}` })
+    expect(seen).toBeGreaterThan(1)
+  })
+  it("rejects a source file that changes after it is first inspected", async () => {
+    await fs.mkdir(join(root, "nest", "source"), { recursive: true })
+    await fs.writeFile(join(root, "nest", "source", "a"), "a")
+    const real = await fs.realpath(root)
+    mutateAfterFirstInspection(join(real, "nest", "source", "a"), () =>
+      appendFileSync(join(root, "nest", "source", "a"), "a"),
     )
-    expect(appends).toBeGreaterThan(0)
-    await expect(changed).rejects.toThrow(/changed/)
+    await expect(
+      captureWorkspaceSource(root, { directory: "nest/source", include: ["a"] }),
+    ).rejects.toThrow(/changed/)
   })
   it("bounds directory traversal including empty directories", async () => {
     for (let batch = 0; batch < 101; batch++) {
