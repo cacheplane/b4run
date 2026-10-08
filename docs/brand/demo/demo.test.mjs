@@ -12,11 +12,13 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
+import { createServer as createNetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { tsImport } from "tsx/esm/api"
 
-import { script } from "../../../packages/testing/dist/index.js"
 import {
   assertLoopbackModelBaseUrl,
   buildChildEnvironment,
@@ -80,7 +82,17 @@ import {
 } from "./encode.mjs"
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_NAVLOG_INPUT, DEMO_PROMPT } from "./scenario.mjs"
+import { startAwcStub } from "./awc-stub.mjs"
+import {
+  DEMO_FILE_PROMPT,
+  DEMO_FIXTURES,
+  DEMO_PLAN_ANSWER,
+  DEMO_PLAN_TOOLS,
+  DEMO_PROMPT,
+  DEMO_SCENARIO,
+  demoAwcData,
+  demoScenario,
+} from "./scenario.mjs"
 import {
   buildDemoMediaCatalog,
   createUploadPlan,
@@ -1123,24 +1135,17 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
   }
 })
 
-test("scenario exports the canonical prompt and deterministic navlog fixture", () => {
-  assert.equal(
-    DEMO_PROMPT,
-    "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z.",
-  )
-  assert.deepEqual(
-    DEMO_FIXTURES,
-    script()
-      .user("Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z.")
-      .callsTool("computeNavlog", DEMO_NAVLOG_INPUT)
-      .replies(
-        "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]",
-      )
-      .build(),
-  )
+test("scenario prompts fit the thread title and state the aircraft fact", () => {
   // The Workbench cuts a thread title to 80 characters; the capture matches the
   // whole prompt against that title.
   assert.ok(DEMO_PROMPT.length <= 80, `DEMO_PROMPT is ${DEMO_PROMPT.length} characters`)
+  for (const part of ["KSTP", "KRST", "4500", "1400Z", "N738ZU", "long-range tanks"]) {
+    assert.ok(DEMO_PROMPT.includes(part), `DEMO_PROMPT names ${part}`)
+  }
+  assert.equal(DEMO_FILE_PROMPT, "File the flight plan.")
+  assert.equal(DEMO_FIXTURES, DEMO_SCENARIO.fixtures)
+  assert.equal(DEMO_PLAN_ANSWER, DEMO_SCENARIO.planAnswer)
+  assert.deepEqual(DEMO_PLAN_TOOLS, DEMO_SCENARIO.planTools)
 })
 
 test("normalizeLog narrowly removes capture instability", () => {
@@ -1568,8 +1573,7 @@ test("stopManaged rejects when SIGKILL termination is not confirmed in time", as
   await assert.rejects(stopped, /Managed child PID 9876 did not exit within 100ms after SIGKILL/)
 })
 
-const EXPECTED_ANSWER =
-  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
 
 function orchestrationFixture({ failAt } = {}) {
   const operations = []
@@ -1719,7 +1723,7 @@ function orchestrationFixture({ failAt } = {}) {
           async runScenario(options) {
             operations.push("run Workbench scenario")
             assert.equal(options.prompt, DEMO_PROMPT)
-            assert.deepEqual(options.tools, ["computeNavlog"])
+            assert.deepEqual(options.tools, DEMO_PLAN_TOOLS)
             assert.equal(options.answer, EXPECTED_ANSWER)
             if (failAt === "scenario") throw new Error("scenario failed")
             return { threadId: "thread-unit-1" }
@@ -3522,7 +3526,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
   assert.deepEqual(holds, [700, 900])
   assert.deepEqual(summary.evidence, {
     prompt: DEMO_PROMPT,
-    tools: ["computeNavlog"],
+    tools: DEMO_PLAN_TOOLS,
     answer: EXPECTED_ANSWER,
     threadId: "thread-unit-1",
     connectUrl: undefined,
@@ -5056,5 +5060,504 @@ test("catalog writer removes its temporary path after real write and rename fail
     assert.equal((await lstat(target)).isDirectory(), true)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Take 2: the deterministic scenario and the AWC stub.
+//
+// The template's own TypeScript (tools, lib and the web's parsers) runs here
+// through tsx, so the fixtures are checked against the code the generated app
+// runs rather than against a copy of it.
+
+const TEMPLATE_ROOT = fileURLToPath(
+  new URL("../../../packages/devkit/templates/app-navlog/", import.meta.url),
+)
+const importTemplate = (relative) =>
+  tsImport(pathToFileURL(join(TEMPLATE_ROOT, relative)).href, import.meta.url)
+
+// Clock times either side of 1400Z, across a month and a year boundary.
+const SCENARIO_NOWS = [
+  "2026-10-07T13:10:00.000Z",
+  "2026-10-07T14:00:00.000Z",
+  "2026-10-07T15:20:00.000Z",
+  "2026-10-31T23:59:00.000Z",
+  "2026-12-31T22:45:00.000Z",
+].map((iso) => Date.parse(iso))
+
+/** The scripted fixtures grouped by the thread (first user message) they answer. */
+function fixtureGroups(fixtures) {
+  const groups = new Map()
+  for (const fixture of fixtures) {
+    const key = fixture.match.userMessage
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(fixture)
+  }
+  return groups
+}
+
+const toolCallOf = (fixture) => {
+  const calls = fixture.response.toolCalls
+  assert.equal(calls?.length, 1, "each scripted step makes exactly one tool call")
+  return calls[0]
+}
+
+function assertScriptedThread(steps, expectedTools) {
+  assert.equal(steps.length, expectedTools.length + 1)
+  steps.forEach((fixture, index) => {
+    assert.equal(fixture.match.turnIndex, index)
+    assert.equal(fixture.match.hasToolResult, index > 0)
+  })
+  assert.deepEqual(
+    steps.slice(0, -1).map((fixture) => toolCallOf(fixture).name),
+    expectedTools,
+  )
+  const reply = steps.at(-1).response.content
+  assert.equal(typeof reply, "string")
+  return { calls: steps.slice(0, -1).map(toolCallOf), reply }
+}
+
+test("demoScenario resolves 1400Z exactly as the template's resolveDeparture does", async () => {
+  const { parseUtcInstant } = await importTemplate("server/src/lib/fpl.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const expected = parseUtcInstant("1400Z", () => now)
+    assert.equal(scenario.departureUtc, expected.toISOString())
+    assert.equal(
+      scenario.hoursAhead,
+      Math.round(((expected.getTime() - now) / 3_600_000) * 10) / 10,
+    )
+  }
+  // The live tool reads the wall clock; it agrees with a scenario built now.
+  const { default: resolveDeparture } = await importTemplate("server/src/tools/resolveDeparture.ts")
+  const before = Date.now()
+  const live = await resolveDeparture({ departure: "1400Z" }, {})
+  assert.equal(live.departureUtc, demoScenario({ now: before }).departureUtc)
+})
+
+test("the parent's turn 1 follows the route's order and hands each child its own thread", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    assert.deepEqual(
+      [...groups.keys()],
+      [DEMO_PROMPT, DEMO_FILE_PROMPT, scenario.weatherInput, scenario.performanceInput],
+    )
+    const { calls, reply } = assertScriptedThread(groups.get(DEMO_PROMPT), [
+      "recall",
+      "resolveDeparture",
+      "writeTodos",
+      "lookupAirport",
+      "lookupAirport",
+      "task",
+      "task",
+      "computeNavlog",
+      "remember",
+      "writeFile",
+    ])
+    assert.deepEqual(scenario.planTools, calls.map((call) => call.name))
+    assert.equal(reply, scenario.planAnswer)
+    const args = calls.map((call) => call.arguments)
+    assert.deepEqual(args[0], { query: "aircraft profile and pilot preferences" })
+    assert.deepEqual(args[1], { departure: "1400Z" })
+    assert.deepEqual(args[2], { todos: scenario.todos })
+    assert.ok(scenario.todos.length >= 3)
+    for (const todo of scenario.todos) {
+      assert.ok(["pending", "in_progress", "completed"].includes(todo.status))
+      assert.equal(typeof todo.content, "string")
+    }
+    assert.deepEqual(args[3], { id: "KSTP" })
+    assert.deepEqual(args[4], { id: "KRST" })
+    // aimock matches a child's turns by its first user message, which is the task input verbatim.
+    assert.deepEqual(args[5], { subagent: "weather", input: scenario.weatherInput })
+    assert.deepEqual(args[6], { subagent: "performance", input: scenario.performanceInput })
+    assert.ok(scenario.weatherInput.includes(scenario.departureUtc))
+    assert.ok(scenario.weatherInput.includes(`hoursAhead ${scenario.hoursAhead}`))
+    assert.ok(scenario.weatherInput.includes("KSTP (44.9346, -93.0603)"))
+    assert.deepEqual(args[7], scenario.navlogInput)
+    assert.equal(args[7].departureTimeUtc, scenario.departureUtc)
+    assert.deepEqual(args[8], scenario.memory)
+    assert.deepEqual(args[9], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
+  }
+})
+
+test("the remember call matches the route's memory schema and states a fact the prompt gives", async () => {
+  const memorySource = await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/memory.ts"), "utf8")
+  const schemaKeys = [...memorySource.matchAll(/^\s{4}(\w+): z\.string\(\)/gm)].map((m) => m[1])
+  assert.deepEqual(schemaKeys, ["subject", "predicate", "value"])
+  const { data, content } = DEMO_SCENARIO.memory
+  assert.deepEqual(Object.keys(data), schemaKeys)
+  for (const value of Object.values(data)) assert.equal(typeof value, "string")
+  assert.deepEqual(Object.keys(DEMO_SCENARIO.memory), ["data", "content"])
+  // The memory panel lists the candidate by its content.
+  assert.ok(content.length > 0 && content.length <= 80)
+  assert.match(content, /N738ZU/)
+  assert.match(DEMO_PROMPT, /N738ZU has long-range tanks/)
+})
+
+test("the children brief from their own tools and turn 2 files the computed plan", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    const weather = assertScriptedThread(groups.get(scenario.weatherInput), [
+      "getMetar",
+      "getTaf",
+      "getWindsAloft",
+      "getAdvisories",
+      "getAdvisories",
+    ])
+    assert.deepEqual(weather.calls[0].arguments, { ids: ["KSTP", "KRST"] })
+    assert.deepEqual(weather.calls[1].arguments, { ids: ["KSTP", "KRST"] })
+    assert.deepEqual(weather.calls[2].arguments, {
+      region: "chi",
+      station: "MSP",
+      altitudeFt: 4500,
+      forecastHours: scenario.windsForecastHours,
+    })
+    assert.ok(scenario.windsForecastHours >= 6 && scenario.windsForecastHours <= 24)
+    assert.deepEqual(weather.calls[3].arguments, { lat: 44.9346, lon: -93.0603 })
+    assert.deepEqual(weather.calls[4].arguments, { lat: 43.9083, lon: -92.49 })
+    assert.equal(weather.reply, scenario.weatherBrief)
+
+    const performance = assertScriptedThread(groups.get(scenario.performanceInput), ["readDoc"])
+    assert.deepEqual(performance.calls[0].arguments, { path: "poh/cruise-performance.md" })
+    assert.equal(performance.reply, scenario.performanceBrief)
+
+    const filing = assertScriptedThread(groups.get(DEMO_FILE_PROMPT), ["fileFlightPlan"])
+    assert.deepEqual(filing.calls[0].arguments, { flightPlan: scenario.flightPlan })
+    assert.equal(filing.reply, scenario.filedAnswer)
+    assert.deepEqual(scenario.fileTools, ["fileFlightPlan"])
+  }
+})
+
+test("the navlog numbers and flight plan are what the template's computeNavlog returns", async () => {
+  const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
+  const { formatFplMessage } = await importTemplate("server/src/lib/fpl.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const navlog = computeNavlog(scenario.navlogInput, () => now)
+    assert.deepEqual(scenario.flightPlan, navlog.flightPlan)
+    assert.equal(navlog.departureTimeUtc, scenario.departureUtc)
+    assert.deepEqual(scenario.navlog.totals, navlog.totals)
+    assert.deepEqual(
+      scenario.navlog.legs,
+      navlog.legs.map((leg) => ({
+        segment: leg.segment,
+        magneticHeading: leg.magneticHeading,
+        groundspeedKt: leg.groundspeedKt,
+        distanceNm: leg.distanceNm,
+        eteMin: leg.eteMin,
+        fuelGal: leg.fuelGal,
+      })),
+    )
+    assert.equal(scenario.etaUtc, navlog.legs.at(-1).etaUtc)
+    assert.equal(scenario.navlog.tasKt, navlog.aircraft.tasKt)
+    assert.equal(scenario.navlog.gph, navlog.aircraft.gph)
+    // The brief and the report quote the code's numbers, never their own.
+    const answer = scenario.planAnswer
+    assert.match(answer, new RegExp(`\\b${navlog.totals.distanceNm} nm\\b`))
+    assert.match(answer, new RegExp(`ETE ${navlog.totals.eteMin} min`))
+    assert.match(answer, new RegExp(`${navlog.totals.fuelGal.toFixed(1)} gal burned`))
+    assert.match(answer, new RegExp(`${navlog.totals.fuelRemainingGal.toFixed(1)} gal at landing`))
+    const reserve = `${Math.floor(navlog.totals.reserveMin / 60)}:${String(navlog.totals.reserveMin % 60).padStart(2, "0")}`
+    assert.match(answer, new RegExp(`reserve ${reserve}\\b`))
+    assert.match(answer, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
+    const eta = navlog.legs.at(-1).etaUtc.slice(11, 16).replace(":", "")
+    assert.match(answer, new RegExp(`${eta}Z ETA`))
+    for (const leg of navlog.legs) {
+      assert.ok(
+        scenario.navlogTable.includes(
+          `| ${leg.from} | ${leg.to} | ${leg.segment} | ${leg.magneticHeading} | ${leg.groundspeedKt} | ${leg.distanceNm} | ${leg.eteMin} | ${leg.fuelGal} |`,
+        ),
+      )
+    }
+    // The filed reply reads the items the tool records.
+    assert.ok(formatFplMessage(navlog.flightPlan).includes(`-${navlog.flightPlan.item15}`))
+    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item15))
+    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item16))
+  }
+})
+
+test("the scripted briefs render in the weather strip, the verdict card and the planning answer", async () => {
+  const { parseWeatherBrief, parseWindsLine } = await importTemplate("web/app/lib/weather-selectors.ts")
+  const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
+  const { parsePlanningAnswer } = await importTemplate("web/app/lib/assistant-text.ts")
+  const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const brief = parseWeatherBrief(scenario.weatherBrief)
+    assert.deepEqual(
+      brief.airports.map((airport) => [airport.id, airport.now, airport.atEta]),
+      [
+        ["KSTP", "VFR", "VFR"],
+        ["KRST", "VFR", "VFR"],
+      ],
+    )
+    for (const airport of brief.airports) {
+      assert.match(airport.metar, new RegExp(`^METAR ${airport.id} `))
+      assert.match(airport.taf, new RegExp(`^TAF ${airport.id} `))
+    }
+    assert.equal(brief.verdict?.level, "GO")
+    assert.deepEqual(brief.advisories, [])
+    assert.equal(brief.winds.length, 1)
+    const wind = parseWindsLine(brief.winds[0])
+    assert.deepEqual([wind.leg, wind.dir, wind.kt, wind.altitudeFt, wind.station], [1, 320, 20, 4500, "MSP"])
+    assert.notEqual(brief.note, "")
+
+    const navlog = computeNavlog(scenario.navlogInput, () => now)
+    const verdict = resolveVerdict({ weather: brief, answer: scenario.planAnswer, navlog })
+    assert.equal(verdict.level, "GO")
+    assert.equal(verdict.raisedFrom, undefined)
+
+    const answer = parsePlanningAnswer(scenario.planAnswer)
+    assert.equal(answer.verdict?.level, "GO")
+    assert.deepEqual(
+      answer.sections.map((section) => section.title),
+      ["Watch for", "Numbers", "Assumptions"],
+    )
+    assert.match(answer.closing ?? "", /file the plan/)
+    assert.ok(scenario.planAnswer.split(/\s+/).length < 180)
+    // The eval's guards on a planning answer.
+    for (const pattern of [/\brecall\(/, /\[(completed|pending|in_progress)\]/, /reports\//, /engine-on/i]) {
+      assert.doesNotMatch(scenario.planAnswer, pattern)
+    }
+    assert.match(scenario.planAnswer, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
+    const assumptions = answer.sections.find((section) => section.title === "Assumptions")
+    assert.match(assumptions.items.join(" "), new RegExp(scenario.departureLabel))
+    assert.match(assumptions.items.join(" "), /1 person on board assumed/)
+
+    const filed = scenario.filedAnswer.split("\n")
+    assert.ok(filed.length >= 2 && filed.length <= 4)
+    assert.match(filed[0], /^Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z /)
+    assert.match(scenario.filedAnswer, /does not transmit to Flight Service/)
+    assert.ok(scenario.filedAnswer.includes(scenario.departureLabel))
+  }
+})
+
+/** GET a stub path and return status, content type and body. */
+async function getStub(baseUrl, path) {
+  const response = await fetch(`${baseUrl}/${path}`)
+  return {
+    status: response.status,
+    type: response.headers.get("content-type") ?? "",
+    body: await response.text(),
+  }
+}
+
+async function portIsFree(port) {
+  return new Promise((resolve) => {
+    const server = createNetServer()
+    server.once("error", () => resolve(false))
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => server.close(() => resolve(true)))
+  })
+}
+
+test("the AWC stub answers every endpoint over loopback, counts hits and frees its port", async () => {
+  const now = Date.parse("2026-10-07T15:20:00Z")
+  let asked = 0
+  const stub = await startAwcStub({
+    now,
+    getPort: async () => {
+      asked += 1
+      return getAvailableLoopbackPort()
+    },
+  })
+  const port = Number(new URL(stub.baseUrl).port)
+  try {
+    assert.equal(asked, 1)
+    assert.match(stub.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+    assert.deepEqual(stub.hits, { airport: 0, metar: 0, taf: 0, windtemp: 0, gairmet: 0, airsigmet: 0 })
+
+    const airport = await getStub(stub.baseUrl, "airport?ids=KSTP&format=json")
+    assert.equal(airport.status, 200)
+    assert.match(airport.type, /^application\/json/)
+    const [kstp] = JSON.parse(airport.body)
+    assert.equal(kstp.icaoId, "KSTP")
+    assert.equal(kstp.elev, 215)
+
+    const metar = await getStub(stub.baseUrl, "metar?ids=KSTP%2CKRST&format=json")
+    assert.equal(metar.status, 200)
+    assert.match(metar.type, /^application\/json/)
+    assert.deepEqual(
+      JSON.parse(metar.body).map((record) => [record.icaoId, record.fltCat, record.wdir, record.wspd]),
+      [
+        ["KSTP", "VFR", 320, 8],
+        ["KRST", "VFR", 320, 8],
+      ],
+    )
+
+    const taf = await getStub(stub.baseUrl, "taf?ids=KRST&format=json")
+    assert.equal(taf.status, 200)
+    assert.deepEqual(JSON.parse(taf.body).map((record) => record.icaoId), ["KRST"])
+
+    const windtemp = await getStub(stub.baseUrl, "windtemp?region=chi&level=low&fcst=06")
+    assert.equal(windtemp.status, 200)
+    assert.match(windtemp.type, /^text\/plain/)
+    assert.match(windtemp.body, /^FT {2}3000 {4}6000/m)
+    assert.match(windtemp.body, /^MSP 3220 3220\+05 /m)
+
+    for (const product of ["gairmet", "airsigmet"]) {
+      const advisories = await getStub(stub.baseUrl, `${product}?format=json`)
+      assert.equal(advisories.status, 200)
+      assert.match(advisories.type, /^application\/json/)
+      assert.deepEqual(JSON.parse(advisories.body), [])
+    }
+
+    // An id the stub does not know matches nothing, as AWC answers.
+    assert.equal((await getStub(stub.baseUrl, "metar?ids=KXXX&format=json")).status, 204)
+
+    const unknown = await getStub(stub.baseUrl, "pirep?format=json")
+    assert.equal(unknown.status, 404)
+    assert.match(unknown.body, /AWC stub: no endpoint \/pirep/)
+    const noFormat = await getStub(stub.baseUrl, "metar?ids=KSTP")
+    assert.equal(noFormat.status, 400)
+    assert.match(noFormat.body, /format=json/)
+    const badRegion = await getStub(stub.baseUrl, "windtemp?region=bos&level=low&fcst=06")
+    assert.equal(badRegion.status, 400)
+    assert.match(badRegion.body, /region/)
+
+    // A request the stub refuses (400) is not a hit: hits count what it served.
+    assert.deepEqual(stub.hits, { airport: 1, metar: 2, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 })
+  } finally {
+    await stub.close()
+  }
+  assert.equal(await portIsFree(port), true)
+  // Without getPort the stub takes any free loopback port.
+  const anyPort = await startAwcStub({ now })
+  try {
+    assert.match(anyPort.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+  } finally {
+    await anyPort.close()
+  }
+})
+
+test("the template's real tools parse the stub and agree with every scripted call and brief", async () => {
+  const now = Date.now()
+  const scenario = demoScenario({ now })
+  const stub = await startAwcStub({ now })
+  // The tools' shared AWC client reads B4_AWC_BASE_URL when its module loads;
+  // set only for this test's imports, so no turbo task depends on it.
+  const awcBaseUrlVariable = "B4_AWC_BASE_URL"
+  const previous = process.env[awcBaseUrlVariable]
+  process.env[awcBaseUrlVariable] = stub.baseUrl
+  try {
+    const tool = async (name) => (await importTemplate(`server/src/tools/${name}.ts`)).default
+    const written = new Map()
+    const ctx = {
+      signal: new AbortController().signal,
+      fs: {
+        async readFile(path) {
+          return readFile(join(TEMPLATE_ROOT, "server/workspace", path), "utf8")
+        },
+        async writeFile(path, content) {
+          written.set(path, content)
+        },
+      },
+    }
+    const groups = fixtureGroups(scenario.fixtures)
+    const callsOf = (key) => groups.get(key).filter((f) => f.response.toolCalls).map(toolCallOf)
+    const results = new Map()
+    const run = async (call) => {
+      const output = await (await tool(call.name))(call.arguments, ctx)
+      results.set(call.id, output)
+      return output
+    }
+
+    // The parent's own tools (the runtime's built-ins aside).
+    const parentCalls = callsOf(DEMO_PROMPT)
+    const byName = (name) => parentCalls.filter((call) => call.name === name)
+    const resolved = await run(byName("resolveDeparture")[0])
+    assert.equal(resolved.departureUtc, scenario.departureUtc)
+    const airports = []
+    for (const call of byName("lookupAirport")) airports.push(await run(call))
+    assert.deepEqual(
+      airports.map(({ id, lat, lon, elevationFt, magneticVariationDeg }) => ({
+        id,
+        kind: "airport",
+        lat,
+        lon,
+        elevationFt,
+        magneticVariationDeg,
+      })),
+      scenario.navlogInput.waypoints.map(({ id, kind, lat, lon, elevationFt, magneticVariationDeg }) => ({
+        id,
+        kind,
+        lat,
+        lon,
+        elevationFt,
+        magneticVariationDeg,
+      })),
+    )
+    const navlog = await run(byName("computeNavlog")[0])
+    assert.deepEqual(navlog.flightPlan, scenario.flightPlan)
+
+    // The weather child: every claim in its brief is what its tools returned.
+    const [metarCall, tafCall, windsCall, ...advisoryCalls] = callsOf(scenario.weatherInput)
+    const metars = await run(metarCall)
+    assert.deepEqual(
+      metars.map((m) => [m.id, m.flightCategory, m.windDirDeg, m.windKt, m.visibilityMi, m.ceilingFt]),
+      [
+        ["KSTP", "VFR", 320, 8, 10, null],
+        ["KRST", "VFR", 320, 8, 10, null],
+      ],
+    )
+    const tafs = await run(tafCall)
+    const eta = Date.parse(scenario.etaUtc)
+    const departure = Date.parse(scenario.departureUtc)
+    for (const taf of tafs) {
+      const covering = taf.periods.filter(
+        (period) => Date.parse(period.fromUtc) <= departure && Date.parse(period.toUtc) >= eta,
+      )
+      assert.equal(covering.length, 1, `${taf.id}'s TAF covers the flight`)
+      assert.equal(covering[0].flightCategory, "VFR")
+      assert.equal(covering[0].windDirDeg, 320)
+      assert.equal(covering[0].windKt, 8)
+      assert.equal(taf.periods.length, 1)
+    }
+    const winds = await run(windsCall)
+    assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
+    assert.deepEqual(scenario.navlogInput.winds, [{ dirDegTrue: 320, speedKt: 20 }])
+    for (const call of advisoryCalls) assert.deepEqual(await run(call), [])
+    for (const metar of metars) assert.ok(scenario.weatherBrief.includes(metar.raw))
+    for (const taf of tafs) assert.ok(scenario.weatherBrief.includes(taf.raw))
+    assert.ok(scenario.weatherBrief.includes(`valid ${winds.validAt}`))
+    assert.match(scenario.weatherBrief, /^Advisories: none$/m)
+    assert.match(scenario.weatherBrief, /^Forecast horizon: Departure is within TAF and winds-aloft coverage\.$/m)
+
+    // The performance child reads the real POH table it cites.
+    const [readCall] = callsOf(scenario.performanceInput)
+    const doc = await run(readCall)
+    assert.match(doc.content, /\| 4000 \| 2400 \| 68 \/ 111 \/ 7\.6 \| 64 \/ 110 \/ 7\.1 \|/)
+    assert.match(doc.content, /\| 6000 \| 2400 \| 64 \/ 110 \/ 7\.2 \| 60 \/ 109 \/ 6\.8 \|/)
+    assert.match(scenario.performanceBrief, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
+
+    // Turn 2 records the plan computeNavlog produced.
+    const [fileCall] = callsOf(DEMO_FILE_PROMPT)
+    const filed = await run(fileCall)
+    assert.equal(filed.status, "recorded")
+    assert.equal(filed.transmitted, false)
+    assert.match(written.get(filed.path), /^\(FPL-N738ZU-VG\n/)
+
+    for (const endpoint of Object.keys(stub.hits)) {
+      assert.ok(stub.hits[endpoint] >= 1, `the scripted flow reaches ${endpoint}`)
+    }
+  } finally {
+    if (previous === undefined) delete process.env[awcBaseUrlVariable]
+    else process.env[awcBaseUrlVariable] = previous
+    await stub.close()
+  }
+})
+
+test("demoAwcData keeps the stub's weather consistent with the scripted brief for any clock", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const data = demoAwcData(now)
+    for (const id of ["KSTP", "KRST"]) {
+      assert.ok(scenario.weatherBrief.includes(data.metars[id].rawOb))
+      assert.ok(scenario.weatherBrief.includes(data.tafs[id].rawTAF))
+      assert.ok(Date.parse(data.metars[id].reportTime) <= now + 60 * 60_000)
+    }
+    const product = data.windtemp(String(scenario.windsForecastHours <= 6 ? 6 : scenario.windsForecastHours <= 12 ? 12 : 24).padStart(2, "0"))
+    assert.match(product, /^MSP 3220 3220\+05 /m)
   }
 })

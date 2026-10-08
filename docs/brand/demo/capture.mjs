@@ -16,18 +16,13 @@ import { pathToFileURL } from "node:url"
 import { createAimock } from "../../../packages/testing/dist/index.js"
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_PROMPT } from "./scenario.mjs"
+import { DEMO_FIXTURES, DEMO_PLAN_ANSWER, DEMO_PLAN_TOOLS, DEMO_PROMPT } from "./scenario.mjs"
 import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
 
-const EXPECTED_TOOLS = DEMO_FIXTURES.flatMap(
-  (fixture) => fixture.response.toolCalls?.map((toolCall) => toolCall.name) ?? [],
-)
-const EXPECTED_ANSWER = DEMO_FIXTURES.findLast(
-  (fixture) => typeof fixture.response.content === "string",
-)?.response.content
-if (typeof EXPECTED_ANSWER !== "string") {
-  throw new Error("Canonical demo fixtures must end in a text answer")
-}
+// The parent's first turn: its tool steps and its planning answer. The
+// fixtures also script the filing turn and both subagents' own threads.
+const EXPECTED_TOOLS = DEMO_PLAN_TOOLS
+const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
 const DEFAULT_SCAFFOLD_PORTS = new Set([3002, 3010])
 const NODE_MINIMUM_MAJOR = 24
