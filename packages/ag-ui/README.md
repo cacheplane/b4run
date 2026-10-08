@@ -59,6 +59,17 @@ content independently, including nested model calls inside concurrent tools.
 An empty model produces no text message. Run completion, interruption, and errors
 close any remaining open messages.
 
+Every `TOOL_CALL_START` carries `parentMessageId`: the AG-UI id of the model
+message that announced the call. A `tool_call` (or `tool_call_args`) chunk names
+its model invocation as `data.messageId`, the identity its tokens carry, so the
+call's parent is the id that invocation's text uses, or a fresh id when the
+invocation only called tools. A client that builds its message list from events
+then holds an invocation's text and calls in one assistant message, and has an
+assistant message for a tool-only phase. Calls without an identity join the
+anonymous text just before them, until a result ends the model turn.
+`eventsFromState` files replayed calls the same way, under the checkpointed
+AIMessage's id.
+
 Anonymous tokens retain their implicit boundaries at tool events and run end.
 The CLI carries identity through in-process chunks, NDJSON, and live-turn
 snapshots. Raw Agent Protocol SSE retains its existing string `chunk` payload;
@@ -112,7 +123,7 @@ export default function Page() {
 `@b4run/ag-ui/react/copilotkit` is the only entry that imports `@copilotkit/react-core`; it needs a bundler (CopilotKit's bundle imports its own CSS), so import it from a bundled React app, not from Node or an edge runtime.
 
 - `B4Activity` wraps your chat: it hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt, and keeps the thread's turns current from the agent's events; `labels`, `hiddenTools` and `renderStep` reword, hide or re-render steps per tool.
-- `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows.
+- `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one row per turn rendered as `TurnActivity` (the turn's first assistant message with tool calls, holding every call of the turn, after its text when it has some), no toolbar under tool-only rows.
 - `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed, for a host with its own transcript.
 
 `react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by the `./react` and `./react/copilotkit` subpaths; only `./react/copilotkit` imports CopilotKit. Importing the root or `./sse` entry never loads them, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
@@ -121,7 +132,13 @@ export default function Page() {
 
 `@b4run/ag-ui/angular` is the same kit for Angular 22 or later: standalone, `OnPush` components with signal inputs (`<b4-turn-activity>`, `<b4-approval-card>`, the step rows such as `<li b4-step>`, and the building blocks) that render the same DOM contract as the React kit, from the same `@b4run/ag-ui/view` values, styled by the same sheet. Two connectors place them in a chat:
 
-- `@b4run/ag-ui/angular/events` takes any AG-UI event stream (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) with no chat framework: `provideB4Turns` folds it into a `B4TurnsStore`, `<b4-message-activity>` renders a turn's activity on its first assistant message, and `<b4-approvals>` renders the parked interrupts' approval cards.
+- `@b4run/ag-ui/angular/events` takes any AG-UI event stream (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) with no CopilotKit — your own transcript, or another chat framework's per-message slot: `provideB4Turns` folds it into a `B4TurnsStore`, `<b4-message-activity>` renders a turn's activity on its first assistant message (messages carry their tool calls as `toolCalls: { id }[]` or `toolCallIds: string[]`), and `<b4-approvals>` renders the parked interrupts' approval cards. `toResumeEntries(decisions, interrupts)` from `@b4run/ag-ui/view` turns the cards' decisions into the run's `resume` once every parked interrupt is decided, echoing each grant at `metadata.grant`:
+
+  ```ts
+  const parked = pendingApprovals(store.turns(), store.labels).map((card) => card.approval)
+  const result = toResumeEntries(decisions, parked)
+  if (result.ok) await agent.runAgent({ resume: result.entries })
+  ```
 - `@b4run/ag-ui/angular/copilotkit` drives CopilotKit's `<copilot-chat>` (`@copilotkit/angular` `>=0.5.3`, the only Angular entry that imports it): `provideB4Activity` follows the chat's agent into turns, and `B4ActivityAssistantMessageComponent` and `B4ActivityApprovalsComponent` go in the chat's `[assistantMessageComponent]` and `[messageViewChildrenComponent]`.
 
 ```ts

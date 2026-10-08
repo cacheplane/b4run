@@ -541,13 +541,19 @@ function projectToolCallFragments(
       const delta = state.stream.push(state.buffered)
       state.buffered = ""
       if (delta.length > 0) {
-        out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+        out.push({
+          type: "tool_call_args",
+          data: { id: state.id, name: state.name, delta, messageId: runId },
+        })
       }
       continue
     }
     const delta = state.stream.push(args)
     if (delta.length > 0) {
-      out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+      out.push({
+        type: "tool_call_args",
+        data: { id: state.id, name: state.name, delta, messageId: runId },
+      })
     }
   }
   return out
@@ -563,7 +569,10 @@ function flushToolCallFragments(tools: ToolProjectionState, runId: string): Agen
     if (state.mode !== "streaming") continue
     const delta = state.stream.flush()
     if (delta.length > 0) {
-      out.push({ type: "tool_call_args", data: { id: state.id, name: state.name, delta } })
+      out.push({
+        type: "tool_call_args",
+        data: { id: state.id, name: state.name, delta, messageId: runId },
+      })
     }
   }
   return out
@@ -948,7 +957,12 @@ function classifyStreamEvent(
         if (id === undefined || name === undefined) continue
         if (tools.announcedToolCallIds.has(id)) continue
         tools.announcedToolCallIds.add(id)
-        chunks.push({ type: "tool_call", data: { id, name, input: call.args } })
+        // `messageId` is the invocation's identity, as on its text tokens: the
+        // AG-UI mapper files the call under that invocation's message.
+        chunks.push({
+          type: "tool_call",
+          data: { id, name, input: call.args, messageId: event.run_id },
+        })
       }
       if (chunks.length === 0) break
       return {

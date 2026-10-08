@@ -743,12 +743,16 @@ export async function* streamResolvedRoute(
               id?: string
               name: string
               input: unknown
+              messageId?: unknown
             }
             yield {
               type: "tool_call",
               ...(tc.id ? { id: tc.id } : {}),
               name: tc.name,
               input: tc.input,
+              ...(typeof tc.messageId === "string" && tc.messageId !== ""
+                ? { messageId: tc.messageId }
+                : {}),
             }
             break
           }

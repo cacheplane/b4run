@@ -18,6 +18,8 @@
 //
 // - Message and tool-call ids: live carries the stream's ids; replay carries
 //   the checkpoint messages' ids. Both become first-seen ordinals (`m0`, `c0`).
+//   A call's `parentMessageId` shares the message ordinals, so both sides must
+//   file each call under the same model message — a tool-only one included.
 // - The user message: live `RUN_STARTED` carries no `input` (the client
 //   already holds what it sent), so the live chat is seeded with the text the
 //   test sent; replay carries it in `RUN_STARTED.input.messages`.
@@ -281,7 +283,14 @@ async function readEvents(handler: Handler, threadId: string): Promise<EventsBod
 type ChatEntry =
   | { readonly role: "user"; readonly id: string; readonly content: string }
   | { readonly role: "assistant"; readonly id: string; content: string }
-  | { readonly role: "toolCall"; readonly id: string; readonly name: string; args: string }
+  | {
+      readonly role: "toolCall"
+      readonly id: string
+      readonly name: string
+      /** The model message the call is filed under (`parentMessageId`), as a message ordinal. */
+      readonly parent: string
+      args: string
+    }
   | { readonly role: "tool"; readonly toolCallId: string; readonly content: string }
 
 interface Chat {
@@ -359,10 +368,15 @@ function chatOf(events: readonly BaseEvent[], seedUserText?: string): Chat {
         break
       }
       case "TOOL_CALL_START": {
+        expect(
+          event.parentMessageId,
+          `TOOL_CALL_START without parentMessageId for ${String(event.toolCallId)}`,
+        ).toEqual(expect.any(String))
         const known = calls.get(String(event.toolCallId))
         if (known) {
           // A resumed run re-presents its parked call under the same id, args
-          // included: the same call, not a second one.
+          // included: the same call, not a second one. A client keeps it in the
+          // message it was first filed under, so its parent is the first one.
           expect(known.name).toBe(String(event.toolCallName))
           known.args = ""
           break
@@ -371,6 +385,7 @@ function chatOf(events: readonly BaseEvent[], seedUserText?: string): Chat {
           args: "",
           id: callId(String(event.toolCallId)),
           name: String(event.toolCallName),
+          parent: messageId(String(event.parentMessageId)),
           role: "toolCall" as const,
         }
         calls.set(String(event.toolCallId), entry)
@@ -460,9 +475,15 @@ describe("a thread replayed through GET /threads/:id/events restores its live ch
     expect(liveChat).toEqual({
       entries: [
         { content: "search", id: "m0", role: "user" },
-        { args: JSON.stringify({ query: "x" }), id: "c0", name: "searchCorpus", role: "toolCall" },
+        {
+          args: JSON.stringify({ query: "x" }),
+          id: "c0",
+          name: "searchCorpus",
+          parent: "m1",
+          role: "toolCall",
+        },
         { content: expect.any(String), role: "tool", toolCallId: "c0" },
-        { content: "Found it.", id: "m1", role: "assistant" },
+        { content: "Found it.", id: "m2", role: "assistant" },
       ],
       outcome: { type: "success" },
     })
@@ -530,10 +551,11 @@ describe("a thread replayed through GET /threads/:id/events restores its live ch
           args: JSON.stringify({ env: "staging" }),
           id: "c0",
           name: "deployProd",
+          parent: "m1",
           role: "toolCall",
         },
         { content: expect.any(String), role: "tool", toolCallId: "c0" },
-        { content: "Deployed.", id: "m1", role: "assistant" },
+        { content: "Deployed.", id: "m2", role: "assistant" },
       ],
       outcome: { type: "success" },
     })

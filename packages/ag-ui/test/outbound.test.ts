@@ -83,7 +83,12 @@ describe("toAguiEvents", () => {
         runId: "rn-1",
         protocolVersion: PROTOCOL_VERSION,
       },
-      { type: EventType.TOOL_CALL_START, toolCallId: "run-abc", toolCallName: "greet" },
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "run-abc",
+        toolCallName: "greet",
+        parentMessageId: "msg-1",
+      },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "run-abc", delta: '{"name":"World"}' },
       { type: EventType.TOOL_CALL_END, toolCallId: "run-abc" },
       {
@@ -1059,7 +1064,12 @@ describe("streamed tool-call arguments", () => {
         runId: "rn-1",
         protocolVersion: PROTOCOL_VERSION,
       },
-      { type: EventType.TOOL_CALL_START, toolCallId: "call_1", toolCallName: "weather" },
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "call_1",
+        toolCallName: "weather",
+        parentMessageId: "msg-1",
+      },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '{"city":' },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"Paris",' },
       { type: EventType.TOOL_CALL_ARGS, toolCallId: "call_1", delta: '"days":3}' },
@@ -1799,7 +1809,7 @@ describe("subagents", () => {
     })
     expect(out[5]).toEqual({
       type: EventType.TEXT_MESSAGE_START,
-      messageId: "msg-1",
+      messageId: "msg-2",
       role: "assistant",
       subagentRunId: CHILD.call_id,
     })
@@ -1810,7 +1820,7 @@ describe("subagents", () => {
     })
     expect(out[7]).toEqual({
       type: EventType.TEXT_MESSAGE_END,
-      messageId: "msg-1",
+      messageId: "msg-2",
       subagentRunId: CHILD.call_id,
     })
     expect(out[8]).toEqual({
@@ -2041,6 +2051,112 @@ describe("subagents", () => {
       EventType.SUBAGENT_FINISHED,
       EventType.RUN_FINISHED,
     ])
+  })
+})
+
+describe("parentMessageId", () => {
+  const starts = (events: Awaited<ReturnType<typeof collect>>) =>
+    events.filter((event) => event.type === EventType.TOOL_CALL_START)
+
+  test("a call names the message its invocation's text was framed with, after that text ended", async () => {
+    const events = await collect([
+      { type: "token", data: "Checking.", messageId: "run-1" },
+      { type: "message_end", data: { messageId: "run-1" } },
+      { type: "tool_call", data: { id: "c1", name: "search", input: {}, messageId: "run-1" } },
+      { type: "done", data: {} },
+    ])
+    expect(events[1]).toMatchObject({ type: EventType.TEXT_MESSAGE_START, messageId: "msg-1" })
+    expect(starts(events)).toEqual([
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "c1",
+        toolCallName: "search",
+        parentMessageId: "msg-1",
+      },
+    ])
+  })
+
+  test("a tool-only invocation gets its own id, shared by its calls and its streamed call", async () => {
+    const events = await collect([
+      { type: "token", data: "First.", messageId: "run-1" },
+      { type: "message_end", data: { messageId: "run-1" } },
+      {
+        type: "tool_call_args",
+        data: { id: "c1", name: "draft", delta: "{}", messageId: "run-2" },
+      },
+      { type: "tool_call", data: { id: "c1", name: "draft", input: {}, messageId: "run-2" } },
+      { type: "tool_call", data: { id: "c2", name: "search", input: {}, messageId: "run-2" } },
+      { type: "done", data: {} },
+    ])
+    expect(starts(events).map((event) => event.parentMessageId)).toEqual(["msg-2", "msg-2"])
+    expect(events.filter((event) => event.type === EventType.TEXT_MESSAGE_START)).toHaveLength(1)
+  })
+
+  test("a child's call names the child's message and is tagged with its owner", async () => {
+    const child = { call_id: "task-1", subagent: "researcher", route_id: "/r#researcher", depth: 1 }
+    const events = await collect([
+      { type: "tool_call", data: { id: "task-1", name: "task", input: {}, messageId: "run-1" } },
+      { type: "subagent.start", data: child },
+      { type: "subagent.token", data: { ...child, data: "Reading", messageId: "child-run" } },
+      { type: "subagent.message_end", data: { ...child, messageId: "child-run" } },
+      {
+        type: "subagent.tool_call",
+        data: { ...child, id: "c1", name: "readDoc", input: {}, messageId: "child-run" },
+      },
+      { type: "subagent.end", data: { ...child, final_message: "ok" } },
+      { type: "done", data: {} },
+    ])
+    expect(events.find((event) => event.type === EventType.TEXT_MESSAGE_START)).toEqual({
+      type: EventType.TEXT_MESSAGE_START,
+      messageId: "msg-2",
+      role: "assistant",
+      subagentRunId: "task-1",
+    })
+    expect(starts(events)).toEqual([
+      expect.objectContaining({ toolCallId: "task-1", parentMessageId: "msg-1" }),
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "c1",
+        toolCallName: "readDoc",
+        parentMessageId: "msg-2",
+        subagentRunId: "task-1",
+      },
+    ])
+    expect(starts(events)[0]).not.toHaveProperty("subagentRunId")
+  })
+
+  test("anonymous producers: calls join the text just before them until a result ends the turn", async () => {
+    const events = await collect([
+      { type: "token", data: "Looking." },
+      { type: "tool_call", data: { id: "c1", name: "search", input: {} } },
+      { type: "tool_call", data: { id: "c2", name: "search", input: {} } },
+      { type: "tool_result", data: { id: "c1", name: "search", output: "1" } },
+      { type: "tool_result", data: { id: "c2", name: "search", output: "2" } },
+      { type: "tool_call", data: { id: "c3", name: "search", input: {} } },
+      { type: "tool_call", data: { id: "c4", name: "search", input: {} } },
+      { type: "tool_result", data: { id: "c3", name: "search", output: "3" } },
+      { type: "done", data: {} },
+    ])
+    expect(starts(events).map((event) => event.parentMessageId)).toEqual([
+      "msg-1",
+      "msg-1",
+      "msg-2",
+      "msg-2",
+    ])
+  })
+
+  test("text arriving after its invocation ended opens a fresh message, never a closed one", async () => {
+    const events = await collect([
+      { type: "token", data: "One.", messageId: "run-1" },
+      { type: "message_end", data: { messageId: "run-1" } },
+      { type: "token", data: "Late.", messageId: "run-1" },
+      { type: "done", data: {} },
+    ])
+    expect(
+      events
+        .filter((event) => event.type === EventType.TEXT_MESSAGE_START)
+        .map((event) => event.messageId),
+    ).toEqual(["msg-1", "msg-2"])
   })
 })
 

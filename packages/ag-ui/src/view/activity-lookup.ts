@@ -25,14 +25,39 @@ export function turnForToolCalls(turns: TurnsView, ids: readonly string[]): Turn
 }
 
 /**
- * The parts of a transcript message the turn lookup reads. AG-UI's `Message`
- * fits, and so does any host message type with an id, a role and the
- * assistant's tool calls.
+ * The parts of a transcript message the turn lookup reads: an id, a role and
+ * the assistant's tool calls, either as AG-UI spells them (`toolCalls`, as on
+ * AG-UI's `Message`) or as a bare id list (`toolCallIds`), the shape some chat
+ * hosts keep. `toolCallIds` is read only when `toolCalls` is absent.
  */
-export interface TranscriptMessage {
-  readonly id: string
-  readonly role: string
-  readonly toolCalls?: ReadonlyArray<{ readonly id: string }> | undefined
+export type TranscriptMessage =
+  | {
+      readonly id: string
+      readonly role: string
+      readonly toolCalls?: ReadonlyArray<{ readonly id: string }> | undefined
+    }
+  | {
+      readonly id: string
+      readonly role: string
+      readonly toolCallIds?: readonly string[] | undefined
+    }
+
+/** A transcript message's tool call ids: `toolCalls`' ids, else `toolCallIds`, else none. */
+export function toolCallIdsOf(message: TranscriptMessage): readonly string[] {
+  const { toolCalls, toolCallIds } = message as {
+    readonly toolCalls?: unknown
+    readonly toolCallIds?: unknown
+  }
+  if (Array.isArray(toolCalls)) {
+    return toolCalls.flatMap((call: unknown) => {
+      const id = (call as { readonly id?: unknown } | null)?.id
+      return typeof id === "string" ? [id] : []
+    })
+  }
+  if (Array.isArray(toolCallIds)) {
+    return toolCallIds.filter((id: unknown): id is string => typeof id === "string")
+  }
+  return []
 }
 
 /** The turn an assistant message belongs to, and whether it is that turn's first assistant message. */
@@ -81,7 +106,7 @@ export function turnForMessage(
   const run = runs[index]
   if (run === undefined) return undefined
   const first = run[0]?.id === messageId
-  const ids = run.flatMap((m) => m.toolCalls?.map((call) => call.id) ?? [])
+  const ids = run.flatMap((m) => [...toolCallIdsOf(m)])
   const byIds = turnForToolCalls(turns, ids)
   if (byIds !== undefined) return { turn: byIds, first }
   // A trailing user message's run has not started (no turn yet) while the

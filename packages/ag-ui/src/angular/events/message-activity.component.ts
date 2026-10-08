@@ -25,7 +25,10 @@ import { B4TurnsStore, resolveStore } from "./turns-store.js"
 export class MessageActivityComponent {
   /** The id of the message this slot renders. */
   readonly messageId = input.required<string>()
-  /** The host's transcript, in order (AG-UI `Message`s, or anything with id, role and toolCalls). */
+  /**
+   * The host's transcript, in order: AG-UI `Message`s, or any message with an
+   * id, a role and either `toolCalls: { id }[]` or `toolCallIds: string[]`.
+   */
   readonly messages = input.required<readonly TranscriptMessage[]>()
   /** The turns; defaults to the injected `B4TurnsStore`. */
   readonly storeInput = input<B4TurnsStore | undefined>(undefined, { alias: "store" })

@@ -530,6 +530,8 @@ const ID_KEYS = new Set([
   "id",
   "message_id",
   "messageId",
+  // AG-UI `TOOL_CALL_START.parentMessageId`: the translator's per-run message uuid.
+  "parentMessageId",
   "run_id",
   "runId",
   "thread_id",

@@ -246,6 +246,62 @@ describe("eventsFromState", () => {
     expect(messages[3]).toMatchObject({ id: "a2", role: "assistant", content: "Found it." })
   })
 
+  it("files every call under the AIMessage that announced it, as live does: text and calls in one message", async () => {
+    const calls = [
+      { id: "c1", name: "searchCorpus", args: { query: "x" }, type: "tool_call" },
+      { id: "c2", name: "searchCorpus", args: { query: "y" }, type: "tool_call" },
+    ]
+    const stamp = { status: "completed", startedAt: iso(1), settledAt: iso(2) }
+    const turn = [
+      human("u1", "search"),
+      ai("a1", "Looking.", calls),
+      toolMsg("c1", "searchCorpus", "1", stamp),
+      toolMsg("c2", "searchCorpus", "2", stamp),
+      ai("a2", "Found it."),
+    ]
+    const { events } = eventsFromState(
+      base([
+        ckpt("k0", 0, turn.slice(0, 1)),
+        ckpt("k1", 1, turn.slice(0, 2)),
+        ckpt("k2", 2, turn, { metadata: { "b4:turn": { status: "done", endedAt: iso(3) } } }),
+      ]),
+    )
+    expect(
+      ofType(events, EventType.TOOL_CALL_START).map((e) => [e.toolCallId, e.parentMessageId]),
+    ).toEqual([
+      ["c1", "a1"],
+      ["c2", "a1"],
+    ])
+    expect(await verified(events)).toHaveLength(events.length)
+    const assistants = (await messagesAfterConnect(events)).filter((m) => m.role === "assistant")
+    expect(assistants.map((m) => [m.id, m.content, m.toolCalls?.map((c) => c.id) ?? []])).toEqual([
+      ["a1", "Looking.", ["c1", "c2"]],
+      ["a2", "Found it.", []],
+    ])
+  })
+
+  it("files a child's calls under the child's AIMessage, owned by the child", async () => {
+    const { events } = eventsFromState(parkedChild())
+    expect(
+      ofType(events, EventType.TOOL_CALL_START).map((e) => [
+        e.toolCallId,
+        e.parentMessageId,
+        e.subagentRunId,
+      ]),
+    ).toEqual([
+      ["ct", "a1", undefined],
+      ["n1", "ca1", "ct"],
+    ])
+    expect(await verified(events)).toHaveLength(events.length)
+    const messages = await messagesAfterConnect(events)
+    expect(messages.find((m) => m.id === "ca1")).toMatchObject({
+      role: "assistant",
+      subagentRunId: "ct",
+      toolCalls: [expect.objectContaining({ id: "n1" })],
+    })
+    expect(messages.find((m) => m.id === "a1")).not.toHaveProperty("subagentRunId")
+  })
+
   it("replays a failed turn followed by another: both user messages, verifier-clean", async () => {
     const { events } = eventsFromState(failedThenDone())
     expect(ofType(events, EventType.RUN_ERROR)).toHaveLength(1)

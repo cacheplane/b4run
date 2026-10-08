@@ -163,7 +163,8 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
 | `turnForToolCalls` | The turn that owns any of these tool call ids, nested subagent calls included. |
 | `turnForMessage` | The turn an assistant message belongs to, by the tool calls of its run of messages, else by position from the end of the thread; `first` marks the run's first assistant message, where a chat with one slot per message renders the turn's activity. |
-| `TranscriptMessage` | What `turnForMessage` reads of a message: id, role and the assistant's tool calls. AG-UI's `Message` fits. |
+| `TranscriptMessage` | What `turnForMessage` reads of a message: id, role and the assistant's tool calls, as `toolCalls: { id }[]` (AG-UI's `Message` fits) or as `toolCallIds: string[]`; `toolCallIds` is read only when `toolCalls` is absent. |
+| `toolCallIdsOf` | A transcript message's tool call ids: `toolCalls`' ids, else `toolCallIds`, else none. |
 | `MessageTurn` | A message's turn and whether the message is the turn's first assistant message. |
 | `approvalFromInterrupt` | A parked AG-UI interrupt as an `ApprovalView`: kind, detail, message, grant, and whether "Always allow" is offered. |
 | `approvalPrompt` | The card's title, `{agent} wants to {label}`, for a parked interrupt: the gated step's running label and the subagent it sits in, else "The agent" and "continue". |
@@ -171,6 +172,10 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `ApprovalPrompt` | An approval card's agent and label. |
 | `pendingApprovals` | The approval cards an awaiting thread shows, read from its turns alone: every awaiting step's approval in the last turn and its paused subagents, then the interrupts that named no step. |
 | `PendingApproval` | One card to show: the `ApprovalView` and its prompt. |
+| `toResumeEntries` | The AG-UI `resume` entries for approval decisions: `once`/`always` resolve with that payload, `deny` cancels, each interrupt's grant rides at `metadata.grant`, in the parked interrupts' order. Every parked interrupt must be decided first: until then it returns `{ ok: false, reason: "undecided" }` naming the rest (`unknown_interrupt` for a decision on an interrupt that is not parked, `no_interrupts` when nothing is). Pure. |
+| `InterruptDecision` | A decision on one parked interrupt: its id and `once`, `always` or `deny`. |
+| `ResumableInterrupt` | A parked interrupt `toResumeEntries` answers: an AG-UI `Interrupt` (grant at `metadata.grant`) or an `ApprovalView` (grant at `grant`). |
+| `ResumeEntriesResult` | What `toResumeEntries` returns: `{ ok: true, entries }`, or `{ ok: false, reason, interruptIds }`. |
 | `summaryLine` | The summary sentence and meta for a turn at a given time. |
 | `nestedSummaryLine` | The summary of a subagent's own turn: like any turn while it runs, then "researcher · paused", "researcher finished · 5 steps" or "researcher failed · boom". |
 | `NestedTurn` | A subagent's name and status, as its nested turn's summary needs them. |
@@ -320,9 +325,9 @@ The Angular kit's connector for any chat, with no chat framework: give it the th
 | `B4TurnsOptions` | The store's options: `events$`, `hiddenTools`, `labels`, `renderStep` and the clock. |
 | `B4EventStream` | A stream of AG-UI events: an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`. |
 | `B4TurnEvent` | One AG-UI event, as `reduceTurns` folds it. |
-| `MessageActivityComponent` | `<b4-message-activity [messageId] [messages]>`: the turn's `<b4-turn-activity>` on its first assistant message, nothing on the others. |
+| `MessageActivityComponent` | `<b4-message-activity [messageId] [messages]>`: the turn's `<b4-turn-activity>` on its first assistant message, nothing on the others. `[messages]` takes AG-UI `Message`s or any `TranscriptMessage`, tool calls as `toolCalls` or `toolCallIds`. |
 | `ApprovalsComponent` | `<b4-approvals [resume]? (decide)>`: one approval card per parked interrupt; a click marks the resume, then emits and awaits the decision. |
-| `B4ApprovalDecision` | A decision on one parked interrupt: its id and `once`, `always` or `deny`. |
+| `B4ApprovalDecision` | A decision on one parked interrupt: its id and `once`, `always` or `deny` (the view's `InterruptDecision`); `toResumeEntries` turns the decisions on every parked interrupt into the run's `resume`. |
 
 ### `@b4run/ag-ui/angular/copilotkit`
 

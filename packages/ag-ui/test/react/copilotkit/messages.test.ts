@@ -50,6 +50,32 @@ describe("mergeTurnMessages", () => {
     expect(toolCallIds(out[1])).toEqual(["c1", "c2"])
   })
 
+  test("a row carrying text and calls (B4's parentMessageId grouping) is the turn's row; later text keeps its words, not its calls", () => {
+    const withText = (id: string, content: string, ...ids: string[]): Message => ({
+      id,
+      role: "assistant",
+      content,
+      toolCalls: ids.map(call),
+    })
+    const out = mergeTurnMessages([
+      user("u1"),
+      withText("a1", "Looking.", "c1", "c2"),
+      result("t1", "c1"),
+      result("t2", "c2"),
+      calls("a2", "c3"),
+      result("t3", "c3"),
+      withText("a3", "One more.", "c4"),
+      result("t4", "c4"),
+      text("a4"),
+    ])
+    expect(out.map((m) => m.id)).toEqual(["u1", "a1", "t1", "t2", "t3", "a3", "t4", "a4"])
+    expect(toolCallIds(out[1])).toEqual(["c1", "c2", "c3", "c4"])
+    expect(out[1]).toMatchObject({ content: "Looking." })
+    expect(out[5]).toEqual({ id: "a3", role: "assistant", content: "One more." })
+    // Exactly one row per turn carries calls: one activity.
+    expect(out.filter((m) => toolCallIds(m).length > 0)).toHaveLength(1)
+  })
+
   test("drops subagent messages and returns the same array when nothing changes", () => {
     const sub = { ...text("s1"), subagentRunId: "k1" } as Message
     expect(mergeTurnMessages([user("u1"), sub, text("a1")]).map((m) => m.id)).toEqual(["u1", "a1"])

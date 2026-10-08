@@ -900,3 +900,54 @@ it("the gate itself bites: an unknown key on an event fails the run", async () =
   ])
   await expect(runThroughClient(url, { runId: "r1" })).rejects.toThrow(/stripped or translated/)
 })
+
+it("every tool call names its model message: the client files an invocation's text and calls together", async () => {
+  const child = { ...childIdentity, call_id: "task-1" }
+  const stream: B4AgentStreamChunk[] = [
+    // Invocation m1: text, then two calls announced at its end.
+    { type: "token", data: "Let me look.", messageId: "m1" },
+    { type: "message_end", data: { messageId: "m1" } },
+    { type: "tool_call", data: { id: "a", name: "search", input: {}, messageId: "m1" } },
+    { type: "tool_call", data: { id: "b", name: "search", input: {}, messageId: "m1" } },
+    { type: "tool_result", data: { id: "a", name: "search", output: "1" } },
+    { type: "tool_result", data: { id: "b", name: "search", output: "2" } },
+    // Invocation m2 is tool-only: no TEXT_MESSAGE_START ever names it.
+    { type: "tool_call", data: { id: "task-1", name: "task", input: {}, messageId: "m2" } },
+    { type: "subagent.start", data: child },
+    {
+      type: "subagent.tool_call",
+      data: { ...child, id: "c", name: "readDoc", input: {}, messageId: "cm1" },
+    },
+    { type: "subagent.tool_result", data: { ...child, id: "c", name: "readDoc", output: "x" } },
+    { type: "subagent.end", data: { ...child, final_message: "read" } },
+    { type: "tool_result", data: { id: "task-1", name: "task", output: "read" } },
+    { type: "token", data: "Done.", messageId: "m3" },
+    { type: "message_end", data: { messageId: "m3" } },
+    { type: "done", data: {} },
+  ]
+  const { url } = await startCannedServer([{ stream: () => toAsync(stream) }])
+  const { agent, events } = await runThroughClient(url, { runId: "r1" })
+
+  const starts = events.filter((event) => event.type === EventType.TOOL_CALL_START)
+  for (const start of starts) expect(start.parentMessageId).toEqual(expect.any(String))
+  const texts = events.filter((event) => event.type === EventType.TEXT_MESSAGE_START)
+  // m1's calls name the message its text was framed with.
+  expect(starts[0]?.parentMessageId).toBe(texts[0]?.messageId)
+  expect(starts[1]?.parentMessageId).toBe(texts[0]?.messageId)
+
+  const assistants = agent.messages.filter((message) => message.role === "assistant")
+  expect(
+    assistants.map((message) => [
+      message.content ?? "",
+      message.toolCalls?.map((call) => call.id) ?? [],
+    ]),
+  ).toEqual([
+    ["Let me look.", ["a", "b"]],
+    ["", ["task-1"]],
+    ["", ["c"]],
+    ["Done.", []],
+  ])
+  // The child's call sits in a message the child owns.
+  expect(assistants[2]).toMatchObject({ subagentRunId: "task-1" })
+  expect(assistants[1]).not.toHaveProperty("subagentRunId")
+})

@@ -38,6 +38,12 @@ export interface B4ToolCallData {
   readonly id?: string | undefined
   readonly name: string
   readonly input: unknown
+  /**
+   * The model invocation that announced the call — the same identity its
+   * text tokens carry as `messageId`. Omitted by legacy producers and for a
+   * call no model turn announced (a resumed call re-presented on resume).
+   */
+  readonly messageId?: string | undefined
 }
 
 /**
@@ -48,6 +54,8 @@ export interface B4ToolCallArgsData {
   readonly id: string
   readonly name: string
   readonly delta: string
+  /** The model invocation streaming the call, as on `B4ToolCallData`. */
+  readonly messageId?: string | undefined
 }
 
 export interface B4ToolResultData {
@@ -78,6 +86,9 @@ export function asToolCallData(data: unknown): B4ToolCallData | null {
     id: typeof data.id === "string" ? data.id : undefined,
     name: data.name,
     input: data.input,
+    ...(typeof data.messageId === "string" && data.messageId !== ""
+      ? { messageId: data.messageId }
+      : {}),
   }
 }
 
@@ -86,7 +97,14 @@ export function asToolCallArgsData(data: unknown): B4ToolCallArgsData | null {
   if (!isRecord(data)) return null
   if (typeof data.id !== "string" || data.id === "") return null
   if (typeof data.name !== "string" || typeof data.delta !== "string") return null
-  return { id: data.id, name: data.name, delta: data.delta }
+  return {
+    id: data.id,
+    name: data.name,
+    delta: data.delta,
+    ...(typeof data.messageId === "string" && data.messageId !== ""
+      ? { messageId: data.messageId }
+      : {}),
+  }
 }
 
 /** Validates and narrows a `tool_result` chunk's `data`. Returns null if malformed. */

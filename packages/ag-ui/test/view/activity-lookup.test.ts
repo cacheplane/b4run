@@ -5,6 +5,7 @@ import {
   approvalPrompt,
   pendingApprovals,
   type TranscriptMessage,
+  toolCallIdsOf,
   turnForMessage,
   turnForToolCalls,
 } from "../../src/view/activity-lookup.ts"
@@ -79,11 +80,36 @@ describe("turnForMessage", () => {
     expect(turnForMessage(two, live, "a2")).toEqual({ turn: turns.turns[1], first: true })
   })
 
+  test("a host transcript with toolCallIds instead of toolCalls finds the same turns", () => {
+    const hostShape: TranscriptMessage[] = messages.map((m) => {
+      const ids = toolCallIdsOf(m)
+      return ids.length > 0 ? { id: m.id, role: m.role, toolCallIds: [...ids] } : m
+    })
+    for (const id of ["a1", "a2", "a3", "a4", "a5"]) {
+      expect(turnForMessage(turns, hostShape, id)).toEqual(turnForMessage(turns, messages, id))
+    }
+    expect(turnForMessage(turns, hostShape, "a5")).toEqual({ turn: turns.turns[2], first: false })
+  })
+
   test("undefined for a user message, a subagent message, an unknown id, or no turn", () => {
     expect(turnForMessage(turns, messages, "u1")).toBeUndefined()
     expect(turnForMessage(turns, messages, "x")).toBeUndefined()
     expect(turnForMessage(turns, messages, "zz")).toBeUndefined()
     expect(turnForMessage({ turns: [] }, [user("u"), assistant("a")], "a")).toBeUndefined()
+  })
+})
+
+describe("toolCallIdsOf", () => {
+  test("reads toolCalls, else toolCallIds, else nothing", () => {
+    expect(toolCallIdsOf({ id: "a", role: "assistant", toolCalls: [{ id: "c1" }] })).toEqual(["c1"])
+    expect(toolCallIdsOf({ id: "a", role: "assistant", toolCallIds: ["c1", "c2"] })).toEqual([
+      "c1",
+      "c2",
+    ])
+    // toolCalls wins when both are present.
+    const both = { id: "a", role: "assistant", toolCalls: [{ id: "x" }], toolCallIds: ["y"] }
+    expect(toolCallIdsOf(both as TranscriptMessage)).toEqual(["x"])
+    expect(toolCallIdsOf({ id: "a", role: "assistant" })).toEqual([])
   })
 })
 

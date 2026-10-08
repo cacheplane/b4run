@@ -99,6 +99,22 @@ interface OwnerState {
    */
   readonly openStreamedToolCalls: Map<string, string>
   readonly pendingFallbackToolCallIds: Map<string, string[]>
+  /**
+   * Every model invocation's AG-UI message id, kept after its text ends: the
+   * calls an invocation announces (at its end, after its `message_end`) carry
+   * that id as `parentMessageId`, so a host that builds its message list from
+   * events holds the invocation's text and its calls in one assistant
+   * message — and has an assistant message for a tool-only invocation too.
+   */
+  readonly modelMessages: Map<string, string>
+  /** Invocations whose text already ended: a late delta opens a fresh message. */
+  readonly endedModelText: Set<string>
+  /**
+   * The parent of a call whose producer names no invocation: the anonymous
+   * text just before it, else a fresh id shared by the calls up to the next
+   * result or text.
+   */
+  anonymousParent: string | null
 }
 
 /** An announced subagent invocation that has not closed yet. */
@@ -303,6 +319,9 @@ function newOwnerState(): OwnerState {
     identifiedReasoning: new Map(),
     openStreamedToolCalls: new Map(),
     pendingFallbackToolCallIds: new Map(),
+    modelMessages: new Map(),
+    endedModelText: new Set(),
+    anonymousParent: null,
   }
 }
 
@@ -376,6 +395,23 @@ export async function* toAguiEvents(
     }
   }
 
+  /**
+   * The AG-UI message id of the model invocation `sourceId` names (the id its
+   * text uses), or — for a producer that names none — the anonymous parent.
+   */
+  function modelMessageId(state: OwnerState, sourceId: string | undefined): string {
+    if (sourceId === undefined) {
+      state.anonymousParent ??= nextId("message")
+      return state.anonymousParent
+    }
+    let messageId = state.modelMessages.get(sourceId)
+    if (messageId === undefined) {
+      messageId = nextId("message")
+      state.modelMessages.set(sourceId, messageId)
+    }
+    return messageId
+  }
+
   function* openReasoningFrame(owner: Owner): Generator<AguiOutboundEvent, OpenReasoning> {
     const open: OpenReasoning = { spanId: nextId("reasoningSpan"), messageId: nextId("reasoning") }
     yield* emit(owner, { type: EventType.REASONING_START, messageId: open.spanId })
@@ -411,6 +447,7 @@ export async function* toAguiEvents(
     const messageId = state.identifiedMessages.get(sourceId)
     if (messageId === undefined) return
     state.identifiedMessages.delete(sourceId)
+    state.endedModelText.add(sourceId)
     yield* emit(owner, { type: EventType.TEXT_MESSAGE_END, messageId })
   }
 
@@ -544,9 +581,12 @@ export async function* toAguiEvents(
             : undefined
         if (sourceId !== undefined) {
           yield* flushText(owner)
+          state.anonymousParent = null
           let messageId = state.identifiedMessages.get(sourceId)
           if (messageId === undefined) {
-            messageId = nextId("message")
+            messageId = state.endedModelText.has(sourceId)
+              ? nextId("message")
+              : modelMessageId(state, sourceId)
             state.identifiedMessages.set(sourceId, messageId)
             yield* emit(owner, { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant" })
           }
@@ -555,6 +595,7 @@ export async function* toAguiEvents(
         }
         if (state.openMessageId === null) {
           state.openMessageId = nextId("message")
+          state.anonymousParent = state.openMessageId
           yield* emit(owner, {
             type: EventType.TEXT_MESSAGE_START,
             messageId: state.openMessageId,
@@ -624,6 +665,7 @@ export async function* toAguiEvents(
             type: EventType.TOOL_CALL_START,
             toolCallId: fragment.id,
             toolCallName: fragment.name,
+            parentMessageId: modelMessageId(state, fragment.messageId),
           })
         }
         if (fragment.delta.length === 0) break
@@ -668,7 +710,12 @@ export async function* toAguiEvents(
           }
         }
         const frames: AguiOutboundEvent[] = [
-          tag(owner, { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: tc.name }),
+          tag(owner, {
+            type: EventType.TOOL_CALL_START,
+            toolCallId,
+            toolCallName: tc.name,
+            parentMessageId: modelMessageId(state, tc.messageId),
+          }),
           tag(owner, {
             type: EventType.TOOL_CALL_ARGS,
             toolCallId,
@@ -686,6 +733,8 @@ export async function* toAguiEvents(
       }
       case "tool_result": {
         yield* flushText(owner)
+        // A result ends the model turn that announced the calls before it.
+        state.anonymousParent = null
         const tr = asToolResultData(chunk.data)
         if (!tr) break
         const pending =
