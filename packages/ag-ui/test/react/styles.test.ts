@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, test } from "vitest"
 
-const CSS = readFileSync(
-  fileURLToPath(new URL("../../src/react/styles.css", import.meta.url)),
-  "utf8",
-)
+const CSS = readFileSync(fileURLToPath(new URL("../../src/styles.css", import.meta.url)), "utf8")
 const withoutComments = CSS.replace(/\/\*[\s\S]*?\*\//g, "")
 
 /** Every class the kit emits (spec §5.6 plus the blocks), read from the TSX so the two cannot drift. */

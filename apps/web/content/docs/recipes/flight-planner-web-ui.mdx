@@ -201,11 +201,11 @@ The user sees the chart in the opened `renderChart` step. The model, `gpt-5-mini
 
 The navlog example gets the plan and the subagents from `B4Activity`: each turn's `TurnActivity` shows the plan as a step and nests the `weather` and `performance` subagents with their own plan and tool steps, from the same AG-UI events. Choose **Plan a flight** on the empty chat to watch them update before the brief.
 
-A client that doesn't use `B4Activity` gets the same view from the same events. `useB4Turns(agent)` from `@b4run/ag-ui/copilotkit` (or `reduceTurns` from `@b4run/ag-ui/view`, with no React) folds the agent's event stream into turns, and `TurnActivity` from `@b4run/ag-ui/react` renders one:
+A client that doesn't use `B4Activity` gets the same view from the same events. `useB4Turns(agent)` from `@b4run/ag-ui/react/copilotkit` (or `reduceTurns` from `@b4run/ag-ui/view`, with no React) folds the agent's event stream into turns, and `TurnActivity` from `@b4run/ag-ui/react` renders one:
 
 ```tsx
-import "@b4run/ag-ui/react/styles.css"
-import { useB4Turns } from "@b4run/ag-ui/copilotkit"
+import "@b4run/ag-ui/styles.css"
+import { useB4Turns } from "@b4run/ag-ui/react/copilotkit"
 import { TurnActivity } from "@b4run/ag-ui/react"
 import { useAgent } from "@copilotkit/react-core/v2"
 
@@ -218,7 +218,7 @@ function Activity() {
 
 The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/theme.css`.
 
-React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
+React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./react/copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
 
 Plan snapshots replace `b4:plan:${runId}` (the root agent's) or `b4:plan:${call_id}` (a subagent's, tagged `subagentRunId`) and carry the complete todo list; the plan step shows every todo.
 

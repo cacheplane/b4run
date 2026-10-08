@@ -1,6 +1,6 @@
 /**
  * Views both activity kits render: the React kit (`src/react`) and the
- * Angular kit (`packages/ag-ui-angular`). The parity tests render each fixture
+ * Angular kit (`src/angular`). The parity tests render each fixture
  * through both kits and compare the serialized DOM contract to one committed
  * snapshot (`activity-contract.snap.json`), so a kit that drifts fails.
  *

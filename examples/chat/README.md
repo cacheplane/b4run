@@ -27,7 +27,7 @@
   bubble `subagent.*` Agent Protocol stream events with `call_id` correlation, and the
   AG-UI adapter presents them as AG-UI 1.0 `SUBAGENT_STARTED/FINISHED/ERROR` with the
   child's own text and tool calls tagged `subagentRunId` (`B4Activity` from
-  `@b4run/ag-ui/copilotkit` nests the child's steps under the `task` call). The basic web client drives only
+  `@b4run/ag-ui/react/copilotkit` nests the child's steps under the `task` call). The basic web client drives only
   `/chat` and does not expose `/coordinator`, so drive coordinator runs through Agent
   Protocol instead.
 - **HITL permissions** — `b4.config.ts` seeds allow/deny lists for `runBash`. Unknown

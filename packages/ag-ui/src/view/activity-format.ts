@@ -1,7 +1,7 @@
 /**
  * The activity kit's wording, framework-free: what a turn's summary line, a
  * step's muted tail, a subagent row and a step's detail panel say. The React
- * kit (`./react`) and the Angular kit (`@b4run/ag-ui-angular`) both render
+ * kit (`./react`) and the Angular kit (`@b4run/ag-ui/angular`) both render
  * from these, so the two can never word a turn differently.
  */
 import type { B4PlanActivityContent } from "../activities.js"
@@ -236,7 +236,7 @@ export function capDetail(text: string): string {
   return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}\n… (truncated)` : text
 }
 
-/** A step's Inputs and Output as the detail panel shows them; empty strings when absent. */
+/** A step's input and result pretty-printed and capped (the "Show raw" text); empty strings when absent. */
 export function stepDetailText(
   args: string,
   result: string | undefined,

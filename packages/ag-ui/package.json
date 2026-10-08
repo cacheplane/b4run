@@ -50,24 +50,36 @@
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
     },
-    "./copilotkit": {
-      "types": "./dist/copilotkit/index.d.ts",
-      "default": "./dist/copilotkit/index.js"
+    "./react/copilotkit": {
+      "types": "./dist/react/copilotkit/index.d.ts",
+      "default": "./dist/react/copilotkit/index.js"
+    },
+    "./angular": {
+      "types": "./dist/angular/index.d.ts",
+      "default": "./dist/angular/index.js"
+    },
+    "./angular/events": {
+      "types": "./dist/angular/events/index.d.ts",
+      "default": "./dist/angular/events/index.js"
+    },
+    "./angular/copilotkit": {
+      "types": "./dist/angular/copilotkit/index.d.ts",
+      "default": "./dist/angular/copilotkit/index.js"
     },
     "./copilotkit-runtime": {
       "types": "./dist/copilotkit-runtime/index.d.ts",
       "default": "./dist/copilotkit-runtime/index.js"
     },
-    "./react/styles.css": "./dist/react/styles.css"
+    "./styles.css": "./dist/styles.css"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "node -e \"const fs = require('node:fs'); const path = require('node:path'); if (fs.existsSync('dist')) for (const entry of fs.readdirSync('dist', { withFileTypes: true })) if (entry.isFile() && /^(?:encode|run-input|translate)\\./.test(entry.name)) fs.rmSync(path.join('dist', entry.name))\" && tsc -b tsconfig.json && node -e \"const fs = require('node:fs'); fs.mkdirSync('dist/react', { recursive: true }); fs.copyFileSync('src/react/styles.css', 'dist/react/styles.css')\"",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json vitest.config.ts",
-    "test": "vitest --run --config vitest.config.ts --passWithNoTests",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
+    "build": "node scripts/clean-dist.mjs && tsc -b tsconfig.json && ngc -p tsconfig.angular.json && node -e \"require('node:fs').copyFileSync('src/styles.css', 'dist/styles.css')\"",
+    "lint": "biome check --config-path ../config-biome/biome.json package.json scripts src test tsconfig.json tsconfig.test.json tsconfig.angular.json tsconfig.angular.test.json tsconfig.angular.spec.json vitest.config.ts vitest.angular.config.ts",
+    "test": "vitest --run --config vitest.config.ts --passWithNoTests && vitest --run --config vitest.angular.config.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && ngc -p tsconfig.angular.test.json"
   },
   "dependencies": {
     "@ag-ui/core": "1.0.2",
@@ -78,11 +90,27 @@
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",
+    "@angular/common": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/platform-browser": "^22.0.0",
+    "@copilotkit/angular": ">=0.5.3",
     "@copilotkit/react-core": ">=1.76.0",
     "react": ">=19.0.0"
   },
   "peerDependenciesMeta": {
     "@ag-ui/client": {
+      "optional": true
+    },
+    "@angular/common": {
+      "optional": true
+    },
+    "@angular/core": {
+      "optional": true
+    },
+    "@angular/platform-browser": {
+      "optional": true
+    },
+    "@copilotkit/angular": {
       "optional": true
     },
     "@copilotkit/react-core": {
@@ -95,16 +123,28 @@
   "devDependencies": {
     "@ag-ui/client": "1.0.2",
     "@ag-ui/proto": "1.0.2",
+    "@analogjs/vite-plugin-angular": "2.8.0",
+    "@analogjs/vitest-angular": "2.8.0",
+    "@angular/build": "22.2.1",
+    "@angular/cdk": "22.2.1",
+    "@angular/common": "22.2.1",
+    "@angular/compiler": "22.2.1",
+    "@angular/compiler-cli": "22.2.1",
+    "@angular/core": "22.2.1",
+    "@angular/platform-browser": "22.2.1",
+    "@b4run/config-typescript": "workspace:*",
+    "@copilotkit/angular": "0.5.3",
     "@copilotkit/react-core": "1.77.1",
     "@copilotkit/runtime": "1.77.1",
-    "@b4run/config-typescript": "workspace:*",
     "@testing-library/dom": "10.4.1",
     "@testing-library/react": "16.3.2",
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "axe-core": "4.14.0",
     "jsdom": "30.0.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "typescript": "npm:@typescript/typescript6@6.0.2"
   }
 }

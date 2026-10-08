@@ -172,10 +172,27 @@ export const packages = [
       "dist/sse.d.ts",
       "dist/types.js",
       "dist/types.d.ts",
+      "dist/react/copilotkit/index.js",
+      "dist/react/copilotkit/index.d.ts",
+      "dist/angular/index.js",
+      "dist/angular/index.d.ts",
+      "dist/angular/events/index.js",
+      "dist/angular/events/index.d.ts",
+      "dist/angular/copilotkit/index.js",
+      "dist/angular/copilotkit/index.d.ts",
+      "dist/styles.css",
       "README.md",
       "package.json",
     ],
-    forbiddenFiles: ["dist/encode.*", "dist/run-input.*", "dist/translate.*"],
+    // Retired output: the translator split, the React connector's old
+    // `./copilotkit` entry and the stylesheet's old `./react/styles.css` path.
+    forbiddenFiles: [
+      "dist/encode.*",
+      "dist/run-input.*",
+      "dist/translate.*",
+      "dist/copilotkit/*",
+      "dist/react/styles.css",
+    ],
     expectedExports: {
       ".": {
         types: "./dist/index.d.ts",
@@ -185,6 +202,23 @@ export const packages = [
         types: "./dist/sse.d.ts",
         default: "./dist/sse.js",
       },
+      "./react/copilotkit": {
+        types: "./dist/react/copilotkit/index.d.ts",
+        default: "./dist/react/copilotkit/index.js",
+      },
+      "./angular": {
+        types: "./dist/angular/index.d.ts",
+        default: "./dist/angular/index.js",
+      },
+      "./angular/events": {
+        types: "./dist/angular/events/index.d.ts",
+        default: "./dist/angular/events/index.js",
+      },
+      "./angular/copilotkit": {
+        types: "./dist/angular/copilotkit/index.d.ts",
+        default: "./dist/angular/copilotkit/index.js",
+      },
+      "./styles.css": "./dist/styles.css",
     },
     requiredFields: libraryRequiredFields,
   },

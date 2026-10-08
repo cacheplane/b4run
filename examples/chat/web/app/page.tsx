@@ -1,5 +1,5 @@
 "use client"
-import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
 import { CopilotKit, CopilotSidebar } from "@copilotkit/react-core/v2"
 import { useEffect, useState } from "react"
 import { DemoSuggestions } from "./components/DemoSuggestions"

@@ -1557,6 +1557,11 @@ describe("expectedFilesForPackage", () => {
       "dist/index.d.ts",
       "dist/sse.js",
       "dist/sse.d.ts",
+      "dist/react/copilotkit/index.js",
+      "dist/angular/index.js",
+      "dist/angular/events/index.js",
+      "dist/angular/copilotkit/index.js",
+      "dist/styles.css",
       "README.md",
       "package.json",
     ])

@@ -88,8 +88,8 @@ const agent = new B4HttpAgent({ url: "http://127.0.0.1:3001/agui/%2Fchat%23agent
 `@b4run/ag-ui/react` is the React activity kit: `TurnActivity` renders one turn in plain language (the summary line and the step list, nested for subagents), `ApprovalCard` renders a parked interrupt, and the step rows (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`) and building blocks (`Disclosure`, `StepIcon`, `StatusText`, `Checklist`) are exported for custom steps. Components take plain props built by `@b4run/ag-ui/view` (`reduceTurns`), and the entry has no CopilotKit dependency. In a CopilotKit chat, the connector below wires it up:
 
 ```tsx
-import "@b4run/ag-ui/react/styles.css"
-import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import "@b4run/ag-ui/styles.css"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
 import { CopilotChat, CopilotKit } from "@copilotkit/react-core/v2"
 
 function Chat() {
@@ -109,20 +109,54 @@ export default function Page() {
 
 ## CopilotKit connector
 
-`@b4run/ag-ui/copilotkit` is the only entry that imports `@copilotkit/react-core`; it needs a bundler (CopilotKit's bundle imports its own CSS), so import it from a bundled React app, not from Node or an edge runtime.
+`@b4run/ag-ui/react/copilotkit` is the only entry that imports `@copilotkit/react-core`; it needs a bundler (CopilotKit's bundle imports its own CSS), so import it from a bundled React app, not from Node or an edge runtime.
 
 - `B4Activity` wraps your chat: it hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt, and keeps the thread's turns current from the agent's events; `labels`, `hiddenTools` and `renderStep` reword, hide or re-render steps per tool.
 - `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows.
 - `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed, for a host with its own transcript.
 
-`react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by the `./react` and `./copilotkit` subpaths; only `./copilotkit` imports CopilotKit. Importing the root or `./sse` entry never loads them, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
+`react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by the `./react` and `./react/copilotkit` subpaths; only `./react/copilotkit` imports CopilotKit. Importing the root or `./sse` entry never loads them, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
+
+## Angular activity kit
+
+`@b4run/ag-ui/angular` is the same kit for Angular 22 or later: standalone, `OnPush` components with signal inputs (`<b4-turn-activity>`, `<b4-approval-card>`, the step rows such as `<li b4-step>`, and the building blocks) that render the same DOM contract as the React kit, from the same `@b4run/ag-ui/view` values, styled by the same sheet. Two connectors place them in a chat:
+
+- `@b4run/ag-ui/angular/events` takes any AG-UI event stream (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) with no chat framework: `provideB4Turns` folds it into a `B4TurnsStore`, `<b4-message-activity>` renders a turn's activity on its first assistant message, and `<b4-approvals>` renders the parked interrupts' approval cards.
+- `@b4run/ag-ui/angular/copilotkit` drives CopilotKit's `<copilot-chat>` (`@copilotkit/angular` `>=0.5.3`, the only Angular entry that imports it): `provideB4Activity` follows the chat's agent into turns, and `B4ActivityAssistantMessageComponent` and `B4ActivityApprovalsComponent` go in the chat's `[assistantMessageComponent]` and `[messageViewChildrenComponent]`.
+
+```ts
+import { Component, inject } from "@angular/core"
+import { CopilotChat } from "@copilotkit/angular"
+import {
+  B4ActivityApprovalsComponent,
+  B4ActivityAssistantMessageComponent,
+  B4ActivityStore,
+  provideB4Activity,
+} from "@b4run/ag-ui/angular/copilotkit"
+
+@Component({
+  selector: "app-chat",
+  imports: [CopilotChat],
+  providers: [provideB4Activity({ agentId: "default" })],
+  template: `<copilot-chat agentId="default"
+    [assistantMessageComponent]="assistant"
+    [messageViewChildrenComponent]="approvals" />`,
+})
+export class ChatComponent {
+  readonly activity = inject(B4ActivityStore) // created with the chat, so it sees every event
+  readonly assistant = B4ActivityAssistantMessageComponent
+  readonly approvals = B4ActivityApprovalsComponent
+}
+```
+
+Load the sheet once, for example in `angular.json`'s `styles` (`"@b4run/ag-ui/styles.css"`). `@angular/core`, `@angular/common`, `@angular/platform-browser` (`^22.0.0`) and `@copilotkit/angular` are optional peer dependencies; the other entries never load them. The Angular entries ship in Angular's partial compilation format, which your Angular CLI build links.
 
 ## Styling
 
 The kit ships with B4.run's visual identity via an optional stylesheet. Every rule sits in `@layer b4-activity`, so any unlayered app CSS wins without specificity games. Without the stylesheet, the components render structured, unstyled markup.
 
 ```ts
-import "@b4run/ag-ui/react/styles.css"
+import "@b4run/ag-ui/styles.css"
 ```
 
 To restyle, override the design tokens in your own CSS:
@@ -161,7 +195,7 @@ Beyond tokens, the kit is markup with stable classes (`.b4-turn`, `.b4-step`, `.
 
 ## Framework-free view
 
-`@b4run/ag-ui/view` is the half of the client with no React: `reduceTurns(view, event)` folds AG-UI events into the turns of a thread — tool steps with their `b4.step` labels, the plan, reasoning, nested subagent turns, and approvals attached to the calls they gate — and `stepLabel`/`groupSteps` turn steps into sentences. `./react` builds on it; an Angular client can too.
+`@b4run/ag-ui/view` is the half of the client with no React: `reduceTurns(view, event)` folds AG-UI events into the turns of a thread — tool steps with their `b4.step` labels, the plan, reasoning, nested subagent turns, and approvals attached to the calls they gate — and `stepLabel`/`groupSteps` turn steps into sentences. `./react` and `./angular` build on it; so can any other framework.
 
 ```ts
 import { EMPTY_TURNS, reduceTurns } from "@b4run/ag-ui/view"
@@ -177,9 +211,10 @@ for (const event of events) view = reduceTurns(view, event)
 - `@b4run/ag-ui/client` is a supported, edge-safe integration surface.
 - `@b4run/ag-ui/view` is a supported, edge-safe integration surface with no React dependency.
 - `@b4run/ag-ui/react` is a supported React application surface, built for browser bundles. B4.run records its runtime as `node-only`, which means only that it does not pass B4.run's edge-safety guard — not that it requires Node: React's own JSX runtime reads `process.env.NODE_ENV`, which an application bundler substitutes as usual but the stricter edge guard rejects. The other entries never load it.
-- `@b4run/ag-ui/copilotkit` is a supported React application surface recorded as `browser-only`: it imports CopilotKit, whose bundle imports its own CSS, so it needs a bundler. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime. The other entries never load it.
+- `@b4run/ag-ui/react/copilotkit` is a supported React application surface recorded as `browser-only`: it imports CopilotKit, whose bundle imports its own CSS, so it needs a bundler. Browser bundles only: import it from a bundled React app, not from Node or an edge runtime. The other entries never load it.
+- `@b4run/ag-ui/angular`, `@b4run/ag-ui/angular/events` and `@b4run/ag-ui/angular/copilotkit` are supported Angular application surfaces recorded as `browser-only`: they ship in Angular's partial compilation format, which an Angular build's linker finishes (a plain Node import fails for want of Angular's JIT compiler). Import them from an Angular application built with the Angular CLI. The other entries never load them.
 - `@b4run/ag-ui/copilotkit-runtime` is a supported application surface recorded as `edge-safe`: `createB4AgentRunner(InMemoryAgentRunner, options)` extends the CopilotKit runner class the route passes in (the entry never imports `@copilotkit/runtime`; it imports only `rxjs`, a regular dependency, and uses `fetch`), so it runs wherever your CopilotKit runtime route runs, Node or an edge runtime. It belongs on the server, beside that route. The other entries never load it.
-- `@b4run/ag-ui/react/styles.css` is a supported integration surface carrying the kit's default appearance. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
+- `@b4run/ag-ui/styles.css` is a supported integration surface carrying the default appearance of both kits. It is a stylesheet asset, so it has no runtime classification at all: a bundler resolves it and nothing evaluates it as JavaScript. Import it once alongside your global CSS; it is optional, and every rule that styles an element is scoped to the `b4-activity` prefix (the sheet also declares `--b4-activity-*` custom properties on `:root`, which is intended and harmless — each of those three blocks is wrapped in `:where()`, so an application's own `:root` override always wins).
 
 They translate protocol data; they do not authenticate callers or make client-provided state authoritative.
 

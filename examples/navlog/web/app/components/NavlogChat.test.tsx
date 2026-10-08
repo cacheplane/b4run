@@ -23,7 +23,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   useAgent: () => ({ agent: { isRunning: mocks.isRunning, messages: [] } }),
 }))
 
-vi.mock("@b4run/ag-ui/copilotkit", () => ({
+vi.mock("@b4run/ag-ui/react/copilotkit", () => ({
   useB4ChatSlots: () => ({
     messageView: { transformMessages: mocks.merge, assistantMessage: mocks.assistantMessage },
   }),

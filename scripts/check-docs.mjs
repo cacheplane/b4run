@@ -1037,9 +1037,12 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/ag-ui:./client", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./view", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./react", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@b4run/ag-ui:./copilotkit", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./react/copilotkit", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./angular", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./angular/events", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/ag-ui:./angular/copilotkit", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./copilotkit-runtime", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@b4run/ag-ui:./react/styles.css", "catalog-only", "surfaceKind", "style-asset"],
+  ["import:@b4run/ag-ui:./styles.css", "catalog-only", "surfaceKind", "style-asset"],
   ["import:@b4run/memory:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/memory:./browse", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/memory:./namespace", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1355,9 +1358,16 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/langchain:.",
 ])
 
-// Browser bundles only: the barrel imports CSS through CopilotKit, so plain Node
-// cannot import it and no edge or Node guard applies.
-const BROWSER_ONLY_API_ADDRESSES = new Set(["import:@b4run/ag-ui:./copilotkit"])
+// Browser bundles only, so no edge or Node guard applies. The React CopilotKit
+// connector imports CSS through CopilotKit, which plain Node cannot import. The
+// Angular entries are partially compiled: Angular's linker (an Angular CLI
+// build) finishes them, and a plain import throws for want of the JIT compiler.
+const BROWSER_ONLY_API_ADDRESSES = new Set([
+  "import:@b4run/ag-ui:./react/copilotkit",
+  "import:@b4run/ag-ui:./angular",
+  "import:@b4run/ag-ui:./angular/events",
+  "import:@b4run/ag-ui:./angular/copilotkit",
+])
 
 function expectedApiRuntime(address) {
   if (EDGE_SAFE_API_ADDRESSES.has(address)) return "edge-safe"
@@ -4267,15 +4277,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 53 || new Set(artifactAddresses).size !== 53) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 53 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 56 || new Set(artifactAddresses).size !== 56) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 56 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 49 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 52 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 49 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 52 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

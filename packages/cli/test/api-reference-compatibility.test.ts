@@ -980,9 +980,11 @@ async function assertBrowserImportNegative(artifact: ImportArtifact): Promise<vo
 }
 
 // A browser-only surface needs a bundler: its graph imports CSS (CopilotKit's
-// `index.css`), which plain Node refuses with ERR_UNKNOWN_FILE_EXTENSION, so the
-// guard is that a browser bundle resolves. There is no Node import and no
-// negative control.
+// `index.css`), which plain Node refuses with ERR_UNKNOWN_FILE_EXTENSION, or it
+// is Angular code in partial compilation, which an Angular build's linker
+// finishes (a plain import throws for want of the JIT compiler). The guard is
+// that a browser bundle resolves. There is no Node import and no negative
+// control.
 async function assertBrowserImportBundle(artifact: ImportArtifact): Promise<void> {
   await expect(
     bundleSpecifier({
@@ -1514,7 +1516,7 @@ describe("API reference compatibility guards", () => {
     ).toEqual([])
   })
 
-  it("pins the AG-UI React kit and CopilotKit connector runtime boundaries", async () => {
+  it("pins the AG-UI kits and CopilotKit connectors runtime boundaries", async () => {
     const artifacts = await loadRuntimeArtifacts()
     const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
 
@@ -1523,11 +1525,21 @@ describe("API reference compatibility guards", () => {
       purity: "not-claimed",
       guardIds: ["node-import-bundle", "browser-import-negative-control"],
     })
-    expect(byAddress.get("import:@b4run/ag-ui:./copilotkit")).toMatchObject({
-      runtime: "browser-only",
-      purity: "not-claimed",
-      guardIds: ["browser-import-bundle"],
-    })
+    // Browser bundles only: the React connector's graph imports CopilotKit's CSS,
+    // and the Angular entries are partially compiled, so only an Angular build's
+    // linker can finish them (a plain import throws for want of the JIT compiler).
+    for (const subpath of [
+      "./react/copilotkit",
+      "./angular",
+      "./angular/events",
+      "./angular/copilotkit",
+    ]) {
+      expect(byAddress.get(`import:@b4run/ag-ui:${subpath}`), subpath).toMatchObject({
+        runtime: "browser-only",
+        purity: "not-claimed",
+        guardIds: ["browser-import-bundle"],
+      })
+    }
     expect(byAddress.get("import:@b4run/ag-ui:./copilotkit-runtime")).toMatchObject({
       runtime: "edge-safe",
       purity: "not-claimed",
