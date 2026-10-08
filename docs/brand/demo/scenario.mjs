@@ -19,6 +19,25 @@ import { script } from "../../../packages/testing/dist/index.js"
  * recomputes them from the template sources (through tsx) for clocks either
  * side of 1400Z and across month and year ends, so a template change that moves
  * a number fails the test rather than the video.
+ *
+ * One clock, built once. The capture must call `demoScenario({ now })` once and
+ * pass that same `now` to `startAwcStub({ now })` and the scenario's
+ * `fixtures` to aimock: the stub's METAR, TAF and FB times and the scripted
+ * briefs that quote them are all derived from it.
+ *
+ * Two ways the scenario goes stale while a capture runs:
+ *
+ * - The 1400Z straddle. The scenario resolves "1400Z" at build time; the live
+ *   `resolveDeparture` resolves it again from the wall clock when the run
+ *   reaches it. If 1400Z passes in between, the tool returns tomorrow and every
+ *   scripted date is a day early. `assertScenarioCurrent(scenario)` throws in
+ *   that case; the capture calls it right before it sends the prompt, and a
+ *   capture should not start in the minutes before 1400Z.
+ * - hoursAhead drift. The weather subagent's input quotes `hoursAhead` to a
+ *   tenth of an hour as of build time, while the live tool computes it when it
+ *   runs, so a run that starts minutes after the build can show a value 0.1 h
+ *   lower in the resolveDeparture step than in the weather input. It changes
+ *   no verdict, coverage or number; it is the one value that is allowed to lag.
  */
 
 // The Workbench titles a thread with its first message cut to 80 characters,
@@ -187,19 +206,61 @@ function nextDeparture(now) {
   return today < now ? today + DAY_MS : today
 }
 
-/** The FB product's forecast for a requested `forecastHours` (getWindsAloft forecastProduct). */
-const windsProduct = (hours) => (hours <= 6 ? 6 : hours <= 12 ? 12 : 24)
+/**
+ * Throws when the live `resolveDeparture` would now resolve "1400Z" to a
+ * different instant than the scenario scripted (1400Z has passed since the
+ * scenario was built). The capture calls it right before sending the prompt.
+ */
+export function assertScenarioCurrent(scenario, now = Date.now()) {
+  const departureUtc = new Date(nextDeparture(now)).toISOString()
+  if (departureUtc !== scenario.departureUtc) {
+    throw new Error(
+      `The demo scenario is stale: "1400Z" now resolves to ${departureUtc}, but the scenario scripted ${scenario.departureUtc}. Rebuild it with demoScenario({ now }) and restart aimock and the AWC stub with the same now.`,
+    )
+  }
+}
 
-/** The FB header times for a forecast, from the six-hourly data cycle at or before `now`. */
-function windsHeader(now, fcst) {
-  const basedOn = floorTo(now, 6 * HOUR_MS)
-  const valid = basedOn + fcst * HOUR_MS
-  const [before, after] = fcst === 6 ? [4, 3] : fcst === 12 ? [3, 6] : [6, 6]
+/** FB data is published about two hours after its six-hourly data time. */
+const WINDS_PUBLISH_DELAY_MS = 2 * HOUR_MS
+
+/** The latest FB data time (00, 06, 12, 18Z) whose products are out by `now`. */
+const windsCycle = (now) => floorTo(now - WINDS_PUBLISH_DELAY_MS, 6 * HOUR_MS)
+
+/**
+ * Each FB product's FOR USE window, in hours after its data time, as AWC
+ * publishes them (data 0000Z: 06 h for 0200-0900Z, 12 h for 0900-1800Z,
+ * 24 h for 1800-0600Z). Together they run from 2 to 30 hours after the data time.
+ */
+const FB_FOR_USE = Object.freeze({ 6: [2, 9], 12: [9, 18], 24: [18, 30] })
+
+/** The FB header for one product of the cycle `basedOn`, with its absolute FOR USE window. */
+function windsHeader(basedOn, fcst) {
+  const [from, to] = FB_FOR_USE[fcst]
+  const forUseFrom = basedOn + from * HOUR_MS
+  const forUseTo = basedOn + to * HOUR_MS
   return {
     basedOn: `${ddhhmm(basedOn)}Z`,
-    validAt: `${ddhhmm(valid)}Z`,
-    forUse: `${hhmm(valid - before * HOUR_MS)}-${hhmm(valid + after * HOUR_MS)}Z`,
+    validAt: `${ddhhmm(basedOn + fcst * HOUR_MS)}Z`,
+    forUse: `${hhmm(forUseFrom)}-${hhmm(forUseTo)}Z`,
+    forUseFrom,
+    forUseTo,
   }
+}
+
+/**
+ * The FB product (6, 12 or 24) of the cycle published by `now` whose FOR USE
+ * window spans the whole flight, or null when none does. For a 1400Z departure
+ * one always does (the cycle is at most 26 hours before the departure, and its
+ * products cover 2 to 30 hours after it with no gaps); demo.test.mjs sweeps a
+ * full day to hold that.
+ */
+export function demoWindsProduct(now, departure, eta) {
+  const basedOn = windsCycle(now)
+  for (const fcst of [6, 12, 24]) {
+    const header = windsHeader(basedOn, fcst)
+    if (header.forUseFrom <= departure && eta <= header.forUseTo) return { fcst, ...header }
+  }
+  return null
 }
 
 /**
@@ -209,7 +270,7 @@ function windsHeader(now, fcst) {
  * covers the next 30 hours, so it always reaches the 1400Z flight; FB winds
  * 320/20 at 3,000 and 6,000 ft at MSP; no AIRMET, SIGMET or G-AIRMET.
  */
-export function demoAwcData(now = Date.now()) {
+export function demoAwcData(now) {
   // The routine observation at :53 past the hour, the latest one before now.
   let observed = floorTo(now, HOUR_MS) + 53 * 60_000
   if (observed > now) observed -= HOUR_MS
@@ -259,11 +320,11 @@ export function demoAwcData(now = Date.now()) {
     }
   }
   const windtemp = (fcst) => {
-    const header = windsHeader(now, Number(fcst))
+    const header = windsHeader(windsCycle(now), Number(fcst))
     // The template test's FBUS31 excerpt for region "chi", with MSP's 3000 and
     // 6000 ft groups set to 320/20 (FB omits the temperature at 3000 ft).
     return [
-      `(Extracted from FBUS31 KWNO ${ddhhmm(floorTo(now, 6 * HOUR_MS) + 2 * HOUR_MS)})`,
+      `(Extracted from FBUS31 KWNO ${ddhhmm(windsCycle(now) + WINDS_PUBLISH_DELAY_MS)})`,
       "FD1US1",
       `DATA BASED ON ${header.basedOn}    `,
       `VALID ${header.validAt}   FOR USE ${header.forUse}. TEMPS NEG ABV 24000`,
@@ -293,15 +354,24 @@ export function demoScenario({ now = Date.now() } = {}) {
   const departureUtc = new Date(departure).toISOString()
   // resolveDeparture: hours ahead to one decimal.
   const hoursAhead = Math.round(((departure - now) / HOUR_MS) * 10) / 10
-  // When the leg is flown, in whole hours from now, within what FB publishes.
-  const windsForecastHours = Math.min(24, Math.max(6, Math.ceil(hoursAhead)))
   const eta = departure + NAVLOG.totals.eteMin * 60_000
+  // The FB product whose FOR USE window spans the flight. The scripted
+  // forecastHours names that product directly (getWindsAloft maps 6, 12 and 24
+  // to themselves), so the brief's "valid" time and coverage claim are true.
+  const winds = demoWindsProduct(now, departure, eta)
+  if (winds === null) {
+    // Unreachable for a 1400Z departure (see demoWindsProduct); refuse rather
+    // than script a brief that claims coverage the stub does not serve.
+    throw new Error(
+      `No FB product published by ${new Date(now).toISOString()} covers the ${new Date(departure).toISOString()} flight`,
+    )
+  }
+  const windsForecastHours = winds.fcst
   const etaUtc = new Date(eta).toISOString()
   const day = new Date(departure)
   const departureLabel = `1400Z ${day.getUTCDate()} ${MONTHS[day.getUTCMonth()]} ${day.getUTCFullYear()}`
   const dof = `${String(day.getUTCFullYear()).slice(-2)}${pad2(day.getUTCMonth() + 1)}${pad2(day.getUTCDate())}`
   const awc = demoAwcData(now)
-  const winds = windsHeader(now, windsProduct(windsForecastHours))
 
   const navlogInput = {
     aircraft: { ...AIRCRAFT },

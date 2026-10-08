@@ -89,6 +89,7 @@ import {
   DEMO_PLAN_TOOLS,
   DEMO_PROMPT,
   DEMO_SCENARIO,
+  assertScenarioCurrent,
   demoAwcData,
   demoScenario,
 } from "./scenario.mjs"
@@ -5248,8 +5249,13 @@ const TEMPLATE_ROOT = fileURLToPath(
 const importTemplate = (relative) =>
   tsImport(pathToFileURL(join(TEMPLATE_ROOT, relative)).href, import.meta.url)
 
-// Clock times either side of 1400Z, across a month and a year boundary.
+// Clock times either side of 1400Z, across a month and a year boundary, and
+// through the early-UTC hours where the FB product choice is easiest to get wrong.
 const SCENARIO_NOWS = [
+  "2026-10-08T00:30:00.000Z",
+  "2026-10-08T03:00:00.000Z",
+  "2026-10-08T06:30:00.000Z",
+  "2026-10-08T07:50:00.000Z",
   "2026-10-07T13:10:00.000Z",
   "2026-10-07T14:00:00.000Z",
   "2026-10-07T15:20:00.000Z",
@@ -5425,6 +5431,9 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
     assert.equal(scenario.etaUtc, navlog.legs.at(-1).etaUtc)
     assert.equal(scenario.navlog.tasKt, navlog.aircraft.tasKt)
     assert.equal(scenario.navlog.gph, navlog.aircraft.gph)
+    // The performance subagent quotes the same cruise row the code computes with.
+    assert.match(scenario.performanceBrief, new RegExp(`about ${Math.round(navlog.aircraft.tasKt)} KTAS`))
+    assert.match(scenario.performanceBrief, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
     // The brief and the report quote the code's numbers, never their own.
     const answer = scenario.planAnswer
     assert.match(answer, new RegExp(`\\b${navlog.totals.distanceNm} nm\\b`))
@@ -5594,6 +5603,9 @@ test("the AWC stub answers every endpoint over loopback, counts hits and frees i
     await stub.close()
   }
   assert.equal(await portIsFree(port), true)
+  // The stub has no clock of its own: it serves the scenario's.
+  await assert.rejects(startAwcStub({}), /needs \{ now \}/)
+  await assert.rejects(startAwcStub(), /needs \{ now \}/)
   // Without getPort the stub takes any free loopback port.
   const anyPort = await startAwcStub({ now })
   try {
@@ -5731,5 +5743,185 @@ test("demoAwcData keeps the stub's weather consistent with the scripted brief fo
     }
     const product = data.windtemp(String(scenario.windsForecastHours <= 6 ? 6 : scenario.windsForecastHours <= 12 ? 12 : 24).padStart(2, "0"))
     assert.match(product, /^MSP 3220 3220\+05 /m)
+  }
+})
+
+/** A `DDHHMMZ` group as the instant nearest `near` whose day of the month matches. */
+function resolveDayGroup(group, near) {
+  const match = /^(\d{2})(\d{2})(\d{2})Z$/.exec(group)
+  assert.ok(match, `${group} is a DDHHMMZ group`)
+  const [, day, hour, minute] = match.map(Number)
+  const candidates = []
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const date = new Date(near + offset * 86_400_000)
+    if (date.getUTCDate() !== day) continue
+    candidates.push(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), day, hour, minute),
+    )
+  }
+  assert.ok(candidates.length > 0, `${group} falls within three days of the flight`)
+  return candidates.sort((a, b) => Math.abs(a - near) - Math.abs(b - near))[0]
+}
+
+/** The absolute FOR USE window around `validAt`: the HHMM at or before it to the HHMM at or after it. */
+function forUseWindow(forUse, validAt) {
+  const match = /^(\d{2})(\d{2})-(\d{2})(\d{2})Z$/.exec(forUse)
+  assert.ok(match, `${forUse} is an HHMM-HHMMZ window`)
+  const [, fromH, fromM, toH, toM] = match.map(Number)
+  const valid = new Date(validAt)
+  const sameDay = (h, m) =>
+    Date.UTC(valid.getUTCFullYear(), valid.getUTCMonth(), valid.getUTCDate(), h, m)
+  let from = sameDay(fromH, fromM)
+  if (from > validAt) from -= 86_400_000
+  let to = sameDay(toH, toM)
+  if (to < validAt) to += 86_400_000
+  return { from, to }
+}
+
+test("the stub's FB product covers the whole flight at every capture hour, through the real tool", async () => {
+  const awcBaseUrlVariable = "B4_AWC_BASE_URL"
+  const previous = process.env[awcBaseUrlVariable]
+  try {
+    for (const now of SCENARIO_NOWS) {
+      const scenario = demoScenario({ now })
+      const windsCall = fixtureGroups(scenario.fixtures)
+        .get(scenario.weatherInput)
+        .map((fixture) => fixture.response.toolCalls?.[0])
+        .find((call) => call?.name === "getWindsAloft")
+      const stub = await startAwcStub({ now })
+      try {
+        process.env[awcBaseUrlVariable] = stub.baseUrl
+        // Each tsImport is a fresh module namespace, so the tools' shared AWC
+        // client is rebuilt and reads this stub's base URL.
+        const { default: getWindsAloft } = await importTemplate("server/src/tools/getWindsAloft.ts")
+        const winds = await getWindsAloft(windsCall.arguments, { signal: new AbortController().signal })
+        const departure = Date.parse(scenario.departureUtc)
+        const eta = Date.parse(scenario.etaUtc)
+        const label = new Date(now).toISOString()
+        const basedOn = resolveDayGroup(winds.basedOn, now)
+        assert.ok(basedOn <= now, `${label}: FB data time ${winds.basedOn} is not in the future`)
+        assert.ok(now - basedOn <= 8 * 3_600_000, `${label}: FB data time ${winds.basedOn} is current`)
+        const validAt = resolveDayGroup(winds.validAt, departure)
+        const window = forUseWindow(winds.forUse, validAt)
+        assert.ok(
+          window.from <= departure && eta <= window.to,
+          `${label}: FOR USE ${winds.forUse} (valid ${winds.validAt}) spans ${scenario.departureUtc}..${scenario.etaUtc}`,
+        )
+        assert.equal(winds.forecastHours, windsCall.arguments.forecastHours)
+        assert.ok(scenario.weatherBrief.includes(`valid ${winds.validAt}`))
+        assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
+      } finally {
+        await stub.close()
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env[awcBaseUrlVariable]
+    else process.env[awcBaseUrlVariable] = previous
+  }
+})
+
+test("every capture minute of a day gets a covering FB product and a covering TAF", async () => {
+  const { parseWindsAloft } = await importTemplate("server/src/lib/winds-aloft.ts")
+  const start = Date.parse("2026-10-08T00:00:00.000Z")
+  for (let now = start; now < start + 86_400_000; now += 10 * 60_000) {
+    // demoScenario refuses to script a brief whose coverage the stub would not serve.
+    const scenario = demoScenario({ now })
+    const data = demoAwcData(now)
+    const product = parseWindsAloft(data.windtemp(String(scenario.windsForecastHours).padStart(2, "0")))
+    const departure = Date.parse(scenario.departureUtc)
+    const eta = Date.parse(scenario.etaUtc)
+    const window = forUseWindow(product.forUse, resolveDayGroup(product.validAt, departure))
+    assert.ok(window.from <= departure && eta <= window.to, new Date(now).toISOString())
+    assert.ok(resolveDayGroup(product.basedOn, now) <= now)
+    for (const id of ["KSTP", "KRST"]) {
+      const taf = data.tafs[id]
+      assert.ok(taf.validTimeFrom * 1000 <= departure && eta <= taf.validTimeTo * 1000)
+      assert.ok(Date.parse(taf.issueTime) <= now)
+    }
+  }
+})
+
+test("assertScenarioCurrent throws once 1400Z has passed since the scenario was built", () => {
+  const scenario = demoScenario({ now: Date.parse("2026-10-08T13:50:00.000Z") })
+  assert.equal(scenario.departureUtc, "2026-10-08T14:00:00.000Z")
+  assertScenarioCurrent(scenario, Date.parse("2026-10-08T13:59:59.999Z"))
+  assertScenarioCurrent(scenario, Date.parse("2026-10-08T14:00:00.000Z"))
+  assert.throws(
+    () => assertScenarioCurrent(scenario, Date.parse("2026-10-08T14:00:00.001Z")),
+    /stale: "1400Z" now resolves to 2026-10-09T14:00:00\.000Z, but the scenario scripted 2026-10-08T14:00:00\.000Z/,
+  )
+  // The default clock is the wall clock, which a scenario built now agrees with.
+  assertScenarioCurrent(demoScenario())
+})
+
+test("the scripted order and tools agree with the template's route and subagent definitions", async () => {
+  // The prompt is a template literal, so its backticks are escaped in the source.
+  const routeSource = (
+    await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/index.ts"), "utf8")
+  ).replaceAll("\\`", "`")
+  const steps = [...routeSource.matchAll(/^(\d+)\. (.*)$/gm)].map((m) => ({
+    number: Number(m[1]),
+    text: m[2],
+  }))
+  assert.ok(steps.length >= 7, "the route prompt has numbered steps")
+  // Where each tool is called, by its backticked name; the todos step names no tool.
+  const callIn = {
+    recall: /`recall\(/,
+    resolveDeparture: /`resolveDeparture\(/,
+    writeTodos: /\btodos\b/,
+    lookupAirport: /`lookupAirport`/,
+    task: /`task\(/,
+    computeNavlog: /`computeNavlog`/,
+    writeFile: /`writeFile\(/,
+  }
+  const stepOf = (tool) => steps.find((step) => callIn[tool].test(step.text))?.number
+  const order = Object.keys(callIn)
+  const numbers = order.map(stepOf)
+  for (const [index, tool] of order.entries()) {
+    assert.equal(typeof numbers[index], "number", `the route prompt has a step that calls ${tool}`)
+    if (index > 0) {
+      assert.ok(
+        numbers[index] > numbers[index - 1],
+        `${tool} (step ${numbers[index]}) comes after ${order[index - 1]} (step ${numbers[index - 1]})`,
+      )
+    }
+  }
+  // The scripted parent follows that order; remember is the route's to place (steps 1 and 10).
+  const scripted = DEMO_PLAN_TOOLS.filter((tool) => tool !== "remember").filter(
+    (tool, index, all) => tool !== all[index - 1],
+  )
+  assert.deepEqual(scripted, order)
+  assert.ok(steps.some((step) => /`remember`|`remember\(/.test(step.text)))
+
+  const subagentsRoot = join(TEMPLATE_ROOT, "server/src/app/navlog/subagents")
+  const subagents = (await readdir(subagentsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+  const listed = (source, key) => {
+    const match = new RegExp(`\\b${key}: \\[([^\\]]*)\\]`).exec(source)
+    assert.ok(match, `the subagent lists ${key}`)
+    return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+  }
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    const tasks = groups
+      .get(DEMO_PROMPT)
+      .flatMap((fixture) => fixture.response.toolCalls ?? [])
+      .filter((call) => call.name === "task")
+      .map((call) => call.arguments)
+    assert.deepEqual(tasks.map((task) => task.subagent).sort(), subagents)
+    for (const task of tasks) {
+      const source = await readFile(join(subagentsRoot, task.subagent, "index.ts"), "utf8")
+      const allow = listed(source, "allow")
+      const deny = listed(source, "deny")
+      const called = groups.get(task.input).flatMap((fixture) => fixture.response.toolCalls ?? [])
+      assert.ok(called.length > 0)
+      for (const call of called) {
+        assert.ok(allow.includes(call.name), `${task.subagent} allows ${call.name}`)
+        assert.ok(!deny.includes(call.name), `${task.subagent} does not deny ${call.name}`)
+      }
+    }
   }
 })

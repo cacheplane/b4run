@@ -62,10 +62,18 @@ function answer(data, product, params) {
 
 /**
  * Start the stub on 127.0.0.1. `getPort` (the capture's port allocator)
- * chooses the port; without it the OS assigns one. `now` fixes the clock the
- * weather is built for, and should be the one the scenario was built with.
+ * chooses the port; without it the OS assigns one.
+ *
+ * `now` is required and must be the `now` the capture built
+ * `demoScenario({ now })` with: the scripted briefs quote the METAR, TAF and
+ * FB times this stub serves, so a stub on its own clock would contradict them.
  */
-export async function startAwcStub({ getPort, now = Date.now() } = {}) {
+export async function startAwcStub({ getPort, now } = {}) {
+  if (typeof now !== "number" || !Number.isFinite(now)) {
+    throw new TypeError(
+      "startAwcStub needs { now }: the epoch milliseconds demoScenario({ now }) was built with",
+    )
+  }
   const data = demoAwcData(now)
   const hits = Object.fromEntries(ENDPOINTS.map((endpoint) => [endpoint, 0]))
   const server = createServer((request, response) => {
