@@ -100,7 +100,8 @@ shell expansion — all possible. Do not point untrusted users at this example.
   `workspace/` are also permission-gated by the workspace capability. See
   [Permissions](../../apps/web/content/docs/permissions.mdx) and the
   [configuration reference](../../apps/web/content/docs/configuration.mdx#permissions).
-  The basic web client renders CopilotKit's standard interrupt decision control.
+  The basic web client renders the prompt as the activity kit's approval card (Allow
+  once, Always allow, Deny); a denied command settles its step as "Denied".
 - **Tool-output offloading** is supported by the runtime and is active whenever the app
   root has a `workspace/` directory. Large tool results are written under
   `workspace/tool-outputs/` and replaced in context with a preview plus a `readFile`
