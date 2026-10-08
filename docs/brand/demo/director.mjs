@@ -143,15 +143,31 @@ function codePane(beat, pane, files, density) {
     .join("\n")
   return {
     html: `<section class="pane"><div class="strip">${escapeHtml(pane.path)}</div><pre>${body}</pre></section>`,
-    weight: Math.max(44, all[matches[0]].trimEnd().length + 4),
+    focalChars: all[matches[0]].trimEnd().length + 1,
+    needChars: Math.min(TWO_PANE_MAX_NEED, Math.max(...lines.map((line) => line.trimEnd().length)) + 1),
   }
+}
+
+/** The longest line a two-pane column asks room for; longer lines fade out at the pane's edge. */
+const TWO_PANE_MAX_NEED = 100
+
+/**
+ * Two panes share the frame by what their visible lines need, in `ch` of the
+ * panes' monospace font, and neither column narrows below its focal line, so
+ * the marked line is always whole. A line longer than its column fades out
+ * over the pane's last 24px (`.two pre`'s mask) rather than being cut hard.
+ */
+export function twoPaneColumns(panes) {
+  return panes
+    .map((pane) => `minmax(calc(${pane.focalChars}ch + 40px), ${pane.needChars}fr)`)
+    .join(" ")
 }
 
 function codeLayer(beat, files) {
   const density = beat.panes.length === 2 ? "two" : "one"
   const panes = beat.panes.map((pane) => codePane(beat, pane, files, density))
   const columns =
-    density === "two" ? ` style="grid-template-columns: ${panes.map((pane) => `${pane.weight}fr`).join(" ")}"` : ""
+    density === "two" ? ` style="grid-template-columns: ${twoPaneColumns(panes)}"` : ""
   return `<div class="layer code${density === "two" ? " two" : ""}" data-layer="${beat.id}"${columns}>${panes.map((pane) => pane.html).join("")}</div>`
 }
 
@@ -195,6 +211,12 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .docked .head { transform: scale(0.42); }
 .roll { overflow: hidden; height: 1.12em; }
 .lines { transition: transform var(--swap) var(--ease-in-out); }
+/* Each line is exactly the window's height, so a roll of one window moves the
+   outgoing line wholly out of it: nothing of it shows above the new one. */
+.lines > div { height: 1.12em; overflow: hidden; transition: opacity calc(var(--swap) * 0.5) var(--ease-out); }
+/* The outgoing line also fades as it leaves, so its descenders never linger
+   over the incoming line's top in the last part of the ease. */
+.rolling .lines > div:first-child:not(:last-child) { opacity: 0; }
 .rolling .lines { transform: translateY(-1.12em); }
 .frame { position: absolute; left: 163px; top: 128px; width: 1113px; height: 626px; overflow: clip; outline: 1px solid var(--rule-strong); background: var(--panel); transform: translateY(820px); transition: transform var(--dock) var(--ease-out); }
 .docked .frame, .prep .frame { transform: none; }
@@ -207,8 +229,12 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .pane + .pane { border-left: 1px solid var(--panel-rule); }
 .strip { height: 40px; padding: 11px 24px; background: var(--panel-strip); color: var(--panel-dim); font: 400 14px/18px "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; overflow: hidden; }
 pre { padding: 24px; color: var(--panel-ink); font: 400 17px/1.65 "JetBrains Mono", ui-monospace, monospace; font-variant-ligatures: none; white-space: pre; overflow: hidden; transition: color var(--swap) var(--ease-out); }
+.two { font: 400 14px/1 "JetBrains Mono", ui-monospace, monospace; }
 .two .strip { padding: 11px 20px; }
-.two pre { padding: 24px 20px; font-size: 15px; line-height: 1.6; }
+.two pre { padding: 24px 20px; font-size: 14px; line-height: 1.65; }
+/* A line too long for its pane fades out over the pane's last 24px instead of
+   being cut mid-token at a hard edge. */
+.two pre { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
 .focus { position: relative; z-index: 0; }
 .focus::before { content: ""; position: absolute; left: -24px; right: -2000px; top: -2px; bottom: -2px; background: var(--relay-wash); box-shadow: inset 3px 0 0 var(--relay); transform: scaleX(0); transform-origin: 0 50%; transition: transform var(--swap) var(--ease-out); z-index: -1; }
 .two .focus::before { left: -20px; }

@@ -50,15 +50,15 @@ Two code panes side by side. Left, the weather subagent,
 shared tool `server/src/tools/getMetar.ts`, marked at
 `flightCategory: record.fltCat ?? "UNKNOWN",`.
 
-### 4. Live weather, judged.
+### 4. Weather, briefed and judged.
 
-Back in the Workbench, the camera eases to the top right of the map: the
-route leaves KSTP, whose marker reads “VFR”, under the leg's “MH 161°” label,
-and below it the go/no-go card reads “GO” and “KSTP and KRST are VFR now and
-at the ETA, with no advisory during the flight.” The weather subagent called
-`getMetar`, `getTaf`, `getWindsAloft` and `getAdvisories` against the loopback
-stub described above, so the weather on screen is the stub's fixed data, not a
-live observation.
+Back in the Workbench, the camera eases to the top right: the weather strip,
+whose verdict pill reads “GO” beside a chip for each airport, and below it the
+navlog sheet's go/no-go card, which reads “GO” and “KSTP and KRST are VFR now
+and at the ETA, with no advisory during the flight.” The weather subagent
+called `getMetar`, `getTaf`, `getWindsAloft` and `getAdvisories` against the
+loopback stub described above, so the weather on screen is the stub's fixed
+data, not a live observation.
 
 ### 5. Tools do the math.
 
@@ -95,8 +95,9 @@ The memory declaration, `server/src/app/navlog/memory.ts`, marked at
 
 ### 10. Reload. Still there.
 
-The camera eases to the memory panel at the top of the dock. It lists the
-memory the planner suggested during the first turn, “N738ZU has long-range
+The capture scrolls the transcript so the memory panel sits in its middle,
+and the camera eases to it. It lists the memory the planner suggested during
+the first turn, “N738ZU has long-range
 tanks: 50 gal usable.”, marked “Suggested by the planner”. The camera pulls
 back and the browser frame reloads: the capture navigates the Workbench's frame
 to its own URL, as a browser reload would. It opens the thread list and selects

@@ -39,7 +39,7 @@ beat.
 | 1 | code | "One file is the agent." | `server/src/app/navlog/index.ts`: `agent({` … focus on the `tools:` line (deny and approve) | 4 s |
 | 2 | app | "Ask for a flight." | The Workbench sends the prompt; the plan's to-dos appear in the activity | 5 s |
 | 3 | code | "Subagents brief the weather." | `server/src/app/navlog/subagents/weather/index.ts` (focus `allow:`) beside `server/src/tools/getMetar.ts` | 4 s |
-| 4 | app | "Live weather, judged." | The weather strip and verdict card on the map | 5 s |
+| 4 | app | "Weather, briefed and judged." | The weather strip and verdict card on the map | 5 s |
 | 5 | code | "Tools do the math." | `server/src/tools/computeNavlog.ts` beside `server/src/lib/navlog.ts` (focus on the wind-triangle or cruise-table line) | 4 s |
 | 6 | app | "A real navlog." | The route on the map, then the navlog sheet's numbers | 6 s |
 | 7 | code | "Filing needs a yes." | Back to the route's `approve: [{ tool: "fileFlightPlan", allowAlways: false }]` line | 3 s |
@@ -163,12 +163,33 @@ Units 5–8 (media contract, README and copy):
   transcript anchor and aria label and the checked-in `demo-media.json` follow
   it, and a test holds the checked-in catalog equal to what the uploader would
   write. The README's transcript link reads "Read the navlog demo transcript".
-- **The transcript says the weather is the stub's.** The beat 4 headline is
-  "Live weather, judged."; the footage's weather comes from the loopback AWC
-  stub, so the transcript states that next to the beat.
+- **The weather is the stub's, and the copy says so.** The beat 4 headline
+  became "Weather, briefed and judged." (it was "Live weather, judged."), and
+  the transcript states that the footage's weather comes from the loopback AWC
+  stub.
 - **The evidence matrix is unchanged.** No root README claim changed: the
   README only swaps its animation for the linked poster.
 - **Codecs:** H.264 `-preset slow -crf 23 -maxrate 2500k -bufsize 5000k`; VP9
   `-b:v 1800k -crf 32 -maxrate 2200k -bufsize 4400k`. The quality ceiling is the
   Playwright recording itself (VP8 at 25 fps, about 0.9 Mbit/s), so a lower CRF
   adds bytes without sharper text.
+
+Take-2 polish round:
+
+- **The Workbench root never scrolls.** `scrollIntoView` (centring the plan)
+  and Playwright's actionability scrolling also scrolled the Workbench's
+  `overflow: hidden` root, which pushed the weather strip and the dock header
+  out of the top of the page and cut the memory candidate. The capture now
+  centres an element only within its nearest scrolling ancestor
+  (`centerInScroller`) and resets the document and `.wb-root` scroll
+  (`settleWorkbenchViewport`) after each interaction that can scroll them.
+- **Framings.** `weather` holds the top-right corner (scale 1.4) so the strip
+  and the sheet's GO card are in one frame; `memory` holds the dock's middle,
+  where the capture centres the candidate.
+- **Two-pane code.** The panes use 14px JetBrains Mono; each column is
+  `minmax(<focal line>ch + 40px, <longest visible line, at most 100>fr)`, so a
+  focal line is always whole, and a line longer than its column fades out over
+  the pane's last 24px (a CSS mask) rather than being cut hard.
+- **Headline roll.** Each headline line is exactly the 1.12em window tall and
+  the outgoing line fades as it rolls, so nothing of it lingers above the new
+  one.

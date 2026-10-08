@@ -26,6 +26,7 @@ import {
   assertLoopbackModelBaseUrl,
   awaitApprovalCard,
   buildChildEnvironment,
+  centerInScroller,
   captureDemo,
   closeBrowserResources,
   createBrowserResources,
@@ -44,6 +45,7 @@ import {
   restoreWorkbenchThread,
   runManagedCommand,
   sanitizeOperationalEnvironment,
+  settleWorkbenchViewport,
   startHttpService,
   startWithAssignedPort,
   validateRunId,
@@ -69,6 +71,7 @@ import {
   DIRECTOR_FONTS,
   renderDirector,
   snapWindowStart,
+  twoPaneColumns,
   windowAround,
   wordmarkSvg,
 } from "./director.mjs"
@@ -1204,7 +1207,7 @@ test("storyboard follows the spec's twelve beats, frozen", () => {
       ["agent", "code", "One file is the agent."],
       ["ask", "app", "Ask for a flight."],
       ["subagents", "code", "Subagents brief the weather."],
-      ["weather", "app", "Live weather, judged."],
+      ["weather", "app", "Weather, briefed and judged."],
       ["tools", "code", "Tools do the math."],
       ["navlog", "app", "A real navlog."],
       ["gate", "code", "Filing needs a yes."],
@@ -1269,6 +1272,9 @@ test("app camera presets are the seven named regions, as data", () => {
   // The sheet holds its bottom-right corner, so the zoom never crops the
   // sheet's right side (the poster comes from that beat).
   assert.deepEqual(APP_FOCUS.sheet, { scale: 1.38, origin: "100% 100%" })
+  // The weather framing holds the top-right corner: the strip and, below it,
+  // the sheet's GO card.
+  assert.deepEqual(APP_FOCUS.weather, { scale: 1.4, origin: "100% 0%" })
   assert.equal(Object.isFrozen(APP_FOCUS), true)
   for (const [name, preset] of Object.entries(APP_FOCUS)) {
     assert.equal(Object.isFrozen(preset), true, name)
@@ -1469,6 +1475,43 @@ test("director page keeps the take-1 runtime fixes", () => {
   // Preparation state: the frame in place with the Workbench showing.
   assert.match(html, /<div class="stage prep">/)
   assert.match(html, /<div class="layer app on" data-layer="app">/)
+})
+
+test("headline roll moves the outgoing line wholly out of its window and fades it", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  // One line is exactly one window tall, so a roll of one window leaves
+  // nothing of the outgoing line above the incoming one.
+  assert.ok(html.includes(".rolling .lines { transform: translateY(-1.12em); }"))
+  assert.match(html, /\.lines > div \{ height: 1\.12em; overflow: hidden;/)
+  assert.ok(html.includes(".rolling .lines > div:first-child:not(:last-child) { opacity: 0; }"))
+})
+
+test("two panes share the frame by need and never narrow below their focal line", () => {
+  const files = templateFiles()
+  const html = renderDirector({ files, wordmark: DIRECTOR_WORDMARK })
+  for (const beat of STORYBOARD.filter((entry) => entry.panes?.length === 2)) {
+    const style = new RegExp(`data-layer="${beat.id}" style="grid-template-columns: ([^"]+)"`).exec(
+      html,
+    )?.[1]
+    assert.ok(style, beat.id)
+    const columns = [...style.matchAll(/minmax\(calc\((\d+)ch \+ 40px\), (\d+)fr\)/g)]
+    assert.equal(columns.length, 2, beat.id)
+    for (const [index, pane] of beat.panes.entries()) {
+      const focal = files[pane.path].split("\n").find((line) => pane.focal.test(line))
+      assert.equal(Number(columns[index][1]), focal.trimEnd().length + 1, `${beat.id} pane ${index}`)
+      assert.ok(Number(columns[index][2]) <= 100, `${beat.id} pane ${index} need`)
+    }
+  }
+  assert.deepEqual(
+    twoPaneColumns([
+      { focalChars: 70, needChars: 100 },
+      { focalChars: 40, needChars: 82 },
+    ]),
+    "minmax(calc(70ch + 40px), 100fr) minmax(calc(40ch + 40px), 82fr)",
+  )
+  // The ch unit is the panes' monospace, and a line too long fades out.
+  assert.ok(html.includes('.two { font: 400 14px/1 "JetBrains Mono"'))
+  assert.match(html, /\.two pre \{ -webkit-mask-image: linear-gradient\(to right, #000 calc\(100% - 24px\), transparent\);/)
 })
 
 test("director refuses a missing file, a missing focal line and an ambiguous one", () => {
@@ -3321,11 +3364,14 @@ function approvalPage(calls, { buttons, cards = 1 }) {
         },
       }
     },
-    async scrollIntoViewIfNeeded() {
+    async evaluate() {
       calls.push("scroll card")
     },
   }
   return {
+    async evaluate() {
+      calls.push("settle viewport")
+    },
     getByRole(role) {
       if (role !== "main") throw new Error(`unexpected role: ${role}`)
       return {
@@ -3341,7 +3387,66 @@ function approvalPage(calls, { buttons, cards = 1 }) {
 test("approval evidence: Allow once and Deny, no Always allow, scrolled into view", async () => {
   const calls = []
   await awaitApprovalCard(approvalPage(calls, { buttons: ["Allow once", "Deny"] }))
-  assert.deepEqual(calls, [["card", "visible"], "scroll card"])
+  assert.deepEqual(calls, [["card", "visible"], "scroll card", "settle viewport"])
+})
+
+test("centring scrolls only the nearest scrolling ancestor, never the overflow-hidden root", async () => {
+  const root = { overflowY: "hidden", scrollTop: 0, scrollHeight: 900, clientHeight: 810, parentElement: null }
+  const transcript = {
+    overflowY: "auto",
+    scrollTop: 100,
+    scrollHeight: 2_000,
+    clientHeight: 500,
+    parentElement: root,
+    getBoundingClientRect: () => ({ top: 100, height: 500 }),
+  }
+  const list = { overflowY: "visible", scrollHeight: 0, clientHeight: 0, parentElement: transcript }
+  const element = {
+    parentElement: list,
+    getBoundingClientRect: () => ({ top: 900, height: 100 }),
+  }
+  const previous = globalThis.getComputedStyle
+  globalThis.getComputedStyle = (node) => ({ overflowY: node.overflowY })
+  try {
+    await centerInScroller({
+      async evaluate(action) {
+        action(element)
+      },
+    })
+  } finally {
+    globalThis.getComputedStyle = previous
+  }
+  // 900 - 100 - (500 - 100) / 2 = 600 more: the element's middle at the transcript's middle.
+  assert.equal(transcript.scrollTop, 700)
+  assert.equal(root.scrollTop, 0)
+})
+
+test("settling the Workbench viewport unscrolls the document and the layout root only", async () => {
+  const scrolled = () => ({ scrollTop: 80, scrollLeft: 4 })
+  const fake = {
+    scrollingElement: scrolled(),
+    documentElement: scrolled(),
+    body: scrolled(),
+    roots: [scrolled()],
+    querySelectorAll(selector) {
+      assert.equal(selector, ".wb-root")
+      return this.roots
+    },
+  }
+  const previous = globalThis.document
+  globalThis.document = fake
+  try {
+    await settleWorkbenchViewport({
+      async evaluate(action) {
+        action()
+      },
+    })
+  } finally {
+    globalThis.document = previous
+  }
+  for (const element of [fake.scrollingElement, fake.documentElement, fake.body, ...fake.roots]) {
+    assert.deepEqual({ ...element }, { scrollTop: 0, scrollLeft: 0 })
+  }
 })
 
 test("approval evidence fails when the card offers Always allow", async () => {

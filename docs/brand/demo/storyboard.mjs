@@ -63,7 +63,7 @@ export const STORYBOARD = Object.freeze(
     {
       id: "weather",
       kind: "app",
-      headline: "Live weather, judged.",
+      headline: "Weather, briefed and judged.",
       focus: "weather",
       action: "weather",
       holdMs: 2500,
@@ -145,11 +145,13 @@ export const APP_ACTIONS = Object.freeze([
 export const APP_FOCUS = Object.freeze({
   rest: Object.freeze({ scale: 1, origin: "50% 50%" }),
   todos: Object.freeze({ scale: 1.55, origin: "2% 42%" }),
-  weather: Object.freeze({ scale: 1.45, origin: "98% 3%" }),
+  // The strip (top right) and the sheet's GO card (its top half) together.
+  weather: Object.freeze({ scale: 1.4, origin: "100% 0%" }),
   map: Object.freeze({ scale: 1.3, origin: "66% 32%" }),
   sheet: Object.freeze({ scale: 1.38, origin: "100% 100%" }),
   approval: Object.freeze({ scale: 1.55, origin: "2% 92%" }),
-  memory: Object.freeze({ scale: 1.55, origin: "2% 12%" }),
+  // The candidate, which the capture centres in the transcript first.
+  memory: Object.freeze({ scale: 1.55, origin: "2% 50%" }),
 })
 
 /** Every file the storyboard shows, once each, in first-use order. */

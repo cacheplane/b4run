@@ -956,7 +956,8 @@ export async function awaitApprovalCard(page, { timeout = 120_000 } = {}) {
       `The approval card offers "Always allow"; the route gates this call with allowAlways: false`,
     )
   }
-  await card.scrollIntoViewIfNeeded({ timeout })
+  await centerInScroller(card)
+  await settleWorkbenchViewport(page)
   return card
 }
 
@@ -1104,8 +1105,56 @@ export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
   }
   // Centred in the transcript, the way a reader scrolls to it, so the to-dos
   // sit inside the `todos` framing rather than at the transcript's edge.
-  await plan.first().evaluate((list) => list.scrollIntoView({ block: "center" }))
+  await centerInScroller(plan.first())
+  await settleWorkbenchViewport(page)
   return { threadId: await readThreadId(page, prompt) }
+}
+
+/**
+ * Scrolls `locator` to the middle of its nearest scrolling ancestor (the
+ * transcript) and nothing else. `scrollIntoView` would also scroll the
+ * Workbench's `overflow: hidden` root, pushing the weather strip and the dock
+ * header out of the top of the page, which no reader's scroll can do.
+ */
+export async function centerInScroller(locator) {
+  await locator.evaluate((element) => {
+    let scroller = element.parentElement
+    while (scroller !== null) {
+      const { overflowY } = getComputedStyle(scroller)
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        scroller.scrollHeight > scroller.clientHeight
+      ) {
+        break
+      }
+      scroller = scroller.parentElement
+    }
+    if (scroller === null) return
+    const box = element.getBoundingClientRect()
+    const view = scroller.getBoundingClientRect()
+    scroller.scrollTop += box.top - view.top - Math.max(0, (view.height - box.height) / 2)
+  })
+}
+
+/**
+ * Puts the Workbench page back at its own origin: the document and the
+ * `overflow: hidden` layout root unscrolled, as a reader always sees them.
+ * Playwright's actionability scrolling (and any `scrollIntoView`) can scroll
+ * them; this undoes only that, never the transcript's own scroll.
+ */
+export async function settleWorkbenchViewport(page) {
+  await page.evaluate(() => {
+    for (const element of [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      ...document.querySelectorAll(".wb-root"),
+    ]) {
+      if (element === null || element === undefined) continue
+      element.scrollTop = 0
+      element.scrollLeft = 0
+    }
+  })
 }
 
 /** The weather strip's verdict pill and the verdict card both say `verdict`. */
@@ -1138,13 +1187,16 @@ export async function assertRouteMap(page, { headingLabel, airports }) {
   for (const airport of airports) await map.getByText(airport).first().waitFor(VISIBLE)
 }
 
-/** The memory panel lists the suggested candidate. */
+/**
+ * The memory panel lists the suggested candidate, centred in the transcript
+ * so the `memory` framing holds all of it: the fact, "Suggested by the
+ * planner", and Approve and Delete.
+ */
 export async function assertMemoryCandidate(page, { content }) {
-  await page
-    .getByRole("region", { name: "Memory candidates", exact: true })
-    .getByText(content, { exact: true })
-    .first()
-    .waitFor(VISIBLE)
+  const panel = page.getByRole("region", { name: "Memory candidates", exact: true })
+  await panel.getByText(content, { exact: true }).first().waitFor(VISIBLE)
+  await centerInScroller(panel.first())
+  await settleWorkbenchViewport(page)
 }
 
 /**
@@ -1157,6 +1209,7 @@ export async function allowOnceAndSettle(page, { turns, reply }) {
   await card.waitFor({ state: "hidden", timeout: 120_000 })
   await waitForWorkbenchRunCompletion(page, { turns })
   await page.getByRole("main").getByText(reply, { exact: true }).last().waitFor(VISIBLE)
+  await settleWorkbenchViewport(page)
 }
 
 /** Fails unless the AWC stub answered every product the scripted run reaches. */
