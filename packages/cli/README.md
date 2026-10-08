@@ -10,7 +10,7 @@ Command-line development tools and runtime embedding entry points for B4.run app
 
 <p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>
 

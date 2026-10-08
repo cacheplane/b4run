@@ -53,7 +53,8 @@ separate upload in repository settings. This script does not change that setting
 
 ## Product-loop media
 
-- `product-loop.gif` — committed 1440×810, 30 fps GitHub/npm animation.
+- `product-loop.webp` — committed 960×540, 15 fps animated WebP for the
+  GitHub/npm READMEs.
 - `demo/transcript.md` — exact static walkthrough for the flagship and three
   derivative clips.
 - `demo/scenario.mjs` — the canonical prompt and deterministic aimock fixture.
@@ -66,7 +67,7 @@ separate upload in repository settings. This script does not change that setting
 
 MP4, WebM, raw Playwright recordings, test logs, summaries, and media manifests
 are generated under the gitignored `demo/artifacts/` and
-`demo/raw-recordings/` directories. Only the flagship GIF, four posters,
+`demo/raw-recordings/` directories. Only the README animation, four posters,
 transcript, and capture sources are committed.
 
 ## Regenerate and validate

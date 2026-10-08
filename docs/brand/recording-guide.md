@@ -1,7 +1,7 @@
 # B4.run product-loop recording guide
 
 This guide rebuilds the silent flagship product-loop video, the GitHub/npm
-GIF, and the poster fallback from the current local B4.run
+README animation, and the poster fallback from the current local B4.run
 source tree.
 
 ## Prerequisites
@@ -59,7 +59,11 @@ Headlines, the camera, and the crossfades are CSS on the director page; the
 product moments happen in real time inside the frame, and nothing is
 synthesized. ffmpeg trims the recording from the start of the first beat to the
 end of the close and encodes one flagship of about 15 seconds: MP4, WebM, the
-README GIF, and a WebP poster taken from the docked first beat. The capture
+README animation, and a WebP poster taken from the docked first beat. The
+README animation is an animated WebP because the camera zooms and blur
+crossfades make a GIF under the byte budget impossible, and because this
+ffmpeg build has no WebP encoder, ffmpeg writes an intermediate 256-colour GIF
+that sharp converts. The capture
 browser asks for reduced motion (the navlog map then skips its animations) and
 hides the Next.js dev badge.
 
@@ -69,12 +73,16 @@ hides the Next.js dev badge.
 pnpm media:readme:check -- --local
 ```
 
-The checker invokes ffprobe with JSON output and verifies:
+The checker invokes ffprobe with JSON output for the videos and the poster,
+reads the README animation's frame metadata with sharp (ffprobe cannot read
+animated WebP), and verifies:
 
-- exact 1440×810 16:9 geometry and 30 fps;
+- exact 1440×810 16:9 geometry and 30 fps for the videos;
 - a 12–18 second flagship;
 - H.264 MP4 and VP9 WebM for the flagship;
-- no MP4 or WebM above 2,000,000 bytes and no GIF above 4,000,000 bytes;
+- no MP4 or WebM above 2,000,000 bytes;
+- an animated WebP README animation at 960×540, at most 15 fps, under
+  4,000,000 bytes;
 - the WebP poster and the Markdown transcript;
 - captions that describe the existing workspace footage without claiming the
   scaffold command is shown.
@@ -93,11 +101,11 @@ docs/brand/demo/artifacts/runs/<run-id>/
 
 Its local MP4 and WebM files are in the run's `output/` directory. A gitignored
 `docs/brand/demo/artifacts/latest-media.json` pointer lets the local checker find
-the most recent successful encode. Posters and the GIF are first completed and
-validated in that run's `publication/` directory, then published together with
-the pointer using rollback backups. The checker requires exact run-scoped paths
-and verifies that the fixed poster/GIF hashes match the selected run. Raw
-recordings, logs, MP4, and WebM files are not committed.
+the most recent successful encode. Posters and the README animation are first
+completed and validated in that run's `publication/` directory, then published
+together with the pointer using rollback backups. The checker requires exact
+run-scoped paths and verifies that the fixed poster and animation hashes match
+the selected run. Raw recordings, logs, MP4, and WebM files are not committed.
 
 ## Authorized publication convergence
 
@@ -153,7 +161,7 @@ through the same atomic path.
 Committed outputs are:
 
 ```text
-docs/brand/product-loop.gif
+docs/brand/product-loop.webp
 apps/web/public/demo/product-loop-poster.webp
 apps/web/app/lib/demo-media.json
 docs/brand/demo/transcript.md

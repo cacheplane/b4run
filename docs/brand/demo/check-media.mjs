@@ -5,10 +5,16 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import sharp from "sharp"
+
 const execFile = promisify(nodeExecFile)
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
 const VIDEO_BYTE_LIMIT = 2_000_000
-const GIF_BYTE_LIMIT = 4_000_000
+const ANIMATION_BYTE_LIMIT = 4_000_000
+const ANIMATION_WIDTH = 960
+const ANIMATION_HEIGHT = 540
+const ANIMATION_MAXIMUM_FPS = 15.5
+const README_ANIMATION_PATH = "docs/brand/product-loop.webp"
 const MEDIA_SCHEMA_VERSION = 1
 
 export const MEDIA_CAPTIONS = Object.freeze({
@@ -23,7 +29,7 @@ export const MEDIA_CONTRACTS = Object.freeze(
       mp4: `docs/brand/demo/artifacts/output/${contract.name}.mp4`,
       webm: `docs/brand/demo/artifacts/output/${contract.name}.webm`,
       poster: `apps/web/public/demo/${contract.name}-poster.webp`,
-      gif: "docs/brand/product-loop.gif",
+      animation: README_ANIMATION_PATH,
     }),
   ),
 )
@@ -70,9 +76,13 @@ export function validateMediaManifestLayout({ repoRoot, pointer, manifest }) {
       throw new Error(`${name} poster hash is missing or invalid`)
     }
   }
-  requireExactPath(manifest.gif, join(publicationRoot, "product-loop.gif"), "flagship GIF")
-  if (!/^[a-f0-9]{64}$/u.test(manifest.assetHashes?.gif ?? "")) {
-    throw new Error("flagship GIF hash is missing or invalid")
+  requireExactPath(
+    manifest.animation,
+    join(publicationRoot, "product-loop.webp"),
+    "README animation",
+  )
+  if (!/^[a-f0-9]{64}$/u.test(manifest.assetHashes?.animation ?? "")) {
+    throw new Error("README animation hash is missing or invalid")
   }
   return { runRoot, manifestPath, outputRoot, publicationRoot }
 }
@@ -108,11 +118,7 @@ function validateVideoFile({ logicalPath, file, clip, expectedCodec, byteLimit }
       `${logicalPath} must be exactly 1440x810 (16:9); received ${stream.width ?? "unknown"}x${stream.height ?? "unknown"}`,
     )
   }
-  const measuredFrameRate = frameRate(
-    expectedCodec === "gif"
-      ? (stream.r_frame_rate ?? stream.avg_frame_rate)
-      : stream.avg_frame_rate,
-  )
+  const measuredFrameRate = frameRate(stream.avg_frame_rate)
   if (Math.abs(measuredFrameRate - 30) > 0.001) {
     failures.push(`${logicalPath} must be exactly 30 fps`)
   }
@@ -132,6 +138,64 @@ function validateVideoFile({ logicalPath, file, clip, expectedCodec, byteLimit }
   }
   if (!Number.isSafeInteger(file.size) || file.size > byteLimit) {
     failures.push(`${logicalPath} must be at most ${byteLimit.toLocaleString("en-US")} bytes`)
+  }
+  return failures
+}
+
+/**
+ * The README animation is an animated WebP, which ffprobe cannot read, so it
+ * is validated from sharp's animated metadata. Identical consecutive frames
+ * are merged by the encoder, which lowers the frame count and makes per-frame
+ * delays uneven: only an upper bound on the effective frame rate is enforced.
+ */
+export function validateAnimation(logicalPath, file) {
+  if (file === undefined) return [`${logicalPath} is missing`]
+  const clip = MEDIA_CONTRACTS[0]
+  const metadata = file.animation
+  const failures = []
+  if (metadata?.format !== "webp") {
+    failures.push(`${logicalPath} must use animated WebP`)
+  }
+  const pages = metadata?.pages
+  if (!Number.isSafeInteger(pages) || pages < 2) {
+    failures.push(`${logicalPath} must be animated (more than one frame)`)
+  }
+  if (metadata?.width !== ANIMATION_WIDTH || metadata?.pageHeight !== ANIMATION_HEIGHT) {
+    failures.push(
+      `${logicalPath} must be exactly ${ANIMATION_WIDTH}x${ANIMATION_HEIGHT}; received ${metadata?.width ?? "unknown"}x${metadata?.pageHeight ?? "unknown"}`,
+    )
+  }
+  if (metadata?.loop !== 0) {
+    failures.push(`${logicalPath} must loop forever`)
+  }
+  const delays = metadata?.delay
+  const measuredDuration =
+    Array.isArray(delays) && delays.length > 0 && delays.every((delay) => Number.isFinite(delay))
+      ? delays.reduce((total, delay) => total + delay, 0) / 1_000
+      : Number.NaN
+  if (
+    !Number.isFinite(measuredDuration) ||
+    measuredDuration < clip.minimumDuration ||
+    measuredDuration > clip.maximumDuration
+  ) {
+    failures.push(
+      `${clip.name} must be ${clip.minimumDuration}-${clip.maximumDuration} seconds; ${logicalPath} is ${Number.isFinite(measuredDuration) ? measuredDuration : "unknown"}`,
+    )
+  }
+  if (
+    Number.isSafeInteger(pages) &&
+    Number.isFinite(measuredDuration) &&
+    measuredDuration > 0 &&
+    pages / measuredDuration > ANIMATION_MAXIMUM_FPS
+  ) {
+    failures.push(
+      `${logicalPath} must be at most 15 fps; received ${(pages / measuredDuration).toFixed(2)} fps`,
+    )
+  }
+  if (!Number.isSafeInteger(file.size) || file.size > ANIMATION_BYTE_LIMIT) {
+    failures.push(
+      `${logicalPath} must be at most ${ANIMATION_BYTE_LIMIT.toLocaleString("en-US")} bytes`,
+    )
   }
   return failures
 }
@@ -185,15 +249,7 @@ export async function validateLocalMediaContract({ files, captions }) {
     }
   }
   const flagship = MEDIA_CONTRACTS[0]
-  failures.push(
-    ...validateVideoFile({
-      logicalPath: flagship.gif,
-      file: files.get(flagship.gif),
-      clip: flagship,
-      expectedCodec: "gif",
-      byteLimit: GIF_BYTE_LIMIT,
-    }),
-  )
+  failures.push(...validateAnimation(flagship.animation, files.get(flagship.animation)))
   const transcript = files.get("docs/brand/demo/transcript.md")
   if (
     transcript === undefined ||
@@ -219,6 +275,14 @@ export async function probeFile(path, { signal, exec = execFile } = {}) {
     if (signal?.aborted) throw signal.reason ?? error
     throw error
   }
+}
+
+export async function readAnimationMetadata(path) {
+  const { format, width, pageHeight, pages, delay, loop } = await sharp(path, {
+    animated: true,
+    limitInputPixels: false,
+  }).metadata()
+  return { format, width, pageHeight, pages, delay, loop }
 }
 
 async function hashFile(path, readFile = nodeReadFile) {
@@ -247,6 +311,7 @@ async function collectMediaFiles(
     stat = nodeStat,
     access = nodeAccess,
     probe = probeFile,
+    readAnimation = readAnimationMetadata,
     readFile = nodeReadFile,
     hash = (path) => hashFile(path, readFile),
     signal,
@@ -279,12 +344,13 @@ async function collectMediaFiles(
       if (error?.code !== "ENOENT") throw error
     }
   }
-  const gifPath = published ? join(repoRoot, "docs/brand/product-loop.gif") : manifest.gif
+  const animationPath = published ? join(repoRoot, README_ANIMATION_PATH) : manifest.animation
   try {
-    const info = await stat(gifPath)
-    files.set("docs/brand/product-loop.gif", {
+    const info = await stat(animationPath)
+    signal?.throwIfAborted()
+    files.set(README_ANIMATION_PATH, {
       size: info.size,
-      probe: await probe(gifPath, { signal }),
+      animation: await readAnimation(animationPath),
     })
   } catch (error) {
     if (error?.code !== "ENOENT") throw error
@@ -308,6 +374,7 @@ export async function validateStagedMediaManifest({
   stat = nodeStat,
   access = nodeAccess,
   probe = probeFile,
+  readAnimation = readAnimationMetadata,
   readFile = nodeReadFile,
   hash = (path) => hashFile(path, readFile),
   signal,
@@ -327,14 +394,15 @@ export async function validateStagedMediaManifest({
       throw new Error(`${name} staged poster hash does not match its manifest`)
     }
   }
-  if ((await hash(manifest.gif)) !== manifest.assetHashes.gif) {
-    throw new Error("staged flagship GIF hash does not match its manifest")
+  if ((await hash(manifest.animation)) !== manifest.assetHashes.animation) {
+    throw new Error("staged README animation hash does not match its manifest")
   }
   const files = await collectMediaFiles(repoRoot, manifest, {
     published: false,
     stat,
     access,
     probe,
+    readAnimation,
     readFile,
     hash,
     signal,
@@ -357,10 +425,13 @@ async function verifyPublishedCorrespondence(repoRoot, manifest, { hash = hashFi
       throw new Error(`${contract.name} fixed poster does not correspond to run ${manifest.runId}`)
     }
   }
-  const stagedGifHash = await hash(manifest.gif)
-  const publishedGifHash = await hash(join(repoRoot, "docs/brand/product-loop.gif"))
-  if (stagedGifHash !== manifest.assetHashes.gif || publishedGifHash !== manifest.assetHashes.gif) {
-    throw new Error(`fixed flagship GIF does not correspond to run ${manifest.runId}`)
+  const stagedAnimationHash = await hash(manifest.animation)
+  const publishedAnimationHash = await hash(join(repoRoot, README_ANIMATION_PATH))
+  if (
+    stagedAnimationHash !== manifest.assetHashes.animation ||
+    publishedAnimationHash !== manifest.assetHashes.animation
+  ) {
+    throw new Error(`fixed README animation does not correspond to run ${manifest.runId}`)
   }
 }
 
@@ -370,6 +441,7 @@ export async function checkLocalMedia({
   stat = nodeStat,
   access = nodeAccess,
   probe = probeFile,
+  readAnimation = readAnimationMetadata,
   hash = (path) => hashFile(path, readFile),
   log = console.log,
   signal,
@@ -381,6 +453,7 @@ export async function checkLocalMedia({
     stat,
     access,
     probe,
+    readAnimation,
     readFile,
     hash,
     signal,
@@ -393,11 +466,11 @@ export async function checkLocalMedia({
     throw new Error(`Local media contract failed:\n- ${failures.join("\n- ")}`)
   }
   const passLines = [
-    "PASS dimensions: every video and GIF is 1440x810 (16:9)",
-    "PASS frame rate: every video and GIF is 30 fps",
+    "PASS dimensions: every video is 1440x810 (16:9) and the README animation is 960x540",
+    "PASS frame rate: every video is 30 fps and the README animation at most 15 fps",
     "PASS durations: flagship is 12-18s",
-    "PASS codecs: MP4 is H.264, WebM is VP9, and GIF is animated GIF",
-    "PASS byte budgets: MP4/WebM <=2MB each and GIF <=4MB",
+    "PASS codecs: MP4 is H.264, WebM is VP9, and the README animation is animated WebP",
+    "PASS byte budgets: MP4/WebM <=2MB each and the README animation <=4MB",
     "PASS posters: the flagship poster is 1440x810 WebP",
     "PASS transcript: the static walkthrough exists",
     "PASS captions: no caption claims scaffolding appears",

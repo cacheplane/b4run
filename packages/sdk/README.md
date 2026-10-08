@@ -10,7 +10,7 @@ Author-facing TypeScript declarations for B4.run agents, tools, middleware, memo
 
 <p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>
 

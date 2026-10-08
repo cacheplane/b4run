@@ -1043,7 +1043,7 @@ export async function createBrowserResources({ chromium, recordingsDir, viewport
       viewport,
       recordVideo: { dir: recordingsDir, size: viewport },
       // The navlog map animates its zoom to the route unless motion is reduced;
-      // the animation adds no evidence and frames GIF compression cannot shrink.
+      // the animation adds no evidence and frames the README animation cannot spare.
       reducedMotion: "reduce",
     })
     signal?.throwIfAborted()

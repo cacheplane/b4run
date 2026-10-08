@@ -73,8 +73,19 @@ function trimArguments(trim) {
 
 const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:flags=lanczos`;
 
-export function buildGifFilter() {
-	return `[0:v]${SCALE_FILTER},split[gifbase][paletteinput];[paletteinput]palettegen=max_colors=28:stats_mode=diff[palette];[gifbase][palette]paletteuse=dither=none:diff_mode=rectangle[outv]`;
+const ANIMATION_WIDTH = 960;
+const ANIMATION_HEIGHT = 540;
+const ANIMATION_FPS = 15;
+
+/**
+ * The README animation's intermediate GIF: 960x540 at 15 fps with a full
+ * 256-colour palette. The camera zooms and blur crossfades make a GIF that
+ * fits the README budget impossible, so this GIF is only an intermediate:
+ * sharp re-encodes it as the published animated WebP, because this ffmpeg
+ * build has no libwebp encoder.
+ */
+export function buildAnimationFilter() {
+	return `[0:v]fps=${ANIMATION_FPS},scale=${ANIMATION_WIDTH}:${ANIMATION_HEIGHT}:flags=lanczos,split[a][b];[b]palettegen=max_colors=256:stats_mode=diff[p];[a][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[outv]`;
 }
 
 export function runEncoderCommand(
@@ -310,7 +321,7 @@ export async function encodeVideo({
 					"-b:v",
 					"0",
 					"-crf",
-					"38",
+					"44",
 					"-deadline",
 					"good",
 					"-cpu-used",
@@ -390,16 +401,21 @@ export async function encodePoster({
 	}
 }
 
-export async function encodeGif({
+export async function encodeReadmeAnimation({
 	source,
 	destination,
 	trim,
 	signal,
 	run = runEncoderCommand,
+	convert = (input, output) =>
+		sharp(input, { animated: true, limitInputPixels: false })
+			.webp({ quality: 70, effort: 4 })
+			.toFile(output),
 	rename = nodeRename,
 	remove = (path) => nodeRm(path, { force: true }),
 }) {
-	const temporaryPath = `${destination}.tmp.gif`;
+	const intermediatePath = `${destination}.tmp.gif`;
+	const temporaryPath = `${destination}.tmp.webp`;
 	let published = false;
 	try {
 		await run(
@@ -413,20 +429,23 @@ export async function encodeGif({
 				"-i",
 				source,
 				"-filter_complex",
-				buildGifFilter(),
+				buildAnimationFilter(),
 				"-map",
 				"[outv]",
 				"-an",
 				"-gifflags",
 				"+transdiff",
-				temporaryPath,
+				intermediatePath,
 			],
 			{ signal },
 		);
 		signal?.throwIfAborted();
+		await convert(intermediatePath, temporaryPath);
+		signal?.throwIfAborted();
 		await rename(temporaryPath, destination);
 		published = true;
 	} finally {
+		await remove(intermediatePath);
 		if (!published) await remove(temporaryPath);
 	}
 }
@@ -509,7 +528,8 @@ export async function encodeCaptureArtifacts({
 	}
 	const encodeVideoImplementation = dependencies.encodeVideo ?? encodeVideo;
 	const encodePosterImplementation = dependencies.encodePoster ?? encodePoster;
-	const encodeGifImplementation = dependencies.encodeGif ?? encodeGif;
+	const encodeReadmeAnimationImplementation =
+		dependencies.encodeReadmeAnimation ?? encodeReadmeAnimation;
 	const validateStagedMedia =
 		dependencies.validateStagedMedia ?? validateStagedMediaManifest;
 	const afterPhase = dependencies.afterPhase ?? (() => {});
@@ -550,14 +570,19 @@ export async function encodeCaptureArtifacts({
 	});
 	await afterPhase("poster", { name });
 	const clips = { [name]: { mp4, webm, poster, duration: trim.duration } };
-	const gif = join(publicationDir, "product-loop.gif");
-	await encodeGifImplementation({ source, destination: gif, trim, signal });
-	await afterPhase("gif");
+	const animation = join(publicationDir, "product-loop.webp");
+	await encodeReadmeAnimationImplementation({
+		source,
+		destination: animation,
+		trim,
+		signal,
+	});
+	await afterPhase("animation");
 	signal?.throwIfAborted();
 
 	const manifestPath = join(artifactsDir, "media-manifest.json");
 	const assetHashes = {
-		gif: await hashFile(gif),
+		animation: await hashFile(animation),
 		posters: { [name]: await hashFile(poster) },
 	};
 	const manifest = {
@@ -567,7 +592,7 @@ export async function encodeCaptureArtifacts({
 		sourceRecording: source,
 		outputRoot: outputDir,
 		clips,
-		gif,
+		animation,
 		assetHashes,
 		captions: MEDIA_CAPTIONS,
 	};
@@ -596,9 +621,9 @@ export async function encodeCaptureArtifacts({
 				targetPath: join(posterDir, `${name}-poster.webp`),
 			})),
 			{
-				name: "gif",
-				stagedPath: gif,
-				targetPath: join(repoRoot, "docs/brand/product-loop.gif"),
+				name: "animation",
+				stagedPath: animation,
+				targetPath: join(repoRoot, "docs/brand/product-loop.webp"),
 			},
 			{
 				name: "pointer",
