@@ -13,6 +13,7 @@ declare module "@b4run/sdk/testing" {
         readonly "lookupAirport": (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>
         readonly "readDoc": (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>
         readonly "renderChart": (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>
+        readonly "resolveDeparture": (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>
       }
     }
     "/navlog/subagents/performance": {
@@ -26,6 +27,7 @@ declare module "@b4run/sdk/testing" {
         readonly "lookupAirport": (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>
         readonly "readDoc": (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>
         readonly "renderChart": (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>
+        readonly "resolveDeparture": (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>
       }
     }
     "/navlog/subagents/weather": {
@@ -39,6 +41,7 @@ declare module "@b4run/sdk/testing" {
         readonly "lookupAirport": (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>
         readonly "readDoc": (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>
         readonly "renderChart": (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>
+        readonly "resolveDeparture": (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>
       }
     }
   }

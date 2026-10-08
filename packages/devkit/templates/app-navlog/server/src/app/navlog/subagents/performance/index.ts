@@ -16,6 +16,7 @@ export default agent({
       "getAdvisories",
       "computeNavlog",
       "fileFlightPlan",
+      "resolveDeparture",
       "renderChart",
       "runBash",
       "writeFile",

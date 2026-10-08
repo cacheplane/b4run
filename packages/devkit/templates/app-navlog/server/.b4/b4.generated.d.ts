@@ -20,6 +20,7 @@ declare module "b4:routes" {
       readonly lookupAirport: (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>;
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
       readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
+      readonly resolveDeparture: (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>;
       readonly writeTodos: (input: { todos: ReadonlyArray<{ content: string; status: "pending" | "in_progress" | "completed" }> }) => Promise<{ todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }>;
       readonly readSkill: (input: { name: string }) => Promise<string>;
       readonly task: (input: { subagent: string; input: string }) => Promise<string>;
@@ -41,6 +42,7 @@ declare module "b4:routes" {
       readonly lookupAirport: (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>;
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
       readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
+      readonly resolveDeparture: (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>;
       readonly readFile: (input: { path: string; startLine?: number | null; endLine?: number | null }) => Promise<string>;
       readonly writeFile: (input: { path: string; content: string }) => Promise<string>;
       readonly editFile: (input: { path: string; oldText: string; newText: string; replaceAll?: boolean | null }) => Promise<string>;
@@ -57,6 +59,7 @@ declare module "b4:routes" {
       readonly lookupAirport: (input: Parameters<typeof import("../src/tools/lookupAirport.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/lookupAirport.js").default>>>;
       readonly readDoc: (input: Parameters<typeof import("../src/tools/readDoc.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/readDoc.js").default>>>;
       readonly renderChart: (input: Parameters<typeof import("../src/tools/renderChart.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/renderChart.js").default>>>;
+      readonly resolveDeparture: (input: Parameters<typeof import("../src/tools/resolveDeparture.js").default>[0]) => Promise<Awaited<ReturnType<typeof import("../src/tools/resolveDeparture.js").default>>>;
       readonly readFile: (input: { path: string; startLine?: number | null; endLine?: number | null }) => Promise<string>;
       readonly writeFile: (input: { path: string; content: string }) => Promise<string>;
       readonly editFile: (input: { path: string; oldText: string; newText: string; replaceAll?: boolean | null }) => Promise<string>;
