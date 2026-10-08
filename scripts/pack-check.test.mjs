@@ -27,6 +27,23 @@ const agUiExpectedExports = {
     types: "./dist/sse.d.ts",
     default: "./dist/sse.js",
   },
+  "./react/copilotkit": {
+    types: "./dist/react/copilotkit/index.d.ts",
+    default: "./dist/react/copilotkit/index.js",
+  },
+  "./angular": {
+    types: "./dist/angular/index.d.ts",
+    default: "./dist/angular/index.js",
+  },
+  "./angular/events": {
+    types: "./dist/angular/events/index.d.ts",
+    default: "./dist/angular/events/index.js",
+  },
+  "./angular/copilotkit": {
+    types: "./dist/angular/copilotkit/index.d.ts",
+    default: "./dist/angular/copilotkit/index.js",
+  },
+  "./styles.css": "./dist/styles.css",
 }
 
 afterEach(async () => {
@@ -58,7 +75,7 @@ describe("pack manifest validation", () => {
     }
   })
 
-  it("checks the AG-UI root and SSE entrypoints", () => {
+  it("checks the AG-UI root, SSE, React connector, Angular and stylesheet entrypoints", () => {
     const agUiPackage = packages.find(({ dir }) => dir === "packages/ag-ui")
 
     assert.ok(agUiPackage, "Pack manifest is missing packages/ag-ui")
@@ -84,6 +101,8 @@ describe("pack manifest validation", () => {
       "dist/encode.*",
       "dist/run-input.*",
       "dist/translate.*",
+      "dist/copilotkit/*",
+      "dist/react/styles.css",
     ])
   })
 
@@ -214,7 +233,12 @@ describe("expectedExportFailures", () => {
 
   it("rejects a deleted required export", () => {
     assert.deepEqual(
-      expectedExportFailures({ ".": agUiExpectedExports["."] }, agUiExpectedExports),
+      expectedExportFailures(
+        Object.fromEntries(
+          Object.entries(agUiExpectedExports).filter(([subpath]) => subpath !== "./sse"),
+        ),
+        agUiExpectedExports,
+      ),
       ['missing required export "./sse"'],
     )
   })
