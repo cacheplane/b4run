@@ -85,6 +85,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `formatErrorChain` | Render a thrown value and its cause chain as operator-readable log lines. |
 | `normalizeMiddlewareModule` | Normalize generated middleware exports. |
 | `normalizeThreadAccessModule` | Normalize generated thread-access policy exports. |
+| `normalizeAuthModule` | Bind a generated `src/auth.ts` export, refusing one that is not `defineAuth`. |
 | `normalizeWsProxy` | Normalize a `B4_PG_WS_PROXY` value (`host:port`, `ws://`, or `wss://`) into the address and TLS flag the neon driver needs. |
 | `PostgresDriver` | Name the Postgres driver a generated store factory opens (`neon` or `pg`). |
 | `PostgresDriverSelection` | Describe the driver decision and optional proxy target for one request. |
@@ -138,6 +139,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `materializeResolvedRouteGraph` | Materialize a resolved graph. |
 | `normalizeMiddlewareModule` | Normalize middleware exports. |
 | `normalizeThreadAccessModule` | Normalize thread-access policy exports. |
+| `normalizeAuthModule` | Bind an `src/auth.ts` export, refusing one that is not `defineAuth`. |
 | `readPendingInterrupts` | Read pending human decisions. |
 | `readResponseFormat` | Parse a run body's `hashbrown.responseSchema` into a bound response format. |
 | `resolveCheckpointer` | Resolve the configured checkpointer. |
@@ -211,6 +213,7 @@ export interface ServeRuntimeOptions {
   readonly memoryStore?: () => Promise<MemoryStore>
   readonly middleware?: B4Middleware
   readonly threadAccessExpected?: boolean
+  readonly authExpected?: boolean
 }
 ```
 
@@ -229,6 +232,7 @@ export interface ServeRuntimeOptions {
 | `readonly memoryStore` | `() => Promise<MemoryStore>` | no | Supply the lazy memory-store factory. |
 | `readonly middleware` | `B4Middleware` | no | Supply preloaded middleware. |
 | `readonly threadAccessExpected` | `boolean` | no | Record that the build saw a [thread access policy](/docs/thread-access), so a `modules` manifest without one fails the boot instead of serving thread endpoints open. The node target's generated `server.mjs` sets it. |
+| `readonly authExpected` | `boolean` | no | Record that the build saw an [`src/auth.ts`](/docs/access-control#authentication), so a `modules` manifest without it fails the boot instead of serving every request anonymously. The node target's generated `server.mjs` sets it. |
 
 #### Behavior contract `cli.serve.production-boot`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/cli/test/serve-runtime.test.ts","testNames":["boots without running typegen (never writes .b4 artifacts)"]}] */}

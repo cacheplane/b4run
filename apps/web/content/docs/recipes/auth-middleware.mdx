@@ -1,5 +1,9 @@
 # Auth Middleware
 
+<Callout type="info" title="Identity belongs in src/auth.ts">
+  To establish who is calling, prefer [`src/auth.ts`](/docs/access-control#authentication): it runs once per request before every gate, including thread endpoints middleware never sees, and tools read its result as `ctx.principal`. Use middleware for decisions about a route, like the bearer check below on a single app with no thread policy.
+</Callout>
+
 Let's add execution authentication with one middleware file. It rejects route-execution requests that don't carry a valid bearer token, and it passes the verified user id to every tool call in that run:
 
 <CodeGroup>

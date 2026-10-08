@@ -90,6 +90,15 @@ import { scenarios } from "@b4run/sdk/testing"
 | `allow` | Continue middleware execution. |
 | `defineMiddleware` | Preserve types for a middleware function or lifecycle definition. |
 | `reject` | Stop middleware execution. |
+| `AuthDefinition` | Declare the app's authentication: `authenticate`, plus optional `setup` and `dispose`. |
+| `AuthRequest` | Describe the request `authenticate` resolves: headers, method and url. |
+| `AuthResult` | Express what `authenticate` returns: a principal, `undefined` for anonymous, or a rejection. |
+| `AuthSetupContext` | Describe what an auth `setup` hook receives. |
+| `B4Principal` | Name the app's principal type, as `b4 typegen` declares it from `src/auth.ts`. |
+| `B4PrincipalShape` | Describe the smallest principal: an object with a string `id`. |
+| `B4Register` | Declare app types the SDK reads; `b4 typegen` adds `principal`. |
+| `defineAuth` | Declare and brand the app's authentication for `src/auth.ts`. |
+| `isAuthDefinition` | Tell a `defineAuth` value from any other object. |
 | `B4ThreadAccess` | Define one thread-access action handler. |
 | `ThreadAccessAllow` | Express an allow decision, optionally stamping a thread on create. |
 | `ThreadAccessDeny` | Express a deny decision with an optional status and body. |
@@ -352,6 +361,18 @@ export declare function reject(status: number, body?: unknown): RejectResult
 #### Behavior contract `sdk.middleware.result-shapes`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/sdk/test/middleware.test.ts","testNames":["returns a reject result with status and body","omits body when not provided","returns a continue result with context","omits context when not provided"]}] */}
 allow() and reject() return discriminated result objects; omitted context and body properties are absent.
+
+### `defineAuth()`
+
+`src/auth.ts` must default-export the result. `authenticate` runs once per
+request, before middleware and the thread-access policy, and its principal
+reaches middleware and the policy as `req.principal` and every tool as
+`ctx.principal`. See [Authentication](/docs/access-control#authentication).
+
+```ts
+export declare function defineAuth<P extends B4PrincipalShape>(definition: AuthDefinition<P>): AuthDefinition<P>
+export declare function isAuthDefinition(value: unknown): value is AuthDefinition
+```
 
 ### `validateModelId()`
 

@@ -100,6 +100,7 @@ export interface AgentHarnessOptions {
   readonly route: string
   readonly fixtures?: FixtureSet
   readonly middlewareContext?: AgentHarnessMiddlewareContext
+  readonly principal?: B4Principal
   readonly live?: boolean
   readonly record?: boolean
   readonly recordUpstream?: string
@@ -114,6 +115,7 @@ export interface AgentHarnessOptions {
 | `readonly route` | `string` | yes | Select the route key. |
 | `readonly fixtures` | `FixtureSet` | no | Seed mock responses. |
 | `readonly middlewareContext` | `AgentHarnessMiddlewareContext` | no | Supply the context `middleware.ts` would have produced. |
+| `readonly principal` | `B4Principal` | no | Supply the principal `src/auth.ts` would have resolved, so tools see it as `ctx.principal`. |
 | `readonly live` | `boolean` | no | Proxy to a live OpenAI endpoint. |
 | `readonly record` | `boolean` | no | Capture upstream traffic for replay. |
 | `readonly recordUpstream` | `string` | no | Override the record-mode upstream. |

@@ -15,9 +15,9 @@ const appRoot = (name: string): string => (name === "app-navlog" ? `${name}/serv
 
 /**
  * Where each template keeps its policy. `app-basic` ships it inert, one rename
- * from active. `app-navlog` ships it active: its `principalOf` returns one local
- * principal when no proxy guards the server, so it is inert in development and
- * per-visitor behind the deployed demo's proxy.
+ * from active. `app-navlog` ships it active: its `src/auth.ts` resolves one
+ * local principal when no proxy guards the server, so it is inert in
+ * development and per-visitor behind the deployed demo's proxy.
  */
 const policyFile = (name: string): string =>
   name === "app-navlog" ? "src/thread-access.ts" : "src/thread-access.ts.example"
@@ -73,10 +73,12 @@ describe("scaffolded thread-access policy", () => {
       // The DELETE existence oracle: a missing row is denied ahead of any admin
       // branch, so "not yours" and "never existed" answer identically.
       expect(policy).toContain("if (req.thread === undefined) return deny()")
-      expect(read(name, authFile(name))).toContain("export async function principalOf")
-      // One principal, imported by both authorization files — not two header
-      // parsers that can disagree.
-      expect(policy).toContain('from "./auth.js"')
+      // One resolver, enforced: src/auth.ts default-exports `defineAuth`, and
+      // the policy reads the principal it resolved instead of parsing a header.
+      expect(read(name, authFile(name))).toContain("export default defineAuth(")
+      expect(policy).toContain("req.principal")
+      expect(stripComments(policy)).not.toContain("headers")
+      expect(policy).not.toContain('from "./auth.js"')
     })
 
     it(`${name}'s policy authorizes against the server stamp, never client metadata`, () => {
@@ -135,10 +137,10 @@ describe("scaffolded thread-access policy", () => {
     // the policy holds even without the example's main.mjs in front.
     expect(auth).toContain('sameSecret(headers["x-internal-token"], token)')
     expect(auth).toContain("LOCAL_PRINCIPAL")
-    // The route middleware resolves the caller through the same module.
-    const middleware = read("app-navlog", "src/middleware.ts")
-    expect(middleware).toContain("defineMiddleware")
-    expect(middleware).toContain('import { principalOf } from "./auth.js"')
+    // An untokened request is refused before any endpoint, by the resolver
+    // itself; there is no route middleware left to do it.
+    expect(auth).toContain('reject(401, { error: "unauthorized" })')
+    expect(exists("app-navlog", "src/middleware.ts")).toBe(false)
   })
 
   it("app-navlog's active policy is the scaffold's policy, unchanged below its header", () => {
@@ -148,7 +150,7 @@ describe("scaffolded thread-access policy", () => {
   })
 
   it("keeps the navlog example and template authorization files in byte-for-byte parity", () => {
-    for (const file of ["thread-access.ts", "auth.ts", "middleware.ts"]) {
+    for (const file of ["thread-access.ts", "auth.ts"]) {
       // Two copies of an authorization module that drift are two different
       // security postures, only one of which anybody reviewed.
       expect(readFileSync(`${navlogTemplateSrc}${file}`, "utf8")).toBe(

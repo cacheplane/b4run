@@ -59,19 +59,21 @@ Memory needs the same care. Candidate management can operate across namespaces, 
 
 ## Pass verified identity to tools
 
-For execution routes, outer authentication can forward a signed internal identity header or trusted request context to B4.run middleware. The middleware verifies that trusted value and returns canonical identity through `allow({ ... })`. Tools read it from `ctx.middleware`:
+For execution routes, outer authentication can forward a signed internal identity header or trusted request context to B4.run. [`src/auth.ts`](/docs/access-control#authentication) verifies that trusted value once per request and returns the canonical principal, which middleware and the thread-access policy read as `req.principal` and tools read as `ctx.principal`:
 
-```ts title="src/middleware.ts"
-import { allow, defineMiddleware, reject } from "@b4run/sdk"
+```ts title="src/auth.ts"
+import { defineAuth, reject } from "@b4run/sdk"
 
-export default defineMiddleware(async (req) => {
-  const identity = await verifyInternalIdentity(req.headers.authorization)
-  if (!identity) return reject(401, { error: "Unauthorized" })
-  return allow({ userId: identity.userId, tenantId: identity.tenantId })
+export default defineAuth({
+  authenticate: async ({ headers }) => {
+    const identity = await verifyInternalIdentity(headers.authorization)
+    if (!identity) return reject(401, { error: "Unauthorized" })
+    return { id: identity.userId, tenantId: identity.tenantId }
+  },
 })
 ```
 
-The model and the request body must never choose those canonical fields. Keep authorization-sensitive tool arguments separate from verified identity, and have the tool derive tenant filters and credentials from `ctx.middleware`.
+The model and the request body must never choose those canonical fields. Keep authorization-sensitive tool arguments separate from verified identity, and have the tool derive tenant filters and credentials from `ctx.principal`.
 
 ## Inner agent controls
 

@@ -1,21 +1,20 @@
 /**
  * The one place this app turns a request into a principal.
  *
- * B4.run has two authorization files with two different jobs. `src/middleware.ts`
- * answers "may this caller run this route"; `src/thread-access.ts` answers "may
- * this caller create, read, mutate or destroy this thread". Nothing makes them
- * agree, and two independent header parsers is a confused deputy waiting to
- * happen. So both import this module, and neither parses a header of its own.
+ * The default export is this app's `defineAuth`. B4.run calls `authenticate`
+ * once per request, before any gate, and hands the result to everything that
+ * asks who is calling: `src/thread-access.ts` reads it as `req.principal`, and
+ * tools as `ctx.principal`. Nothing else in the app parses a header for
+ * identity, so the thread-access policy cannot disagree with it.
  *
  * Behind the deployed proxy (`B4_INTERNAL_TOKEN` set), the web proxy mints a
  * visitor id into an HTTP-only cookie and forwards it as `X-B4-Visitor` on
  * every upstream call, together with the shared token as `X-Internal-Token`.
  * The visitor header is trusted only on a request that also carries the token,
- * which this module checks itself, so route runs (the middleware) and thread
- * routes (the thread-access policy) refuse an untokened call even when the app
- * runs the plain `.b4/build/server.mjs`. Those two are all it gates: `/healthz`
- * and the `/memory/*` review routes answer without a principal. The example
- * repository's `main.mjs` guards the whole process with the same token.
+ * and a request without both is refused with 401 before any endpoint runs —
+ * even when the app runs the plain `.b4/build/server.mjs`. Only `/healthz` and
+ * `/readyz` answer without one. The example repository's `main.mjs` guards the
+ * whole process with the same token.
  *
  * In local development (no token) there is no proxy and one local principal
  * owns everything, which is what `b4 dev`, the harness lanes and the tests
@@ -23,6 +22,7 @@
  */
 
 import { timingSafeEqual } from "node:crypto"
+import { defineAuth, reject } from "@b4run/sdk"
 
 export interface Principal {
   readonly id: string
@@ -35,6 +35,11 @@ export const LOCAL_PRINCIPAL: Principal = { id: "local", isAdmin: true, org: "lo
 
 /** What the web proxy mints: `v-` and base64url. Anything else is not a visitor. */
 const VISITOR_ID = /^v-[A-Za-z0-9_-]{8,64}$/
+
+export default defineAuth({
+  authenticate: async ({ headers }) =>
+    (await principalOf(headers)) ?? reject(401, { error: "unauthorized" }),
+})
 
 /**
  * Resolve the caller, or `undefined` when there is no principal.

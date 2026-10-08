@@ -53,6 +53,7 @@ Every middleware receives this argument. All values are pre-parsed:
 |---|---|---|
 | `body` | `unknown` (optional) | Detached copy of the original parsed JSON envelope on POST execution requests. Absent on GET requests. Client-supplied values must be validated before use. |
 | `headers` | `Readonly<Record<string, string>>` | Lowercase keys (Node convention). Multi-value headers joined with `, `. |
+| `principal` | `B4Principal \| undefined` | The caller [`src/auth.ts`](/docs/access-control#authentication) resolved for this request; `undefined` without an auth file or for an anonymous request. Authorize against this, not `headers`. |
 | `params` | `Readonly<Record<string, string>>` | Dynamic-segment values extracted from the request input, e.g. `{ tenant: "acme" }` for `/hello/[tenant]`. Always `{}` on `/resume` and `/pending_interrupts` (see [Where middleware runs](#where-middleware-runs)). |
 | `routeId` | `string` | E.g. `"/hello/[tenant]"`. |
 | `assistantId` | `string` | E.g. `"/hello/[tenant]#agent"`. |
@@ -101,7 +102,7 @@ return allow({ userId, plan: "pro" })
 
 ## Context flow to tools
 
-Whatever you pass to `allow({ ... })` is delivered to every tool call for that request via the second argument:
+Who is calling doesn't need middleware: [`src/auth.ts`](/docs/access-control#authentication) resolves it once per request and every tool reads it as `ctx.principal`. Use `allow({ ... })` for anything else a request should carry to its tools, such as a per-request database handle or a feature flag. Whatever you pass is delivered to every tool call for that request via the second argument:
 
 <CodeGroup>
 ```ts title="src/middleware.ts"

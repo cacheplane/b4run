@@ -2,13 +2,13 @@
  * Thread authorization: may this caller create, read, mutate or destroy this
  * thread?
  *
- * Active, and inert in development: `principalOf` (src/auth.ts) returns one
- * local principal when no `B4_INTERNAL_TOKEN` is set, and that principal owns
- * every thread it creates. Behind the deployed proxy each visitor is its own
- * principal, so a visitor sees only the threads it created. Without this file
- * every thread endpoint is open to anyone who can name a thread id, and ids are
- * neither secret nor collision-proof (`t-` plus four random bytes). The policy
- * is deny-by-default and only `principalOf` can open it.
+ * Active, and inert in development: `src/auth.ts` resolves one local principal
+ * when no `B4_INTERNAL_TOKEN` is set, and that principal owns every thread it
+ * creates. Behind the deployed proxy each visitor is its own principal, so a
+ * visitor sees only the threads it created. Without this file every thread
+ * endpoint is open to anyone who can name a thread id, and ids are neither
+ * secret nor collision-proof (`t-` plus four random bytes). The policy is
+ * deny-by-default and only a principal from `src/auth.ts` can open it.
  *
  * This is NOT route middleware. Middleware is keyed on route identity, and a
  * thread has no owning route — every endpoint that starts a turn overwrites the
@@ -20,10 +20,9 @@
 
 import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
 
-import { principalOf } from "./auth.js"
-
-const owned = async (req: ThreadAccessRequest) => {
-  const user = await principalOf(req.headers)
+const owned = (req: ThreadAccessRequest) => {
+  // Resolved once per request by src/auth.ts, before this policy runs.
+  const user = req.principal
   if (!user) return deny()
 
   // `thread: undefined` reaches `delete`, `update` and `read` alike — B4.run
@@ -72,8 +71,8 @@ export default defineThreadAccess({
   // it was given. The stamp this returns is the thread's owner record: B4.run
   // stores it under a reserved key no client can write, and it is what `owned`
   // above authorizes against for the whole life of the thread.
-  create: async (req) => {
-    const user = await principalOf(req.headers)
+  create: (req) => {
+    const user = req.principal
     return user ? permit({ ownerId: user.id, org: user.org }) : deny()
   },
   // `fallback` is required, and it is the deny-by-default floor: an action with
