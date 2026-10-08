@@ -12,6 +12,8 @@
  * const runner = createB4AgentRunner(InMemoryAgentRunner, { url, fetch })
  * ```
  */
+
+export { type ForwardIdentityOptions, forwardIdentity } from "../forward-identity.js"
 export {
   type B4AgentRunnerBase,
   type B4AgentRunnerOptions,

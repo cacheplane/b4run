@@ -476,7 +476,7 @@ CopilotKit's chat calls `connect` when it mounts. Its default in-memory runner o
 ```ts
 import { AsyncLocalStorage } from "node:async_hooks"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
-import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import { createB4AgentRunner, forwardIdentity } from "@b4run/ag-ui/copilotkit-runtime"
 import { CopilotRuntime, createCopilotRuntimeHandler, InMemoryAgentRunner } from "@copilotkit/runtime/v2"
 
 const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3001"
@@ -485,13 +485,17 @@ const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3001"
 // per process, so the identity travels by context, not by constructor.
 const caller = new AsyncLocalStorage<{ userId: string }>()
 
-// Every B4 request, run and restore alike, carries the current caller.
-const callerFetch: typeof fetch = (input, init) => {
-  const headers = new Headers(init?.headers)
-  const userId = caller.getStore()?.userId
-  if (userId !== undefined) headers.set("x-user-id", userId) // the header your thread-access policy reads
-  return fetch(input, { ...init, headers })
-}
+// Every B4 request, run and restore alike, carries the current caller and the
+// server-to-server secret. Both headers are stripped from what the browser sent
+// first, so a browser can't claim to be someone else.
+const callerFetch = forwardIdentity({
+  headers: ["b4-user-id", "b4-internal-token"],
+  resolve: () => {
+    const userId = caller.getStore()?.userId
+    if (userId === undefined) return undefined
+    return { "b4-user-id": userId, "b4-internal-token": process.env.B4_INTERNAL_TOKEN ?? "" }
+  },
+})
 
 const agent = new B4HttpAgent({ url: `${b4Url}/agui/${encodeURIComponent("/chat#agent")}`, fetch: callerFetch })
 const runtime = new CopilotRuntime({
@@ -512,6 +516,27 @@ export const POST = serve
 ```
 
 The runner reads `GET /threads/:thread_id/events`, so the thread-access policy and route middleware that guard the run guard the restore too. While a run is live in this process, the restore drops that run's unfinished turn from the replay and continues with the live run's events; a resumed run continues from the parked run it answers.
+
+On the B4.run side, the app's [`src/auth.ts`](/docs/access-control#authentication) turns those headers back into the principal. It compares the secret in constant time and trusts the user id only beside it, so a request that didn't come through your route is anonymous:
+
+```ts title="src/auth.ts"
+import { timingSafeEqual } from "node:crypto"
+import { defineAuth } from "@b4run/sdk"
+
+const same = (a: string | undefined, b: string) =>
+  a !== undefined && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
+
+export default defineAuth({
+  authenticate: ({ headers }) => {
+    const token = process.env.B4_INTERNAL_TOKEN
+    if (!token || !same(headers["b4-internal-token"], token)) return undefined
+    const id = headers["b4-user-id"]
+    return id ? { id } : undefined
+  },
+})
+```
+
+Avoid `x-*` names for the secret on a LangSmith deployment, which copies `x-*` request headers into the stored thread config. The navlog example uses this same pattern with its visitor id.
 
 The read carries only the headers your `fetch` adds, never the browser's. That `fetch` must carry the current caller's identity, derived per request as above (the navlog example does the same with its visitor id), never a fixed service credential: a fixed credential lets any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error.
 

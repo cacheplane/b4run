@@ -49,3 +49,5 @@ export class B4HttpAgent extends HttpAgent {
 function withoutHeader(headers: Record<string, string>, name: string): Record<string, string> {
   return Object.fromEntries(Object.entries(headers).filter(([key]) => key.toLowerCase() !== name))
 }
+
+export { type ForwardIdentityOptions, forwardIdentity } from "./forward-identity.js"

@@ -118,6 +118,8 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 | Export | Responsibility |
 |---|---|
 | `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. |
+| `forwardIdentity` | `forwardIdentity({ headers, resolve, fetch? })` returns a `fetch` for a server-side client that talks to B4.run on a browser's behalf: on every call it strips the declared `headers` from whatever the call carried, then sets the values `resolve()` returns for the current request (none when it returns `undefined`). Pass it to both `B4HttpAgent` and `createB4AgentRunner`. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload). |
+| `ForwardIdentityOptions` | `headers`, the names the wrapper owns and always strips; `resolve`, the current caller's values (each key one of `headers`, or it throws); and an optional `fetch` to wrap. |
 
 ### `@b4run/ag-ui/view`
 
@@ -349,6 +351,8 @@ The server half of the CopilotKit connector, for the CopilotKit runtime route in
 | Export | Responsibility |
 |---|---|
 | `createB4AgentRunner` | `createB4AgentRunner(Base, options)` builds a CopilotKit runtime runner (`new CopilotRuntime({ agents, runner })`) from `Base`, CopilotKit's `InMemoryAgentRunner` class: an instance of a subclass that overrides only `connect`, so runs, `stop`, `isRunning` and the local-thread endpoints are the base runner's; `connect` replays `GET /threads/:id/events` from the B4 server, and while a run is live in this process it continues with that run's events, so a reload or a new instance restores the chat, its activity and a parked approval. |
+| `forwardIdentity` | The same helper as on `./client`, re-exported so a runtime route can import it beside `createB4AgentRunner`. |
+| `ForwardIdentityOptions` | The same type as on `./client`. |
 | `B4AgentRunnerBase` | The shape `createB4AgentRunner` extends: a class whose instances have `connect` (returning an observable of events) and `isRunning`. CopilotKit's `InMemoryAgentRunner` fits it; the returned runner has the base class's type. |
 | `B4AgentRunnerOptions` | The B4 server's `url`, the `fetch` to read with, and `onWarnings` for replays that carried warnings. The read carries only the headers that `fetch` adds, never the browser request's, so it must carry the current caller's identity, derived per request (for example from an `AsyncLocalStorage`), never a fixed service credential, which would let any browser restore any thread whose id it knows. A read the thread gate refuses (404) restores as an empty chat, with no error. |
 
