@@ -1,8 +1,0 @@
----
-"@b4run/ag-ui": patch
-"@b4run/cli": patch
-"@b4run/devkit": patch
-"create-b4-app": patch
----
-
-**Breaking:** subagents are presented with AG-UI 1.0's `SUBAGENT_STARTED/FINISHED/ERROR` events and `subagentRunId` attribution; the `b4.subagent` activity is removed. `toAguiEvents` announces a subagent when the `task` tool starts it (`subagentRunId` is the `task` tool-call id; `parentToolCallId`, `parentSubagentRunId` and `description` are carried), tags the child's text, reasoning, tool calls, results, usage and plan with that id, and closes every announced invocation before the run ends — `SUBAGENT_FINISHED { result }` on success, `{ outcome: suspended, interruptIds }` at a child's interrupt (the interrupt carries the child's `subagentRunId`), `SUBAGENT_ERROR` on failure, cancel (`code: "cancelled"`) or a stream that ended first (`code: "unterminated"`). The `task` call is an ordinary tool call again. Removed: `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`, `SubagentActivityCard`, `b4SubagentActivityRenderer`, `subagentActivityContentSchema`, `SubagentActivityContentOutput`; `b4ActivityRenderers` holds the plan renderer only. New in `@b4run/ag-ui/react`: `useSubagentRuns(agent)`, `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `isSubagentMessage`, `SubagentPanel` and the `SubagentRun` types. `GET /agui/:routeId` advertises `multiAgent: { supported, delegation, handoffs: false, subagents: [{ name, description }] }` from the subagent registry the `task` tool dispatches from. The research example, the research scaffold and the chat web client render subagents with the panel.

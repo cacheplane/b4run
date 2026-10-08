@@ -1,5 +1,97 @@
 # @dawn-ai/langchain
 
+## 0.13.2
+
+### Patch Changes
+
+- b006a95: Every `TOOL_CALL_START` B4.run sends now carries `parentMessageId`: the id of the model message that announced the call — the id that message's `TEXT_MESSAGE_*` events use when it streamed text, a fresh one when it only called tools, the subagent's own message for a subagent's call. A chat host that builds its message list from AG-UI events now gets an assistant message during a tool-only phase, and keeps a model message's text and calls together. `eventsFromState` (and so `GET /threads/:id/events`) files replayed calls the same way, under the checkpointed AIMessage's id. The langchain adapter's `tool_call` and `tool_call_args` chunks carry the model invocation as `data.messageId`, and the CLI's `tool_call` stream chunk carries it as `messageId`. `mergeTurnMessages` (and so `useB4ChatSlots`) still renders one activity per turn: the turn's first assistant message with tool calls holds every call of the turn, after its text when it has some.
+
+  `turnForMessage` and `<b4-message-activity [messages]>` accept messages that list their tool calls as `toolCallIds: string[]` as well as AG-UI's `toolCalls: { id }[]` (`toolCallIds` is read when `toolCalls` is absent); `@b4run/ag-ui/view` exports `toolCallIdsOf`.
+
+  `@b4run/ag-ui/view` exports `toResumeEntries(decisions, interrupts)`: the AG-UI `resume` entries for approval decisions, `once`/`always` resolved with that payload, `deny` cancelled, each interrupt's grant at `metadata.grant`. It returns `{ ok: false, reason: "undecided" }` until every parked interrupt is decided, since B4.run resumes only when all of them are answered. `B4ApprovalDecision` (`@b4run/ag-ui/angular/events`) is now an alias of the view's `InterruptDecision`.
+
+- d0bb6a1: A parked call keeps its running label after a reload. When a permission gate (tool, command, path or memory) parks a call whose tool has a `display`, the interrupt envelope now carries `step: { icon, label }`, the `display.running` label and icon the runtime streamed as the call's `running` `b4.step`. The envelope is checkpointed with the interrupt, so `GET /threads/:id/turns`, `/events` and `/pending_interrupts` return it, and AG-UI clients find it at `metadata.step`. `eventsFromState` replays it as the parked call's `running` step, so a restored awaiting step shows the same label and icon as the live run, and the approval card reads "The agent wants to file N738ZU KSTP to KRST" instead of "wants to use fileFlightPlan". The field is additive; an interrupt parked before this release restores as before. Tool run contexts carry the display as `step`.
+- 1180d4c: **Breaking:** every tool call now returns a `ToolMessage` whose `additional_kwargs.b4_step` is complete (`status`, `startedAt`, `settledAt`, the gate `decision`, and the display's icon, label and sources), display or not; the `task` tool returns a `ToolMessage` (not a string) carrying `b4_step` and `b4_subagent` with the child's checkpoint namespace; a thrown tool's error message is built by the converter with a `failed` step, and a branded denial persists as a `denied` step (with `decision: "deny"`) on a `success` ToolMessage — not a failure, so a denied `returnDirect` call still ends the run with the denial as its result. Raw `GET /threads/:id/state` readers see the new keys. Permission gates report `once | always | deny` into the tool context (`onGateDecision`). The runtime stamps `b4:turn` (`done | failed | stopped`, `error`, `endedAt`) on the head checkpoint's metadata when a run ends (never on a parked head, only on a head the turn wrote), and both checkpointers gain `listNamespaces(threadId)`.
+
+  `@b4run/ag-ui/view` gains `turnsFromState(input)`: rebuild a thread's `TurnsView` from its checkpoint history and parked interrupts by synthesising the AG-UI events the live stream would have carried and folding them through the unchanged `reduceTurns`; output carries `warnings` for ignored stamps. `GET /threads/:id/turns` serves it in the next release. Threads written before these stamps do not restore.
+
+- 2c33a3f: `GET /agui/:routeId` now reports a `multimodal` section for an `agent()` route: `input.image`, `input.pdf`, `input.audio` and `input.video` come from the route model's LangChain profile with the provider's converter limits — the same judgment that keeps or drops each part at run time — and `image`/`pdf` describe the inline `data` source (URL support varies by provider and is reported by the dropped-parts warning). `input.file` and `output` are always `false`. The section is omitted for a raw runnable, a chain/graph/workflow route, or a provider package that is missing or cannot be read; the rest of the document is unaffected. `@b4run/langchain` exports `readModelProfile`, which reads a model's profile off its provider class without constructing it.
+
+  Client-provided tool results may carry content parts. A `role: "tool"` answer's parts are stored as sent and replayed to the model under the tool-result rules; the UI gets every part on `TOOL_CALL_RESULT`. A call closed by the abandon path replays the stored result as its text and logs a warning. The 64 KiB result cap is measured on text/JSON with inline media bytes excluded.
+
+  - `ClientToolCallRecord.result` and `ClientToolCallStore.answer`'s `result` widen from `string` to `B4MessageContent` (`@b4run/sdk`); `ClientToolResumeValue.clientToolResult` widens the same way (`@b4run/core`). A custom store must keep and return parts.
+  - `@b4run/sdk` exports `encodeClientToolResult`/`decodeClientToolResult`: a part list is kept in the existing text column as a self-describing JSON envelope. Text results, including rows written before this release, are stored and read back unchanged; no migration. A rollback to an earlier release reads a stored part-list result as its JSON envelope text; resume or abandon such calls before downgrading. The SQLite and Postgres stores use the codec and gained a direct `@b4run/sdk` dependency.
+  - The dropped-parts warning again ends by pointing at `GET /agui/<route>` for what the route accepts.
+
+- ed43d4f: Carry AG-UI 1.0 content parts to the model. A user message's `image`, `audio`, `video` and `document` parts — inline, by URL, or as a provider file handle — reach the route's model as LangChain content blocks; what the model cannot take (read from its LangChain profile) is dropped and announced, in the server log and on the stream as `CUSTOM` `b4.content_parts_dropped`, never refused: the `422` envelope rejection of media parts is gone. Tools may return `B4ContentPart[]` (new in `@b4run/sdk`), which travels as `TOOL_CALL_RESULT.content`. The Agent Protocol run endpoints now bound their bodies at the same 8 MiB as `/agui`. `B4Message.content` (`@b4run/ag-ui`), `UnwrappedToolResult.content` (`@b4run/langchain`) and `MiddlewareAfterMessage.content` (`@b4run/sdk`) widened from `string` to `string | readonly B4ContentPart[]`, and chain, graph and workflow routes now receive `messages[].content` as that part array whenever the client sent parts (previously flattened to text), so code that narrows on `string` must handle the array.
+- 5caad96: **Breaking:** `agent()`'s `reasoning` is keyed by provider. `reasoning: { effort }` becomes `reasoning: { openai: { effort } }`; a flat `effort`, an unknown key, or a block for a provider the route does not resolve to now fails the route when its model is built (before, a misplaced setting was silently ignored — and the OpenAI effort itself never reached the request, because it was passed as the constructor field `reasoningEffort`, which `@langchain/openai` reads only per call). New controls make reasoning visible: `openai.summary: "auto" | "concise" | "detailed"` streams a reasoning summary (and moves the route to the Responses API); `anthropic.budgetTokens` enables extended thinking. The langchain adapter carries thinking and reasoning blocks as `reasoning` stream chunks; `@b4run/ag-ui` frames them as AG-UI 1.0 `REASONING_START` / `REASONING_MESSAGE_*` / `REASONING_END`, one span and one `role: "reasoning"` message per model invocation, every one closed before the run ends. `GET /agui/:routeId` advertises `reasoning: { supported: true, streaming: true, encrypted: false }` exactly when the route's config makes reasoning stream, `{ supported: false }` otherwise. `IdFactory` gains the `reasoning` and `reasoningSpan` kinds.
+
+  `@b4run/testing`'s `finalMessage` now reads an assistant message whose `content` is a list of blocks (the OpenAI Responses API, Anthropic with tools bound), joining its `text` blocks; before, such a run reported an empty final message.
+
+- 0cd999a: **Breaking (Agent Protocol stream):** a subagent's events now carry the same shapes as the root's. `subagent.message { chunk }` is replaced by `subagent.token { data, messageId }`; `subagent.tool_call` / `subagent.tool_result` carry `name` under the model's tool-call `id` instead of `tool` under an execution run id; new `subagent.reasoning`, `subagent.message_end` and `subagent.tool_call_args`; `subagent.start` gains `parent_call_id` (nested children) and `description`. The langchain adapter announces a child's tool calls from its own model turn with the same per-owner bookkeeping root uses, the dev server's attach digest coalesces `subagent.token` per child invocation, `@b4run/testing` reads the new shapes, and `@b4run/ag-ui` consumes them at the activity boundary with no change on the AG-UI wire (the `SUBAGENT_*` presentation follows in the next release).
+- 31c2633: AG-UI terminal events now report token usage. `RUN_FINISHED` (every outcome) and `RUN_ERROR` carry `usage: TokenUsage[]` — one entry per provider and model, aggregated across the run including subagent calls, with the protocol's inclusive totals and no zeros for counts a provider did not return; the key is omitted when nothing was reported. The langchain agent adapter emits a `usage` stream chunk (`{ provider, model, usage_metadata }`, a `subagent.usage` for a child's call) per finished model call, which also reaches the Agent Protocol stream as `event: usage`.
+- 861f84a: `b4 build --target langsmith` compiles an app's `src/auth.ts` instead of refusing it. The build writes `.b4/build/auth.ts`, a LangGraph `Auth` that runs the app's `authenticate`, and sets `langgraph.json` `auth` with `disable_studio_auth: true`. `reject` becomes its status, and an anonymous request is a 401, since LangGraph has no anonymous user. An `ownedThreads` thread policy compiles to owner-stamp metadata filters; any other policy is still refused. Tools read the caller as `ctx.principal` from LangGraph's auth user.
+
+  The build refuses an auth file that compares a secret from an `x-*` header, which LangGraph copies into stored run config. It also refuses memory scoped by `user`, `tenant` or `agent`, and warns that `src/middleware.ts` is not deployed. `createLangSmithAuth` is exported from `@b4run/cli/runtime`.
+
+- bcfc8b8: An app can now declare one place that resolves who is calling: `src/auth.ts` default-exports `defineAuth({ authenticate })`. B4.run calls `authenticate` once per request, before middleware and the thread-access policy, and passes the result to middleware and the thread-access policy as `req.principal` and to every tool as `ctx.principal`. A principal is any object with a string `id`. `undefined` makes the request anonymous, `reject(...)` answers it before any endpoint runs, and a throw or malformed result fails it with a 500.
+
+  `b4 typegen` declares the type `authenticate` resolves to on `B4Register`, so `ctx.principal` is typed. The node and web build targets carry `src/auth.ts` in their build, and the `langsmith` target refuses an app that has one. An auth file that does not default-export `defineAuth` fails the boot with `B4_E3005`. The harness takes a `principal` option, and `createAgentProtocolInjector` takes `auth`.
+
+  **Breaking:** `ThreadAccessRequest.headers` is removed. A thread-access policy that read identity from headers must move that read into `src/auth.ts` and use `req.principal`. The `basic` and `navlog` templates are migrated, and the `navlog` template no longer ships `src/middleware.ts`.
+
+- 05db71b: A tool call blocked by `tools.approve` or `tools.constrain` now settles its `b4.step` with `status: "denied"` (icon only) instead of `completed`. `B4_STEP_STATUSES` and `B4StepStatus` gain `denied`; `reduceTurns` settles the step as `denied`, drops the running label and sources it does not replace, and never counts it toward `turn.failed`; `stepLabel` reads it as "Denied x" (an app's `done` override never runs for it); the React `Step` renders `data-state="denied"` with a "· denied" tail and the tool's own icon.
+- 91726d5: The tool-call record behind client-provided tools now covers every tool call on an AG-UI run where the store is resolved (a route listed in `server.agui.clientTools`, `server.agui.clientToolStore` set, or the default `.b4/client-tool-calls.sqlite` still present from an earlier opt-in), on every route. A server tool call is recorded as identity only — thread, route, run, tool name, issued and settled times; no result text — and is never answerable. A `role: "tool"` message is consumed only when it names an open client call this server issued; one naming a server call, a closed call, or nothing is history. `RUN_FINISHED`'s `pendingToolCallIds` is now read from the record, scoped to the calls this run left parked.
+
+  - `ClientToolCallRecord` gains `kind` (`"client" | "server"`) and `settledAt`; `ClientToolCallStore` gains `settle`; `ClientToolRecorder` gains `issue` and `settle`. An operator-supplied `clientToolStore` must implement `settle` or the boot fails naming it. The SQLite and Postgres stores append migration 2 (`kind`, `settled_at`); existing rows read as `client`.
+  - The client-tool-call prune now also deletes server rows settled before the window (`server.agui.clientToolRetentionMs`); open rows of either kind are never deleted.
+  - `B4ToolDefinition` gains an optional `clientTool: true` marker, set only by the client-tool stub. `@b4run/ag-ui`'s `pendingToolCallIds` option may return a Promise; a rejection ends the run as `RUN_ERROR`.
+
+  Behavior changes on an app with a store:
+
+  - Every server tool call on every AG-UI route is written to the store before it runs and settled after; a write failure fails that tool call. With the store unavailable, server tool calls on AG-UI runs fail until it is back. Apps with no store are unchanged.
+  - Rolling upgrades on a shared Postgres store: a replica on the previous version has no `kind` filter and reads new server rows as open client rows (it may void them). Nothing becomes answerable, but finish the rollout before mixing traffic.
+
+- bbd4a0c: Tool-call record rows now say where they were issued from. `routeId` is the route that issued the call — for a subagent's tool calls, the child route's key rather than the parent's — and a new required `parentToolCallId` (`null` at the root) names the `task` call that launched the subagent. The SQLite and Postgres stores append migration 3 (`parent_tool_call_id`, nullable); rows that predate it read `null`. `ClientToolRecorder.issue` takes an optional `origin` (`ToolCallOrigin`) the writer supplies; the runtime resolves a missing origin to the run's route with no parent.
+
+  Breaking for custom stores and recorder fakes: `ClientToolCallRecord.parentToolCallId` is required, and a store must persist it. Breaking for custom `SubagentResolver`s in `@b4run/langchain`: `ResolvedSubagentGraph.routeKey` (`<routeId>#<mode>`) is required, and a subagent stack entry without `routeKey` is ignored. Client rows are unchanged: they are only ever issued by the root route.
+
+- 9547137: Server tool calls are recorded in the tool-call record only when a route is listed in `server.agui.clientTools` or `server.agui.clientToolStore` is set. A default `.b4/client-tool-calls.sqlite` left over after the opt-in was removed is still opened so calls parked back then can be closed, but it no longer records server calls, and boot logs one warning naming it. `ClientToolRecorder.issue` and `settle` are optional: absent on runs that do not record server calls.
+
+  The `task` call that launches a subagent is now recorded as a server row like any other tool: issued before the subagent runs, open while it is parked, settled when it returns, fails or is refused. A `role: "tool"` message carrying a task id is dropped as a server row. The issue/settle discipline lives in one `@b4run/langchain` helper used by the tool converter and the subagent bridge.
+
+- 18bc4fd: A tool call blocked by `tools.approve` or `tools.constrain` now returns its denial reason branded (`toolDenial(reason)` / `isToolDenial` / `TOOL_DENIAL` from `@b4run/sdk`) instead of a bare string. The model receives exactly the same text as before. The runtime can now tell a denial from a successful result, so a tool's `display.done` and `display.sources` are no longer asked to describe a denial as if it were output: the call's `b4.step` `completed` event carries the icon only, with no label or sources.
+- bbc7871: Tools can export `display` (`ToolDisplay`): an icon and `running`/`done`/`sources` functions that say how a call reads to a person. The runtime evaluates it per call, streams it to AG-UI clients as `CUSTOM` `b4.step` events (`running` as the call starts, `completed` as it returns — both before the result; `failed` after an error result for every tool), and keeps it on the checkpointed tool message (`additional_kwargs.b4_step`). `b4 check` validates the export. The built-in workspace, memory, skill, plan and subagent tools ship labels. Built-in tools now carry labels, so the Agent Protocol stream gains `step`/`subagent.step` chunks.
+- Updated dependencies [d0bb6a1]
+- Updated dependencies [c8b0675]
+- Updated dependencies [e6cfa3d]
+- Updated dependencies [29acd56]
+- Updated dependencies [1180d4c]
+- Updated dependencies [52b19ec]
+- Updated dependencies [2c33a3f]
+- Updated dependencies [ed43d4f]
+- Updated dependencies [5caad96]
+- Updated dependencies [61e5922]
+- Updated dependencies [b25fc3b]
+- Updated dependencies [b61e133]
+- Updated dependencies [fd0c456]
+- Updated dependencies [00b85cf]
+- Updated dependencies [03fb4e6]
+- Updated dependencies [fc59949]
+- Updated dependencies [bcfc8b8]
+- Updated dependencies [936b7bf]
+- Updated dependencies [936b7bf]
+- Updated dependencies [91726d5]
+- Updated dependencies [bbd4a0c]
+- Updated dependencies [9547137]
+- Updated dependencies [18bc4fd]
+- Updated dependencies [bbc7871]
+- Updated dependencies [d45b2dc]
+- Updated dependencies [b1ae324]
+  - @b4run/core@0.13.2
+  - @b4run/sdk@0.13.2
+  - @b4run/workspace@0.13.2
+
 ## 0.13.1
 
 ### Patch Changes

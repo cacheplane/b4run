@@ -1,5 +1,28 @@
 # @dawn-ai/inspector
 
+## 0.13.2
+
+### Patch Changes
+
+- c69b4d3: The Inspector runs on Next.js 16.3.6 (from 16.3.3), the same version as every other Next application in the repository.
+- Updated dependencies [d0bb6a1]
+- Updated dependencies [c8b0675]
+- Updated dependencies [1180d4c]
+- Updated dependencies [52b19ec]
+- Updated dependencies [2c33a3f]
+- Updated dependencies [61e5922]
+- Updated dependencies [b25fc3b]
+- Updated dependencies [b61e133]
+- Updated dependencies [00b85cf]
+- Updated dependencies [fc59949]
+- Updated dependencies [bcfc8b8]
+- Updated dependencies [91726d5]
+- Updated dependencies [18bc4fd]
+- Updated dependencies [bbc7871]
+- Updated dependencies [b1ae324]
+  - @b4run/core@0.13.2
+  - @b4run/memory@0.13.2
+
 ## 0.13.1
 
 ### Patch Changes
