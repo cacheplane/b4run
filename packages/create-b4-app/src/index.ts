@@ -327,7 +327,7 @@ function createTemplateReplacements(
  * `overrides:` block to the `pnpm-workspace.yaml` the template just wrote.
  *
  * It reads and extends rather than emitting the whole file, because the
- * template owns `packages:` (the research app is a two-package npm workspace:
+ * template owns `packages:` (the navlog app is a two-package npm workspace:
  * `server` and `web`) plus its build allowlist. Re-emitting from a literal here
  * silently replaced those members with a single `.`, leaving pnpm nothing to
  * install and the overrides applying to nothing.

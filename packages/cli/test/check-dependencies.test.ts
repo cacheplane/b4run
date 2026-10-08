@@ -195,7 +195,7 @@ describe("checkDependencies", () => {
  * The probe must resolve packages the way Node does — walking `node_modules` up
  * from appRoot — not by looking only in `appRoot/node_modules`.
  *
- * Motivating regression: the generated research app became an npm workspace, so
+ * Motivating regression: the generated research app (now navlog) became an npm workspace, so
  * `b4.config.ts` (and therefore appRoot) moved to `<app>/server` while npm
  * hoisted every dependency to `<app>/node_modules`. The flat probe reported the
  * three `@langchain/*` packages missing on every `npm run verify` even though

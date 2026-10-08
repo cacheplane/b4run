@@ -1469,7 +1469,7 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
     await expect(
       access(join(appRoot, "server/src/app/navlog/index.ts"), constants.F_OK),
     ).resolves.toBeUndefined()
-    // Proves the RESEARCH template was generated, not the BASIC one: the basic
+    // Proves the NAVLOG template was generated, not the BASIC one: the basic
     // template's marker route must be absent from where the server actually
     // lives. Pointed at `server/` deliberately — asserting against the app root
     // would pass vacuously now that nothing but the orchestrator lives there.
