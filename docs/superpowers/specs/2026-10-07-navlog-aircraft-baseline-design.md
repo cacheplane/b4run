@@ -115,9 +115,10 @@ export function readOnlyPaths(protectedPaths: readonly string[]): FilesystemMidd
 - **Dependency.** The example and the template gain `@b4run/workspace` (`workspace:*` in the
   example; the template's `package.json.template` pin follows the other `@b4run/*` entries). This
   re-keys `pnpm-lock.yaml`. Rebase on fresh main right before merge.
-- **Known mismatch.** The built-in agents-md capability tells the model it may
-  `writeFile({ path: "AGENTS.md" })`. Under this guard such a call fails with the read-only error,
-  and the model carries on. The plan files a framework follow-up for an agents-md write opt-out.
+- **Known mismatch (resolved).** The built-in agents-md capability told the model it may
+  `writeFile({ path: "AGENTS.md" })`, a call this guard refuses. #978 added
+  `agentsMd: { writable: false }`, and navlog sets it, so the injected header no longer invites
+  the write.
 
 ## 5. Every place it lands
 
