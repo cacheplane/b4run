@@ -31,7 +31,7 @@ const navlogExampleSrc = `${resolve(repoRoot, "examples/navlog/server/src")}/`
 
 /** The policy's code from its first import on: what activation must not change. */
 const policyBody = (source: string): string => {
-  const start = source.indexOf("import { defineThreadAccess")
+  const start = source.indexOf("import { ownedThreads")
   // A missing marker would slice from -1 and compare two one-character tails.
   expect(start).toBeGreaterThanOrEqual(0)
   return source.slice(start)
@@ -66,25 +66,24 @@ describe("scaffolded thread-access policy", () => {
     it(`${name} ships a deny-by-default policy and the shared auth module`, () => {
       const policy = read(name, policyFile(name))
 
-      expect(policy).toContain("defineThreadAccess")
-      // `fallback` is the deny-by-default floor: an action with no handler of
-      // its own lands there rather than falling through to an allow.
-      expect(policy).toContain("fallback: owned")
-      // The DELETE existence oracle: a missing row is denied ahead of any admin
-      // branch, so "not yours" and "never existed" answer identically.
-      expect(policy).toContain("if (req.thread === undefined) return deny()")
+      // The common policy as a value: its deny-by-default floor, the missing-row
+      // deny ahead of any admin branch and the owner stamp live in the SDK
+      // (`ownedThreads`, pinned by packages/sdk/test/owned-threads.test.ts).
+      expect(policy).toContain("export default ownedThreads<Principal>(")
+      expect(policy).toContain('"not yours" and "never existed" are the same answer')
       // One resolver, enforced: src/auth.ts default-exports `defineAuth`, and
       // the policy reads the principal it resolved instead of parsing a header.
       expect(read(name, authFile(name))).toContain("export default defineAuth(")
-      expect(policy).toContain("req.principal")
       expect(stripComments(policy)).not.toContain("headers")
-      expect(policy).not.toContain('from "./auth.js"')
+      // A type import of `Principal` is fine; a value import would be a second
+      // way to resolve the caller.
+      expect(policy).not.toMatch(/^import (?!type )[^\n]*from "\.\/auth\.js"/m)
     })
 
     it(`${name}'s policy authorizes against the server stamp, never client metadata`, () => {
       const policy = read(name, policyFile(name))
 
-      expect(policy).toContain("req.thread.access?.ownerId")
+      expect(policy).toContain("`req.thread.access`")
       // `thread.metadata` is client-supplied and untrusted. A scaffold that
       // read the owner out of it would ship the forgery it exists to prevent.
       // Comments are stripped first — the file explains the rule, in prose that

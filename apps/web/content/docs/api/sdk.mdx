@@ -111,6 +111,9 @@ import { scenarios } from "@b4run/sdk/testing"
 | `ThreadSubject` | Describe the thread a decision is made about. |
 | `THREAD_ACCESS_METADATA_KEY` | Name the reserved metadata key holding the server-issued access stamp. |
 | `defineThreadAccess` | Preserve types for a thread access policy. |
+| `ownedThreads` | Build the common thread policy as a value: each caller reaches only the threads it created, and `adminsRead` principals may also read the rest. |
+| `OwnedThreadsOptions` | Configure `ownedThreads`: `owner` (the id a thread is stamped with; default `principal.id`) and `adminsRead`. |
+| `ownedThreadsOptions` | Read back the options an `ownedThreads` policy was built from, or `undefined` for any other policy. |
 | `deny` | Refuse a thread request. |
 | `permit` | Allow a thread request, optionally stamping it on create. |
 | `ApprovalGrantMode` | Name the approval-grant strictness: `off`, `optional`, or `required`. |

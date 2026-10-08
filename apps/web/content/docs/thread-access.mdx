@@ -6,9 +6,24 @@
 
 Without a policy file, every thread endpoint is open to anyone who can name a thread id. Ids are neither secret nor collision-proof (`t-` plus four random bytes).
 
+## The common case: `ownedThreads`
+
+Most apps want one rule: each caller reaches only the threads it created. `ownedThreads` is that policy as a value:
+
+```ts title="src/thread-access.ts"
+import { ownedThreads } from "@b4run/sdk"
+import type { Principal } from "./auth.js"
+
+export default ownedThreads<Principal>({ adminsRead: (user) => user.isAdmin })
+```
+
+It stamps every created thread `{ ownerId }` from the caller's [principal](/docs/access-control#authentication) and checks that stamp on every later request. An anonymous caller is denied, and so is a request for a thread with no row, ahead of any admin branch, so "not yours" and "never existed" are the same 404. `adminsRead` principals may also read every thread, and threads created before the app had a policy. They never update or delete another caller's thread. `owner` changes the id a thread is stamped with (an org instead of a user, say). The `create-b4-app` templates use it.
+
+It is also the one policy shape a build target that can't run arbitrary policy code can recognize and translate. For anything more, write the policy yourself.
+
 ## The shape
 
-Here's a policy that lets each caller reach only their own threads, with read access for admins. It reads `req.principal`, the caller your [`src/auth.ts`](/docs/access-control#authentication) resolved for this request:
+Here's the same policy written out by hand: each caller reaches only their own threads, with read access for admins. It reads `req.principal`, the caller your [`src/auth.ts`](/docs/access-control#authentication) resolved for this request:
 
 ```ts title="src/thread-access.ts"
 import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
