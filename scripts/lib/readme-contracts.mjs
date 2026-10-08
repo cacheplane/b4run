@@ -88,7 +88,7 @@ const CANONICAL_ROOT_NAVIGATION = `<p align="center">
 
 const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
   <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
+    <img src="docs/brand/product-loop.gif" alt="Animation showing the generated navlog agent's route, an offline npm test, and a B4.run Workbench run restored after a browser reload" width="900">
   </a>
 </p>`
 

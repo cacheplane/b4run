@@ -1,66 +1,41 @@
 # B4.run product-loop media transcript
 
-The flagship and three derivative clips are silent. Their visible short act
-labels — **Author**, **Prove**, and **Run** — are repeated here so the same proof
-remains available without motion or audio. The footage begins inside an existing
-generated research workspace; it does not show the scaffold command running.
+The product loop is silent. Its headlines are repeated here so the same proof
+is available without motion. The footage begins inside an existing generated
+navlog workspace; it does not show the scaffold command running.
 
-## Product loop (25 seconds)
+## Product loop
 
-### Author
+### Write the agent.
 
-The B4.run capture compositor displays real files from the generated research
-workspace. Its tree names all five paths used by the story:
+The headline docks above a square frame that shows two real files from the
+generated workspace: the route `server/src/app/navlog/index.ts`, with its
+`export default agent({` descriptor, and the shared tool
+`server/src/tools/computeNavlog.ts`. The camera eases to the route's
+`description` line, marked with a Relay bar.
 
-- `server/src/app/research/index.ts`
-- `server/src/app/research/state.ts`
-- `server/src/app/research/plan.md`
-- `server/src/tools/searchCorpus.ts`
-- `server/test/research.test.ts`
+### Test it offline.
 
-The editor focuses on the `export default agent({` route descriptor and the
-shared `searchCorpus` tool. The compositor uses frozen-frame holds to keep the
-real captured source legible; the holds do not add product events.
+The frame shows the generated workspace's real `npm test` output, narrowly
+normalized: ANSI codes are removed, the temporary root reads `<workspace>`, and
+durations read `<time>`. The navlog server tests pass without a provider key,
+and the camera eases to their passing summary.
 
-### Prove
+### Reload. Still there.
 
-The terminal compositor runs the generated workspace's canonical `npm test`
-command. The real, narrowly normalized log shows the named deterministic
-research scenario passing without a provider key. A frozen-frame hold leaves
-the passing result on screen long enough to read.
-
-### Run
-
-The actual generated B4.run Workbench submits “What are common agent
-architectures?” to `/research#agent`. Visible tool activity names the
-`searchCorpus` and `readDoc` calls. The cited response reads: “ReAct and
-plan-and-execute are common. [corpus/agent-architectures.md]”.
-
-The completed run remains visible, then the browser reloads. The same thread is
-reopened from the rail, its state request succeeds, and the prompt, both tool
-calls, and cited answer reappear from the server checkpoint. This demonstrates
-browser-reload restoration with the B4.run server still running, not restoration
-after a server restart.
+The frame holds the actual generated B4.run Workbench. It sends “Plan a VFR
+flight from KSTP to KRST at 4500 feet, departing 1400Z.” to `/navlog#agent`.
+The visible activity names the `computeNavlog` call, and the answer reads
+“KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6
+hours. [poh/cruise-performance.md, Figure 5-7]”. The browser frame then
+reloads, the same thread is reopened from the rail, and the prompt, the tool
+call, the answer, and the navlog sheet reappear from the server checkpoint.
+This shows browser-reload restoration with the B4.run server still running,
+not restoration after a server restart.
 
 ### Close
 
-The closing card reads “TypeScript meta-framework for LangGraph.js”, “Build
-LangGraph agents like Next.js apps”, and
-`npm create b4-app@latest my-agent`. The command is an activation next
-step; scaffolding is not part of the footage.
-
-## Author clip (9 seconds)
-
-The Author derivative holds the same real generated file tree, route descriptor,
-and shared tool on screen for a legible static inspection.
-
-## Test clip (9 seconds)
-
-The Test derivative shows the same real `npm test` result and named offline
-research scenario, with a legibility hold after the passing summary.
-
-## Run clip (10 seconds)
-
-The Run derivative begins with the completed Workbench response, follows the
-browser reload and same-thread selection, and ends with the restored prompt,
-`searchCorpus` and `readDoc` activity, and cited answer.
+A hairline carrying the Relay dot sweeps across to the closing card: the
+b4.run wordmark, “Ridiculous speed. Readable code.”, and
+`npm create b4-app@latest my-agent`. The command is an activation next step;
+scaffolding is not part of the footage.

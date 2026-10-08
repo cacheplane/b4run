@@ -100,10 +100,11 @@ All paths are under `docs/brand/demo/`.
        install and `npm test`;
      - aimock, the B4.run server and the Workbench on assigned loopback ports;
      - the signal, abort and cleanup handling.
-   - New: it serves the director page from its own `127.0.0.1` port through the
-     existing `startHttpService`. Because the iframed Workbench is on another
-     `127.0.0.1` port, the two are same-site, so the Workbench's `localStorage`
-     thread list behaves as it does top-level.
+   - New: it serves the director page with Playwright's `page.route()` at
+     `<workbench origin>/__b4_demo_director/` (the request never reaches the
+     Workbench server), so the director page and the iframed Workbench are
+     same-origin and the Workbench's `localStorage` thread list behaves as it
+     does top-level.
    - The beat sequence is:
      1. `play("author")`
      2. `play("prove")`
