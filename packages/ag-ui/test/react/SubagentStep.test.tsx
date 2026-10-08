@@ -47,6 +47,17 @@ const zero = () => 0
 const thousand = () => 1000
 
 describe("SubagentStep", () => {
+  test("a settled child that took no steps reads as a plain line with nothing to open", () => {
+    const markup = renderToStaticMarkup(
+      <SubagentStep step={sub({ turn: { ...nested("done"), steps: [] } })} now={zero} />,
+    )
+    expect(markup).toContain('<li class="b4-step" data-state="done" data-kind="subagent">')
+    expect(markup).toContain('<span class="b4-step__line b4-step__line--static">')
+    expect(markup).toContain("researcher finished")
+    expect(markup).not.toContain("<button")
+    expect(markup).not.toContain("b4-step__children")
+  })
+
   test("running reads Asked researcher with the description beneath, is open, and nests the child's activity", () => {
     const markup = renderToStaticMarkup(
       <SubagentStep
