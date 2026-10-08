@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { awc } from "../src/lib/awc.ts"
 import getAdvisories from "../src/tools/getAdvisories.ts"
 import getMetar from "../src/tools/getMetar.ts"
+import getTaf, { flightCategory } from "../src/tools/getTaf.ts"
 import getWindsAloft from "../src/tools/getWindsAloft.ts"
 import lookupAirport from "../src/tools/lookupAirport.ts"
 
@@ -109,6 +110,100 @@ describe("getMetar", () => {
         raw: "METAR KRST 040254Z 26011KT 9SM OVC085 16/09 A3010",
       },
     ])
+  })
+})
+
+describe("getTaf", () => {
+  it("decodes each forecast group to a UTC window and flight category", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json([
+          {
+            icaoId: "KDLH",
+            issueTime: "2026-10-07T23:20:00.000Z",
+            validTimeFrom: 1791417600, // 2026-10-08T00:00Z
+            validTimeTo: 1791504000, // 2026-10-09T00:00Z
+            rawTAF:
+              "TAF KDLH 072320Z 0800/0824 32012KT P6SM VCSH SCT070 FM080200 31008KT P6SM SCT070 TEMPO 0816/0820 3SM -RA BKN025",
+            fcsts: [
+              {
+                timeFrom: 1791417600,
+                timeTo: 1791424800,
+                fcstChange: null,
+                wdir: 320,
+                wspd: 12,
+                visib: "6+",
+                wxString: "VCSH",
+                clouds: [{ cover: "SCT", base: 7000 }],
+              },
+              {
+                timeFrom: 1791424800,
+                timeTo: 1791504000,
+                fcstChange: "FM",
+                wdir: 310,
+                wspd: 8,
+                wgst: 18,
+                visib: "6+",
+                wxString: null,
+                clouds: [{ cover: "SCT", base: 7000 }],
+              },
+              {
+                timeFrom: 1791475200,
+                timeTo: 1791489600,
+                fcstChange: "TEMPO",
+                wdir: null,
+                visib: 3,
+                wxString: "-RA",
+                clouds: [{ cover: "BKN", base: 2500 }],
+              },
+            ],
+          },
+        ]),
+      ),
+    )
+    const [taf] = await getTaf({ ids: ["kdlh"] }, ctx)
+    expect(taf?.validFromUtc).toBe("2026-10-08T00:00:00.000Z")
+    expect(taf?.periods).toEqual([
+      {
+        change: "BASE",
+        fromUtc: "2026-10-08T00:00:00.000Z",
+        toUtc: "2026-10-08T02:00:00.000Z",
+        flightCategory: "VFR",
+        visibilityMi: 6,
+        windDirDeg: 320,
+        windKt: 12,
+        weather: "VCSH",
+      },
+      {
+        change: "FM",
+        fromUtc: "2026-10-08T02:00:00.000Z",
+        toUtc: "2026-10-09T00:00:00.000Z",
+        flightCategory: "VFR",
+        visibilityMi: 6,
+        windDirDeg: 310,
+        windKt: 8,
+        gustKt: 18,
+      },
+      {
+        change: "TEMPO",
+        fromUtc: "2026-10-08T16:00:00.000Z",
+        toUtc: "2026-10-08T20:00:00.000Z",
+        flightCategory: "MVFR",
+        ceilingFt: 2500,
+        visibilityMi: 3,
+        weather: "-RA",
+      },
+    ])
+  })
+  it("grades ceiling and visibility by the FAA flight categories", () => {
+    expect(flightCategory(undefined, 6)).toBe("VFR")
+    expect(flightCategory(3000, 10)).toBe("MVFR")
+    expect(flightCategory(5000, 5)).toBe("MVFR")
+    expect(flightCategory(900, 10)).toBe("IFR")
+    expect(flightCategory(400, 10)).toBe("LIFR")
+    expect(flightCategory(5000, 0.5)).toBe("LIFR")
+    expect(flightCategory(undefined, undefined)).toBeUndefined()
   })
 })
 
