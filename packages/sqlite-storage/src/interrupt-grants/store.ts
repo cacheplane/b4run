@@ -15,11 +15,12 @@ interface InterruptGrantRow {
   expires_at: string | null
   consumed_at: string | null
   consumed_decision: string | null
+  consumed_by: string | null
   voided_at: string | null
 }
 
 const SELECT_COLUMNS =
-  "thread_id, interrupt_id, checkpoint_ns, token_hash, issued_at, expires_at, consumed_at, consumed_decision, voided_at"
+  "thread_id, interrupt_id, checkpoint_ns, token_hash, issued_at, expires_at, consumed_at, consumed_decision, consumed_by, voided_at"
 
 function rowToRecord(row: InterruptGrantRow): InterruptGrantRecord {
   return {
@@ -31,6 +32,7 @@ function rowToRecord(row: InterruptGrantRow): InterruptGrantRecord {
     expiresAt: row.expires_at,
     consumedAt: row.consumed_at,
     consumedDecision: row.consumed_decision,
+    consumedBy: row.consumed_by,
     voidedAt: row.voided_at,
   }
 }
@@ -77,7 +79,7 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
       // which two parks of the same interrupt both believe they are the first,
       // and the SDK's memory store throws here, so this must throw too.
       db.prepare(
-        `INSERT INTO interrupt_grants(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO interrupt_grants(${SELECT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         record.threadId,
         record.interruptId,
@@ -87,6 +89,7 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
         record.expiresAt,
         record.consumedAt,
         record.consumedDecision,
+        record.consumedBy,
         record.voidedAt,
       )
     },
@@ -107,7 +110,7 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
       return rows.map(rowToRecord)
     },
 
-    async consume({ threadId, interruptId, decision, at }) {
+    async consume({ threadId, interruptId, decision, at, by }) {
       // The single-use point. The WHERE clause carries the whole guarantee:
       // exactly one UPDATE can find the row unconsumed and unvoided, so the
       // winner is decided by the engine's row count and never by a prior read.
@@ -116,13 +119,13 @@ export function makeInterruptGrantStore(db: Db): InterruptGrantStore {
         db
           .prepare(
             `UPDATE interrupt_grants
-               SET consumed_at = ?, consumed_decision = ?
+               SET consumed_at = ?, consumed_decision = ?, consumed_by = ?
              WHERE thread_id = ?
                AND interrupt_id = ?
                AND consumed_at IS NULL
                AND voided_at IS NULL`,
           )
-          .run(at, decision, threadId, interruptId).changes,
+          .run(at, decision, by ?? null, threadId, interruptId).changes,
       )
 
       if (changes > 0) {

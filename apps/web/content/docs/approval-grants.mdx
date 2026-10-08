@@ -135,6 +135,8 @@ Set `approvals.grantStore` to override. A multi-replica deployment **must**: the
 
 Only a SHA-256 hash of the grant is stored, for the same reason a password is not stored — an operator with read access to the database, or a leaked backup, must not thereby be able to answer approval prompts. Consumption is a conditional `UPDATE … WHERE consumed_at IS NULL AND voided_at IS NULL`, so the row count decides the winner: atomic, durable across a restart, and correct across replicas.
 
+A consumed row also records `consumedBy`: the `id` of the principal [`src/auth.ts`](/docs/access-control#authentication) resolved for the request that answered, or `null` for an anonymous answer and for an app with no auth file. It's for audit only. A grant is still not bound to a caller (thread access decides who may resume), and no check reads the field.
+
 The table is deliberately not the checkpointer's `writes` blob. That blob is LangGraph's, it is returned to clients, and it is deleted on LangGraph's schedule rather than B4.run's — the consumption record would disappear at exactly the moment it is needed to answer a replay.
 
 Voided rows do not accumulate. Once the thread has moved past a prompt, the

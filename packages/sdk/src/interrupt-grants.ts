@@ -127,6 +127,12 @@ export interface InterruptGrantRecord {
   readonly consumedAt: string | null
   /** `"once" | "always" | "deny"` when consumed, else `null`. */
   readonly consumedDecision: string | null
+  /**
+   * The `id` of the principal that answered, from the app's `src/auth.ts`;
+   * `null` until consumed, and for an anonymous answer. Audit only: grants are
+   * not bound to a caller, and no check reads this field.
+   */
+  readonly consumedBy: string | null
   readonly voidedAt: string | null
 }
 
@@ -172,6 +178,8 @@ export interface InterruptGrantStore {
     readonly interruptId: string
     readonly decision: string
     readonly at: string
+    /** The answering principal's `id`, recorded as `consumedBy`. Omit for an anonymous answer. */
+    readonly by?: string
   }): Promise<InterruptGrantConsumption>
   /**
    * Stamp `voided_at` on every unvoided grant for `threadId` — consumed ones
@@ -303,7 +311,7 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
         ...row,
       }))
     },
-    async consume({ threadId, interruptId, decision, at }) {
+    async consume({ threadId, interruptId, decision, at, by }) {
       const rows = threads.get(threadId)
       const row = rows?.get(interruptId)
       if (!rows || !row) return { outcome: "missing" }
@@ -313,6 +321,7 @@ export function createMemoryInterruptGrantStore(): InterruptGrantStore {
         ...row,
         consumedAt: at,
         consumedDecision: decision,
+        consumedBy: by ?? null,
       }
       rows.set(interruptId, next)
       return { outcome: "consumed", record: { ...next } }

@@ -39,6 +39,11 @@ export interface InterruptGrantRecord {
   readonly consumedAt: string | null
   /** `"once" | "always" | "deny"` when consumed, else `null`. */
   readonly consumedDecision: string | null
+  /**
+   * The `id` of the principal that answered; `null` until consumed and for an
+   * anonymous answer. Audit only: no check reads it.
+   */
+  readonly consumedBy: string | null
   readonly voidedAt: string | null
 }
 
@@ -64,6 +69,8 @@ export interface InterruptGrantStore {
     readonly interruptId: string
     readonly decision: string
     readonly at: string
+    /** The answering principal's `id`, recorded as `consumedBy`. Omit for an anonymous answer. */
+    readonly by?: string
   }): Promise<InterruptGrantConsumption>
   /**
    * Stamp `voided_at` on every unvoided grant for `threadId` — consumed ones
@@ -109,12 +116,12 @@ export type PostgresInterruptGrantStoreOptions = PostgresStoreOptions
  * Every column, in migration order, named explicitly.
  *
  * This constant is the other half of the no-DEFAULT rule in `schema.ts`: the
- * INSERT below names all nine and binds all nine, so there is no column whose
+ * INSERT below names all ten and binds all ten, so there is no column whose
  * value the database chooses. Reusing it for the SELECT/RETURNING lists also
  * means a row can only ever be read back in the shape `rowToRecord` expects.
  */
 const COLUMNS =
-  "thread_id, interrupt_id, checkpoint_ns, token_hash, issued_at, expires_at, consumed_at, consumed_decision, voided_at"
+  "thread_id, interrupt_id, checkpoint_ns, token_hash, issued_at, expires_at, consumed_at, consumed_decision, consumed_by, voided_at"
 
 interface GrantRow {
   thread_id: string
@@ -125,6 +132,7 @@ interface GrantRow {
   expires_at: string | null
   consumed_at: string | null
   consumed_decision: string | null
+  consumed_by: string | null
   voided_at: string | null
 }
 
@@ -141,6 +149,7 @@ function rowToRecord(row: GrantRow): InterruptGrantRecord {
     expiresAt: row.expires_at ?? null,
     consumedAt: row.consumed_at ?? null,
     consumedDecision: row.consumed_decision ?? null,
+    consumedBy: row.consumed_by ?? null,
     voidedAt: row.voided_at ?? null,
   }
 }
@@ -231,7 +240,7 @@ export function createPostgresInterruptGrantStore(
       try {
         await pool.query(
           `INSERT INTO ${table} (${COLUMNS})
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             record.threadId,
             record.interruptId,
@@ -241,6 +250,7 @@ export function createPostgresInterruptGrantStore(
             record.expiresAt,
             record.consumedAt,
             record.consumedDecision,
+            record.consumedBy,
             record.voidedAt,
           ],
         )
@@ -279,7 +289,7 @@ export function createPostgresInterruptGrantStore(
       return res.rows.map(rowToRecord)
     },
 
-    async consume({ threadId, interruptId, decision, at }) {
+    async consume({ threadId, interruptId, decision, at, by }) {
       await ready()
       // Bounded retry, mirroring `createThread`: the only way the UPDATE can
       // match nothing while the row is still outstanding is a concurrent
@@ -289,11 +299,11 @@ export function createPostgresInterruptGrantStore(
       // decide the winner.
       for (let attempt = 0; attempt < 3; attempt++) {
         const updated = await pool.query<GrantRow>(
-          `UPDATE ${table} SET consumed_at = $1, consumed_decision = $2
-           WHERE thread_id = $3 AND interrupt_id = $4
+          `UPDATE ${table} SET consumed_at = $1, consumed_decision = $2, consumed_by = $3
+           WHERE thread_id = $4 AND interrupt_id = $5
              AND consumed_at IS NULL AND voided_at IS NULL
            RETURNING ${COLUMNS}`,
-          [at, decision, threadId, interruptId],
+          [at, decision, by ?? null, threadId, interruptId],
         )
         const won = updated.rows[0]
         if (won) return { outcome: "consumed", record: rowToRecord(won) }

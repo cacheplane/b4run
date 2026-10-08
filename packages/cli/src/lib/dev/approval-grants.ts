@@ -170,6 +170,7 @@ export function createApprovalGrantMinter(options: {
           options.ttlMs === undefined ? null : new Date(issuedMs + options.ttlMs).toISOString(),
         consumedAt: null,
         consumedDecision: null,
+        consumedBy: null,
         voidedAt: null,
       })
       // The plaintext is returned exactly once, to the park site. The store
@@ -390,6 +391,8 @@ export async function consumeGrants(args: {
   readonly store: InterruptGrantStore
   readonly threadId: string
   readonly consumable: readonly ConsumableGrant[]
+  /** The answering request's principal id, recorded as `consumedBy` for audit. */
+  readonly by?: string
   readonly now?: () => number
 }): Promise<GrantRejection | undefined> {
   const at = new Date((args.now ?? Date.now)()).toISOString()
@@ -399,6 +402,7 @@ export async function consumeGrants(args: {
       interruptId: entry.interruptId,
       decision: entry.decision,
       at,
+      ...(args.by !== undefined ? { by: args.by } : {}),
     })
     switch (result.outcome) {
       case "consumed":
@@ -559,6 +563,8 @@ export async function gateResumeWithGrants(args: {
     readonly payload?: unknown
     readonly grant?: unknown
   }[]
+  /** The resuming request's principal id (`src/auth.ts`), recorded on each consumed grant. */
+  readonly consumedBy?: string
   readonly now?: () => number
 }): Promise<Response | undefined> {
   if (args.grants.mode === "off") return undefined
@@ -585,6 +591,7 @@ export async function gateResumeWithGrants(args: {
     store: args.grants.store,
     threadId: args.threadId,
     consumable: check.consumable,
+    ...(args.consumedBy !== undefined ? { by: args.consumedBy } : {}),
     ...(args.now ? { now: args.now } : {}),
   })
   return failure ? grantRejectionResponse(failure) : undefined

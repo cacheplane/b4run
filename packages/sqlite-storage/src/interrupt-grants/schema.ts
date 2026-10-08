@@ -60,4 +60,11 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
       CREATE INDEX idx_interrupt_grants_thread ON interrupt_grants(thread_id);
     `,
   },
+  {
+    // Who answered: the principal `src/auth.ts` resolved for the consuming
+    // request, audit only. Nullable — a row from before this column, an
+    // unconsumed row, and an anonymous answer all read as NULL.
+    version: 2,
+    up: `ALTER TABLE interrupt_grants ADD COLUMN consumed_by TEXT;`,
+  },
 ]

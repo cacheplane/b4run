@@ -11,6 +11,7 @@ function grant(over: Partial<InterruptGrantRecord> = {}): InterruptGrantRecord {
     expiresAt: null,
     consumedAt: null,
     consumedDecision: null,
+    consumedBy: null,
     voidedAt: null,
     ...over,
   }
@@ -36,6 +37,37 @@ describe("createMemoryInterruptGrantStore", () => {
     }
     expect((await store.consume(args)).outcome).toBe("consumed")
     expect((await store.consume(args)).outcome).toBe("already_consumed")
+  })
+
+  it("records who answered as consumedBy, and null for an anonymous answer", async () => {
+    const store = createMemoryInterruptGrantStore()
+    await store.issue(grant())
+    await store.issue(grant({ interruptId: "i2" }))
+    const at = "2026-09-30T00:01:00.000Z"
+    const byAda = await store.consume({
+      threadId: "t1",
+      interruptId: "i1",
+      decision: "once",
+      at,
+      by: "ada",
+    })
+    expect(byAda.outcome === "consumed" && byAda.record.consumedBy).toBe("ada")
+    const anonymous = await store.consume({
+      threadId: "t1",
+      interruptId: "i2",
+      decision: "deny",
+      at,
+    })
+    expect(anonymous.outcome === "consumed" && anonymous.record.consumedBy).toBeNull()
+    // A replay never rewrites who answered.
+    const replay = await store.consume({
+      threadId: "t1",
+      interruptId: "i1",
+      decision: "deny",
+      at,
+      by: "bob",
+    })
+    expect(replay.outcome === "already_consumed" && replay.record.consumedBy).toBe("ada")
   })
 
   it("returns copies, so a caller cannot mutate the stored row", async () => {
@@ -67,6 +99,7 @@ describe("createMemoryInterruptGrantStore", () => {
       voidedAt: at,
       consumedAt: at,
       consumedDecision: "once",
+      consumedBy: null,
     })
     expect((await store.get("t1", "keep"))?.voidedAt).toBeNull()
     expect((await store.get("t2", "other"))?.voidedAt).toBeNull()
@@ -147,6 +180,7 @@ describe("createMemoryInterruptGrantStore", () => {
           interruptId: "stuck",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
           voidedAt: null,
         }),
       )
@@ -164,6 +198,7 @@ describe("createMemoryInterruptGrantStore", () => {
           interruptId: "consumed_then_voided",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
           voidedAt: OLD,
         }),
       )

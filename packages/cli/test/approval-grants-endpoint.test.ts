@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { createMemoryInterruptGrantStore, hashApprovalGrant } from "@b4run/sdk"
+import {
+  type AuthDefinition,
+  createMemoryInterruptGrantStore,
+  defineAuth,
+  hashApprovalGrant,
+} from "@b4run/sdk"
 import { afterEach, describe, expect, test } from "vitest"
 
 import { startRuntimeServer } from "../src/lib/dev/runtime-server.js"
@@ -62,11 +67,37 @@ async function seedGrant(threadId: string, interruptId: string, grant: string): 
     expiresAt: null,
     consumedAt: null,
     consumedDecision: null,
+    consumedBy: null,
     voidedAt: null,
   })
 }
 
 describe("approval grants on POST /threads/:id/resume", () => {
+  test("records the resuming request's principal on the consumed grant, for audit", async () => {
+    const auth = defineAuth({
+      authenticate: ({ headers }) => (headers["x-user"] ? { id: headers["x-user"] } : undefined),
+    })
+    const { url } = await startFixture("required", auth)
+    const threadId = "thread-grant-audit"
+    await seedRoute(url, threadId)
+    await seedGrant(threadId, "perm-1", GRANT)
+
+    const response = await postResume(
+      url,
+      threadId,
+      {
+        resume: [{ interruptId: "perm-1", status: "resolved", payload: "once", grant: GRANT }],
+        route: "/noop#graph",
+      },
+      { "x-user": "ada" },
+    )
+    expect(response.status).toBe(200)
+    expect(await storeForTests().get(threadId, "perm-1")).toMatchObject({
+      consumedBy: "ada",
+      consumedDecision: "once",
+    })
+  })
+
   test("required: a valid grant resumes, and the SECOND identical resume is refused, not re-executed", async () => {
     const { url } = await startFixture("required")
     const threadId = "thread-grant-once"
@@ -228,6 +259,7 @@ describe("approval grants on POST /threads/:id/resume", () => {
       expiresAt: new Date(Date.now() - 5_000).toISOString(),
       consumedAt: null,
       consumedDecision: null,
+      consumedBy: null,
       voidedAt: null,
     })
 
@@ -303,7 +335,10 @@ function executionCount(): number {
   return ((globalThis as Record<string, unknown>).__b4GrantFixtureRuns as number) ?? 0
 }
 
-async function startFixture(mode: "off" | "optional" | "required"): Promise<{ url: string }> {
+async function startFixture(
+  mode: "off" | "optional" | "required",
+  auth?: AuthDefinition,
+): Promise<{ url: string }> {
   ;(globalThis as Record<string, unknown>)[STORE_KEY] = createMemoryInterruptGrantStore()
   ;(globalThis as Record<string, unknown>).__b4GrantFixtureRuns = 0
   const appRoot = await createFixtureApp({
@@ -326,7 +361,7 @@ async function startFixture(mode: "off" | "optional" | "required"): Promise<{ ur
       };
     `,
   })
-  const server = await startRuntimeServer({ appRoot })
+  const server = await startRuntimeServer({ appRoot, ...(auth ? { auth } : {}) })
   servers.push(server)
   return { url: server.url }
 }
@@ -340,10 +375,15 @@ async function seedRoute(serverUrl: string, threadId: string): Promise<void> {
   expect(response.status).toBe(200)
 }
 
-async function postResume(serverUrl: string, threadId: string, body: unknown): Promise<Response> {
+async function postResume(
+  serverUrl: string,
+  threadId: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
   return fetch(new URL(`/threads/${threadId}/resume`, serverUrl), {
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     method: "POST",
   })
 }

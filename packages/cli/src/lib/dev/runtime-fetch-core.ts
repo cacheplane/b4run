@@ -55,6 +55,7 @@ import {
 import {
   authBootLine,
   bindAuth,
+  consumedByOf,
   requestPrincipal,
   setRequestPrincipal,
   withPrincipal,
@@ -4424,6 +4425,7 @@ async function handleResumeRequest(options: {
       threadId,
       pending: pendingInterrupts.interrupts,
       entries: body.resume,
+      ...consumedByOf(request),
     })
     if (refusedByGrant) return refusedByGrant
 

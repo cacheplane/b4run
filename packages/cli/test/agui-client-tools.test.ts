@@ -1587,6 +1587,7 @@ describe("settling an AG-UI turn", () => {
       expiresAt: null,
       consumedAt: null,
       consumedDecision: null,
+      consumedBy: null,
       voidedAt: null,
     })
     await withModel([{ match: { userMessage: "hello" }, response: { toolCalls: [DEPLOY_CALL] } }])
