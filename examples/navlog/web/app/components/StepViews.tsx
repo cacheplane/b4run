@@ -47,12 +47,14 @@ export const NAVLOG_STEP_RENDERERS: StepRenderers = {
 }
 
 /**
- * `B4Activity`'s `labels`: how a run of one tool reads once merged. The server
- * labels each call ("Looked up KSTP, …"); without these the merged row would
- * fall back to the tool's name ("Used lookupAirport 2 times").
+ * `B4Activity`'s `labels`: how a run of one tool reads once merged. The kit
+ * phrases a run whose labels differ only in a short name ("Looked up KSTP" and
+ * "Looked up KRST (…)" read "Looked up KSTP and KRST"), so `lookupAirport`
+ * needs no entry; these tools' labels carry lists or numbers, and without an
+ * entry the merged row would fall back to the tool's name ("Used getMetar 2
+ * times").
  */
 export const NAVLOG_STEP_LABELS: StepLabelOverrides = {
-  lookupAirport: { group: (n) => `Looked up ${n} airports` },
   getMetar: { group: (n) => `Fetched METARs ${n} times` },
   getTaf: { group: (n) => `Fetched TAFs ${n} times` },
   getWindsAloft: { group: (n) => `Checked winds aloft ${n} times` },

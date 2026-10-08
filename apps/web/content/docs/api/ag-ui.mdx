@@ -148,7 +148,8 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `TurnStatus` | `working`, `awaiting`, `done`, `failed` or `stopped`. |
 | `ReduceTurnsOptions` | Inject the clock, name tools whose frames the view drops, and say whether a same-thread run resumes the awaiting turn (`resuming`). |
 | `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"; never throws, never echoes raw arguments, at most 120 characters. |
-| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
+| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label: the app's `group` override, else the built-in wording, else one phrased from the steps' own labels (`phraseGroupLabel`), else "Used X n times"; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
+| `phraseGroupLabel` | A group label phrased from its steps' labels when they share leading words and differ in a short trailing name: "Looked up KSTP" and "Looked up KRST" read "Looked up KSTP and KRST", three name all three, more name two and count the rest ("and 2 more"). A trailing parenthetical is dropped; a subject over four words or 32 characters, or holding `,`, `;` or `:`, is not a name, and the result is undefined. |
 | `StepLabelOverride` | Client-side wording for one tool: reword, localize, or label a group. |
 | `StepLabelOverrides` | Overrides keyed by tool name. |
 | `StepGroup` | A run of merged tool steps and its label. |
@@ -198,6 +199,9 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `MAX_DETAIL_CHARS` | The longest inputs or output a detail panel shows, 20,000 characters. |
 | `isSafeHref` | Whether a source's link may render as a link: web, mail and same-origin paths only. |
 | `approvalPayload` | The payload an approval card shows: args preview, command, a subagent gate's name, input and reason, or detail JSON. |
+| `approvalArgsRows` | A tool call's arguments as the approval card's rows, when the args preview is a JSON object: one row per key, a nested object's keys as `parent.key`, anything deeper as compact JSON, and a value past 80 characters cut with the whole of it in `full`. Undefined otherwise; the card then prints `approvalPayload`. |
+| `ApprovalArgRow` | One row: `key`, the one-line `value`, and `full` when the value was cut. |
+| `MAX_APPROVAL_ARG_CHARS` | The longest argument value a row shows (80 characters) before it is cut. |
 | `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |
 | `approvalErrorLine` | The line an approval card shows when its decision could not be sent. |
 | `dispatchDecision` | Run an approval decision on the click itself and report a throw or a rejection as a message. |

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
 import { ApprovalCard } from "../../src/react/activity/ApprovalCard.js"
-import { approvalPayload, scopeLine } from "../../src/view/activity-approval.js"
+import { approvalArgsRows, approvalPayload, scopeLine } from "../../src/view/activity-approval.js"
 import type { ApprovalView } from "../../src/view/turns.js"
 
 const approval = (o: Partial<ApprovalView> = {}): ApprovalView => ({
@@ -57,6 +57,68 @@ describe("ApprovalCard", () => {
     )
     expect(markup).not.toContain("Always allow")
     expect(markup).not.toContain("b4-approval__scope")
+  })
+
+  test("a tool call's JSON-object arguments render as rows; a cut value opens to the whole", () => {
+    const remarks = `RMK/${"VFR ".repeat(30).trim()}`
+    const markup = renderToStaticMarkup(
+      <ApprovalCard
+        approval={approval({
+          kind: "tool",
+          detail: {
+            toolName: "fileFlightPlan",
+            argsPreview: JSON.stringify({ flightPlan: { item7: "N738ZU" }, remarks }),
+          },
+        })}
+        agent="The agent"
+        label="file N738ZU KSTP to KRST"
+        onDecide={() => {}}
+      />,
+    )
+    expect(markup).not.toContain("<pre")
+    expect(markup).toContain(
+      '<dl class="b4-approval__payload b4-approval__args"><div class="b4-approval__arg"><dt>flightPlan.item7</dt><dd>N738ZU</dd></div>',
+    )
+    expect(markup).toContain(
+      `<dt>remarks</dt><dd><details class="b4-approval__more"><summary>${remarks.slice(0, 80).trimEnd()}…</summary><span class="b4-approval__full">${remarks}</span></details></dd>`,
+    )
+  })
+
+  test("approvalArgsRows: argsPreview objects only, flattened one level", () => {
+    expect(
+      approvalArgsRows({
+        argsPreview: JSON.stringify({
+          a: 1,
+          b: { c: "x", d: { e: 1 }, f: [1, 2] },
+          g: null,
+          h: [],
+          i: [{ j: 1 }],
+          k: {},
+          m: "two\nlines",
+        }),
+      }),
+    ).toEqual([
+      { key: "a", value: "1" },
+      { key: "b.c", value: "x" },
+      { key: "b.d", value: '{"e":1}' },
+      { key: "b.f", value: "1, 2" },
+      { key: "g", value: "—" },
+      { key: "h", value: "—" },
+      { key: "i", value: '[{"j":1}]' },
+      { key: "k", value: "—" },
+      { key: "m", value: "two…", full: "two\nlines" },
+    ])
+    // Not an object, empty, cut short by the server, or not the payload the card prints.
+    for (const detail of [
+      { argsPreview: "[1,2]" },
+      { argsPreview: "{}" },
+      { argsPreview: '{"a":"tru…' },
+      { argsPreview: "deployProd({env:'prod'})" },
+      { command: '{"a":1}' },
+      { foo: 1 },
+    ]) {
+      expect(approvalArgsRows(detail)).toBeUndefined()
+    }
   })
 
   test("payload and scope helpers", () => {

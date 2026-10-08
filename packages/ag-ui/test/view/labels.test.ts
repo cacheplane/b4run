@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { BUILT_IN_GROUP_LABELS, groupSteps, stepLabel } from "../../src/view/labels.ts"
+import {
+  BUILT_IN_GROUP_LABELS,
+  groupSteps,
+  phraseGroupLabel,
+  stepLabel,
+} from "../../src/view/labels.ts"
 import type { StepView, ToolStep } from "../../src/view/turns.ts"
 
 function tool(partial: Partial<ToolStep> & { id: string; name: string }): ToolStep {
@@ -172,6 +177,59 @@ describe("groupSteps", () => {
     ).toMatchObject({
       label: "Searched the corpus 2 times",
     })
+  })
+
+  it("phrases a group from its steps' labels when they share a verb phrase", () => {
+    const run = (...labels: string[]): StepView[] =>
+      labels.map((label, i) => tool({ id: String(i), name: "lookupAirport", label }))
+    const label = (steps: StepView[]) => (groupSteps(steps)[0] as { label?: string }).label
+    expect(label(run("Looked up KSTP", "Looked up KRST"))).toBe("Looked up KSTP and KRST")
+    expect(
+      label(
+        run("Looked up KSTP (St Paul Downtown, 705 ft)", "Looked up KRST (Rochester, 1317 ft)"),
+      ),
+    ).toBe("Looked up KSTP and KRST")
+    // An app's `done` override words the steps, so it words the group too.
+    expect(
+      (
+        groupSteps(run("x", "y"), {
+          lookupAirport: { done: (args) => `Checked ${(args as { id: string }).id}` },
+        })[0] as { label: string }
+      ).label,
+    ).toBe("Used lookupAirport 2 times")
+    // An app's `group` override still wins.
+    expect(
+      (
+        groupSteps(run("Looked up KSTP", "Looked up KRST"), {
+          lookupAirport: { group: (n) => `Looked up ${n} airports` },
+        })[0] as { label: string }
+      ).label,
+    ).toBe("Looked up 2 airports")
+    // Labels that do not fit fall back to the tool's name.
+    expect(label(run("Looked up KSTP", "Fetched KRST"))).toBe("Used lookupAirport 2 times")
+  })
+
+  it("phraseGroupLabel lists two or three subjects and counts the rest", () => {
+    expect(phraseGroupLabel(["Looked up KSTP", "Looked up KRST", "Looked up KMSP"])).toBe(
+      "Looked up KSTP, KRST and KMSP",
+    )
+    expect(
+      phraseGroupLabel(["Looked up KSTP", "Looked up KRST", "Looked up KMSP", "Looked up KRGK"]),
+    ).toBe("Looked up KSTP, KRST and 2 more")
+    // A repeated subject is named once; one distinct subject is not a list.
+    expect(phraseGroupLabel(["Read a.md", "Read b.md", "Read a.md"])).toBe("Read a.md and b.md")
+    expect(phraseGroupLabel(["Read a.md", "Read a.md"])).toBeUndefined()
+    for (const labels of [
+      ["Looked up KSTP"],
+      ["Looked up", "Looked up KRST"],
+      ["Fetched METARs: KSTP VFR, KRST MVFR", "Fetched METARs: KMSP VFR"],
+      ["Searched for one two three four five", "Searched for six"],
+      ["Searched for a very long subject that keeps going", "Searched for b"],
+      ["Searched for a…", "Searched for b"],
+      ["Looked up KSTP", "Fetched KRST"],
+    ]) {
+      expect(phraseGroupLabel(labels), labels.join(" | ")).toBeUndefined()
+    }
   })
 
   it("falls back when a group override throws or returns nothing", () => {

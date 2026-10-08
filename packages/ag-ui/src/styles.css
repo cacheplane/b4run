@@ -404,6 +404,34 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* A tool call's arguments as key/value rows, in the payload's box. */
+  .b4-approval__args {
+    display: grid;
+    grid-template-columns: fit-content(40%) minmax(0, 1fr);
+    gap: 2px 12px;
+    max-height: 240px;
+    overflow: auto;
+    white-space: normal;
+  }
+  .b4-approval__arg {
+    display: contents;
+  }
+  .b4-approval__args dt {
+    color: var(--b4-activity-muted);
+    overflow-wrap: anywhere;
+  }
+  .b4-approval__args dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .b4-approval__more > summary {
+    cursor: pointer;
+  }
+  .b4-approval__full {
+    display: block;
+    white-space: pre-wrap;
+  }
   .b4-approval__actions {
     display: flex;
     flex-wrap: nowrap;
