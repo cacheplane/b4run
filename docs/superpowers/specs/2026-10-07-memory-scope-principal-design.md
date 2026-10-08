@@ -1,6 +1,6 @@
 # Memory scope from the request principal (#940) — design proposal
 
-Status: **proposal, waiting on #970.** No code changes. Issue: cacheplane/b4run#940. Builds on
+Status: **decided 2026-10-07 (§5); implementation waits for resolver-spec PR 1 (#970).** No code changes. Issue: cacheplane/b4run#940. Builds on
 draft PR #970, `docs/superpowers/specs/2026-10-07-app-principal-resolver-design.md` (the app-level
 principal resolver; referred to below as "the resolver spec"). This is that spec's PR 2 ("Memory
 (#940)"), worked out far enough to see what it still needs decided.
@@ -128,12 +128,13 @@ change. For this part:
   id returns 404.
 - LangSmith build of a route whose `resolveScope` reads `principal`: build error.
 
-## 5. Decisions for Brian
+## 5. Decisions (Brian, 2026-10-07)
 
-- **D1. Sequencing.** Wait for resolver-spec PR 1 and land this as its PR 2 (recommended), or ship
-  the `middleware` stopgap now for run endpoints only, leaving `/memory/*` ungated as today?
-- **D2. Unresolved declared dimension.** Fail closed (recommended), or keep today's shared
-  fallback, opt-in or default? This is a behavior change for apps that declare `user` and never
-  resolve it.
-- **D3. Cross-namespace candidate review.** This depends on resolver-spec Q1. Is HTTP cross-review
-  unavailable until it's decided (recommended), or does it stay open as today?
+- **D1. Sequencing:** wait for resolver-spec PR 1 and land this as its PR 2. No `middleware`
+  stopgap.
+- **D2. Unresolved declared dimension:** fail closed (§3.2 step 2). An app that declares `user`
+  or `tenant` and never resolves it gets a tool error instead of the shared namespace. The
+  changeset and the upgrade notes must call this out.
+- **D3. Cross-namespace candidate review:** unavailable over HTTP whenever an auth file exists,
+  until resolver-spec Q1 settles the `/memory/*` gate. The `b4 memory` CLI keeps listing
+  everything.
