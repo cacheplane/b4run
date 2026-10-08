@@ -4816,7 +4816,6 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
   for (const [file, job] of [
     ["ci.yml", "vercel-native"],
     ["auto-approve.yml", "approve"],
-    ["claude-review.yml", "review"],
   ])
     assert.equal(
       evaluateExpression(workflows[file].jobs[job].if, person(file)),
@@ -4864,17 +4863,17 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       },
     ],
     [
-      "review with the bot login misspelt",
-      "claude-review.yml",
+      "approve with the bot login misspelt",
+      "auto-approve.yml",
       (w) => {
-        w.jobs.review.if = ifOf(w, "review").replace("b4-factory[bot]", "b4-factroy[bot]")
+        w.jobs.approve.if = ifOf(w, "approve").replace("b4-factory[bot]", "b4-factroy[bot]")
       },
     ],
     [
-      "review keyed on head.label",
-      "claude-review.yml",
+      "approve keyed on head.label",
+      "auto-approve.yml",
       (w) => {
-        w.jobs.review.if = ifOf(w, "review").replace("head.ref", "head.label")
+        w.jobs.approve.if = ifOf(w, "approve").replace("head.ref", "head.label")
       },
     ],
     [
@@ -4992,8 +4991,8 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       },
     ],
     [
-      "claude-review also on issue_comment (github.event.pull_request is null there)",
-      "claude-review.yml",
+      "auto-approve also on issue_comment (github.event.pull_request is null there)",
+      "auto-approve.yml",
       (w) => {
         w.on.issue_comment = { types: ["created"] }
       },
@@ -5060,7 +5059,6 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
   for (const file of [
     ".github/workflows/ci.yml",
     ".github/workflows/auto-approve.yml",
-    ".github/workflows/claude-review.yml",
     ...vercelFiles,
   ])
     assert.ok(covered(file), `${file} must be a delivery-protected path`)

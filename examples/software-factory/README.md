@@ -624,8 +624,8 @@ with it:
 
 - **A change to a publishable package** (anything under `packages/`): adopt it. Check the
   factory's commit out onto your own branch, add a changeset, open your own pull request (so
-  `vercel-native` and `claude-review`, which skip `factory/*` branches and the factory's bot,
-  run there), and close the factory's pull request with a link to yours. A candidate cannot add
+  `vercel-native`, which skips `factory/*` branches and the factory's bot,
+  runs there), and close the factory's pull request with a link to yours. A candidate cannot add
   a changeset, and AGENTS.md requires `vercel-native` green for a release-bearing change.
 - **A change only to examples, docs or scripts:** review it and merge it as is.
 

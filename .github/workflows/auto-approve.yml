@@ -1,7 +1,6 @@
 name: Auto Approve
 
-# Records that an intelligent (AI) code review ran on the PR by submitting
-# a formal APPROVE review as github-actions[bot] (an identity distinct from
+# Submits a formal APPROVE review as github-actions[bot] (an identity distinct from
 # the PR author). This is what OSSF Scorecard's Code-Review check reads from
 # the reviews API. It does NOT count toward branch-protection required
 # reviews and has no power to merge — the maintainer still merges. Skips
@@ -38,4 +37,4 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh pr review "$PR_NUMBER" --approve \
-            --body "Automated approval: this PR received an intelligent (AI) code review. See the review comments on this PR."
+            --body "Automated approval for repository bookkeeping. The maintainer reviews and merges this PR."
