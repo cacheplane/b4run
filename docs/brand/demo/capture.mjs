@@ -17,7 +17,7 @@ import { createAimock } from "../../../packages/testing/dist/index.js"
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { DEMO_FIXTURES, DEMO_PROMPT } from "./scenario.mjs"
-import { GENERATED_PATHS, renderStage } from "./stage.mjs"
+import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
 
 const EXPECTED_TOOLS = DEMO_FIXTURES.flatMap(
   (fixture) => fixture.response.toolCalls?.map((toolCall) => toolCall.name) ?? [],
@@ -35,8 +35,9 @@ const PNPM_VERSION = "10.33.0"
 const VIEWPORT = Object.freeze({ width: 1440, height: 810 })
 const DEFAULT_HOLD_DURATIONS = Object.freeze({
   preReloadMs: 1_200,
-  restorationMs: 1_800,
+  restorationMs: 1_500,
 })
+const DIRECTOR_PATH = "/__b4_demo_director/"
 const DEFAULT_TIMING = Object.freeze({
   now: () => performance.now(),
   sleep: (durationMs, { signal } = {}) =>
@@ -1106,23 +1107,65 @@ function createBrowserAdapter() {
           operationSignal?.removeEventListener("abort", onAbort)
         }
       }
+      let surface
+      const workbench = () => {
+        if (surface === undefined) {
+          const frame = page.frame({ name: "workbench" })
+          if (frame === null) throw new Error("The director page has no workbench frame")
+          surface = frameSurface(page, frame)
+        }
+        return surface
+      }
       return {
-        async recordStage({ html, signal: operationSignal }) {
+        async openDirector({ origin, html, fonts, signal: operationSignal }) {
           return runSessionOperation(operationSignal, async () => {
-            await page.setContent(html, { waitUntil: "load" })
-            await page.locator("body").waitFor({ state: "visible" })
-            await page.waitForTimeout(1_400)
+            await page.route(`${origin}${DIRECTOR_PATH}**`, (route) => {
+              const { pathname } = new URL(route.request().url())
+              if (pathname === DIRECTOR_PATH) {
+                return route.fulfill({
+                  status: 200,
+                  contentType: "text/html; charset=utf-8",
+                  body: html,
+                })
+              }
+              const font = fonts[pathname.slice(`${DIRECTOR_PATH}fonts/`.length)]
+              if (pathname.startsWith(`${DIRECTOR_PATH}fonts/`) && font !== undefined) {
+                return route.fulfill({ status: 200, contentType: "font/ttf", body: font })
+              }
+              return route.fulfill({ status: 404, body: "" })
+            })
+            await page.goto(`${origin}${DIRECTOR_PATH}`, { waitUntil: "load" })
+            await page.waitForFunction(() => window.director?.ready === true, undefined, {
+              timeout: 30_000,
+            })
+            await page.evaluate(() => document.fonts.ready.then(() => undefined))
           })
         },
-        async runScenario({ url, prompt, tools, answer, signal: operationSignal }) {
+        async prepareWorkbench({ url, prompt, signal: operationSignal }) {
           return runSessionOperation(operationSignal, async () => {
-            await openReadyWorkbench(page, url)
-            await fillActiveWorkbenchComposer(page, prompt)
-            await page.getByRole("button", { name: "Send", exact: true }).click()
-            await waitForWorkbenchRunCompletion(page)
+            await openReadyWorkbench(workbench(), url)
+            await fillActiveWorkbenchComposer(workbench(), prompt)
+            await page.evaluate(() => window.director.reset())
+          })
+        },
+        async play({ beat, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            page.evaluate((name) => window.director.play(name), beat),
+          )
+        },
+        async focus({ target, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            page.evaluate((name) => window.director.focus(name), target),
+          )
+        },
+        async runScenario({ prompt, tools, answer, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            await frame.getByRole("button", { name: "Send", exact: true }).click()
+            await waitForWorkbenchRunCompletion(frame)
             // The settled turn is folded: open it so its steps are on screen
             // (and in the recording) before they are counted.
-            const turn = await expandLatestTurn(page)
+            const turn = await expandLatestTurn(frame)
             const steps = rootToolSteps(turn)
             await steps.first().waitFor({ state: "visible", timeout: 120_000 })
             const stepCount = await steps.count()
@@ -1131,11 +1174,11 @@ function createBrowserAdapter() {
                 `The run rendered ${stepCount} tool steps, expected at least ${tools.length}`,
               )
             }
-            await page.getByRole("main").getByText(answer, { exact: true }).last().waitFor({
+            await frame.getByRole("main").getByText(answer, { exact: true }).last().waitFor({
               state: "visible",
               timeout: 120_000,
             })
-            const threadId = await page.evaluate((title) => {
+            const threadId = await frame.evaluate((title) => {
               const raw = localStorage.getItem("b4.workbench.threads")
               const threads = raw === null ? [] : JSON.parse(raw)
               const thread = threads.find((entry) => entry?.title === title)
@@ -1156,7 +1199,7 @@ function createBrowserAdapter() {
           signal: operationSignal,
         }) {
           return runSessionOperation(operationSignal, () =>
-            restoreWorkbenchThread(page, {
+            restoreWorkbenchThread(workbench(), {
               workbenchUrl,
               threadId,
               prompt,
@@ -1164,9 +1207,6 @@ function createBrowserAdapter() {
               answer,
             }),
           )
-        },
-        async recordRun({ signal: operationSignal } = {}) {
-          return runSessionOperation(operationSignal, () => page.waitForTimeout(1_800))
         },
         close,
       }
@@ -1359,27 +1399,20 @@ export async function captureDemo({
     const racePhase = (label, action) =>
       raceCapturePhase(label, action, managedServices, signalScope.signal)
 
-    const [primarySource, secondarySource] = await racePhase("read generated source", () =>
+    const [routeSource, toolSource, ...fontBytes] = await racePhase("read director inputs", () =>
       Promise.all([
         adapters.filesystem.readFile(join(appRoot, "server/src/app/navlog/index.ts"), "utf8"),
         adapters.filesystem.readFile(join(appRoot, "server/src/tools/computeNavlog.ts"), "utf8"),
+        ...Object.values(DIRECTOR_FONTS).map((path) =>
+          adapters.filesystem.readFile(join(repoRoot, path)),
+        ),
       ]),
     )
-    const authorHtml = renderStage({
-      act: "author",
-      tree: GENERATED_PATHS,
-      primarySource,
-      secondarySource,
-    })
-    for (const generatedPath of GENERATED_PATHS) {
-      if (!authorHtml.includes(generatedPath)) {
-        throw new Error(`Author compositor is missing ${generatedPath}`)
-      }
-    }
-    if (!authorHtml.includes("export default agent({") || !authorHtml.includes("computeNavlog")) {
-      throw new Error("Author compositor is missing the canonical B4.run source")
-    }
-    const testHtml = renderStage({ act: "test", testLog: normalizedTestLog })
+    const directorHtml = renderDirector({ routeSource, toolSource, testLog: normalizedTestLog })
+    const directorFonts = Object.fromEntries(
+      Object.keys(DIRECTOR_FONTS).map((name, index) => [name, fontBytes[index]]),
+    )
+    const workbenchUrl = `http://127.0.0.1:${workbenchStart.port}`
     browserSession = await runOwnedAbortablePhase({
       label: "open browser",
       services: managedServices,
@@ -1405,73 +1438,66 @@ export async function captureDemo({
         abortController,
         onInterrupt: closeBrowserSession,
       })
+    // The recording starts with the page; the timeline starts here, so the
+    // director's load and the Workbench's warm-up fall before the author beat
+    // and the encoder trims them off.
     const timeline = createVideoTimeline(timing.now)
-    await timeline.scene("author", () =>
-      browserPhase("record author", () =>
-        browserSession.recordStage({
-          act: "author",
-          html: authorHtml,
-          signal: signalScope.signal,
-        }),
-      ),
+    await browserPhase("open director", () =>
+      browserSession.openDirector({
+        origin: workbenchUrl,
+        html: directorHtml,
+        fonts: directorFonts,
+        signal: signalScope.signal,
+      }),
     )
-    await timeline.scene("test", () =>
-      browserPhase("record test", () =>
-        browserSession.recordStage({
-          act: "test",
-          html: testHtml,
-          signal: signalScope.signal,
-        }),
-      ),
+    await browserPhase("prepare Workbench", () =>
+      browserSession.prepareWorkbench({
+        url: workbenchUrl,
+        prompt: DEMO_PROMPT,
+        signal: signalScope.signal,
+      }),
     )
-    const scenario = await timeline.scene("workbench-run", () =>
-      browserPhase("run Workbench scenario", () =>
+    const play = (beat) =>
+      browserPhase(`play ${beat}`, () => browserSession.play({ beat, signal: signalScope.signal }))
+    const focus = (target) =>
+      browserPhase(`focus ${target}`, () =>
+        browserSession.focus({ target, signal: signalScope.signal }),
+      )
+    await timeline.scene("author", () => play("author"))
+    await timeline.scene("prove", () => play("prove"))
+    let restoration
+    const scenario = await timeline.scene("run", async () => {
+      await play("run")
+      const ran = await browserPhase("run Workbench scenario", () =>
         browserSession.runScenario({
-          url: `http://127.0.0.1:${workbenchStart.port}`,
           prompt: DEMO_PROMPT,
           tools: EXPECTED_TOOLS,
           answer: EXPECTED_ANSWER,
           signal: signalScope.signal,
         }),
-      ),
-    )
-    await timeline.scene("pre-reload-complete", () =>
-      browserPhase("hold completed run", () =>
-        timing.sleep(holdDurations.preReloadMs, {
-          signal: signalScope.signal,
-        }),
-      ),
-    )
-    let restoration
-    await timeline.scene("restoration", async () => {
+      )
+      await focus("answer")
+      await browserPhase("hold completed run", () =>
+        timing.sleep(holdDurations.preReloadMs, { signal: signalScope.signal }),
+      )
+      await focus("rest")
       restoration = await browserPhase("restore Workbench thread", () =>
         browserSession.reloadAndRestore({
-          workbenchUrl: `http://127.0.0.1:${workbenchStart.port}`,
-          threadId: scenario.threadId,
+          workbenchUrl,
+          threadId: ran.threadId,
           prompt: DEMO_PROMPT,
           tools: EXPECTED_TOOLS,
           answer: EXPECTED_ANSWER,
           signal: signalScope.signal,
         }),
       )
-      await browserPhase("record restored run", () =>
-        browserSession.recordRun({ signal: signalScope.signal }),
-      )
+      await focus("sheet")
       await browserPhase("hold restored run", () =>
-        timing.sleep(holdDurations.restorationMs, {
-          signal: signalScope.signal,
-        }),
+        timing.sleep(holdDurations.restorationMs, { signal: signalScope.signal }),
       )
+      return ran
     })
-    await timeline.scene("close", () =>
-      browserPhase("record close", () =>
-        browserSession.recordStage({
-          act: "close",
-          html: renderStage({ act: "close" }),
-          signal: signalScope.signal,
-        }),
-      ),
-    )
+    await timeline.scene("close", () => play("close"))
     result = {
       schemaVersion: 1,
       runId,

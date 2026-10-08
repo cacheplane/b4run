@@ -78,7 +78,6 @@ import {
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { DEMO_FIXTURES, DEMO_NAVLOG_INPUT, DEMO_PROMPT } from "./scenario.mjs"
-import { renderStage } from "./stage.mjs"
 import {
   buildDemoMediaCatalog,
   createUploadPlan,
@@ -875,14 +874,6 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
   }
 })
 
-const GENERATED_TREE = [
-  "server/src/app/navlog/index.ts",
-  "server/src/app/navlog/state.ts",
-  "server/src/app/navlog/plan.md",
-  "server/src/tools/computeNavlog.ts",
-  "server/test/navlog.test.ts",
-]
-
 test("scenario exports the canonical prompt and deterministic navlog fixture", () => {
   assert.equal(
     DEMO_PROMPT,
@@ -930,80 +921,6 @@ test("normalizeLog narrowly removes capture instability", () => {
 test("normalizeLog validates meaningful inputs", () => {
   assert.throws(() => normalizeLog(42, { temporaryRoot: "/tmp/demo" }), /log must be a string/)
   assert.throws(() => normalizeLog("PASS", { temporaryRoot: "" }), /temporaryRoot/)
-})
-
-test("stage exports a frozen canonical generated-path inventory", async () => {
-  const { GENERATED_PATHS } = await import("./stage.mjs")
-  assert.deepEqual(GENERATED_PATHS, [
-    "server/src/app/navlog/index.ts",
-    "server/src/app/navlog/state.ts",
-    "server/src/app/navlog/plan.md",
-    "server/src/tools/computeNavlog.ts",
-    "server/test/navlog.test.ts",
-  ])
-  assert.equal(Object.isFrozen(GENERATED_PATHS), true)
-})
-
-test("author stage renders exactly the generated tree and escaped source", () => {
-  const html = renderStage({
-    act: "author",
-    tree: GENERATED_TREE,
-    primarySource: `const route = "<research>" && value > 1`,
-    secondarySource: `return "<tool>" & result`,
-    testLog: "unused",
-  })
-
-  assert.match(html, /^<!doctype html>/)
-  assert.match(html, /B4.run/)
-  for (const path of GENERATED_TREE) assert.match(html, new RegExp(path.replaceAll("/", "\\/")))
-  assert.equal((html.match(/server\//g) ?? []).length, GENERATED_TREE.length)
-  assert.match(html, /&lt;research&gt;/)
-  assert.match(html, /value &gt; 1/)
-  assert.match(html, /&lt;tool&gt;&quot; &amp; result/)
-  assert.doesNotMatch(html, /<research>|<tool>/)
-})
-
-test("author stage keeps both real source panels in the 16:9 viewport", () => {
-  const html = renderStage({
-    act: "author",
-    tree: GENERATED_TREE,
-    primarySource: "export default agent({\n  model: 'gpt-5-mini',\n})",
-    secondarySource: "export const computeNavlog = tool({})",
-    testLog: "unused",
-  })
-
-  assert.match(html, /\.stack \{[^}]*grid-template-rows: repeat\(2, minmax\(0, 1fr\)\)/)
-  assert.match(html, /\.stack \.panel \{ min-height: 0; \}/)
-  assert.match(html, /\.stack pre \{ height: calc\(100% - 44px\); \}/)
-})
-
-test("test stage renders escaped normalized npm test output", () => {
-  const html = renderStage({
-    act: "test",
-    tree: GENERATED_TREE,
-    primarySource: "unused",
-    secondarySource: "unused",
-    testLog: "PASS research <suite> & 7 tests",
-  })
-
-  assert.match(html, /B4.run/)
-  assert.match(html, /npm test/)
-  assert.match(html, /<pre><code>PASS research &lt;suite&gt; &amp; 7 tests<\/code><\/pre>/)
-  assert.doesNotMatch(html, /<suite>/)
-})
-
-test("close stage renders B4.run category, headline, and scaffold command", () => {
-  const html = renderStage({
-    act: "close",
-    tree: GENERATED_TREE,
-    primarySource: "unused",
-    secondarySource: "unused",
-    testLog: "unused",
-  })
-
-  assert.match(html, /An agent framework, the way I'd build it\./)
-  assert.match(html, /Ridiculous speed\. Readable code\./)
-  assert.match(html, /npm create b4-app@latest my-agent/)
 })
 
 const DIRECTOR_INPUT = {
@@ -1083,29 +1000,6 @@ test("wordmark comes from the ink SVG master without its title or description", 
   assert.match(svg, /viewBox="-5 -5 522 115"/)
   assert.doesNotMatch(svg, /<title>|<desc>/)
   assert.match(svg, /fill="#111111"/)
-})
-
-test("renderStage rejects unsupported acts and incomplete author input", () => {
-  assert.throws(
-    () =>
-      renderStage({
-        act: "intro",
-        tree: GENERATED_TREE,
-        primarySource: "a",
-        secondarySource: "b",
-      }),
-    /act must be one of: author, test, close/,
-  )
-  assert.throws(
-    () =>
-      renderStage({
-        act: "author",
-        tree: [],
-        primarySource: "a",
-        secondarySource: "b",
-      }),
-    /tree must contain exactly/,
-  )
 })
 
 class FakeChild extends EventEmitter {
@@ -1456,10 +1350,13 @@ function orchestrationFixture({ failAt } = {}) {
       },
       async readFile(path) {
         if (path.endsWith("server/src/app/navlog/index.ts")) {
-          return "export default agent({ tools: [computeNavlog] })"
+          return 'export default agent({\n  description: "A VFR flight planner",\n  tools: [computeNavlog],\n})'
         }
         if (path.endsWith("server/src/tools/computeNavlog.ts")) {
           return "export default computeNavlog"
+        }
+        if (path.endsWith(".ttf")) {
+          return Buffer.from(`font:${path.split("/").at(-1)}`)
         }
         throw new Error(`unexpected read: ${path}`)
       },
@@ -1504,20 +1401,32 @@ function orchestrationFixture({ failAt } = {}) {
           /docs\/brand\/demo\/raw-recordings\/runs\/[A-Za-z0-9_-]+$/,
         )
         return {
-          async recordStage({ act, html }) {
-            operations.push(`record ${act}`)
-            if (act === "author") {
-              for (const path of GENERATED_TREE) assert.match(html, new RegExp(path))
-              assert.match(html, /export default agent\(\{/)
-              assert.match(html, /computeNavlog/)
-            }
-            if (act === "test") {
-              assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
-              assert.match(html, /Tests 7 passed/)
-              assert.match(html, /&lt;workspace&gt;/)
-              assert.doesNotMatch(html, /b4-demo-unit-abc123/)
-              assert.equal(html.includes("\u001B"), false)
-            }
+          async openDirector({ origin, html, fonts }) {
+            operations.push("open director")
+            assert.equal(origin, "http://127.0.0.1:4101")
+            assert.match(html, /export default agent\(\{/)
+            assert.match(html, /computeNavlog/)
+            assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
+            assert.match(html, /Tests 7 passed/)
+            assert.match(html, /&lt;workspace&gt;/)
+            assert.doesNotMatch(html, /b4-demo-unit-abc123/)
+            assert.equal(html.includes("\u001B"), false)
+            assert.deepEqual(Object.keys(fonts), [
+              "Inter-400.ttf",
+              "Inter-600.ttf",
+              "JetBrainsMono-400.ttf",
+            ])
+          },
+          async prepareWorkbench(options) {
+            operations.push("prepare Workbench")
+            assert.equal(options.url, "http://127.0.0.1:4101")
+            assert.equal(options.prompt, DEMO_PROMPT)
+          },
+          async play({ beat }) {
+            operations.push(`play ${beat}`)
+          },
+          async focus({ target }) {
+            operations.push(`focus ${target}`)
           },
           async runScenario(options) {
             operations.push("run Workbench scenario")
@@ -1531,9 +1440,6 @@ function orchestrationFixture({ failAt } = {}) {
             operations.push("reload")
             assert.equal(options.threadId, "thread-unit-1")
             assert.equal(options.answer, EXPECTED_ANSWER)
-          },
-          async recordRun() {
-            operations.push("record run")
           },
           async close() {
             operations.push("close browser")
@@ -1584,12 +1490,17 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     "start B4.run server",
     "assign port 4101",
     "start Workbench",
-    "record author",
-    "record test",
+    "open director",
+    "prepare Workbench",
+    "play author",
+    "play prove",
+    "play run",
     "run Workbench scenario",
+    "focus answer",
+    "focus rest",
     "reload",
-    "record run",
-    "record close",
+    "focus sheet",
+    "play close",
     "close browser",
     "publish summary",
     "stop workbench",
@@ -2093,7 +2004,7 @@ test("failed Workbench navigation handles its later readiness rejection and clos
   try {
     fixture.adapters.browser.open = async (options) => {
       const session = await originalOpen(options)
-      session.runScenario = ({ url }) =>
+      session.prepareWorkbench = ({ url }) =>
         openReadyWorkbench(
           {
             waitForResponse() {
@@ -3272,14 +3183,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
     },
     recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/demo.webm",
   })
-  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), [
-    "author",
-    "test",
-    "workbench-run",
-    "pre-reload-complete",
-    "restoration",
-    "close",
-  ])
+  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), ["author", "prove", "run", "close"])
   let previousEnd = -1
   for (const boundary of Object.values(summary.videoTimeline.scenes)) {
     assert.equal(Number.isFinite(boundary.startMs), true)
