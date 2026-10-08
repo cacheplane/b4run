@@ -38,7 +38,7 @@ B4.run middleware runs when a request is about to execute a route, and on the tw
 | Cancellation | `POST /threads/:thread_id/cancel` | No | Yes. It controls process-local execution. |
 | Agent Protocol execution | `/threads/:thread_id/runs/wait`, `/runs/stream`, and `/resume` | Yes | Yes. Middleware is an additional execution decision. |
 | AG-UI execution | `POST /agui/:routeId` | Yes | Yes |
-| Memory candidate management | `GET /memory/candidates` and approve/reject routes under `/memory/candidates/:id` | No | Yes. Listing can span namespaces. |
+| Memory candidate management | `GET /memory/candidates` and approve/reject routes under `/memory/candidates/:id` | No | Yes. With `src/auth.ts`, a caller reviews only its own namespaces unless `canReviewMemory` admits it. |
 
 Apply authorization before dispatch, so no request reaches a B4.run handler unauthenticated. The "B4.run middleware" column is about route execution only. When the app has a [thread-access policy](/docs/thread-access), that policy checks per-thread ownership on every thread row above (management, state, cancellation, Agent Protocol execution and AG-UI execution) inside the runtime. It's a second gate behind the outer one. Health and memory-candidate routes are outside it.
 
@@ -55,7 +55,7 @@ A sound request path looks like this:
 
 A thread identifier proves nothing about ownership, even when it's hard to guess. Use the same rule for state, cancellation, deletion, resume and any custom list endpoint.
 
-Memory needs the same care. Candidate management can operate across namespaces, and `memory.resolveScope` receives route and app-root context but never the verified request identity. Don't let model-selected or caller-selected scope strings establish ownership.
+Memory needs the same care. `memory.resolveScope` receives the request principal, so derive user and tenant dimensions from it, and never let model-selected or caller-selected scope strings establish ownership. With an app [`src/auth.ts`](/docs/access-control#authentication), each caller reviews only candidates in its own namespaces (the ones `memory.resolveScope` gives its principal, plus shared ones), and approving or rejecting anyone else's answers `404` like a missing record. `canReviewMemory(principal)` on `defineAuth` admits a reviewer to every namespace. Without an auth file, candidate management spans every namespace, so keep those routes behind outer authentication.
 
 ## Pass verified identity to tools
 

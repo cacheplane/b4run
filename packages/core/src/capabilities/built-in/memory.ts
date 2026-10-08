@@ -94,7 +94,8 @@ export function createMemoryMarker(): CapabilityMarker {
       const mem = context.memory
       if (!mem) return {}
       const permissions = context.permissions
-      let indexEntries = await loadIndexEntries(mem)
+      // An unscoped request (see MemoryContext.unavailable) reads nothing.
+      let indexEntries = mem.unavailable === undefined ? await loadIndexEntries(mem) : []
       // Tool input schemas exposed to the MODEL (so it knows what to pass). The
       // `remember.data` shape is the route's own defineMemory() zod schema; without
       // this the model calls remember/recall with the wrong/empty args and writes
@@ -406,6 +407,15 @@ export function createMemoryMarker(): CapabilityMarker {
       }
 
       const tools = mem.writes === "off" ? [recall] : [recall, remember]
+      if (mem.unavailable !== undefined) {
+        // Fail closed, and say so: the tools stay offered (the route's prompt
+        // may tell the model to use them) but answer with the reason instead
+        // of touching the store, and there is no index to render.
+        const reason = mem.unavailable
+        return {
+          tools: tools.map((tool) => ({ ...tool, run: async () => ({ result: reason }) })),
+        }
+      }
       return { tools, promptFragment }
     },
   }

@@ -46,7 +46,17 @@ export default {
 
 B4.run keeps only the dimensions the route declares, so this example needs `agent` in the `scope` of `memory.ts`.
 
-The callback receives only `routePath` and `appRoot`. It does not receive verified identity or middleware context. Never derive a tenant from an untrusted route parameter, thread id, or request body. If a namespace needs a verified tenant or user, add your own wiring that authenticates that identity, and test cross-tenant isolation. See [Persistence and Tenancy](/docs/persistence#tenant-ownership).
+The callback runs for every request and receives `routePath`, `appRoot` and `principal`, the caller [`src/auth.ts`](/docs/access-control#authentication) resolved for that request (`undefined` with no auth file, or for an anonymous request). It does not receive middleware context. Give each caller its own memory by deriving `user` or `tenant` from the principal, never from a route parameter, thread id, or request body:
+
+```ts title="b4.config.ts"
+export default {
+  memory: {
+    resolveScope: ({ principal }) => (principal ? { user: principal.id } : {}),
+  },
+} satisfies import("@b4run/core").B4Config
+```
+
+A dimension the route declares and `resolveScope` leaves without a value makes memory unavailable for that request. `remember` and `recall` answer that memory is unavailable, the memory index is empty, and nothing is read or written. It never falls back to the shared namespace, so an anonymous caller of a `user`-scoped route can't read or write anyone's memory. Test cross-tenant isolation anyway. See [Persistence and Tenancy](/docs/persistence#tenant-ownership).
 
 ## Generated `recall` and `remember` tools
 
@@ -178,7 +188,6 @@ A few things aren't built yet:
 - The `procedural` kind is typed but has no generated write path.
 - Nothing migrates records between namespace schemes.
 - There's no account-erasure transaction across stores.
-- `resolveScope` gets no verified request principal. A declared scope names the dimensions, and your application supplies the identity.
 
 ## Related
 

@@ -233,6 +233,13 @@ export interface MemoryContext {
     | { readonly ok: false; readonly errors: string }
   readonly now: () => string
   readonly indexMaxEntries?: number
+  /**
+   * Set when a dimension the route's `memory.ts` declares has no value for
+   * this request (no `user` for an anonymous caller, say): the reason, as the
+   * model should read it. The memory tools answer with it and the memory index
+   * is empty — the request never reads or writes a namespace it was not given.
+   */
+  readonly unavailable?: string
   /** The resolved embedder when vector recall is enabled; the capability embeds
    *  writes + queries through it. Absent → keyword-only. */
   readonly embedder?: Embedder

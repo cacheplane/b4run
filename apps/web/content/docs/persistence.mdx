@@ -99,7 +99,7 @@ Derive tenant and user scope from identity your service has already verified. Ke
 
 Route parameters, request bodies, thread ids and memory scope strings are addressing inputs, not authentication. Keep four things separate: the verified principal, the tenant ownership record, the storage namespace and the authorization decision.
 
-`memory.resolveScope` receives only `{ routePath, appRoot }`. It gets no verified request identity or middleware context. If a memory namespace needs per-request identity, wire it from code that really has that identity, and test the isolation yourself.
+`memory.resolveScope` receives `{ routePath, appRoot, principal }`, where `principal` is the caller [`src/auth.ts`](/docs/access-control#authentication) verified for this request. Derive the user or tenant dimension from it. A declared dimension left without a value makes memory unavailable for the request instead of using a shared namespace. Test the isolation yourself.
 
 ## What deleting a thread removes
 

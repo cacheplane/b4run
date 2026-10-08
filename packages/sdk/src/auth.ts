@@ -80,6 +80,14 @@ export interface AuthDefinition<P extends B4PrincipalShape = B4PrincipalShape> {
   readonly setup?: (ctx: AuthSetupContext) => Promise<void> | void
   /** Runs once from the runtime's shutdown path, after a successful `setup`. */
   readonly dispose?: () => Promise<void> | void
+  /**
+   * Whether `principal` may review long-term memory candidates in every
+   * namespace (`GET /memory/candidates`, approve, reject). Without it, or when
+   * it answers false, a caller sees and acts on candidates only in its own
+   * namespaces — the ones `memory.resolveScope` gives its principal — and an
+   * anonymous caller only on shared ones. Use it for an admin or a demo owner.
+   */
+  canReviewMemory?(principal: P): boolean | Promise<boolean>
 }
 
 /**

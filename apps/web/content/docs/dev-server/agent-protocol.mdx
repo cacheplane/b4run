@@ -326,7 +326,9 @@ Neither limit affects the durable snapshot or cancellation.
 
 ## Review memory candidates
 
-`GET /memory/candidates` lists candidates from every memory namespace.
+`GET /memory/candidates` lists candidates from every memory namespace, or, when the app has
+a `src/auth.ts`, from the caller's own namespaces unless `canReviewMemory` admits it
+to all of them.
 Approving one checks it against existing records with the same identity and
 reports an `action` of `activated`, `superseded`, or `deduped`. It returns `404`
 for a missing record and `409` when the record isn't a candidate. Rejecting a
