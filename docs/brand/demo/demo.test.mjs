@@ -2235,7 +2235,7 @@ test("capture drives each app beat's action with the scenario's evidence", async
     turns: [
       {
         prompt: DEMO_PROMPT,
-        tools: ["recall", "resolveDeparture", "computeNavlog", "remember", "writeFile"],
+        tools: ["readDoc", "recall", "resolveDeparture", "computeNavlog", "remember", "writeFile"],
         answer: scenario.planAnswer,
       },
       { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: scenario.filedAnswer },
@@ -3516,6 +3516,7 @@ test("approval evidence fails when Allow once or Deny is missing, or two cards a
 
 test("expected root tool steps drop the plan, subagent and grouped repeat steps", () => {
   assert.deepEqual(expectedRootToolSteps(DEMO_PLAN_TOOLS), [
+    "readDoc",
     "recall",
     "resolveDeparture",
     "computeNavlog",
@@ -6415,6 +6416,7 @@ test("the parent's turn 1 follows the route's order and hands each child its own
       [DEMO_PROMPT, DEMO_FILE_PROMPT, scenario.weatherInput, scenario.performanceInput],
     )
     const { calls, reply } = assertScriptedThread(groups.get(DEMO_PROMPT), [
+      "readDoc",
       "recall",
       "resolveDeparture",
       "writeTodos",
@@ -6429,27 +6431,45 @@ test("the parent's turn 1 follows the route's order and hands each child its own
     assert.deepEqual(scenario.planTools, calls.map((call) => call.name))
     assert.equal(reply, scenario.planAnswer)
     const args = calls.map((call) => call.arguments)
-    assert.deepEqual(args[0], { query: "aircraft profile and pilot preferences" })
-    assert.deepEqual(args[1], { departure: "1400Z" })
-    assert.deepEqual(args[2], { todos: scenario.todos })
+    // Step 1: the aircraft baseline and the pilot's recalled overrides.
+    assert.deepEqual(args[0], { path: "aircraft/c172n.md" })
+    assert.deepEqual(args[1], { query: "pilot aircraft overrides and preferences" })
+    assert.deepEqual(args[2], { departure: "1400Z" })
+    assert.deepEqual(args[3], { todos: scenario.todos })
     assert.ok(scenario.todos.length >= 3)
     for (const todo of scenario.todos) {
       assert.ok(["pending", "in_progress", "completed"].includes(todo.status))
       assert.equal(typeof todo.content, "string")
     }
-    assert.deepEqual(args[3], { id: "KSTP" })
-    assert.deepEqual(args[4], { id: "KRST" })
+    assert.deepEqual(args[4], { id: "KSTP" })
+    assert.deepEqual(args[5], { id: "KRST" })
     // aimock matches a child's turns by its first user message, which is the task input verbatim.
-    assert.deepEqual(args[5], { subagent: "weather", input: scenario.weatherInput })
-    assert.deepEqual(args[6], { subagent: "performance", input: scenario.performanceInput })
+    assert.deepEqual(args[6], { subagent: "weather", input: scenario.weatherInput })
+    assert.deepEqual(args[7], { subagent: "performance", input: scenario.performanceInput })
     assert.ok(scenario.weatherInput.includes(scenario.departureUtc))
     assert.ok(scenario.weatherInput.includes(`hoursAhead ${scenario.hoursAhead}`))
     assert.ok(scenario.weatherInput.includes("KSTP (44.9346, -93.0603)"))
-    assert.deepEqual(args[7], scenario.navlogInput)
-    assert.equal(args[7].departureTimeUtc, scenario.departureUtc)
-    assert.deepEqual(args[8], scenario.memory)
-    assert.deepEqual(args[9], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
+    assert.deepEqual(args[8], scenario.navlogInput)
+    assert.equal(args[8].departureTimeUtc, scenario.departureUtc)
+    assert.deepEqual(args[9], scenario.memory)
+    assert.deepEqual(args[10], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
   }
+})
+
+test("the scripted step 1 and todos are the template route's own", async () => {
+  const route = await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/index.ts"), "utf8")
+  const [baseline, recall] = DEMO_SCENARIO.fixtures
+    .filter((fixture) => fixture.match.userMessage === DEMO_PROMPT)
+    .slice(0, 2)
+    .map((fixture) => toolCallOf(fixture).arguments)
+  assert.ok(route.includes(`readDoc({ path: "${baseline.path}" })`), "route reads the baseline")
+  assert.ok(route.includes(`recall({ query: "${recall.query}" })`), "route recalls with the query")
+  const plan = await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/plan.md"), "utf8")
+  const seeded = [...plan.matchAll(/^- \[ \] (.+)$/gm)].map((match) => match[1])
+  assert.deepEqual(
+    DEMO_SCENARIO.todos.map((todo) => todo.content),
+    seeded,
+  )
 })
 
 test("the remember call matches the route's memory schema and states a fact the prompt gives", async () => {
@@ -6979,6 +6999,7 @@ test("the scripted order and tools agree with the template's route and subagent 
   assert.ok(steps.length >= 7, "the route prompt has numbered steps")
   // Where each tool is called, by its backticked name; the todos step names no tool.
   const callIn = {
+    readDoc: /`readDoc\(/,
     recall: /`recall\(/,
     resolveDeparture: /`resolveDeparture\(/,
     writeTodos: /\btodos\b/,
@@ -6993,8 +7014,10 @@ test("the scripted order and tools agree with the template's route and subagent 
   for (const [index, tool] of order.entries()) {
     assert.equal(typeof numbers[index], "number", `the route prompt has a step that calls ${tool}`)
     if (index > 0) {
+      // Step 1 reads the baseline and recalls the overrides together.
+      const sameStep = tool === "recall" && order[index - 1] === "readDoc"
       assert.ok(
-        numbers[index] > numbers[index - 1],
+        sameStep ? numbers[index] === numbers[index - 1] : numbers[index] > numbers[index - 1],
         `${tool} (step ${numbers[index]}) comes after ${order[index - 1]} (step ${numbers[index - 1]})`,
       )
     }
