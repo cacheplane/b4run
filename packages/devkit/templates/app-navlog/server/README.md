@@ -93,7 +93,7 @@ Run these in order: `build` writes the configured deployment artifacts, then
 | Capability | File | What it shows |
 |---|---|---|
 | Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator |
-| Tools + typegen | `src/tools/` | `lookupAirport`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
+| Tools + typegen | `src/tools/` | `resolveDeparture`, `lookupAirport`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
 | Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
 | Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
