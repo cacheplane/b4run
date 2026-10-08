@@ -3,7 +3,7 @@
     "mp4": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4",
     "webm": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.webm",
     "poster": "/demo/product-loop-poster.webp",
-    "caption": "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload the browser and see the same thread restored.",
+    "caption": "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload it and see the same thread restored.",
     "ariaLabel": "B4.run product loop: write the agent, test it offline, run it, reload, and restore",
     "transcript": "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md#product-loop"
   }

@@ -75,6 +75,7 @@ import {
   encodeReadmeAnimation,
   encodeVideo,
   publishFixedAssets,
+  README_ANIMATION_WEBP_OPTIONS,
   runEncoderCommand,
 } from "./encode.mjs"
 import { normalizeLog } from "./normalize-log.mjs"
@@ -747,7 +748,7 @@ test("README animation encodes a trimmed intermediate GIF, converts it to WebP, 
   ])
 })
 
-test("WebM encodes VP9 at CRF 44 to stay under the video byte budget", async () => {
+test("WebM encodes constrained-quality VP9 to stay under the video byte budget", async () => {
   let ffmpegArgs
   await encodeVideo({
     source: "/run/raw.webm",
@@ -762,8 +763,30 @@ test("WebM encodes VP9 at CRF 44 to stay under the video byte budget", async () 
   })
   const codec = ffmpegArgs.indexOf("-c:v")
   assert.equal(ffmpegArgs[codec + 1], "libvpx-vp9")
-  const crf = ffmpegArgs.indexOf("-crf")
-  assert.equal(ffmpegArgs[crf + 1], "44")
+  assert.deepEqual(ffmpegArgs.slice(codec), [
+    "-c:v",
+    "libvpx-vp9",
+    "-b:v",
+    "800k",
+    "-crf",
+    "44",
+    "-maxrate",
+    "900k",
+    "-bufsize",
+    "1800k",
+    "-deadline",
+    "good",
+    "-cpu-used",
+    "2",
+    "-row-mt",
+    "1",
+    "/run/output/product-loop.webm.tmp.webm",
+  ])
+})
+
+test("README animation WebP conversion uses quality 62 at effort 6", () => {
+  assert.deepEqual(README_ANIMATION_WEBP_OPTIONS, { quality: 62, effort: 6 })
+  assert.equal(Object.isFrozen(README_ANIMATION_WEBP_OPTIONS), true)
 })
 
 test("README animation rechecks abort after conversion and removes both temps", async () => {

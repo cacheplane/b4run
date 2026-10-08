@@ -53,22 +53,27 @@ separate upload in repository settings. This script does not change that setting
 
 ## Product-loop media
 
-- `product-loop.webp` — committed 960×540, 15 fps animated WebP for the
-  GitHub/npm READMEs.
-- `demo/transcript.md` — exact static walkthrough for the flagship and three
-  derivative clips.
+- `product-loop.webp` — committed 960×540, at most 15 fps animated WebP for
+  the GitHub and npm READMEs.
+- `product-loop.gif` — the earlier README GIF. It stays only because READMEs
+  already published to npm load it from `main`; nothing regenerates it.
+- `demo/transcript.md` — exact static walkthrough of the flagship.
 - `demo/scenario.mjs` — the canonical prompt and deterministic aimock fixture.
+- `demo/director.mjs` — the director page: headlines, camera, crossfades, and
+  the frame that holds the real Workbench.
 - `demo/capture.mjs` — real internal scaffold, test, Workbench, and Playwright
   capture orchestration.
-- `demo/encode.mjs` — product-loop, Author, Test, and Run timeline encoder.
+- `demo/encode.mjs` — trims the recording and encodes the flagship, the README
+  animation, and the poster.
 - `demo/check-media.mjs` — local codec, geometry, duration, size, poster,
   transcript, and caption contract checker.
-- `../../apps/web/public/demo/*-poster.webp` — committed poster fallbacks.
+- `../../apps/web/public/demo/product-loop-poster.webp` — committed poster
+  fallback.
 
 MP4, WebM, raw Playwright recordings, test logs, summaries, and media manifests
 are generated under the gitignored `demo/artifacts/` and
-`demo/raw-recordings/` directories. Only the README animation, four posters,
-transcript, and capture sources are committed.
+`demo/raw-recordings/` directories. Only the README animation, the legacy GIF,
+the poster, the transcript, and the capture sources are committed.
 
 ## Regenerate and validate
 
@@ -80,7 +85,7 @@ pnpm media:readme:check -- --local
 ```
 
 See [recording-guide.md](./recording-guide.md) for prerequisites, the four
-timelines, deterministic capture boundaries, and asset inspection guidance.
+beats, deterministic capture boundaries, and asset inspection guidance.
 These commands create local assets only. They do not upload media or create a
 remote store.
 
@@ -92,15 +97,23 @@ loopback URL. Provider credentials are removed from child environments. The
 Workbench has no demo or fixture mode; only its model endpoint is redirected by
 the capture process to the deterministic fixture service.
 
-The Author and Test compositors display generated source and real command output.
-Normalization strips ANSI, replaces the temporary workspace root with
-`<workspace>`, and replaces duration fields with `<time>`; it preserves test
-names, PASS/FAIL text, commands, counts, ports, and other numeric output.
+The capture records one flagship from one page, the director page
+(`demo/director.mjs`). Playwright serves it through a route at the Workbench's
+own origin, so the request never reaches the Workbench server, and the real
+Workbench runs inside its iframe. The director page shows the generated route
+and shared tool and the real `npm test` output. Normalization strips ANSI,
+replaces the temporary workspace root with `<workspace>`, and replaces
+duration fields with `<time>`; it preserves test names, PASS/FAIL text,
+commands, counts, ports, and other numeric output.
 
-Because the raw captured scenes are intentionally brief, encoding uses honest
-frozen-frame holds around those same frames for legibility. It never fabricates
+All motion (headlines, the camera, and crossfades) is CSS on the director
+page. The product moments happen in real time inside the frame: the run, the
+frame reload, and the restored thread. The encoder only trims the recording
+to the beats; it adds no holds, overlays, or labels, and it never fabricates
 a source file, test result, tool call, response, reload, or restored state.
-Sharp renders deterministic **Author**, **Prove**, and **Run** label chips into
-the ignored run artifacts; ffmpeg composites them over the matching captured
-segments. Posters are extracted from the labeled MP4 output, so their act and
-footage remain in sync without changing B4.run runtime behavior.
+The poster is a frame of the encoded MP4.
+
+The README animation is an animated WebP because the camera zooms and blur
+crossfades make a GIF under the 4 MB budget impossible. ffmpeg has no WebP
+encoder in the supported toolchain, so ffmpeg writes a 960×540 256-colour
+intermediate GIF and sharp converts it to the published WebP.

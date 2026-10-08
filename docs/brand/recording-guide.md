@@ -36,8 +36,8 @@ environments and capture fails if the model base URL is not loopback. The
 generated Workbench has no demo or fixture mode and receives no marketing-only
 runtime branch.
 
-The browser compositor reads all five generated paths and the real test log. Its
-normalization is deliberately narrow: it strips ANSI, replaces the temporary
+The director page reads the generated route, the shared tool, and the
+normalized real test log. Test-log normalization is deliberately narrow: it strips ANSI, replaces the temporary
 workspace root with `<workspace>`, and replaces durations such as `143ms` or
 `1.27s` with `<time>`. Test names, PASS/FAIL text, commands, counts, ports, and
 all other numeric output remain untouched.
@@ -118,7 +118,7 @@ pnpm media:readme:upload -- --dry-run
 The local checker records a SHA-256 digest for each validated MP4/WebM alongside
 its ffprobe and byte-size facts. An authorized `--apply` re-reads both run-scoped files
 and requires each in-memory body's size and SHA-256 digest to match those validation-time facts. No upload starts unless the entire preflight
-succeeds. Every upload then uses its stable `demo/*.mp4` or `demo/*.webm` path
+succeeds. Every upload then uses its stable `b4/demo/*.mp4` or `b4/demo/*.webm` path
 with overwrites enabled and random suffixes disabled.
 
 If an upload fails or returns a mismatched URL, the command reports three exact

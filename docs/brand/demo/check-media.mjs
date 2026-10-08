@@ -19,7 +19,7 @@ const MEDIA_SCHEMA_VERSION = 1
 
 export const MEDIA_CAPTIONS = Object.freeze({
   "product-loop":
-    "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload the browser and see the same thread restored.",
+    "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload it and see the same thread restored.",
 })
 
 export const MEDIA_CONTRACTS = Object.freeze(

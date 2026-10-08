@@ -33,7 +33,7 @@ evidence asset.
 | Headlines | Author: "Write the agent." Prove: "Test it offline." Run: "Reload. Still there." |
 | Closing card | Wordmark, "Ridiculous speed. Readable code.", and `npm create b4-app@latest my-agent` in a dark panel. |
 | Length | About 15 s: Author 3 s, Prove 3 s, Run about 6 s at real speed, Close 2.5 s. |
-| Outputs | One flagship: MP4, WebM, README GIF, WebP poster. The three derivative clips (author, test, run) are dropped. |
+| Outputs | One flagship: MP4, WebM, README animation (960×540 animated WebP; see section 9), WebP poster. The three derivative clips (author, test, run) are dropped. |
 
 The derivatives go because nothing renders them: no file under `apps/web/app`
 imports `demo-media.json` since the homepage was rebuilt. They can return later
@@ -73,8 +73,10 @@ CSS. ffmpeg no longer composes anything; it only trims and encodes.
   temporary root replaced with `<workspace>`, and durations replaced with `<time>`.
 - **Run.** The frame contains the real Workbench in an iframe at its native
   1440×810, scaled to fit the frame. Playwright drives it through
-  `frameLocator`: it types the prompt, sends it, waits for the completed turn,
-  reloads the iframe, opens the thread from the rail, and checks the restoration.
+  `frameSurface`: the prompt is filled into the composer before recording, and
+  Send is clicked during the Run beat; it then waits for the completed turn,
+  re-navigates the iframe, opens the thread from the rail, and checks the
+  restoration.
   The camera transforms the frame element, never the Workbench document.
 
 Nothing is synthesized. The product moments happen in real time inside the
@@ -90,7 +92,7 @@ All paths are under `docs/brand/demo/`.
      wordmark SVG markup.
    - Exposes `window.director.play(beat)` for `"author" | "prove" | "run" | "close"`.
      Each call resolves when that beat's motion has settled.
-   - Exposes `window.director.focusRun(target)` to move the Run camera between the
+   - Exposes `window.director.focus(target)` to move the Run camera between the
      dock answer and the navlog sheet.
    - Holds every timing constant in one exported table.
    - Has no product logic and no network access beyond the iframe's `src`.
@@ -114,21 +116,24 @@ All paths are under `docs/brand/demo/`.
    - It records each beat's monotonic start and end times in the capture summary.
 3. **`encode.mjs`**.
    - Trims the raw recording to the recorded start of Author and end of Close.
-   - Encodes H.264 MP4, VP9 WebM and the GIF (palette as today, 30 fps), and
-     extracts the poster frame from the MP4.
+   - Encodes H.264 MP4, constrained-quality VP9 WebM and the README animation
+     (a 960×540, 15 fps intermediate GIF that sharp converts to animated WebP),
+     and extracts the poster frame from the MP4.
    - The label chips, frozen-hold padding, `buildLabelInputs` and the per-clip
      timeline plans all go.
 4. **`check-media.mjs`**. The new contract:
    - the flagship lasts 12–18 s, at exactly 1440×810 and 30 fps;
-   - the MP4 and WebM are each at most 2,000,000 bytes, and the GIF at most
-     4,000,000 bytes;
+   - the MP4 and WebM are each at most 2,000,000 bytes;
+   - the README animation is an animated WebP at 960×540, at most 15 fps and
+     at most 4,000,000 bytes, read through sharp because ffprobe cannot read
+     animated WebP;
    - the catalog has the single `productLoop` entry, with captions describing the
      navlog footage.
 5. **`upload.mjs`**. It uploads the flagship's four files and writes the
    single-entry catalog.
 6. **Copy.**
    - `transcript.md` is rewritten for the new beats.
-   - The README GIF's alt text and its pins in `scripts/lib/readme-contracts.mjs`
+   - The README animation's alt text and its pins in `scripts/lib/readme-contracts.mjs`
      and `scripts/readme-contracts.test.mjs` are updated.
    - `recording-guide.md` describes the director page.
    - `evidence-matrix.md` rows that name the research starter are corrected.
@@ -142,7 +147,7 @@ All paths are under `docs/brand/demo/`.
 3. The capture logs the beat's times.
 4. For Run, the capture performs the Workbench steps between `play("run")` and
    `play("close")`. Meanwhile the director page holds the frame still and moves
-   the camera only through `focusRun`.
+   the camera only through `focus`.
 
 ## 5. Error handling
 
@@ -160,10 +165,9 @@ All paths are under `docs/brand/demo/`.
 - **Framing refused.** Before recording, the capture checks that the Workbench
   document loads inside the frame. If framing is refused, the capture fails with
   that reason rather than recording a blank frame.
-- **Budgets.** The checker rejects any file over its size or duration limit. If
-  the GIF exceeds 4 MB, the levers in order are (1) a tighter Run camera so fewer
-  map pixels change, then (2) GIF-only palette tuning. The run summary records
-  whichever was used. The limits themselves do not move.
+- **Budgets.** The checker rejects any file over its size or duration limit.
+  The limits themselves do not move; the encoder settings are tuned to stay
+  about 10% under them (see section 9).
 
 ## 6. Testing
 
@@ -173,7 +177,7 @@ Unit tests in `demo.test.mjs`, with the existing fake-browser style:
   iframe `src`, no header or chip), the timing table, and the order of `play()`
   calls.
 - **The capture:** beat sequencing, the evidence assertions through a fake
-  `frameLocator`, the framing preflight, and cleanup when a beat fails.
+  `frameSurface`, the framing preflight, and cleanup when a beat fails.
 - **The encoder:** the trim plan from recorded beat times, and the ffmpeg
   arguments for each output.
 - **The checker:** the 12–18 s window, the size limits, and the single-entry
@@ -185,7 +189,7 @@ Unit tests in `demo.test.mjs`, with the existing fake-browser style:
 
 The real capture stays manual: `pnpm media:readme:capture`, then
 `pnpm media:readme:check -- --local`. Brian reviews the clips before
-`pnpm media:readme:upload -- --apply` or committing the GIF.
+`pnpm media:readme:upload -- --apply` or committing the README animation.
 
 ## 7. Already on the branch
 
@@ -207,5 +211,19 @@ These changes from the first re-capture are kept:
 - Re-adding derivative clips or rendering video on the homepage.
 - Changing the product's UI for the video, beyond the reduced-motion fix that
   stands on its own.
-- Uploading to the blob store and committing the GIF. That happens after Brian
-  reviews the recorded clips.
+- Uploading to the blob store and committing the README animation. That happens
+  after Brian reviews the recorded clips.
+
+## 9. Approved deviations
+
+- **README animation format.** With the camera zooms and blur crossfades, a
+  1440×810, 30 fps GIF encodes at about 25 MB, and no GIF that fits 4 MB is
+  watchable (900×506 at 10 fps is still 4.07 MB and visibly choppy). The README
+  animation is therefore a 960×540, at most 15 fps animated WebP of at most
+  4,000,000 bytes at `docs/brand/product-loop.webp`. ffmpeg here has no WebP
+  encoder, so ffmpeg writes a 256-colour intermediate GIF and sharp converts it.
+  The old `docs/brand/product-loop.gif` stays committed only because READMEs
+  already published to npm load it from `main`.
+- **WebM rate control.** The WebM uses constrained-quality VP9 (`-b:v 800k
+  -crf 44 -maxrate 900k -bufsize 1800k`) so that captures from 15.9 to 16.9 s
+  stay under the 2,000,000-byte limit.

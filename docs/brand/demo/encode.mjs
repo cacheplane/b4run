@@ -76,6 +76,10 @@ const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:f
 const ANIMATION_WIDTH = 960;
 const ANIMATION_HEIGHT = 540;
 const ANIMATION_FPS = 15;
+export const README_ANIMATION_WEBP_OPTIONS = Object.freeze({
+	quality: 62,
+	effort: 6,
+});
 
 /**
  * The README animation's intermediate GIF: 960x540 at 15 fps with a full
@@ -319,9 +323,13 @@ export async function encodeVideo({
 					"-c:v",
 					"libvpx-vp9",
 					"-b:v",
-					"0",
+					"800k",
 					"-crf",
 					"44",
+					"-maxrate",
+					"900k",
+					"-bufsize",
+					"1800k",
 					"-deadline",
 					"good",
 					"-cpu-used",
@@ -409,7 +417,7 @@ export async function encodeReadmeAnimation({
 	run = runEncoderCommand,
 	convert = (input, output) =>
 		sharp(input, { animated: true, limitInputPixels: false })
-			.webp({ quality: 70, effort: 4 })
+			.webp(README_ANIMATION_WEBP_OPTIONS)
 			.toFile(output),
 	rename = nodeRename,
 	remove = (path) => nodeRm(path, { force: true }),
