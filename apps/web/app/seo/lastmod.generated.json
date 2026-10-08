@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-08T18:17:53.000Z",
-      "sourceDigest": "9c5a34700eb8b51b261be6a0f963924313571d0f80488721a7242322d0158d7b",
-      "recordDigest": "3391eff8a52e30c5f779bbcd6b2760eb32c754b3a0eb04139e9bdca555b7d14d"
+      "lastModified": "2026-10-08T19:07:57.000Z",
+      "sourceDigest": "d52643d60c0756e1023f09b082208a93cbbc23d335cbc8a623bd8348a98b9d21",
+      "recordDigest": "9a1b1e09aa0ccae9d499b67d4b07f5c8274aee404f889afd70d4b31d827eaef5"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
@@ -412,9 +412,9 @@
       "recordDigest": "6bf2f28ea5b29816e1c058b2503e21d8fde5c6684904ddac827f179345e38853"
     },
     "/docs/thread-access": {
-      "lastModified": "2026-10-08T16:31:57.000Z",
-      "sourceDigest": "15399a18621d4dd3a8580b07b594e402082004cfa808b8054f9f45388ca4fe90",
-      "recordDigest": "10b98f9297450bac90d783fdd1005bd3ad6358963f88838bc0c22f4eafbc7386"
+      "lastModified": "2026-10-08T19:07:57.000Z",
+      "sourceDigest": "ffa23bb7d84970ab5ac046878bd4bea97bb14daec06b811f3c961dfe907bc8e3",
+      "recordDigest": "9e9dc58b08748eb7980ffe36a81190a81e1a0d57aa2682965bdee770da7c0c53"
     },
     "/docs/tools": {
       "lastModified": "2026-10-08T15:32:11.000Z",
