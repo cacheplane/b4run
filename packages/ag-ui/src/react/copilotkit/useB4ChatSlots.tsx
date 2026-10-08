@@ -22,10 +22,11 @@ function B4ToolCallsView({
   ) : null
 }
 
-// An assistant message carrying both text and tool calls is not merged by
-// `mergeTurnMessages` and would render a second `TurnActivity` under its text.
-// B4's translator never sets `parentMessageId`, so CopilotKit always emits
-// separate tool-only rows and the case does not arise.
+// B4.run sets `parentMessageId` on every `TOOL_CALL_START` (the model message
+// that announced the call), so CopilotKit files an invocation's text and its
+// calls in one assistant message. `mergeTurnMessages` moves every call of a
+// turn onto that turn's first calling message — text or not — so one message
+// per turn renders `TurnActivity`, after its text when it has some.
 const hasText = (content: unknown): boolean =>
   (typeof content === "string" && content.trim() !== "") ||
   (Array.isArray(content) &&

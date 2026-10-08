@@ -42,7 +42,7 @@ test("model tokens carry invocation identity and completion precedes tool calls"
     { type: "token", messageId: "a", data: "first" },
     { type: "token", messageId: "b", data: "second" },
     { type: "message_end", data: { messageId: "a" } },
-    { type: "tool_call", data: { id: "call", name: "lookup", input: {} } },
+    { type: "tool_call", data: { id: "call", name: "lookup", input: {}, messageId: "a" } },
     { type: "message_end", data: { messageId: "b" } },
     { type: "done", data: undefined },
   ])

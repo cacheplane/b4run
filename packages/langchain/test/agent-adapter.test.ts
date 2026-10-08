@@ -484,7 +484,13 @@ describe("native subagent event projection", () => {
       { type: "subagent.message_end", data: { ...id, messageId: "child-model" } },
       {
         type: "subagent.tool_call",
-        data: { ...id, id: "call_search_1", name: "search", input: { q: "agents" } },
+        data: {
+          ...id,
+          id: "call_search_1",
+          name: "search",
+          input: { q: "agents" },
+          messageId: "child-model",
+        },
       },
       {
         type: "subagent.tool_result",
@@ -1240,7 +1246,10 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: { q: "x" } } },
+      {
+        type: "tool_call",
+        data: { id: "call_probe_1", name: "probe", input: { q: "x" }, messageId: "model-1" },
+      },
       {
         type: "tool_result",
         data: {
@@ -1331,7 +1340,10 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_ghost_1", name: "ghost", input: {} } },
+      {
+        type: "tool_call",
+        data: { id: "call_ghost_1", name: "ghost", input: {}, messageId: "model-1" },
+      },
       { type: "done", data: { ok: true } },
     ])
   })
@@ -1358,7 +1370,10 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: { q: 1 } } },
+      {
+        type: "tool_call",
+        data: { id: "call_probe_1", name: "probe", input: { q: 1 }, messageId: "model-1" },
+      },
       { type: "done", data: { ok: true } },
     ])
   })
@@ -1397,7 +1412,15 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_gated_1", name: "runBash", input: { command: "x" } } },
+      {
+        type: "tool_call",
+        data: {
+          id: "call_gated_1",
+          name: "runBash",
+          input: { command: "x" },
+          messageId: "model-1",
+        },
+      },
       { type: "interrupt", data: { interruptId: "int-1", kind: "command" } },
       { type: "done", data: {} },
     ])
@@ -1451,7 +1474,12 @@ describe("logical-identity root tool projection", () => {
     await expect(collect(entry)).resolves.toEqual([
       {
         type: "tool_call",
-        data: { id: "call_stmt_1", name: "customerStatement", input: { id: "x" } },
+        data: {
+          id: "call_stmt_1",
+          name: "customerStatement",
+          input: { id: "x" },
+          messageId: "model-1",
+        },
       },
       {
         type: "tool_result",
@@ -1539,7 +1567,10 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: {} } },
+      {
+        type: "tool_call",
+        data: { id: "call_probe_1", name: "probe", input: {}, messageId: "model-1" },
+      },
       { type: "tool_result", data: { id: "call_probe_1", name: "probe", output: thisTurnError } },
       { type: "done", data: { messages: [olderError, thisTurnError] } },
     ])
@@ -1655,7 +1686,10 @@ describe("logical-identity root tool projection", () => {
     ])
 
     await expect(collect(entry)).resolves.toEqual([
-      { type: "tool_call", data: { id: "call_x_1", name: "alpha", input: {} } },
+      {
+        type: "tool_call",
+        data: { id: "call_x_1", name: "alpha", input: {}, messageId: "model-1" },
+      },
       {
         type: "tool_result",
         data: {

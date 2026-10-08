@@ -69,11 +69,13 @@ describe("streamAgent — incremental tool-call arguments", () => {
       GRAPH_END,
     ])
 
+    // Each fragment names its model invocation, as the announce does.
+    const weather = { id: "call_1", name: "weather", messageId: "m1" }
     expect(chunks).toEqual([
-      { type: "tool_call_args", data: { id: "call_1", name: "weather", delta: '{"city":' } },
-      { type: "tool_call_args", data: { id: "call_1", name: "weather", delta: '"Par' } },
-      { type: "tool_call_args", data: { id: "call_1", name: "weather", delta: 'is","days":3}' } },
-      { type: "tool_call", data: { id: "call_1", name: "weather", input: args } },
+      { type: "tool_call_args", data: { ...weather, delta: '{"city":' } },
+      { type: "tool_call_args", data: { ...weather, delta: '"Par' } },
+      { type: "tool_call_args", data: { ...weather, delta: 'is","days":3}' } },
+      { type: "tool_call", data: { id: "call_1", name: "weather", input: args, messageId: "m1" } },
       { type: "done", data: {} },
     ])
     expect(deltasFor(chunks, "call_1").join("")).toBe(JSON.stringify(args))
@@ -87,7 +89,10 @@ describe("streamAgent — incremental tool-call arguments", () => {
     ])
 
     expect(chunks).toEqual([
-      { type: "tool_call", data: { id: "call_1", name: "weather", input: { city: "Paris" } } },
+      {
+        type: "tool_call",
+        data: { id: "call_1", name: "weather", input: { city: "Paris" }, messageId: "m1" },
+      },
       { type: "done", data: {} },
     ])
   })
@@ -154,7 +159,7 @@ describe("streamAgent — incremental tool-call arguments", () => {
       ])
 
       expect(chunks).toEqual([
-        { type: "tool_call", data: { id: "call_1", name, input: { todos: [] } } },
+        { type: "tool_call", data: { id: "call_1", name, input: { todos: [] }, messageId: "m1" } },
         { type: "done", data: {} },
       ])
     }
@@ -169,9 +174,9 @@ describe("streamAgent — incremental tool-call arguments", () => {
 
     expect(chunks).toEqual([
       { type: "token", messageId: "m1", data: "Sure," },
-      { type: "tool_call_args", data: { id: "call_1", name: "t", delta: "{}" } },
+      { type: "tool_call_args", data: { id: "call_1", name: "t", delta: "{}", messageId: "m1" } },
       { type: "message_end", data: { messageId: "m1" } },
-      { type: "tool_call", data: { id: "call_1", name: "t", input: {} } },
+      { type: "tool_call", data: { id: "call_1", name: "t", input: {}, messageId: "m1" } },
       { type: "done", data: {} },
     ])
   })

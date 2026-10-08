@@ -615,10 +615,17 @@ function synthesiseNamespace(
         // root's when the call produced no plan in this turn).
         if (!nested && call.name === PLAN_TOOL && planFollows(index)) continue
         const toolCallId = call.id
+        // Live files a call under the model message that announced it; here
+        // that message's id is the one its text above was framed with.
         push(
           s,
           at,
-          { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: call.name } as BaseEvent,
+          {
+            type: EventType.TOOL_CALL_START,
+            toolCallId,
+            toolCallName: call.name,
+            parentMessageId: id,
+          } as BaseEvent,
           owner,
         )
         push(

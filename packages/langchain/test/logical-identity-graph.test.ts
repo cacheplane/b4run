@@ -189,7 +189,15 @@ describe("real-graph pins for logical tool identity", () => {
     const toolCalls = chunks.filter((c) => c.type === "tool_call")
     const toolResults = chunks.filter((c) => c.type === "tool_result")
     expect(toolCalls).toEqual([
-      { type: "tool_call", data: { id: "call_probe_1", name: "probe", input: { q: "x" } } },
+      {
+        type: "tool_call",
+        data: {
+          id: "call_probe_1",
+          name: "probe",
+          input: { q: "x" },
+          messageId: expect.any(String),
+        },
+      },
     ])
     expect(toolResults).toHaveLength(1)
     expect((toolResults[0]?.data as { id?: unknown } | undefined)?.id).toBe("call_probe_1")
@@ -211,7 +219,10 @@ describe("real-graph pins for logical tool identity", () => {
 
     const chunks = await collectAgentChunks(graph)
     expect(chunks.filter((c) => c.type === "tool_call")).toEqual([
-      { type: "tool_call", data: { id: "call_boom_1", name: "boom", input: { q: "x" } } },
+      {
+        type: "tool_call",
+        data: { id: "call_boom_1", name: "boom", input: { q: "x" }, messageId: expect.any(String) },
+      },
     ])
     const toolResults = chunks.filter((c) => c.type === "tool_result")
     expect(toolResults).toHaveLength(1)
