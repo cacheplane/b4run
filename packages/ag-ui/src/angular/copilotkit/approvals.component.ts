@@ -12,10 +12,11 @@ import { B4ActivityStore } from "./activity-store.js"
  * `[messageViewChildrenComponent]` (after the messages), or place it anywhere
  * under `provideB4Activity`.
  *
- * The title uses the gated step's running label, lower-cased: phrase
- * `display.running` as an infinitive ("run a command") so the card reads
- * "The agent wants to run a command". A step with no running label (a tool
- * without `display.running`) reads "wants to use <tool>".
+ * The title uses the gated step's running label, lower-cased, with a built-in
+ * tool's progressive verb as its infinitive ("Running ls" reads "wants to run
+ * ls"): phrase a custom `display.running` as an infinitive ("run a command")
+ * so the card reads "The agent wants to run a command". A step with no running
+ * label (a tool without `display.running`) reads "wants to use <tool>".
  */
 @Component({
   selector: "b4-activity-approvals",

@@ -137,7 +137,7 @@ describe("B4Activity", () => {
 
     const card = renderCards([interrupt])
     const first = render(card)
-    expect(screen.getByText("The agent wants to running node x")).toBeTruthy()
+    expect(screen.getByText("The agent wants to run node x")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }))
     expect(resolve).toHaveBeenCalledWith("once", "i1")
     // A card takes one decision and goes busy; deny on a fresh instance.
