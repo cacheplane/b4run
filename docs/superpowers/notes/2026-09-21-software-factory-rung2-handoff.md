@@ -6,6 +6,10 @@ sections are the durable part. Supersedes the
 [rung 0/1 handoff](2026-09-19-software-factory-arc-handoff.md), whose §4 blocker and
 follow-ups 2, 7 and 8 are closed here.
 
+> **Later state:** rungs 3 and 4 have since landed; see the
+> [rung 4 handoff](2026-10-02-software-factory-rung4-handoff.md) for the current picture.
+> The open follow-ups in §7 below are still the only record of their design notes.
+
 ---
 
 ## 1. State at a glance
