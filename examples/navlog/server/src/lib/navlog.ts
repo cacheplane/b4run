@@ -14,7 +14,11 @@ export interface NavlogWaypoint extends LatLon {
 export interface NavlogWind {
   readonly dirDegTrue: number
   readonly speedKt: number
-  readonly tempC?: number
+  /**
+   * Not used in the computation. Null when the forecast gives none: the FB
+   * winds omit the temperature at 3,000 ft and getWindsAloft returns null.
+   */
+  readonly tempC?: number | null
 }
 
 export interface NavlogInput {
