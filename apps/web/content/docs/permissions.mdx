@@ -107,7 +107,7 @@ Resuming a `kind: "tool"` interrupt uses the same `once` / `always` / `deny` dec
 |---|---|
 | `once` | This call runs. The next call to the same tool prompts again. |
 | `always` | Adds the tool **name** under the reserved `tool` key in the configured permission store. Matching is **exact-name**, not prefix. |
-| `deny` | The call is blocked and nothing is persisted. Unlike the workspace gates (which surface a thrown error), the denial reason is **returned as the tool result**. The model sees it as a normal tool response and can adapt. |
+| `deny` | The call is blocked and nothing is persisted. The denial reason is **returned as the tool result**, as it is for a refused workspace operation. The model sees it as a normal tool response and can adapt. |
 
 ### Approve every call
 
@@ -288,7 +288,7 @@ Send a `POST /threads/:thread_id/resume` request with a `resume` entry for every
 |---|---|
 | `once` | Allow this operation for this invocation only |
 | `always` | Allow and add the gate's `suggestedPattern` to the configured permissions store |
-| `deny` | Reject the operation without persisting a decision. The run continues with an error result |
+| `deny` | Reject the operation without persisting a decision. The run continues, and the model gets the denial reason as the tool result |
 
 The ordinary HTTP endpoint accepts one strict envelope:
 

@@ -246,7 +246,7 @@ export const gateBoards: readonly GateBoard[] = [
       { gate: "delegation", state: "unreached", note: "The command never runs." },
     ],
     result:
-      'runBash fails with "Permission denied by user", and the model reads that as the tool\'s error.',
+      'The command doesn\'t run. The model gets "Permission denied by user" as the tool result and can adapt.',
   },
   {
     id: "delete",

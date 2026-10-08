@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createPermissionsStore } from "@b4run/permissions/node"
+import { isToolDenial } from "@b4run/sdk"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -265,12 +266,12 @@ describe("editFile", () => {
       mode: "non-interactive",
     })
     await permissions.load()
-    await expect(
-      (await tool("editFile", { permissions })).run(
-        { path: "../secret.txt", oldText: "1", newText: "2" },
-        signal(),
-      ),
-    ).rejects.toThrow(/permission denied/i)
+    const result = await (await tool("editFile", { permissions })).run(
+      { path: "../secret.txt", oldText: "1", newText: "2" },
+      signal(),
+    )
+    if (!isToolDenial(result)) throw new Error("expected a branded denial")
+    expect(result.result).toMatch(/permission denied/i)
     expect(readFileSync(outside, "utf8")).toBe("token=1\n")
   })
 
@@ -285,12 +286,12 @@ describe("editFile", () => {
       mode: "non-interactive",
     })
     await readOnly.load()
-    await expect(
-      (await tool("editFile", { permissions: readOnly })).run(
-        { path: "../shared/notes.txt", oldText: "old", newText: "new" },
-        signal(),
-      ),
-    ).rejects.toThrow(/permission denied/i)
+    const result = await (await tool("editFile", { permissions: readOnly })).run(
+      { path: "../shared/notes.txt", oldText: "old", newText: "new" },
+      signal(),
+    )
+    if (!isToolDenial(result)) throw new Error("expected a branded denial")
+    expect(result.result).toMatch(/permission denied/i)
     expect(readFileSync(outside, "utf8")).toBe("old\n")
 
     const readWrite = createPermissionsStore({

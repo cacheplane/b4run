@@ -469,11 +469,13 @@ describe("each check answers as the framework does", () => {
     expect(scenarioOf("bash").explain).not.toContain("169.254")
   }, 60_000)
 
-  it("runBash, denied: the tool fails with the reason, and nothing reaches the sandbox", async () => {
+  it("runBash, denied: the tool returns the reason as a denial, and nothing reaches the sandbox", async () => {
     const { runBash, exec } = await sandboxedWorkspace(permissionsStore())
     const bash = pausable(() => runBash.run({ command: BASH_COMMAND }, context()))
     await bash.start()
-    expect(await bash.resume("deny")).toBe(`threw: Permission denied by user: ${BASH_COMMAND}`)
+    const denial = await bash.resume("deny")
+    if (!isToolDenial(denial)) throw new Error("expected a branded denial")
+    expect(denial.result).toBe(`Permission denied by user: ${BASH_COMMAND}`)
     expect(exec).toEqual([])
     expect(stateOf("bash-deny", "permission")).toBe("stopped")
     expect(board("bash-deny").result).toContain('"Permission denied by user"')

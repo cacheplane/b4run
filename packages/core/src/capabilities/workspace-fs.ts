@@ -70,6 +70,18 @@ function assertPosixAbsoluteWorkspaceRoot(workspaceRoot: string): void {
  * workspace-relative; every call runs the same permission gate as the
  * agent-facing workspace tools.
  */
+/**
+ * The error a workspace handle throws when the permission gate refuses an
+ * operation (a path outside the workspace, denied by a person, a rule or
+ * non-interactive mode). The message is the gate's reason. The built-in
+ * workspace tools turn it into a branded denial result (`toolDenial`), so the
+ * model reads the reason and the call's step settles as `denied`, not
+ * `failed`; anything else using the handle sees an ordinary thrown error.
+ */
+export class WorkspaceGateDenied extends Error {
+  override readonly name = "WorkspaceGateDenied"
+}
+
 export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
   // Eager, and staying that way: the root is known at construction time, so a
   // host that hands core a relative one must hear about it here rather than on
@@ -107,7 +119,7 @@ export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
       ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
       ...(opts.step !== undefined ? { step: opts.step } : {}),
     })
-    if (!result.allowed) throw new Error(result.reason)
+    if (!result.allowed) throw new WorkspaceGateDenied(result.reason)
     return absPath
   }
 
