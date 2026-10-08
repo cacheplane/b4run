@@ -56,7 +56,7 @@ Resolution runs for every runtime endpoint except `/healthz`, `/readyz` and CORS
 
 ### When auth fails to load
 
-A `src/auth.ts` that exists must default-export `defineAuth(...)`. A missing default, a plain object, an import that throws or a path that can't be probed fails the boot with `B4_E3005`, because an auth file the runtime ignored would leave every request anonymous. The node and web build targets carry the file in their build; the `langsmith` target refuses an app that has one (`B4_E1005`).
+A `src/auth.ts` that exists must default-export `defineAuth(...)`. A missing default, a plain object, an import that throws or a path that can't be probed fails the boot with `B4_E3005`, because an auth file the runtime ignored would leave every request anonymous. The node and web build targets carry the file in their build. The `langsmith` target compiles it to LangGraph's auth layer, with a few differences (an anonymous request is a 401 there); see [LangSmith](/docs/deployment/langsmith#authentication).
 
 ### Testing
 

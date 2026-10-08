@@ -53,8 +53,8 @@ async function fixtureApp(files: Readonly<Record<string, string>> = {}): Promise
     }),
   )
   const appFiles: Record<string, string> = {
-    // langsmith (a default target) refuses src/auth.ts until its auth.path
-    // compile lands; this suite is about the target that carries it.
+    // This suite is about the node target; langsmith-auth-build.test.ts
+    // covers the langsmith compile.
     "b4.config.ts": 'export default { build: { targets: ["node"] } }\n',
     "package.json": '{ "name": "node-auth-fixture", "type": "module" }\n',
     "src/app/hello/index.ts": "export const graph = async () => ({ ok: true })\n",
@@ -220,13 +220,5 @@ describe("node target — src/auth.ts", () => {
     expect(boot.kind).toBe("exited")
     if (boot.kind !== "exited") return
     expect(boot.output).toContain("B4_E3005")
-  }, 120_000)
-
-  it("the langsmith target refuses an app with src/auth.ts", async () => {
-    const appRoot = await fixtureApp({
-      "b4.config.ts": 'export default { build: { targets: ["langsmith"] } }\n',
-      "src/auth.ts": TOKEN_AUTH,
-    })
-    await expect(build(appRoot)).rejects.toMatchObject({ code: "B4_E1005" })
   }, 120_000)
 })

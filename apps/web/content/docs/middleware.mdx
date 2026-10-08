@@ -331,7 +331,7 @@ thread-access check runs **before** middleware and answers first: `/resume` and
 Middleware also runs on Windows now. If you develop on Windows, a middleware
 file that used to be inert there will start gating requests.
 
-The `langsmith` build target is different. Its generated graph entries don't include B4.run HTTP middleware, so put equivalent authentication in the LangSmith platform when you deploy them.
+The `langsmith` build target is different. Its generated graph entries don't include B4.run HTTP middleware, and the build warns when `src/middleware.ts` exists. Put identity in [`src/auth.ts`](/docs/access-control#authentication), which that target compiles, or authenticate on the platform.
 
 <Callout type="warn" title="Middleware is execution-only">
   This hook can't serve as blanket service authentication, because create/read/delete, state, cancellation, health, and memory-candidate routes bypass it. Thread authorization is a [separate file on a separate axis](/docs/thread-access) that covers the thread endpoints. Health and memory-candidate routes are covered by neither. Put outer authentication around the complete runtime surface as described in [Security Architecture](/docs/security-architecture).
