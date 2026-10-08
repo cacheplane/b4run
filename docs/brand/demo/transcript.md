@@ -8,7 +8,7 @@ navlog workspace; it does not show the scaffold command running.
 
 ### Write the agent.
 
-The headline docks above a square frame that shows two real files from the
+The headline docks above a square-cornered frame that shows two real files from the
 generated workspace: the route `server/src/app/navlog/index.ts`, with its
 `export default agent({` descriptor, and the shared tool
 `server/src/tools/computeNavlog.ts`. The camera eases to the route's
