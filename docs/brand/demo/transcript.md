@@ -95,9 +95,10 @@ The memory declaration, `server/src/app/navlog/memory.ts`, marked at
 
 ### 10. Reload. Still there.
 
-The camera eases to the memory panel under the dock's header. It lists the
-memory the planner suggested during the first turn, “N738ZU has long-range
-tanks: 50 gal usable.”, marked “Suggested by the planner”. The camera pulls
+The camera eases to the memory panel under the dock's header (“Memory · 1”).
+It lists the memory the planner suggested during the first turn, “N738ZU has
+long-range tanks: 50 gal usable.”, with Approve and Delete beside it, waiting
+for the pilot; the run does not store it on its own. The camera pulls
 back and the browser frame reloads: the capture navigates the Workbench's frame
 to its own URL, as a browser reload would. It opens the thread list and selects
 the same thread, and both turns come back from the server checkpoint: the two

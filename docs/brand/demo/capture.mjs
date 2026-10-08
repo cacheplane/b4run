@@ -1194,8 +1194,8 @@ export async function assertRouteMap(page, { headingLabel, airports }) {
 
 /**
  * The memory panel (under the dock's header) lists the suggested candidate,
- * with the page unscrolled so the `memory` framing holds all of it: the fact,
- * "Suggested by the planner", and Approve and Delete.
+ * with the page unscrolled so the `memory` framing holds all of it: the fact
+ * and its Approve and Delete buttons.
  */
 export async function assertMemoryCandidate(page, { content }) {
   await page
