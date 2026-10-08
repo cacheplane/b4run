@@ -131,4 +131,22 @@ The total is about 52 to 60 s. Beat lengths are targets and are tuned in
 
 ## 7. Deviations recorded during the build
 
-(None yet.)
+Unit 4 (`capture.mjs`), checked against a real Workbench run:
+
+- **"Ask for a flight" starts at rest.** At the `todos` framing the composer's
+  Send button is outside the viewport and Playwright refuses the click, so the
+  beat's preset is `rest`; the capture moves to `todos` once the plan is up.
+- **The plan is reopened.** The scripted run settles in well under a second,
+  and a settled turn folds its activity, so the ask beat waits for turn 1 to
+  settle, opens the turn and the plan step (real clicks), and scrolls the
+  checklist to the middle of the transcript before it holds. The thread id is
+  read there, after turn 1.
+- **Filing does not move the camera to click.** The `approval` framing holds
+  the composer, its Send button and the approval card, so the beat sends,
+  holds on the card and clicks Allow once without the `rest` round trips.
+- **Restored tool steps are the activity kit's root tool steps.** `writeTodos`
+  is the plan step, `task` a subagent step, and the two back-to-back
+  `lookupAirport` calls fold into one group step, so turn 1 restores with five
+  root tool steps and turn 2 with one (`expectedRootToolSteps`).
+- **Beat scenes are `beat-NN-id`** (`beat-06-navlog`); a failure names its beat
+  (`Beat 8 (file): …`) with the original error as its cause.

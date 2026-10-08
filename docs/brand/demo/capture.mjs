@@ -14,24 +14,31 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createAimock } from "../../../packages/testing/dist/index.js"
+import { startAwcStub as startLoopbackAwcStub } from "./awc-stub.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_PLAN_ANSWER, DEMO_PLAN_TOOLS, DEMO_PROMPT } from "./scenario.mjs"
+import { assertScenarioCurrent, demoScenario } from "./scenario.mjs"
 import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
-import { STORYBOARD, storyboardPaths } from "./storyboard.mjs"
+import { beatSceneName, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
 
-// The parent's first turn: its tool steps and its planning answer. The
-// fixtures also script the filing turn and both subagents' own threads.
-const EXPECTED_TOOLS = DEMO_PLAN_TOOLS
-const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
 const DEFAULT_SCAFFOLD_PORTS = new Set([3002, 3010])
 const NODE_MINIMUM_MAJOR = 24
 const PNPM_VERSION = "10.33.0"
 const VIEWPORT = Object.freeze({ width: 1440, height: 810 })
+/**
+ * The real waits inside an app beat, between its camera moves. Each beat's
+ * final hold is its storyboard `holdMs`.
+ */
 const DEFAULT_HOLD_DURATIONS = Object.freeze({
-  preReloadMs: 1_200,
-  restorationMs: 1_500,
+  // The navlog beat: the route on the map, before the camera moves to the sheet.
+  mapMs: 1_500,
+  // The filing beat: the approval card, before the capture clicks Allow once.
+  approvalMs: 1_800,
+  // The reload beat: the suggested memory, before the camera pulls back to reload.
+  memoryMs: 1_200,
 })
+/** The AWC products the scripted run reaches; the capture asserts the stub served each. */
+const AWC_ENDPOINTS = Object.freeze(["airport", "metar", "taf", "windtemp", "gairmet", "airsigmet"])
 const DIRECTOR_PATH = "/__b4_demo_director/"
 const DEFAULT_TIMING = Object.freeze({
   now: () => performance.now(),
@@ -161,12 +168,21 @@ export function sanitizeOperationalEnvironment(parentEnvironment = process.env) 
 }
 
 export function assertLoopbackModelBaseUrl(value) {
-  requireString(value, "model base URL")
+  return assertLoopbackHttpUrl(value, "model base URL")
+}
+
+/** The AWC stub's base: the server's weather tools must never leave the machine. */
+export function assertLoopbackAwcBaseUrl(value) {
+  return assertLoopbackHttpUrl(value, "AWC base URL")
+}
+
+function assertLoopbackHttpUrl(value, label) {
+  requireString(value, label)
   let url
   try {
     url = new URL(value)
   } catch {
-    throw new TypeError("model base URL must be a loopback HTTP(S) URL")
+    throw new TypeError(`${label} must be a loopback HTTP(S) URL`)
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "")
   const ipFamily = isIP(hostname)
@@ -178,13 +194,19 @@ export function assertLoopbackModelBaseUrl(value) {
     url.username !== "" ||
     url.password !== ""
   ) {
-    throw new TypeError("model base URL must be a loopback HTTP(S) URL")
+    throw new TypeError(`${label} must be a loopback HTTP(S) URL`)
   }
   return url
 }
 
-export function buildChildEnvironment(parentEnvironment, modelBaseUrl) {
+/**
+ * The B4.run server's environment: the operational allowlist, the model at
+ * aimock, and, when given, the weather tools at the loopback AWC stub
+ * (`B4_AWC_BASE_URL`, read by the template's `lib/awc.ts`).
+ */
+export function buildChildEnvironment(parentEnvironment, modelBaseUrl, { awcBaseUrl } = {}) {
   const url = assertLoopbackModelBaseUrl(modelBaseUrl)
+  const awc = awcBaseUrl === undefined ? undefined : assertLoopbackAwcBaseUrl(awcBaseUrl)
   return {
     ...sanitizeOperationalEnvironment(parentEnvironment),
     // `npm exec -- b4 ...` otherwise resolves the unrelated registry package
@@ -192,6 +214,7 @@ export function buildChildEnvironment(parentEnvironment, modelBaseUrl) {
     npm_config_package: "@b4run/cli",
     OPENAI_BASE_URL: url.href,
     OPENAI_API_KEY: "test-not-used",
+    ...(awc !== undefined ? { B4_AWC_BASE_URL: awc.href.replace(/\/$/, "") } : {}),
     COPILOTKIT_TELEMETRY_DISABLED: "true",
     DO_NOT_TRACK: "1",
   }
@@ -681,6 +704,9 @@ function createProcessAdapter() {
     startAimock(fixtures) {
       return createAimock({ fixtures })
     },
+    startAwcStub({ now }) {
+      return startLoopbackAwcStub({ now })
+    },
     async getPort(excludedPorts) {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         const port = await getAvailableLoopbackPort()
@@ -824,15 +850,29 @@ export const SETTLED_ROOT_TURN_SELECTOR = `${ROOT_TURN_SELECTOR}:is([data-state=
 
 const CONNECT_PATHNAME = "/api/copilotkit/agent/default/connect"
 
-export async function waitForWorkbenchRunCompletion(page) {
+/**
+ * Waits for the run to end. Without `turns`, the latest root turn settling is
+ * the proof. With `turns` (the thread's turn count once this run is done), the
+ * proof is that many settled turns and no other: in a thread that already has
+ * a settled turn, "the last settled turn" is visible before the new run has
+ * even rendered, and a turn parked on an approval is not settled.
+ */
+export async function waitForWorkbenchRunCompletion(page, { turns } = {}) {
   // The run's own turn settling is the proof the run ended. Stop and Send are
   // one button, so without this a wait that starts before the run renders its
   // Stop state would pass on the idle composer the click left behind.
-  await page
-    .getByRole("main")
-    .locator(SETTLED_ROOT_TURN_SELECTOR)
-    .last()
-    .waitFor({ state: "visible", timeout: 120_000 })
+  const main = page.getByRole("main")
+  const settled = main.locator(SETTLED_ROOT_TURN_SELECTOR)
+  await (turns === undefined ? settled.last() : settled.nth(turns - 1)).waitFor({
+    state: "visible",
+    timeout: 120_000,
+  })
+  if (turns !== undefined) {
+    const count = await main.locator(ROOT_TURN_SELECTOR).count()
+    if (count !== turns) {
+      throw new Error(`The thread rendered ${count} turns once the run settled, expected ${turns}`)
+    }
+  }
   await page
     .getByRole("button", { name: "Stop", exact: true })
     .waitFor({ state: "hidden", timeout: 120_000 })
@@ -850,14 +890,20 @@ export async function waitForWorkbenchRunCompletion(page) {
  * not in the DOM until its summary is expanded.
  */
 export async function expandLatestTurn(page, { timeout = 120_000 } = {}) {
-  const turn = page.getByRole("main").locator(SETTLED_ROOT_TURN_SELECTOR).last()
+  return expandTurn(page.getByRole("main").locator(SETTLED_ROOT_TURN_SELECTOR).last(), {
+    timeout,
+    name: "The latest turn",
+  })
+}
+
+async function expandTurn(turn, { timeout = 120_000, name }) {
   await turn.waitFor({ state: "visible", timeout })
   const summary = turn.locator(":scope > button.b4-turn__summary")
   if ((await summary.getAttribute("aria-expanded")) !== "true") {
     await summary.click({ timeout })
   }
   if ((await summary.getAttribute("aria-expanded")) !== "true") {
-    throw new Error("The latest turn's summary did not expand (aria-expanded stayed false)")
+    throw new Error(`${name}'s summary did not expand (aria-expanded stayed false)`)
   }
   return turn
 }
@@ -868,6 +914,50 @@ export async function expandLatestTurn(page, { timeout = 120_000 } = {}) {
  */
 function rootToolSteps(turn) {
   return turn.locator(':scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]')
+}
+
+/**
+ * The root tool steps the activity kit draws for a turn's tool calls, in
+ * order: `writeTodos` is the plan step and `task` a subagent step, not tool
+ * steps, and a run of the same tool called back to back folds into one group
+ * step (`data-kind="group"`), which is not a tool step either.
+ */
+export function expectedRootToolSteps(tools) {
+  const steps = []
+  for (let index = 0; index < tools.length; index += 1) {
+    const tool = tools[index]
+    let end = index
+    while (tools[end + 1] === tool) end += 1
+    if (end === index && tool !== "writeTodos" && tool !== "task") steps.push(tool)
+    index = end
+  }
+  return steps
+}
+
+/**
+ * The approval card for a gated call, with its evidence: `Allow once` and
+ * `Deny`, and no `Always allow` (the route gates `fileFlightPlan` with
+ * `allowAlways: false`). Returns the card, scrolled into view.
+ */
+export async function awaitApprovalCard(page, { timeout = 120_000 } = {}) {
+  const card = page.getByRole("main").locator('.b4-approval[role="alert"]')
+  await card.waitFor({ state: "visible", timeout })
+  const count = await card.count()
+  if (count !== 1) throw new Error(`The Workbench rendered ${count} approval cards, expected 1`)
+  for (const name of ["Allow once", "Deny"]) {
+    const buttons = await card.getByRole("button", { name, exact: true }).count()
+    if (buttons !== 1) {
+      throw new Error(`The approval card has ${buttons} "${name}" buttons, expected 1`)
+    }
+  }
+  const always = await card.getByRole("button", { name: "Always allow", exact: true }).count()
+  if (always !== 0) {
+    throw new Error(
+      `The approval card offers "Always allow"; the route gates this call with allowAlways: false`,
+    )
+  }
+  await card.scrollIntoViewIfNeeded({ timeout })
+  return card
 }
 
 /**
@@ -893,10 +983,20 @@ export function isThreadConnectResponse(response, { origin, threadId }) {
   }
 }
 
-export async function restoreWorkbenchThread(
-  page,
-  { workbenchUrl, threadId, prompt, tools, answer },
-) {
+/**
+ * Reloads the Workbench, reselects the thread and proves it came back: its
+ * title, its turns, each turn's root tool steps and each turn's answer. A
+ * one-turn thread passes `prompt`, `tools` and `answer`; a longer one passes
+ * `turns`, one `{ prompt, tools, answer }` per turn in order, with `prompt`
+ * still the first message (the thread's title). `tools` are the root tool
+ * steps the turn renders (see `expectedRootToolSteps`).
+ */
+export async function restoreWorkbenchThread(page, options) {
+  const { workbenchUrl, threadId, prompt } = options
+  const expected = options.turns ?? [
+    { prompt: options.prompt, tools: options.tools, answer: options.answer },
+  ]
+  if (expected.length === 0) throw new Error("restoreWorkbenchThread needs at least one turn")
   const origin = new URL(workbenchUrl).origin
   const connected = page.waitForResponse(
     (response) => isThreadConnectResponse(response, { origin, threadId }),
@@ -924,25 +1024,149 @@ export async function restoreWorkbenchThread(
   }
   const main = page.getByRole("main")
   const visible = { state: "visible", timeout: 120_000 }
-  await main.getByText(prompt, { exact: true }).last().waitFor(visible)
-  const turns = main.locator(SETTLED_ROOT_TURN_SELECTOR)
-  await turns.first().waitFor(visible)
-  const turnCount = await main.locator(ROOT_TURN_SELECTOR).count()
-  if (turnCount !== 1) {
-    throw new Error(`The restored thread rendered ${turnCount} turns, expected exactly 1`)
+  for (const turn of expected) {
+    await main.getByText(turn.prompt, { exact: true }).last().waitFor(visible)
   }
-  // A restored turn starts folded; its steps are in the DOM only once opened.
-  const turn = await expandLatestTurn(page)
-  const steps = rootToolSteps(turn)
-  if (tools.length > 0) await steps.first().waitFor(visible)
-  const stepCount = await steps.count()
-  if (stepCount !== tools.length) {
+  const turns = main.locator(SETTLED_ROOT_TURN_SELECTOR)
+  await (expected.length === 1 ? turns.first() : turns.nth(expected.length - 1)).waitFor(visible)
+  const turnCount = await main.locator(ROOT_TURN_SELECTOR).count()
+  if (turnCount !== expected.length) {
     throw new Error(
-      `The restored turn rendered ${stepCount} tool steps, expected ${tools.length} (${tools.join(", ")})`,
+      `The restored thread rendered ${turnCount} turns, expected exactly ${expected.length}`,
     )
   }
-  await main.getByText(answer, { exact: true }).last().waitFor(visible)
+  for (const [index, { tools, answer }] of expected.entries()) {
+    const label = expected.length === 1 ? "The restored turn" : `Restored turn ${index + 1}`
+    // A restored turn starts folded; its steps are in the DOM only once opened.
+    const turn =
+      expected.length === 1
+        ? await expandLatestTurn(page)
+        : await expandTurn(turns.nth(index), { name: label })
+    const steps = rootToolSteps(turn)
+    if (tools.length > 0) await steps.first().waitFor(visible)
+    const stepCount = await steps.count()
+    if (stepCount !== tools.length) {
+      throw new Error(
+        `${label} rendered ${stepCount} tool steps, expected ${tools.length} (${tools.join(", ")})`,
+      )
+    }
+    await main.getByText(answer, { exact: true }).last().waitFor(visible)
+  }
   return { connectUrl: response.url() }
+}
+
+const VISIBLE = Object.freeze({ state: "visible", timeout: 120_000 })
+
+/** The active thread's id, from the Workbench's thread list, by its title. */
+async function readThreadId(page, title) {
+  const threadId = await page.evaluate((wanted) => {
+    const raw = localStorage.getItem("b4.workbench.threads")
+    const threads = raw === null ? [] : JSON.parse(raw)
+    const thread = threads.find((entry) => entry?.title === wanted)
+    return typeof thread?.id === "string" ? thread.id : undefined
+  }, title)
+  if (threadId === undefined) throw new Error("Workbench did not persist the active thread id")
+  return threadId
+}
+
+/**
+ * Sends the pre-filled planning prompt and proves turn 1: the plan's first
+ * to-do while the run works, then the settled turn's root tool steps and its
+ * answer. A settled turn folds its activity, and the scripted run settles in
+ * well under a second, so the plan step is opened again (a real click on its
+ * line) and scrolled to the middle of the transcript: the beat holds on the
+ * plan's to-dos.
+ */
+export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
+  if (!Array.isArray(todos) || todos.length === 0) throw new Error("sendPlanTurn needs the to-dos")
+  const main = page.getByRole("main")
+  await page.getByRole("button", { name: "Send", exact: true }).click({ timeout: 60_000 })
+  const plan = main.getByRole("list", { name: "Plan", exact: true })
+  await plan.getByText(todos[0].content, { exact: true }).first().waitFor(VISIBLE)
+  await waitForWorkbenchRunCompletion(page, { turns: 1 })
+  const turn = await expandLatestTurn(page)
+  const expectedSteps = expectedRootToolSteps(tools)
+  const steps = rootToolSteps(turn)
+  await steps.first().waitFor(VISIBLE)
+  const stepCount = await steps.count()
+  if (stepCount !== expectedSteps.length) {
+    throw new Error(
+      `The plan turn rendered ${stepCount} tool steps, expected ${expectedSteps.length} (${expectedSteps.join(", ")})`,
+    )
+  }
+  await main.getByText(answer, { exact: true }).last().waitFor(VISIBLE)
+  const line = turn.locator(
+    ':scope > ol.b4-turn__steps > li.b4-step[data-kind="plan"] > button.b4-step__line',
+  )
+  if ((await line.getAttribute("aria-expanded")) !== "true") await line.click({ timeout: 60_000 })
+  for (const todo of todos) {
+    await plan.getByText(todo.content, { exact: true }).first().waitFor(VISIBLE)
+  }
+  // Centred in the transcript, the way a reader scrolls to it, so the to-dos
+  // sit inside the `todos` framing rather than at the transcript's edge.
+  await plan.first().evaluate((list) => list.scrollIntoView({ block: "center" }))
+  return { threadId: await readThreadId(page, prompt) }
+}
+
+/** The weather strip's verdict pill and the verdict card both say `verdict`. */
+export async function assertWeatherVerdict(page, { verdict }) {
+  await page
+    .getByRole("region", { name: "Weather", exact: true })
+    .getByText(verdict, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+  await page
+    .getByRole("region", { name: "Go/no-go verdict", exact: true })
+    .getByText(verdict, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+}
+
+/** The navlog sheet shows the computed total distance. */
+export async function assertNavlogSheet(page, { distanceNm }) {
+  await page
+    .getByRole("region", { name: "Navlog", exact: true })
+    .getByText(`${distanceNm} nm`, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+}
+
+/** The route is on the map: both airports' markers and the leg's heading label. */
+export async function assertRouteMap(page, { headingLabel, airports }) {
+  const map = page.getByRole("region", { name: "Route map", exact: true })
+  await map.getByText(headingLabel, { exact: true }).first().waitFor(VISIBLE)
+  for (const airport of airports) await map.getByText(airport).first().waitFor(VISIBLE)
+}
+
+/** The memory panel lists the suggested candidate. */
+export async function assertMemoryCandidate(page, { content }) {
+  await page
+    .getByRole("region", { name: "Memory candidates", exact: true })
+    .getByText(content, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+}
+
+/**
+ * Answers the open approval with `Allow once`, then proves the resumed run:
+ * the card leaves, the thread settles at `turns` turns and the reply shows.
+ */
+export async function allowOnceAndSettle(page, { turns, reply }) {
+  const card = await awaitApprovalCard(page)
+  await card.getByRole("button", { name: "Allow once", exact: true }).click({ timeout: 60_000 })
+  await card.waitFor({ state: "hidden", timeout: 120_000 })
+  await waitForWorkbenchRunCompletion(page, { turns })
+  await page.getByRole("main").getByText(reply, { exact: true }).last().waitFor(VISIBLE)
+}
+
+/** Fails unless the AWC stub answered every product the scripted run reaches. */
+export function assertAwcStubServed(hits) {
+  const missed = AWC_ENDPOINTS.filter((endpoint) => !(hits?.[endpoint] >= 1))
+  if (missed.length > 0) {
+    throw new Error(
+      `The AWC stub never served /${missed.join(", /")}: the weather tools did not reach it`,
+    )
+  }
 }
 
 /**
@@ -1168,55 +1392,60 @@ function createBrowserAdapter() {
             page.evaluate((name) => window.director.focus(name), target),
           )
         },
-        async runScenario({ prompt, tools, answer, signal: operationSignal }) {
+        async sendPlan({ prompt, todos, tools, answer, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            sendPlanTurn(workbench(), { prompt, todos, tools, answer }),
+          )
+        },
+        async showWeather({ verdict, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            assertWeatherVerdict(workbench(), { verdict }),
+          )
+        },
+        async showNavlog({ distanceNm, headingLabel, airports, signal: operationSignal }) {
           return runSessionOperation(operationSignal, async () => {
             const frame = workbench()
-            await frame.getByRole("button", { name: "Send", exact: true }).click()
-            await waitForWorkbenchRunCompletion(frame)
-            // The settled turn is folded: open it so its steps are on screen
-            // (and in the recording) before they are counted.
-            const turn = await expandLatestTurn(frame)
-            const steps = rootToolSteps(turn)
-            await steps.first().waitFor({ state: "visible", timeout: 120_000 })
-            const stepCount = await steps.count()
-            if (stepCount < tools.length) {
-              throw new Error(
-                `The run rendered ${stepCount} tool steps, expected at least ${tools.length}`,
-              )
-            }
-            await frame.getByRole("main").getByText(answer, { exact: true }).last().waitFor({
-              state: "visible",
-              timeout: 120_000,
-            })
-            const threadId = await frame.evaluate((title) => {
-              const raw = localStorage.getItem("b4.workbench.threads")
-              const threads = raw === null ? [] : JSON.parse(raw)
-              const thread = threads.find((entry) => entry?.title === title)
-              return typeof thread?.id === "string" ? thread.id : undefined
-            }, prompt)
-            if (threadId === undefined) {
-              throw new Error("Workbench did not persist the active thread id")
-            }
-            return { threadId }
+            await assertNavlogSheet(frame, { distanceNm })
+            await assertRouteMap(frame, { headingLabel, airports })
           })
+        },
+        async requestFiling({ prompt, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            await frame.getByRole("textbox", { name: "Message" }).fill(prompt, { timeout: 60_000 })
+            await frame.getByRole("button", { name: "Send", exact: true }).click({ timeout: 60_000 })
+            await awaitApprovalCard(frame)
+          })
+        },
+        async allowOnce({ turns, reply, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            allowOnceAndSettle(workbench(), { turns, reply }),
+          )
+        },
+        async showMemory({ content, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            assertMemoryCandidate(workbench(), { content }),
+          )
         },
         async reloadAndRestore({
           workbenchUrl,
           threadId,
           prompt,
-          tools,
-          answer,
+          turns,
+          distanceNm,
           signal: operationSignal,
         }) {
-          return runSessionOperation(operationSignal, () =>
-            restoreWorkbenchThread(workbench(), {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            const restored = await restoreWorkbenchThread(frame, {
               workbenchUrl,
               threadId,
               prompt,
-              tools,
-              answer,
-            }),
-          )
+              turns,
+            })
+            await assertNavlogSheet(frame, { distanceNm })
+            return restored
+          })
         },
         close,
       }
@@ -1274,9 +1503,11 @@ export async function captureDemo({
   timing: timingOverride,
   holdDurations = DEFAULT_HOLD_DURATIONS,
   signalAdapter = createProcessSignalAdapter(),
+  wallClock = Date.now,
 } = {}) {
   requireString(repoRoot, "repoRoot")
   if (typeof runIdFactory !== "function") throw new TypeError("runIdFactory must be a function")
+  if (typeof wallClock !== "function") throw new TypeError("wallClock must be a function")
   const runId = validateRunId(runIdFactory())
   const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
   const recordingsDir = join(repoRoot, "docs/brand/demo/raw-recordings/runs", runId)
@@ -1303,6 +1534,7 @@ export async function captureDemo({
   })
   let workspaceRoot
   let aimock
+  let awcStub
   let serverChild
   let workbenchChild
   const managedServices = []
@@ -1364,9 +1596,16 @@ export async function captureDemo({
       )
     }
 
-    aimock = await adapters.processes.startAimock(DEMO_FIXTURES)
+    // One clock reading builds the scenario, and the same reading drives the
+    // AWC stub: the scripted briefs quote the times the stub serves.
+    const scenario = demoScenario({ now: wallClock() })
+    aimock = await adapters.processes.startAimock(scenario.fixtures)
     assertLoopbackModelBaseUrl(aimock.baseUrl)
-    const serverEnvironment = buildChildEnvironment(parentEnv, aimock.baseUrl)
+    awcStub = await adapters.processes.startAwcStub({ now: scenario.now })
+    assertLoopbackAwcBaseUrl(awcStub.baseUrl)
+    const serverEnvironment = buildChildEnvironment(parentEnv, aimock.baseUrl, {
+      awcBaseUrl: awcStub.baseUrl,
+    })
     const serverStart = await startWithAssignedPort({
       service: "B4.run server",
       excludedPorts: new Set(DEFAULT_SCAFFOLD_PORTS),
@@ -1449,7 +1688,7 @@ export async function captureDemo({
         onInterrupt: closeBrowserSession,
       })
     // The recording starts with the page; the timeline starts here, so the
-    // director's load and the Workbench's warm-up fall before the author beat
+    // director's load and the Workbench's warm-up fall before the first beat
     // and the encoder trims them off.
     const timeline = createVideoTimeline(timing.now)
     await browserPhase("open director", () =>
@@ -1463,66 +1702,124 @@ export async function captureDemo({
     await browserPhase("prepare Workbench", () =>
       browserSession.prepareWorkbench({
         url: workbenchUrl,
-        prompt: DEMO_PROMPT,
+        prompt: scenario.prompt,
         signal: signalScope.signal,
       }),
     )
+    const signal = signalScope.signal
     const play = (beat) =>
-      browserPhase(`play ${beat}`, () => browserSession.play({ beat, signal: signalScope.signal }))
+      browserPhase(`play ${beat}`, () => browserSession.play({ beat, signal }))
     const focus = (target) =>
-      browserPhase(`focus ${target}`, () =>
-        browserSession.focus({ target, signal: signalScope.signal }),
-      )
-    // Bridge until the take-2 capture (unit C) drives every storyboard beat:
-    // the four take-1 scenes the encoder trims by still play, now as
-    // storyboard beats: title and the agent's code, the tools' code, the
-    // "Ask for a flight" app beat around the existing run, and the close.
-    const beatAt = (id) => STORYBOARD.findIndex((candidate) => candidate.id === id)
-    await timeline.scene("author", async () => {
-      await play(beatAt("title"))
-      await play(beatAt("agent"))
-    })
-    await timeline.scene("prove", () => play(beatAt("tools")))
+      browserPhase(`focus ${target}`, () => browserSession.focus({ target, signal }))
+    const hold = (label, durationMs) =>
+      browserPhase(`hold ${label}`, () => timing.sleep(durationMs, { signal }))
+    const cruise = scenario.navlog.legs.at(-1)
+    const restoredTurns = [
+      {
+        prompt: scenario.prompt,
+        tools: expectedRootToolSteps(scenario.planTools),
+        answer: scenario.planAnswer,
+      },
+      {
+        prompt: scenario.filePrompt,
+        tools: expectedRootToolSteps(scenario.fileTools),
+        answer: scenario.filedAnswer,
+      },
+    ]
+    let threadId
     let restoration
-    const scenario = await timeline.scene("run", async () => {
-      await play(beatAt("ask"))
-      const ran = await browserPhase("run Workbench scenario", () =>
-        browserSession.runScenario({
-          prompt: DEMO_PROMPT,
-          tools: EXPECTED_TOOLS,
-          answer: EXPECTED_ANSWER,
-          signal: signalScope.signal,
-        }),
-      )
-      await focus("todos")
-      await browserPhase("hold completed run", () =>
-        timing.sleep(holdDurations.preReloadMs, { signal: signalScope.signal }),
-      )
-      await focus("rest")
-      restoration = await browserPhase("restore Workbench thread", () =>
-        browserSession.reloadAndRestore({
-          workbenchUrl,
-          threadId: ran.threadId,
-          prompt: DEMO_PROMPT,
-          tools: EXPECTED_TOOLS,
-          answer: EXPECTED_ANSWER,
-          signal: signalScope.signal,
-        }),
-      )
-      await focus("sheet")
-      await browserPhase("hold restored run", () =>
-        timing.sleep(holdDurations.restorationMs, { signal: signalScope.signal }),
-      )
-      return ran
-    })
-    await timeline.scene("close", () => play(beatAt("close")))
+    // Each app beat's real interaction in the Workbench, with its evidence.
+    // The director has already eased the camera to the beat's preset; the
+    // action may move it again, and the beat then holds for its holdMs.
+    const actions = {
+      async "send-plan"() {
+        // The live resolveDeparture must still resolve "1400Z" to the
+        // scripted instant, or every scripted date is a day off.
+        assertScenarioCurrent(scenario, wallClock())
+        const ran = await browserPhase("send the plan", () =>
+          browserSession.sendPlan({
+            prompt: scenario.prompt,
+            todos: scenario.todos,
+            tools: scenario.planTools,
+            answer: scenario.planAnswer,
+            signal,
+          }),
+        )
+        threadId = ran.threadId
+        await focus("todos")
+      },
+      async weather() {
+        await browserPhase("weather evidence", () =>
+          browserSession.showWeather({ verdict: "GO", signal }),
+        )
+        assertAwcStubServed(awcStub.hits)
+      },
+      async navlog() {
+        await browserPhase("navlog evidence", () =>
+          browserSession.showNavlog({
+            distanceNm: scenario.navlog.totals.distanceNm,
+            headingLabel: `MH ${cruise.magneticHeading}°`,
+            airports: ["KSTP", "KRST"],
+            signal,
+          }),
+        )
+        await hold("route on the map", holdDurations.mapMs)
+        await focus("sheet")
+      },
+      async "file-approve"() {
+        // The approval framing holds the bottom of the dock: the composer,
+        // its Send button and, once it opens, the card above them. Every
+        // click lands on screen without moving the camera.
+        await browserPhase("request filing", () =>
+          browserSession.requestFiling({ prompt: scenario.filePrompt, signal }),
+        )
+        await hold("approval card", holdDurations.approvalMs)
+        await browserPhase("allow once", () =>
+          browserSession.allowOnce({ turns: 2, reply: scenario.filedAnswer, signal }),
+        )
+      },
+      async "memory-reload"() {
+        await browserPhase("memory evidence", () =>
+          browserSession.showMemory({ content: scenario.memory.content, signal }),
+        )
+        await hold("suggested memory", holdDurations.memoryMs)
+        await focus("rest")
+        restoration = await browserPhase("restore Workbench thread", () =>
+          browserSession.reloadAndRestore({
+            workbenchUrl,
+            threadId,
+            prompt: scenario.prompt,
+            turns: restoredTurns,
+            distanceNm: scenario.navlog.totals.distanceNm,
+            signal,
+          }),
+        )
+        await focus("sheet")
+      },
+    }
+    for (const [index, beat] of STORYBOARD.entries()) {
+      await timeline.scene(beatSceneName(index, beat), async () => {
+        try {
+          await play(index)
+          if (beat.kind !== "app") return
+          const action = actions[beat.action]
+          if (action === undefined) throw new Error(`no capture action ${beat.action}`)
+          await action()
+          await hold(beat.id, beat.holdMs)
+        } catch (error) {
+          // A failure or a cancellation names the beat it stopped; the
+          // original error is its cause.
+          throw new Error(`Beat ${index} (${beat.id}): ${errorMessage(error)}`, { cause: error })
+        }
+      })
+    }
     result = {
       schemaVersion: 1,
       runId,
       status: "captured",
       recordOnly,
       toolchain,
-      threadId: scenario.threadId,
+      threadId,
       serverPort: serverStart.port,
       workbenchPort: workbenchStart.port,
       ...(restoration?.connectUrl !== undefined ? { connectUrl: restoration.connectUrl } : {}),
@@ -1542,10 +1839,16 @@ export async function captureDemo({
         recording: browserResult.videoPath,
       },
       evidence: {
-        prompt: DEMO_PROMPT,
-        tools: [...EXPECTED_TOOLS],
-        answer: EXPECTED_ANSWER,
-        threadId: scenario.threadId,
+        scenarioNow: scenario.now,
+        departureUtc: scenario.departureUtc,
+        prompt: scenario.prompt,
+        filePrompt: scenario.filePrompt,
+        planTools: [...scenario.planTools],
+        fileTools: [...scenario.fileTools],
+        planAnswer: scenario.planAnswer,
+        filedAnswer: scenario.filedAnswer,
+        awcHits: { ...awcStub.hits },
+        threadId,
         connectUrl: restoration?.connectUrl,
       },
     }
@@ -1603,6 +1906,9 @@ export async function captureDemo({
   }
   if (typeof adapters.commands.stopRemaining === "function") {
     await cleanupResource(() => adapters.commands.stopRemaining(), cleanupErrors)
+  }
+  if (awcStub !== undefined) {
+    await cleanupResource(() => awcStub.close(), cleanupErrors)
   }
   if (aimock !== undefined) {
     await cleanupResource(() => aimock.close(), cleanupErrors)

@@ -18,11 +18,15 @@ import {
 	validateStagedMediaManifest,
 } from "./check-media.mjs";
 import { spawnManaged, stopManaged } from "./processes.mjs";
+import { beatSceneName, STORYBOARD } from "./storyboard.mjs";
 
 const OUTPUT_WIDTH = 1440;
 const OUTPUT_HEIGHT = 810;
 const OUTPUT_FPS = 30;
-const BEAT_ORDER = Object.freeze(["author", "prove", "run", "close"]);
+/** The beat whose last moment is the poster: the navlog sheet's numbers. */
+const POSTER_BEAT = "navlog";
+/** How far before the poster beat's end the poster frame sits, inside its hold. */
+const POSTER_LEAD_SECONDS = 0.25;
 
 function requireBeat(scenes, name) {
 	const beat = scenes?.[name];
@@ -39,31 +43,41 @@ function requireBeat(scenes, name) {
 }
 
 /**
- * The flagship is the recording from the start of the author beat to the end
- * of the close beat: everything before it (loading the director page and the
- * Workbench) is trimmed off, and nothing inside it is padded or reordered.
- * The poster is the author beat's last moment, once its headline has docked
- * and the camera has settled on the route.
+ * The flagship is the recording from the start of the first storyboard beat
+ * to the end of the last: everything before it (loading the director page and
+ * the Workbench) is trimmed off, and nothing inside it is padded or
+ * reordered. The capture records one scene per beat (`beatSceneName`), and
+ * every beat must be there, in storyboard order, with no overlap. The poster
+ * is the navlog beat's last moment, the camera on the sheet's numbers.
  */
-export function createTrimPlan(summary) {
+export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
 	if (summary?.videoTimeline?.unit !== "milliseconds") {
 		throw new Error("capture summary timeline must use milliseconds");
 	}
 	const scenes = summary.videoTimeline.scenes;
-	const beats = BEAT_ORDER.map((name) => requireBeat(scenes, name));
+	const names = storyboard.map((beat, index) => beatSceneName(index, beat));
+	const beats = names.map((name) => requireBeat(scenes, name));
 	for (let index = 1; index < beats.length; index++) {
 		if (beats[index].startMs < beats[index - 1].endMs) {
 			throw new Error(
-				`capture summary ${BEAT_ORDER[index]} beat starts before ${BEAT_ORDER[index - 1]} ends`,
+				`capture summary ${names[index]} beat starts before ${names[index - 1]} ends`,
 			);
 		}
 	}
-	const [author, , , close] = beats;
-	const start = author.startMs / 1_000;
+	const posterIndex = storyboard.findIndex((beat) => beat.id === POSTER_BEAT);
+	if (posterIndex === -1) {
+		throw new Error(`the storyboard has no ${POSTER_BEAT} beat for the poster`);
+	}
+	const first = beats[0];
+	const last = beats.at(-1);
+	const poster = beats[posterIndex];
 	return {
-		start,
-		duration: (close.endMs - author.startMs) / 1_000,
-		posterTime: Math.max(0, (author.endMs - author.startMs) / 1_000 - 0.25),
+		start: first.startMs / 1_000,
+		duration: (last.endMs - first.startMs) / 1_000,
+		posterTime: Math.max(
+			(poster.startMs - first.startMs) / 1_000,
+			(poster.endMs - first.startMs) / 1_000 - POSTER_LEAD_SECONDS,
+		),
 	};
 }
 

@@ -21,13 +21,17 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { tsImport } from "tsx/esm/api"
 
 import {
+  assertAwcStubServed,
+  assertLoopbackAwcBaseUrl,
   assertLoopbackModelBaseUrl,
+  awaitApprovalCard,
   buildChildEnvironment,
   captureDemo,
   closeBrowserResources,
   createBrowserResources,
   createManagedChildRegistry,
   createManagedServiceMonitor,
+  expectedRootToolSteps,
   fillActiveWorkbenchComposer,
   frameSurface,
   generatedInstallCommand,
@@ -81,7 +85,13 @@ import {
 } from "./encode.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { startAwcStub } from "./awc-stub.mjs"
-import { APP_ACTIONS, APP_FOCUS, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
+import {
+  APP_ACTIONS,
+  APP_FOCUS,
+  beatSceneName,
+  STORYBOARD,
+  storyboardPaths,
+} from "./storyboard.mjs"
 import {
   DEMO_FILE_PROMPT,
   DEMO_FIXTURES,
@@ -669,37 +679,98 @@ test("staged validation aborts and joins ffprobe before caller cleanup", async (
   ])
 })
 
-const BEAT_SCENES = {
-  author: { startMs: 2_000, endMs: 5_000 },
-  prove: { startMs: 5_000, endMs: 8_000 },
-  run: { startMs: 8_000, endMs: 14_000 },
-  close: { startMs: 14_000, endMs: 16_500 },
-}
+/** One recorded scene per storyboard beat, back to back, 2 s in and 1 s each. */
+const BEAT_SCENES = Object.fromEntries(
+  STORYBOARD.map((beat, index) => [
+    beatSceneName(index, beat),
+    { startMs: 2_000 + index * 1_000, endMs: 3_000 + index * 1_000 },
+  ]),
+)
+const NAVLOG_BEAT = STORYBOARD.findIndex((beat) => beat.id === "navlog")
 
-test("trim plan spans the recorded beats and poses the poster on the docked author beat", () => {
+test("beat scenes are named beat-NN-id in storyboard order", () => {
+  assert.deepEqual(Object.keys(BEAT_SCENES), [
+    "beat-00-title",
+    "beat-01-agent",
+    "beat-02-ask",
+    "beat-03-subagents",
+    "beat-04-weather",
+    "beat-05-tools",
+    "beat-06-navlog",
+    "beat-07-gate",
+    "beat-08-file",
+    "beat-09-memory",
+    "beat-10-reload",
+    "beat-11-close",
+  ])
+})
+
+test("trim plan spans the first beat to the last and poses the poster at the navlog beat's end", () => {
   const trim = createTrimPlan({
     videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES },
   })
-  assert.deepEqual(trim, { start: 2, duration: 14.5, posterTime: 2.75 })
+  // Beats run 2 s to 14 s; the navlog beat (index 6) ends at 9 s, 7 s into the trim.
+  assert.equal(NAVLOG_BEAT, 6)
+  assert.deepEqual(trim, { start: 2, duration: 12, posterTime: 6.75 })
 })
 
-test("trim plan rejects a missing or out-of-order beat", () => {
+test("trim plan keeps the poster inside a navlog beat shorter than its lead", () => {
+  const scenes = {
+    ...BEAT_SCENES,
+    "beat-06-navlog": { startMs: 8_000, endMs: 8_100 },
+  }
+  assert.equal(
+    createTrimPlan({ videoTimeline: { unit: "milliseconds", scenes } }).posterTime,
+    6,
+  )
+})
+
+test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
   assert.throws(
     () =>
       createTrimPlan({
-        videoTimeline: { unit: "milliseconds", scenes: { ...BEAT_SCENES, prove: undefined } },
+        videoTimeline: {
+          unit: "milliseconds",
+          scenes: { ...BEAT_SCENES, "beat-05-tools": undefined },
+        },
       }),
-    /invalid prove beat/,
+    /invalid beat-05-tools beat/,
   )
   assert.throws(
     () =>
       createTrimPlan({
         videoTimeline: {
           unit: "milliseconds",
-          scenes: { ...BEAT_SCENES, close: { startMs: 7_000, endMs: 9_000 } },
+          scenes: { ...BEAT_SCENES, "beat-11-close": { startMs: 7_000, endMs: 9_000 } },
         },
       }),
-    /close beat starts before run ends/,
+    /beat-11-close beat starts before beat-10-reload ends/,
+  )
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          scenes: { ...BEAT_SCENES, "beat-04-weather": { startMs: 5_500, endMs: 6_500 } },
+        },
+      }),
+    /beat-04-weather beat starts before beat-03-subagents ends/,
+  )
+  // Take 1's four scenes are not a take-2 timeline.
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          scenes: {
+            author: { startMs: 2_000, endMs: 5_000 },
+            prove: { startMs: 5_000, endMs: 8_000 },
+            run: { startMs: 8_000, endMs: 14_000 },
+            close: { startMs: 14_000, endMs: 16_500 },
+          },
+        },
+      }),
+    /invalid beat-00-title beat/,
   )
   assert.throws(
     () => createTrimPlan({ videoTimeline: { unit: "seconds", scenes: BEAT_SCENES } }),
@@ -1100,7 +1171,7 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
                 time,
                 createTrimPlan({ videoTimeline: summary.videoTimeline }).posterTime,
               )
-              assert.equal(time, 2.75)
+              assert.equal(time, 6.75)
               await writeFile(destination, "poster")
             },
             async encodeReadmeAnimation({ destination, trim }) {
@@ -1108,7 +1179,7 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
                 destination,
                 join(artifactsDir, "publication/product-loop.webp"),
               )
-              assert.deepEqual(trim, { start: 2, duration: 14.5, posterTime: 2.75 })
+              assert.deepEqual(trim, { start: 2, duration: 12, posterTime: 6.75 })
               await writeFile(destination, "animation")
             },
             async validateStagedMedia(options) {
@@ -1775,12 +1846,20 @@ test("stopManaged rejects when SIGKILL termination is not confirmed in time", as
 
 const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
 
-function orchestrationFixture({ failAt } = {}) {
+/** A fixed capture clock, well clear of 1400Z: the scenario resolves "1400Z" to the same day. */
+const CAPTURE_NOW = Date.UTC(2026, 9, 8, 7, 30)
+const CAPTURE_SCENARIO = demoScenario({ now: CAPTURE_NOW })
+const AWC_STUB_URL = "http://127.0.0.1:4050"
+
+const scenarioFor = (now) => demoScenario({ now })
+
+function orchestrationFixture({ failAt, awcHits } = {}) {
   const operations = []
   const writes = []
   const renames = []
   const stopped = []
   const childEnvironments = []
+  const actions = []
   const workspaceRoot = "/tmp/b4-demo-unit-abc123"
   const appRoot = `${workspaceRoot}/my-agent`
   const server = { name: "server" }
@@ -1789,6 +1868,19 @@ function orchestrationFixture({ failAt } = {}) {
     baseUrl: "http://127.0.0.1:4040/v1",
     async close() {
       operations.push("close aimock")
+    },
+  }
+  let aimockFixtures
+  const awcStub = {
+    baseUrl: AWC_STUB_URL,
+    now: undefined,
+    hits:
+      awcHits ??
+      Object.fromEntries(
+        ["airport", "metar", "taf", "windtemp", "gairmet", "airsigmet"].map((name) => [name, 1]),
+      ),
+    async close() {
+      operations.push("close AWC stub")
     },
   }
   let assignedPort = 4100
@@ -1855,8 +1947,15 @@ function orchestrationFixture({ failAt } = {}) {
     processes: {
       async startAimock(fixtures) {
         operations.push("start aimock")
-        assert.deepEqual(fixtures, DEMO_FIXTURES)
+        aimockFixtures = fixtures
         return aimock
+      },
+      async startAwcStub({ now }) {
+        operations.push("start AWC stub")
+        // One clock: the stub's now is the one aimock's script was built from.
+        assert.deepEqual(aimockFixtures, demoScenario({ now }).fixtures)
+        awcStub.now = now
+        return awcStub
       },
       async getPort(excluded) {
         const port = assignedPort++
@@ -1916,18 +2015,42 @@ function orchestrationFixture({ failAt } = {}) {
           async focus({ target }) {
             operations.push(`focus ${target}`)
           },
-          async runScenario(options) {
-            operations.push("run Workbench scenario")
+          async sendPlan(options) {
+            operations.push("send plan")
+            actions.push(["sendPlan", options])
             assert.equal(options.prompt, DEMO_PROMPT)
+            assert.deepEqual(options.todos, DEMO_SCENARIO.todos)
             assert.deepEqual(options.tools, DEMO_PLAN_TOOLS)
-            assert.equal(options.answer, EXPECTED_ANSWER)
+            assert.equal(options.answer, scenarioFor(awcStub.now).planAnswer)
             if (failAt === "scenario") throw new Error("scenario failed")
             return { threadId: "thread-unit-1" }
           },
+          async showWeather(options) {
+            operations.push("show weather")
+            actions.push(["showWeather", options])
+          },
+          async showNavlog(options) {
+            operations.push("show navlog")
+            actions.push(["showNavlog", options])
+          },
+          async requestFiling(options) {
+            operations.push("request filing")
+            actions.push(["requestFiling", options])
+            if (failAt === "approval") throw new Error("approval card missing")
+          },
+          async allowOnce(options) {
+            operations.push("allow once")
+            actions.push(["allowOnce", options])
+          },
+          async showMemory(options) {
+            operations.push("show memory")
+            actions.push(["showMemory", options])
+          },
           async reloadAndRestore(options) {
             operations.push("reload")
+            actions.push(["reloadAndRestore", options])
             assert.equal(options.threadId, "thread-unit-1")
-            assert.equal(options.answer, EXPECTED_ANSWER)
+            return { connectUrl: "http://127.0.0.1:4101/api/copilotkit/agent/default/connect" }
           },
           async close() {
             operations.push("close browser")
@@ -1946,9 +2069,11 @@ function orchestrationFixture({ failAt } = {}) {
   }
 
   return {
+    actions,
     adapters,
     aimock,
     appRoot,
+    awcStub,
     childEnvironments,
     operations,
     renames,
@@ -1958,6 +2083,39 @@ function orchestrationFixture({ failAt } = {}) {
   }
 }
 
+/**
+ * Every storyboard beat, played in order, with each app beat's real action and
+ * camera moves. `play` eases an app beat to its own preset first: the ask beat
+ * starts at rest (Send is on screen) and the filing beat on the approval
+ * framing (the composer and the card are both on screen), so neither moves to
+ * click.
+ */
+const BEAT_OPERATIONS = [
+  "play 0",
+  "play 1",
+  "play 2",
+  "send plan",
+  "focus todos",
+  "play 3",
+  "play 4",
+  "show weather",
+  "play 5",
+  "play 6",
+  "show navlog",
+  "focus sheet",
+  "play 7",
+  "play 8",
+  "request filing",
+  "allow once",
+  "play 9",
+  "play 10",
+  "show memory",
+  "focus rest",
+  "reload",
+  "focus sheet",
+  "play 11",
+]
+
 test("capture orchestrates the real-product phases in exact order and cleans up", async () => {
   const fixture = orchestrationFixture()
   const result = await captureDemo({
@@ -1965,6 +2123,7 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     parentEnv: { PATH: "/bin", HOME: "/home/test", LANG: "en_US.UTF-8" },
     adapters: fixture.adapters,
     recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
   })
 
   assert.deepEqual(fixture.operations, [
@@ -1974,26 +2133,19 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     "install",
     "npm test",
     "start aimock",
+    "start AWC stub",
     "assign port 4100",
     "start B4.run server",
     "assign port 4101",
     "start Workbench",
     "open director",
     "prepare Workbench",
-    "play 0",
-    "play 1",
-    "play 5",
-    "play 2",
-    "run Workbench scenario",
-    "focus todos",
-    "focus rest",
-    "reload",
-    "focus sheet",
-    "play 11",
+    ...BEAT_OPERATIONS,
     "close browser",
     "publish summary",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -2001,6 +2153,150 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
   assert.equal(result.threadId, "thread-unit-1")
   assert.equal(result.serverPort, 4100)
   assert.equal(result.workbenchPort, 4101)
+  assert.equal(
+    result.connectUrl,
+    "http://127.0.0.1:4101/api/copilotkit/agent/default/connect",
+  )
+  assert.deepEqual(Object.keys(result.videoTimeline.scenes), Object.keys(BEAT_SCENES))
+})
+
+test("capture drives each app beat's action with the scenario's evidence", async () => {
+  const fixture = orchestrationFixture()
+  await captureDemo({
+    repoRoot: "/repo",
+    adapters: fixture.adapters,
+    recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
+  })
+  const scenario = CAPTURE_SCENARIO
+  const byName = Object.fromEntries(
+    fixture.actions.map(([name, { signal, ...options }]) => {
+      assert.ok(signal instanceof AbortSignal, name)
+      return [name, options]
+    }),
+  )
+  assert.deepEqual(Object.keys(byName), [
+    "sendPlan",
+    "showWeather",
+    "showNavlog",
+    "requestFiling",
+    "allowOnce",
+    "showMemory",
+    "reloadAndRestore",
+  ])
+  assert.deepEqual(byName.sendPlan, {
+    prompt: DEMO_PROMPT,
+    todos: scenario.todos,
+    tools: scenario.planTools,
+    answer: scenario.planAnswer,
+  })
+  assert.deepEqual(byName.showWeather, { verdict: "GO" })
+  assert.deepEqual(byName.showNavlog, {
+    distanceNm: 66,
+    headingLabel: "MH 161°",
+    airports: ["KSTP", "KRST"],
+  })
+  assert.deepEqual(byName.requestFiling, { prompt: DEMO_FILE_PROMPT })
+  assert.deepEqual(byName.allowOnce, { turns: 2, reply: scenario.filedAnswer })
+  assert.deepEqual(byName.showMemory, { content: "N738ZU has long-range tanks: 50 gal usable." })
+  assert.deepEqual(byName.reloadAndRestore, {
+    workbenchUrl: "http://127.0.0.1:4101",
+    threadId: "thread-unit-1",
+    prompt: DEMO_PROMPT,
+    turns: [
+      {
+        prompt: DEMO_PROMPT,
+        tools: ["recall", "resolveDeparture", "computeNavlog", "remember", "writeFile"],
+        answer: scenario.planAnswer,
+      },
+      { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: scenario.filedAnswer },
+    ],
+    distanceNm: 66,
+  })
+})
+
+test("capture starts the AWC stub on the scenario's clock, points only the server at it and stops it", async () => {
+  const fixture = orchestrationFixture()
+  const summary = await captureDemo({
+    repoRoot: "/repo",
+    parentEnv: { PATH: "/bin", B4_AWC_BASE_URL: "https://aviationweather.gov/api/data" },
+    adapters: fixture.adapters,
+    recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
+  })
+  // The stub ran on the clock the scenario (and so aimock's script) was built from.
+  assert.equal(fixture.awcStub.now, CAPTURE_NOW)
+  assert.equal(summary.evidence.scenarioNow, CAPTURE_NOW)
+  assert.equal(summary.evidence.departureUtc, "2026-10-08T14:00:00.000Z")
+  // Started after aimock and before the server; closed after the services, before aimock.
+  const order = (name) => fixture.operations.indexOf(name)
+  assert.ok(order("start aimock") < order("start AWC stub"))
+  assert.ok(order("start AWC stub") < order("start B4.run server"))
+  assert.ok(order("stop server") < order("close AWC stub"))
+  assert.ok(order("close AWC stub") < order("close aimock"))
+  const env = (service) =>
+    fixture.childEnvironments.find((entry) => entry.service === service)?.env
+  assert.equal(env("server").B4_AWC_BASE_URL, AWC_STUB_URL)
+  // The parent's real AWC base never reaches either service.
+  assert.equal(env("workbench").B4_AWC_BASE_URL, undefined)
+  assert.deepEqual(summary.evidence.awcHits, fixture.awcStub.hits)
+})
+
+test("capture stops the AWC stub when a beat fails", async () => {
+  const fixture = orchestrationFixture({ failAt: "approval" })
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => CAPTURE_NOW,
+    }),
+    (error) => {
+      assert.match(error.message, /^Beat 8 \(file\): approval card missing$/)
+      assert.equal(error.cause?.message, "approval card missing")
+      return true
+    },
+  )
+  assert.deepEqual(fixture.operations.slice(-5), [
+    "stop workbench",
+    "stop server",
+    "close AWC stub",
+    "close aimock",
+    `remove ${fixture.workspaceRoot}`,
+  ])
+})
+
+test("capture fails the weather beat when the AWC stub missed an endpoint", async () => {
+  const fixture = orchestrationFixture({
+    awcHits: { airport: 2, metar: 1, taf: 1, windtemp: 0, gairmet: 1, airsigmet: 1 },
+  })
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => CAPTURE_NOW,
+    }),
+    /^Error: Beat 4 \(weather\): The AWC stub never served \/windtemp/,
+  )
+  assert.equal(fixture.operations.includes("show navlog"), false)
+  assert.equal(fixture.operations.includes("close AWC stub"), true)
+})
+
+test("capture refuses to send a scenario that 1400Z has overtaken", async () => {
+  const fixture = orchestrationFixture()
+  // Built at 13:59:59Z; by the send, 1400Z has passed and resolves to tomorrow.
+  const readings = [Date.UTC(2026, 9, 8, 13, 59, 59), Date.UTC(2026, 9, 8, 14, 0, 1)]
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => readings.shift(),
+    }),
+    /^Error: Beat 2 \(ask\): The demo scenario is stale/,
+  )
+  assert.equal(fixture.operations.includes("send plan"), false)
 })
 
 test("capture stores raw test output only in ignored artifacts and stages normalized output", async () => {
@@ -2033,10 +2329,11 @@ test("capture finally closes owned resources and removes only its exact mkdtemp 
     /scenario failed/,
   )
   assert.deepEqual(fixture.stopped, [{ name: "workbench" }, { name: "server" }])
-  assert.deepEqual(fixture.operations.slice(-5), [
+  assert.deepEqual(fixture.operations.slice(-6), [
     "close browser",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -2218,6 +2515,27 @@ test("capture gives both services sanitized environments and only B4.run receive
       assert.equal(environment?.[key], undefined)
     }
   }
+})
+
+test("child environment points the weather tools at a loopback AWC base only when given one", () => {
+  const parent = { PATH: "/bin", B4_AWC_BASE_URL: "https://aviationweather.gov/api/data" }
+  const withStub = buildChildEnvironment(parent, "http://127.0.0.1:4040/v1", {
+    awcBaseUrl: "http://127.0.0.1:4050",
+  })
+  assert.equal(withStub.B4_AWC_BASE_URL, "http://127.0.0.1:4050")
+  // The parent's own AWC base is never inherited.
+  assert.equal(buildChildEnvironment(parent, "http://127.0.0.1:4040/v1").B4_AWC_BASE_URL, undefined)
+  for (const unsafe of [
+    "https://aviationweather.gov/api/data",
+    "http://10.0.0.5:4050",
+    "http://user:pass@127.0.0.1:4050",
+  ]) {
+    assert.throws(
+      () => buildChildEnvironment(parent, "http://127.0.0.1:4040/v1", { awcBaseUrl: unsafe }),
+      /AWC base URL must be a loopback HTTP\(S\) URL/,
+    )
+  }
+  assert.equal(assertLoopbackAwcBaseUrl("http://[::1]:4050").hostname, "[::1]")
 })
 
 test("model base URL accepts loopback HTTP(S) and rejects public or unsafe URLs", () => {
@@ -2595,6 +2913,7 @@ function recordingLocator(calls, desc, answers = {}) {
       child(`> text=${JSON.stringify(text)}${options?.exact ? " (exact)" : ""}`),
     first: () => child(".first"),
     last: () => child(".last"),
+    nth: (index) => child(`.nth(${index})`),
     async waitFor(waitOptions) {
       calls.push(["waitFor", desc, waitOptions.state])
     },
@@ -2913,6 +3232,225 @@ test("restoration fails when the restored turn's summary will not open", async (
   )
 })
 
+/** Turn summaries that each start folded and open on their own first click. */
+function foldedSummaries() {
+  const expanded = new Set()
+  return {
+    attribute: (desc, name) =>
+      name === "aria-expanded" && desc.includes("b4-turn__summary")
+        ? String(expanded.has(desc))
+        : null,
+    click: (desc) => {
+      if (desc.includes("b4-turn__summary")) expanded.add(desc)
+    },
+  }
+}
+
+const FILED_ANSWER = CAPTURE_SCENARIO.filedAnswer
+const TWO_TURN_OPTIONS = {
+  workbenchUrl: RESTORE_ORIGIN,
+  threadId: "thread-unit-1",
+  prompt: DEMO_PROMPT,
+  turns: [
+    { prompt: DEMO_PROMPT, tools: ["recall", "computeNavlog"], answer: EXPECTED_ANSWER },
+    { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: FILED_ANSWER },
+  ],
+}
+const turnAt = (index) => `main > ${SETTLED_ROOT_TURN} .nth(${index})`
+const stepsAt = (index) =>
+  `${turnAt(index)} > :scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]`
+const twoTurnCounts =
+  ({ turns = 2, steps = [2, 1] } = {}) =>
+  (desc) => {
+    if (desc === `main > ${ROOT_TURN}`) return turns
+    const index = [0, 1].find((at) => desc === stepsAt(at))
+    return index === undefined ? 1 : steps[index]
+  }
+
+test("two-turn restoration proves both prompts, exactly two turns, each turn's steps and answer", async () => {
+  const calls = []
+  const page = restorePage(calls, { answers: { ...foldedSummaries(), count: twoTurnCounts() } })
+
+  await restoreWorkbenchThread(page, TWO_TURN_OPTIONS)
+
+  // The dock title is still the first message: the thread's title.
+  assert.deepEqual(calls[8], ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"])
+  const summary = (index) => `${turnAt(index)} > :scope > button.b4-turn__summary`
+  assert.deepEqual(calls.slice(10), [
+    ["waitFor", `main > text=${JSON.stringify(DEMO_PROMPT)} (exact) .last`, "visible"],
+    ["waitFor", `main > text=${JSON.stringify(DEMO_FILE_PROMPT)} (exact) .last`, "visible"],
+    // The second settled turn, then no turn beyond it.
+    ["waitFor", turnAt(1), "visible"],
+    ["count", `main > ${ROOT_TURN}`],
+    // Turn 1: opened, its own two tool steps, the planning answer.
+    ["waitFor", turnAt(0), "visible"],
+    ["attribute", summary(0), "aria-expanded"],
+    ["click", summary(0)],
+    ["attribute", summary(0), "aria-expanded"],
+    ["waitFor", `${stepsAt(0)} .first`, "visible"],
+    ["count", stepsAt(0)],
+    ["waitFor", `main > text=${JSON.stringify(EXPECTED_ANSWER)} (exact) .last`, "visible"],
+    // Turn 2: opened, the one gated tool step, the filed reply.
+    ["waitFor", turnAt(1), "visible"],
+    ["attribute", summary(1), "aria-expanded"],
+    ["click", summary(1)],
+    ["attribute", summary(1), "aria-expanded"],
+    ["waitFor", `${stepsAt(1)} .first`, "visible"],
+    ["count", stepsAt(1)],
+    ["waitFor", `main > text=${JSON.stringify(FILED_ANSWER)} (exact) .last`, "visible"],
+  ])
+})
+
+test("two-turn restoration fails on a missing turn or a turn's wrong steps", async () => {
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], { answers: { ...foldedSummaries(), count: twoTurnCounts({ turns: 1 }) } }),
+      TWO_TURN_OPTIONS,
+    ),
+    /rendered 1 turns, expected exactly 2/,
+  )
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], { answers: { ...foldedSummaries(), count: twoTurnCounts({ turns: 3 }) } }),
+      TWO_TURN_OPTIONS,
+    ),
+    /rendered 3 turns, expected exactly 2/,
+  )
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], {
+        answers: { ...foldedSummaries(), count: twoTurnCounts({ steps: [2, 0] }) },
+      }),
+      TWO_TURN_OPTIONS,
+    ),
+    /Restored turn 2 rendered 0 tool steps, expected 1 \(fileFlightPlan\)/,
+  )
+})
+
+test("completion with a turn count waits for that many settled turns and no more", async () => {
+  const calls = []
+  let turns = 2
+  const page = {
+    getByRole(role) {
+      if (role === "main") return recordingLocator(calls, "main", { count: () => turns })
+      return {
+        async waitFor(waitOptions) {
+          calls.push([role, waitOptions.state])
+        },
+        async fill(value) {
+          calls.push(["fill", value])
+        },
+      }
+    },
+  }
+  await waitForWorkbenchRunCompletion(page, { turns: 2 })
+  // Not `.last()`: in a thread with a settled turn 1, the last settled turn is
+  // visible before turn 2 has rendered.
+  assert.deepEqual(calls.slice(0, 2), [
+    ["waitFor", turnAt(1), "visible"],
+    ["count", `main > ${ROOT_TURN}`],
+  ])
+  turns = 3
+  await assert.rejects(
+    waitForWorkbenchRunCompletion(page, { turns: 2 }),
+    /rendered 3 turns once the run settled, expected 2/,
+  )
+})
+
+/** A Workbench page whose transcript holds one approval card with `buttons`. */
+function approvalPage(calls, { buttons, cards = 1 }) {
+  const card = {
+    async waitFor(waitOptions) {
+      calls.push(["card", waitOptions.state])
+    },
+    async count() {
+      return cards
+    },
+    getByRole(role, options) {
+      assert.equal(role, "button")
+      assert.equal(options.exact, true)
+      return {
+        async count() {
+          return buttons.filter((name) => name === options.name).length
+        },
+        async click() {
+          calls.push(["click", options.name])
+        },
+      }
+    },
+    async scrollIntoViewIfNeeded() {
+      calls.push("scroll card")
+    },
+  }
+  return {
+    getByRole(role) {
+      if (role !== "main") throw new Error(`unexpected role: ${role}`)
+      return {
+        locator(selector) {
+          assert.equal(selector, '.b4-approval[role="alert"]')
+          return card
+        },
+      }
+    },
+  }
+}
+
+test("approval evidence: Allow once and Deny, no Always allow, scrolled into view", async () => {
+  const calls = []
+  await awaitApprovalCard(approvalPage(calls, { buttons: ["Allow once", "Deny"] }))
+  assert.deepEqual(calls, [["card", "visible"], "scroll card"])
+})
+
+test("approval evidence fails when the card offers Always allow", async () => {
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once", "Always allow", "Deny"] })),
+    /offers "Always allow"; the route gates this call with allowAlways: false/,
+  )
+})
+
+test("approval evidence fails when Allow once or Deny is missing, or two cards are open", async () => {
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Deny"] })),
+    /0 "Allow once" buttons, expected 1/,
+  )
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once"] })),
+    /0 "Deny" buttons, expected 1/,
+  )
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once", "Deny"], cards: 2 })),
+    /rendered 2 approval cards, expected 1/,
+  )
+})
+
+test("expected root tool steps drop the plan, subagent and grouped repeat steps", () => {
+  assert.deepEqual(expectedRootToolSteps(DEMO_PLAN_TOOLS), [
+    "recall",
+    "resolveDeparture",
+    "computeNavlog",
+    "remember",
+    "writeFile",
+  ])
+  assert.deepEqual(expectedRootToolSteps(["fileFlightPlan"]), ["fileFlightPlan"])
+  // A lone call is its own step; back-to-back repeats fold into one group.
+  assert.deepEqual(expectedRootToolSteps(["getMetar", "lookupAirport", "getMetar"]), [
+    "getMetar",
+    "lookupAirport",
+    "getMetar",
+  ])
+  assert.deepEqual(expectedRootToolSteps(["getMetar", "getMetar", "getTaf"]), ["getTaf"])
+})
+
+test("the AWC stub check names every endpoint the run never reached", () => {
+  assert.doesNotThrow(() =>
+    assertAwcStubServed({ airport: 2, metar: 1, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 }),
+  )
+  assert.throws(
+    () => assertAwcStubServed({ airport: 2, metar: 1, taf: 0, windtemp: 1, gairmet: 1 }),
+    /never served \/taf, \/airsigmet/,
+  )
+})
+
 test("failed restoration interaction handles its later connect rejection and closes once", async () => {
   const fixture = orchestrationFixture()
   const originalOpen = fixture.adapters.browser.open
@@ -2954,7 +3492,12 @@ test("failed restoration interaction handles its later connect rejection and clo
         recordOnly: true,
         runIdFactory: () => "run-restoration-waiter-failure",
       }),
-      (error) => error === reloadError,
+      (error) => {
+        // The failure names its beat; the reload's own error is the cause.
+        assert.equal(error.cause, reloadError)
+        assert.match(error.message, /^Beat 10 \(reload\): Workbench reload failed$/)
+        return true
+      },
     )
     rejectConnect(connectError)
     await new Promise((resolve) => setImmediate(resolve))
@@ -3301,7 +3844,7 @@ test("capture closes the browser and awaits an aborted session action before ser
   let captureSettled = false
   fixture.adapters.browser.open = async (options) => {
     const session = await originalOpen(options)
-    session.runScenario = ({ signal }) =>
+    session.sendPlan = ({ signal }) =>
       new Promise((_, reject) => {
         rejectAction = () => {
           fixture.operations.push("session action settled")
@@ -3616,12 +4159,13 @@ test("capture invokes the future encoder after finalizing recordings and summary
     },
   })
 
-  assert.deepEqual(fixture.operations.slice(-7), [
+  assert.deepEqual(fixture.operations.slice(-8), [
     "close browser",
     "publish summary",
     "encode capture",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -3664,9 +4208,10 @@ test("SIGTERM during encoding aborts and awaits the encoder before final cleanup
   assert.ok(encoderSignal instanceof AbortSignal)
   assert.equal(encoderSettled, true)
   assert.equal(fixture.operations.includes("abort encoder child"), true)
-  assert.deepEqual(fixture.operations.slice(-5), [
+  assert.deepEqual(fixture.operations.slice(-6), [
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
     "remove /repo/docs/brand/demo/artifacts/runs/run-cancel-encoder/capture-summary.json",
@@ -3693,7 +4238,8 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
         holds.push(durationMs)
       },
     },
-    holdDurations: { preReloadMs: 700, restorationMs: 900 },
+    holdDurations: { mapMs: 700, approvalMs: 800, memoryMs: 900 },
+    wallClock: () => CAPTURE_NOW,
   })
 
   assert.equal(summary.schemaVersion, 1)
@@ -3712,7 +4258,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
     },
     recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/demo.webm",
   })
-  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), ["author", "prove", "run", "close"])
+  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), Object.keys(BEAT_SCENES))
   let previousEnd = -1
   for (const boundary of Object.values(summary.videoTimeline.scenes)) {
     assert.equal(Number.isFinite(boundary.startMs), true)
@@ -3720,13 +4266,24 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
     assert.equal(boundary.startMs >= previousEnd, true)
     previousEnd = boundary.endMs
   }
-  assert.deepEqual(holds, [700, 900])
+  // Each app beat's holds, in order: ask; weather; navlog (map, then the
+  // sheet); file (the card, then the reply); reload (the memory, then the
+  // restored thread). Code, title and close beats hold inside the director.
+  assert.deepEqual(holds, [2_000, 2_500, 700, 2_500, 800, 2_000, 900, 2_000])
+  // The trim plan reads this timeline as it is.
+  assert.equal(createTrimPlan(summary).start, summary.videoTimeline.scenes["beat-00-title"].startMs / 1_000)
   assert.deepEqual(summary.evidence, {
+    scenarioNow: CAPTURE_NOW,
+    departureUtc: CAPTURE_SCENARIO.departureUtc,
     prompt: DEMO_PROMPT,
-    tools: DEMO_PLAN_TOOLS,
-    answer: EXPECTED_ANSWER,
+    filePrompt: DEMO_FILE_PROMPT,
+    planTools: DEMO_PLAN_TOOLS,
+    fileTools: ["fileFlightPlan"],
+    planAnswer: CAPTURE_SCENARIO.planAnswer,
+    filedAnswer: CAPTURE_SCENARIO.filedAnswer,
+    awcHits: { airport: 1, metar: 1, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 },
     threadId: "thread-unit-1",
-    connectUrl: undefined,
+    connectUrl: "http://127.0.0.1:4101/api/copilotkit/agent/default/connect",
   })
 })
 
@@ -3810,9 +4367,10 @@ test("non-record-only capture cleans up when the encoder fails", async () => {
     }),
     /encoder failed/,
   )
-  assert.deepEqual(fixture.operations.slice(-5, -1), [
+  assert.deepEqual(fixture.operations.slice(-6, -1), [
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])

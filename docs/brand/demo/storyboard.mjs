@@ -41,7 +41,9 @@ export const STORYBOARD = Object.freeze(
       id: "ask",
       kind: "app",
       headline: "Ask for a flight.",
-      focus: "todos",
+      // At rest, the pre-filled composer and its Send button are on screen;
+      // the capture moves to the to-dos once the plan is up.
+      focus: "rest",
       action: "send-plan",
       holdMs: 2000,
     },
@@ -155,4 +157,13 @@ export function storyboardPaths(storyboard = STORYBOARD) {
   return [
     ...new Set(storyboard.flatMap((beat) => (beat.panes ?? []).map((pane) => pane.path))),
   ]
+}
+
+/**
+ * The capture timeline's scene for a beat, `beat-NN-id` (`beat-06-navlog`):
+ * the capture records one scene per beat under this name and the encoder
+ * finds them by it, in storyboard order.
+ */
+export function beatSceneName(index, beat) {
+  return `beat-${String(index).padStart(2, "0")}-${beat.id}`
 }

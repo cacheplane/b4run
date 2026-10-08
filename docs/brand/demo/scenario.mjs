@@ -481,6 +481,8 @@ export function demoScenario({ now = Date.now() } = {}) {
 
   return {
     now,
+    prompt: DEMO_PROMPT,
+    filePrompt: DEMO_FILE_PROMPT,
     departureUtc,
     departureLabel,
     hoursAhead,
