@@ -1,5 +1,5 @@
 import { B4HttpAgent } from "@b4run/ag-ui/client"
-import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import { createB4AgentRunner, forwardIdentity } from "@b4run/ag-ui/copilotkit-runtime"
 import {
   CopilotRuntime,
   createCopilotRuntimeHandler,
@@ -20,28 +20,21 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
  * replay of `/threads/:id/events`) carries THIS request's visitor id and, when
  * deployed, the internal token. The id travels by context rather than
  * constructor because the agent and runner are shared across requests.
+ * `forwardIdentity` strips both headers from whatever the call carried first:
  * CopilotKit copies the browser's `authorization` and `x-*` headers onto the
- * agent for a run (and hands them to the runner's connect, which never
- * forwards them — the B4 runner builds its replay request from scratch), so
- * the strip protects the run path: a browser-sent `x-b4-visitor` or
- * `x-internal-token` is dropped here before the real one is set. See
- * `lib/proxy-guard.ts` for the guards themselves.
+ * agent for a run, so a browser-sent `x-b4-visitor` or `x-internal-token` is
+ * dropped before the real one is set. Outside a guarded request there is no
+ * visitor; it sends none rather than invent one, and the deployed server
+ * refuses the call. See `lib/proxy-guard.ts` for the guards themselves.
  */
-const guardedFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-  const headers = new Headers(init?.headers)
-  headers.delete("x-b4-visitor")
-  headers.delete("x-internal-token")
-  const visitorId = visitorContext.getStore()?.visitorId
-  // Outside a guarded request there is no visitor; send none rather than
-  // invent one, and the deployed server refuses the call.
-  if (visitorId !== undefined) {
-    const { internalToken } = guardConfigFromEnv()
-    for (const [name, value] of Object.entries(upstreamHeaders({ internalToken, visitorId }))) {
-      headers.set(name, value)
-    }
-  }
-  return fetch(input, { ...init, headers })
-}) as typeof fetch
+const guardedFetch = forwardIdentity({
+  headers: ["x-b4-visitor", "x-internal-token"],
+  resolve: () => {
+    const visitorId = visitorContext.getStore()?.visitorId
+    if (visitorId === undefined) return undefined
+    return upstreamHeaders({ internalToken: guardConfigFromEnv().internalToken, visitorId })
+  },
+})
 
 const agent = new B4HttpAgent({ url: agUiUrl, fetch: guardedFetch })
 
