@@ -1,12 +1,12 @@
 import type { PermissionsStore } from "@b4run/permissions"
-import type { ToolDisplay } from "@b4run/sdk"
+import { type ToolDisplay, toolDenial } from "@b4run/sdk"
 import { POSIX_SEP, pureJoin, pureRelative, pureResolve } from "@b4run/sdk/pure"
 import type { BackendContext, ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { z } from "zod"
 
 import { gateBashOp, gateCallOptions } from "../permission-gate.js"
 import type { B4ToolDefinition, CapabilityMarker } from "../types.js"
-import { createWorkspaceFs } from "../workspace-fs.js"
+import { createWorkspaceFs, WorkspaceGateDenied } from "../workspace-fs.js"
 
 const firstLine = (command: string) => command.split("\n", 1)[0] ?? command
 
@@ -217,6 +217,28 @@ interface OverridableTool extends B4ToolDefinition {
 }
 
 /**
+ * A tool whose workspace handle the permission gate refused returns the
+ * gate's reason as a branded denial (`toolDenial`) instead of throwing it, the
+ * way `tools.approve` does: the model reads the reason as the call's result,
+ * and the call's step settles as `denied` (never "failed", and never "Please
+ * fix your mistakes"). Every other error still throws.
+ */
+function withGateDenials(tool: OverridableTool): OverridableTool {
+  const { run } = tool
+  return {
+    ...tool,
+    run: async (input, ctx) => {
+      try {
+        return await run(input, ctx)
+      } catch (error) {
+        if (error instanceof WorkspaceGateDenied) return toolDenial(error.message)
+        throw error
+      }
+    },
+  }
+}
+
+/**
  * Backend resolution, deferred to the first tool invocation that needs it:
  * an already-constructed instance wins, then the runtime's factory, then a
  * loud failure. Deferring keeps `load` working on runtimes that contribute the
@@ -366,13 +388,11 @@ function buildWorkspaceTools(
     run: async (input, ctx) => {
       const { command } = RUN_BASH_INPUT.parse(input)
       const gate = await gateBashOp(permissions, command, gateCallOptions(ctx))
-      if (!gate.allowed) {
-        throw new Error(gate.reason)
-      }
+      if (!gate.allowed) return toolDenial(gate.reason)
       return resolveExec().runCommand({ command }, backendContext(workspaceRoot, ctx.signal))
     },
   }
-  return [readFile, writeFile, editFile, listDir, runBash]
+  return [readFile, writeFile, editFile, listDir, runBash].map(withGateDenials)
 }
 
 export function createWorkspaceMarker(): CapabilityMarker {

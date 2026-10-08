@@ -174,17 +174,51 @@ function subagentName(turns: readonly TurnView[], subagentRunId: string): string
 const lowerFirst = (s: string): string => (s.length > 0 ? `${s[0]?.toLowerCase()}${s.slice(1)}` : s)
 
 /**
+ * The progressive verbs B4.run's built-in tools open their `display.running`
+ * labels with ("Running ls", "Saving notes.md"), as the infinitive that reads
+ * after "wants to". English has no rule that recovers an infinitive from every
+ * "-ing" form ("saving" is "save", "listing" is "list"), so this lists the
+ * built-ins' own verbs; any other label is used as written.
+ */
+const BUILT_IN_INFINITIVES: Readonly<Record<string, string>> = {
+  Asking: "ask",
+  Checking: "check",
+  Editing: "edit",
+  Listing: "list",
+  Loading: "load",
+  Reading: "read",
+  Recalling: "recall",
+  Remembering: "remember",
+  Running: "run",
+  Saving: "save",
+  Updating: "update",
+}
+
+/** "Running ls" as "run ls"; any other label lower-cased. */
+function asInfinitive(label: string): string {
+  const space = label.indexOf(" ")
+  const verb = space === -1 ? label : label.slice(0, space)
+  const infinitive = Object.hasOwn(BUILT_IN_INFINITIVES, verb)
+    ? BUILT_IN_INFINITIVES[verb]
+    : undefined
+  return infinitive === undefined
+    ? lowerFirst(label)
+    : `${infinitive}${space === -1 ? "" : label.slice(space)}`
+}
+
+/**
  * What follows "wants to" on an approval card: the step's running label (an
- * app override's, else the server's `display.running`), lower-cased. With
- * neither — a tool without `display.running` — `stepLabel`
- * falls back on a progressive "Using X…", which cannot follow "wants to", so
- * the card says "use X" instead.
+ * app override's, else the server's `display.running`), lower-cased, with a
+ * built-in tool's progressive verb as its infinitive ("Running ls" reads
+ * "wants to run ls"). With neither label — a tool without `display.running` —
+ * `stepLabel` falls back on a progressive "Using X…", which cannot follow
+ * "wants to", so the card says "use X" instead.
  */
 export function approvalLabel(step: ToolStep, labels: StepLabelOverrides | undefined): string {
   const label = stepLabel({ ...step, status: "running" }, labels)
   return step.label === undefined && label === `Using ${step.name}…`
     ? `use ${step.name}`
-    : lowerFirst(label)
+    : asInfinitive(label)
 }
 
 /** Who an approval card names and what they want: "{agent} wants to {label}". */

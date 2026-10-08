@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createPermissionsStore } from "@b4run/permissions/node"
+import { isToolDenial, toolDenial } from "@b4run/sdk"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -139,9 +140,13 @@ describe("createWorkspaceMarker — load", () => {
     await permissions.load()
     const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot, { permissions }))
     const readTool = findTool(contribution.tools, "readFile")
-    await expect(
-      readTool.run({ path: "../../etc/passwd" }, { signal: new AbortController().signal }),
-    ).rejects.toThrow(/permission denied/i)
+    // A refused path is a denial the model reads, not a thrown failure.
+    const result = await readTool.run(
+      { path: "../../etc/passwd" },
+      { signal: new AbortController().signal },
+    )
+    if (!isToolDenial(result)) throw new Error("expected a branded denial")
+    expect(result.result).toMatch(/permission denied/i)
   })
 
   it("in bypass mode, every operation proceeds (path-jail disabled)", async () => {
@@ -168,9 +173,33 @@ describe("createWorkspaceMarker — load", () => {
     await permissions.load()
     const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot, { permissions }))
     const runBash = findTool(contribution.tools, "runBash")
+    const result = await runBash.run({ command: "ls" }, { signal: new AbortController().signal })
+    if (!isToolDenial(result)) throw new Error("expected a branded denial")
+    expect(result.result).toMatch(/permission denied|fail-closed/i)
+  })
+
+  it("a deny rule refuses runBash as a branded denial, before anything runs", async () => {
+    const permissions = createPermissionsStore({
+      appRoot,
+      config: { version: 1, allow: {}, deny: { bash: ["rm -rf"] } },
+      mode: "interactive",
+    })
+    await permissions.load()
+    const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot, { permissions }))
+    const runBash = findTool(contribution.tools, "runBash")
+    const result = await runBash.run(
+      { command: "rm -rf build" },
+      { signal: new AbortController().signal },
+    )
+    expect(result).toEqual(toolDenial("Permission denied by user: rm -rf build"))
+  })
+
+  it("a backend error that is not a permission refusal still throws", async () => {
+    const contribution = await createWorkspaceMarker().load(routeDir, ctx(appRoot))
+    const readTool = findTool(contribution.tools, "readFile")
     await expect(
-      runBash.run({ command: "ls" }, { signal: new AbortController().signal }),
-    ).rejects.toThrow(/permission denied|fail-closed/i)
+      readTool.run({ path: "missing.txt" }, { signal: new AbortController().signal }),
+    ).rejects.toThrow()
   })
 
   it("config-seeded allow lets a bash command through in non-interactive mode", async () => {

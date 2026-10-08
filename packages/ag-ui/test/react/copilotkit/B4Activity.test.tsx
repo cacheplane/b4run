@@ -43,6 +43,10 @@ vi.mock("@copilotkit/react-core/v2", () => ({
     ),
     { Toolbar: () => null },
   ),
+  CopilotChatReasoningMessage: Object.assign(
+    (props: { message: { id: string } }) => <p data-reasoning-row={props.message.id} />,
+    { Header: () => null, Content: () => null, Toggle: () => null },
+  ),
 }))
 
 const { B4Activity, useB4ActivityContext, useB4ChatSlots } = await import(
@@ -137,7 +141,7 @@ describe("B4Activity", () => {
 
     const card = renderCards([interrupt])
     const first = render(card)
-    expect(screen.getByText("The agent wants to running node x")).toBeTruthy()
+    expect(screen.getByText("The agent wants to run node x")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }))
     expect(resolve).toHaveBeenCalledWith("once", "i1")
     // A card takes one decision and goes busy; deny on a fresh instance.
@@ -279,6 +283,54 @@ describe("B4Activity", () => {
     })
     // A standing mark would glue r2 onto the failed turn; cleared, it appends.
     expect(container.querySelector("output")?.getAttribute("data-turns")).toBe("2")
+  })
+
+  test("drops CopilotKit's reasoning row for reasoning the turn's activity already shows", () => {
+    function Rows() {
+      const slots = useB4ChatSlots()
+      const Reasoning = slots.messageView.reasoningMessage as unknown as (p: {
+        message: unknown
+      }) => ReactElement
+      return (
+        <>
+          <Reasoning message={{ id: "rsn-1", role: "reasoning", content: "look first" }} />
+          <Reasoning message={{ id: "rsn-2", role: "reasoning", content: "just answer" }} />
+        </>
+      )
+    }
+    const { container } = render(
+      <B4Activity now={() => 5000}>
+        <Rows />
+      </B4Activity>,
+    )
+    const reasoning = (runId: string, span: string, message: string): BaseEvent[] => [
+      started(runId),
+      { type: EventType.REASONING_START, messageId: span } as BaseEvent,
+      {
+        type: EventType.REASONING_MESSAGE_START,
+        messageId: message,
+        role: "reasoning",
+      } as BaseEvent,
+      { type: EventType.REASONING_MESSAGE_CONTENT, messageId: message, delta: "x" } as BaseEvent,
+      { type: EventType.REASONING_MESSAGE_END, messageId: message } as BaseEvent,
+      { type: EventType.REASONING_END, messageId: span } as BaseEvent,
+    ]
+    // Before the turn calls a tool it has no activity row: CopilotKit's row stays.
+    act(() => {
+      for (const event of reasoning("r1", "span-1", "rsn-1")) current.agent.emit(event)
+    })
+    expect(container.querySelector('[data-reasoning-row="rsn-1"]')).not.toBeNull()
+    // Once it calls one, `TurnActivity` shows the reasoning: the row goes.
+    act(() => {
+      current.agent.emit(toolStart("c1", "listDir"))
+    })
+    expect(container.querySelector('[data-reasoning-row="rsn-1"]')).toBeNull()
+    // A later turn that only reasoned and answered keeps CopilotKit's row.
+    act(() => {
+      current.agent.emit({ type: EventType.RUN_FINISHED, threadId: "t", runId: "r1" } as BaseEvent)
+      for (const event of reasoning("r2", "span-2", "rsn-2")) current.agent.emit(event)
+    })
+    expect(container.querySelector('[data-reasoning-row="rsn-2"]')).not.toBeNull()
   })
 
   test("useB4ChatSlots throws outside the provider", () => {

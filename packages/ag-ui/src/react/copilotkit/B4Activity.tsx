@@ -62,11 +62,12 @@ export interface B4ActivityProps {
  * with `"optional"` or `"required"` the server answers the resume with 409.
  *
  * The card's title is "<agent> wants to <label>", where the label is the gated
- * step's running label with its first letter lower-cased, verbatim. Tool
- * authors: phrase `display.running` as an infinitive ("run a command") so the
- * card reads "The agent wants to run a command"; a progressive label
- * ("Running node x") reads "wants to running node x". A step with no running
- * label at all (a tool without `display.running`) reads "wants to use <tool>".
+ * step's running label with its first letter lower-cased. A built-in tool's
+ * progressive verb becomes its infinitive ("Running node x" reads "wants to
+ * run node x"); any other label is used as written, so tool authors phrase
+ * `display.running` as an infinitive ("run a command") when the tool needs
+ * approval. A step with no running label at all (a tool without
+ * `display.running`) reads "wants to use <tool>".
  */
 export function B4Activity({
   agentId,

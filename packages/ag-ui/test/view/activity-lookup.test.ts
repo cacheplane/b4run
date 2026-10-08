@@ -147,6 +147,26 @@ describe("approvals", () => {
     )
   })
 
+  test("approvalLabel: a built-in tool's progressive verb reads as its infinitive", () => {
+    expect(approvalLabel(tool("c", { label: "Running node --version" }), undefined)).toBe(
+      "run node --version",
+    )
+    expect(approvalLabel(tool("c", { label: "Saving notes.md" }), undefined)).toBe("save notes.md")
+    expect(approvalLabel(tool("c", { label: "Listing ." }), undefined)).toBe("list .")
+    expect(approvalLabel(tool("c", { label: "Asking researcher to dig" }), undefined)).toBe(
+      "ask researcher to dig",
+    )
+    expect(approvalLabel(tool("c", { label: "Checking memory" }), undefined)).toBe("check memory")
+    // Only a leading built-in verb is rewritten; anything else is lower-cased as written.
+    expect(approvalLabel(tool("c", { label: "Filing the plan" }), undefined)).toBe(
+      "filing the plan",
+    )
+    expect(approvalLabel(tool("c", { label: "Deploy Running app" }), undefined)).toBe(
+      "deploy Running app",
+    )
+    expect(approvalLabel(tool("c", { label: "constructor x" }), undefined)).toBe("constructor x")
+  })
+
   test("approvalPrompt names the subagent that owns the gated call, at any depth", () => {
     expect(approvalPrompt(turns, { toolCallId: "c1" }, undefined)).toEqual({
       agent: "The agent",

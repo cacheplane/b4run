@@ -26,11 +26,13 @@ export interface SubagentStepProps {
  * "Asked researcher", its description as a muted line beneath, with the
  * child's own activity nested (spec §3 `SubagentStep`). Descriptions are
  * third-person summaries ("Briefs the weather …"), so they are never spliced
- * into the sentence.
+ * into the sentence. A settled child that took no steps has nothing to open,
+ * so its line is a plain `span` rather than a button.
  */
 export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProps): ReactElement {
   const live = isSubagentLive(step)
-  const autoOpen = live || step.status === "failed"
+  const empty = !live && step.turn.steps.length === 0
+  const autoOpen = !empty && (live || step.status === "failed")
   const { open, toggle } = useDisclosure(autoOpen, live, step.startedAt)
   const text = live ? (
     <>
@@ -40,6 +42,20 @@ export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProp
   ) : (
     subagentSettledText(step)
   )
+  const summary = (
+    <>
+      <StepIcon name={step.status === "failed" ? "alert" : "agent"} />
+      <span className="b4-step__text">{text}</span>
+      <StatusText>{subagentMeta(step)}</StatusText>
+    </>
+  )
+  if (empty) {
+    return (
+      <li className="b4-step" data-state={subagentRowState(step.status)} data-kind="subagent">
+        <span className="b4-step__line b4-step__line--static">{summary}</span>
+      </li>
+    )
+  }
   return (
     <li
       className="b4-step"
@@ -52,13 +68,7 @@ export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProp
         open={open}
         onToggle={toggle}
         panelClassName="b4-step__children"
-        summary={
-          <>
-            <StepIcon name={step.status === "failed" ? "alert" : "agent"} />
-            <span className="b4-step__text">{text}</span>
-            <StatusText>{subagentMeta(step)}</StatusText>
-          </>
-        }
+        summary={summary}
       >
         <TurnActivity
           turn={step.turn}

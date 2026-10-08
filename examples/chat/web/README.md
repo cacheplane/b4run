@@ -79,14 +79,29 @@ intentionally has no demo/mock mode.
 ## Live smoke checklist (run manually, with a real `OPENAI_API_KEY`)
 
 1. From `examples/chat`, run `cp server/.env.example server/.env` and set `OPENAI_API_KEY`.
-2. `pnpm dev` (server :3001, web :3000).
-3. Open http://localhost:3000. Send "list the files in the workspace" — expect a
-   streamed assistant reply in the sidebar.
-4. Confirm a second message in the same thread continues the conversation without
-   replaying prior user messages to the B4.run route.
-5. Choose **Trigger a permission prompt**. Expect an approval card ("The agent wants
-   to …") with Allow once, Always allow and Deny; reload while it is open and confirm
-   the card comes back; choose Allow once and confirm the turn finishes.
+2. `pnpm dev` (server :3001, web :3000). If those ports are taken, run the server with
+   `pnpm --dir server exec b4 dev --port <port>` and the web with
+   `B4_SERVER_URL=http://127.0.0.1:<port> pnpm --dir web exec next dev -p <web port>`.
+3. Open http://localhost:3000. Send "List the files in the workspace and create notes.md
+   containing a short haiku." Expect the turn's activity to stream ("Working", then
+   the reasoning, the `writeTodos` plan and one step per tool call) and settle as
+   "Worked for Ns", followed by the reply. The reasoning shows once, inside the
+   activity.
+4. Reload. The same turn comes back folded with the same steps and its real duration;
+   restored reasoning reads "Show reasoning", since the checkpoint keeps no reasoning
+   timing.
+5. Send a second message in the same thread and confirm it continues the conversation
+   without repeating the first user message.
+6. Choose **Trigger a permission prompt**. Expect an approval card ("The agent wants
+   to run node --version") with Allow once, Always allow and Deny; reload while it is
+   open and confirm the card and the awaiting turn come back; choose Allow once and
+   confirm the turn finishes with "Ran node --version".
+7. Ask for another command outside the allow-list (for example "Run `uname -a` with
+   runBash.") and choose Deny. The step settles as "Denied runBash" (not failed), and
+   the model reads the denial as the command's result.
+
+Avoid Always allow while smoke testing unless you mean it: it saves the command to the
+server's permissions store (`server/.b4/`), so later runs skip the prompt.
 
 ## Security caveat
 
