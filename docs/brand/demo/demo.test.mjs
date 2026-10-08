@@ -110,14 +110,14 @@ function validMediaFixtures() {
       size: 1_200_000,
       probe: videoProbe({
         codecName: "h264",
-        duration: contract.name === "product-loop" ? 24 : 10,
+        duration: 15,
       }),
     })
     files.set(contract.webm, {
       size: 1_100_000,
       probe: videoProbe({
         codecName: "vp9",
-        duration: contract.name === "product-loop" ? 24 : 10,
+        duration: 15,
       }),
     })
     files.set(contract.poster, {
@@ -127,7 +127,7 @@ function validMediaFixtures() {
   }
   files.set("docs/brand/product-loop.gif", {
     size: 3_500_000,
-    probe: videoProbe({ codecName: "gif", duration: 24 }),
+    probe: videoProbe({ codecName: "gif", duration: 15 }),
   })
   files.set("docs/brand/demo/transcript.md", {
     size: 2_000,
@@ -143,15 +143,12 @@ async function validateMedia(overrides = new Map()) {
     files,
     captions: {
       "product-loop":
-        "Author a route, run its offline test, use the Workbench, and restore the same thread after a browser reload.",
-      author: "Inspect the generated research route and shared tool.",
-      test: "Run the deterministic research scenario with npm test.",
-      run: "Complete a Workbench run, reload, and restore the same thread.",
+        "Write an agent route, test it offline, run it in the Workbench, and restore the same thread after a browser reload.",
     },
   })
 }
 
-test("media contracts accept the exact flagship and derivative formats", async () => {
+test("media contracts accept the exact flagship formats", async () => {
   assert.deepEqual(await validateMedia(), [])
 })
 
@@ -161,7 +158,7 @@ test("media contracts accept GIF centisecond timing reported as 30 fps", async (
     size: 3_000_000,
     probe: videoProbe({
       codecName: "gif",
-      duration: 24.03,
+      duration: 15.03,
       frameRate: "100/3",
       reportedFrameRate: "30/1",
     }),
@@ -169,10 +166,7 @@ test("media contracts accept GIF centisecond timing reported as 30 fps", async (
   const failures = await validateLocalMediaContract({
     files,
     captions: {
-      "product-loop": "Author, test, run, reload, and restore.",
-      author: "Generated route and shared tool.",
-      test: "Offline test passes.",
-      run: "Browser reload restores the thread.",
+      "product-loop": "Write, test, run, reload, and restore.",
     },
   })
   assert.deepEqual(failures, [])
@@ -182,12 +176,12 @@ test("media contracts reject wrong dimensions and aspect ratio", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/author.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 1_200_000,
           probe: videoProbe({
             codecName: "h264",
-            duration: 10,
+            duration: 15,
             width: 1280,
             height: 800,
           }),
@@ -198,55 +192,55 @@ test("media contracts reject wrong dimensions and aspect ratio", async () => {
   assert.ok(failures.some((failure) => /1440x810/.test(failure)))
 })
 
-test("media contracts reject durations outside each clip window", async () => {
+test("media contracts reject durations outside the flagship window", async () => {
   const failures = await validateMedia(
     new Map([
       [
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 1_200_000,
-          probe: videoProbe({ codecName: "h264", duration: 19.99 }),
+          probe: videoProbe({ codecName: "h264", duration: 11.99 }),
         },
       ],
       [
-        "docs/brand/demo/artifacts/output/run.webm",
+        "docs/brand/demo/artifacts/output/product-loop.webm",
         {
           size: 1_100_000,
-          probe: videoProbe({ codecName: "vp9", duration: 12.01 }),
+          probe: videoProbe({ codecName: "vp9", duration: 18.01 }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /product-loop.*20-30 seconds/.test(failure)))
-  assert.ok(failures.some((failure) => /run.*8-12 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4/.test(failure) && /12-18 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm/.test(failure) && /12-18 seconds/.test(failure)))
 })
 
 test("media contracts reject files over their byte budgets", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/test.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 2_000_001,
-          probe: videoProbe({ codecName: "h264", duration: 10 }),
+          probe: videoProbe({ codecName: "h264", duration: 15 }),
         },
       ],
       [
         "docs/brand/product-loop.gif",
         {
           size: 4_000_001,
-          probe: videoProbe({ codecName: "gif", duration: 24 }),
+          probe: videoProbe({ codecName: "gif", duration: 15 }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /test\.mp4.*2,000,000 bytes/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4.*2,000,000 bytes/.test(failure)))
   assert.ok(failures.some((failure) => /product-loop\.gif.*4,000,000 bytes/.test(failure)))
 })
 
 test("media contracts require every poster and the transcript", async () => {
   const files = validMediaFixtures()
-  files.delete("apps/web/public/demo/run-poster.webp")
+  files.delete("apps/web/public/demo/product-loop-poster.webp")
   files.delete("docs/brand/demo/transcript.md")
   const failures = await validateLocalMediaContract({
     files,
@@ -254,13 +248,13 @@ test("media contracts require every poster and the transcript", async () => {
       MEDIA_CONTRACTS.map(({ name }) => [name, "Accurate static description"]),
     ),
   })
-  assert.ok(failures.some((failure) => /run.*poster/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop.*poster/.test(failure)))
   assert.ok(failures.some((failure) => /transcript/.test(failure)))
 })
 
 test("media contracts require 1440x810 WebP posters", async () => {
   const files = validMediaFixtures()
-  files.set("apps/web/public/demo/test-poster.webp", {
+  files.set("apps/web/public/demo/product-loop-poster.webp", {
     size: 80_000,
     probe: videoProbe({
       codecName: "png",
@@ -275,8 +269,8 @@ test("media contracts require 1440x810 WebP posters", async () => {
       MEDIA_CONTRACTS.map(({ name }) => [name, "Accurate static description"]),
     ),
   })
-  assert.ok(failures.some((failure) => /test-poster\.webp.*WebP/.test(failure)))
-  assert.ok(failures.some((failure) => /test-poster\.webp.*1440x810/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop-poster\.webp.*WebP/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop-poster\.webp.*1440x810/.test(failure)))
 })
 
 test("media contracts reject captions that claim scaffolding is visible", async () => {
@@ -285,9 +279,6 @@ test("media contracts reject captions that claim scaffolding is visible", async 
     files,
     captions: {
       "product-loop": "Scaffold a B4.run app, then run it.",
-      author: "Generated route and shared tool.",
-      test: "Offline test passes.",
-      run: "Browser reload restores the thread.",
     },
   })
   assert.ok(failures.some((failure) => /caption.*scaffold/i.test(failure)))
@@ -297,28 +288,28 @@ test("media contracts require H.264 MP4, VP9 WebM, and 30 fps", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/author.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 1_200_000,
-          probe: videoProbe({ codecName: "hevc", duration: 10 }),
+          probe: videoProbe({ codecName: "hevc", duration: 15 }),
         },
       ],
       [
-        "docs/brand/demo/artifacts/output/author.webm",
+        "docs/brand/demo/artifacts/output/product-loop.webm",
         {
           size: 1_100_000,
           probe: videoProbe({
             codecName: "vp8",
-            duration: 10,
+            duration: 15,
             frameRate: "25/1",
           }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /author\.mp4.*H\.264/.test(failure)))
-  assert.ok(failures.some((failure) => /author\.webm.*VP9/.test(failure)))
-  assert.ok(failures.some((failure) => /author\.webm.*30 fps/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4.*H\.264/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm.*VP9/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm.*30 fps/.test(failure)))
 })
 
 function validManifestLayout(repoRoot = "/repo", runId = "run-a") {
@@ -380,14 +371,14 @@ test("media manifest layout rejects stale identity and cross-run paths", () => {
           ...manifest,
           clips: {
             ...manifest.clips,
-            run: {
-              ...manifest.clips.run,
-              mp4: "/tmp/other-run/run.mp4",
+            "product-loop": {
+              ...manifest.clips["product-loop"],
+              mp4: "/tmp/other-run/product-loop.mp4",
             },
           },
         },
       }),
-    /run\.mp4.*expected run output root/,
+    /product-loop\.mp4.*expected run output root/,
   )
   assert.throws(
     () =>
@@ -4471,7 +4462,7 @@ test("catalog entries contain exactly the six required fields", () => {
     baseUrl: AUTHORIZED_MEDIA_ORIGIN,
   })
   const catalog = buildDemoMediaCatalog({ manifest, plan })
-  assert.deepEqual(Object.keys(catalog), ["productLoop", "author", "test", "run"])
+  assert.deepEqual(Object.keys(catalog), ["productLoop"])
   for (const entry of Object.values(catalog)) {
     assert.deepEqual(Object.keys(entry).sort(), [
       "ariaLabel",
@@ -4484,13 +4475,13 @@ test("catalog entries contain exactly the six required fields", () => {
   }
   assert.deepEqual(validateDemoMediaCatalog(catalog), catalog)
   const missingTranscript = structuredClone(catalog)
-  delete missingTranscript.run.transcript
-  assert.throws(() => validateDemoMediaCatalog(missingTranscript), /run\.transcript.*required/i)
+  delete missingTranscript.productLoop.transcript
+  assert.throws(() => validateDemoMediaCatalog(missingTranscript), /productLoop\.transcript.*required/i)
   const unexpectedField = structuredClone(catalog)
-  unexpectedField.author.extra = true
+  unexpectedField.productLoop.extra = true
   assert.throws(
     () => validateDemoMediaCatalog(unexpectedField),
-    /author.*exactly.*ariaLabel.*transcript/i,
+    /productLoop.*exactly.*ariaLabel.*transcript/i,
   )
 })
 
@@ -4508,57 +4499,57 @@ test("catalog media URLs require exact stable paths with no authority or URL suf
   for (const [name, url, pattern] of [
     [
       "extra path prefix",
-      "https://b4-media.public.blob.vercel-storage.com/extra/demo/run.mp4",
-      /run\.mp4.*exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/extra/demo/product-loop.mp4",
+      /product-loop\.mp4.*exact stable path/i,
     ],
     [
       "query suffix",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4?unstable=1",
-      /run\.mp4.*query|exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4?unstable=1",
+      /product-loop\.mp4.*query|exact stable path/i,
     ],
     [
       "fragment suffix",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4#unstable",
-      /run\.mp4.*fragment|exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4#unstable",
+      /product-loop\.mp4.*fragment|exact stable path/i,
     ],
     [
       "credentials",
-      "https://user:secret@b4-media.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*credentials/i,
+      "https://user:secret@b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /product-loop\.mp4.*credentials/i,
     ],
     [
       "nonstandard port",
-      "https://b4-media.public.blob.vercel-storage.com:8443/demo/run.mp4",
-      /run\.mp4.*port|same public origin/i,
+      "https://b4-media.public.blob.vercel-storage.com:8443/demo/product-loop.mp4",
+      /product-loop\.mp4.*port|same public origin/i,
     ],
     [
       "explicit default port",
-      "https://b4-media.public.blob.vercel-storage.com:443/demo/run.mp4",
-      /run\.mp4.*explicit port/i,
+      "https://b4-media.public.blob.vercel-storage.com:443/demo/product-loop.mp4",
+      /product-loop\.mp4.*explicit port/i,
     ],
     [
       "leading whitespace",
-      " https://b4-media.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*canonical/i,
+      " https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /product-loop\.mp4.*canonical/i,
     ],
     [
       "trailing whitespace",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4 ",
-      /run\.mp4.*canonical/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4 ",
+      /product-loop\.mp4.*canonical/i,
     ],
     [
       "backslashes",
-      "https://b4-media.public.blob.vercel-storage.com\\demo\\run.mp4",
-      /run\.mp4.*canonical/i,
+      "https://b4-media.public.blob.vercel-storage.com\\demo\\product-loop.mp4",
+      /product-loop\.mp4.*canonical/i,
     ],
     [
       "uppercase host",
-      "https://B4-MEDIA.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*canonical/i,
+      "https://B4-MEDIA.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /product-loop\.mp4.*canonical/i,
     ],
   ]) {
     const candidate = structuredClone(catalog)
-    candidate.run.mp4 = url
+    candidate.productLoop.mp4 = url
     assert.throws(() => validateDemoMediaCatalog(candidate), pattern, name)
   }
   for (const [name, noncanonicalHost] of [
@@ -4608,14 +4599,14 @@ test("remote checker loads the checked-in catalog and HEAD-verifies every URL wi
     },
   })
   assert.deepEqual(result.catalog, catalog)
-  assert.equal(calls.length, 8)
+  assert.equal(calls.length, 2)
   for (const call of calls) {
     assert.equal(call.options.method, "HEAD")
     assert.equal(call.options.redirect, "error")
     assert.ok(call.options.signal instanceof AbortSignal)
     assert.equal("headers" in call.options, false)
   }
-  assert.equal(lines.length, 8)
+  assert.equal(lines.length, 2)
   assert.ok(lines.every((line) => line.startsWith("PASS remote:")))
 })
 
@@ -4634,7 +4625,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
     [
       "missing URL",
       (value) => {
-        value.test.webm = ""
+        value.productLoop.webm = ""
       },
       async () => response(200, "video/webm"),
       /test\.webm.*HTTPS URL/i,
@@ -4644,7 +4635,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
       () => {},
       async (url) =>
         response(
-          url.endsWith("author.mp4") ? 404 : 200,
+          url.endsWith("product-loop.mp4") ? 404 : 200,
           url.endsWith(".mp4") ? "video/mp4" : "video/webm",
         ),
       /author\.mp4.*200.*404/i,
@@ -4655,7 +4646,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
       async (url) =>
         response(
           200,
-          url.endsWith("run.webm")
+          url.endsWith("product-loop.webm")
             ? "application/octet-stream"
             : url.endsWith(".mp4")
               ? "video/mp4"

@@ -13,26 +13,17 @@ const MEDIA_SCHEMA_VERSION = 1
 
 export const MEDIA_CAPTIONS = Object.freeze({
   "product-loop":
-    "Author a file-system route, prove it with npm test, run it in the B4.run Workbench, then restore the same thread after a browser reload.",
-  author:
-    "Inspect the generated research route, co-located route files, shared searchCorpus tool, and offline test harness.",
-  test: "Run npm test and see the deterministic research scenario pass without a provider key.",
-  run: "Complete a fixture-backed Workbench run, then restore the same thread and its checkpointed transcript after a browser reload.",
+    "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload the browser and see the same thread restored.",
 })
 
 export const MEDIA_CONTRACTS = Object.freeze(
-  [
-    { name: "product-loop", minimumDuration: 20, maximumDuration: 30 },
-    { name: "author", minimumDuration: 8, maximumDuration: 12 },
-    { name: "test", minimumDuration: 8, maximumDuration: 12 },
-    { name: "run", minimumDuration: 8, maximumDuration: 12 },
-  ].map((contract) =>
+  [{ name: "product-loop", minimumDuration: 12, maximumDuration: 18 }].map((contract) =>
     Object.freeze({
       ...contract,
       mp4: `docs/brand/demo/artifacts/output/${contract.name}.mp4`,
       webm: `docs/brand/demo/artifacts/output/${contract.name}.webm`,
       poster: `apps/web/public/demo/${contract.name}-poster.webp`,
-      ...(contract.name === "product-loop" ? { gif: "docs/brand/product-loop.gif" } : {}),
+      gif: "docs/brand/product-loop.gif",
     }),
   ),
 )
@@ -421,7 +412,7 @@ export async function checkLocalMedia({
   return { pointer, manifest, sourceFiles, passLines }
 }
 
-const DEMO_MEDIA_KEYS = Object.freeze(["productLoop", "author", "test", "run"])
+const DEMO_MEDIA_KEYS = Object.freeze(["productLoop"])
 const DEMO_MEDIA_FIELDS = Object.freeze([
   "mp4",
   "webm",
@@ -432,9 +423,6 @@ const DEMO_MEDIA_FIELDS = Object.freeze([
 ])
 const DEMO_MEDIA_NAMES = Object.freeze({
   productLoop: "product-loop",
-  author: "author",
-  test: "test",
-  run: "run",
 })
 
 export function urlHasExplicitPort(value) {
