@@ -1449,7 +1449,28 @@ export async function assembleScreencastVideo({
       frameCount: frames.length,
       firstFrameEpochMs: frames[0].timestamp * 1_000,
       endEpochMs,
+      motion: screencastMotion(frames),
     },
+  }
+}
+
+/**
+ * How smoothly the screencast kept up while the page moved: the frame rate
+ * over gaps shorter than 250 ms (a longer gap is a hold with nothing to
+ * paint), and the 90th-percentile gap among them.
+ */
+export function screencastMotion(frames) {
+  const gaps = frames
+    .slice(1)
+    .map((frame, index) => (frame.timestamp - frames[index].timestamp) * 1_000)
+    .filter((gap) => gap > 0 && gap < 250)
+    .sort((a, b) => a - b)
+  if (gaps.length === 0) return { frames: 0, fps: 0, p90GapMs: 0 }
+  const total = gaps.reduce((sum, gap) => sum + gap, 0)
+  return {
+    frames: gaps.length,
+    fps: Math.round((gaps.length / total) * 10_000) / 10,
+    p90GapMs: Math.round(gaps[Math.floor(gaps.length * 0.9)]),
   }
 }
 

@@ -49,6 +49,7 @@ import {
   SCREENCAST_OPTIONS,
   sanitizeOperationalEnvironment,
   screencastConcat,
+  screencastMotion,
   settleWorkbenchViewport,
   startHttpService,
   startWithAssignedPort,
@@ -4305,8 +4306,20 @@ test("screencast assembly resamples to 30 fps 4:4:4 and always removes the frame
       frameCount: 2,
       firstFrameEpochMs: 100_000,
       endEpochMs: 102_000,
+      motion: { frames: 0, fps: 0, p90GapMs: 0 },
     },
   })
+  // Gaps under 250 ms are motion; a longer one is a hold.
+  assert.deepEqual(
+    screencastMotion([
+      { timestamp: 1 },
+      { timestamp: 1.02 },
+      { timestamp: 1.06 },
+      { timestamp: 4 },
+      { timestamp: 4.04 },
+    ]),
+    { frames: 3, fps: 30, p90GapMs: 40 },
+  )
 
   const aborted = []
   const controller = new AbortController()
