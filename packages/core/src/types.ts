@@ -1,6 +1,7 @@
 import type { PermissionMode, PermissionsStore } from "@b4run/permissions"
 import type {
   ApprovalGrantMode,
+  B4Principal,
   ClientToolCallStore,
   InterruptGrantStore,
   ModelProviderId,
@@ -441,10 +442,21 @@ export interface B4Config {
         readonly writes?: "candidate" | "auto"
       }
     }
-    /** Derive the memory namespace scope for a given route. */
+    /**
+     * Derive the memory namespace scope for a given route, per request. Return
+     * values for the dimensions the route's `memory.ts` declares beyond
+     * `workspace` and `route` (`tenant`, `user`, `agent`). A declared dimension
+     * left without a value makes memory unavailable for that request — it never
+     * falls back to a shared namespace.
+     */
     readonly resolveScope?: (ctx: {
       readonly routePath: string
       readonly appRoot: string
+      /**
+       * The request's principal from `src/auth.ts`; `undefined` with no auth
+       * file and for an anonymous request.
+       */
+      readonly principal: B4Principal | undefined
     }) => Record<string, string>
   }
 }

@@ -97,7 +97,11 @@ export interface BoundAuth {
   readonly resolve: ((request: Request) => Promise<AuthOutcome>) | undefined
   /** Idempotent; runs `dispose` after a successful `setup`, as middleware does. */
   readonly dispose: () => Promise<void>
+  /** `defineAuth`'s `canReviewMemory`; false for an anonymous caller or when the app declares none. */
+  readonly canReviewMemory: (principal: B4Principal | undefined) => Promise<boolean>
 }
+
+const NEVER_REVIEWS = (): Promise<boolean> => Promise.resolve(false)
 
 /**
  * Bind an auth definition to one runtime: `setup` runs once, lazily,
@@ -105,7 +109,8 @@ export interface BoundAuth {
  * `bindMiddleware`.
  */
 export function bindAuth(auth: AuthDefinition | undefined, ctx: AuthSetupContext): BoundAuth {
-  if (!auth) return { dispose: () => Promise.resolve(), resolve: undefined }
+  if (!auth)
+    return { canReviewMemory: NEVER_REVIEWS, dispose: () => Promise.resolve(), resolve: undefined }
   const { authenticate, dispose, setup } = auth
   let setupPromise: Promise<void> | undefined
   let setupSucceeded = setup === undefined
@@ -147,6 +152,10 @@ export function bindAuth(auth: AuthDefinition | undefined, ctx: AuthSetupContext
   }
 
   return {
+    canReviewMemory: async (principal) =>
+      principal !== undefined && auth.canReviewMemory !== undefined
+        ? (await auth.canReviewMemory(principal)) === true
+        : false,
     dispose: () => {
       disposing ??= performDispose()
       return disposing

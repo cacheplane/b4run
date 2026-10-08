@@ -44,6 +44,8 @@ The same value reaches every consumer, so none of them parses a header for ident
 - `req.principal` in the [thread-access policy](/docs/thread-access)
 - `ctx.principal` in every tool, and in subagents' tools
 
+`memory.resolveScope` receives it too, so each caller can get its own [long-term memory](/docs/memory/long-term), and `/memory/candidates` scopes review to the caller's own namespaces. Add `canReviewMemory(principal)` to `defineAuth` to let an admin review every namespace.
+
 Resolution runs for every runtime endpoint except `/healthz`, `/readyz` and CORS preflight. The principal is never persisted: it's not written to checkpoints, thread metadata or run config, and a resumed run gets the resumer's principal. Keep secrets out of it anyway. `setup` and `dispose` hooks work the way they do on [middleware](/docs/middleware).
 
 `b4 typegen` declares the type your `authenticate` resolves to, so `req.principal.org` and `ctx.principal.org` type-check without a cast. It writes `.b4/auth.generated.d.ts`, which `.b4/b4.generated.d.ts` references.

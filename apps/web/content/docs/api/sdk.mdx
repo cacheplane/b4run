@@ -90,7 +90,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `allow` | Continue middleware execution. |
 | `defineMiddleware` | Preserve types for a middleware function or lifecycle definition. |
 | `reject` | Stop middleware execution. |
-| `AuthDefinition` | Declare the app's authentication: `authenticate`, plus optional `setup` and `dispose`. |
+| `AuthDefinition` | Declare the app's authentication: `authenticate`, plus optional `setup`, `dispose` and `canReviewMemory`. |
 | `AuthRequest` | Describe the request `authenticate` resolves: headers, method and url. |
 | `AuthResult` | Express what `authenticate` returns: a principal, `undefined` for anonymous, or a rejection. |
 | `AuthSetupContext` | Describe what an auth `setup` hook receives. |

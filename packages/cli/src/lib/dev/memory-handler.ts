@@ -1,7 +1,9 @@
 import type { MemoryStore } from "@b4run/memory"
 // The reconcile helper comes from the pure "./reconcile" subpath, never the
 // barrel: the barrel re-exports sqliteMemoryStore and so reaches node:sqlite.
+import { parseNamespace } from "@b4run/memory/namespace"
 import { approveWithReconcile } from "@b4run/memory/reconcile"
+import type { B4Principal } from "@b4run/sdk"
 import { formatErrorMessage } from "../output.js"
 import { createExecutionErrorBody, createRequestErrorBody } from "./server-errors.js"
 
@@ -9,14 +11,70 @@ import { createExecutionErrorBody, createRequestErrorBody } from "./server-error
 const DEFAULT_IDENTITY_KEYS = ["subject", "predicate"] as const
 
 /**
- * GET /memory/candidates — list every candidate record across all namespaces
- * (empty prefix = all namespaces), for a web UI to review.
+ * Which namespaces one request may review. Absent means every namespace: an app
+ * with no `src/auth.ts`, or a caller its `canReviewMemory` admits.
+ */
+export interface MemoryAccess {
+  readonly visible: (namespace: string) => boolean
+}
+
+/** The dimensions a principal can own; `workspace` and `route` are the app's. */
+const OWNED_DIMENSIONS = ["tenant", "user", "agent"] as const
+
+/**
+ * Whether `namespace` is one of the caller's: every owned dimension it carries
+ * equals what `resolveScope` gives this caller for that namespace's route. A
+ * namespace with none (the shared `workspace+route` one) is every caller's. A
+ * `resolveScope` that is absent, throws, or omits the dimension owns nothing,
+ * so an anonymous caller never reaches a `user`-scoped candidate.
+ */
+export function callerOwnsNamespace(
+  namespace: string,
+  context: {
+    readonly appRoot: string
+    readonly principal: B4Principal | undefined
+    readonly resolveScope:
+      | ((ctx: {
+          readonly routePath: string
+          readonly appRoot: string
+          readonly principal: B4Principal | undefined
+        }) => Record<string, string>)
+      | undefined
+  },
+): boolean {
+  const parsed = parseNamespace(namespace)
+  const owned = OWNED_DIMENSIONS.filter((dimension) => parsed[dimension] !== undefined)
+  if (owned.length === 0) return true
+  let scope: Record<string, string> | undefined
+  try {
+    scope = context.resolveScope?.({
+      appRoot: context.appRoot,
+      principal: context.principal,
+      routePath: parsed.route ?? "",
+    })
+  } catch {
+    return false
+  }
+  return owned.every((dimension) => scope?.[dimension] === parsed[dimension])
+}
+
+/** The 404 for a record that is missing or outside the caller's namespaces: one answer for both. */
+function notFound(id: string): Response {
+  return Response.json(createRequestErrorBody(`Record not found: ${id}`), { status: 404 })
+}
+
+/**
+ * GET /memory/candidates — list candidate records for a web UI to review:
+ * every namespace (empty prefix), narrowed to the caller's own when `access`
+ * is given.
  */
 export async function handleMemoryListRequest(options: {
   readonly memoryStore: MemoryStore
+  readonly access?: MemoryAccess
 }): Promise<Response> {
-  const { memoryStore } = options
-  const candidates = await memoryStore.listCandidates("")
+  const { access, memoryStore } = options
+  const all = await memoryStore.listCandidates("")
+  const candidates = access ? all.filter((record) => access.visible(record.namespace)) : all
   return Response.json({ candidates }, { status: 200 })
 }
 
@@ -44,11 +102,13 @@ export async function handleMemoryApproveRequest(options: {
     appRoot: string,
     namespace: string,
   ) => Promise<{ readonly keys: readonly string[]; readonly fallback: boolean }>
+  /** Narrow to the caller's namespaces; a record outside them is a 404, like a missing one. */
+  readonly access?: MemoryAccess
 }): Promise<Response> {
   const { appRoot, memoryStore, id } = options
   const record = await memoryStore.get(id)
-  if (!record) {
-    return Response.json(createRequestErrorBody(`Record not found: ${id}`), { status: 404 })
+  if (!record || (options.access && !options.access.visible(record.namespace))) {
+    return notFound(id)
   }
   if (record.status !== "candidate") {
     return Response.json(
@@ -84,8 +144,18 @@ export async function handleMemoryApproveRequest(options: {
 export async function handleMemoryRejectRequest(options: {
   readonly memoryStore: MemoryStore
   readonly id: string
+  /**
+   * Narrow to the caller's namespaces. With it, a record that is missing or
+   * outside them is a 404 (one answer for both); without it, a missing record
+   * is deleted as a no-op, as before.
+   */
+  readonly access?: MemoryAccess
 }): Promise<Response> {
-  const { memoryStore, id } = options
+  const { access, memoryStore, id } = options
+  if (access) {
+    const record = await memoryStore.get(id)
+    if (!record || !access.visible(record.namespace)) return notFound(id)
+  }
   await memoryStore.delete(id)
   return Response.json({ ok: true }, { status: 200 })
 }

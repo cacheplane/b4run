@@ -78,9 +78,11 @@ import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
 import {
+  callerOwnsNamespace,
   handleMemoryApproveRequest,
   handleMemoryListRequest,
   handleMemoryRejectRequest,
+  type MemoryAccess,
 } from "./memory-handler.js"
 import { bindMiddleware, headersToRecord, runMiddleware } from "./middleware.js"
 import { readParkedInterruptIds, readParkedRoute, settleParkedRoute } from "./parked-route.js"
@@ -1039,6 +1041,21 @@ export async function createRuntimeFetchHandler(
       // request, and re-memoizing it would reintroduce the dead-context hang.
       return override ? Promise.resolve(override) : getMemoryStore()
     }
+    // Which memory candidates this request may review. With no src/auth.ts the
+    // routes behave as they always have; with one, a caller reviews only its own
+    // namespaces unless `canReviewMemory` admits it to all of them.
+    const memoryAccessFor = async (request: Request): Promise<{ access?: MemoryAccess }> => {
+      if (!boundAuth.resolve) return {}
+      const principal = requestPrincipal(request)
+      if (await boundAuth.canReviewMemory(principal)) return {}
+      const resolveScope = bootConfig?.memory?.resolveScope
+      return {
+        access: {
+          visible: (namespace) =>
+            callerOwnsNamespace(namespace, { appRoot: options.appRoot, principal, resolveScope }),
+        },
+      }
+    }
 
     /**
      * `/readyz`'s body: one verdict per durable store this request resolves,
@@ -1119,6 +1136,7 @@ export async function createRuntimeFetchHandler(
       getRunRegistry,
       getThreadsStore,
       liveTurnHub,
+      memoryAccessFor,
       middleware,
       ...(middlewareAfter ? { middlewareAfter } : {}),
       registry,
@@ -1529,6 +1547,8 @@ export function buildRouteTable(ctx: {
   readonly clientTools: ClientToolRuntime
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
+  /** Narrow `/memory/*` to the caller's namespaces; `{}` reviews every namespace. */
+  readonly memoryAccessFor: (request: Request) => Promise<{ access?: MemoryAccess }>
   readonly getPermissionsStore: (
     request: Request,
   ) => PermissionsStore | (() => Promise<PermissionsStore>)
@@ -1579,6 +1599,7 @@ export function buildRouteTable(ctx: {
     getRunRegistry,
     getThreadsStore,
     liveTurnHub,
+    memoryAccessFor,
     middleware,
     middlewareAfter,
     registry,
@@ -2131,6 +2152,7 @@ export function buildRouteTable(ctx: {
     {
       handle: async (request) =>
         handleMemoryListRequest({
+          ...(await memoryAccessFor(request)),
           memoryStore: await getMemoryStoreFor(request),
         }),
       method: "GET",
@@ -2148,6 +2170,7 @@ export function buildRouteTable(ctx: {
             ? { resolveIdentityKeys: boot.bootFallbacks.resolveIdentityKeys }
             : {}),
           id: params.id ?? "",
+          ...(await memoryAccessFor(request)),
           memoryStore: await getMemoryStoreFor(request),
         }),
       method: "POST",
@@ -2161,6 +2184,7 @@ export function buildRouteTable(ctx: {
       handle: async (request, params) =>
         handleMemoryRejectRequest({
           id: params.id ?? "",
+          ...(await memoryAccessFor(request)),
           memoryStore: await getMemoryStoreFor(request),
         }),
       method: "POST",

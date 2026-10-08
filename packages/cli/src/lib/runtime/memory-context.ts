@@ -12,6 +12,9 @@ import { type MemoryScopeTuple, serializeNamespace } from "@b4run/memory/namespa
 import { pureBasename } from "./pure-path.js"
 import type { LoadedRouteMemory } from "./route-memory-shape.js"
 
+/** The namespace of a request whose declared scope is incomplete: matches no stored row. */
+export const UNSCOPED_NAMESPACE = "b4:unscoped"
+
 /** Build the per-request memory capability context for a route with a memory.ts. */
 export function buildMemoryContext(args: {
   defined: LoadedRouteMemory
@@ -38,10 +41,22 @@ export function buildMemoryContext(args: {
   // Restrict to only the dimensions this route declared in scope.
   // serializeNamespace accepts the MemoryScopeTuple keys (workspace, route, tenant, user, agent).
   const tuple: Record<string, string> = {}
+  const missing: string[] = []
   for (const dim of defined.scope) {
-    if (allDims[dim] !== undefined) tuple[dim] = allDims[dim]
+    const value = allDims[dim]
+    if (value !== undefined && value !== "") tuple[dim] = value
+    else missing.push(dim)
   }
-  const namespace = serializeNamespace(tuple as MemoryScopeTuple & Record<string, string>)
+  // Fail closed. Dropping a declared dimension would put this request in the
+  // shared namespace — every anonymous caller of a `user`-scoped route
+  // reading and writing one memory. Instead memory is unavailable for it.
+  // An unscoped request gets a namespace no stored row can have (it is not
+  // `key=value`), so even a consumer that forgot to check `unavailable` reads
+  // nothing and writes into nobody's memory.
+  const namespace =
+    missing.length > 0
+      ? UNSCOPED_NAMESPACE
+      : serializeNamespace(tuple as MemoryScopeTuple & Record<string, string>)
   const schema = defined.schema as {
     safeParse(d: unknown): {
       success: boolean
@@ -52,6 +67,13 @@ export function buildMemoryContext(args: {
   return {
     store: args.store,
     namespace,
+    ...(missing.length > 0
+      ? {
+          unavailable:
+            `Long-term memory is unavailable for this request: it has no ${missing.join(" or ")} ` +
+            "scope (for example, the caller is not signed in). Nothing was recalled or stored.",
+        }
+      : {}),
     writes: args.writes,
     defined: {
       kind: defined.kind,

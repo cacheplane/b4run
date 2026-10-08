@@ -16,7 +16,7 @@ await recall({
 })
 ```
 
-The `memory.ts` scope declaration chooses which dimensions exist, and runtime values plus `memory.resolveScope` construct the namespace for those dimensions. The workspace and route values come from the app root and route path. `resolveScope` receives only `routePath` and `appRoot`. It does not receive verified identity, so tenant and user scope still need authenticated wiring in your application.
+The `memory.ts` scope declaration chooses which dimensions exist, and runtime values plus `memory.resolveScope` construct the namespace for those dimensions. The workspace and route values come from the app root and route path. `resolveScope` receives `routePath`, `appRoot` and the request `principal` from `src/auth.ts`, so tenant and user dimensions come from the authenticated caller. A declared dimension left without a value makes memory unavailable for that request rather than falling back to a shared namespace.
 
 `since` and `until` accept ISO instants or relative expressions, resolved against the request clock. The tool passes one fixed evaluation timestamp as `now`. That timestamp filters expired rows and anchors recency scoring, so fix it in tests that assert order or window boundaries.
 

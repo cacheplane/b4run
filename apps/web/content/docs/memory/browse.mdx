@@ -156,7 +156,7 @@ Within those limits, the same query pages safely on either backend. Outside them
 
 ## Mutations and candidate review
 
-Browse only reads records. Build separate mutation handlers that check the record's tenant before calling `update`, `delete`, approval, or rejection. Candidate review already exists through `GET /memory/candidates`, `POST /memory/candidates/:id/approve`, and `POST /memory/candidates/:id/reject`. In a deployed service those routes still need outer authentication and tenant authorization.
+Browse only reads records. Build separate mutation handlers that check the record's tenant before calling `update`, `delete`, approval, or rejection. Candidate review already exists through `GET /memory/candidates`, `POST /memory/candidates/:id/approve`, and `POST /memory/candidates/:id/reject`. With an app [`src/auth.ts`](/docs/access-control#authentication), each caller reviews only candidates in its own namespaces (the ones `memory.resolveScope` gives its principal, plus shared ones), and approving or rejecting anyone else's answers `404` like a missing record. `canReviewMemory(principal)` on `defineAuth` admits a reviewer to every namespace. Without an auth file those routes span every namespace and need outer authentication and tenant authorization.
 
 Approval can reconcile semantic identities and delete a duplicate candidate. After a mutation, refresh the record. The row you displayed may have changed.
 

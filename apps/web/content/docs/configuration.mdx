@@ -136,7 +136,7 @@ export default config({
       },
       reflect: { minNewRecords: 10, maxRecords: 100, writes: "candidate" },
     },
-    // resolveScope: ({ routePath, appRoot }) => ({ route: routePath, app: appRoot }),
+    // resolveScope: ({ principal }) => (principal ? { user: principal.id } : {}),
   },
 })
 ```
@@ -552,7 +552,11 @@ memory?: {
       writes?: "candidate" | "auto"
     }
   }
-  resolveScope?: (ctx: { routePath: string; appRoot: string }) => Record<string, string>
+  resolveScope?: (ctx: {
+    routePath: string
+    appRoot: string
+    principal: B4Principal | undefined
+  }) => Record<string, string>
 }
 ```
 
@@ -600,9 +604,11 @@ They never fall back to the default. Only the top-level keys of `distill`
 and `distill.retry` are checked, not the keys inside `consolidate` or
 `reflect`.
 
-A custom store ignores these tuning blocks. `resolveScope` receives only
-`routePath` and `appRoot`, so derive tenant or user dimensions from your own
-application context.
+A custom store ignores these tuning blocks. `resolveScope` runs per request
+with `routePath`, `appRoot` and the request `principal` from `src/auth.ts`, so
+derive tenant or user dimensions from the principal. A dimension the route
+declares and `resolveScope` leaves empty makes memory unavailable for that
+request.
 
 See [Long-term Memory](/docs/memory/long-term) for write governance, [Recall and
 Retrieval](/docs/memory/retrieval) for ranking, [Episodes](/docs/memory/episodes)

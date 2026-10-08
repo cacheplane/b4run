@@ -1632,6 +1632,7 @@ async function prepareRouteExecutionForInvocation(
       const extraScope = loadedB4Config?.memory?.resolveScope?.({
         routePath: cleanRoutePath,
         appRoot: options.appRoot,
+        principal: options.principal,
       })
       memoryContext = buildMemoryContext({
         defined,
@@ -2048,6 +2049,8 @@ async function recordRunEpisode(args: {
   const { memoryContext, episodes } = args
   if (!episodes?.enabled || !memoryContext) return
   if (memoryContext.writes === "off") return
+  // An unscoped request has no namespace of its own to record into.
+  if (memoryContext.unavailable !== undefined) return
   if (args.outcome === "error" && !episodes.includeFailedRuns) return
   // A parked (HITL-interrupted) turn is not a completed run — record nothing;
   // the completing resume turn records instead. Two detections, because the
