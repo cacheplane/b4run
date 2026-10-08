@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd ../../.. && pnpm turbo run build --filter=@b4-example/navlog-web...",
-  "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
+  "functions": {
+    "app/api/copilotkit/[...path]/route.ts": { "maxDuration": 800 }
+  }
 }
