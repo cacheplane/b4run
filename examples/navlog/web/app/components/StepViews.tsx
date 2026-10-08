@@ -1,6 +1,6 @@
 "use client"
 import { StepDetail, type StepRenderers } from "@b4run/ag-ui/react"
-import type { ToolStep } from "@b4run/ag-ui/view"
+import type { StepLabelOverrides, ToolStep } from "@b4run/ag-ui/view"
 import { useContext } from "react"
 import { formatGal } from "../lib/format"
 import { parseNavlog } from "../lib/navlog-selectors"
@@ -11,7 +11,7 @@ import { SheetControlContext } from "./sheet-control"
  * A computeNavlog step, opened: the totals in one line and a way to the sheet,
  * which (with the map) shows the full result. Anything that is not a parsed
  * navlog yet (still running, failed, a result that does not parse) keeps the
- * kit's Inputs/Output detail.
+ * kit's step detail.
  */
 export function NavlogStepView({ step }: { readonly step: ToolStep }) {
   const navlog =
@@ -44,4 +44,18 @@ export function ChartStepView({ step }: { readonly step: ToolStep }) {
 export const NAVLOG_STEP_RENDERERS: StepRenderers = {
   computeNavlog: ({ step }) => <NavlogStepView step={step} />,
   renderChart: ({ step }) => <ChartStepView step={step} />,
+}
+
+/**
+ * `B4Activity`'s `labels`: how a run of one tool reads once merged. The server
+ * labels each call ("Looked up KSTP, …"); without these the merged row would
+ * fall back to the tool's name ("Used lookupAirport 2 times").
+ */
+export const NAVLOG_STEP_LABELS: StepLabelOverrides = {
+  lookupAirport: { group: (n) => `Looked up ${n} airports` },
+  getMetar: { group: (n) => `Fetched METARs ${n} times` },
+  getTaf: { group: (n) => `Fetched TAFs ${n} times` },
+  getWindsAloft: { group: (n) => `Checked winds aloft ${n} times` },
+  getAdvisories: { group: (n) => `Checked advisories ${n} times` },
+  readDoc: { group: (n) => `Read ${n} documents` },
 }

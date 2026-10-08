@@ -77,6 +77,11 @@ function isRootToolSteps(desc: string): boolean {
   )
 }
 
+/** A settled subagent's turn has no summary line of its own. */
+function isChildTurnSummary(desc: string): boolean {
+  return desc.endsWith(".b4-step__children > section.b4-turn > :scope > button.b4-turn__summary")
+}
+
 /**
  * A fake browser whose locators record every chained step as a readable
  * description, so a test can assert both WHAT was located and in what order.
@@ -115,7 +120,10 @@ function fakeBrowser(
   const baseDesc = (desc: string): string => desc.replace(/ \.(first|last)$/, "")
   const countOf = (desc: string): number => {
     const base = baseDesc(desc)
-    return overrides.countFor?.(base) ?? (isRootToolSteps(base) ? ROOT_TOOL_STEPS : 1)
+    return (
+      overrides.countFor?.(base) ??
+      (isRootToolSteps(base) ? ROOT_TOOL_STEPS : isChildTurnSummary(base) ? 0 : 1)
+    )
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: a structural stand-in for Locator.
@@ -317,8 +325,7 @@ const GOLDEN_CALLS: readonly string[] = [
   `getAttribute:aria-expanded ${SUBAGENT} > :scope > button.b4-step__line`,
   `waitFor:visible ${CHILD_TURN} .first`,
   `count ${CHILD_TURN}`,
-  `click ${CHILD_TURN} > :scope > button.b4-turn__summary`,
-  `getAttribute:aria-expanded ${CHILD_TURN} > :scope > button.b4-turn__summary`,
+  `count ${CHILD_TURN} > :scope > button.b4-turn__summary`,
   `waitFor:visible ${CHILD_TOOLS} .first`,
   `count ${CHILD_TOOLS}`,
   `waitFor:visible ${ROOT_TOOLS} .first`,
@@ -439,6 +446,16 @@ describe("runWorkbenchSuggestionJourneys", () => {
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
     expect(rejection.message).toMatch(
       /^Plan a flight: The performance subagent step did not expand \(aria-expanded=false\)/,
+    )
+  })
+
+  it("fails when a settled subagent's turn repeats its summary line", async () => {
+    const { deps } = fakeBrowser({
+      countFor: (desc) => (isChildTurnSummary(desc) ? 1 : undefined),
+    })
+    const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
+    expect(rejection.message).toMatch(
+      /^Plan a flight: the performance subagent's settled turn repeats its summary line \(found 1\)/,
     )
   })
 

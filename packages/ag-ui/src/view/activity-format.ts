@@ -236,7 +236,7 @@ export function capDetail(text: string): string {
   return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS)}\n… (truncated)` : text
 }
 
-/** A step's Inputs and Output as the detail panel shows them; empty strings when absent. */
+/** A step's input and result pretty-printed and capped (the "Show raw" text); empty strings when absent. */
 export function stepDetailText(
   args: string,
   result: string | undefined,
@@ -244,6 +244,152 @@ export function stepDetailText(
   const inputs = capDetail(prettyValue(args))
   const output = result === undefined ? "" : capDetail(prettyValue(result))
   return { inputs, output, empty: inputs.trim() === "" && output.trim() === "" }
+}
+
+/** One `key  value` row of a readable detail block. */
+export interface DetailField {
+  readonly key: string
+  readonly value: string
+}
+
+/**
+ * A step's input or result as the detail panel shows it: `fields` for an
+ * object (one row per key, one nested level as dotted keys), `records` for a
+ * short list of such objects, `text` for a plain string or scalar, `code` for
+ * anything deeper, pretty-printed.
+ */
+export type DetailBlock =
+  | { readonly kind: "fields"; readonly fields: readonly DetailField[] }
+  | { readonly kind: "records"; readonly records: readonly (readonly DetailField[])[] }
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "code"; readonly text: string }
+
+export interface StepDetailView {
+  /** The call's arguments; undefined when there are none (`{}` or empty). */
+  readonly input: DetailBlock | undefined
+  /** What the call returned; undefined until it settles, or when empty. */
+  readonly result: DetailBlock | undefined
+  /**
+   * The "Show raw" view: the pretty-printed, capped original (`stepDetailText`)
+   * of each side shown as rows (`fields` or `records`), "" for a side shown as
+   * it is. Undefined when neither side became rows.
+   */
+  readonly raw: { readonly input: string; readonly result: string } | undefined
+  readonly empty: boolean
+}
+
+/** A field value longer than this, or spanning lines, shows its first line cut here. */
+export const MAX_FIELD_CHARS = 80
+/** An object with more rows than this reads better as JSON. */
+const MAX_FIELDS = 12
+/** A list with more objects than this reads better as JSON. */
+const MAX_RECORDS = 10
+
+type Scalar = string | number | boolean | null
+const isScalar = (value: unknown): value is Scalar =>
+  value === null || ["string", "number", "boolean"].includes(typeof value)
+const isLeaf = (value: unknown): value is Scalar | readonly Scalar[] =>
+  isScalar(value) || (Array.isArray(value) && value.every(isScalar))
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+function scalarText(value: Scalar): string {
+  return value === null ? "—" : String(value)
+}
+
+/** One line, at most `MAX_FIELD_CHARS` characters; a cut value says how long it was. */
+function fieldValue(value: Scalar | readonly Scalar[]): string {
+  const text = Array.isArray(value)
+    ? value.length === 0
+      ? "—"
+      : value.map(scalarText).join(", ")
+    : scalarText(value as Scalar)
+  const chars = [...text]
+  const firstLine = text.split("\n", 1)[0] ?? ""
+  if (chars.length <= MAX_FIELD_CHARS && firstLine.length === text.length) return text
+  const head = [...firstLine].slice(0, MAX_FIELD_CHARS).join("").trimEnd()
+  return `${head} … (${chars.length} chars)`
+}
+
+/**
+ * An object as rows: scalars and scalar lists as they are, a nested object's
+ * leaves as `parent.key`. Undefined when anything sits deeper, or when there
+ * would be no rows or more than `MAX_FIELDS`.
+ */
+function objectFields(object: Record<string, unknown>): DetailField[] | undefined {
+  const fields: DetailField[] = []
+  for (const [key, value] of Object.entries(object)) {
+    if (isLeaf(value)) {
+      fields.push({ key, value: fieldValue(value) })
+    } else if (isRecord(value) && Object.values(value).every(isLeaf)) {
+      for (const [inner, leaf] of Object.entries(value)) {
+        fields.push({
+          key: `${key}.${inner}`,
+          value: fieldValue(leaf as Scalar | readonly Scalar[]),
+        })
+      }
+    } else {
+      return undefined
+    }
+  }
+  return fields.length === 0 || fields.length > MAX_FIELDS ? undefined : fields
+}
+
+function detailBlock(text: string | undefined): DetailBlock | undefined {
+  if (text === undefined || text.trim() === "") return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return { kind: "text", text: capDetail(text) }
+  }
+  if (isScalar(parsed)) {
+    const value = scalarText(parsed)
+    return value.trim() === "" ? undefined : { kind: "text", text: capDetail(value) }
+  }
+  if (Array.isArray(parsed) && parsed.every(isScalar)) {
+    return parsed.length === 0
+      ? undefined
+      : { kind: "text", text: capDetail(parsed.map(scalarText).join(", ")) }
+  }
+  if (isRecord(parsed)) {
+    if (Object.keys(parsed).length === 0) return undefined
+    const fields = objectFields(parsed)
+    if (fields) return { kind: "fields", fields }
+  } else if (Array.isArray(parsed) && parsed.length <= MAX_RECORDS && parsed.every(isRecord)) {
+    const records = parsed.map(objectFields)
+    if (records.every((r): r is DetailField[] => r !== undefined)) {
+      return { kind: "records", records }
+    }
+  }
+  return { kind: "code", text: capDetail(prettyValue(text)) }
+}
+
+const isRows = (block: DetailBlock | undefined): boolean =>
+  block?.kind === "fields" || block?.kind === "records"
+
+/**
+ * A step's input and result, readable first (spec §3 `StepDetail`): an object
+ * becomes key/value rows, a short list of objects one group of rows each, a
+ * string or scalar plain text, and anything deeper stays pretty JSON. When
+ * rows shortened or reshaped a side, `raw` carries its original for a "Show
+ * raw" toggle. Never throws.
+ */
+export function stepDetailView(args: string, result: string | undefined): StepDetailView {
+  const input = detailBlock(args)
+  const output = detailBlock(result)
+  const inputRows = isRows(input)
+  const resultRows = isRows(output)
+  const text = stepDetailText(args, result)
+  return {
+    input,
+    result: output,
+    raw:
+      inputRows || resultRows
+        ? { input: inputRows ? text.inputs : "", result: resultRows ? text.output : "" }
+        : undefined,
+    empty: input === undefined && output === undefined,
+  }
 }
 
 /** Sources come off the wire: only web, mail and same-origin paths become links. */

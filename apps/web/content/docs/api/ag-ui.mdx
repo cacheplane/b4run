@@ -187,7 +187,12 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `isSubagentLive` | Whether a subagent is running or paused on an approval. |
 | `subagentSettledText` | A settled subagent row's sentence: "researcher finished" or "researcher failed". |
 | `subagentMeta` | A subagent row's muted tail: the error once failed, the step count once done. |
-| `stepDetailText` | A step's Inputs and Output as the detail panel shows them, and whether both are empty. |
+| `stepDetailText` | A step's input and result pretty-printed and capped, the text "Show raw" opens, and whether both are empty. |
+| `stepDetailView` | A step's input and result as the detail panel shows them: rows for an object (one nested level as dotted keys), a group of rows per object in a short list, plain text for a string or scalar, pretty JSON for anything deeper, plus the raw original of each side shown as rows. |
+| `StepDetailView` | What `stepDetailView` returns: the input and result blocks, the raw originals, and whether both are empty. |
+| `DetailBlock` | One side of a step's detail: `fields`, `records`, `text` or `code`. |
+| `DetailField` | One key/value row of a `fields` block. |
+| `MAX_FIELD_CHARS` | The longest field value a row shows (80 characters) before it is cut to its first line with its full length. |
 | `prettyValue` | JSON pretty-printed with two spaces; any other text as-is. Never throws. |
 | `capDetail` | A detail text cut at `MAX_DETAIL_CHARS` with a "… (truncated)" line. |
 | `MAX_DETAIL_CHARS` | The longest inputs or output a detail panel shows, 20,000 characters. |
@@ -228,7 +233,7 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `StepRenderers` | Step renderers keyed by tool name. |
 | `StepGroup` | Consecutive done calls of one tool, merged; opens to the individual steps. |
 | `StepGroupProps` | Props for `StepGroup`: the group, label overrides, step renderers and the clock. |
-| `StepDetail` | A step's Inputs and Output, pretty JSON or text. |
+| `StepDetail` | A step's input and result, readable first: rows for an object, a group of rows per object in a short list, plain text for a string, pretty JSON for anything deeper, and a "Show raw" toggle for a side shown as rows. |
 | `StepDetailProps` | Props for `StepDetail`: the args text and the optional result text. |
 | `PlanStep` | "Made a plan · 2 of 4 done" with the checklist; updates in place. |
 | `PlanStepProps` | Props for `PlanStep`: the plan step and whether the owning turn is live. |
@@ -288,7 +293,7 @@ The Angular activity kit: standalone, `OnPush` components with signal inputs tha
 | `PlanStepComponent` | `<li b4-plan-step [step] [live]>`: "Made a plan · 2 of 4 done" with the checklist. |
 | `ReasoningStepComponent` | `<li b4-reasoning-step [step]>`: "Thinking…", "Thought for 4s" or "Show reasoning". |
 | `SubagentStepComponent` | `<li b4-subagent-step [step]>`: "Asked researcher" with the child's activity nested. |
-| `StepDetailComponent` | `<b4-step-detail [args] [result]>`: a step's Inputs and Output. |
+| `StepDetailComponent` | `<b4-step-detail [args] [result]>`: a step's input and result: rows, a group of rows per object, plain text or pretty JSON, with "Show raw" for a side shown as rows. |
 | `SourceChipsComponent` | `<b4-source-chips [sources] [limit]>`: file or URL chips with "+N" overflow. |
 | `DisclosureComponent` | `<b4-disclosure [open] [className] (toggle)>`: a `button[aria-expanded]` and its panel, for custom steps. |
 | `StepIconComponent` | `<b4-step-icon [name]>`: the glyph for a `ToolDisplayIcon` name. |

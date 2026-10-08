@@ -23,7 +23,7 @@ describe("NavlogStepView", () => {
     expect(html).toContain("2 legs")
     expect(html).toContain("5.5 gal")
     expect(html).toContain("See the navlog sheet")
-    expect(html).not.toContain("Inputs")
+    expect(html).not.toContain("b4-step__detail")
   })
 
   test("the button opens the sheet through SheetControlContext", () => {
@@ -51,12 +51,12 @@ describe("NavlogStepView", () => {
     const running = renderToStaticMarkup(
       <NavlogStepView step={step({ name: "computeNavlog", status: "running", args: '{"a":1}' })} />,
     )
-    expect(running).toContain("Inputs")
+    expect(running).toContain("b4-step__detail")
     expect(running).not.toContain("See the navlog sheet")
     const garbage = renderToStaticMarkup(
       <NavlogStepView step={step({ name: "computeNavlog", result: "oops" })} />,
     )
-    expect(garbage).toContain("Output")
+    expect(garbage).toContain("Result")
     expect(garbage).toContain("oops")
   })
 })
@@ -78,7 +78,7 @@ describe("ChartStepView", () => {
       />,
     )
     expect(html).toContain('src="data:image/svg+xml;base64,PHN2Zz4="')
-    expect(html).not.toContain("Inputs")
+    expect(html).not.toContain("b4-step__detail")
   })
 
   test("with no parts, falls back to the kit's detail", () => {

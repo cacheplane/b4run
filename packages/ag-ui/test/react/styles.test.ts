@@ -113,9 +113,10 @@ describe("styles.css", () => {
   })
   test("accessibility: visible focus ring, 24px disclosure targets, a visually-hidden utility", () => {
     expect(withoutComments).toMatch(
-      /\.b4-turn__summary:focus-visible,\s*\.b4-step__line:focus-visible,\s*\.b4-approval__button:focus-visible\s*\{[^}]*outline/,
+      /\.b4-turn__summary:focus-visible,\s*\.b4-step__line:focus-visible,\s*\.b4-step__raw:focus-visible,\s*\.b4-approval__button:focus-visible\s*\{[^}]*outline/,
     )
     expect(withoutComments).toMatch(/\.b4-step__line\s*\{[^}]*min-height:\s*26px/)
+    expect(withoutComments).toMatch(/\.b4-step__raw\s*\{[^}]*min-height:\s*24px/)
     expect(withoutComments).toMatch(/\.b4-visually-hidden\s*\{[^}]*clip/)
   })
   test("a subagent's description sits on its own muted line beneath the step", () => {

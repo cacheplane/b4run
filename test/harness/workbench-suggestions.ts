@@ -191,15 +191,19 @@ async function planJourney(
     .locator(`${OWN_STEPS}[data-kind="subagent"]`)
     .filter({ hasText: "performance finished" })
   await expectExactlyOne(subagent, "performance subagent step")
-  // A finished subagent folds, and so does its own (settled) turn inside it:
-  // two disclosures to the child's tool call — each a real user action.
+  // A finished subagent folds; opening it shows its own (settled) turn's steps
+  // straight away. That turn has no summary line: the subagent row already
+  // reads "performance finished · N steps", and repeating it would make the
+  // child's tool call a second disclosure away.
   await expand(subagent.locator(":scope > button.b4-step__line"), "The performance subagent step")
   const childTurn = subagent.locator(":scope > .b4-step__children > section.b4-turn")
   await expectExactlyOne(childTurn, "performance subagent turn")
-  await expand(
-    childTurn.locator(":scope > button.b4-turn__summary"),
-    "The performance subagent's turn",
-  )
+  const childSummaries = await childTurn.locator(":scope > button.b4-turn__summary").count()
+  if (childSummaries !== 0) {
+    throw new Error(
+      `the performance subagent's settled turn repeats its summary line (found ${childSummaries})`,
+    )
+  }
   await expectExactlyOne(
     childTurn.locator(`${OWN_STEPS}[data-kind="tool"]`),
     "tool step inside the performance subagent",

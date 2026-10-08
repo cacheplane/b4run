@@ -56,15 +56,45 @@ describe("b4-source-chips", () => {
 })
 
 describe("b4-step-detail", () => {
-  test("pretty-prints JSON inputs and output, labels the sections, and passes text through", () => {
-    const root = html(mount(StepDetailComponent, { args: '{"query":"a"}', result: "3 hits" }))
+  test("a flat input reads as rows and a text result as plain text; Show raw opens the rows' original", () => {
+    const fixture = mount(StepDetailComponent, { args: '{"query":"a"}', result: "3 hits" })
+    const root = html(fixture)
+    const rows = Array.from(
+      root.querySelectorAll("dl.b4-step__fields > div.b4-step__field"),
+      (row) => [row.querySelector("dt")?.textContent, row.querySelector("dd")?.textContent],
+    )
+    expect(rows).toEqual([["query", "a"]])
+    expect(root.querySelector("p.b4-step__value")?.textContent).toBe("3 hits")
     expect(
       Array.from(root.querySelectorAll("h4.b4-step__detail-label"), (h) => h.textContent),
-    ).toEqual(["Inputs", "Output"])
+    ).toEqual(["Result"])
+    const toggle = root.querySelector("button.b4-step__raw")
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false")
+    click(fixture, toggle)
+    expect(toggle?.textContent).toBe("Hide raw")
     expect(Array.from(root.querySelectorAll("pre.b4-step__code"), (p) => p.textContent)).toEqual([
       '{\n  "query": "a"\n}',
-      "3 hits",
     ])
+  })
+
+  test("a list of objects renders one group of rows per object", () => {
+    const root = html(
+      mount(StepDetailComponent, { args: "", result: '[{"id":"KSTP"},{"id":"KRST"}]' }),
+    )
+    const groups = Array.from(
+      root.querySelectorAll("ol.b4-step__records > li > dl.b4-step__fields"),
+      (dl) => Array.from(dl.querySelectorAll("dd"), (dd) => dd.textContent),
+    )
+    expect(groups).toEqual([["KSTP"], ["KRST"]])
+  })
+
+  test("deep JSON stays pretty JSON with no raw toggle", () => {
+    const root = html(mount(StepDetailComponent, { args: '{"a":{"b":{"c":1}}}', result: '"ok"' }))
+    expect(Array.from(root.querySelectorAll("pre.b4-step__code"), (p) => p.textContent)).toEqual([
+      '{\n  "a": {\n    "b": {\n      "c": 1\n    }\n  }\n}',
+    ])
+    expect(root.querySelector("p.b4-step__value")?.textContent).toBe("ok")
+    expect(root.querySelector("button.b4-step__raw")).toBeNull()
   })
 
   test("an empty detail says so", () => {
