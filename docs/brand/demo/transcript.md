@@ -52,12 +52,13 @@ shared tool `server/src/tools/getMetar.ts`, marked at
 
 ### 4. Live weather, judged.
 
-Back in the Workbench, the camera eases to the weather strip at the top right:
-its verdict pill and the go/no-go verdict card both read “GO”. The weather
-subagent called `getMetar`, `getTaf`, `getWindsAloft` and `getAdvisories`
-against the loopback stub described above, so the weather on screen is the
-stub's fixed data, not a live observation; its brief reads that KSTP and KRST
-are VFR now and at the ETA, with no advisory during the flight.
+Back in the Workbench, the camera eases to the top right of the map: the
+route leaves KSTP, whose marker reads “VFR”, under the leg's “MH 161°” label,
+and below it the go/no-go card reads “GO” and “KSTP and KRST are VFR now and
+at the ETA, with no advisory during the flight.” The weather subagent called
+`getMetar`, `getTaf`, `getWindsAloft` and `getAdvisories` against the loopback
+stub described above, so the weather on screen is the stub's fixed data, not a
+live observation.
 
 ### 5. Tools do the math.
 
