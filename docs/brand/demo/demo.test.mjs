@@ -61,6 +61,7 @@ import {
   DIRECTOR_FONTS,
   DIRECTOR_TIMING,
   HEADLINES,
+  PROVE_LOG_WINDOW,
   RUN_FOCUS,
   renderDirector,
   wordmarkSvg,
@@ -934,6 +935,7 @@ const DIRECTOR_INPUT = {
   toolSource: "export default async (input) => computeNavlog(input)",
   testLog: [
     "✓ test/navlog.test.ts > splits the first leg into a climb segment and a cruise segment <time>",
+    " Test Files  1 passed (1)",
     "Tests  92 passed (92)",
   ].join("\n"),
   wordmark: '<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>',
@@ -963,6 +965,19 @@ test("director page renders the real sources and log, escaped, with one focal ma
   assert.equal(html.match(/class="focus"/g)?.length, 2)
   assert.match(html, /<span class="focus"> {2}description: /)
   assert.match(html, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
+})
+
+test("director prove panel shows a window around the last test-count summary", () => {
+  const log = Array.from({ length: 100 }, (_, at) => `log-line-${String(at + 1).padStart(3, "0")}`)
+  log[89] = "Tests  92 passed (92)"
+  const html = renderDirector({ ...DIRECTOR_INPUT, testLog: log.join("\n") })
+  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(proof, /log-line-072/)
+  assert.doesNotMatch(proof, /log-line-071/)
+  assert.match(proof, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
+  assert.match(proof, /log-line-091\nlog-line-092$/)
+  assert.equal(proof.match(/class="focus"/g)?.length, 1)
+  assert.equal(proof.split("\n").length, PROVE_LOG_WINDOW.before + 1 + PROVE_LOG_WINDOW.after)
 })
 
 test("director page holds the Workbench iframe, the wordmark, and the brand tokens, with no header or act chip", () => {

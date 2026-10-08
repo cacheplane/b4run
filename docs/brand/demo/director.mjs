@@ -35,6 +35,9 @@ export const RUN_FOCUS = Object.freeze({
   sheet: Object.freeze({ scale: 1.45, origin: "70% 94%" }),
 })
 
+/** Lines of the test log the prove panel shows around its focal summary line. */
+export const PROVE_LOG_WINDOW = Object.freeze({ before: 18, after: 2 })
+
 /** Font files the page loads, served by the capture from the brand kit. */
 export const DIRECTOR_FONTS = Object.freeze({
   "Inter-400.ttf": "apps/web/public/brand/identity/fonts/Inter-400.ttf",
@@ -77,6 +80,20 @@ function markedCode(source, focal, missing) {
   return lines
     .map((line, at) => (at === index ? `<span class="focus">${escapeHtml(line)}</span>` : escapeHtml(line)))
     .join("\n")
+}
+
+/** The last Vitest test-count line, else the last broader passing line, with its surrounding window. */
+function windowedLog(testLog) {
+  const lines = testLog.split("\n")
+  const lastMatch = (pattern) => lines.findLastIndex((line) => pattern.test(line))
+  let index = lastMatch(/^\s*Tests\s+\d+\s+passed/u)
+  if (index === -1) index = lastMatch(/(?:Tests?\s+.*passed|\d+\s+passed)/iu)
+  if (index === -1) throw new Error("test log has no passing summary")
+  const start = Math.max(0, index - PROVE_LOG_WINDOW.before)
+  return {
+    lines: lines.slice(start, index + PROVE_LOG_WINDOW.after + 1),
+    focusIndex: index - start,
+  }
 }
 
 const STYLE = `
@@ -239,11 +256,10 @@ export function renderDirector({ routeSource, toolSource, testLog, wordmark = wo
   requireString(testLog, "testLog")
   requireString(wordmark, "wordmark")
   const route = markedCode(routeSource, /^\s*description:/u, "route source has no description line")
-  const proof = markedCode(
-    testLog,
-    /(?:Tests?\s+.*passed|\d+\s+passed)/iu,
-    "test log has no passing summary",
-  )
+  const { lines: proofLines, focusIndex } = windowedLog(testLog)
+  const proof = proofLines
+    .map((line, at) => (at === focusIndex ? `<span class="focus">${escapeHtml(line)}</span>` : escapeHtml(line)))
+    .join("\n")
   const runtime = RUNTIME.replace("TIMING", JSON.stringify(DIRECTOR_TIMING))
     .replace("HEADLINES_JSON", JSON.stringify(HEADLINES))
     .replace("FOCUS_JSON", JSON.stringify(RUN_FOCUS))
