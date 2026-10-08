@@ -86,19 +86,21 @@ const CANONICAL_ROOT_NAVIGATION = `<p align="center">
   <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>`
 
-/** The demo video on the media store; the README links it through its poster. */
-const DEMO_VIDEO_URL =
-  "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4"
+/**
+ * The entry package READMEs show this poster, linked to the demo MP4 on the
+ * media store (npm cannot play video). The capability and tooling READMEs
+ * never show it.
+ */
 const DEMO_POSTER_PATH = "apps/web/public/demo/product-loop-poster.webp"
 
-const CANONICAL_DEMO_WATCH_LINK = `<br><a href="${DEMO_VIDEO_URL}">▶ Watch the 50-second navlog demo</a>`
-
-const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
-  <a href="${DEMO_VIDEO_URL}">
-    <img src="${DEMO_POSTER_PATH}" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">
-  </a>
-  ${CANONICAL_DEMO_WATCH_LINK}
-</p>`
+/**
+ * The root README embeds the demo as GitHub's inline video player: the
+ * GitHub-hosted copy's user-attachments URL, alone on its own line. GitHub
+ * embeds only a bare URL line, so the canonical README must not wrap it.
+ */
+export const DEMO_INLINE_VIDEO_URL =
+  "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
+const CANONICAL_INLINE_VIDEO_LINE = `\n\n${DEMO_INLINE_VIDEO_URL}\n\n`
 
 const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later.
 
@@ -662,6 +664,11 @@ function hasPurposeStatement(readme, firstH1, headings) {
     )
 }
 
+/** The inline video line: the URL alone on a visible Markdown line. */
+function inlineDemoVideoPresent(markdownSource) {
+  return markdownSource.split(/\r?\n/u).some((line) => line.trim() === DEMO_INLINE_VIDEO_URL)
+}
+
 function demoPosterPresent(markdownSource, htmlSource) {
   return (
     /!\[[^\]]*\]\([^\r\n)]*apps\/web\/public\/demo\/product-loop-poster\.webp(?:[?#][^\r\n)]*)?\)/iu.test(
@@ -964,25 +971,17 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     ),
   ]
     .map((match) => match[1] ?? match[2] ?? match[3])
-    .filter(
-      (source) =>
-        source !== "docs/brand/b4-logo-horizontal-black-on-white.png" &&
-        source !== DEMO_POSTER_PATH,
-    )
+    .filter((source) => source !== "docs/brand/b4-logo-horizontal-black-on-white.png")
   const firstScrollMarkdownImages = markdownImageDestinations(firstScrollMarkdown).filter(
     (destination) =>
-      !["docs/brand/b4-logo-horizontal-black-on-white.png", DEMO_POSTER_PATH].includes(
-        destination.split(/[?#]/u, 1)[0],
-      ),
+      destination.split(/[?#]/u, 1)[0] !== "docs/brand/b4-logo-horizontal-black-on-white.png",
   )
   const firstScrollReferenceImages = markdownReferenceImageDestinations(
     firstScrollMarkdown,
     definitions,
   ).filter(
     (destination) =>
-      !["docs/brand/b4-logo-horizontal-black-on-white.png", DEMO_POSTER_PATH].includes(
-        destination.split(/[?#]/u, 1)[0],
-      ),
+      destination.split(/[?#]/u, 1)[0] !== "docs/brand/b4-logo-horizontal-black-on-white.png",
   )
   if (
     firstScrollImages.length +
@@ -993,7 +992,7 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     failures.push("README must contain exactly five approved badges")
   }
   const firstScrollTextLinks = [...firstScroll.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/giu)].filter(
-    (match) => !/<img\b/iu.test(match[1]) && !match[0].startsWith(`<a href="${DEMO_VIDEO_URL}">`),
+    (match) => !/<img\b/iu.test(match[1]),
   )
   const firstScrollMarkdownTextLinks = markdownLinkDestinations(firstScrollMarkdown, {
     excludeImageLabels: true,
@@ -1003,7 +1002,12 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     definitions,
     { excludeImageLabels: true },
   )
-  const firstScrollAutolinks = markdownAutolinkDestinations(firstScrollMarkdown, definitions)
+  // The inline video line is a bare URL, which GFM also reads as an autolink;
+  // it is the demo, not a navigation link.
+  const firstScrollAutolinks = markdownAutolinkDestinations(
+    firstScrollMarkdown,
+    definitions,
+  ).filter((destination) => destination !== DEMO_INLINE_VIDEO_URL)
   if (
     firstScrollTextLinks.length +
       firstScrollMarkdownTextLinks.length +
@@ -1015,16 +1019,15 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
   }
 
   const firstCommand = withoutComments.indexOf("npm create b4-app@latest my-agent")
-  const demoPoster = withoutComments.indexOf(DEMO_POSTER_PATH)
-  if (firstCommand === -1 || demoPoster === -1 || firstCommand >= demoPoster) {
-    failures.push("README must put the first scaffold command before the demo poster")
+  const inlineVideo = withoutComments.indexOf(CANONICAL_INLINE_VIDEO_LINE)
+  if (firstCommand === -1 || inlineVideo === -1 || firstCommand >= inlineVideo) {
+    failures.push("README must put the first scaffold command before the inline demo video")
   }
 
-  if (!readme.includes(CANONICAL_PRODUCT_LOOP_BLOCK)) {
-    failures.push("README is missing the demo poster linked to the video with canonical alt text")
-  }
-  if (!readme.includes(CANONICAL_DEMO_WATCH_LINK)) {
-    failures.push("README is missing the canonical link to watch the demo video")
+  if (!readme.includes(CANONICAL_INLINE_VIDEO_LINE)) {
+    failures.push(
+      "README is missing the inline demo video: its GitHub attachment URL alone on its own line",
+    )
   }
   if (!readme.includes(CANONICAL_QUICKSTART_BLOCK)) {
     failures.push("README is missing the complete no-key Quickstart sequence")
@@ -1176,8 +1179,8 @@ export function validateRootReadme(source, options = {}) {
       "README is missing the canonical scaffold command: npm create b4-app@latest my-agent",
     )
   }
-  if (!demoPosterPresent(visible.markdown, visible.rendered)) {
-    failures.push(`README is missing the ${DEMO_POSTER_PATH} image`)
+  if (!inlineDemoVideoPresent(visible.markdown)) {
+    failures.push(`README is missing the inline demo video line ${DEMO_INLINE_VIDEO_URL}`)
   }
   if (!markdownLinkPresent(visible.markdown, ROOT_LINK_CONTRACTS.migration)) {
     failures.push("README is missing the /docs/migrating-from-langgraph migration link")

@@ -54,9 +54,12 @@ separate upload in repository settings. This script does not change that setting
 ## Navlog demo media
 
 The demo video alternates the code behind each navlog feature with the
-feature running in the real Workbench, in about 50 seconds. The GitHub and npm
-READMEs show its poster, linked to the MP4 on the B4.run media store, with a
-“Watch the 50-second navlog demo” link; there is no README animation.
+feature running in the real Workbench, in about 50 seconds. The root README
+embeds a GitHub-hosted copy of the MP4 with GitHub's inline player; re-upload
+it through github.com whenever the video is re-recorded (see the recording
+guide). The npm READMEs show the poster, linked to the MP4 on the B4.run media
+store, with a “Watch the 50-second navlog demo” link; the media store copy is
+the canonical media for them and the website. There is no README animation.
 
 - `demo/transcript.md` — exact static walkthrough of the video, beat by beat.
 - `demo/storyboard.mjs` — the twelve beats as data: headlines, the files and

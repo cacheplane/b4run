@@ -1,9 +1,10 @@
 # B4.run navlog demo recording guide
 
 This guide rebuilds the silent navlog demo video (MP4 and WebM) and its poster
-from the current local B4.run source tree. The GitHub and npm READMEs show the
-poster and link it to the MP4 on the B4.run media store; there is no README
-animation.
+from the current local B4.run source tree. The root README embeds a
+GitHub-hosted copy of the MP4 as GitHub's inline video player; the npm READMEs
+show the poster and link it to the MP4 on the B4.run media store. There is no
+README animation.
 
 ## Prerequisites
 
@@ -129,8 +130,8 @@ verifies:
 - exact 1440×810 16:9 geometry and 30 fps for the videos;
 - a 45–75 second flagship;
 - H.264 MP4 and VP9 WebM for the flagship;
-- no MP4 or WebM above 12,000,000 bytes (the media store hosts both; nothing
-  is embedded in a README);
+- no MP4 or WebM above 12,000,000 bytes (the media store hosts both, and
+  GitHub hosts the root README's copy of the MP4);
 - the 1440×810 WebP poster and the Markdown transcript;
 - captions that describe the existing workspace footage without claiming the
   scaffold command is shown.
@@ -214,11 +215,21 @@ apps/web/app/lib/demo-media.json
 docs/brand/demo/transcript.md
 ```
 
-The root README and the `@b4run/cli`, `@b4run/sdk` and `create-b4-app` READMEs
-show that poster (the package READMEs through its `raw.githubusercontent.com`
-URL) linked to the stable MP4 URL, with a “Watch the 50-second navlog demo”
-link under it. If a new take changes the rounded duration, update that line and
-its pin in `scripts/lib/readme-contracts.mjs`. `docs/brand/product-loop.gif`
+The `@b4run/cli`, `@b4run/sdk` and `create-b4-app` READMEs show that poster,
+through its `raw.githubusercontent.com` URL, linked to the stable MP4 URL on
+the media store, with a “Watch the 50-second navlog demo” link under it (npm
+cannot play video). If a new take changes the rounded duration, update that
+line and its pins in `scripts/readme-contracts.test.mjs`.
+
+The root README instead embeds the video with GitHub's inline player: a
+`https://github.com/user-attachments/assets/…` URL alone on its own line after
+the first scaffold command (`DEMO_INLINE_VIDEO_URL` in
+`scripts/lib/readme-contracts.mjs`). That copy is hosted by GitHub, not by the
+media store, so **whenever the video is re-recorded, upload the new MP4
+through github.com** (drag it into an issue or pull request comment), then
+replace the URL in `README.md` and `DEMO_INLINE_VIDEO_URL` together. The media
+store copy remains the canonical media for the npm READMEs and the website
+catalog (`apps/web/app/lib/demo-media.json`). `docs/brand/product-loop.gif`
 stays until the next release, because READMEs already published to npm load it
 from `main`; nothing regenerates it.
 

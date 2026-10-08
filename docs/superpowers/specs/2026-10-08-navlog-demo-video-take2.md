@@ -19,7 +19,7 @@ modern, and snappy.
 |---|---|
 | Length | 45 to 75 s, a target of about 60 s. |
 | Resolution | 1440×810 at 30 fps for both MP4 (H.264) and WebM (VP9). |
-| README | Links the full MP4 on the Vercel Blob media store, through a clickable poster (`apps/web/public/demo/product-loop-poster.webp`, served from the repo's raw URL as the README already does for images). There is no README animation, so the animated WebP and its contract go. |
+| README | The root README embeds the video with GitHub's inline player: a GitHub-hosted copy's `user-attachments` URL alone on its own line (see §7). The `@b4run/cli`, `@b4run/sdk` and `create-b4-app` READMEs link the full MP4 on the Vercel Blob media store through a clickable poster (`apps/web/public/demo/product-loop-poster.webp`, served from the repo's raw URL), since npm cannot play video. There is no README animation, so the animated WebP and its contract go. |
 | Budgets | MP4 at most 12,000,000 bytes and WebM at most 12,000,000 bytes. The blob hosts them, so the 2 MB limit no longer applies. |
 | Determinism | Offline and keyless, as before: aimock scripts every model turn, and a loopback AWC stub serves the weather tools. Every tool runs for real. |
 | Brand | Paper Relay tokens and the take-1 director look: docked headline, square frame, Relay focal bar, blur crossfades, and the dot sweep into the close. |
@@ -208,3 +208,20 @@ Take-2 polish round:
   first frame, both wall clock) and `screencast.motion`; the trim maps scene
   times through the offset. The WebM is now explicitly `yuv420p`, since the
   raw video is 4:4:4 and browsers play VP9 profile 0.
+
+After review:
+
+- **The root README embeds the video inline (Brian's decision).** GitHub
+  renders a bare `https://github.com/user-attachments/assets/…` URL on its own
+  line as an inline player, so the root README shows the GitHub-hosted copy
+  of the take-2 MP4 that way, after the first scaffold command, followed by
+  the transcript link. The readme contracts pin that line
+  (`DEMO_INLINE_VIDEO_URL`), require it after the first scaffold command, and
+  leave it out of the hero link and autolink counts; the root README no longer
+  carries the poster or the watch link. No separate media-store link was
+  added: off GitHub the bare URL still renders as a link that opens the video,
+  and another link in the first scroll would only complicate the hero's link
+  count. The three npm READMEs keep the poster and watch link. The
+  GitHub-hosted copy must be re-uploaded through github.com whenever the video
+  is re-recorded; the media store copy remains the canonical media for the npm
+  READMEs and the catalog.

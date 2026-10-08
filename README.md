@@ -32,12 +32,7 @@ and approval around LangGraph.js. Keep your application code in TypeScript.
 npm create b4-app@latest my-agent
 ```
 
-<p align="center">
-  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
-    <img src="apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">
-  </a>
-  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
-</p>
+https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347
 
 [Read the navlog demo transcript](docs/brand/demo/transcript.md).
 

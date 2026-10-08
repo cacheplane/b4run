@@ -59,7 +59,7 @@ const rootReadme = `# B4.run
 
 ## Run it live
 
-![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)
+https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347
 
 [Read the demo transcript](docs/brand/demo/transcript.md)
 
@@ -472,15 +472,9 @@ const entryReadmeBlockMutations = new Map([
 const canonicalHeroCommandBlock = `\`\`\`bash
 npm create b4-app@latest my-agent
 \`\`\``
-const demoVideoUrl =
-  "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4"
-const canonicalDemoWatchLink = `<br><a href="${demoVideoUrl}">▶ Watch the 50-second navlog demo</a>`
-const canonicalProductLoopBlock = `<p align="center">
-  <a href="${demoVideoUrl}">
-    <img src="apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">
-  </a>
-  ${canonicalDemoWatchLink}
-</p>`
+const demoInlineVideoUrl =
+  "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
+const canonicalInlineVideoLine = `\n\n${demoInlineVideoUrl}\n\n`
 const canonicalQualifiedCredentials = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
 key.`
@@ -1532,76 +1526,69 @@ describe("validateRootReadme", () => {
     assert.deepEqual(validateRootReadme(source, { canonical: true }), [])
   })
 
-  it("requires the first scaffold command before the demo poster", () => {
+  it("requires the first scaffold command before the inline demo video", () => {
     const source = actualRootReadme
       .replace(`${canonicalHeroCommandBlock}\n\n`, "")
       .replace(
         "[Read the navlog demo transcript]",
         `${canonicalHeroCommandBlock}\n\n[Read the navlog demo transcript]`,
       )
-    assertFailure(validateRootReadme(source, { canonical: true }), /before the demo poster/i)
+    assertFailure(
+      validateRootReadme(source, { canonical: true }),
+      /first scaffold command before the inline demo video/i,
+    )
+    const moved = actualRootReadme
+      .replace(canonicalInlineVideoLine, "\n\n")
+      .replace(canonicalHeroCommandBlock, `${demoInlineVideoUrl}\n\n${canonicalHeroCommandBlock}`)
+    assertFailure(
+      validateRootReadme(moved, { canonical: true }),
+      /first scaffold command before the inline demo video/i,
+    )
   })
 
-  for (const [name, source] of [
+  for (const [name, replacement] of [
+    ["missing inline demo video", "\n\n"],
+    ["inline demo video wrapped in an autolink", `\n\n<${demoInlineVideoUrl}>\n\n`],
     [
-      "unlinked demo poster",
-      actualRootReadme.replace(
-        canonicalProductLoopBlock,
-        '<p align="center">\n  <img src="apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">\n</p>',
-      ),
+      "inline demo video wrapped in a Markdown link",
+      `\n\n[Watch the demo](${demoInlineVideoUrl})\n\n`,
     ],
     [
-      "demo poster linked to the transcript instead of the video",
-      actualRootReadme.replace(
-        canonicalProductLoopBlock,
-        canonicalProductLoopBlock.replace(
-          demoVideoUrl,
-          "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
-        ),
-      ),
+      "inline demo video wrapped in an HTML link",
+      `\n\n<a href="${demoInlineVideoUrl}">${demoInlineVideoUrl}</a>\n\n`,
     ],
     [
-      "wrong demo poster alt text",
-      actualRootReadme.replace(
-        "The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video.",
-        "B4.run product loop",
-      ),
+      "different inline video URL",
+      "\n\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n\n",
     ],
+    ["inline demo video sharing its line with text", `\n\nWatch: ${demoInlineVideoUrl}\n\n`],
   ]) {
     it(`rejects a ${name}`, () => {
+      assert.ok(actualRootReadme.includes(canonicalInlineVideoLine))
+      const source = actualRootReadme.replace(canonicalInlineVideoLine, replacement)
+      assert.notEqual(source, actualRootReadme)
       assertFailure(
         validateRootReadme(source, { canonical: true }),
-        /demo poster linked to the video with canonical alt text/i,
+        /inline demo video: its GitHub attachment URL alone on its own line/i,
       )
     })
   }
 
-  it("requires the canonical link to watch the demo video", () => {
-    assert.ok(actualRootReadme.includes(canonicalDemoWatchLink))
-    for (const source of [
-      actualRootReadme.replace(canonicalDemoWatchLink, ""),
-      actualRootReadme.replace(
-        canonicalDemoWatchLink,
-        canonicalDemoWatchLink.replace(demoVideoUrl, "https://b4.run/"),
-      ),
-    ]) {
-      assertFailure(
-        validateRootReadme(source, { canonical: true }),
-        /canonical link to watch the demo video/i,
-      )
-    }
-  })
-
-  it("does not count the demo video links as hero navigation links", () => {
+  it("does not count the inline demo video as a hero navigation link", () => {
     assert.deepEqual(validateRootReadme(actualRootReadme, { canonical: true }), [])
-    const extraTextLink = actualRootReadme.replace(
-      canonicalProductLoopBlock,
-      `${canonicalProductLoopBlock}\n\n<p align="center"><a href="https://b4.run/blog">Blog</a></p>`,
+    const extraAutolink = actualRootReadme.replace(
+      canonicalInlineVideoLine,
+      `${canonicalInlineVideoLine}https://b4.run/blog\n\n`,
     )
     assertFailure(
-      validateRootReadme(extraTextLink, { canonical: true }),
+      validateRootReadme(extraAutolink, { canonical: true }),
       /exactly four canonical hero navigation links/i,
     )
+  })
+
+  it("shows the root README's demo as the inline video, not the npm poster", () => {
+    assert.equal(actualRootReadme.includes("apps/web/public/demo/product-loop-poster.webp"), false)
+    assert.equal(actualRootReadme.includes("b4/demo/product-loop.mp4"), false)
   })
 
   it("drops the README animation: the root README no longer shows the take-1 animated WebP", () => {
@@ -1703,13 +1690,21 @@ describe("validateRootReadme", () => {
     })
   }
 
-  it("accepts the demo poster as an HTML image", () => {
-    const htmlImage = rootReadme.replace(
-      "![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)",
-      '<img src="apps/web/public/demo/product-loop-poster.webp" alt="B4.run product loop" />',
-    )
-    assert.deepEqual(validateRootReadme(htmlImage), [])
+  it("accepts the inline demo video line with surrounding spaces", () => {
+    const spaced = rootReadme.replace(demoInlineVideoUrl, `  ${demoInlineVideoUrl}  `)
+    assert.deepEqual(validateRootReadme(spaced), [])
   })
+
+  for (const [name, wrapped] of [
+    ["an angle-bracket autolink", `<${demoInlineVideoUrl}>`],
+    ["a Markdown link", `[Demo](${demoInlineVideoUrl})`],
+    ["an HTML link", `<a href="${demoInlineVideoUrl}">Demo</a>`],
+  ]) {
+    it(`rejects the inline demo video wrapped in ${name}`, () => {
+      const source = rootReadme.replace(demoInlineVideoUrl, wrapped)
+      assertFailure(validateRootReadme(source), /inline demo video line/)
+    })
+  }
 
   it("accepts the canonical scaffold command in a fenced shell example", () => {
     const fencedCommand = rootReadme.replace(
@@ -1801,28 +1796,28 @@ describe("validateRootReadme", () => {
 
   it("does not accept root assets and links hidden in fenced examples", () => {
     const hiddenReferences = rootReadme
-      .replace("![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)", "")
+      .replace(demoInlineVideoUrl, "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n```md\n![Loop](apps/web/public/demo/product-loop-poster.webp)\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
+        "\n\n```md\nhttps://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
       )
     const failures = validateRootReadme(hiddenReferences)
-    assertFailure(failures, /product-loop-poster\.webp/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
 
   it("does not accept root references hidden in HTML comments", () => {
     const hiddenReferences = rootReadme
-      .replace("![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)", "")
+      .replace(demoInlineVideoUrl, "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n<!-- ![Loop](apps/web/public/demo/product-loop-poster.webp) [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
+        "\n\n<!-- https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347 [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
       )
     const failures = validateRootReadme(hiddenReferences)
-    assertFailure(failures, /product-loop-poster\.webp/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
@@ -1892,10 +1887,7 @@ describe("validateRootReadme", () => {
 
   it("does not accept root assets and links written as inline code", () => {
     const inlineReferences = rootReadme
-      .replace(
-        "![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)",
-        "`![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)`",
-      )
+      .replace(demoInlineVideoUrl, `\`${demoInlineVideoUrl}\``)
       .replace(
         "[Migrate from LangGraph](/docs/migrating-from-langgraph)",
         "`[Migrate from LangGraph](/docs/migrating-from-langgraph)`",
@@ -1905,7 +1897,7 @@ describe("validateRootReadme", () => {
         "`[Read the demo transcript](docs/brand/demo/transcript.md)`",
       )
     const failures = validateRootReadme(inlineReferences)
-    assertFailure(failures, /product-loop-poster\.webp/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
@@ -1913,23 +1905,23 @@ describe("validateRootReadme", () => {
   for (const [name, decoy] of [
     [
       "a list-nested fence",
-      "- ```md\n  ## Quickstart\n  ![Loop](apps/web/public/demo/product-loop-poster.webp)\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
+      "- ```md\n  ## Quickstart\n  https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
     ],
     [
       "indented code",
-      "    ## Quickstart\n    ![Loop](apps/web/public/demo/product-loop-poster.webp)\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
+      "    ## Quickstart\n    https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
     ],
   ]) {
     it(`ignores root contract decoys inside ${name}`, () => {
       const source = rootReadme
         .replace("## Quickstart\n", "")
-        .replace("![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)", "")
+        .replace(demoInlineVideoUrl, "")
         .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
         .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
         .concat(`\n\n${decoy}`)
       const failures = validateRootReadme(source)
       assertFailure(failures, /Quickstart/)
-      assertFailure(failures, /product-loop-poster\.webp/)
+      assertFailure(failures, /inline demo video line/)
       assertFailure(failures, /migrating-from-langgraph/)
       assertFailure(failures, /transcript\.md/)
     })
@@ -2134,12 +2126,9 @@ describe("validateRootReadme", () => {
       /npm create b4-app@latest my-agent/,
     ],
     [
-      "demo poster",
-      rootReadme.replace(
-        "apps/web/public/demo/product-loop-poster.webp",
-        "docs/brand/quickstart.gif",
-      ),
-      /apps\/web\/public\/demo\/product-loop-poster\.webp/,
+      "inline demo video",
+      rootReadme.replace(demoInlineVideoUrl, "https://github.com/user-attachments/assets/other"),
+      /inline demo video line/,
     ],
     [
       "migration link",
