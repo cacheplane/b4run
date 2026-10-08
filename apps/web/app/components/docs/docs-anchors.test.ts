@@ -992,9 +992,9 @@ describe("docs links and in-page anchors", () => {
         ],
         [destinations.includes(`https://b4.run${entry.conceptualGuideDestination}`), "guide"],
         [
-          new RegExp(`pnpm add(?: -D)?[^\\n]*${entry.packageName.replace("/", "\\/")}`).test(
-            source,
-          ),
+          new RegExp(
+            `(?:pnpm add(?: -D)?|npm install(?: -D)?)[^\\n]*${entry.packageName.replace("/", "\\/")}`,
+          ).test(source),
           "install",
         ],
         [source.includes(`from "${entry.packageName}"`), "primary import"],

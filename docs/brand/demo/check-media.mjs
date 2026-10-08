@@ -7,32 +7,22 @@ import { promisify } from "node:util"
 
 const execFile = promisify(nodeExecFile)
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
-const VIDEO_BYTE_LIMIT = 2_000_000
-const GIF_BYTE_LIMIT = 4_000_000
+/** The blob store hosts both videos; the README links the MP4 through its poster. */
+export const VIDEO_BYTE_LIMIT = 12_000_000
 const MEDIA_SCHEMA_VERSION = 1
 
 export const MEDIA_CAPTIONS = Object.freeze({
   "product-loop":
-    "Author a file-system route, prove it with npm test, run it in the B4.run Workbench, then restore the same thread after a browser reload.",
-  author:
-    "Inspect the generated research route, co-located route files, shared searchCorpus tool, and offline test harness.",
-  test: "Run npm test and see the deterministic research scenario pass without a provider key.",
-  run: "Complete a fixture-backed Workbench run, then restore the same thread and its checkpointed transcript after a browser reload.",
+    "A navlog demo: the agent's route, subagents, tools, approval gate and memory in code, each followed by the real B4.run Workbench running it — plan, weather brief, navlog, approved filing, and a reload that restores the thread.",
 })
 
 export const MEDIA_CONTRACTS = Object.freeze(
-  [
-    { name: "product-loop", minimumDuration: 20, maximumDuration: 30 },
-    { name: "author", minimumDuration: 8, maximumDuration: 12 },
-    { name: "test", minimumDuration: 8, maximumDuration: 12 },
-    { name: "run", minimumDuration: 8, maximumDuration: 12 },
-  ].map((contract) =>
+  [{ name: "product-loop", minimumDuration: 45, maximumDuration: 75 }].map((contract) =>
     Object.freeze({
       ...contract,
       mp4: `docs/brand/demo/artifacts/output/${contract.name}.mp4`,
       webm: `docs/brand/demo/artifacts/output/${contract.name}.webm`,
       poster: `apps/web/public/demo/${contract.name}-poster.webp`,
-      ...(contract.name === "product-loop" ? { gif: "docs/brand/product-loop.gif" } : {}),
     }),
   ),
 )
@@ -79,10 +69,6 @@ export function validateMediaManifestLayout({ repoRoot, pointer, manifest }) {
       throw new Error(`${name} poster hash is missing or invalid`)
     }
   }
-  requireExactPath(manifest.gif, join(publicationRoot, "product-loop.gif"), "flagship GIF")
-  if (!/^[a-f0-9]{64}$/u.test(manifest.assetHashes?.gif ?? "")) {
-    throw new Error("flagship GIF hash is missing or invalid")
-  }
   return { runRoot, manifestPath, outputRoot, publicationRoot }
 }
 
@@ -117,11 +103,7 @@ function validateVideoFile({ logicalPath, file, clip, expectedCodec, byteLimit }
       `${logicalPath} must be exactly 1440x810 (16:9); received ${stream.width ?? "unknown"}x${stream.height ?? "unknown"}`,
     )
   }
-  const measuredFrameRate = frameRate(
-    expectedCodec === "gif"
-      ? (stream.r_frame_rate ?? stream.avg_frame_rate)
-      : stream.avg_frame_rate,
-  )
+  const measuredFrameRate = frameRate(stream.avg_frame_rate)
   if (Math.abs(measuredFrameRate - 30) > 0.001) {
     failures.push(`${logicalPath} must be exactly 30 fps`)
   }
@@ -193,16 +175,6 @@ export async function validateLocalMediaContract({ files, captions }) {
       failures.push(`${contract.name} caption must not claim scaffolding appears in the footage`)
     }
   }
-  const flagship = MEDIA_CONTRACTS[0]
-  failures.push(
-    ...validateVideoFile({
-      logicalPath: flagship.gif,
-      file: files.get(flagship.gif),
-      clip: flagship,
-      expectedCodec: "gif",
-      byteLimit: GIF_BYTE_LIMIT,
-    }),
-  )
   const transcript = files.get("docs/brand/demo/transcript.md")
   if (
     transcript === undefined ||
@@ -288,16 +260,6 @@ async function collectMediaFiles(
       if (error?.code !== "ENOENT") throw error
     }
   }
-  const gifPath = published ? join(repoRoot, "docs/brand/product-loop.gif") : manifest.gif
-  try {
-    const info = await stat(gifPath)
-    files.set("docs/brand/product-loop.gif", {
-      size: info.size,
-      probe: await probe(gifPath, { signal }),
-    })
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error
-  }
   const transcriptPath = join(repoRoot, "docs/brand/demo/transcript.md")
   try {
     files.set("docs/brand/demo/transcript.md", {
@@ -336,9 +298,6 @@ export async function validateStagedMediaManifest({
       throw new Error(`${name} staged poster hash does not match its manifest`)
     }
   }
-  if ((await hash(manifest.gif)) !== manifest.assetHashes.gif) {
-    throw new Error("staged flagship GIF hash does not match its manifest")
-  }
   const files = await collectMediaFiles(repoRoot, manifest, {
     published: false,
     stat,
@@ -365,11 +324,6 @@ async function verifyPublishedCorrespondence(repoRoot, manifest, { hash = hashFi
     if (stagedHash !== expectedHash || publishedHash !== expectedHash) {
       throw new Error(`${contract.name} fixed poster does not correspond to run ${manifest.runId}`)
     }
-  }
-  const stagedGifHash = await hash(manifest.gif)
-  const publishedGifHash = await hash(join(repoRoot, "docs/brand/product-loop.gif"))
-  if (stagedGifHash !== manifest.assetHashes.gif || publishedGifHash !== manifest.assetHashes.gif) {
-    throw new Error(`fixed flagship GIF does not correspond to run ${manifest.runId}`)
   }
 }
 
@@ -402,12 +356,12 @@ export async function checkLocalMedia({
     throw new Error(`Local media contract failed:\n- ${failures.join("\n- ")}`)
   }
   const passLines = [
-    "PASS dimensions: every video and GIF is 1440x810 (16:9)",
-    "PASS frame rate: every video and GIF is 30 fps",
-    "PASS durations: flagship is 20-30s; derivatives are 8-12s",
-    "PASS codecs: MP4 is H.264, WebM is VP9, and GIF is animated GIF",
-    "PASS byte budgets: MP4/WebM <=2MB each and GIF <=4MB",
-    "PASS posters: all four fallbacks are 1440x810 WebP",
+    "PASS dimensions: the MP4 and WebM are 1440x810 (16:9)",
+    "PASS frame rate: the MP4 and WebM are 30 fps",
+    "PASS durations: the flagship is 45-75s",
+    "PASS codecs: MP4 is H.264 and WebM is VP9",
+    "PASS byte budgets: MP4 and WebM are each <=12,000,000 bytes",
+    "PASS posters: the flagship poster is 1440x810 WebP",
     "PASS transcript: the static walkthrough exists",
     "PASS captions: no caption claims scaffolding appears",
   ]
@@ -421,7 +375,7 @@ export async function checkLocalMedia({
   return { pointer, manifest, sourceFiles, passLines }
 }
 
-const DEMO_MEDIA_KEYS = Object.freeze(["productLoop", "author", "test", "run"])
+const DEMO_MEDIA_KEYS = Object.freeze(["productLoop"])
 const DEMO_MEDIA_FIELDS = Object.freeze([
   "mp4",
   "webm",
@@ -432,9 +386,6 @@ const DEMO_MEDIA_FIELDS = Object.freeze([
 ])
 const DEMO_MEDIA_NAMES = Object.freeze({
   productLoop: "product-loop",
-  author: "author",
-  test: "test",
-  run: "run",
 })
 
 export function urlHasExplicitPort(value) {

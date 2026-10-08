@@ -32,19 +32,19 @@ and approval around LangGraph.js. Keep your application code in TypeScript.
 npm create b4-app@latest my-agent
 ```
 
-<p align="center">
-  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
-  </a>
-</p>
+https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347
 
-[Read the product-loop transcript](docs/brand/demo/transcript.md).
+The 50-second demo shows one agent file, weather and performance subagents, a
+computed navlog, approval-gated filing, memory, and a conversation restored
+after a reload. Model turns are scripted and the weather API is stubbed, so the
+video rebuilds offline. Build the same app with
+`npm create b4-app@latest my-navlog -- --template navlog`.
+
+[Read the navlog demo transcript](docs/brand/demo/transcript.md).
 
 ## Quickstart
 
-The first activation is the no-key path:
-
-Requires Node.js 24 or later.
+Requires Node.js 24 or later and npm 11. No API key needed:
 
 ```bash
 npm create b4-app@latest my-agent
@@ -53,11 +53,8 @@ npm install
 npm test
 ```
 
-In a credential-sanitized clean-room run on August 31, 2026, npm resolved
-`create-b4-app` 0.8.21; the generated starter installed and its default
-fixture suite passed, with one opt-in test file skipped. The observation is
-version- and date-specific; `@latest` can move. See the
-[activation receipt](docs/brand/demo/evidence-matrix.md#clean-room-activation-observation).
+`npm test` runs the starter's fixture-backed test offline — no API key, no
+model calls.
 
 ## Why B4.run
 
@@ -76,15 +73,38 @@ version- and date-specific; `@latest` can move. See the
   SQLite files persist. The default build emits a runnable Node server,
   Dockerfile, and LangSmith graph artifacts; validate the runtime, storage, auth,
   and provider boundary for the deployment target you choose.
+- **Set the limits in the route.** `tools.deny` removes a tool from a route,
+  and `tools.approve` pauses a call until a person answers, with each answer
+  spending a single-use [approval grant](https://b4.run/docs/approval-grants).
+  [Permissions](https://b4.run/docs/permissions) gate shell commands and file
+  paths outside the workspace, an opt-in [sandbox](https://b4.run/docs/sandbox)
+  isolates the workspace tools, and the
+  [security architecture](https://b4.run/docs/security-architecture) covers the
+  authentication you put in front of the runtime.
+
+The navlog template's whole agent is one route file:
+
+```ts
+// server/src/app/navlog/index.ts (description and system prompt abbreviated)
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  recursionLimit: 100,
+  description: "A VFR flight planner for a Cessna 172N…",
+  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+  systemPrompt: "You are a VFR flight-planning assistant for a Cessna 172N…",
+})
+```
 
 ## How B4.run fits
 
 | Layer | Role |
 | --- | --- |
-| **LangChain** | Remains available. B4.run's built-in `agent()` path uses LangChain integrations; raw graph and chain routes own their imports and provider behavior, and B4.run does not claim coverage for every LangChain package or provider. |
-| **LangGraph.js** | Remains the graph runtime and is required by B4.run. B4.run adds application conventions around it rather than replacing it. |
+| **LangChain** | Remains available. B4.run's built-in `agent()` uses LangChain integrations; raw graph and chain routes keep their own imports and providers. |
+| **LangGraph.js** | The graph runtime, required by B4.run. B4.run adds application conventions around it rather than replacing it. |
 | **B4.run** | Supplies file-system routing, generated types, local test and development conventions, persistence primitives, and build targets around LangGraph.js. |
-| **Deployment and observability choices** | Model providers and LangSmith remain external. B4.run emits a Node runtime and LangSmith artifacts by default, with target-specific options documented separately; it does not provision infrastructure, host the app, or manage secrets. |
+| **Deployment and observability choices** | Model providers and LangSmith stay external. B4.run emits a Node server and LangSmith artifacts by default, with other targets opt-in; it does not provision infrastructure, host the app, or manage secrets. |
 
 ## What B4.run writes for you
 
@@ -103,15 +123,17 @@ covers that incremental path.
 
 ## What are you building?
 
-Start with the [runnable developer agent](./examples/code-fixer/server/README.md)
-and its [code walkthrough](./examples/code-fixer/server/WALKTHROUGH.md).
-It reproduces a historical defect, repairs source in an isolated workspace,
-verifies the patch independently, and pauses for your approval before local export.
-The [homepage](https://b4.run) shows one real recorded repair; the
-[evaluation report](./docs/superpowers/runbooks/2026-09-13-code-fixer-live-evaluations.md)
-retains the failed attempts too.
+Start with the [flight planner](https://b4.run/docs/recipes/flight-planner), a
+VFR flight planner for a Cessna 172N: live weather tools, a navlog computed in
+code from the POH, weather and performance subagents, memory, planning, and
+flight-plan filing behind approval. Scaffold it with
+`npm create b4-app@latest my-navlog -- --template navlog`.
 
-- [Flight planner (navlog)](./examples/navlog/README.md)
+- [Developer agent](./examples/code-fixer/server/README.md): reproduces a
+  historical defect, repairs it in an isolated workspace, verifies the patch
+  independently, and asks before exporting it
+  ([code walkthrough](./examples/code-fixer/server/WALKTHROUGH.md))
+- [Flight planner example source](./examples/navlog/README.md)
 - [Chat and workspace assistant](./examples/chat/README.md)
 - [Memory-backed agent](./examples/memory/README.md)
 - [Routes and workflows guide](https://b4.run/docs/routes)
@@ -120,15 +142,14 @@ retains the failed attempts too.
 
 - **A good fit:** a TypeScript team wants LangGraph.js with file-system routes,
   generated types, a local test and development loop, persistence primitives,
-  and build targets. Capability support varies by target, so validate the subset
-  your application uses.
+  and build targets. Some capabilities vary by build target.
 - **Stay with raw LangGraph.js:** if you do not want B4.run's application
   conventions, or if your project requires Python. B4.run requires LangGraph.js
   and targets TypeScript and Node.js.
 - **Bring the ecosystem with you:** existing raw LangGraph.js graphs can migrate
   incrementally as `graph` routes. LangChain remains usable, and CopilotKit
-  composes with B4.run through the tested AG-UI boundary; validate versions and
-  target-specific invocation, provider, and checkpointer behavior in your app.
+  composes with B4.run through AG-UI. Check a migrated graph's checkpointer
+  behavior on each deployment target.
 
 B4.run is not a hosted AI platform or an infrastructure provisioner. You operate
 the emitted application or deploy it through a separate platform.
@@ -152,28 +173,34 @@ Credentials are provider-specific: the navlog starter's OpenAI live
 path requires `OPENAI_API_KEY`, while a local Ollama route requires no provider
 key.
 
-`npm create b4-app@latest my-agent` scaffolds the smaller `basic` template, a
-single `/hello` agent, by default. The larger starter is a two-package npm
-workspace: a B4.run server and the B4.run Workbench. Published `@latest`
-(0.13.1) selects it with `--template research`; current repository source
-replaces it with the navlog flight planner, selected with `--template navlog`
-(`--template research` remains a deprecated alias that scaffolds navlog).
-Either one runs the same way:
+Scaffold the navlog flight planner, a two-package npm workspace with a B4.run
+server and the B4.run Workbench, then add your key and check the app:
 
 ```bash
+npm create b4-app@latest my-navlog -- --template navlog
+cd my-navlog
 npm install
-export OPENAI_API_KEY=sk-...
+cp server/.env.example server/.env   # then set OPENAI_API_KEY in server/.env
+npm run verify
+```
+
+Start the server:
+
+```bash
 npm run dev:server
 ```
 
-In a second terminal:
+In a second terminal, start the Workbench:
 
 ```bash
 npm run dev:web
 ```
 
-The server listens on port 3002 and the Workbench on port 3010. The root
-workspace defines the production build and start scripts:
+The server listens on port 3002 and the Workbench on port 3010. The basic
+starter runs live with `npm run dev` on port 3000 once `OPENAI_API_KEY` is set
+in your shell.
+
+The navlog root workspace defines the production build and start scripts:
 
 ```bash
 npm run build
@@ -197,8 +224,9 @@ B4.run is pre-1.0 and its API surface is moving. Pin versions and read the
 public surfaces on the current release line, not a 1.0 stability or long-term
 support guarantee.
 
-- Follow [SUPPORT.md](./SUPPORT.md) for support routes, and ask usage questions
-  in [GitHub Discussions](https://github.com/cacheplane/b4run/discussions).
+- Follow [SUPPORT.md](./SUPPORT.md) for support routes. Ask usage questions in
+  [GitHub Discussions](https://github.com/cacheplane/b4run/discussions) and
+  report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
 - Report security issues through the process in [SECURITY.md](./SECURITY.md).
 - See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CONTRIBUTORS.md](./CONTRIBUTORS.md) before contributing.
 - Follow the [Code of Conduct](./CODE_OF_CONDUCT.md).

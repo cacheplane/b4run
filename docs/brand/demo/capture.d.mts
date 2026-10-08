@@ -19,7 +19,10 @@ export function openReadyWorkbench(page: Page, url: string): Promise<void>
 
 export function fillActiveWorkbenchComposer(page: Page, prompt: string): Promise<void>
 
-export function waitForWorkbenchRunCompletion(page: Page): Promise<void>
+export function waitForWorkbenchRunCompletion(
+  page: Page,
+  options?: { readonly turns?: number },
+): Promise<void>
 
 export function expandLatestTurn(
   page: Page,
@@ -37,7 +40,18 @@ export function restoreWorkbenchThread(
     readonly workbenchUrl: string
     readonly threadId: string
     readonly prompt: string
-    readonly tools: readonly string[]
-    readonly answer: string
-  },
+  } & (
+    | {
+        readonly tools: readonly string[]
+        readonly answer: string
+        readonly turns?: undefined
+      }
+    | {
+        readonly turns: readonly {
+          readonly prompt: string
+          readonly tools: readonly string[]
+          readonly answer: string
+        }[]
+      }
+  ),
 ): Promise<{ readonly connectUrl: string }>

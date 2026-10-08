@@ -14,29 +14,33 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createAimock } from "../../../packages/testing/dist/index.js"
-import { normalizeLog } from "./normalize-log.mjs"
+import { startAwcStub as startLoopbackAwcStub } from "./awc-stub.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_PROMPT } from "./scenario.mjs"
-import { GENERATED_PATHS, renderStage } from "./stage.mjs"
+import { assertScenarioCurrent, demoScenario } from "./scenario.mjs"
+import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
+import { runEncoderCommand } from "./encode.mjs"
+import { beatSceneName, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
 
-const EXPECTED_TOOLS = DEMO_FIXTURES.flatMap(
-  (fixture) => fixture.response.toolCalls?.map((toolCall) => toolCall.name) ?? [],
-)
-const EXPECTED_ANSWER = DEMO_FIXTURES.findLast(
-  (fixture) => typeof fixture.response.content === "string",
-)?.response.content
-if (typeof EXPECTED_ANSWER !== "string") {
-  throw new Error("Canonical demo fixtures must end in a text answer")
-}
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
 const DEFAULT_SCAFFOLD_PORTS = new Set([3002, 3010])
 const NODE_MINIMUM_MAJOR = 24
 const PNPM_VERSION = "10.33.0"
 const VIEWPORT = Object.freeze({ width: 1440, height: 810 })
+/**
+ * The real waits inside an app beat, between its camera moves. Each beat's
+ * final hold is its storyboard `holdMs`.
+ */
 const DEFAULT_HOLD_DURATIONS = Object.freeze({
-  preReloadMs: 1_200,
-  restorationMs: 1_800,
+  // The navlog beat: the route on the map, before the camera moves to the sheet.
+  mapMs: 1_500,
+  // The filing beat: the approval card, before the capture clicks Allow once.
+  approvalMs: 1_800,
+  // The reload beat: the suggested memory, before the camera pulls back to reload.
+  memoryMs: 1_200,
 })
+/** The AWC products the scripted run reaches; the capture asserts the stub served each. */
+const AWC_ENDPOINTS = Object.freeze(["airport", "metar", "taf", "windtemp", "gairmet", "airsigmet"])
+const DIRECTOR_PATH = "/__b4_demo_director/"
 const DEFAULT_TIMING = Object.freeze({
   now: () => performance.now(),
   sleep: (durationMs, { signal } = {}) =>
@@ -112,9 +116,12 @@ export function validateRunId(value) {
   return value
 }
 
-function createVideoTimeline(now) {
+function createVideoTimeline(now, wallClock = Date.now) {
   if (typeof now !== "function") throw new TypeError("timing.now must be a function")
   const startedAtMonotonicMs = now()
+  // The same instant on the wall clock, the clock the screencast stamps its
+  // frames with: the bridge from scene times to video time.
+  const startedAtEpochMs = wallClock()
   const scenes = {}
   let previousEnd = 0
   return {
@@ -132,6 +139,7 @@ function createVideoTimeline(now) {
       return {
         unit: "milliseconds",
         startedAtMonotonicMs,
+        startedAtEpochMs,
         endedAtMonotonicMs: startedAtMonotonicMs + previousEnd,
         scenes: { ...scenes },
       }
@@ -165,12 +173,21 @@ export function sanitizeOperationalEnvironment(parentEnvironment = process.env) 
 }
 
 export function assertLoopbackModelBaseUrl(value) {
-  requireString(value, "model base URL")
+  return assertLoopbackHttpUrl(value, "model base URL")
+}
+
+/** The AWC stub's base: the server's weather tools must never leave the machine. */
+export function assertLoopbackAwcBaseUrl(value) {
+  return assertLoopbackHttpUrl(value, "AWC base URL")
+}
+
+function assertLoopbackHttpUrl(value, label) {
+  requireString(value, label)
   let url
   try {
     url = new URL(value)
   } catch {
-    throw new TypeError("model base URL must be a loopback HTTP(S) URL")
+    throw new TypeError(`${label} must be a loopback HTTP(S) URL`)
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, "")
   const ipFamily = isIP(hostname)
@@ -182,13 +199,19 @@ export function assertLoopbackModelBaseUrl(value) {
     url.username !== "" ||
     url.password !== ""
   ) {
-    throw new TypeError("model base URL must be a loopback HTTP(S) URL")
+    throw new TypeError(`${label} must be a loopback HTTP(S) URL`)
   }
   return url
 }
 
-export function buildChildEnvironment(parentEnvironment, modelBaseUrl) {
+/**
+ * The B4.run server's environment: the operational allowlist, the model at
+ * aimock, and, when given, the weather tools at the loopback AWC stub
+ * (`B4_AWC_BASE_URL`, read by the template's `lib/awc.ts`).
+ */
+export function buildChildEnvironment(parentEnvironment, modelBaseUrl, { awcBaseUrl } = {}) {
   const url = assertLoopbackModelBaseUrl(modelBaseUrl)
+  const awc = awcBaseUrl === undefined ? undefined : assertLoopbackAwcBaseUrl(awcBaseUrl)
   return {
     ...sanitizeOperationalEnvironment(parentEnvironment),
     // `npm exec -- b4 ...` otherwise resolves the unrelated registry package
@@ -196,6 +219,7 @@ export function buildChildEnvironment(parentEnvironment, modelBaseUrl) {
     npm_config_package: "@b4run/cli",
     OPENAI_BASE_URL: url.href,
     OPENAI_API_KEY: "test-not-used",
+    ...(awc !== undefined ? { B4_AWC_BASE_URL: awc.href.replace(/\/$/, "") } : {}),
     COPILOTKIT_TELEMETRY_DISABLED: "true",
     DO_NOT_TRACK: "1",
   }
@@ -685,6 +709,9 @@ function createProcessAdapter() {
     startAimock(fixtures) {
       return createAimock({ fixtures })
     },
+    startAwcStub({ now }) {
+      return startLoopbackAwcStub({ now })
+    },
     async getPort(excludedPorts) {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         const port = await getAvailableLoopbackPort()
@@ -828,15 +855,29 @@ export const SETTLED_ROOT_TURN_SELECTOR = `${ROOT_TURN_SELECTOR}:is([data-state=
 
 const CONNECT_PATHNAME = "/api/copilotkit/agent/default/connect"
 
-export async function waitForWorkbenchRunCompletion(page) {
+/**
+ * Waits for the run to end. Without `turns`, the latest root turn settling is
+ * the proof. With `turns` (the thread's turn count once this run is done), the
+ * proof is that many settled turns and no other: in a thread that already has
+ * a settled turn, "the last settled turn" is visible before the new run has
+ * even rendered, and a turn parked on an approval is not settled.
+ */
+export async function waitForWorkbenchRunCompletion(page, { turns } = {}) {
   // The run's own turn settling is the proof the run ended. Stop and Send are
   // one button, so without this a wait that starts before the run renders its
   // Stop state would pass on the idle composer the click left behind.
-  await page
-    .getByRole("main")
-    .locator(SETTLED_ROOT_TURN_SELECTOR)
-    .last()
-    .waitFor({ state: "visible", timeout: 120_000 })
+  const main = page.getByRole("main")
+  const settled = main.locator(SETTLED_ROOT_TURN_SELECTOR)
+  await (turns === undefined ? settled.last() : settled.nth(turns - 1)).waitFor({
+    state: "visible",
+    timeout: 120_000,
+  })
+  if (turns !== undefined) {
+    const count = await main.locator(ROOT_TURN_SELECTOR).count()
+    if (count !== turns) {
+      throw new Error(`The thread rendered ${count} turns once the run settled, expected ${turns}`)
+    }
+  }
   await page
     .getByRole("button", { name: "Stop", exact: true })
     .waitFor({ state: "hidden", timeout: 120_000 })
@@ -854,14 +895,20 @@ export async function waitForWorkbenchRunCompletion(page) {
  * not in the DOM until its summary is expanded.
  */
 export async function expandLatestTurn(page, { timeout = 120_000 } = {}) {
-  const turn = page.getByRole("main").locator(SETTLED_ROOT_TURN_SELECTOR).last()
+  return expandTurn(page.getByRole("main").locator(SETTLED_ROOT_TURN_SELECTOR).last(), {
+    timeout,
+    name: "The latest turn",
+  })
+}
+
+async function expandTurn(turn, { timeout = 120_000, name }) {
   await turn.waitFor({ state: "visible", timeout })
   const summary = turn.locator(":scope > button.b4-turn__summary")
   if ((await summary.getAttribute("aria-expanded")) !== "true") {
     await summary.click({ timeout })
   }
   if ((await summary.getAttribute("aria-expanded")) !== "true") {
-    throw new Error("The latest turn's summary did not expand (aria-expanded stayed false)")
+    throw new Error(`${name}'s summary did not expand (aria-expanded stayed false)`)
   }
   return turn
 }
@@ -872,6 +919,51 @@ export async function expandLatestTurn(page, { timeout = 120_000 } = {}) {
  */
 function rootToolSteps(turn) {
   return turn.locator(':scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]')
+}
+
+/**
+ * The root tool steps the activity kit draws for a turn's tool calls, in
+ * order: `writeTodos` is the plan step and `task` a subagent step, not tool
+ * steps, and a run of the same tool called back to back folds into one group
+ * step (`data-kind="group"`), which is not a tool step either.
+ */
+export function expectedRootToolSteps(tools) {
+  const steps = []
+  for (let index = 0; index < tools.length; index += 1) {
+    const tool = tools[index]
+    let end = index
+    while (tools[end + 1] === tool) end += 1
+    if (end === index && tool !== "writeTodos" && tool !== "task") steps.push(tool)
+    index = end
+  }
+  return steps
+}
+
+/**
+ * The approval card for a gated call, with its evidence: `Allow once` and
+ * `Deny`, and no `Always allow` (the route gates `fileFlightPlan` with
+ * `allowAlways: false`). Returns the card, scrolled into view.
+ */
+export async function awaitApprovalCard(page, { timeout = 120_000 } = {}) {
+  const card = page.getByRole("main").locator('.b4-approval[role="alert"]')
+  await card.waitFor({ state: "visible", timeout })
+  const count = await card.count()
+  if (count !== 1) throw new Error(`The Workbench rendered ${count} approval cards, expected 1`)
+  for (const name of ["Allow once", "Deny"]) {
+    const buttons = await card.getByRole("button", { name, exact: true }).count()
+    if (buttons !== 1) {
+      throw new Error(`The approval card has ${buttons} "${name}" buttons, expected 1`)
+    }
+  }
+  const always = await card.getByRole("button", { name: "Always allow", exact: true }).count()
+  if (always !== 0) {
+    throw new Error(
+      `The approval card offers "Always allow"; the route gates this call with allowAlways: false`,
+    )
+  }
+  await centerInScroller(card)
+  await settleWorkbenchViewport(page)
+  return card
 }
 
 /**
@@ -897,10 +989,20 @@ export function isThreadConnectResponse(response, { origin, threadId }) {
   }
 }
 
-export async function restoreWorkbenchThread(
-  page,
-  { workbenchUrl, threadId, prompt, tools, answer },
-) {
+/**
+ * Reloads the Workbench, reselects the thread and proves it came back: its
+ * title, its turns, each turn's root tool steps and each turn's answer. A
+ * one-turn thread passes `prompt`, `tools` and `answer`; a longer one passes
+ * `turns`, one `{ prompt, tools, answer }` per turn in order, with `prompt`
+ * still the first message (the thread's title). `tools` are the root tool
+ * steps the turn renders (see `expectedRootToolSteps`).
+ */
+export async function restoreWorkbenchThread(page, options) {
+  const { workbenchUrl, threadId, prompt } = options
+  const expected = options.turns ?? [
+    { prompt: options.prompt, tools: options.tools, answer: options.answer },
+  ]
+  if (expected.length === 0) throw new Error("restoreWorkbenchThread needs at least one turn")
   const origin = new URL(workbenchUrl).origin
   const connected = page.waitForResponse(
     (response) => isThreadConnectResponse(response, { origin, threadId }),
@@ -928,46 +1030,507 @@ export async function restoreWorkbenchThread(
   }
   const main = page.getByRole("main")
   const visible = { state: "visible", timeout: 120_000 }
-  await main.getByText(prompt, { exact: true }).last().waitFor(visible)
-  const turns = main.locator(SETTLED_ROOT_TURN_SELECTOR)
-  await turns.first().waitFor(visible)
-  const turnCount = await main.locator(ROOT_TURN_SELECTOR).count()
-  if (turnCount !== 1) {
-    throw new Error(`The restored thread rendered ${turnCount} turns, expected exactly 1`)
+  for (const turn of expected) {
+    await main.getByText(turn.prompt, { exact: true }).last().waitFor(visible)
   }
-  // A restored turn starts folded; its steps are in the DOM only once opened.
-  const turn = await expandLatestTurn(page)
-  const steps = rootToolSteps(turn)
-  if (tools.length > 0) await steps.first().waitFor(visible)
-  const stepCount = await steps.count()
-  if (stepCount !== tools.length) {
+  const turns = main.locator(SETTLED_ROOT_TURN_SELECTOR)
+  await (expected.length === 1 ? turns.first() : turns.nth(expected.length - 1)).waitFor(visible)
+  const turnCount = await main.locator(ROOT_TURN_SELECTOR).count()
+  if (turnCount !== expected.length) {
     throw new Error(
-      `The restored turn rendered ${stepCount} tool steps, expected ${tools.length} (${tools.join(", ")})`,
+      `The restored thread rendered ${turnCount} turns, expected exactly ${expected.length}`,
     )
   }
-  await main.getByText(answer, { exact: true }).last().waitFor(visible)
+  for (const [index, { tools, answer }] of expected.entries()) {
+    const label = expected.length === 1 ? "The restored turn" : `Restored turn ${index + 1}`
+    // A restored turn starts folded; its steps are in the DOM only once opened.
+    const turn =
+      expected.length === 1
+        ? await expandLatestTurn(page)
+        : await expandTurn(turns.nth(index), { name: label })
+    const steps = rootToolSteps(turn)
+    if (tools.length > 0) await steps.first().waitFor(visible)
+    const stepCount = await steps.count()
+    if (stepCount !== tools.length) {
+      throw new Error(
+        `${label} rendered ${stepCount} tool steps, expected ${tools.length} (${tools.join(", ")})`,
+      )
+    }
+    await main.getByText(answer, { exact: true }).last().waitFor(visible)
+  }
   return { connectUrl: response.url() }
 }
 
-export async function closeBrowserResources({ context, video, browser }) {
-  const errors = []
-  let videoPath
-  try {
-    await context.close()
-  } catch (error) {
-    errors.push(error)
+const VISIBLE = Object.freeze({ state: "visible", timeout: 120_000 })
+
+/** The active thread's id, from the Workbench's thread list, by its title. */
+async function readThreadId(page, title) {
+  const threadId = await page.evaluate((wanted) => {
+    const raw = localStorage.getItem("b4.workbench.threads")
+    const threads = raw === null ? [] : JSON.parse(raw)
+    const thread = threads.find((entry) => entry?.title === wanted)
+    return typeof thread?.id === "string" ? thread.id : undefined
+  }, title)
+  if (threadId === undefined) throw new Error("Workbench did not persist the active thread id")
+  return threadId
+}
+
+/**
+ * Sends the pre-filled planning prompt and proves turn 1: the plan's first
+ * to-do while the run works, then the settled turn's root tool steps and its
+ * answer. A settled turn folds its activity, and the scripted run settles in
+ * well under a second, so the plan step is opened again (a real click on its
+ * line) and scrolled to the middle of the transcript: the beat holds on the
+ * plan's to-dos.
+ */
+export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
+  if (!Array.isArray(todos) || todos.length === 0) throw new Error("sendPlanTurn needs the to-dos")
+  const main = page.getByRole("main")
+  await page.getByRole("button", { name: "Send", exact: true }).click({ timeout: 60_000 })
+  const plan = main.getByRole("list", { name: "Plan", exact: true })
+  await plan.getByText(todos[0].content, { exact: true }).first().waitFor(VISIBLE)
+  await waitForWorkbenchRunCompletion(page, { turns: 1 })
+  const turn = await expandLatestTurn(page)
+  const expectedSteps = expectedRootToolSteps(tools)
+  const steps = rootToolSteps(turn)
+  await steps.first().waitFor(VISIBLE)
+  const stepCount = await steps.count()
+  if (stepCount !== expectedSteps.length) {
+    throw new Error(
+      `The plan turn rendered ${stepCount} tool steps, expected ${expectedSteps.length} (${expectedSteps.join(", ")})`,
+    )
   }
-  if (video !== null) {
+  await main.getByText(answer, { exact: true }).last().waitFor(VISIBLE)
+  const line = turn.locator(
+    ':scope > ol.b4-turn__steps > li.b4-step[data-kind="plan"] > button.b4-step__line',
+  )
+  if ((await line.getAttribute("aria-expanded")) !== "true") await line.click({ timeout: 60_000 })
+  for (const todo of todos) {
+    await plan.getByText(todo.content, { exact: true }).first().waitFor(VISIBLE)
+  }
+  // Centred in the transcript, the way a reader scrolls to it, so the to-dos
+  // sit inside the `todos` framing rather than at the transcript's edge.
+  await centerInScroller(plan.first())
+  await settleWorkbenchViewport(page)
+  return { threadId: await readThreadId(page, prompt) }
+}
+
+/**
+ * Scrolls `locator` to the middle of its nearest scrolling ancestor (the
+ * transcript) and nothing else. `scrollIntoView` would also scroll the
+ * Workbench's `overflow: hidden` root, pushing the weather strip and the dock
+ * header out of the top of the page, which no reader's scroll can do.
+ */
+export async function centerInScroller(locator) {
+  await locator.evaluate((element) => {
+    let scroller = element.parentElement
+    while (scroller !== null) {
+      const { overflowY } = getComputedStyle(scroller)
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        scroller.scrollHeight > scroller.clientHeight
+      ) {
+        break
+      }
+      scroller = scroller.parentElement
+    }
+    if (scroller === null) return
+    const box = element.getBoundingClientRect()
+    const view = scroller.getBoundingClientRect()
+    scroller.scrollTop += box.top - view.top - Math.max(0, (view.height - box.height) / 2)
+  })
+}
+
+/**
+ * Puts the Workbench page back at its own origin: the document and the
+ * `overflow: hidden` layout root unscrolled, as a reader always sees them.
+ * Playwright's actionability scrolling (and any `scrollIntoView`) can scroll
+ * them; this undoes only that, never the transcript's own scroll.
+ */
+export async function settleWorkbenchViewport(page) {
+  await page.evaluate(() => {
+    for (const element of [
+      document.scrollingElement,
+      document.documentElement,
+      document.body,
+      ...document.querySelectorAll(".wb-root"),
+    ]) {
+      if (element === null || element === undefined) continue
+      element.scrollTop = 0
+      element.scrollLeft = 0
+    }
+  })
+}
+
+/** The weather strip's verdict pill and the verdict card both say `verdict`. */
+export async function assertWeatherVerdict(page, { verdict }) {
+  await page
+    .getByRole("region", { name: "Weather", exact: true })
+    .getByText(verdict, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+  await page
+    .getByRole("region", { name: "Go/no-go verdict", exact: true })
+    .getByText(verdict, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+}
+
+/** The navlog sheet shows the computed total distance. */
+export async function assertNavlogSheet(page, { distanceNm }) {
+  await page
+    .getByRole("region", { name: "Navlog", exact: true })
+    .getByText(`${distanceNm} nm`, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+}
+
+/** The route is on the map: both airports' markers and the leg's heading label. */
+export async function assertRouteMap(page, { headingLabel, airports }) {
+  const map = page.getByRole("region", { name: "Route map", exact: true })
+  await map.getByText(headingLabel, { exact: true }).first().waitFor(VISIBLE)
+  for (const airport of airports) await map.getByText(airport).first().waitFor(VISIBLE)
+}
+
+/**
+ * The memory panel (under the dock's header) lists the suggested candidate,
+ * with the page unscrolled so the `memory` framing holds all of it: the fact
+ * and its Approve and Delete buttons.
+ */
+export async function assertMemoryCandidate(page, { content }) {
+  await page
+    .getByRole("region", { name: "Memory candidates", exact: true })
+    .getByText(content, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
+  await settleWorkbenchViewport(page)
+}
+
+/**
+ * Answers the open approval with `Allow once`, then proves the resumed run:
+ * the card leaves, the thread settles at `turns` turns and the reply shows.
+ */
+export async function allowOnceAndSettle(page, { turns, reply }) {
+  const card = await awaitApprovalCard(page)
+  await card.getByRole("button", { name: "Allow once", exact: true }).click({ timeout: 60_000 })
+  await card.waitFor({ state: "hidden", timeout: 120_000 })
+  await waitForWorkbenchRunCompletion(page, { turns })
+  await page.getByRole("main").getByText(reply, { exact: true }).last().waitFor(VISIBLE)
+  await settleWorkbenchViewport(page)
+}
+
+/** Fails unless the AWC stub answered every product the scripted run reaches. */
+export function assertAwcStubServed(hits) {
+  const missed = AWC_ENDPOINTS.filter((endpoint) => !(hits?.[endpoint] >= 1))
+  if (missed.length > 0) {
+    throw new Error(
+      `The AWC stub never served /${missed.join(", /")}: the weather tools did not reach it`,
+    )
+  }
+}
+
+/**
+ * A page-shaped view of the Workbench iframe, so `openReadyWorkbench`,
+ * `fillActiveWorkbenchComposer`, `waitForWorkbenchRunCompletion`,
+ * `expandLatestTurn` and `restoreWorkbenchThread` drive the real Workbench
+ * inside the director page unchanged. DOM calls go to the frame; response
+ * waits go to the page, which sees the frame's requests; a reload is a fresh
+ * navigation of the frame to its own URL, as a browser reload would be.
+ */
+export function frameSurface(page, frame) {
+  const goto = async (url, options) => {
+    let response
     try {
-      videoPath = await video.path()
+      response = await frame.goto(url, options)
+    } catch (error) {
+      throw new Error(`The Workbench did not load inside the director frame (${error.message})`, {
+        cause: error,
+      })
+    }
+    const loaded = frame.url()
+    if (loaded.startsWith("chrome-error:")) {
+      throw new Error(`The Workbench did not load inside the director frame (${loaded})`)
+    }
+    return response
+  }
+  return {
+    getByRole: (...args) => frame.getByRole(...args),
+    locator: (...args) => frame.locator(...args),
+    evaluate: (...args) => frame.evaluate(...args),
+    waitForTimeout: (ms) => frame.waitForTimeout(ms),
+    waitForResponse: (...args) => page.waitForResponse(...args),
+    goto,
+    reload: async (options) => {
+      // A null response is a same-document navigation (e.g. a URL with a
+      // hash): nothing reloaded, so the restoration would prove nothing.
+      const response = await goto(frame.url(), options)
+      if (response === null) {
+        throw new Error("The Workbench frame did not reload (same-document navigation)")
+      }
+      return response
+    },
+  }
+}
+
+/**
+ * The recorder: a Chromium DevTools screencast, one lossless PNG per paint.
+ * Playwright's recordVideo is VP8 at about 0.9 Mbit/s and 25 fps, which leaves
+ * code text soft; these frames are the compositor's own pixels.
+ *
+ * The scale is 1 by measurement. At 2 (2880x1620 frames, supersampled down by
+ * the encoder) the screencast kept up at only about 14 fps while the page
+ * moved (90th-percentile gap about 155 ms, PNG and JPEG alike), so camera
+ * moves and crossfades stuttered, and the downscaled text was not visibly
+ * crisper than lossless 1x frames, which arrive at about 41 fps.
+ */
+export const SCREENCAST_SCALE = 1
+export const SCREENCAST_OPTIONS = Object.freeze({
+  format: "png",
+  maxWidth: 1440 * SCREENCAST_SCALE,
+  maxHeight: 810 * SCREENCAST_SCALE,
+  everyNthFrame: 1,
+})
+const SCREENCAST_FRAMES_DIR = "screencast-frames"
+const SCREENCAST_VIDEO = "screencast.mp4"
+const SCREENCAST_FPS = 30
+
+/**
+ * Writes every `Page.screencastFrame` to `framesDir` with its timestamp (wall
+ * clock seconds) and acknowledges it, which is what lets Chromium send the
+ * next. Frames arrive only when the page paints, so a hold is the gap between
+ * two timestamps. `stop()` stops the screencast, waits for every write, and
+ * returns the frames in order with the wall-clock time it stopped.
+ */
+export function createScreencastRecorder({
+  session,
+  framesDir,
+  options = SCREENCAST_OPTIONS,
+  writeFile = nodeWriteFile,
+  mkdir = nodeMkdir,
+  wallClock = Date.now,
+}) {
+  const frames = []
+  const pending = new Set()
+  const errors = []
+  const extension = options.format === "jpeg" ? "jpg" : "png"
+  let stopping
+  const onFrame = ({ data, metadata, sessionId }) => {
+    if (stopping !== undefined) return
+    const timestamp = metadata?.timestamp
+    if (!Number.isFinite(timestamp)) {
+      errors.push(new Error("A screencast frame arrived without a timestamp"))
+    }
+    const file = `frame-${String(frames.length).padStart(6, "0")}.${extension}`
+    frames.push({ file, timestamp })
+    const write = Promise.resolve()
+      .then(() => writeFile(join(framesDir, file), Buffer.from(data, "base64")))
+      .catch((error) => {
+        errors.push(error)
+      })
+    pending.add(write)
+    write.finally(() => pending.delete(write))
+    // Acknowledge at once: Chromium sends the next frame only after this. A
+    // failed ack (the session closing) only ends the stream.
+    try {
+      Promise.resolve(session.send("Page.screencastFrameAck", { sessionId })).catch(() => {})
+    } catch {}
+  }
+  return {
+    async start() {
+      await mkdir(framesDir, { recursive: true })
+      session.on("Page.screencastFrame", onFrame)
+      await session.send("Page.startScreencast", { ...options })
+    },
+    stop() {
+      stopping ??= (async () => {
+        try {
+          await session.send("Page.stopScreencast")
+        } catch (error) {
+          errors.push(error)
+        }
+        session.off("Page.screencastFrame", onFrame)
+        const stoppedAtEpochMs = wallClock()
+        await Promise.all([...pending])
+        if (errors.length > 0) {
+          throw new AggregateError(
+            errors,
+            `The screencast failed: ${errors.map(errorMessage).join("; ")}`,
+          )
+        }
+        return { frames: [...frames], stoppedAtEpochMs }
+      })()
+      return stopping
+    },
+  }
+}
+
+/** How far a frame's timestamp may run behind the one before it and still be reordered. */
+const SCREENCAST_REORDER_TOLERANCE_S = 1
+
+/**
+ * The ffconcat list for the frames: each frame lasts until the next one's
+ * timestamp, and the last until `endEpochMs` (at least one output frame).
+ * Chromium can deliver a frame stamped slightly earlier than the one before
+ * it, so frames play in timestamp order; a step back of more than a second
+ * is a broken clock, not jitter, and fails. A frame with the same timestamp
+ * as the next is dropped. Times are seconds.
+ */
+export function screencastConcat(input, endEpochMs) {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error("The screencast recorded no frames")
+  }
+  for (const [index, frame] of input.entries()) {
+    if (!Number.isFinite(frame.timestamp)) {
+      throw new Error(`Screencast frame ${index} has no timestamp`)
+    }
+    if (
+      index > 0 &&
+      frame.timestamp < input[index - 1].timestamp - SCREENCAST_REORDER_TOLERANCE_S
+    ) {
+      throw new Error(`Screencast frame ${index} is more than a second earlier than the frame before it`)
+    }
+    if (!/^[A-Za-z0-9._-]+$/u.test(frame.file)) {
+      throw new Error(`Screencast frame ${index} has an unsafe file name`)
+    }
+  }
+  if (!Number.isFinite(endEpochMs)) throw new Error("The screencast end time is not a number")
+  const frames = [...input].sort((a, b) => a.timestamp - b.timestamp)
+  const lines = ["ffconcat version 1.0"]
+  for (const [index, frame] of frames.entries()) {
+    const last = index === frames.length - 1
+    const next = last ? endEpochMs / 1_000 : frames[index + 1].timestamp
+    const duration = last ? Math.max(1 / SCREENCAST_FPS, next - frame.timestamp) : next - frame.timestamp
+    if (duration <= 0) continue
+    lines.push(`file '${frame.file}'`, `duration ${duration.toFixed(6)}`)
+  }
+  // The concat demuxer honours the last entry's duration only when a file follows it.
+  lines.push(`file '${frames.at(-1).file}'`)
+  return `${lines.join("\n")}\n`
+}
+
+/**
+ * Turns the frames into the run's raw video: the concat demuxer gives each
+ * frame its real duration, `fps=30` resamples them to a constant 30 fps, and
+ * near-lossless 4:4:4 H.264 keeps the screencast's pixels for the encoder.
+ * The frames directory is removed whatever happens. Video time 0 is the first
+ * frame's timestamp, returned as `firstFrameEpochMs`.
+ */
+export async function assembleScreencastVideo({
+  framesDir,
+  frames,
+  endEpochMs,
+  outputPath,
+  signal,
+  run = runEncoderCommand,
+  writeFile = nodeWriteFile,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const listPath = join(framesDir, "frames.ffconcat")
+  try {
+    signal?.throwIfAborted()
+    await writeFile(listPath, screencastConcat(frames, endEpochMs), "utf8")
+    await run(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        listPath,
+        "-vf",
+        `fps=${SCREENCAST_FPS},format=yuv444p`,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "8",
+        outputPath,
+      ],
+      { signal },
+    )
+  } finally {
+    await remove(framesDir)
+  }
+  return {
+    videoPath: outputPath,
+    screencast: {
+      format: SCREENCAST_OPTIONS.format,
+      scale: SCREENCAST_SCALE,
+      frameCount: frames.length,
+      // The concat list plays frames in timestamp order, so video time 0 is the earliest.
+      firstFrameEpochMs: Math.min(...frames.map((frame) => frame.timestamp)) * 1_000,
+      endEpochMs,
+      motion: screencastMotion(frames),
+    },
+  }
+}
+
+/**
+ * How smoothly the screencast kept up while the page moved: the frame rate
+ * over gaps shorter than 250 ms (a longer gap is a hold with nothing to
+ * paint), and the 90th-percentile gap among them.
+ */
+export function screencastMotion(frames) {
+  const gaps = frames
+    .slice(1)
+    .map((frame, index) => (frame.timestamp - frames[index].timestamp) * 1_000)
+    .filter((gap) => gap > 0 && gap < 250)
+    .sort((a, b) => a - b)
+  if (gaps.length === 0) return { frames: 0, fps: 0, p90GapMs: 0 }
+  const total = gaps.reduce((sum, gap) => sum + gap, 0)
+  return {
+    frames: gaps.length,
+    fps: Math.round((gaps.length / total) * 10_000) / 10,
+    p90GapMs: Math.round(gaps[Math.floor(gaps.length * 0.9)]),
+  }
+}
+
+/**
+ * Stops the screencast, closes the DevTools session, the context and
+ * Chromium, in that order, then either assembles the raw video (`finalize`)
+ * or just removes the frames (a failed or cancelled run).
+ */
+export async function closeBrowserResources({
+  context,
+  browser,
+  session,
+  recorder,
+  framesDir,
+  outputPath,
+  finalize = false,
+  signal,
+  assemble = assembleScreencastVideo,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const errors = []
+  let recording
+  for (const step of [
+    async () => {
+      recording = await recorder.stop()
+    },
+    () => session.detach(),
+    () => context.close(),
+    () => browser.close(),
+  ]) {
+    try {
+      await step()
     } catch (error) {
       errors.push(error)
     }
   }
-  try {
-    await browser.close()
-  } catch (error) {
-    errors.push(error)
+  if (errors.length > 0 || !finalize) {
+    try {
+      await remove(framesDir)
+    } catch (error) {
+      errors.push(error)
+    }
   }
   if (errors.length > 0) {
     throw new AggregateError(
@@ -975,31 +1538,88 @@ export async function closeBrowserResources({ context, video, browser }) {
       `Browser cleanup failed: ${errors.map(errorMessage).join("; ")}`,
     )
   }
-  return videoPath === undefined ? {} : { videoPath }
+  if (!finalize) return {}
+  return assemble({
+    framesDir,
+    frames: recording.frames,
+    endEpochMs: recording.stoppedAtEpochMs,
+    outputPath,
+    signal,
+  })
 }
 
-export async function createBrowserResources({ chromium, recordingsDir, viewport, signal }) {
+// The Workbench runs under `next dev`, whose dev-tools badge is not part of the
+// product. Hiding it in the capture browser leaves the scaffolded next.config
+// (and every user's dev tools) untouched.
+export const HIDE_NEXT_DEV_INDICATOR = `document.addEventListener("DOMContentLoaded", () => {
+  const style = document.createElement("style")
+  style.textContent = "nextjs-portal { display: none !important; }"
+  document.head.append(style)
+})`
+
+export async function createBrowserResources({
+  chromium,
+  recordingsDir,
+  viewport,
+  signal,
+  createRecorder = createScreencastRecorder,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const framesDir = join(recordingsDir, SCREENCAST_FRAMES_DIR)
   let browser
   let context
   let page
+  let session
+  let recorder
   try {
     signal?.throwIfAborted()
-    browser = await chromium.launch({ headless: true })
+    // Headless Chromium screencasts at CSS size unless the device scale is
+    // forced for the whole browser; the context's deviceScaleFactor alone
+    // still sends 1x frames.
+    browser = await chromium.launch({
+      headless: true,
+      args: [`--force-device-scale-factor=${SCREENCAST_SCALE}`],
+    })
     signal?.throwIfAborted()
     context = await browser.newContext({
       viewport,
-      recordVideo: { dir: recordingsDir, size: viewport },
+      deviceScaleFactor: SCREENCAST_SCALE,
+      // The navlog map animates its zoom to the route unless motion is reduced;
+      // the animation adds no evidence and spends the video byte budget on motion.
+      reducedMotion: "reduce",
     })
+    signal?.throwIfAborted()
+    await context.addInitScript(HIDE_NEXT_DEV_INDICATOR)
     signal?.throwIfAborted()
     page = await context.newPage()
     signal?.throwIfAborted()
-    return { browser, context, page, video: page.video() }
+    session = await context.newCDPSession(page)
+    signal?.throwIfAborted()
+    recorder = createRecorder({ session, framesDir })
+    await recorder.start()
+    signal?.throwIfAborted()
+    return {
+      browser,
+      context,
+      page,
+      session,
+      recorder,
+      framesDir,
+      outputPath: join(recordingsDir, SCREENCAST_VIDEO),
+    }
   } catch (error) {
     const cleanupErrors = []
-    for (const resource of [page, context, browser]) {
-      if (resource === undefined) continue
+    for (const cleanup of [
+      recorder === undefined ? undefined : () => recorder.stop(),
+      session === undefined ? undefined : () => session.detach(),
+      page === undefined ? undefined : () => page.close(),
+      context === undefined ? undefined : () => context.close(),
+      browser === undefined ? undefined : () => browser.close(),
+      recorder === undefined ? undefined : () => remove(framesDir),
+    ]) {
+      if (cleanup === undefined) continue
       try {
-        await resource.close()
+        await cleanup()
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError)
       }
@@ -1018,15 +1638,18 @@ function createBrowserAdapter() {
     async open({ recordingsDir, viewport, signal }) {
       signal?.throwIfAborted()
       const { chromium } = await import("@playwright/test")
-      const { browser, context, page, video } = await createBrowserResources({
+      const resources = await createBrowserResources({
         chromium,
         recordingsDir,
         viewport,
         signal,
       })
+      const { page } = resources
       let closePromise
-      const close = () => {
-        closePromise ??= closeBrowserResources({ context, video, browser })
+      // The first close decides: a finalizing close assembles the video; any
+      // other (a failure or a cancellation) only removes the frames.
+      const close = ({ finalize = false, signal: closeSignal } = {}) => {
+        closePromise ??= closeBrowserResources({ ...resources, finalize, signal: closeSignal })
         return closePromise
       }
       const runSessionOperation = async (operationSignal, action) => {
@@ -1064,67 +1687,111 @@ function createBrowserAdapter() {
           operationSignal?.removeEventListener("abort", onAbort)
         }
       }
+      let surface
+      const workbench = () => {
+        if (surface === undefined) {
+          const frame = page.frame({ name: "workbench" })
+          if (frame === null) throw new Error("The director page has no workbench frame")
+          surface = frameSurface(page, frame)
+        }
+        return surface
+      }
       return {
-        async recordStage({ html, signal: operationSignal }) {
+        async openDirector({ origin, html, fonts, signal: operationSignal }) {
           return runSessionOperation(operationSignal, async () => {
-            await page.setContent(html, { waitUntil: "load" })
-            await page.locator("body").waitFor({ state: "visible" })
-            await page.waitForTimeout(1_400)
+            await page.route(`${origin}${DIRECTOR_PATH}**`, (route) => {
+              const { pathname } = new URL(route.request().url())
+              if (pathname === DIRECTOR_PATH) {
+                return route.fulfill({
+                  status: 200,
+                  contentType: "text/html; charset=utf-8",
+                  body: html,
+                })
+              }
+              const font = fonts[pathname.slice(`${DIRECTOR_PATH}fonts/`.length)]
+              if (pathname.startsWith(`${DIRECTOR_PATH}fonts/`) && font !== undefined) {
+                return route.fulfill({ status: 200, contentType: "font/ttf", body: font })
+              }
+              return route.fulfill({ status: 404, body: "" })
+            })
+            await page.goto(`${origin}${DIRECTOR_PATH}`, { waitUntil: "load" })
+            await page.waitForFunction(() => window.director?.ready === true, undefined, {
+              timeout: 30_000,
+            })
+            await page.evaluate(() => document.fonts.ready.then(() => undefined))
           })
         },
-        async runScenario({ url, prompt, tools, answer, signal: operationSignal }) {
+        async prepareWorkbench({ url, prompt, signal: operationSignal }) {
           return runSessionOperation(operationSignal, async () => {
-            await openReadyWorkbench(page, url)
-            await fillActiveWorkbenchComposer(page, prompt)
-            await page.getByRole("button", { name: "Send", exact: true }).click()
-            await waitForWorkbenchRunCompletion(page)
-            // The settled turn is folded: open it so its steps are on screen
-            // (and in the recording) before they are counted.
-            const turn = await expandLatestTurn(page)
-            const steps = rootToolSteps(turn)
-            await steps.first().waitFor({ state: "visible", timeout: 120_000 })
-            const stepCount = await steps.count()
-            if (stepCount < tools.length) {
-              throw new Error(
-                `The run rendered ${stepCount} tool steps, expected at least ${tools.length}`,
-              )
-            }
-            await page.getByRole("main").getByText(answer, { exact: true }).last().waitFor({
-              state: "visible",
-              timeout: 120_000,
-            })
-            const threadId = await page.evaluate((title) => {
-              const raw = localStorage.getItem("b4.workbench.threads")
-              const threads = raw === null ? [] : JSON.parse(raw)
-              const thread = threads.find((entry) => entry?.title === title)
-              return typeof thread?.id === "string" ? thread.id : undefined
-            }, prompt)
-            if (threadId === undefined) {
-              throw new Error("Workbench did not persist the active thread id")
-            }
-            return { threadId }
+            await openReadyWorkbench(workbench(), url)
+            await fillActiveWorkbenchComposer(workbench(), prompt)
+            await page.evaluate(() => window.director.reset())
           })
+        },
+        async play({ beat, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            page.evaluate((name) => window.director.play(name), beat),
+          )
+        },
+        async focus({ target, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            page.evaluate((name) => window.director.focus(name), target),
+          )
+        },
+        async sendPlan({ prompt, todos, tools, answer, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            sendPlanTurn(workbench(), { prompt, todos, tools, answer }),
+          )
+        },
+        async showWeather({ verdict, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            assertWeatherVerdict(workbench(), { verdict }),
+          )
+        },
+        async showNavlog({ distanceNm, headingLabel, airports, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            await assertNavlogSheet(frame, { distanceNm })
+            await assertRouteMap(frame, { headingLabel, airports })
+          })
+        },
+        async requestFiling({ prompt, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            await frame.getByRole("textbox", { name: "Message" }).fill(prompt, { timeout: 60_000 })
+            await frame.getByRole("button", { name: "Send", exact: true }).click({ timeout: 60_000 })
+            await awaitApprovalCard(frame)
+          })
+        },
+        async allowOnce({ turns, reply, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            allowOnceAndSettle(workbench(), { turns, reply }),
+          )
+        },
+        async showMemory({ content, signal: operationSignal }) {
+          return runSessionOperation(operationSignal, () =>
+            assertMemoryCandidate(workbench(), { content }),
+          )
         },
         async reloadAndRestore({
           workbenchUrl,
           threadId,
           prompt,
-          tools,
-          answer,
+          turns,
+          distanceNm,
           signal: operationSignal,
         }) {
-          return runSessionOperation(operationSignal, () =>
-            restoreWorkbenchThread(page, {
+          return runSessionOperation(operationSignal, async () => {
+            const frame = workbench()
+            const restored = await restoreWorkbenchThread(frame, {
               workbenchUrl,
               threadId,
               prompt,
-              tools,
-              answer,
-            }),
-          )
-        },
-        async recordRun({ signal: operationSignal } = {}) {
-          return runSessionOperation(operationSignal, () => page.waitForTimeout(1_800))
+              turns,
+            })
+            await assertNavlogSheet(frame, { distanceNm })
+            return restored
+          })
         },
         close,
       }
@@ -1182,9 +1849,11 @@ export async function captureDemo({
   timing: timingOverride,
   holdDurations = DEFAULT_HOLD_DURATIONS,
   signalAdapter = createProcessSignalAdapter(),
+  wallClock = Date.now,
 } = {}) {
   requireString(repoRoot, "repoRoot")
   if (typeof runIdFactory !== "function") throw new TypeError("runIdFactory must be a function")
+  if (typeof wallClock !== "function") throw new TypeError("wallClock must be a function")
   const runId = validateRunId(runIdFactory())
   const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
   const recordingsDir = join(repoRoot, "docs/brand/demo/raw-recordings/runs", runId)
@@ -1211,6 +1880,7 @@ export async function captureDemo({
   })
   let workspaceRoot
   let aimock
+  let awcStub
   let serverChild
   let workbenchChild
   const managedServices = []
@@ -1271,13 +1941,17 @@ export async function captureDemo({
         "Generated npm test output did not contain the named navlog test and passing summary",
       )
     }
-    const normalizedTestLog = normalizeLog(rawTestLog, {
-      temporaryRoot: workspaceRoot,
-    })
 
-    aimock = await adapters.processes.startAimock(DEMO_FIXTURES)
+    // One clock reading builds the scenario, and the same reading drives the
+    // AWC stub: the scripted briefs quote the times the stub serves.
+    const scenario = demoScenario({ now: wallClock() })
+    aimock = await adapters.processes.startAimock(scenario.fixtures)
     assertLoopbackModelBaseUrl(aimock.baseUrl)
-    const serverEnvironment = buildChildEnvironment(parentEnv, aimock.baseUrl)
+    awcStub = await adapters.processes.startAwcStub({ now: scenario.now })
+    assertLoopbackAwcBaseUrl(awcStub.baseUrl)
+    const serverEnvironment = buildChildEnvironment(parentEnv, aimock.baseUrl, {
+      awcBaseUrl: awcStub.baseUrl,
+    })
     const serverStart = await startWithAssignedPort({
       service: "B4.run server",
       excludedPorts: new Set(DEFAULT_SCAFFOLD_PORTS),
@@ -1317,27 +1991,23 @@ export async function captureDemo({
     const racePhase = (label, action) =>
       raceCapturePhase(label, action, managedServices, signalScope.signal)
 
-    const [primarySource, secondarySource] = await racePhase("read generated source", () =>
+    const sourcePaths = storyboardPaths()
+    const directorInputs = await racePhase("read director inputs", () =>
       Promise.all([
-        adapters.filesystem.readFile(join(appRoot, "server/src/app/navlog/index.ts"), "utf8"),
-        adapters.filesystem.readFile(join(appRoot, "server/src/tools/computeNavlog.ts"), "utf8"),
+        ...sourcePaths.map((path) => adapters.filesystem.readFile(join(appRoot, path), "utf8")),
+        ...Object.values(DIRECTOR_FONTS).map((path) =>
+          adapters.filesystem.readFile(join(repoRoot, path)),
+        ),
       ]),
     )
-    const authorHtml = renderStage({
-      act: "author",
-      tree: GENERATED_PATHS,
-      primarySource,
-      secondarySource,
+    const fontBytes = directorInputs.slice(sourcePaths.length)
+    const directorHtml = renderDirector({
+      files: Object.fromEntries(sourcePaths.map((path, index) => [path, directorInputs[index]])),
     })
-    for (const generatedPath of GENERATED_PATHS) {
-      if (!authorHtml.includes(generatedPath)) {
-        throw new Error(`Author compositor is missing ${generatedPath}`)
-      }
-    }
-    if (!authorHtml.includes("export default agent({") || !authorHtml.includes("computeNavlog")) {
-      throw new Error("Author compositor is missing the canonical B4.run source")
-    }
-    const testHtml = renderStage({ act: "test", testLog: normalizedTestLog })
+    const directorFonts = Object.fromEntries(
+      Object.keys(DIRECTOR_FONTS).map((name, index) => [name, fontBytes[index]]),
+    )
+    const workbenchUrl = `http://127.0.0.1:${workbenchStart.port}`
     browserSession = await runOwnedAbortablePhase({
       label: "open browser",
       services: managedServices,
@@ -1351,8 +2021,8 @@ export async function captureDemo({
       disposeResult: (lateSession) => lateSession.close(),
     })
     let browserClosePromise
-    closeBrowserSession = () => {
-      browserClosePromise ??= Promise.resolve().then(() => browserSession.close())
+    closeBrowserSession = (options) => {
+      browserClosePromise ??= Promise.resolve().then(() => browserSession.close(options))
       return browserClosePromise
     }
     const browserPhase = (label, action) =>
@@ -1363,87 +2033,158 @@ export async function captureDemo({
         abortController,
         onInterrupt: closeBrowserSession,
       })
-    const timeline = createVideoTimeline(timing.now)
-    await timeline.scene("author", () =>
-      browserPhase("record author", () =>
-        browserSession.recordStage({
-          act: "author",
-          html: authorHtml,
-          signal: signalScope.signal,
-        }),
-      ),
+    // The recording starts with the page; the timeline starts here, so the
+    // director's load and the Workbench's warm-up fall before the first beat
+    // and the encoder trims them off.
+    const timeline = createVideoTimeline(timing.now, wallClock)
+    await browserPhase("open director", () =>
+      browserSession.openDirector({
+        origin: workbenchUrl,
+        html: directorHtml,
+        fonts: directorFonts,
+        signal: signalScope.signal,
+      }),
     )
-    await timeline.scene("test", () =>
-      browserPhase("record test", () =>
-        browserSession.recordStage({
-          act: "test",
-          html: testHtml,
-          signal: signalScope.signal,
-        }),
-      ),
+    await browserPhase("prepare Workbench", () =>
+      browserSession.prepareWorkbench({
+        url: workbenchUrl,
+        prompt: scenario.prompt,
+        signal: signalScope.signal,
+      }),
     )
-    const scenario = await timeline.scene("workbench-run", () =>
-      browserPhase("run Workbench scenario", () =>
-        browserSession.runScenario({
-          url: `http://127.0.0.1:${workbenchStart.port}`,
-          prompt: DEMO_PROMPT,
-          tools: EXPECTED_TOOLS,
-          answer: EXPECTED_ANSWER,
-          signal: signalScope.signal,
-        }),
-      ),
-    )
-    await timeline.scene("pre-reload-complete", () =>
-      browserPhase("hold completed run", () =>
-        timing.sleep(holdDurations.preReloadMs, {
-          signal: signalScope.signal,
-        }),
-      ),
-    )
+    const signal = signalScope.signal
+    const play = (beat) =>
+      browserPhase(`play ${beat}`, () => browserSession.play({ beat, signal }))
+    const focus = (target) =>
+      browserPhase(`focus ${target}`, () => browserSession.focus({ target, signal }))
+    const hold = (label, durationMs) =>
+      browserPhase(`hold ${label}`, () => timing.sleep(durationMs, { signal }))
+    const cruise = scenario.navlog.legs.at(-1)
+    const restoredTurns = [
+      {
+        prompt: scenario.prompt,
+        tools: expectedRootToolSteps(scenario.planTools),
+        answer: scenario.planAnswer,
+      },
+      {
+        prompt: scenario.filePrompt,
+        tools: expectedRootToolSteps(scenario.fileTools),
+        answer: scenario.filedAnswer,
+      },
+    ]
+    let threadId
     let restoration
-    await timeline.scene("restoration", async () => {
-      restoration = await browserPhase("restore Workbench thread", () =>
-        browserSession.reloadAndRestore({
-          workbenchUrl: `http://127.0.0.1:${workbenchStart.port}`,
-          threadId: scenario.threadId,
-          prompt: DEMO_PROMPT,
-          tools: EXPECTED_TOOLS,
-          answer: EXPECTED_ANSWER,
-          signal: signalScope.signal,
-        }),
-      )
-      await browserPhase("record restored run", () =>
-        browserSession.recordRun({ signal: signalScope.signal }),
-      )
-      await browserPhase("hold restored run", () =>
-        timing.sleep(holdDurations.restorationMs, {
-          signal: signalScope.signal,
-        }),
-      )
-    })
-    await timeline.scene("close", () =>
-      browserPhase("record close", () =>
-        browserSession.recordStage({
-          act: "close",
-          html: renderStage({ act: "close" }),
-          signal: signalScope.signal,
-        }),
-      ),
-    )
+    // Each app beat's real interaction in the Workbench, with its evidence.
+    // The director has already eased the camera to the beat's preset; the
+    // action may move it again, and the beat then holds for its holdMs.
+    const actions = {
+      async "send-plan"() {
+        // The live resolveDeparture must still resolve "1400Z" to the
+        // scripted instant, or every scripted date is a day off.
+        assertScenarioCurrent(scenario, wallClock())
+        const ran = await browserPhase("send the plan", () =>
+          browserSession.sendPlan({
+            prompt: scenario.prompt,
+            todos: scenario.todos,
+            tools: scenario.planTools,
+            answer: scenario.planAnswer,
+            signal,
+          }),
+        )
+        threadId = ran.threadId
+        await focus("todos")
+      },
+      async weather() {
+        await browserPhase("weather evidence", () =>
+          browserSession.showWeather({ verdict: "GO", signal }),
+        )
+        assertAwcStubServed(awcStub.hits)
+      },
+      async navlog() {
+        await browserPhase("navlog evidence", () =>
+          browserSession.showNavlog({
+            distanceNm: scenario.navlog.totals.distanceNm,
+            headingLabel: `MH ${cruise.magneticHeading}°`,
+            airports: ["KSTP", "KRST"],
+            signal,
+          }),
+        )
+        await hold("route on the map", holdDurations.mapMs)
+        await focus("sheet")
+      },
+      async "file-approve"() {
+        // The approval framing holds the bottom of the dock: the composer,
+        // its Send button and, once it opens, the card above them. Every
+        // click lands on screen without moving the camera.
+        await browserPhase("request filing", () =>
+          browserSession.requestFiling({ prompt: scenario.filePrompt, signal }),
+        )
+        await hold("approval card", holdDurations.approvalMs)
+        await browserPhase("allow once", () =>
+          browserSession.allowOnce({ turns: 2, reply: scenario.filedAnswer, signal }),
+        )
+      },
+      async "memory-reload"() {
+        await browserPhase("memory evidence", () =>
+          browserSession.showMemory({ content: scenario.memory.content, signal }),
+        )
+        await hold("suggested memory", holdDurations.memoryMs)
+        await focus("rest")
+        restoration = await browserPhase("restore Workbench thread", () =>
+          browserSession.reloadAndRestore({
+            workbenchUrl,
+            threadId,
+            prompt: scenario.prompt,
+            turns: restoredTurns,
+            distanceNm: scenario.navlog.totals.distanceNm,
+            signal,
+          }),
+        )
+        await focus("sheet")
+      },
+    }
+    for (const [index, beat] of STORYBOARD.entries()) {
+      await timeline.scene(beatSceneName(index, beat), async () => {
+        try {
+          await play(index)
+          if (beat.kind !== "app") return
+          const action = actions[beat.action]
+          if (action === undefined) throw new Error(`no capture action ${beat.action}`)
+          await action()
+          await hold(beat.id, beat.holdMs)
+        } catch (error) {
+          // A failure or a cancellation names the beat it stopped; the
+          // original error is its cause.
+          throw new Error(`Beat ${index} (${beat.id}): ${errorMessage(error)}`, { cause: error })
+        }
+      })
+    }
     result = {
       schemaVersion: 1,
       runId,
       status: "captured",
       recordOnly,
       toolchain,
-      threadId: scenario.threadId,
+      threadId,
       serverPort: serverStart.port,
       workbenchPort: workbenchStart.port,
       ...(restoration?.connectUrl !== undefined ? { connectUrl: restoration.connectUrl } : {}),
       videoTimeline: timeline.manifest(),
     }
 
-    browserResult = await browserPhase("finalize browser recording", () => closeBrowserSession())
+    browserResult = await browserPhase("finalize browser recording", () =>
+      closeBrowserSession({ finalize: true, signal: signalScope.signal }),
+    )
+    const screencast = browserResult.screencast
+    if (!Number.isFinite(screencast?.firstFrameEpochMs)) {
+      throw new Error("The browser recording reported no screencast timing")
+    }
+    // Video time 0 is the first frame; scene time 0 is the timeline's start.
+    // Both are on the wall clock, so a scene at t plays at t + videoOffsetMs.
+    result.videoTimeline = {
+      ...result.videoTimeline,
+      videoOffsetMs: result.videoTimeline.startedAtEpochMs - screencast.firstFrameEpochMs,
+    }
     browserSession = undefined
     closeBrowserSession = undefined
     const summary = {
@@ -1456,10 +2197,16 @@ export async function captureDemo({
         recording: browserResult.videoPath,
       },
       evidence: {
-        prompt: DEMO_PROMPT,
-        tools: [...EXPECTED_TOOLS],
-        answer: EXPECTED_ANSWER,
-        threadId: scenario.threadId,
+        scenarioNow: scenario.now,
+        departureUtc: scenario.departureUtc,
+        prompt: scenario.prompt,
+        filePrompt: scenario.filePrompt,
+        planTools: [...scenario.planTools],
+        fileTools: [...scenario.fileTools],
+        planAnswer: scenario.planAnswer,
+        filedAnswer: scenario.filedAnswer,
+        awcHits: { ...awcStub.hits },
+        threadId,
         connectUrl: restoration?.connectUrl,
       },
     }
@@ -1517,6 +2264,9 @@ export async function captureDemo({
   }
   if (typeof adapters.commands.stopRemaining === "function") {
     await cleanupResource(() => adapters.commands.stopRemaining(), cleanupErrors)
+  }
+  if (awcStub !== undefined) {
+    await cleanupResource(() => awcStub.close(), cleanupErrors)
   }
   if (aimock !== undefined) {
     await cleanupResource(() => aimock.close(), cleanupErrors)

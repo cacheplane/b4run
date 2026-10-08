@@ -18,161 +18,131 @@ import {
 	validateStagedMediaManifest,
 } from "./check-media.mjs";
 import { spawnManaged, stopManaged } from "./processes.mjs";
+import { beatSceneName, STORYBOARD } from "./storyboard.mjs";
 
 const OUTPUT_WIDTH = 1440;
 const OUTPUT_HEIGHT = 810;
 const OUTPUT_FPS = 30;
-const SCENE_END_GUARD_MS = 200;
-const ACT_LABEL_WIDTH = 224;
-const ACT_LABEL_HEIGHT = 58;
-const ACT_LABEL_GLYPHS = Object.freeze({
-	A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
-	E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
-	H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
-	N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
-	O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
-	P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
-	R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
-	T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
-	U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
-	V: ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
-});
+/** The beat whose last moment is the poster: the navlog sheet's numbers. */
+const POSTER_BEAT = "navlog";
+/** How far before the poster beat's end the poster frame sits, inside its hold. */
+const POSTER_LEAD_SECONDS = 0.25;
 
-export const ACT_LABELS = Object.freeze({
-	author: "Author",
-	prove: "Prove",
-	run: "Run",
-});
-
-function requireScene(scenes, name) {
-	const scene = scenes?.[name];
+function requireBeat(scenes, name) {
+	const beat = scenes?.[name];
 	if (
-		scene === undefined ||
-		!Number.isFinite(scene.startMs) ||
-		!Number.isFinite(scene.endMs) ||
-		scene.startMs < 0 ||
-		scene.endMs <= scene.startMs
+		beat === undefined ||
+		!Number.isFinite(beat.startMs) ||
+		!Number.isFinite(beat.endMs) ||
+		beat.startMs < 0 ||
+		beat.endMs <= beat.startMs
 	) {
-		throw new Error(`capture summary has an invalid ${name} scene`);
+		throw new Error(`capture summary has an invalid ${name} beat`);
 	}
-	return scene;
+	return beat;
 }
 
-function segment(
-	scene,
-	sourceStartMs,
-	sourceEndMs,
-	targetDuration,
-	actLabel,
-) {
-	const guardedEndMs = sourceEndMs - SCENE_END_GUARD_MS;
-	if (guardedEndMs <= sourceStartMs) {
-		throw new Error(`${scene} is too short for a stable final frame`);
-	}
-	return {
-		scene,
-		sourceStart: sourceStartMs / 1_000,
-		// Scene actions switch the page immediately after their monotonic end.
-		// Keep the final sampled frame inside the asserted scene so tpad never
-		// freezes the first frame of the next act.
-		sourceEnd: guardedEndMs / 1_000,
-		duration: targetDuration,
-		...(actLabel !== undefined ? { actLabel } : {}),
-	};
-}
-
-export function createTimelinePlan(summary) {
+/**
+ * The flagship is the recording from the start of the first storyboard beat
+ * to the end of the last: everything before it (loading the director page and
+ * the Workbench) is trimmed off, and nothing inside it is padded or
+ * reordered. The capture records one scene per beat (`beatSceneName`), and
+ * every beat must be there, in storyboard order, with no overlap. The poster
+ * is the navlog beat's last moment, the camera on the sheet's numbers.
+ */
+export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
 	if (summary?.videoTimeline?.unit !== "milliseconds") {
 		throw new Error("capture summary timeline must use milliseconds");
 	}
 	const scenes = summary.videoTimeline.scenes;
-	const author = requireScene(scenes, "author");
-	const test = requireScene(scenes, "test");
-	const workbench = requireScene(scenes, "workbench-run");
-	const completed = requireScene(scenes, "pre-reload-complete");
-	const restoration = requireScene(scenes, "restoration");
-	const close = requireScene(scenes, "close");
-	const plans = {
-		"product-loop": {
-			duration: 25,
-			segments: [
-				segment(
-					"author",
-					author.startMs,
-					author.endMs,
-					7,
-					ACT_LABELS.author,
-				),
-				segment(
-					"test",
-					test.startMs,
-					test.endMs,
-					6,
-					ACT_LABELS.prove,
-				),
-				segment(
-					"workbench",
-					workbench.startMs,
-					restoration.endMs,
-					10,
-					ACT_LABELS.run,
-				),
-				segment("close", close.startMs, close.endMs, 2),
-			],
-			posterTime: 0.75,
-		},
-		author: {
-			duration: 9,
-			actLabel: ACT_LABELS.author,
-			segments: [
-				segment(
-					"author",
-					author.startMs,
-					author.endMs,
-					9,
-					ACT_LABELS.author,
-				),
-			],
-			posterTime: 0.75,
-		},
-		test: {
-			duration: 9,
-			actLabel: ACT_LABELS.prove,
-			segments: [
-				segment(
-					"test",
-					test.startMs,
-					test.endMs,
-					9,
-					ACT_LABELS.prove,
-				),
-			],
-			posterTime: 0.75,
-		},
-		run: {
-			duration: 10,
-			actLabel: ACT_LABELS.run,
-			segments: [
-				segment(
-					"run-completed",
-					completed.startMs,
-					completed.endMs,
-					3,
-					ACT_LABELS.run,
-				),
-				segment(
-					"reload-and-restoration",
-					restoration.startMs,
-					restoration.endMs,
-					7,
-					ACT_LABELS.run,
-				),
-			],
-			posterTime: 9.25,
-		},
+	// Scene times run from the timeline's start; the video's from its first
+	// screencast frame. The capture records the offset between the two.
+	const offsetMs = summary.videoTimeline.videoOffsetMs;
+	if (!Number.isFinite(offsetMs)) {
+		throw new Error("capture summary timeline has no video offset");
+	}
+	const names = storyboard.map((beat, index) => beatSceneName(index, beat));
+	const beats = names.map((name) => requireBeat(scenes, name));
+	for (let index = 1; index < beats.length; index++) {
+		if (beats[index].startMs < beats[index - 1].endMs) {
+			throw new Error(
+				`capture summary ${names[index]} beat starts before ${names[index - 1]} ends`,
+			);
+		}
+	}
+	const posterIndex = storyboard.findIndex((beat) => beat.id === POSTER_BEAT);
+	if (posterIndex === -1) {
+		throw new Error(`the storyboard has no ${POSTER_BEAT} beat for the poster`);
+	}
+	const first = beats[0];
+	const last = beats.at(-1);
+	const poster = beats[posterIndex];
+	if (first.startMs + offsetMs < 0) {
+		throw new Error("the recording starts after the first beat");
+	}
+	return {
+		start: (first.startMs + offsetMs) / 1_000,
+		duration: (last.endMs - first.startMs) / 1_000,
+		posterTime: Math.max(
+			(poster.startMs - first.startMs) / 1_000,
+			(poster.endMs - first.startMs) / 1_000 - POSTER_LEAD_SECONDS,
+		),
 	};
-	return plans;
 }
+
+function trimArguments(trim) {
+	return ["-ss", trim.start.toFixed(3), "-t", trim.duration.toFixed(3)];
+}
+
+const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:flags=lanczos`;
+
+/**
+ * Codec settings for the ~50-60 s 1440x810 flagship, quality first: the code
+ * beats are small monospaced text, from the lossless screencast, that must
+ * stay crisp, and the blob store hosts both files under a 12 MB budget
+ * each. H.264 is CRF 18 with a VBV ceiling that only caps the crossfade and
+ * camera-move peaks; VP9 is constrained quality (CRF 28 under a target
+ * bitrate). A 49 s take measures about 8.2 MB (MP4) and 6.3 MB (WebM).
+ */
+export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
+	mp4: Object.freeze([
+		"-c:v",
+		"libx264",
+		"-preset",
+		"slow",
+		"-crf",
+		"18",
+		"-maxrate",
+		"4000k",
+		"-bufsize",
+		"8000k",
+		"-pix_fmt",
+		"yuv420p",
+		"-movflags",
+		"+faststart",
+	]),
+	webm: Object.freeze([
+		"-c:v",
+		"libvpx-vp9",
+		"-b:v",
+		"2500k",
+		"-crf",
+		"28",
+		"-maxrate",
+		"3000k",
+		"-bufsize",
+		"6000k",
+		"-deadline",
+		"good",
+		"-cpu-used",
+		"2",
+		"-row-mt",
+		"1",
+		// The raw screencast video is 4:4:4; browsers play VP9 profile 0 only.
+		"-pix_fmt",
+		"yuv420p",
+	]),
+});
 
 export function runEncoderCommand(
 	command,
@@ -371,126 +341,11 @@ export async function publishFixedAssets({
 	}
 }
 
-export function buildTimelineFilter(
-	plan,
-	{ gif = false, labelInputIndexes = [] } = {},
-) {
-	const filters = [];
-	const labels = [];
-	for (const [index, plannedSegment] of plan.segments.entries()) {
-		const sourceDuration =
-			plannedSegment.sourceEnd - plannedSegment.sourceStart;
-		if (!(sourceDuration > 0)) {
-			throw new Error(`${plannedSegment.scene} has no source frames`);
-		}
-		if (sourceDuration > plannedSegment.duration) {
-			throw new Error(
-				`${plannedSegment.scene} restored endpoint requires ${sourceDuration} seconds but its delivery segment is ${plannedSegment.duration} seconds; refusing to truncate captured evidence`,
-			);
-		}
-		const holdDuration = Math.max(0, plannedSegment.duration - sourceDuration);
-		const baseLabel = `segment${index}base`;
-		const label = `segment${index}`;
-		filters.push(
-			`[0:v]trim=start=${plannedSegment.sourceStart.toFixed(6)}:duration=${sourceDuration.toFixed(6)},setpts=PTS-STARTPTS,fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:flags=lanczos,tpad=stop_mode=clone:stop_duration=${holdDuration.toFixed(6)}[${baseLabel}]`,
-		);
-		const labelInputIndex = labelInputIndexes[index];
-		if (plannedSegment.actLabel !== undefined && labelInputIndex === undefined) {
-			throw new Error(
-				`${plannedSegment.actLabel} act label has no visual input`,
-			);
-		}
-		if (labelInputIndex !== undefined) {
-			filters.push(
-				`[${baseLabel}][${labelInputIndex}:v]overlay=x=W-w-32:y=24:shortest=1[${label}]`,
-			);
-		} else {
-			filters.push(`[${baseLabel}]null[${label}]`);
-		}
-		labels.push(`[${label}]`);
-	}
-	filters.push(
-		`${labels.join("")}concat=n=${labels.length}:v=1:a=0,trim=duration=${plan.duration},setpts=PTS-STARTPTS[timeline]`,
-	);
-	if (gif) {
-		filters.push(
-			"[timeline]split[gifbase][paletteinput]",
-			"[paletteinput]palettegen=max_colors=28:stats_mode=diff[palette]",
-			"[gifbase][palette]paletteuse=dither=none:diff_mode=rectangle[outv]",
-		);
-	}
-	return { filter: filters.join(";"), output: gif ? "[outv]" : "[timeline]" };
-}
-
-function labelGlyphPath(label) {
-	const scale = 5;
-	const glyphWidth = 5 * scale;
-	const gap = scale;
-	const startX = 34;
-	const startY = 12;
-	const commands = [];
-	for (const [characterIndex, character] of [...label.toUpperCase()].entries()) {
-		const glyph = ACT_LABEL_GLYPHS[character];
-		if (glyph === undefined) throw new Error(`missing act-label glyph ${character}`);
-		for (const [rowIndex, row] of glyph.entries()) {
-			for (const [columnIndex, pixel] of [...row].entries()) {
-				if (pixel !== "1") continue;
-				const x = startX + characterIndex * (glyphWidth + gap) + columnIndex * scale;
-				const y = startY + rowIndex * scale;
-				commands.push(`M${x} ${y}h${scale}v${scale}h-${scale}z`);
-			}
-		}
-	}
-	return commands.join("");
-}
-
-function labelSvg(label) {
-	return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${ACT_LABEL_WIDTH}" height="${ACT_LABEL_HEIGHT}" viewBox="0 0 ${ACT_LABEL_WIDTH} ${ACT_LABEL_HEIGHT}">
-  <rect width="${ACT_LABEL_WIDTH}" height="${ACT_LABEL_HEIGHT}" rx="18" fill="#10121a" fill-opacity="0.9"/>
-  <rect x="12" y="12" width="6" height="34" rx="3" fill="#b7f36b"/>
-  <path d="${labelGlyphPath(label)}" fill="#ffffff"/>
-</svg>`);
-}
-
-async function createActLabelAssets({ labelDir, signal }) {
-	await nodeMkdir(labelDir, { recursive: true });
-	const assets = new Map();
-	for (const label of Object.values(ACT_LABELS)) {
-		signal?.throwIfAborted();
-		const path = join(labelDir, `${label.toLowerCase()}.png`);
-		await sharp(labelSvg(label)).png().toFile(path);
-		signal?.throwIfAborted();
-		assets.set(label, path);
-	}
-	return assets;
-}
-
-function buildLabelInputs(plan, labelAssets) {
-	const inputArguments = [];
-	const labelInputIndexes = [];
-	let inputIndex = 1;
-	for (const plannedSegment of plan.segments) {
-		if (plannedSegment.actLabel === undefined) {
-			labelInputIndexes.push(undefined);
-			continue;
-		}
-		const path = labelAssets.get(plannedSegment.actLabel);
-		if (path === undefined) {
-			throw new Error(`missing visual asset for ${plannedSegment.actLabel} act`);
-		}
-		inputArguments.push("-loop", "1", "-framerate", String(OUTPUT_FPS), "-i", path);
-		labelInputIndexes.push(inputIndex);
-		inputIndex += 1;
-	}
-	return { inputArguments, labelInputIndexes };
-}
-
 export async function encodeVideo({
 	source,
 	destination,
-	plan,
+	trim,
 	format,
-	labelAssets,
 	signal,
 	run = runEncoderCommand,
 	rename = nodeRename,
@@ -498,61 +353,26 @@ export async function encodeVideo({
 }) {
 	const temporaryPath = `${destination}.tmp.${format}`;
 	let published = false;
-	const { inputArguments, labelInputIndexes } = buildLabelInputs(
-		plan,
-		labelAssets,
-	);
-	const { filter, output } = buildTimelineFilter(plan, { labelInputIndexes });
-	const codecArguments =
-		format === "mp4"
-			? [
-					"-c:v",
-					"libx264",
-					"-preset",
-					"slow",
-					"-crf",
-					"32",
-					"-maxrate",
-					"420k",
-					"-bufsize",
-					"840k",
-					"-pix_fmt",
-					"yuv420p",
-					"-movflags",
-					"+faststart",
-				]
-			: [
-					"-c:v",
-					"libvpx-vp9",
-					"-b:v",
-					"0",
-					"-crf",
-					"38",
-					"-deadline",
-					"good",
-					"-cpu-used",
-					"2",
-					"-row-mt",
-					"1",
-				];
+	const codecArguments = VIDEO_CODEC_ARGUMENTS[format];
+	if (codecArguments === undefined) {
+		throw new TypeError(`unsupported video format ${format}`);
+	}
 	try {
 		await run(
 			"ffmpeg",
 			[
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-y",
-			"-i",
-			source,
-			...inputArguments,
-			"-filter_complex",
-			filter,
-			"-map",
-			output,
-			"-an",
-			...codecArguments,
-			temporaryPath,
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-y",
+				...trimArguments(trim),
+				"-i",
+				source,
+				"-vf",
+				SCALE_FILTER,
+				"-an",
+				...codecArguments,
+				temporaryPath,
 			],
 			{ signal },
 		);
@@ -605,56 +425,6 @@ export async function encodePoster({
 		published = true;
 	} finally {
 		await remove(framePath);
-		if (!published) await remove(temporaryPath);
-	}
-}
-
-export async function encodeGif({
-	source,
-	destination,
-	plan,
-	labelAssets,
-	signal,
-	run = runEncoderCommand,
-	rename = nodeRename,
-	remove = (path) => nodeRm(path, { force: true }),
-}) {
-	const temporaryPath = `${destination}.tmp.gif`;
-	let published = false;
-	const { inputArguments, labelInputIndexes } = buildLabelInputs(
-		plan,
-		labelAssets,
-	);
-	const { filter, output } = buildTimelineFilter(plan, {
-		gif: true,
-		labelInputIndexes,
-	});
-	try {
-		await run(
-			"ffmpeg",
-			[
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-y",
-			"-i",
-			source,
-			...inputArguments,
-			"-filter_complex",
-			filter,
-			"-map",
-			output,
-			"-an",
-			"-gifflags",
-			"+transdiff",
-			temporaryPath,
-			],
-			{ signal },
-		);
-		signal?.throwIfAborted();
-		await rename(temporaryPath, destination);
-		published = true;
-	} finally {
 		if (!published) await remove(temporaryPath);
 	}
 }
@@ -737,13 +507,11 @@ export async function encodeCaptureArtifacts({
 	}
 	const encodeVideoImplementation = dependencies.encodeVideo ?? encodeVideo;
 	const encodePosterImplementation = dependencies.encodePoster ?? encodePoster;
-	const encodeGifImplementation = dependencies.encodeGif ?? encodeGif;
 	const validateStagedMedia =
 		dependencies.validateStagedMedia ?? validateStagedMediaManifest;
 	const afterPhase = dependencies.afterPhase ?? (() => {});
-	const plans = createTimelinePlan(summary);
+	const trim = createTrimPlan(summary);
 	const outputDir = join(artifactsDir, "output");
-	const labelDir = join(artifactsDir, "labels");
 	const publicationDir = join(artifactsDir, "publication");
 	const posterDir = join(repoRoot, "apps/web/public/demo");
 	await Promise.all([
@@ -751,62 +519,39 @@ export async function encodeCaptureArtifacts({
 		nodeMkdir(publicationDir, { recursive: true }),
 		nodeMkdir(posterDir, { recursive: true }),
 	]);
-	const labelAssets = await createActLabelAssets({ labelDir, signal });
 
-	const clips = {};
-	for (const [name, plan] of Object.entries(plans)) {
-		signal?.throwIfAborted();
-		const mp4 = join(outputDir, `${name}.mp4`);
-		const webm = join(outputDir, `${name}.webm`);
-		const poster = join(publicationDir, `${name}-poster.webp`);
-		await encodeVideoImplementation({
-			source,
-			destination: mp4,
-			plan,
-			format: "mp4",
-			labelAssets,
-			signal,
-		});
-		await encodeVideoImplementation({
-			source,
-			destination: webm,
-			plan,
-			format: "webm",
-			labelAssets,
-			signal,
-		});
-		await afterPhase("video", { name });
-		await encodePosterImplementation({
-			source: mp4,
-			destination: poster,
-			time: plan.posterTime,
-			signal,
-		});
-		await afterPhase("poster", { name });
-		clips[name] = { mp4, webm, poster, duration: plan.duration };
-	}
-	const gif = join(publicationDir, "product-loop.gif");
-	await encodeGifImplementation({
+	const name = "product-loop";
+	const mp4 = join(outputDir, `${name}.mp4`);
+	const webm = join(outputDir, `${name}.webm`);
+	const poster = join(publicationDir, `${name}-poster.webp`);
+	await encodeVideoImplementation({
 		source,
-		destination: gif,
-		plan: plans["product-loop"],
-		labelAssets,
+		destination: mp4,
+		trim,
+		format: "mp4",
 		signal,
 	});
-	await afterPhase("gif");
+	await encodeVideoImplementation({
+		source,
+		destination: webm,
+		trim,
+		format: "webm",
+		signal,
+	});
+	await afterPhase("video", { name });
+	await encodePosterImplementation({
+		source: mp4,
+		destination: poster,
+		time: trim.posterTime,
+		signal,
+	});
+	await afterPhase("poster", { name });
+	const clips = { [name]: { mp4, webm, poster, duration: trim.duration } };
 	signal?.throwIfAborted();
 
 	const manifestPath = join(artifactsDir, "media-manifest.json");
 	const assetHashes = {
-		gif: await hashFile(gif),
-		posters: Object.fromEntries(
-			await Promise.all(
-				Object.entries(clips).map(async ([name, clip]) => [
-					name,
-					await hashFile(clip.poster),
-				]),
-			),
-		),
+		posters: { [name]: await hashFile(poster) },
 	};
 	const manifest = {
 		schemaVersion: 1,
@@ -815,9 +560,7 @@ export async function encodeCaptureArtifacts({
 		sourceRecording: source,
 		outputRoot: outputDir,
 		clips,
-		gif,
 		assetHashes,
-		actLabels: Object.values(ACT_LABELS),
 		captions: MEDIA_CAPTIONS,
 	};
 	await validateStagedMedia({ repoRoot, manifest, manifestPath, signal });
@@ -844,11 +587,6 @@ export async function encodeCaptureArtifacts({
 				stagedPath: clip.poster,
 				targetPath: join(posterDir, `${name}-poster.webp`),
 			})),
-			{
-				name: "gif",
-				stagedPath: gif,
-				targetPath: join(repoRoot, "docs/brand/product-loop.gif"),
-			},
 			{
 				name: "pointer",
 				stagedPath: stagedPointer,

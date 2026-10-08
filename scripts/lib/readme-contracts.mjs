@@ -86,13 +86,23 @@ const CANONICAL_ROOT_NAVIGATION = `<p align="center">
   <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>`
 
-const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
-  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
-  </a>
-</p>`
+/**
+ * The entry package READMEs show this poster, linked to the demo MP4 on the
+ * media store (npm cannot play video). The capability and tooling READMEs
+ * never show it.
+ */
+const DEMO_POSTER_PATH = "apps/web/public/demo/product-loop-poster.webp"
 
-const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later.
+/**
+ * The root README embeds the demo as GitHub's inline video player: the
+ * GitHub-hosted copy's user-attachments URL, alone on its own line. GitHub
+ * embeds only a bare URL line, so the canonical README must not wrap it.
+ */
+export const DEMO_INLINE_VIDEO_URL =
+  "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
+const CANONICAL_INLINE_VIDEO_LINE = `\n\n${DEMO_INLINE_VIDEO_URL}\n\n`
+
+const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later and npm 11. No API key needed:
 
 \`\`\`bash
 npm create b4-app@latest my-agent
@@ -102,7 +112,7 @@ npm test
 \`\`\``
 
 const CANONICAL_TRANSCRIPT_LINK =
-  "[Read the product-loop transcript](docs/brand/demo/transcript.md)."
+  "[Read the navlog demo transcript](docs/brand/demo/transcript.md)."
 const CANONICAL_FINAL_CTA = `Ready to start?
 
 \`\`\`bash
@@ -654,12 +664,17 @@ function hasPurposeStatement(readme, firstH1, headings) {
     )
 }
 
-function productLoopImagePresent(markdownSource, htmlSource) {
+/** The inline video line: the URL alone on a visible Markdown line. */
+function inlineDemoVideoPresent(markdownSource) {
+  return markdownSource.split(/\r?\n/u).some((line) => line.trim() === DEMO_INLINE_VIDEO_URL)
+}
+
+function demoPosterPresent(markdownSource, htmlSource) {
   return (
-    /!\[[^\]]*\]\([^\r\n)]*docs\/brand\/product-loop\.gif(?:[?#][^\r\n)]*)?\)/iu.test(
+    /!\[[^\]]*\]\([^\r\n)]*apps\/web\/public\/demo\/product-loop-poster\.webp(?:[?#][^\r\n)]*)?\)/iu.test(
       markdownSource,
     ) ||
-    /<img\b[^>]*\bsrc=["'][^"']*docs\/brand\/product-loop\.gif(?:[?#][^"']*)?["'][^>]*>/iu.test(
+    /<img\b[^>]*\bsrc=["'][^"']*apps\/web\/public\/demo\/product-loop-poster\.webp(?:[?#][^"']*)?["'][^>]*>/iu.test(
       htmlSource,
     )
   )
@@ -956,25 +971,17 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     ),
   ]
     .map((match) => match[1] ?? match[2] ?? match[3])
-    .filter(
-      (source) =>
-        source !== "docs/brand/b4-logo-horizontal-black-on-white.png" &&
-        source !== "docs/brand/product-loop.gif",
-    )
+    .filter((source) => source !== "docs/brand/b4-logo-horizontal-black-on-white.png")
   const firstScrollMarkdownImages = markdownImageDestinations(firstScrollMarkdown).filter(
     (destination) =>
-      !["docs/brand/b4-logo-horizontal-black-on-white.png", "docs/brand/product-loop.gif"].includes(
-        destination.split(/[?#]/u, 1)[0],
-      ),
+      destination.split(/[?#]/u, 1)[0] !== "docs/brand/b4-logo-horizontal-black-on-white.png",
   )
   const firstScrollReferenceImages = markdownReferenceImageDestinations(
     firstScrollMarkdown,
     definitions,
   ).filter(
     (destination) =>
-      !["docs/brand/b4-logo-horizontal-black-on-white.png", "docs/brand/product-loop.gif"].includes(
-        destination.split(/[?#]/u, 1)[0],
-      ),
+      destination.split(/[?#]/u, 1)[0] !== "docs/brand/b4-logo-horizontal-black-on-white.png",
   )
   if (
     firstScrollImages.length +
@@ -995,7 +1002,12 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     definitions,
     { excludeImageLabels: true },
   )
-  const firstScrollAutolinks = markdownAutolinkDestinations(firstScrollMarkdown, definitions)
+  // The inline video line is a bare URL, which GFM also reads as an autolink;
+  // it is the demo, not a navigation link.
+  const firstScrollAutolinks = markdownAutolinkDestinations(
+    firstScrollMarkdown,
+    definitions,
+  ).filter((destination) => destination !== DEMO_INLINE_VIDEO_URL)
   if (
     firstScrollTextLinks.length +
       firstScrollMarkdownTextLinks.length +
@@ -1007,21 +1019,21 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
   }
 
   const firstCommand = withoutComments.indexOf("npm create b4-app@latest my-agent")
-  const productLoopGif = withoutComments.indexOf("docs/brand/product-loop.gif")
-  if (firstCommand === -1 || productLoopGif === -1 || firstCommand >= productLoopGif) {
-    failures.push("README must put the first scaffold command before the product-loop GIF")
+  const inlineVideo = withoutComments.indexOf(CANONICAL_INLINE_VIDEO_LINE)
+  if (firstCommand === -1 || inlineVideo === -1 || firstCommand >= inlineVideo) {
+    failures.push("README must put the first scaffold command before the inline demo video")
   }
 
-  if (!readme.includes(CANONICAL_PRODUCT_LOOP_BLOCK)) {
+  if (!readme.includes(CANONICAL_INLINE_VIDEO_LINE)) {
     failures.push(
-      "README is missing the linked product-loop GIF with canonical anchor and alt text",
+      "README is missing the inline demo video: its GitHub attachment URL alone on its own line",
     )
   }
   if (!readme.includes(CANONICAL_QUICKSTART_BLOCK)) {
     failures.push("README is missing the complete no-key Quickstart sequence")
   }
   if (!readme.includes(CANONICAL_TRANSCRIPT_LINK)) {
-    failures.push("README is missing the canonical product-loop transcript link")
+    failures.push("README is missing the canonical demo transcript link")
   }
   if (!readme.includes(CANONICAL_FINAL_CTA)) {
     failures.push("README is missing the final scaffold CTA")
@@ -1120,9 +1132,9 @@ export function validatePackageReadme({ tier, manifest, readme }) {
     }
   }
 
-  if (tier === "entry" && !productLoopImagePresent(visible.markdown, visible.rendered)) {
+  if (tier === "entry" && !demoPosterPresent(visible.markdown, visible.rendered)) {
     failures.push(
-      `${packageName ?? "package"}: entry README is missing the docs/brand/product-loop.gif image`,
+      `${packageName ?? "package"}: entry README is missing the ${DEMO_POSTER_PATH} image`,
     )
   }
 
@@ -1167,8 +1179,8 @@ export function validateRootReadme(source, options = {}) {
       "README is missing the canonical scaffold command: npm create b4-app@latest my-agent",
     )
   }
-  if (!productLoopImagePresent(visible.markdown, visible.rendered)) {
-    failures.push("README is missing the docs/brand/product-loop.gif image")
+  if (!inlineDemoVideoPresent(visible.markdown)) {
+    failures.push(`README is missing the inline demo video line ${DEMO_INLINE_VIDEO_URL}`)
   }
   if (!markdownLinkPresent(visible.markdown, ROOT_LINK_CONTRACTS.migration)) {
     failures.push("README is missing the /docs/migrating-from-langgraph migration link")

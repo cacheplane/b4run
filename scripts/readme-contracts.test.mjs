@@ -35,7 +35,7 @@ Author-facing TypeScript SDK.
 
 ## License
 
-![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)`
+![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)`
 
 const rootReadme = `# B4.run
 
@@ -59,7 +59,7 @@ const rootReadme = `# B4.run
 
 ## Run it live
 
-![B4.run product loop](docs/brand/product-loop.gif)
+https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347
 
 [Read the demo transcript](docs/brand/demo/transcript.md)
 
@@ -407,7 +407,7 @@ const entryReadmeAssets = new Map([
   ],
   [
     "product loop",
-    "https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif",
+    "https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp",
   ],
 ])
 const entryReadmeBlocks = new Map([
@@ -418,11 +418,12 @@ const entryReadmeBlocks = new Map([
 </p>`,
   ],
   [
-    "product loop",
+    "demo poster",
     `<p align="center">
-  <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="720">
   </a>
+  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
 </p>`,
   ],
 ])
@@ -436,30 +437,44 @@ const entryReadmeBlockMutations = new Map([
     ],
   ],
   [
-    "product loop",
+    "demo poster",
     [
       ["centered wrapper", (block) => block.replace('<p align="center">', "<p>")],
-      ["anchor", (block) => block.replace("https://b4.run/#product-loop", "https://b4.run/docs")],
+      [
+        "video link",
+        (block) =>
+          block.replace(
+            "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4",
+            "https://b4.run/#product-loop",
+          ),
+      ],
       [
         "alt text",
         (block) =>
           block.replace(
-            "B4.run product loop: route, deterministic test, and Workbench",
+            "The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video.",
             "B4.run product loop",
           ),
       ],
       ["width", (block) => block.replace('width="720"', 'width="721"')],
+      [
+        "watch link",
+        (block) =>
+          block.replace(
+            '<br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">',
+            '<br><a href="https://b4.run/#product-loop">',
+          ),
+      ],
+      ["watch label", (block) => block.replace("Watch the 50-second", "Watch the")],
     ],
   ],
 ])
 const canonicalHeroCommandBlock = `\`\`\`bash
 npm create b4-app@latest my-agent
 \`\`\``
-const canonicalProductLoopBlock = `<p align="center">
-  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">
-  </a>
-</p>`
+const demoInlineVideoUrl =
+  "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
+const canonicalInlineVideoLine = `\n\n${demoInlineVideoUrl}\n\n`
 const canonicalQualifiedCredentials = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
 key.`
@@ -562,11 +577,11 @@ function readmeSection(readme, heading) {
   return readme.slice(start, end === -1 ? undefined : end)
 }
 
-function assertNoCapabilityCampaignGif(packageName, readme) {
+function assertNoCapabilityCampaignAnimation(packageName, readme) {
   assert.doesNotMatch(
     readme,
-    /product-loop\.gif/iu,
-    `${packageName} capability README must not include the campaign product-loop GIF`,
+    /product-loop-poster\.webp/iu,
+    `${packageName} capability README must not include the campaign demo poster`,
   )
 }
 
@@ -576,11 +591,11 @@ function assertToolingReadmeAnchors(packageName, readme) {
   }
 }
 
-function assertNoToolingCampaignGif(packageName, readme) {
+function assertNoToolingCampaignAnimation(packageName, readme) {
   assert.doesNotMatch(
     readme,
-    /product-loop\.gif/iu,
-    `${packageName} tooling README must not include the campaign product-loop GIF`,
+    /product-loop-poster\.webp/iu,
+    `${packageName} tooling README must not include the campaign demo poster`,
   )
 }
 
@@ -617,10 +632,10 @@ describe("validatePackageReadme", () => {
 
   it("accepts the planned raw HTML product-loop thumbnail", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)",
       `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
     )
@@ -634,10 +649,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Inline `<script>` is documentation text.",
       )
       .replace(
-        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)",
         `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -671,10 +686,10 @@ describe("validatePackageReadme", () => {
         "Author-facing TypeScript SDK. Escaped \\<script> is prose.",
       )
       .replace(
-        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
+        "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)",
         `<p align="center">
   <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
   </a>
 </p>`,
       )
@@ -684,11 +699,11 @@ describe("validatePackageReadme", () => {
   it("does not accept Markdown image syntax inside a raw HTML block", () => {
     const readme = entryReadme.replace(
       /!\[B4.run product loop\].*$/u,
-      "<p>\n    ![Loop](docs/brand/product-loop.gif)\n</p>",
+      "<p>\n    ![Loop](apps/web/public/demo/product-loop-poster.webp)\n</p>",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
@@ -704,7 +719,7 @@ describe("validatePackageReadme", () => {
     it(`does not accept a Markdown image inside a <${tag}> raw-text block`, () => {
       const readme = entryReadme.replace(
         /!\[B4.run product loop\].*$/u,
-        `<${tag}>\n![Loop](docs/brand/product-loop.gif)\n</${tag}>`,
+        `<${tag}>\n![Loop](apps/web/public/demo/product-loop-poster.webp)\n</${tag}>`,
       )
       assertFailure(
         validatePackageReadme({
@@ -712,7 +727,7 @@ describe("validatePackageReadme", () => {
           manifest: entryManifest,
           readme,
         }),
-        /product-loop\.gif/,
+        /product-loop-poster\.webp/,
       )
     })
   }
@@ -720,29 +735,29 @@ describe("validatePackageReadme", () => {
   it("does not accept a Markdown image inside a generic HTML block", () => {
     const readme = entryReadme.replace(
       /!\[B4.run product loop\].*$/u,
-      "<span>\n![Loop](docs/brand/product-loop.gif)\n</span>",
+      "<span>\n![Loop](apps/web/public/demo/product-loop-poster.webp)\n</span>",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
   it("does not accept an HTML image inside a raw-text block", () => {
     const readme = entryReadme.replace(
       /!\[B4.run product loop\].*$/u,
-      '<script>\n<img src="docs/brand/product-loop.gif" alt="Decoy">\n</script>',
+      '<script>\n<img src="apps/web/public/demo/product-loop-poster.webp" alt="Decoy">\n</script>',
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
   it("accepts an HTML image inside a rendered generic HTML block", () => {
     const readme = entryReadme.replace(
       /!\[B4.run product loop\].*$/u,
-      '<span>\n<img src="docs/brand/product-loop.gif" alt="B4.run product loop">\n</span>',
+      '<span>\n<img src="apps/web/public/demo/product-loop-poster.webp" alt="B4.run product loop">\n</span>',
     )
     assert.deepEqual(validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }), [])
   })
@@ -762,7 +777,7 @@ describe("validatePackageReadme", () => {
     it(`does not accept an HTML image nested in <div><${tag}>`, () => {
       const readme = entryReadme.replace(
         /!\[B4.run product loop\].*$/u,
-        `<div>\n<${tag}>\n<img src="docs/brand/product-loop.gif" alt="Decoy">\n</${tag}>\n</div>`,
+        `<div>\n<${tag}>\n<img src="apps/web/public/demo/product-loop-poster.webp" alt="Decoy">\n</${tag}>\n</div>`,
       )
       assertFailure(
         validatePackageReadme({
@@ -770,7 +785,7 @@ describe("validatePackageReadme", () => {
           manifest: entryManifest,
           readme,
         }),
-        /product-loop\.gif/,
+        /product-loop-poster\.webp/,
       )
     })
 
@@ -816,8 +831,8 @@ describe("validatePackageReadme", () => {
     ["license heading", entryReadme.replace("## License", "## Legal"), /License/],
     [
       "entry-tier product-loop image",
-      entryReadme.replace("docs/brand/product-loop.gif", "docs/brand/other.gif"),
-      /product-loop\.gif/,
+      entryReadme.replace("apps/web/public/demo/product-loop-poster.webp", "docs/brand/other.gif"),
+      /product-loop-poster\.webp/,
     ],
     ["package-name H1", entryReadme.replace("# @b4run/sdk", "# B4.run SDK"), /H1.*@b4run\/sdk/i],
     ["purpose statement", entryReadme.replace("Author-facing TypeScript SDK.\n\n", ""), /purpose/i],
@@ -847,23 +862,23 @@ describe("validatePackageReadme", () => {
 
   it("does not accept an entry image hidden in a fenced code block", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
-      "```md\n![B4.run product loop](docs/brand/product-loop.gif)\n```",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)",
+      "```md\n![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)\n```",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
   it("does not accept an entry image written as inline code", () => {
     const readme = entryReadme.replace(
-      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif)",
-      "`![B4.run product loop](docs/brand/product-loop.gif)`",
+      "![B4.run product loop](https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp)",
+      "`![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)`",
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
@@ -871,52 +886,56 @@ describe("validatePackageReadme", () => {
     const readme = entryReadme
       .replace("# @b4run/sdk\n\n", "")
       .replace(/!\[B4.run product loop\].*$/u, "")
-      .concat("\n- ```md\n  # @b4run/sdk\n  ![Loop](docs/brand/product-loop.gif)\n  ```")
+      .concat(
+        "\n- ```md\n  # @b4run/sdk\n  ![Loop](apps/web/public/demo/product-loop-poster.webp)\n  ```",
+      )
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
     assertFailure(failures, /H1.*@b4run\/sdk/i)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /product-loop-poster\.webp/)
   })
 
   it("ignores package contract decoys inside a three-space-indented fence", () => {
     const readme = entryReadme
       .replace("# @b4run/sdk\n\n", "")
       .replace(/!\[B4.run product loop\].*$/u, "")
-      .concat("\n   ```md\n# @b4run/sdk\n![Loop](docs/brand/product-loop.gif)\n   ```")
+      .concat(
+        "\n   ```md\n# @b4run/sdk\n![Loop](apps/web/public/demo/product-loop-poster.webp)\n   ```",
+      )
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
     assertFailure(failures, /H1.*@b4run\/sdk/i)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /product-loop-poster\.webp/)
   })
 
   it("ignores package contract decoys inside indented code", () => {
     const readme = entryReadme
       .replace("# @b4run/sdk\n\n", "")
       .replace(/!\[B4.run product loop\].*$/u, "")
-      .concat("\n    # @b4run/sdk\n    ![Loop](docs/brand/product-loop.gif)")
+      .concat("\n    # @b4run/sdk\n    ![Loop](apps/web/public/demo/product-loop-poster.webp)")
     const failures = validatePackageReadme({
       tier: "entry",
       manifest: entryManifest,
       readme,
     })
     assertFailure(failures, /H1.*@b4run\/sdk/i)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /product-loop-poster\.webp/)
   })
 
   it("does not accept an HTML product-loop image inside indented code", () => {
     const readme = entryReadme.replace(
       /!\[B4.run product loop\].*$/u,
-      '    <img src="docs/brand/product-loop.gif" alt="Decoy">',
+      '    <img src="apps/web/public/demo/product-loop-poster.webp" alt="Decoy">',
     )
     assertFailure(
       validatePackageReadme({ tier: "entry", manifest: entryManifest, readme }),
-      /product-loop\.gif/,
+      /product-loop-poster\.webp/,
     )
   })
 
@@ -1027,23 +1046,51 @@ describe("entry-package README contracts", () => {
     }
   }
 
-  it("keeps the actual create-b4-app release history valid after later publishes", () => {
+  it("documents the actual create-b4-app templates, options and navlog needs without release history", () => {
     const createReadme = actualEntryPackages.find(
       ({ manifest }) => manifest.name === "create-b4-app",
     )?.readme
 
+    // Navlog has shipped: the README names the flags parseArgs accepts for
+    // users (packages/create-b4-app/src/index.ts) and what navlog needs live.
     assert.match(
       createReadme ?? "",
-      /0\.8\.21[^\n]*single-package[^\n]*0\.8\.22[^\n]*`server`[^\n]*`web`/u,
+      /`server` and `web` npm workspace[^\n]*`npm create b4-app@latest my-navlog -- --template navlog`/u,
     )
-    assert.match(createReadme ?? "", /`npm view create-b4-app@latest version`/u)
-    for (const selfInvalidatingPhrase of [
-      "published `@latest` version was verified as 0.8.21",
-      "current 0.8.22 repository source",
-      "until that version is published",
+    assert.match(createReadme ?? "", /`--template basic\|navlog` \(default `basic`\)/u)
+    assert.match(createReadme ?? "", /`--dist-tag <tag>`/u)
+    assert.match(createReadme ?? "", /directory must be new or empty/u)
+    assert.match(createReadme ?? "", /Requires Node\.js 24 or later and npm 11\./u)
+    assert.match(
+      createReadme ?? "",
+      /`OPENAI_API_KEY` in `server\/\.env`[^\n]*port 3002[^\n]*port 3010/u,
+    )
+    for (const stalePattern of [
+      /--template research/u,
+      /\bresearch\b/iu,
+      /--mode internal/u,
+      /Releases up to/u,
+      /\b0\.\d+\.\d+\b/u,
+      /npm view create-b4-app@latest version/u,
     ]) {
-      assert.equal(createReadme?.includes(selfInvalidatingPhrase), false)
+      assert.doesNotMatch(createReadme ?? "", stalePattern)
     }
+  })
+
+  it("installs the actual @b4run/cli as a runtime dependency", () => {
+    const cliReadme = actualEntryPackages.find(
+      ({ manifest }) => manifest.name === "@b4run/cli",
+    )?.readme
+
+    // The node target's server.mjs imports @b4run/cli at runtime
+    // (packages/cli/src/lib/build/targets/node.ts), so a dev dependency is
+    // stripped from a production install.
+    assert.match(cliReadme ?? "", /^npm install @b4run\/cli$/mu)
+    assert.doesNotMatch(cliReadme ?? "", /(?:add|install)\s+(?:-D|--save-dev)\b/u)
+    assert.match(
+      cliReadme ?? "",
+      /not a dev dependency, because the server that `b4 build` emits imports `@b4run\/cli` at runtime/u,
+    )
   })
 
   it("labels the actual @b4run/cli/testing subpath as deprecated compatibility", () => {
@@ -1087,13 +1134,13 @@ describe("capability-package README contracts", () => {
       }
     })
 
-    it(`keeps the campaign GIF out of the actual ${manifest.name} README`, () => {
-      assertNoCapabilityCampaignGif(manifest.name, readme)
+    it(`keeps the campaign demo poster out of the actual ${manifest.name} README`, () => {
+      assertNoCapabilityCampaignAnimation(manifest.name, readme)
     })
 
-    it(`rejects adding the campaign GIF to the actual ${manifest.name} README`, () => {
-      const mutated = `${readme}\n![B4.run product loop](docs/brand/product-loop.gif)\n`
-      assert.throws(() => assertNoCapabilityCampaignGif(manifest.name, mutated))
+    it(`rejects adding the campaign demo poster to the actual ${manifest.name} README`, () => {
+      const mutated = `${readme}\n![B4.run product loop](apps/web/public/demo/product-loop-poster.webp)\n`
+      assert.throws(() => assertNoCapabilityCampaignAnimation(manifest.name, mutated))
     })
   }
 
@@ -1137,8 +1184,8 @@ describe("tooling-package README contracts", () => {
       assertToolingReadmeAnchors(manifest.name, readme)
     })
 
-    it(`keeps the campaign GIF out of the actual ${manifest.name} README`, () => {
-      assertNoToolingCampaignGif(manifest.name, readme)
+    it(`keeps the campaign demo poster out of the actual ${manifest.name} README`, () => {
+      assertNoToolingCampaignAnimation(manifest.name, readme)
     })
   }
 
@@ -1277,29 +1324,62 @@ describe("validateRootReadme", () => {
     assert.deepEqual(validateRootReadme(actualRootReadme, { canonical: true }), [])
   })
 
-  it("documents the working published latest run path before current-source commands", () => {
-    const publishedStart = actualRootReadme.indexOf("### Published `@latest` (0.8.21)")
-    const currentSourceStart = actualRootReadme.indexOf("### Current source (unreleased 0.8.22)")
-    assert.ok(publishedStart !== -1 && publishedStart < currentSourceStart)
-    const published = actualRootReadme.slice(publishedStart, currentSourceStart)
-    assert.match(published, /OPENAI_API_KEY/)
-    assert.match(published, /npm run dev(?:\s|$)/)
-    assert.match(published, /npm run build/)
-    assert.match(published, /\/docs\/dev-server\/agent-protocol/)
-    assert.match(published, /\/docs\/recipes\/flight-planner-web-ui/)
-    assert.doesNotMatch(published, /^npm (?:run dev:(?:server|web)|start)$/mu)
+  it("scaffolds the navlog starter and follows the scaffolder's next steps before the run commands", () => {
+    const runStart = actualRootReadme.indexOf("## Run it live")
+    const maturityStart = actualRootReadme.indexOf("## Maturity and support")
+    assert.ok(runStart !== -1 && runStart < maturityStart)
+    const run = actualRootReadme.slice(runStart, maturityStart)
+    const devServer = run.indexOf("npm run dev:server")
+    assert.ok(devServer !== -1)
+    const setup = run.slice(0, devServer)
+    // The navlog scaffold, then the steps create-b4-app prints for it
+    // (packages/create-b4-app/src/index.ts printNextSteps), in that order.
+    let cursor = -1
+    for (const step of [
+      /^npm create b4-app@latest my-navlog -- --template navlog$/mu,
+      /^cd my-navlog$/mu,
+      /^npm install$/mu,
+      /^cp server\/\.env\.example server\/\.env\b[^\n]*OPENAI_API_KEY/mu,
+      /^npm run verify$/mu,
+    ]) {
+      const match = step.exec(setup.slice(cursor + 1))
+      assert.ok(match, `Run it live must show ${step} before npm run dev:server, in order`)
+      cursor += 1 + match.index
+    }
+    assert.match(run, /port 3002[^.]*port 3010/u)
+    assert.match(run, /basic\s+starter runs live with `npm run dev` on port 3000/u)
+    // Navlog has shipped: no release history, no alias, no pinned versions.
+    for (const stale of [/--template research/u, /\bresearch\b/iu, /\b0\.\d+\.\d+\b/u]) {
+      assert.doesNotMatch(run, stale)
+    }
   })
 
-  it("labels unreleased current-source server, Workbench, build, and start commands", () => {
-    const currentSourceStart = actualRootReadme.indexOf("### Current source (unreleased 0.8.22)")
+  it("keeps the actual root README free of release history and the retired template id", () => {
+    for (const stale of [
+      /--template research/u,
+      /\bresearch template\b/iu,
+      /Releases up to/u,
+      /clean-room/iu,
+      /Published `@latest`/u,
+    ]) {
+      assert.doesNotMatch(actualRootReadme, stale)
+    }
+    assert.match(
+      actualRootReadme,
+      /`npm test` runs the starter's fixture-backed test offline — no API key, no\s+model calls\./u,
+    )
+  })
+
+  it("labels the server, Workbench, build, and start commands and the deployment targets", () => {
+    const runStart = actualRootReadme.indexOf("## Run it live")
     const maturityStart = actualRootReadme.indexOf("## Maturity and support")
-    assert.ok(currentSourceStart !== -1 && currentSourceStart < maturityStart)
-    const currentSource = actualRootReadme.slice(currentSourceStart, maturityStart)
+    assert.ok(runStart !== -1 && runStart < maturityStart)
+    const run = actualRootReadme.slice(runStart, maturityStart)
     for (const command of ["npm run dev:server", "npm run dev:web", "npm run build", "npm start"]) {
-      assert.match(currentSource, new RegExp(command.replaceAll(" ", "\\s+")))
+      assert.match(run, new RegExp(`^${command.replaceAll(" ", "\\s+")}$`, "mu"))
     }
     for (const deployment of ["node", "langsmith", "edge", "vercel", "kubernetes"]) {
-      assert.match(currentSource, new RegExp(`/docs/deployment/${deployment}`))
+      assert.match(run, new RegExp(`/docs/deployment/${deployment}`))
     }
   })
 
@@ -1489,46 +1569,74 @@ describe("validateRootReadme", () => {
     assert.deepEqual(validateRootReadme(source, { canonical: true }), [])
   })
 
-  it("requires the first scaffold command before the product-loop GIF", () => {
+  it("requires the first scaffold command before the inline demo video", () => {
     const source = actualRootReadme
       .replace(`${canonicalHeroCommandBlock}\n\n`, "")
       .replace(
-        "[Read the product-loop transcript]",
-        `${canonicalHeroCommandBlock}\n\n[Read the product-loop transcript]`,
+        "[Read the navlog demo transcript]",
+        `${canonicalHeroCommandBlock}\n\n[Read the navlog demo transcript]`,
       )
-    assertFailure(validateRootReadme(source, { canonical: true }), /before the product-loop GIF/i)
+    assertFailure(
+      validateRootReadme(source, { canonical: true }),
+      /first scaffold command before the inline demo video/i,
+    )
+    const moved = actualRootReadme
+      .replace(canonicalInlineVideoLine, "\n\n")
+      .replace(canonicalHeroCommandBlock, `${demoInlineVideoUrl}\n\n${canonicalHeroCommandBlock}`)
+    assertFailure(
+      validateRootReadme(moved, { canonical: true }),
+      /first scaffold command before the inline demo video/i,
+    )
   })
 
-  for (const [name, source] of [
+  for (const [name, replacement] of [
+    ["missing inline demo video", "\n\n"],
+    ["inline demo video wrapped in an autolink", `\n\n<${demoInlineVideoUrl}>\n\n`],
     [
-      "unlinked product-loop GIF",
-      actualRootReadme.replace(
-        canonicalProductLoopBlock,
-        '<p align="center">\n  <img src="docs/brand/product-loop.gif" alt="Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench" width="900">\n</p>',
-      ),
+      "inline demo video wrapped in a Markdown link",
+      `\n\n[Watch the demo](${demoInlineVideoUrl})\n\n`,
     ],
     [
-      "wrong product-loop anchor",
-      actualRootReadme.replace(
-        "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md",
-        "https://b4.run/docs",
-      ),
+      "inline demo video wrapped in an HTML link",
+      `\n\n<a href="${demoInlineVideoUrl}">${demoInlineVideoUrl}</a>\n\n`,
     ],
     [
-      "wrong product-loop alt text",
-      actualRootReadme.replace(
-        "Animation showing an existing generated research workspace, a deterministic test, and the B4.run Workbench",
-        "B4.run product loop",
-      ),
+      "different inline video URL",
+      "\n\nhttps://github.com/user-attachments/assets/00000000-0000-0000-0000-000000000000\n\n",
     ],
+    ["inline demo video sharing its line with text", `\n\nWatch: ${demoInlineVideoUrl}\n\n`],
   ]) {
     it(`rejects a ${name}`, () => {
+      assert.ok(actualRootReadme.includes(canonicalInlineVideoLine))
+      const source = actualRootReadme.replace(canonicalInlineVideoLine, replacement)
+      assert.notEqual(source, actualRootReadme)
       assertFailure(
         validateRootReadme(source, { canonical: true }),
-        /linked product-loop GIF with canonical anchor and alt text/i,
+        /inline demo video: its GitHub attachment URL alone on its own line/i,
       )
     })
   }
+
+  it("does not count the inline demo video as a hero navigation link", () => {
+    assert.deepEqual(validateRootReadme(actualRootReadme, { canonical: true }), [])
+    const extraAutolink = actualRootReadme.replace(
+      canonicalInlineVideoLine,
+      `${canonicalInlineVideoLine}https://b4.run/blog\n\n`,
+    )
+    assertFailure(
+      validateRootReadme(extraAutolink, { canonical: true }),
+      /exactly four canonical hero navigation links/i,
+    )
+  })
+
+  it("shows the root README's demo as the inline video, not the npm poster", () => {
+    assert.equal(actualRootReadme.includes("apps/web/public/demo/product-loop-poster.webp"), false)
+    assert.equal(actualRootReadme.includes("b4/demo/product-loop.mp4"), false)
+  })
+
+  it("drops the README animation: the root README no longer shows the take-1 animated WebP", () => {
+    assert.equal(actualRootReadme.includes(["docs/brand", "product-loop.webp"].join("/")), false)
+  })
 
   it("requires the complete no-key Quickstart sequence", () => {
     const source = actualRootReadme.replace(
@@ -1543,12 +1651,12 @@ describe("validateRootReadme", () => {
 
   it("requires the canonical transcript link in the actual README", () => {
     const source = actualRootReadme.replace(
-      "[Read the product-loop transcript](docs/brand/demo/transcript.md).",
+      "[Read the navlog demo transcript](docs/brand/demo/transcript.md).",
       "",
     )
     assertFailure(
       validateRootReadme(source, { canonical: true }),
-      /canonical product-loop transcript link/i,
+      /canonical demo transcript link/i,
     )
   })
 
@@ -1625,13 +1733,21 @@ describe("validateRootReadme", () => {
     })
   }
 
-  it("accepts the product-loop GIF as an HTML image", () => {
-    const htmlImage = rootReadme.replace(
-      "![B4.run product loop](docs/brand/product-loop.gif)",
-      '<img src="docs/brand/product-loop.gif" alt="B4.run product loop" />',
-    )
-    assert.deepEqual(validateRootReadme(htmlImage), [])
+  it("accepts the inline demo video line with surrounding spaces", () => {
+    const spaced = rootReadme.replace(demoInlineVideoUrl, `  ${demoInlineVideoUrl}  `)
+    assert.deepEqual(validateRootReadme(spaced), [])
   })
+
+  for (const [name, wrapped] of [
+    ["an angle-bracket autolink", `<${demoInlineVideoUrl}>`],
+    ["a Markdown link", `[Demo](${demoInlineVideoUrl})`],
+    ["an HTML link", `<a href="${demoInlineVideoUrl}">Demo</a>`],
+  ]) {
+    it(`rejects the inline demo video wrapped in ${name}`, () => {
+      const source = rootReadme.replace(demoInlineVideoUrl, wrapped)
+      assertFailure(validateRootReadme(source), /inline demo video line/)
+    })
+  }
 
   it("accepts the canonical scaffold command in a fenced shell example", () => {
     const fencedCommand = rootReadme.replace(
@@ -1723,28 +1839,28 @@ describe("validateRootReadme", () => {
 
   it("does not accept root assets and links hidden in fenced examples", () => {
     const hiddenReferences = rootReadme
-      .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
+      .replace(demoInlineVideoUrl, "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n```md\n![Loop](docs/brand/product-loop.gif)\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
+        "\n\n```md\nhttps://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
       )
     const failures = validateRootReadme(hiddenReferences)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
 
   it("does not accept root references hidden in HTML comments", () => {
     const hiddenReferences = rootReadme
-      .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
+      .replace(demoInlineVideoUrl, "")
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n<!-- ![Loop](docs/brand/product-loop.gif) [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
+        "\n\n<!-- https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347 [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
       )
     const failures = validateRootReadme(hiddenReferences)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
@@ -1814,10 +1930,7 @@ describe("validateRootReadme", () => {
 
   it("does not accept root assets and links written as inline code", () => {
     const inlineReferences = rootReadme
-      .replace(
-        "![B4.run product loop](docs/brand/product-loop.gif)",
-        "`![B4.run product loop](docs/brand/product-loop.gif)`",
-      )
+      .replace(demoInlineVideoUrl, `\`${demoInlineVideoUrl}\``)
       .replace(
         "[Migrate from LangGraph](/docs/migrating-from-langgraph)",
         "`[Migrate from LangGraph](/docs/migrating-from-langgraph)`",
@@ -1827,7 +1940,7 @@ describe("validateRootReadme", () => {
         "`[Read the demo transcript](docs/brand/demo/transcript.md)`",
       )
     const failures = validateRootReadme(inlineReferences)
-    assertFailure(failures, /product-loop\.gif/)
+    assertFailure(failures, /inline demo video line/)
     assertFailure(failures, /migrating-from-langgraph/)
     assertFailure(failures, /transcript\.md/)
   })
@@ -1835,23 +1948,23 @@ describe("validateRootReadme", () => {
   for (const [name, decoy] of [
     [
       "a list-nested fence",
-      "- ```md\n  ## Quickstart\n  ![Loop](docs/brand/product-loop.gif)\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
+      "- ```md\n  ## Quickstart\n  https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
     ],
     [
       "indented code",
-      "    ## Quickstart\n    ![Loop](docs/brand/product-loop.gif)\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
+      "    ## Quickstart\n    https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
     ],
   ]) {
     it(`ignores root contract decoys inside ${name}`, () => {
       const source = rootReadme
         .replace("## Quickstart\n", "")
-        .replace("![B4.run product loop](docs/brand/product-loop.gif)", "")
+        .replace(demoInlineVideoUrl, "")
         .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
         .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
         .concat(`\n\n${decoy}`)
       const failures = validateRootReadme(source)
       assertFailure(failures, /Quickstart/)
-      assertFailure(failures, /product-loop\.gif/)
+      assertFailure(failures, /inline demo video line/)
       assertFailure(failures, /migrating-from-langgraph/)
       assertFailure(failures, /transcript\.md/)
     })
@@ -2056,9 +2169,9 @@ describe("validateRootReadme", () => {
       /npm create b4-app@latest my-agent/,
     ],
     [
-      "product-loop GIF",
-      rootReadme.replace("docs/brand/product-loop.gif", "docs/brand/quickstart.gif"),
-      /docs\/brand\/product-loop\.gif/,
+      "inline demo video",
+      rootReadme.replace(demoInlineVideoUrl, "https://github.com/user-attachments/assets/other"),
+      /inline demo video line/,
     ],
     [
       "migration link",

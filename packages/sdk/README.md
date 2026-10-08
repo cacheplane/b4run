@@ -4,33 +4,34 @@
 
 # @b4run/sdk
 
-Author-facing TypeScript declarations for B4.run agents, tools, middleware, memory, routes, and typed runtime contracts.
+The TypeScript SDK for authoring B4.run apps: the runtime functions, such as `agent()`, `defineMemory()` and `defineMiddleware()`, and the types for tools, routes and runtime contracts.
 
 **Use this when:** You are authoring routes, tools, middleware, memory declarations, or typed runtime contracts.
 
 <p align="center">
-  <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="720">
   </a>
+  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
 </p>
 
 ## Install
 
-Requires Node.js 24 or later.
+Requires Node.js 24 or later. `create-b4-app` usually installs the SDK for you, alongside `@b4run/cli`, because routes run on the CLI's runtime. To add both to an existing app:
 
 ```bash
-pnpm add @b4run/sdk
+npm install @b4run/sdk @b4run/cli
 ```
 
 Add `zod` when declaring typed long-term memory:
 
 ```bash
-pnpm add zod
+npm install zod
 ```
 
 ## Example
 
-Define a minimal agent route:
+Define an agent route whose `issueRefund` tool needs a person's approval:
 
 ```ts
 // src/app/support/index.ts
@@ -39,8 +40,19 @@ import { agent } from "@b4run/sdk"
 export default agent({
   model: "gpt-5-mini",
   systemPrompt: "Answer support questions clearly and concisely.",
+  tools: { approve: ["issueRefund"] },
 })
 ```
+
+```ts
+// src/app/support/tools/issueRefund.ts
+/** Refund an order. */
+export default async (input: { readonly orderId: string }) => {
+  return { refunded: input.orderId }
+}
+```
+
+Each tool is a file with one default export: route-local tools live in the route's `tools/` directory and shared tools in `src/tools/`. A name in `tools.approve` pauses each call until a person answers, and an "always" answer stops the prompts for that tool. Write `{ tool: "issueRefund", allowAlways: false }` instead to ask on every call.
 
 The same package provides adjacent memory and middleware declarations:
 
@@ -67,10 +79,10 @@ import { defineMiddleware } from "@b4run/sdk"
 export default defineMiddleware(() => ({ action: "continue" }))
 ```
 
-Middleware that owns a long-lived resource, such as a database pool, uses the
-lifecycle form. `setup` runs once, lazily, before the first gated request (and
-is retried on the next request if it fails); `dispose` runs when the Node
-runtime shuts down.
+Alternatively, middleware that owns a long-lived resource, such as a database
+pool, uses the lifecycle form instead of the function above. `setup` runs once,
+lazily, before the first gated request (and is retried on the next request if
+it fails); `dispose` runs when the Node runtime shuts down.
 
 ```ts
 // src/middleware.ts
@@ -88,13 +100,16 @@ export default defineMiddleware({
     await pool?.end()
   },
   async handle(req) {
-    const session = await pool?.query("select user_id from sessions where token = $1", [
-      req.headers.authorization,
-    ])
-    return session?.rowCount ? allow({ userId: session.rows[0].user_id }) : reject(401)
+    const token = req.headers.authorization?.replace(/^Bearer /, "")
+    if (!token) return reject(401)
+    const result = await pool?.query("select user_id from sessions where token = $1", [token])
+    const row = result?.rows[0]
+    return row ? allow({ userId: row.user_id }) : reject(401)
   },
 })
 ```
+
+The [auth middleware recipe](https://b4.run/docs/recipes/auth-middleware) walks through bearer-token verification. The starter templates resolve the caller once, in `src/auth.ts`, and import it from both `src/middleware.ts` and `src/thread-access.ts`; keep that shape when you add [thread access](https://b4.run/docs/thread-access), so both files agree on who the caller is.
 
 ## Runtime and stability
 

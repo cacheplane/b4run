@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { EventEmitter } from "node:events"
+import { readFileSync } from "node:fs"
 import {
   lstat,
   mkdir,
@@ -12,29 +13,45 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
+import { createServer as createNetServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { tsImport } from "tsx/esm/api"
 
-import { script } from "../../../packages/testing/dist/index.js"
 import {
+  assertAwcStubServed,
+  assertLoopbackAwcBaseUrl,
   assertLoopbackModelBaseUrl,
+  awaitApprovalCard,
   buildChildEnvironment,
+  centerInScroller,
   captureDemo,
+  assembleScreencastVideo,
   closeBrowserResources,
   createBrowserResources,
+  createScreencastRecorder,
   createManagedChildRegistry,
   createManagedServiceMonitor,
+  expectedRootToolSteps,
   fillActiveWorkbenchComposer,
+  frameSurface,
   generatedInstallCommand,
   generatedTestCommand,
+  HIDE_NEXT_DEV_INDICATOR,
   installCaptureSignalHandlers,
   openReadyWorkbench,
   parseCaptureArguments,
   raceCapturePhase,
   restoreWorkbenchThread,
   runManagedCommand,
+  SCREENCAST_OPTIONS,
+  SCREENCAST_SCALE,
   sanitizeOperationalEnvironment,
+  screencastConcat,
+  screencastMotion,
+  settleWorkbenchViewport,
   startHttpService,
   startWithAssignedPort,
   validateRunId,
@@ -53,21 +70,46 @@ import {
   validateLocalMediaContract,
   validateMediaManifestLayout,
   validateStagedMediaManifest,
+  VIDEO_BYTE_LIMIT,
 } from "./check-media.mjs"
 import {
-  buildTimelineFilter,
-  createTimelinePlan,
+  CODE_PANE_LINES,
+  DIRECTOR_FONTS,
+  renderDirector,
+  snapWindowStart,
+  twoPaneColumns,
+  windowAround,
+  wordmarkSvg,
+} from "./director.mjs"
+import {
+  createTrimPlan,
   encodeCaptureArtifacts,
-  encodeGif,
   encodePoster,
   encodeVideo,
   publishFixedAssets,
   runEncoderCommand,
+  VIDEO_CODEC_ARGUMENTS,
 } from "./encode.mjs"
-import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
-import { DEMO_FIXTURES, DEMO_NAVLOG_INPUT, DEMO_PROMPT } from "./scenario.mjs"
-import { renderStage } from "./stage.mjs"
+import { startAwcStub } from "./awc-stub.mjs"
+import {
+  APP_ACTIONS,
+  APP_FOCUS,
+  beatSceneName,
+  STORYBOARD,
+  storyboardPaths,
+} from "./storyboard.mjs"
+import {
+  DEMO_FILE_PROMPT,
+  DEMO_FIXTURES,
+  DEMO_PLAN_ANSWER,
+  DEMO_PLAN_TOOLS,
+  DEMO_PROMPT,
+  DEMO_SCENARIO,
+  assertScenarioCurrent,
+  demoAwcData,
+  demoScenario,
+} from "./scenario.mjs"
 import {
   buildDemoMediaCatalog,
   createUploadPlan,
@@ -106,17 +148,17 @@ function validMediaFixtures() {
   const files = new Map()
   for (const contract of MEDIA_CONTRACTS) {
     files.set(contract.mp4, {
-      size: 1_200_000,
+      size: 8_400_000,
       probe: videoProbe({
         codecName: "h264",
-        duration: contract.name === "product-loop" ? 24 : 10,
+        duration: 58,
       }),
     })
     files.set(contract.webm, {
-      size: 1_100_000,
+      size: 8_100_000,
       probe: videoProbe({
         codecName: "vp9",
-        duration: contract.name === "product-loop" ? 24 : 10,
+        duration: 58,
       }),
     })
     files.set(contract.poster, {
@@ -124,10 +166,6 @@ function validMediaFixtures() {
       probe: videoProbe({ codecName: "webp", duration: 0 }),
     })
   }
-  files.set("docs/brand/product-loop.gif", {
-    size: 3_500_000,
-    probe: videoProbe({ codecName: "gif", duration: 24 }),
-  })
   files.set("docs/brand/demo/transcript.md", {
     size: 2_000,
     text: "Exact static walkthrough",
@@ -142,51 +180,87 @@ async function validateMedia(overrides = new Map()) {
     files,
     captions: {
       "product-loop":
-        "Author a route, run its offline test, use the Workbench, and restore the same thread after a browser reload.",
-      author: "Inspect the generated research route and shared tool.",
-      test: "Run the deterministic research scenario with npm test.",
-      run: "Complete a Workbench run, reload, and restore the same thread.",
+        "The navlog agent's code, then the Workbench planning, approving and restoring a flight.",
     },
   })
 }
 
-test("media contracts accept the exact flagship and derivative formats", async () => {
+test("media contracts accept the exact flagship formats", async () => {
   assert.deepEqual(await validateMedia(), [])
 })
 
-test("media contracts accept GIF centisecond timing reported as 30 fps", async () => {
-  const files = validMediaFixtures()
-  files.set("docs/brand/product-loop.gif", {
-    size: 3_000_000,
-    probe: videoProbe({
-      codecName: "gif",
-      duration: 24.03,
-      frameRate: "100/3",
-      reportedFrameRate: "30/1",
-    }),
-  })
-  const failures = await validateLocalMediaContract({
-    files,
-    captions: {
-      "product-loop": "Author, test, run, reload, and restore.",
-      author: "Generated route and shared tool.",
-      test: "Offline test passes.",
-      run: "Browser reload restores the thread.",
+test("the flagship contract is one 45-75 s clip with 12,000,000-byte videos and no README animation", () => {
+  assert.equal(MEDIA_CONTRACTS.length, 1)
+  assert.deepEqual(
+    { ...MEDIA_CONTRACTS[0] },
+    {
+      name: "product-loop",
+      minimumDuration: 45,
+      maximumDuration: 75,
+      mp4: "docs/brand/demo/artifacts/output/product-loop.mp4",
+      webm: "docs/brand/demo/artifacts/output/product-loop.webm",
+      poster: "apps/web/public/demo/product-loop-poster.webp",
     },
-  })
-  assert.deepEqual(failures, [])
+  )
+  assert.equal(VIDEO_BYTE_LIMIT, 12_000_000)
+})
+
+test("media contracts accept the duration window's edges and the byte budget exactly", async () => {
+  for (const duration of [45, 75]) {
+    assert.deepEqual(
+      await validateMedia(
+        new Map([
+          [
+            "docs/brand/demo/artifacts/output/product-loop.mp4",
+            { size: 12_000_000, probe: videoProbe({ codecName: "h264", duration }) },
+          ],
+          [
+            "docs/brand/demo/artifacts/output/product-loop.webm",
+            { size: 12_000_000, probe: videoProbe({ codecName: "vp9", duration }) },
+          ],
+        ]),
+      ),
+      [],
+      `${duration} s at 12,000,000 bytes`,
+    )
+  }
+})
+
+test("media contracts no longer hold the videos to the take-1 2 MB budget or 12-18 s window", async () => {
+  assert.deepEqual(
+    await validateMedia(
+      new Map([
+        [
+          "docs/brand/demo/artifacts/output/product-loop.mp4",
+          { size: 9_500_000, probe: videoProbe({ codecName: "h264", duration: 61.2 }) },
+        ],
+      ]),
+    ),
+    [],
+  )
+  const failures = await validateMedia(
+    new Map([
+      [
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
+        { size: 1_200_000, probe: videoProbe({ codecName: "h264", duration: 15 }) },
+      ],
+    ]),
+  )
+  assert.deepEqual(failures, [
+    "product-loop must be 45-75 seconds; docs/brand/demo/artifacts/output/product-loop.mp4 is 15",
+  ])
 })
 
 test("media contracts reject wrong dimensions and aspect ratio", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/author.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 1_200_000,
+          size: 8_400_000,
           probe: videoProbe({
             codecName: "h264",
-            duration: 10,
+            duration: 58,
             width: 1280,
             height: 800,
           }),
@@ -197,55 +271,57 @@ test("media contracts reject wrong dimensions and aspect ratio", async () => {
   assert.ok(failures.some((failure) => /1440x810/.test(failure)))
 })
 
-test("media contracts reject durations outside each clip window", async () => {
+test("media contracts reject durations outside the flagship window", async () => {
   const failures = await validateMedia(
     new Map([
       [
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 1_200_000,
-          probe: videoProbe({ codecName: "h264", duration: 19.99 }),
+          probe: videoProbe({ codecName: "h264", duration: 44.99 }),
         },
       ],
       [
-        "docs/brand/demo/artifacts/output/run.webm",
+        "docs/brand/demo/artifacts/output/product-loop.webm",
         {
           size: 1_100_000,
-          probe: videoProbe({ codecName: "vp9", duration: 12.01 }),
+          probe: videoProbe({ codecName: "vp9", duration: 75.01 }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /product-loop.*20-30 seconds/.test(failure)))
-  assert.ok(failures.some((failure) => /run.*8-12 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4/.test(failure) && /45-75 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm/.test(failure) && /45-75 seconds/.test(failure)))
 })
 
 test("media contracts reject files over their byte budgets", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/test.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 2_000_001,
-          probe: videoProbe({ codecName: "h264", duration: 10 }),
+          size: 12_000_001,
+          probe: videoProbe({ codecName: "h264", duration: 58 }),
         },
       ],
       [
-        "docs/brand/product-loop.gif",
+        "docs/brand/demo/artifacts/output/product-loop.webm",
         {
-          size: 4_000_001,
-          probe: videoProbe({ codecName: "gif", duration: 24 }),
+          size: 12_000_001,
+          probe: videoProbe({ codecName: "vp9", duration: 58 }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /test\.mp4.*2,000,000 bytes/.test(failure)))
-  assert.ok(failures.some((failure) => /product-loop\.gif.*4,000,000 bytes/.test(failure)))
+  assert.deepEqual(failures, [
+    "docs/brand/demo/artifacts/output/product-loop.mp4 must be at most 12,000,000 bytes",
+    "docs/brand/demo/artifacts/output/product-loop.webm must be at most 12,000,000 bytes",
+  ])
 })
 
 test("media contracts require every poster and the transcript", async () => {
   const files = validMediaFixtures()
-  files.delete("apps/web/public/demo/run-poster.webp")
+  files.delete("apps/web/public/demo/product-loop-poster.webp")
   files.delete("docs/brand/demo/transcript.md")
   const failures = await validateLocalMediaContract({
     files,
@@ -253,13 +329,13 @@ test("media contracts require every poster and the transcript", async () => {
       MEDIA_CONTRACTS.map(({ name }) => [name, "Accurate static description"]),
     ),
   })
-  assert.ok(failures.some((failure) => /run.*poster/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop.*poster/.test(failure)))
   assert.ok(failures.some((failure) => /transcript/.test(failure)))
 })
 
 test("media contracts require 1440x810 WebP posters", async () => {
   const files = validMediaFixtures()
-  files.set("apps/web/public/demo/test-poster.webp", {
+  files.set("apps/web/public/demo/product-loop-poster.webp", {
     size: 80_000,
     probe: videoProbe({
       codecName: "png",
@@ -274,8 +350,8 @@ test("media contracts require 1440x810 WebP posters", async () => {
       MEDIA_CONTRACTS.map(({ name }) => [name, "Accurate static description"]),
     ),
   })
-  assert.ok(failures.some((failure) => /test-poster\.webp.*WebP/.test(failure)))
-  assert.ok(failures.some((failure) => /test-poster\.webp.*1440x810/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop-poster\.webp.*WebP/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop-poster\.webp.*1440x810/.test(failure)))
 })
 
 test("media contracts reject captions that claim scaffolding is visible", async () => {
@@ -284,9 +360,6 @@ test("media contracts reject captions that claim scaffolding is visible", async 
     files,
     captions: {
       "product-loop": "Scaffold a B4.run app, then run it.",
-      author: "Generated route and shared tool.",
-      test: "Offline test passes.",
-      run: "Browser reload restores the thread.",
     },
   })
   assert.ok(failures.some((failure) => /caption.*scaffold/i.test(failure)))
@@ -296,28 +369,28 @@ test("media contracts require H.264 MP4, VP9 WebM, and 30 fps", async () => {
   const failures = await validateMedia(
     new Map([
       [
-        "docs/brand/demo/artifacts/output/author.mp4",
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 1_200_000,
-          probe: videoProbe({ codecName: "hevc", duration: 10 }),
+          size: 8_400_000,
+          probe: videoProbe({ codecName: "hevc", duration: 58 }),
         },
       ],
       [
-        "docs/brand/demo/artifacts/output/author.webm",
+        "docs/brand/demo/artifacts/output/product-loop.webm",
         {
-          size: 1_100_000,
+          size: 8_100_000,
           probe: videoProbe({
             codecName: "vp8",
-            duration: 10,
+            duration: 58,
             frameRate: "25/1",
           }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /author\.mp4.*H\.264/.test(failure)))
-  assert.ok(failures.some((failure) => /author\.webm.*VP9/.test(failure)))
-  assert.ok(failures.some((failure) => /author\.webm.*30 fps/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4.*H\.264/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm.*VP9/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm.*30 fps/.test(failure)))
 })
 
 function validManifestLayout(repoRoot = "/repo", runId = "run-a") {
@@ -344,9 +417,7 @@ function validManifestLayout(repoRoot = "/repo", runId = "run-a") {
           },
         ]),
       ),
-      gif: `${publicationRoot}/product-loop.gif`,
       assetHashes: {
-        gif: "a".repeat(64),
         posters: Object.fromEntries(MEDIA_CONTRACTS.map(({ name }) => [name, "b".repeat(64)])),
       },
     },
@@ -379,14 +450,14 @@ test("media manifest layout rejects stale identity and cross-run paths", () => {
           ...manifest,
           clips: {
             ...manifest.clips,
-            run: {
-              ...manifest.clips.run,
-              mp4: "/tmp/other-run/run.mp4",
+            "product-loop": {
+              ...manifest.clips["product-loop"],
+              mp4: "/tmp/other-run/product-loop.mp4",
             },
           },
         },
       }),
-    /run\.mp4.*expected run output root/,
+    /product-loop\.mp4.*expected run output root/,
   )
   assert.throws(
     () =>
@@ -396,6 +467,18 @@ test("media manifest layout rejects stale identity and cross-run paths", () => {
         manifest,
       }),
     /unsupported latest-media schema/,
+  )
+  assert.throws(
+    () =>
+      validateMediaManifestLayout({
+        repoRoot,
+        pointer,
+        manifest: {
+          ...manifest,
+          assetHashes: { posters: { "product-loop": "not a hash" } },
+        },
+      }),
+    /product-loop poster hash is missing or invalid/,
   )
 })
 
@@ -440,16 +523,14 @@ test("local checker adapters surface manifest, probe, and CLI failures", async (
         throw new Error(`unexpected read: ${path}`)
       },
       async stat(path) {
-        return {
-          size: path.endsWith(".gif") ? 3_500_000 : path.endsWith(".mp4") ? 1_200_000 : 80_000,
-        }
+        return { size: path.endsWith(".mp4") ? 8_400_000 : 80_000 }
       },
       async access() {},
       async probe() {
         throw new Error("probe failed")
       },
-      async hash(path) {
-        return path.endsWith(".gif") ? "a".repeat(64) : "b".repeat(64)
+      async hash() {
+        return "b".repeat(64)
       },
       log() {},
     }),
@@ -475,7 +556,7 @@ test("local checker rejects a fixed asset that differs from its selected run", a
       },
       async hash(path) {
         if (path === fixedProductPoster) return "c".repeat(64)
-        return path.endsWith(".gif") ? "a".repeat(64) : "b".repeat(64)
+        return "b".repeat(64)
       },
       log() {},
     }),
@@ -498,11 +579,11 @@ test("staged validation aborts and joins ffprobe before caller cleanup", async (
     manifest,
     manifestPath: pointer.manifestPath,
     signal: controller.signal,
-    async hash(path) {
-      return path.endsWith(".gif") ? "a".repeat(64) : "b".repeat(64)
+    async hash() {
+      return "b".repeat(64)
     },
     async stat(path) {
-      return { size: path.endsWith(".mp4") ? 1_200_000 : 1_100_000 }
+      return { size: path.endsWith(".mp4") ? 8_400_000 : 8_100_000 }
     },
     async access() {},
     async readFile() {
@@ -543,91 +624,231 @@ test("staged validation aborts and joins ffprobe before caller cleanup", async (
   ])
 })
 
-test("encoding plan builds the four honest capture timelines", () => {
-  const plan = createTimelinePlan({
-    videoTimeline: {
-      unit: "milliseconds",
-      scenes: {
-        author: { startMs: 0, endMs: 1_500 },
-        test: { startMs: 1_500, endMs: 3_000 },
-        "workbench-run": { startMs: 3_000, endMs: 7_000 },
-        "pre-reload-complete": { startMs: 7_000, endMs: 8_200 },
-        restoration: { startMs: 8_200, endMs: 12_200.063 },
-        close: { startMs: 12_200.063, endMs: 13_500 },
-      },
-    },
-  })
+/** One recorded scene per storyboard beat, back to back, 2 s in and 1 s each. */
+const BEAT_SCENES = Object.fromEntries(
+  STORYBOARD.map((beat, index) => [
+    beatSceneName(index, beat),
+    { startMs: 2_000 + index * 1_000, endMs: 3_000 + index * 1_000 },
+  ]),
+)
+const NAVLOG_BEAT = STORYBOARD.findIndex((beat) => beat.id === "navlog")
 
-  assert.deepEqual(Object.keys(plan), ["product-loop", "author", "test", "run"])
-  assert.equal(plan["product-loop"].duration, 25)
-  assert.equal(plan.author.duration, 9)
-  assert.equal(plan.test.duration, 9)
-  assert.equal(plan.run.duration, 10)
-  assert.deepEqual(
-    plan["product-loop"].segments.map(({ scene }) => scene),
-    ["author", "test", "workbench", "close"],
-  )
-  assert.deepEqual(
-    plan.run.segments.map(({ scene }) => scene),
-    ["run-completed", "reload-and-restoration"],
-  )
-  assert.deepEqual(
-    plan["product-loop"].segments.map(({ actLabel }) => actLabel ?? null),
-    ["Author", "Prove", "Run", null],
-    "the encoded flagship must visibly identify its three acts",
-  )
-  assert.deepEqual(
-    [plan.author.actLabel, plan.test.actLabel, plan.run.actLabel],
-    ["Author", "Prove", "Run"],
-    "derivative encodes must preserve the matching visual act label",
-  )
-  assert.equal(plan["product-loop"].segments[0].sourceEnd, 1.3)
-  assert.equal(plan.author.segments[0].sourceEnd, 1.3)
-  assert.equal(plan.test.segments[0].sourceEnd, 2.8)
-  assert.equal(plan.run.segments[0].sourceEnd, 8)
-  assert.equal(plan.run.segments[1].sourceEnd, 12.000063)
-  const flagshipFilter = buildTimelineFilter(plan["product-loop"], {
-    labelInputIndexes: [1, 2, 3, undefined],
-  }).filter
-  assert.match(flagshipFilter, /\[segment0base\]\[1:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment1base\]\[2:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment2base\]\[3:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment3base\]null\[segment3\]/)
+test("beat scenes are named beat-NN-id in storyboard order", () => {
+  assert.deepEqual(Object.keys(BEAT_SCENES), [
+    "beat-00-title",
+    "beat-01-agent",
+    "beat-02-ask",
+    "beat-03-subagents",
+    "beat-04-weather",
+    "beat-05-tools",
+    "beat-06-navlog",
+    "beat-07-gate",
+    "beat-08-file",
+    "beat-09-memory",
+    "beat-10-reload",
+    "beat-11-close",
+  ])
+})
+
+test("trim plan spans the first beat to the last and poses the poster at the navlog beat's end", () => {
+  const trim = createTrimPlan({
+    videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes: BEAT_SCENES },
+  })
+  // Beats run 2 s to 14 s; the navlog beat (index 6) ends at 9 s, 7 s into the trim.
+  assert.equal(NAVLOG_BEAT, 6)
+  assert.deepEqual(trim, { start: 2, duration: 12, posterTime: 6.75 })
+})
+
+test("trim plan maps scene times to video time through the screencast offset", () => {
+  // The first frame came 1.5 s before the timeline started: every scene plays
+  // 1.5 s later in the video than on the scene clock.
+  const trim = createTrimPlan({
+    videoTimeline: { unit: "milliseconds", videoOffsetMs: 1_500, scenes: BEAT_SCENES },
+  })
+  assert.deepEqual(trim, { start: 3.5, duration: 12, posterTime: 6.75 })
   assert.throws(
-    () => buildTimelineFilter(plan["product-loop"]),
-    /Author act label has no visual input/,
+    () => createTrimPlan({ videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES } }),
+    /no video offset/,
+  )
+  // A recording whose first frame came after the first beat began cannot hold it.
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: { unit: "milliseconds", videoOffsetMs: -2_001, scenes: BEAT_SCENES },
+      }),
+    /recording starts after the first beat/,
   )
 })
 
-test("encoding refuses to truncate an overlong Workbench restoration endpoint", () => {
-  const plan = createTimelinePlan({
-    videoTimeline: {
-      unit: "milliseconds",
-      scenes: {
-        author: { startMs: 0, endMs: 1_500 },
-        test: { startMs: 1_500, endMs: 3_000 },
-        "workbench-run": { startMs: 3_000, endMs: 8_000 },
-        "pre-reload-complete": { startMs: 8_000, endMs: 9_000 },
-        restoration: { startMs: 9_000, endMs: 13_500 },
-        close: { startMs: 13_500, endMs: 15_000 },
-      },
-    },
-  })
+test("trim plan keeps the poster inside a navlog beat shorter than its lead", () => {
+  const scenes = {
+    ...BEAT_SCENES,
+    "beat-06-navlog": { startMs: 8_000, endMs: 8_100 },
+  }
+  assert.equal(
+    createTrimPlan({ videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes } }).posterTime,
+    6,
+  )
+})
 
+test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
   assert.throws(
     () =>
-      buildTimelineFilter(plan["product-loop"], {
-        labelInputIndexes: [1, 2, 3, undefined],
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          videoOffsetMs: 0,
+          scenes: { ...BEAT_SCENES, "beat-05-tools": undefined },
+        },
       }),
-    /workbench.*restored endpoint.*10\.3.*10 seconds/i,
+    /invalid beat-05-tools beat/,
   )
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          videoOffsetMs: 0,
+          scenes: { ...BEAT_SCENES, "beat-11-close": { startMs: 7_000, endMs: 9_000 } },
+        },
+      }),
+    /beat-11-close beat starts before beat-10-reload ends/,
+  )
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          videoOffsetMs: 0,
+          scenes: { ...BEAT_SCENES, "beat-04-weather": { startMs: 5_500, endMs: 6_500 } },
+        },
+      }),
+    /beat-04-weather beat starts before beat-03-subagents ends/,
+  )
+  // Take 1's four scenes are not a take-2 timeline.
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          videoOffsetMs: 0,
+          scenes: {
+            author: { startMs: 2_000, endMs: 5_000 },
+            prove: { startMs: 5_000, endMs: 8_000 },
+            run: { startMs: 8_000, endMs: 14_000 },
+            close: { startMs: 14_000, endMs: 16_500 },
+          },
+        },
+      }),
+    /invalid beat-00-title beat/,
+  )
+  assert.throws(
+    () => createTrimPlan({ videoTimeline: { unit: "seconds", scenes: BEAT_SCENES } }),
+    /milliseconds/,
+  )
+})
+
+test("MP4 encodes CRF 18 H.264 with a VBV ceiling, for crisp code text under the video byte budget", async () => {
+  let ffmpegArgs
+  await encodeVideo({
+    source: "/run/raw.webm",
+    destination: "/run/output/product-loop.mp4",
+    trim: { start: 2, duration: 58, posterTime: 30 },
+    format: "mp4",
+    async run(_command, args) {
+      ffmpegArgs = args
+    },
+    async rename() {},
+    async remove() {},
+  })
+  const codec = ffmpegArgs.indexOf("-c:v")
+  assert.deepEqual(ffmpegArgs.slice(codec), [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "18",
+    "-maxrate",
+    "4000k",
+    "-bufsize",
+    "8000k",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "/run/output/product-loop.mp4.tmp.mp4",
+  ])
+  const filter = ffmpegArgs.indexOf("-vf")
+  assert.equal(ffmpegArgs[filter + 1], "fps=30,scale=1440:810:flags=lanczos")
+})
+
+test("video codec settings are frozen and an unknown format is refused before ffmpeg runs", async () => {
+  assert.deepEqual(Object.keys(VIDEO_CODEC_ARGUMENTS), ["mp4", "webm"])
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS), true)
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS.mp4), true)
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS.webm), true)
+  let ran = false
+  await assert.rejects(
+    encodeVideo({
+      source: "/run/raw.webm",
+      destination: "/run/output/product-loop.gif",
+      trim: { start: 2, duration: 58, posterTime: 30 },
+      format: "gif",
+      async run() {
+        ran = true
+      },
+      async rename() {},
+      async remove() {},
+    }),
+    /unsupported video format gif/,
+  )
+  assert.equal(ran, false)
+})
+
+test("WebM encodes constrained-quality VP9 to stay under the video byte budget", async () => {
+  let ffmpegArgs
+  await encodeVideo({
+    source: "/run/raw.webm",
+    destination: "/run/output/product-loop.webm",
+    trim: { start: 2, duration: 14.5, posterTime: 2.75 },
+    format: "webm",
+    async run(_command, args) {
+      ffmpegArgs = args
+    },
+    async rename() {},
+    async remove() {},
+  })
+  const codec = ffmpegArgs.indexOf("-c:v")
+  assert.equal(ffmpegArgs[codec + 1], "libvpx-vp9")
+  assert.deepEqual(ffmpegArgs.slice(codec), [
+    "-c:v",
+    "libvpx-vp9",
+    "-b:v",
+    "2500k",
+    "-crf",
+    "28",
+    "-maxrate",
+    "3000k",
+    "-bufsize",
+    "6000k",
+    "-deadline",
+    "good",
+    "-cpu-used",
+    "2",
+    "-row-mt",
+    "1",
+    "-pix_fmt",
+    "yuv420p",
+    "/run/output/product-loop.webm.tmp.webm",
+  ])
 })
 
 test("poster encoding extracts a real frame before WebP conversion", async () => {
   const calls = []
   await encodePoster({
     source: "/capture/raw.webm",
-    destination: "/repo/apps/web/public/demo/author-poster.webp",
+    destination: "/repo/apps/web/public/demo/product-loop-poster.webp",
     time: 0.75,
     async run(command, args) {
       calls.push({ command, args })
@@ -649,56 +870,43 @@ test("poster encoding extracts a real frame before WebP conversion", async () =>
   assert.equal(calls[0].args.includes("libwebp"), false)
   assert.deepEqual(calls[1], {
     convert: [
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.png",
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.png",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.webp",
     ],
   })
   assert.deepEqual(calls[2], {
     rename: [
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.webp",
-      "/repo/apps/web/public/demo/author-poster.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp",
     ],
   })
   assert.deepEqual(calls[3], {
-    remove: "/repo/apps/web/public/demo/author-poster.webp.tmp.png",
+    remove: "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.png",
   })
 })
 
-test("video and GIF encoders recheck abort before rename and clean their temps", async () => {
-  const plan = {
-    duration: 2,
-    segments: [
-      {
-        scene: "author",
-        sourceStart: 0,
-        sourceEnd: 1,
-        duration: 2,
-        actLabel: "Author",
-      },
-    ],
-  }
-  const labelAssets = new Map([["Author", "/run/labels/author.png"]])
-  for (const [name, encode, destination, expectedTemporaryPath] of [
-    ["video", encodeVideo, "/run/output/author.mp4", "/run/output/author.mp4.tmp.mp4"],
-    [
-      "GIF",
-      encodeGif,
-      "/run/publication/product-loop.gif",
-      "/run/publication/product-loop.gif.tmp.gif",
-    ],
+test("video encoders trim the recording, recheck abort before rename, and clean their temps", async () => {
+  const trim = { start: 2, duration: 14.5, posterTime: 2.75 }
+  for (const [name, format, destination, expectedTemporaryPaths] of [
+    ["mp4", "mp4", "/run/output/product-loop.mp4", ["/run/output/product-loop.mp4.tmp.mp4"]],
+    ["webm", "webm", "/run/output/product-loop.webm", ["/run/output/product-loop.webm.tmp.webm"]],
   ]) {
     const controller = new AbortController()
     const calls = []
+    let ffmpegArgs
     await assert.rejects(
-      encode({
+      encodeVideo({
         source: "/run/raw.webm",
         destination,
-        plan,
-        ...(name === "video" ? { format: "mp4" } : {}),
-        labelAssets,
+        trim,
+        format,
         signal: controller.signal,
-        async run() {
+        async run(_command, args) {
+          ffmpegArgs = args
           controller.abort(new Error(`abort ${name}`))
+        },
+        async convert() {
+          calls.push(["convert"])
         },
         async rename(...args) {
           calls.push(["rename", ...args])
@@ -709,14 +917,20 @@ test("video and GIF encoders recheck abort before rename and clean their temps",
       }),
       new RegExp(`abort ${name}`),
     )
-    assert.deepEqual(calls, [["remove", expectedTemporaryPath]])
+    assert.deepEqual(
+      calls,
+      expectedTemporaryPaths.map((path) => ["remove", path]),
+    )
+    const ss = ffmpegArgs.indexOf("-ss")
+    assert.deepEqual(ffmpegArgs.slice(ss, ss + 6), ["-ss", "2.000", "-t", "14.500", "-i", "/run/raw.webm"])
+    assert.equal(ffmpegArgs.some((arg) => /overlay|tpad|palette|gif/.test(arg)), false)
   }
 })
 
 test("fixed media publication rolls back every prior asset and pointer", async () => {
   const root = await mkdtemp(join(tmpdir(), "b4-media-publish-"))
   try {
-    for (const failureAt of ["poster", "gif", "pointer"]) {
+    for (const failureAt of ["manifest", "poster", "pointer"]) {
       const caseRoot = join(root, failureAt)
       const stagedRoot = join(caseRoot, "staged")
       const fixedRoot = join(caseRoot, "fixed")
@@ -724,7 +938,7 @@ test("fixed media publication rolls back every prior asset and pointer", async (
         mkdir(stagedRoot, { recursive: true }),
         mkdir(fixedRoot, { recursive: true }),
       ])
-      const entries = ["poster", "gif", "pointer"].map((name) => ({
+      const entries = ["manifest", "poster", "pointer"].map((name) => ({
         name,
         stagedPath: join(stagedRoot, name),
         targetPath: join(fixedRoot, name),
@@ -747,7 +961,7 @@ test("fixed media publication rolls back every prior asset and pointer", async (
       for (const entry of entries) {
         assert.equal(await readFile(entry.targetPath, "utf8"), `old-${entry.name}`)
       }
-      assert.deepEqual((await readdir(fixedRoot)).sort(), ["gif", "pointer", "poster"])
+      assert.deepEqual((await readdir(fixedRoot)).sort(), ["manifest", "pointer", "poster"])
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -766,7 +980,7 @@ test("failed backup restoration preserves and reports the recovery file", async 
     let thrown
     try {
       await publishFixedAssets({
-        entries: [{ name: "gif", stagedPath, targetPath }],
+        entries: [{ name: "poster", stagedPath, targetPath }],
         transactionId,
         afterPublish() {
           throw new Error("publish failed")
@@ -830,7 +1044,7 @@ test("publication preflight preserves and reports every existing recovery backup
 test("encoding failures never mix fixed assets or the latest pointer across runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "b4-media-encode-"))
   try {
-    for (const failureAt of ["video", "poster", "gif", "pointer"]) {
+    for (const failureAt of ["video", "poster", "pointer"]) {
       const repoRoot = join(root, failureAt)
       const runId = `run-${failureAt}`
       const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
@@ -842,7 +1056,6 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         ...MEDIA_CONTRACTS.map(({ name }) =>
           join(repoRoot, `apps/web/public/demo/${name}-poster.webp`),
         ),
-        join(repoRoot, "docs/brand/product-loop.gif"),
         join(repoRoot, "docs/brand/demo/artifacts/latest-media.json"),
       ]
       await Promise.all([
@@ -859,14 +1072,8 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         videoPath: source,
         videoTimeline: {
           unit: "milliseconds",
-          scenes: {
-            author: { startMs: 0, endMs: 1_500 },
-            test: { startMs: 1_500, endMs: 3_000 },
-            "workbench-run": { startMs: 3_000, endMs: 7_000 },
-            "pre-reload-complete": { startMs: 7_000, endMs: 8_200 },
-            restoration: { startMs: 8_200, endMs: 12_000 },
-            close: { startMs: 12_000, endMs: 13_500 },
-          },
+          videoOffsetMs: 0,
+          scenes: BEAT_SCENES,
         },
       }
       const controller = new AbortController()
@@ -883,11 +1090,14 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
             async encodeVideo({ destination }) {
               await writeFile(destination, "video")
             },
-            async encodePoster({ destination }) {
+            async encodePoster({ source: posterSource, destination, time }) {
+              assert.equal(posterSource, join(artifactsDir, "output/product-loop.mp4"))
+              assert.equal(
+                time,
+                createTrimPlan({ videoTimeline: summary.videoTimeline }).posterTime,
+              )
+              assert.equal(time, 6.75)
               await writeFile(destination, "poster")
-            },
-            async encodeGif({ destination }) {
-              await writeFile(destination, "gif")
             },
             async validateStagedMedia(options) {
               assert.equal(options.signal, controller.signal)
@@ -913,155 +1123,469 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
   }
 })
 
-const GENERATED_TREE = [
-  "server/src/app/navlog/index.ts",
-  "server/src/app/navlog/state.ts",
-  "server/src/app/navlog/plan.md",
-  "server/src/tools/computeNavlog.ts",
-  "server/test/navlog.test.ts",
-]
+test("a successful encode publishes the poster, manifest and pointer, and no README animation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "b4-media-success-"))
+  try {
+    const repoRoot = root
+    const runId = "run-success"
+    const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
+    const recordingsDir = join(repoRoot, "docs/brand/demo/raw-recordings/runs", runId)
+    const source = join(recordingsDir, "raw.webm")
+    await Promise.all([
+      mkdir(recordingsDir, { recursive: true }),
+      mkdir(artifactsDir, { recursive: true }),
+    ])
+    await writeFile(source, "raw")
+    const encoded = []
+    const manifest = await encodeCaptureArtifacts({
+      repoRoot,
+      artifactsDir,
+      recordingsDir,
+      summary: {
+        runId,
+        videoPath: source,
+        videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes: BEAT_SCENES },
+      },
+      summaryPath: join(artifactsDir, "capture-summary.json"),
+      dependencies: {
+        async encodeVideo({ destination, format }) {
+          encoded.push(format)
+          await writeFile(destination, format)
+        },
+        async encodePoster({ destination }) {
+          encoded.push("poster")
+          await writeFile(destination, "poster")
+        },
+        async validateStagedMedia() {},
+      },
+    })
+    assert.deepEqual(encoded, ["mp4", "webm", "poster"])
+    assert.equal(Object.hasOwn(manifest, "animation"), false)
+    assert.deepEqual(Object.keys(manifest.assetHashes), ["posters"])
+    assert.equal(
+      manifest.assetHashes.posters["product-loop"],
+      createHash("sha256").update("poster").digest("hex"),
+    )
+    assert.deepEqual(manifest.captions, MEDIA_CAPTIONS)
+    assert.equal(
+      await readFile(join(repoRoot, "apps/web/public/demo/product-loop-poster.webp"), "utf8"),
+      "poster",
+    )
+    assert.deepEqual(
+      JSON.parse(await readFile(join(repoRoot, "docs/brand/demo/artifacts/latest-media.json"), "utf8")),
+      { schemaVersion: 1, runId, manifestPath: join(artifactsDir, "media-manifest.json") },
+    )
+    await assert.rejects(lstat(join(repoRoot, "docs/brand/product-loop.webp")), { code: "ENOENT" })
+    assert.deepEqual((await readdir(join(artifactsDir, "publication"))).sort(), [
+      "latest-media.json",
+      "media-manifest.json",
+      "product-loop-poster.webp",
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
-test("scenario exports the canonical prompt and deterministic navlog fixture", () => {
-  assert.equal(
-    DEMO_PROMPT,
-    "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.",
+test("scenario prompts fit the thread title and state the aircraft fact", () => {
+  // The Workbench cuts a thread title to 80 characters; the capture matches the
+  // whole prompt against that title.
+  assert.ok(DEMO_PROMPT.length <= 80, `DEMO_PROMPT is ${DEMO_PROMPT.length} characters`)
+  for (const part of ["KSTP", "KRST", "4500", "1400Z", "N738ZU", "long-range tanks"]) {
+    assert.ok(DEMO_PROMPT.includes(part), `DEMO_PROMPT names ${part}`)
+  }
+  assert.equal(DEMO_FILE_PROMPT, "File the flight plan.")
+  assert.equal(DEMO_FIXTURES, DEMO_SCENARIO.fixtures)
+  assert.equal(DEMO_PLAN_ANSWER, DEMO_SCENARIO.planAnswer)
+  assert.deepEqual(DEMO_PLAN_TOOLS, DEMO_SCENARIO.planTools)
+})
+
+const NAVLOG_TEMPLATE = fileURLToPath(
+  new URL("../../../packages/devkit/templates/app-navlog/", import.meta.url),
+)
+
+/** The storyboard's files, read from the navlog template the scaffold copies. */
+function templateFiles() {
+  return Object.fromEntries(
+    storyboardPaths().map((path) => [path, readFileSync(join(NAVLOG_TEMPLATE, path), "utf8")]),
   )
+}
+
+const DIRECTOR_WORDMARK = '<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>'
+
+/** Minimal sources that satisfy every focal pattern, with markup to escape. */
+function syntheticFiles() {
+  const files = {}
+  for (const beat of STORYBOARD) {
+    for (const pane of beat.panes ?? []) {
+      const focal = {
+        "server/src/app/navlog/index.ts":
+          '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+        "server/src/app/navlog/subagents/weather/index.ts":
+          '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
+        "server/src/tools/getMetar.ts": '    flightCategory: record.fltCat ?? "UNKNOWN",',
+        "server/src/tools/computeNavlog.ts": "  computeNavlog(input)",
+        "server/src/lib/navlog.ts": "      const tri = solveWindTriangle({",
+        "server/src/app/navlog/memory.ts": '  scope: ["workspace", "route"],',
+      }[pane.path]
+      files[pane.path] = `// ${pane.path} <Generic>\nexport default x\n${focal}\n})`
+    }
+  }
+  return files
+}
+
+test("storyboard follows the spec's twelve beats, frozen", () => {
   assert.deepEqual(
-    DEMO_FIXTURES,
-    script()
-      .user("Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.")
-      .callsTool("computeNavlog", DEMO_NAVLOG_INPUT)
-      .replies(
-        "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]",
-      )
-      .build(),
-  )
-})
-
-test("normalizeLog narrowly removes capture instability", () => {
-  const temporaryRoot = "/tmp/b4-demo-[42]"
-  const raw = [
-    `\u001B[32mPASS\u001B[39m ${temporaryRoot}/server/test/navlog.test.ts 143ms`,
-    "✓ splits the first leg into a climb segment and a cruise segment 1.27s",
-    "command: npm test -- --seed=42",
-    "7 passed, score 98.6, port 3002",
-    "FAIL preserves this test name and exit code 17",
-    "/tmp/b4-demo-other/server 143widgets v1.27stable",
-  ].join("\n")
-
-  assert.equal(
-    normalizeLog(raw, { temporaryRoot }),
+    STORYBOARD.map(({ id, kind, headline }) => [id, kind, headline]),
     [
-      "PASS <workspace>/server/test/navlog.test.ts <time>",
-      "✓ splits the first leg into a climb segment and a cruise segment <time>",
-      "command: npm test -- --seed=42",
-      "7 passed, score 98.6, port 3002",
-      "FAIL preserves this test name and exit code 17",
-      "/tmp/b4-demo-other/server 143widgets v1.27stable",
-    ].join("\n"),
+      ["title", "title", "navlog"],
+      ["agent", "code", "One file is the agent."],
+      ["ask", "app", "Ask for a flight."],
+      ["subagents", "code", "Subagents brief the weather."],
+      ["weather", "app", "Weather, briefed and judged."],
+      ["tools", "code", "Tools do the math."],
+      ["navlog", "app", "A real navlog."],
+      ["gate", "code", "Filing needs a yes."],
+      ["file", "app", "Approve once."],
+      ["memory", "code", "It remembers you."],
+      ["reload", "app", "Reload. Still there."],
+      ["close", "close", "Ridiculous speed. Readable code."],
+    ],
   )
-})
-
-test("normalizeLog validates meaningful inputs", () => {
-  assert.throws(() => normalizeLog(42, { temporaryRoot: "/tmp/demo" }), /log must be a string/)
-  assert.throws(() => normalizeLog("PASS", { temporaryRoot: "" }), /temporaryRoot/)
-})
-
-test("stage exports a frozen canonical generated-path inventory", async () => {
-  const { GENERATED_PATHS } = await import("./stage.mjs")
-  assert.deepEqual(GENERATED_PATHS, [
+  assert.equal(STORYBOARD[0].subtitle, "A VFR flight planner, built with B4.run")
+  assert.equal(new Set(STORYBOARD.map((beat) => beat.id)).size, STORYBOARD.length)
+  assert.equal(Object.isFrozen(STORYBOARD), true)
+  for (const beat of STORYBOARD) {
+    assert.equal(Object.isFrozen(beat), true, beat.id)
+    assert.equal(Number.isInteger(beat.holdMs) && beat.holdMs > 0, true, beat.id)
+    if (beat.kind !== "title") {
+      assert.equal(beat.headline.split(" ").length >= 2 && beat.headline.split(" ").length <= 5, true)
+    }
+    if (beat.kind === "code") {
+      assert.equal(beat.panes.length === 1 || beat.panes.length === 2, true, beat.id)
+      assert.equal(Object.isFrozen(beat.panes), true)
+      for (const pane of beat.panes) {
+        assert.equal(Object.isFrozen(pane), true)
+        assert.match(pane.path, /^server\/src\/.+\.ts$/)
+        assert.equal(pane.focal instanceof RegExp, true)
+      }
+    } else {
+      assert.equal(beat.panes, undefined, beat.id)
+    }
+    if (beat.kind === "app") {
+      assert.equal(Object.hasOwn(APP_FOCUS, beat.focus), true, beat.id)
+      assert.equal(APP_ACTIONS.includes(beat.action), true, beat.id)
+    } else {
+      assert.equal(beat.focus ?? beat.action, undefined, beat.id)
+    }
+  }
+  assert.deepEqual(
+    STORYBOARD.filter((beat) => beat.kind === "app").map((beat) => beat.action),
+    [...APP_ACTIONS],
+  )
+  assert.deepEqual(storyboardPaths(), [
     "server/src/app/navlog/index.ts",
-    "server/src/app/navlog/state.ts",
-    "server/src/app/navlog/plan.md",
+    "server/src/app/navlog/subagents/weather/index.ts",
+    "server/src/tools/getMetar.ts",
     "server/src/tools/computeNavlog.ts",
-    "server/test/navlog.test.ts",
+    "server/src/lib/navlog.ts",
+    "server/src/app/navlog/memory.ts",
   ])
-  assert.equal(Object.isFrozen(GENERATED_PATHS), true)
 })
 
-test("author stage renders exactly the generated tree and escaped source", () => {
-  const html = renderStage({
-    act: "author",
-    tree: GENERATED_TREE,
-    primarySource: `const route = "<research>" && value > 1`,
-    secondarySource: `return "<tool>" & result`,
-    testLog: "unused",
-  })
-
-  assert.match(html, /^<!doctype html>/)
-  assert.match(html, /B4.run/)
-  for (const path of GENERATED_TREE) assert.match(html, new RegExp(path.replaceAll("/", "\\/")))
-  assert.equal((html.match(/server\//g) ?? []).length, GENERATED_TREE.length)
-  assert.match(html, /&lt;research&gt;/)
-  assert.match(html, /value &gt; 1/)
-  assert.match(html, /&lt;tool&gt;&quot; &amp; result/)
-  assert.doesNotMatch(html, /<research>|<tool>/)
+test("app camera presets are the seven named regions, as data", () => {
+  assert.deepEqual(Object.keys(APP_FOCUS), [
+    "rest",
+    "todos",
+    "weather",
+    "map",
+    "sheet",
+    "approval",
+    "memory",
+  ])
+  assert.deepEqual(APP_FOCUS.rest, { scale: 1, origin: "50% 50%" })
+  // The sheet holds its bottom-right corner, so the zoom never crops the
+  // sheet's right side (the poster comes from that beat).
+  assert.deepEqual(APP_FOCUS.sheet, { scale: 1.38, origin: "100% 100%" })
+  // The weather framing holds the top-right corner: the strip and, below it,
+  // the sheet's GO card.
+  assert.deepEqual(APP_FOCUS.weather, { scale: 1.4, origin: "100% 0%" })
+  // The memory framing holds the dock's top: its header and the memory panel.
+  assert.deepEqual(APP_FOCUS.memory, { scale: 1.55, origin: "2% 0%" })
+  assert.equal(Object.isFrozen(APP_FOCUS), true)
+  for (const [name, preset] of Object.entries(APP_FOCUS)) {
+    assert.equal(Object.isFrozen(preset), true, name)
+    assert.equal(preset.scale >= 1 && preset.scale <= 2, true, name)
+    const [x, y] = preset.origin.split(" ").map((part) => Number(part.replace(/%$/, "")))
+    assert.match(preset.origin, /^\d+(?:\.\d+)?% \d+(?:\.\d+)?%$/, name)
+    assert.equal(x >= 0 && x <= 100 && y >= 0 && y <= 100, true, name)
+  }
 })
 
-test("author stage keeps both real source panels in the 16:9 viewport", () => {
-  const html = renderStage({
-    act: "author",
-    tree: GENERATED_TREE,
-    primarySource: "export default agent({\n  model: 'gpt-5-mini',\n})",
-    secondarySource: "export const computeNavlog = tool({})",
-    testLog: "unused",
-  })
-
-  assert.match(html, /\.stack \{[^}]*grid-template-rows: repeat\(2, minmax\(0, 1fr\)\)/)
-  assert.match(html, /\.stack \.panel \{ min-height: 0; \}/)
-  assert.match(html, /\.stack pre \{ height: calc\(100% - 44px\); \}/)
+test("every storyboard focal pattern matches exactly its intended line of the real template", () => {
+  const intended = {
+    agent: [
+      '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+    ],
+    subagents: [
+      '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
+      '    flightCategory: record.fltCat ?? "UNKNOWN",',
+    ],
+    tools: ["  computeNavlog(input)", "      const tri = solveWindTriangle({"],
+    gate: [
+      '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+    ],
+    memory: ['  scope: ["workspace", "route"],'],
+  }
+  const files = templateFiles()
+  for (const beat of STORYBOARD.filter((candidate) => candidate.kind === "code")) {
+    beat.panes.forEach((pane, at) => {
+      const matches = files[pane.path].split("\n").filter((line) => pane.focal.test(line))
+      assert.deepEqual(matches, [intended[beat.id][at]], `${beat.id} ${pane.path}`)
+    })
+  }
+  // The gate beat marks the approve part of the line the agent beat marks whole.
+  const route = files["server/src/app/navlog/index.ts"].split("\n")
+  const toolsLine = route.find((line) => STORYBOARD[1].panes[0].focal.test(line))
+  assert.equal(
+    toolsLine.match(STORYBOARD[7].panes[0].focal)[0],
+    'approve: [{ tool: "fileFlightPlan", allowAlways: false }]',
+  )
 })
 
-test("test stage renders escaped normalized npm test output", () => {
-  const html = renderStage({
-    act: "test",
-    tree: GENERATED_TREE,
-    primarySource: "unused",
-    secondarySource: "unused",
-    testLog: "PASS research <suite> & 7 tests",
+test("windowAround keeps a fixed-size window around the index, clamped to the file", () => {
+  const lines = Array.from({ length: 40 }, (_, at) => `line-${at}`)
+  assert.deepEqual(windowAround(lines, 20, { before: 3, after: 2 }), {
+    lines: lines.slice(17, 23),
+    start: 17,
+    focusIndex: 3,
   })
-
-  assert.match(html, /B4.run/)
-  assert.match(html, /npm test/)
-  assert.match(html, /<pre><code>PASS research &lt;suite&gt; &amp; 7 tests<\/code><\/pre>/)
-  assert.doesNotMatch(html, /<suite>/)
+  assert.deepEqual(windowAround(lines, 1, { before: 3, after: 2 }), {
+    lines: lines.slice(0, 6),
+    start: 0,
+    focusIndex: 1,
+  })
+  assert.deepEqual(windowAround(lines, 39, { before: 3, after: 2 }), {
+    lines: lines.slice(34, 40),
+    start: 34,
+    focusIndex: 5,
+  })
+  assert.deepEqual(windowAround(lines.slice(0, 4), 2, { before: 3, after: 2 }), {
+    lines: lines.slice(0, 4),
+    start: 0,
+    focusIndex: 2,
+  })
+  assert.throws(() => windowAround(lines, 40, { before: 1, after: 1 }), /index/)
 })
 
-test("close stage renders B4.run category, headline, and scaffold command", () => {
-  const html = renderStage({
-    act: "close",
-    tree: GENERATED_TREE,
-    primarySource: "unused",
-    secondarySource: "unused",
-    testLog: "unused",
-  })
+test("snapWindowStart moves a window to a block boundary, back first, then forward", () => {
+  const lines = [
+    "import x", // 0
+    "", // 1
+    "function a() {", // 2
+    "  one", // 3
+    "  two", // 4
+    "  three", // 5
+    "}", // 6
+    "/**", // 7
+    " * doc", // 8
+    " */", // 9
+    "function b() {", // 10
+    "  focal", // 11
+    "}", // 12
+  ]
+  // Back to the doc comment that opens b.
+  assert.equal(snapWindowStart(lines, 9, 11, 5), 7)
+  // Back to the line after a blank.
+  assert.equal(snapWindowStart(lines, 4, 5, 6), 2)
+  // Already on a boundary.
+  assert.equal(snapWindowStart(lines, 2, 5, 6), 2)
+  // Never so far back that the focal line would leave the window.
+  assert.equal(snapWindowStart(lines, 8, 11, 3), 8)
+  const deep = ["a {", ...Array.from({ length: 10 }, (_, at) => `  x${at}`), "", "b {", "  focal", "}"]
+  // Nothing within reach behind it: forward to "b {", keeping a line above the focal one.
+  assert.equal(snapWindowStart(deep, 10, 13, 3), 12)
+  // Nothing either way: unchanged.
+  assert.equal(snapWindowStart(deep, 5, 8, 4), 5)
+})
 
-  assert.match(html, /TypeScript meta-framework for LangGraph\.js/)
-  assert.match(html, /Build LangGraph agents like Next\.js apps/)
+test("director renders a layer per code beat from the real template, escaped and focal-marked", () => {
+  const files = templateFiles()
+  const html = renderDirector({ files, wordmark: DIRECTOR_WORDMARK })
+  const codeBeats = STORYBOARD.filter((beat) => beat.kind === "code")
+  for (const beat of codeBeats) {
+    const layer = html.match(
+      new RegExp(`<div class="layer code[^"]*" data-layer="${beat.id}"[^>]*>([\\s\\S]*?)</section></div>`),
+    )
+    assert.ok(layer, beat.id)
+    assert.equal(layer[1].match(/class="focus"/g)?.length, beat.panes.length, beat.id)
+    for (const pane of beat.panes) assert.ok(layer[1].includes(`<div class="strip">${pane.path}</div>`))
+    if (beat.panes.length === 2) assert.match(layer[0], /class="layer code two"/)
+  }
+  assert.equal(
+    html.match(/class="focus"/g)?.length,
+    codeBeats.reduce((sum, beat) => sum + beat.panes.length, 0),
+  )
+  // Escaped, never raw: computeNavlog.ts has generics, the route has template literals.
+  assert.ok(html.includes("Promise&lt;Navlog&gt;"))
+  assert.equal(html.includes("Promise<Navlog>"), false)
+  assert.ok(html.includes('<span class="hit part">approve: [{ tool: &quot;fileFlightPlan&quot;, allowAlways: false }]</span>'))
+  assert.ok(html.includes('<span class="hit">const tri = solveWindTriangle({</span>'))
+  // A long file shows a window: navlog.ts is far longer than one pane.
+  const navlogPane = html.match(/<div class="strip">server\/src\/lib\/navlog\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.equal(navlogPane.split("\n").length, CODE_PANE_LINES.two)
+  assert.match(navlogPane, /const tri = solveWindTriangle/)
+  assert.doesNotMatch(navlogPane, /^import /m)
+  // Windows open on a block boundary, never mid-function: navlog.ts on the
+  // cruise branch, getMetar.ts on its \`num\` helper.
+  assert.match(navlogPane, /^ {4}if \(cruiseDistance &gt; 0\) \{\n/)
+  const metarPane = html.match(/<div class="strip">server\/src\/tools\/getMetar\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(metarPane, /^const num = /)
+  assert.match(metarPane, /flightCategory: record\.fltCat/)
+  // A short file shows whole.
+  const memoryPane = html.match(/<div class="strip">server\/src\/app\/navlog\/memory\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(memoryPane, /^import \{ defineMemory \}/)
+  assert.match(memoryPane, /^\}\)$/m)
+})
+
+test("director page holds the title card, the Workbench iframe, the close and the tokens, with no header or act chip", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  assert.ok(html.includes("&lt;Generic&gt;"))
+  assert.equal(html.includes("<Generic>"), false)
+  const title = html.match(/<div class="title">([\s\S]*?)<\/div><\/div>\n/)[1]
+  // "navlog" is the hero; the wordmark belongs to the close alone.
+  assert.ok(title.startsWith('<div class="name">'))
+  assert.equal(
+    title.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+    "navlog A VFR flight planner, built with B4.run",
+  )
+  assert.equal(html.match(/<svg viewBox="-5 -5 522 115">/g)?.length, 1)
+  assert.match(html, /\.title \.name \{[^}]*letter-spacing: -0\.045em;/)
+  assert.match(html, /<iframe name="workbench" src="about:blank"/)
+  assert.equal(html.match(/<iframe/g)?.length, 1)
+  for (const token of ["#f5f4f0", "#111111", "#17181b", "#b4ce37", "#75796a"]) {
+    assert.match(html, new RegExp(token, "i"))
+  }
+  for (const font of Object.keys(DIRECTOR_FONTS)) assert.match(html, new RegExp(`fonts/${font.replace(".", "\\.")}`))
   assert.match(html, /npm create b4-app@latest my-agent/)
+  assert.match(html, /Ridiculous speed\. Readable code\./)
+  assert.match(html, /<div class="sweep"><\/div>/)
+  assert.match(html, /window\.director = \{ ready: true, reset, play, focus \}/)
+  assert.ok(html.includes(JSON.stringify(APP_FOCUS)))
+  assert.doesNotMatch(html, /<header|\bact-chip\b|\bAUTHOR\b|\bPROVE\b/)
+  assert.doesNotMatch(html, /border-radius:\s*(?!50%)\d/)
+  assert.doesNotMatch(html, /box-shadow:\s*0 \d/)
 })
 
-test("renderStage rejects unsupported acts and incomplete author input", () => {
+test("director page keeps the take-1 runtime fixes", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  // The sweep and its dot stay hidden until the close.
+  assert.ok(html.includes(".sweep { visibility: hidden;"))
+  assert.ok(html.includes(".closing .sweep { left: 0; visibility: visible; }"))
+  // The focal bar sits behind its line, not over the code.
+  assert.ok(html.includes(".focus { position: relative; z-index: 0; }"))
+  assert.ok(html.includes(".roll { overflow: hidden; height: 1.12em; }"))
+  // Code renders as typed, and a marked layer dims everything but its focal
+  // hit: the whole focal line, or only the hit when it is part of a line.
+  assert.match(html, /pre \{[^}]*font-variant-ligatures: none;/)
+  assert.ok(html.includes(".marked pre { color: var(--panel-dim); }"))
+  assert.ok(html.includes(".marked .focus { color: var(--panel-ink); }"))
+  assert.ok(html.includes(".marked .focus:has(> .hit.part) { color: var(--panel-dim); }"))
+  assert.ok(html.includes(".marked .hit { color: var(--panel-ink); }"))
+  // Two panes never zoom; the framing never leaves the strip or a pane's start.
+  assert.match(html, /CODE_ZOOM = \{ one: 1\.4, two: 1 \}/)
+  assert.ok(html.includes("x: clamp(Math.min(0, W - MARGIN - s * x1), -s * x0, 0)"))
+  assert.ok(html.includes("y: clamp(Math.min(0, H - MARGIN - s * y1), H - s * H, 0)"))
+  assert.match(html, /\.stage \{[^}]*overflow: clip;/)
+  assert.match(html, /\.frame \{[^}]*overflow: clip;/)
+  // The camera's origin never changes: it moves by translate + scale about 0 0,
+  // so no zoom, in or out or between presets, can jump.
+  assert.match(html, /\.camera \{[^}]*transform-origin: 0 0;/)
+  assert.doesNotMatch(html, /transformOrigin/)
+  // Layers stack in DOM order; the Workbench layer is last so it takes clicks.
+  const layers = [...html.matchAll(/data-layer="([a-z-]+)"/g)].map((match) => match[1])
+  assert.deepEqual(layers, [
+    ...STORYBOARD.filter((beat) => beat.kind === "code").map((beat) => beat.id),
+    "app",
+  ])
+  assert.ok(html.includes(".layer:not(.on) { pointer-events: none; }"))
+  // Preparation state: the frame in place with the Workbench showing.
+  assert.match(html, /<div class="stage prep">/)
+  assert.match(html, /<div class="layer app on" data-layer="app">/)
+})
+
+test("headline roll moves the outgoing line wholly out of its window and fades it", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  // One line is exactly one window tall, so a roll of one window leaves
+  // nothing of the outgoing line above the incoming one.
+  assert.ok(html.includes(".rolling .lines { transform: translateY(-1.12em); }"))
+  assert.match(html, /\.lines > div \{ height: 1\.12em; overflow: hidden;/)
+  assert.ok(html.includes(".rolling .lines > div:first-child:not(:last-child) { opacity: 0; }"))
+})
+
+test("two panes share the frame by need and never narrow below their focal line", () => {
+  const files = templateFiles()
+  const html = renderDirector({ files, wordmark: DIRECTOR_WORDMARK })
+  for (const beat of STORYBOARD.filter((entry) => entry.panes?.length === 2)) {
+    const style = new RegExp(`data-layer="${beat.id}" style="grid-template-columns: ([^"]+)"`).exec(
+      html,
+    )?.[1]
+    assert.ok(style, beat.id)
+    const columns = [...style.matchAll(/minmax\(calc\((\d+)ch \+ 40px\), (\d+)fr\)/g)]
+    assert.equal(columns.length, 2, beat.id)
+    for (const [index, pane] of beat.panes.entries()) {
+      const focal = files[pane.path].split("\n").find((line) => pane.focal.test(line))
+      assert.equal(Number(columns[index][1]), focal.trimEnd().length + 1, `${beat.id} pane ${index}`)
+      assert.ok(Number(columns[index][2]) <= 100, `${beat.id} pane ${index} need`)
+    }
+  }
+  assert.deepEqual(
+    twoPaneColumns([
+      { focalChars: 70, needChars: 100 },
+      { focalChars: 40, needChars: 82 },
+    ]),
+    "minmax(calc(70ch + 40px), 100fr) minmax(calc(40ch + 40px), 82fr)",
+  )
+  // The ch unit is the panes' monospace, and a line too long fades out.
+  assert.ok(html.includes('.two { font: 400 14px/1 "JetBrains Mono"'))
+  assert.match(html, /\.two pre \{ -webkit-mask-image: linear-gradient\(to right, #000 calc\(100% - 24px\), transparent\);/)
+})
+
+test("director refuses a missing file, a missing focal line and an ambiguous one", () => {
+  const files = syntheticFiles()
+  const { "server/src/lib/navlog.ts": _removed, ...missing } = files
   assert.throws(
-    () =>
-      renderStage({
-        act: "intro",
-        tree: GENERATED_TREE,
-        primarySource: "a",
-        secondarySource: "b",
-      }),
-    /act must be one of: author, test, close/,
+    () => renderDirector({ files: missing, wordmark: DIRECTOR_WORDMARK }),
+    /storyboard beat "tools" needs server\/src\/lib\/navlog\.ts, which files does not include/,
   )
   assert.throws(
     () =>
-      renderStage({
-        act: "author",
-        tree: [],
-        primarySource: "a",
-        secondarySource: "b",
+      renderDirector({
+        files: { ...files, "server/src/app/navlog/memory.ts": "export default defineMemory({})" },
+        wordmark: DIRECTOR_WORDMARK,
       }),
-    /tree must contain exactly/,
+    /storyboard beat "memory": no line of server\/src\/app\/navlog\/memory\.ts matches/,
   )
+  assert.throws(
+    () =>
+      renderDirector({
+        files: {
+          ...files,
+          "server/src/tools/computeNavlog.ts": "  computeNavlog(input)\n  computeNavlog(input)",
+        },
+        wordmark: DIRECTOR_WORDMARK,
+      }),
+    /storyboard beat "tools": 2 lines of server\/src\/tools\/computeNavlog\.ts match/,
+  )
+  assert.throws(() => renderDirector({ files: null, wordmark: DIRECTOR_WORDMARK }), /files must be an object/)
+  assert.throws(() => renderDirector({ files, wordmark: "" }), /wordmark must be a non-empty string/)
+})
+
+test("wordmark comes from the ink SVG master without its title or description", () => {
+  const svg = wordmarkSvg()
+  assert.match(svg, /^<svg /)
+  assert.match(svg, /viewBox="-5 -5 522 115"/)
+  assert.doesNotMatch(svg, /<title>|<desc>/)
+  assert.match(svg, /fill="#111111"/)
 })
 
 class FakeChild extends EventEmitter {
@@ -1342,15 +1866,23 @@ test("stopManaged rejects when SIGKILL termination is not confirmed in time", as
   await assert.rejects(stopped, /Managed child PID 9876 did not exit within 100ms after SIGKILL/)
 })
 
-const EXPECTED_ANSWER =
-  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
 
-function orchestrationFixture({ failAt } = {}) {
+/** A fixed capture clock, well clear of 1400Z: the scenario resolves "1400Z" to the same day. */
+const CAPTURE_NOW = Date.UTC(2026, 9, 8, 7, 30)
+const CAPTURE_SCENARIO = demoScenario({ now: CAPTURE_NOW })
+const AWC_STUB_URL = "http://127.0.0.1:4050"
+
+const scenarioFor = (now) => demoScenario({ now })
+
+function orchestrationFixture({ failAt, awcHits, firstFrameEpochMs } = {}) {
   const operations = []
   const writes = []
   const renames = []
   const stopped = []
   const childEnvironments = []
+  const actions = []
+  const closes = []
   const workspaceRoot = "/tmp/b4-demo-unit-abc123"
   const appRoot = `${workspaceRoot}/my-agent`
   const server = { name: "server" }
@@ -1359,6 +1891,19 @@ function orchestrationFixture({ failAt } = {}) {
     baseUrl: "http://127.0.0.1:4040/v1",
     async close() {
       operations.push("close aimock")
+    },
+  }
+  let aimockFixtures
+  const awcStub = {
+    baseUrl: AWC_STUB_URL,
+    now: undefined,
+    hits:
+      awcHits ??
+      Object.fromEntries(
+        ["airport", "metar", "taf", "windtemp", "gairmet", "airsigmet"].map((name) => [name, 1]),
+      ),
+    async close() {
+      operations.push("close AWC stub")
     },
   }
   let assignedPort = 4100
@@ -1411,11 +1956,10 @@ function orchestrationFixture({ failAt } = {}) {
         operations.push("publish summary")
       },
       async readFile(path) {
-        if (path.endsWith("server/src/app/navlog/index.ts")) {
-          return "export default agent({ tools: [computeNavlog] })"
-        }
-        if (path.endsWith("server/src/tools/computeNavlog.ts")) {
-          return "export default computeNavlog"
+        const source = storyboardPaths().find((candidate) => path === `${appRoot}/${candidate}`)
+        if (source !== undefined) return readFileSync(join(NAVLOG_TEMPLATE, source), "utf8")
+        if (path.endsWith(".ttf")) {
+          return Buffer.from(`font:${path.split("/").at(-1)}`)
         }
         throw new Error(`unexpected read: ${path}`)
       },
@@ -1426,8 +1970,15 @@ function orchestrationFixture({ failAt } = {}) {
     processes: {
       async startAimock(fixtures) {
         operations.push("start aimock")
-        assert.deepEqual(fixtures, DEMO_FIXTURES)
+        aimockFixtures = fixtures
         return aimock
+      },
+      async startAwcStub({ now }) {
+        operations.push("start AWC stub")
+        // One clock: the stub's now is the one aimock's script was built from.
+        assert.deepEqual(aimockFixtures, demoScenario({ now }).fixtures)
+        awcStub.now = now
+        return awcStub
       },
       async getPort(excluded) {
         const port = assignedPort++
@@ -1454,46 +2005,84 @@ function orchestrationFixture({ failAt } = {}) {
     },
     browser: {
       async open(options) {
+        const firstFrame = firstFrameEpochMs ?? Date.now()
         assert.deepEqual(options.viewport, { width: 1440, height: 810 })
         assert.match(
           options.recordingsDir,
           /docs\/brand\/demo\/raw-recordings\/runs\/[A-Za-z0-9_-]+$/,
         )
         return {
-          async recordStage({ act, html }) {
-            operations.push(`record ${act}`)
-            if (act === "author") {
-              for (const path of GENERATED_TREE) assert.match(html, new RegExp(path))
-              assert.match(html, /export default agent\(\{/)
-              assert.match(html, /computeNavlog/)
+          async openDirector({ origin, html, fonts }) {
+            operations.push("open director")
+            assert.equal(origin, "http://127.0.0.1:4101")
+            assert.match(html, /export default agent\(\{/)
+            for (const path of storyboardPaths()) {
+              assert.ok(html.includes(`<div class="strip">${path}</div>`), path)
             }
-            if (act === "test") {
-              assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
-              assert.match(html, /Tests 7 passed/)
-              assert.match(html, /&lt;workspace&gt;/)
-              assert.doesNotMatch(html, /b4-demo-unit-abc123/)
-              assert.equal(html.includes("\u001B"), false)
-            }
+            assert.match(html, /<span class="hit">computeNavlog\(input\)<\/span>/)
+            assert.doesNotMatch(html, /b4-demo-unit-abc123/)
+            assert.equal(html.includes("\u001B"), false)
+            assert.deepEqual(Object.keys(fonts), [
+              "Inter-400.ttf",
+              "Inter-600.ttf",
+              "JetBrainsMono-400.ttf",
+            ])
           },
-          async runScenario(options) {
-            operations.push("run Workbench scenario")
+          async prepareWorkbench(options) {
+            operations.push("prepare Workbench")
+            assert.equal(options.url, "http://127.0.0.1:4101")
             assert.equal(options.prompt, DEMO_PROMPT)
-            assert.deepEqual(options.tools, ["computeNavlog"])
-            assert.equal(options.answer, EXPECTED_ANSWER)
+          },
+          async play({ beat }) {
+            operations.push(`play ${beat}`)
+          },
+          async focus({ target }) {
+            operations.push(`focus ${target}`)
+          },
+          async sendPlan(options) {
+            operations.push("send plan")
+            actions.push(["sendPlan", options])
+            assert.equal(options.prompt, DEMO_PROMPT)
+            assert.deepEqual(options.todos, DEMO_SCENARIO.todos)
+            assert.deepEqual(options.tools, DEMO_PLAN_TOOLS)
+            assert.equal(options.answer, scenarioFor(awcStub.now).planAnswer)
             if (failAt === "scenario") throw new Error("scenario failed")
             return { threadId: "thread-unit-1" }
           },
+          async showWeather(options) {
+            operations.push("show weather")
+            actions.push(["showWeather", options])
+          },
+          async showNavlog(options) {
+            operations.push("show navlog")
+            actions.push(["showNavlog", options])
+          },
+          async requestFiling(options) {
+            operations.push("request filing")
+            actions.push(["requestFiling", options])
+            if (failAt === "approval") throw new Error("approval card missing")
+          },
+          async allowOnce(options) {
+            operations.push("allow once")
+            actions.push(["allowOnce", options])
+          },
+          async showMemory(options) {
+            operations.push("show memory")
+            actions.push(["showMemory", options])
+          },
           async reloadAndRestore(options) {
             operations.push("reload")
+            actions.push(["reloadAndRestore", options])
             assert.equal(options.threadId, "thread-unit-1")
-            assert.equal(options.answer, EXPECTED_ANSWER)
+            return { connectUrl: "http://127.0.0.1:4101/api/copilotkit/agent/default/connect" }
           },
-          async recordRun() {
-            operations.push("record run")
-          },
-          async close() {
+          async close(closeOptions) {
             operations.push("close browser")
-            return { videoPath: `${options.recordingsDir}/demo.webm` }
+            closes.push(closeOptions)
+            return {
+              videoPath: `${options.recordingsDir}/screencast.mp4`,
+              screencast: { format: "png", scale: 2, frameCount: 9, firstFrameEpochMs: firstFrame },
+            }
           },
         }
       },
@@ -1508,10 +2097,13 @@ function orchestrationFixture({ failAt } = {}) {
   }
 
   return {
+    actions,
     adapters,
     aimock,
     appRoot,
+    awcStub,
     childEnvironments,
+    closes,
     operations,
     renames,
     stopped,
@@ -1520,6 +2112,39 @@ function orchestrationFixture({ failAt } = {}) {
   }
 }
 
+/**
+ * Every storyboard beat, played in order, with each app beat's real action and
+ * camera moves. `play` eases an app beat to its own preset first: the ask beat
+ * starts at rest (Send is on screen) and the filing beat on the approval
+ * framing (the composer and the card are both on screen), so neither moves to
+ * click.
+ */
+const BEAT_OPERATIONS = [
+  "play 0",
+  "play 1",
+  "play 2",
+  "send plan",
+  "focus todos",
+  "play 3",
+  "play 4",
+  "show weather",
+  "play 5",
+  "play 6",
+  "show navlog",
+  "focus sheet",
+  "play 7",
+  "play 8",
+  "request filing",
+  "allow once",
+  "play 9",
+  "play 10",
+  "show memory",
+  "focus rest",
+  "reload",
+  "focus sheet",
+  "play 11",
+]
+
 test("capture orchestrates the real-product phases in exact order and cleans up", async () => {
   const fixture = orchestrationFixture()
   const result = await captureDemo({
@@ -1527,6 +2152,7 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     parentEnv: { PATH: "/bin", HOME: "/home/test", LANG: "en_US.UTF-8" },
     adapters: fixture.adapters,
     recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
   })
 
   assert.deepEqual(fixture.operations, [
@@ -1536,20 +2162,19 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     "install",
     "npm test",
     "start aimock",
+    "start AWC stub",
     "assign port 4100",
     "start B4.run server",
     "assign port 4101",
     "start Workbench",
-    "record author",
-    "record test",
-    "run Workbench scenario",
-    "reload",
-    "record run",
-    "record close",
+    "open director",
+    "prepare Workbench",
+    ...BEAT_OPERATIONS,
     "close browser",
     "publish summary",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -1557,6 +2182,150 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
   assert.equal(result.threadId, "thread-unit-1")
   assert.equal(result.serverPort, 4100)
   assert.equal(result.workbenchPort, 4101)
+  assert.equal(
+    result.connectUrl,
+    "http://127.0.0.1:4101/api/copilotkit/agent/default/connect",
+  )
+  assert.deepEqual(Object.keys(result.videoTimeline.scenes), Object.keys(BEAT_SCENES))
+})
+
+test("capture drives each app beat's action with the scenario's evidence", async () => {
+  const fixture = orchestrationFixture()
+  await captureDemo({
+    repoRoot: "/repo",
+    adapters: fixture.adapters,
+    recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
+  })
+  const scenario = CAPTURE_SCENARIO
+  const byName = Object.fromEntries(
+    fixture.actions.map(([name, { signal, ...options }]) => {
+      assert.ok(signal instanceof AbortSignal, name)
+      return [name, options]
+    }),
+  )
+  assert.deepEqual(Object.keys(byName), [
+    "sendPlan",
+    "showWeather",
+    "showNavlog",
+    "requestFiling",
+    "allowOnce",
+    "showMemory",
+    "reloadAndRestore",
+  ])
+  assert.deepEqual(byName.sendPlan, {
+    prompt: DEMO_PROMPT,
+    todos: scenario.todos,
+    tools: scenario.planTools,
+    answer: scenario.planAnswer,
+  })
+  assert.deepEqual(byName.showWeather, { verdict: "GO" })
+  assert.deepEqual(byName.showNavlog, {
+    distanceNm: 66,
+    headingLabel: "MH 161°",
+    airports: ["KSTP", "KRST"],
+  })
+  assert.deepEqual(byName.requestFiling, { prompt: DEMO_FILE_PROMPT })
+  assert.deepEqual(byName.allowOnce, { turns: 2, reply: scenario.filedAnswer })
+  assert.deepEqual(byName.showMemory, { content: "N738ZU has long-range tanks: 50 gal usable." })
+  assert.deepEqual(byName.reloadAndRestore, {
+    workbenchUrl: "http://127.0.0.1:4101",
+    threadId: "thread-unit-1",
+    prompt: DEMO_PROMPT,
+    turns: [
+      {
+        prompt: DEMO_PROMPT,
+        tools: ["recall", "resolveDeparture", "computeNavlog", "remember", "writeFile"],
+        answer: scenario.planAnswer,
+      },
+      { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: scenario.filedAnswer },
+    ],
+    distanceNm: 66,
+  })
+})
+
+test("capture starts the AWC stub on the scenario's clock, points only the server at it and stops it", async () => {
+  const fixture = orchestrationFixture()
+  const summary = await captureDemo({
+    repoRoot: "/repo",
+    parentEnv: { PATH: "/bin", B4_AWC_BASE_URL: "https://aviationweather.gov/api/data" },
+    adapters: fixture.adapters,
+    recordOnly: true,
+    wallClock: () => CAPTURE_NOW,
+  })
+  // The stub ran on the clock the scenario (and so aimock's script) was built from.
+  assert.equal(fixture.awcStub.now, CAPTURE_NOW)
+  assert.equal(summary.evidence.scenarioNow, CAPTURE_NOW)
+  assert.equal(summary.evidence.departureUtc, "2026-10-08T14:00:00.000Z")
+  // Started after aimock and before the server; closed after the services, before aimock.
+  const order = (name) => fixture.operations.indexOf(name)
+  assert.ok(order("start aimock") < order("start AWC stub"))
+  assert.ok(order("start AWC stub") < order("start B4.run server"))
+  assert.ok(order("stop server") < order("close AWC stub"))
+  assert.ok(order("close AWC stub") < order("close aimock"))
+  const env = (service) =>
+    fixture.childEnvironments.find((entry) => entry.service === service)?.env
+  assert.equal(env("server").B4_AWC_BASE_URL, AWC_STUB_URL)
+  // The parent's real AWC base never reaches either service.
+  assert.equal(env("workbench").B4_AWC_BASE_URL, undefined)
+  assert.deepEqual(summary.evidence.awcHits, fixture.awcStub.hits)
+})
+
+test("capture stops the AWC stub when a beat fails", async () => {
+  const fixture = orchestrationFixture({ failAt: "approval" })
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => CAPTURE_NOW,
+    }),
+    (error) => {
+      assert.match(error.message, /^Beat 8 \(file\): approval card missing$/)
+      assert.equal(error.cause?.message, "approval card missing")
+      return true
+    },
+  )
+  assert.deepEqual(fixture.operations.slice(-5), [
+    "stop workbench",
+    "stop server",
+    "close AWC stub",
+    "close aimock",
+    `remove ${fixture.workspaceRoot}`,
+  ])
+})
+
+test("capture fails the weather beat when the AWC stub missed an endpoint", async () => {
+  const fixture = orchestrationFixture({
+    awcHits: { airport: 2, metar: 1, taf: 1, windtemp: 0, gairmet: 1, airsigmet: 1 },
+  })
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => CAPTURE_NOW,
+    }),
+    /^Error: Beat 4 \(weather\): The AWC stub never served \/windtemp/,
+  )
+  assert.equal(fixture.operations.includes("show navlog"), false)
+  assert.equal(fixture.operations.includes("close AWC stub"), true)
+})
+
+test("capture refuses to send a scenario that 1400Z has overtaken", async () => {
+  const fixture = orchestrationFixture()
+  // Built at 13:59:59Z; by the send, 1400Z has passed and resolves to tomorrow.
+  const readings = [Date.UTC(2026, 9, 8, 13, 59, 59), Date.UTC(2026, 9, 8, 14, 0, 1)]
+  await assert.rejects(
+    captureDemo({
+      repoRoot: "/repo",
+      adapters: fixture.adapters,
+      recordOnly: true,
+      wallClock: () => readings.shift(),
+    }),
+    /^Error: Beat 2 \(ask\): The demo scenario is stale/,
+  )
+  assert.equal(fixture.operations.includes("send plan"), false)
 })
 
 test("capture stores raw test output only in ignored artifacts and stages normalized output", async () => {
@@ -1589,10 +2358,11 @@ test("capture finally closes owned resources and removes only its exact mkdtemp 
     /scenario failed/,
   )
   assert.deepEqual(fixture.stopped, [{ name: "workbench" }, { name: "server" }])
-  assert.deepEqual(fixture.operations.slice(-5), [
+  assert.deepEqual(fixture.operations.slice(-6), [
     "close browser",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -1774,6 +2544,27 @@ test("capture gives both services sanitized environments and only B4.run receive
       assert.equal(environment?.[key], undefined)
     }
   }
+})
+
+test("child environment points the weather tools at a loopback AWC base only when given one", () => {
+  const parent = { PATH: "/bin", B4_AWC_BASE_URL: "https://aviationweather.gov/api/data" }
+  const withStub = buildChildEnvironment(parent, "http://127.0.0.1:4040/v1", {
+    awcBaseUrl: "http://127.0.0.1:4050",
+  })
+  assert.equal(withStub.B4_AWC_BASE_URL, "http://127.0.0.1:4050")
+  // The parent's own AWC base is never inherited.
+  assert.equal(buildChildEnvironment(parent, "http://127.0.0.1:4040/v1").B4_AWC_BASE_URL, undefined)
+  for (const unsafe of [
+    "https://aviationweather.gov/api/data",
+    "http://10.0.0.5:4050",
+    "http://user:pass@127.0.0.1:4050",
+  ]) {
+    assert.throws(
+      () => buildChildEnvironment(parent, "http://127.0.0.1:4040/v1", { awcBaseUrl: unsafe }),
+      /AWC base URL must be a loopback HTTP\(S\) URL/,
+    )
+  }
+  assert.equal(assertLoopbackAwcBaseUrl("http://[::1]:4050").hostname, "[::1]")
 })
 
 test("model base URL accepts loopback HTTP(S) and rejects public or unsafe URLs", () => {
@@ -2049,7 +2840,7 @@ test("failed Workbench navigation handles its later readiness rejection and clos
   try {
     fixture.adapters.browser.open = async (options) => {
       const session = await originalOpen(options)
-      session.runScenario = ({ url }) =>
+      session.prepareWorkbench = ({ url }) =>
         openReadyWorkbench(
           {
             waitForResponse() {
@@ -2151,6 +2942,7 @@ function recordingLocator(calls, desc, answers = {}) {
       child(`> text=${JSON.stringify(text)}${options?.exact ? " (exact)" : ""}`),
     first: () => child(".first"),
     last: () => child(".last"),
+    nth: (index) => child(`.nth(${index})`),
     async waitFor(waitOptions) {
       calls.push(["waitFor", desc, waitOptions.state])
     },
@@ -2290,6 +3082,117 @@ test("restoration connects the thread, then proves the restored turn, its steps 
   ])
 })
 
+test("frame surface sends DOM calls to the Workbench frame and network waits to the page", async () => {
+  const calls = []
+  const frame = {
+    getByRole: (...args) => {
+      calls.push(["frame.getByRole", ...args])
+      return "role"
+    },
+    locator: (...args) => {
+      calls.push(["frame.locator", ...args])
+      return "locator"
+    },
+    evaluate: async (...args) => {
+      calls.push(["frame.evaluate", ...args])
+      return "value"
+    },
+    waitForTimeout: async (ms) => {
+      calls.push(["frame.waitForTimeout", ms])
+    },
+    goto: async (url, options) => {
+      calls.push(["frame.goto", url, options])
+      return { ok: () => true }
+    },
+    url: () => "http://127.0.0.1:4101/",
+  }
+  const page = {
+    waitForResponse: async (...args) => {
+      calls.push(["page.waitForResponse", ...args])
+      return "response"
+    },
+  }
+  const surface = frameSurface(page, frame)
+
+  assert.equal(surface.getByRole("button", { name: "Send" }), "role")
+  assert.equal(surface.locator("main"), "locator")
+  assert.equal(await surface.evaluate(() => 1), "value")
+  await surface.waitForTimeout(5)
+  assert.equal(await surface.waitForResponse(() => true), "response")
+  await surface.goto("http://127.0.0.1:4101/", { waitUntil: "domcontentloaded" })
+  await surface.reload({ waitUntil: "domcontentloaded" })
+
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    [
+      "frame.getByRole",
+      "frame.locator",
+      "frame.evaluate",
+      "frame.waitForTimeout",
+      "page.waitForResponse",
+      "frame.goto",
+      "frame.goto",
+    ],
+  )
+  assert.deepEqual(calls.at(-1), [
+    "frame.goto",
+    "http://127.0.0.1:4101/",
+    { waitUntil: "domcontentloaded" },
+  ])
+})
+
+test("frame surface wraps a refused framing navigation", async () => {
+  const blocked = new Error("net::ERR_BLOCKED_BY_RESPONSE at http://127.0.0.1:4101/")
+  const frame = {
+    goto: async () => {
+      throw blocked
+    },
+    url: () => "about:blank",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  await assert.rejects(surface.goto("http://127.0.0.1:4101/"), (error) => {
+    assert.equal(
+      error.message,
+      "The Workbench did not load inside the director frame (net::ERR_BLOCKED_BY_RESPONSE at http://127.0.0.1:4101/)",
+    )
+    assert.equal(error.cause, blocked)
+    return true
+  })
+})
+
+test("frame surface goto accepts a null response, but reload treats it as no reload", async () => {
+  const calls = []
+  const frame = {
+    goto: async (url, options) => {
+      calls.push([url, options])
+      return null
+    },
+    url: () => "http://127.0.0.1:4101/#thread",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  assert.equal(await surface.goto("http://127.0.0.1:4101/"), null)
+  await assert.rejects(
+    surface.reload({ waitUntil: "domcontentloaded" }),
+    /^Error: The Workbench frame did not reload \(same-document navigation\)$/,
+  )
+  assert.deepEqual(calls.at(-1), [
+    "http://127.0.0.1:4101/#thread",
+    { waitUntil: "domcontentloaded" },
+  ])
+})
+
+test("frame surface fails when the Workbench refuses to load in the frame", async () => {
+  const frame = {
+    goto: async () => null,
+    url: () => "chrome-error://chromewebdata/",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  await assert.rejects(
+    surface.goto("http://127.0.0.1:4101/"),
+    /The Workbench did not load inside the director frame \(chrome-error:\/\/chromewebdata\/\)/,
+  )
+})
+
 test("restoration matches only this Workbench's connect POST for this thread", async () => {
   const calls = []
   const page = restorePage(calls, { answers: foldedSummary() })
@@ -2358,6 +3261,287 @@ test("restoration fails when the restored turn's summary will not open", async (
   )
 })
 
+/** Turn summaries that each start folded and open on their own first click. */
+function foldedSummaries() {
+  const expanded = new Set()
+  return {
+    attribute: (desc, name) =>
+      name === "aria-expanded" && desc.includes("b4-turn__summary")
+        ? String(expanded.has(desc))
+        : null,
+    click: (desc) => {
+      if (desc.includes("b4-turn__summary")) expanded.add(desc)
+    },
+  }
+}
+
+const FILED_ANSWER = CAPTURE_SCENARIO.filedAnswer
+const TWO_TURN_OPTIONS = {
+  workbenchUrl: RESTORE_ORIGIN,
+  threadId: "thread-unit-1",
+  prompt: DEMO_PROMPT,
+  turns: [
+    { prompt: DEMO_PROMPT, tools: ["recall", "computeNavlog"], answer: EXPECTED_ANSWER },
+    { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: FILED_ANSWER },
+  ],
+}
+const turnAt = (index) => `main > ${SETTLED_ROOT_TURN} .nth(${index})`
+const stepsAt = (index) =>
+  `${turnAt(index)} > :scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]`
+const twoTurnCounts =
+  ({ turns = 2, steps = [2, 1] } = {}) =>
+  (desc) => {
+    if (desc === `main > ${ROOT_TURN}`) return turns
+    const index = [0, 1].find((at) => desc === stepsAt(at))
+    return index === undefined ? 1 : steps[index]
+  }
+
+test("two-turn restoration proves both prompts, exactly two turns, each turn's steps and answer", async () => {
+  const calls = []
+  const page = restorePage(calls, { answers: { ...foldedSummaries(), count: twoTurnCounts() } })
+
+  await restoreWorkbenchThread(page, TWO_TURN_OPTIONS)
+
+  // The dock title is still the first message: the thread's title.
+  assert.deepEqual(calls[8], ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"])
+  const summary = (index) => `${turnAt(index)} > :scope > button.b4-turn__summary`
+  assert.deepEqual(calls.slice(10), [
+    ["waitFor", `main > text=${JSON.stringify(DEMO_PROMPT)} (exact) .last`, "visible"],
+    ["waitFor", `main > text=${JSON.stringify(DEMO_FILE_PROMPT)} (exact) .last`, "visible"],
+    // The second settled turn, then no turn beyond it.
+    ["waitFor", turnAt(1), "visible"],
+    ["count", `main > ${ROOT_TURN}`],
+    // Turn 1: opened, its own two tool steps, the planning answer.
+    ["waitFor", turnAt(0), "visible"],
+    ["attribute", summary(0), "aria-expanded"],
+    ["click", summary(0)],
+    ["attribute", summary(0), "aria-expanded"],
+    ["waitFor", `${stepsAt(0)} .first`, "visible"],
+    ["count", stepsAt(0)],
+    ["waitFor", `main > text=${JSON.stringify(EXPECTED_ANSWER)} (exact) .last`, "visible"],
+    // Turn 2: opened, the one gated tool step, the filed reply.
+    ["waitFor", turnAt(1), "visible"],
+    ["attribute", summary(1), "aria-expanded"],
+    ["click", summary(1)],
+    ["attribute", summary(1), "aria-expanded"],
+    ["waitFor", `${stepsAt(1)} .first`, "visible"],
+    ["count", stepsAt(1)],
+    ["waitFor", `main > text=${JSON.stringify(FILED_ANSWER)} (exact) .last`, "visible"],
+  ])
+})
+
+test("two-turn restoration fails on a missing turn or a turn's wrong steps", async () => {
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], { answers: { ...foldedSummaries(), count: twoTurnCounts({ turns: 1 }) } }),
+      TWO_TURN_OPTIONS,
+    ),
+    /rendered 1 turns, expected exactly 2/,
+  )
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], { answers: { ...foldedSummaries(), count: twoTurnCounts({ turns: 3 }) } }),
+      TWO_TURN_OPTIONS,
+    ),
+    /rendered 3 turns, expected exactly 2/,
+  )
+  await assert.rejects(
+    restoreWorkbenchThread(
+      restorePage([], {
+        answers: { ...foldedSummaries(), count: twoTurnCounts({ steps: [2, 0] }) },
+      }),
+      TWO_TURN_OPTIONS,
+    ),
+    /Restored turn 2 rendered 0 tool steps, expected 1 \(fileFlightPlan\)/,
+  )
+})
+
+test("completion with a turn count waits for that many settled turns and no more", async () => {
+  const calls = []
+  let turns = 2
+  const page = {
+    getByRole(role) {
+      if (role === "main") return recordingLocator(calls, "main", { count: () => turns })
+      return {
+        async waitFor(waitOptions) {
+          calls.push([role, waitOptions.state])
+        },
+        async fill(value) {
+          calls.push(["fill", value])
+        },
+      }
+    },
+  }
+  await waitForWorkbenchRunCompletion(page, { turns: 2 })
+  // Not `.last()`: in a thread with a settled turn 1, the last settled turn is
+  // visible before turn 2 has rendered.
+  assert.deepEqual(calls.slice(0, 2), [
+    ["waitFor", turnAt(1), "visible"],
+    ["count", `main > ${ROOT_TURN}`],
+  ])
+  turns = 3
+  await assert.rejects(
+    waitForWorkbenchRunCompletion(page, { turns: 2 }),
+    /rendered 3 turns once the run settled, expected 2/,
+  )
+})
+
+/** A Workbench page whose transcript holds one approval card with `buttons`. */
+function approvalPage(calls, { buttons, cards = 1 }) {
+  const card = {
+    async waitFor(waitOptions) {
+      calls.push(["card", waitOptions.state])
+    },
+    async count() {
+      return cards
+    },
+    getByRole(role, options) {
+      assert.equal(role, "button")
+      assert.equal(options.exact, true)
+      return {
+        async count() {
+          return buttons.filter((name) => name === options.name).length
+        },
+        async click() {
+          calls.push(["click", options.name])
+        },
+      }
+    },
+    async evaluate() {
+      calls.push("scroll card")
+    },
+  }
+  return {
+    async evaluate() {
+      calls.push("settle viewport")
+    },
+    getByRole(role) {
+      if (role !== "main") throw new Error(`unexpected role: ${role}`)
+      return {
+        locator(selector) {
+          assert.equal(selector, '.b4-approval[role="alert"]')
+          return card
+        },
+      }
+    },
+  }
+}
+
+test("approval evidence: Allow once and Deny, no Always allow, scrolled into view", async () => {
+  const calls = []
+  await awaitApprovalCard(approvalPage(calls, { buttons: ["Allow once", "Deny"] }))
+  assert.deepEqual(calls, [["card", "visible"], "scroll card", "settle viewport"])
+})
+
+test("centring scrolls only the nearest scrolling ancestor, never the overflow-hidden root", async () => {
+  const root = { overflowY: "hidden", scrollTop: 0, scrollHeight: 900, clientHeight: 810, parentElement: null }
+  const transcript = {
+    overflowY: "auto",
+    scrollTop: 100,
+    scrollHeight: 2_000,
+    clientHeight: 500,
+    parentElement: root,
+    getBoundingClientRect: () => ({ top: 100, height: 500 }),
+  }
+  const list = { overflowY: "visible", scrollHeight: 0, clientHeight: 0, parentElement: transcript }
+  const element = {
+    parentElement: list,
+    getBoundingClientRect: () => ({ top: 900, height: 100 }),
+  }
+  const previous = globalThis.getComputedStyle
+  globalThis.getComputedStyle = (node) => ({ overflowY: node.overflowY })
+  try {
+    await centerInScroller({
+      async evaluate(action) {
+        action(element)
+      },
+    })
+  } finally {
+    globalThis.getComputedStyle = previous
+  }
+  // 900 - 100 - (500 - 100) / 2 = 600 more: the element's middle at the transcript's middle.
+  assert.equal(transcript.scrollTop, 700)
+  assert.equal(root.scrollTop, 0)
+})
+
+test("settling the Workbench viewport unscrolls the document and the layout root only", async () => {
+  const scrolled = () => ({ scrollTop: 80, scrollLeft: 4 })
+  const fake = {
+    scrollingElement: scrolled(),
+    documentElement: scrolled(),
+    body: scrolled(),
+    roots: [scrolled()],
+    querySelectorAll(selector) {
+      assert.equal(selector, ".wb-root")
+      return this.roots
+    },
+  }
+  const previous = globalThis.document
+  globalThis.document = fake
+  try {
+    await settleWorkbenchViewport({
+      async evaluate(action) {
+        action()
+      },
+    })
+  } finally {
+    globalThis.document = previous
+  }
+  for (const element of [fake.scrollingElement, fake.documentElement, fake.body, ...fake.roots]) {
+    assert.deepEqual({ ...element }, { scrollTop: 0, scrollLeft: 0 })
+  }
+})
+
+test("approval evidence fails when the card offers Always allow", async () => {
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once", "Always allow", "Deny"] })),
+    /offers "Always allow"; the route gates this call with allowAlways: false/,
+  )
+})
+
+test("approval evidence fails when Allow once or Deny is missing, or two cards are open", async () => {
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Deny"] })),
+    /0 "Allow once" buttons, expected 1/,
+  )
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once"] })),
+    /0 "Deny" buttons, expected 1/,
+  )
+  await assert.rejects(
+    awaitApprovalCard(approvalPage([], { buttons: ["Allow once", "Deny"], cards: 2 })),
+    /rendered 2 approval cards, expected 1/,
+  )
+})
+
+test("expected root tool steps drop the plan, subagent and grouped repeat steps", () => {
+  assert.deepEqual(expectedRootToolSteps(DEMO_PLAN_TOOLS), [
+    "recall",
+    "resolveDeparture",
+    "computeNavlog",
+    "remember",
+    "writeFile",
+  ])
+  assert.deepEqual(expectedRootToolSteps(["fileFlightPlan"]), ["fileFlightPlan"])
+  // A lone call is its own step; back-to-back repeats fold into one group.
+  assert.deepEqual(expectedRootToolSteps(["getMetar", "lookupAirport", "getMetar"]), [
+    "getMetar",
+    "lookupAirport",
+    "getMetar",
+  ])
+  assert.deepEqual(expectedRootToolSteps(["getMetar", "getMetar", "getTaf"]), ["getTaf"])
+})
+
+test("the AWC stub check names every endpoint the run never reached", () => {
+  assert.doesNotThrow(() =>
+    assertAwcStubServed({ airport: 2, metar: 1, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 }),
+  )
+  assert.throws(
+    () => assertAwcStubServed({ airport: 2, metar: 1, taf: 0, windtemp: 1, gairmet: 1 }),
+    /never served \/taf, \/airsigmet/,
+  )
+})
+
 test("failed restoration interaction handles its later connect rejection and closes once", async () => {
   const fixture = orchestrationFixture()
   const originalOpen = fixture.adapters.browser.open
@@ -2399,7 +3583,12 @@ test("failed restoration interaction handles its later connect rejection and clo
         recordOnly: true,
         runIdFactory: () => "run-restoration-waiter-failure",
       }),
-      (error) => error === reloadError,
+      (error) => {
+        // The failure names its beat; the reload's own error is the cause.
+        assert.equal(error.cause, reloadError)
+        assert.match(error.message, /^Beat 10 \(reload\): Workbench reload failed$/)
+        return true
+      },
     )
     rejectConnect(connectError)
     await new Promise((resolve) => setImmediate(resolve))
@@ -2746,7 +3935,7 @@ test("capture closes the browser and awaits an aborted session action before ser
   let captureSettled = false
   fixture.adapters.browser.open = async (options) => {
     const session = await originalOpen(options)
-    session.runScenario = ({ signal }) =>
+    session.sendPlan = ({ signal }) =>
       new Promise((_, reject) => {
         rejectAction = () => {
           fixture.operations.push("session action settled")
@@ -2855,33 +4044,330 @@ test("capture retains and awaits its memoized browser finalization after cancell
   assert.equal(signals.handlers.size, 0)
 })
 
-test("browser cleanup always closes Chromium even when context finalization fails", async () => {
+function closeFixture(calls, { failAt } = {}) {
+  const step = (name, value) => async () => {
+    calls.push(name)
+    if (name === failAt) throw new Error(`${name} failed`)
+    return value
+  }
+  return {
+    recorder: {
+      stop: step("stop screencast", {
+        frames: [{ file: "frame-000000.png", timestamp: 100 }],
+        stoppedAtEpochMs: 101_000,
+      }),
+    },
+    session: { detach: step("detach") },
+    context: { close: step("close context") },
+    browser: { close: step("close browser") },
+    framesDir: "/runs/run-c/screencast-frames",
+    outputPath: "/runs/run-c/screencast.mp4",
+    async remove(path) {
+      calls.push(`remove ${path}`)
+    },
+    async assemble(options) {
+      calls.push(["assemble", options])
+      return { videoPath: options.outputPath, screencast: { firstFrameEpochMs: 100_000 } }
+    },
+  }
+}
+
+test("browser cleanup stops the screencast, then the session, the context and Chromium, then assembles", async () => {
   const calls = []
-  await assert.rejects(
-    closeBrowserResources({
-      context: {
-        async close() {
-          calls.push("context")
-          throw new Error("context failed")
-        },
+  const signal = new AbortController().signal
+  const result = await closeBrowserResources({ ...closeFixture(calls), finalize: true, signal })
+  assert.deepEqual(calls, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    [
+      "assemble",
+      {
+        framesDir: "/runs/run-c/screencast-frames",
+        frames: [{ file: "frame-000000.png", timestamp: 100 }],
+        endEpochMs: 101_000,
+        outputPath: "/runs/run-c/screencast.mp4",
+        signal,
       },
-      video: {
-        async path() {
-          calls.push("video")
-          return "/ignored/demo.webm"
-        },
-      },
-      browser: {
-        async close() {
-          calls.push("browser")
-        },
-      },
-    }),
-    /context failed/,
-  )
-  assert.deepEqual(calls, ["context", "video", "browser"])
+    ],
+  ])
+  assert.deepEqual(result, {
+    videoPath: "/runs/run-c/screencast.mp4",
+    screencast: { firstFrameEpochMs: 100_000 },
+  })
 })
 
+test("browser cleanup without finalizing, or after a failed step, only removes the frames", async () => {
+  const unfinalized = []
+  assert.deepEqual(await closeBrowserResources(closeFixture(unfinalized)), {})
+  assert.deepEqual(unfinalized, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    "remove /runs/run-c/screencast-frames",
+  ])
+  const failed = []
+  await assert.rejects(
+    closeBrowserResources({ ...closeFixture(failed, { failAt: "close context" }), finalize: true }),
+    /close context failed/,
+  )
+  // Chromium still closes, nothing is assembled, and the frames go.
+  assert.deepEqual(failed, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    "remove /runs/run-c/screencast-frames",
+  ])
+})
+
+/** A DevTools session that records what the recorder sends and lets the test emit frames. */
+function fakeCdpSession() {
+  const sent = []
+  const listeners = new Map()
+  return {
+    sent,
+    listeners,
+    on(event, listener) {
+      listeners.set(event, listener)
+    },
+    off(event, listener) {
+      if (listeners.get(event) === listener) listeners.delete(event)
+    },
+    async send(method, params) {
+      sent.push(params === undefined ? [method] : [method, params])
+    },
+    emit(timestamp, sessionId, data = "AAEC") {
+      listeners.get("Page.screencastFrame")({ data, metadata: { timestamp }, sessionId })
+    },
+  }
+}
+
+test("screencast recorder writes every frame with its timestamp and acknowledges it", async () => {
+  const session = fakeCdpSession()
+  const writes = []
+  const recorder = createScreencastRecorder({
+    session,
+    framesDir: "/runs/run-d/screencast-frames",
+    async mkdir(path, options) {
+      writes.push(["mkdir", path, options])
+    },
+    async writeFile(path, bytes) {
+      writes.push([path, [...bytes]])
+    },
+    wallClock: () => 1_791_000_012_000,
+  })
+  await recorder.start()
+  assert.deepEqual(session.sent, [["Page.startScreencast", { ...SCREENCAST_OPTIONS }]])
+  session.emit(1_791_000_010.25, 7)
+  session.emit(1_791_000_011.5, 8)
+  const recording = await recorder.stop()
+  assert.deepEqual(recording, {
+    frames: [
+      { file: "frame-000000.png", timestamp: 1_791_000_010.25 },
+      { file: "frame-000001.png", timestamp: 1_791_000_011.5 },
+    ],
+    stoppedAtEpochMs: 1_791_000_012_000,
+  })
+  assert.deepEqual(writes, [
+    ["mkdir", "/runs/run-d/screencast-frames", { recursive: true }],
+    ["/runs/run-d/screencast-frames/frame-000000.png", [0, 1, 2]],
+    ["/runs/run-d/screencast-frames/frame-000001.png", [0, 1, 2]],
+  ])
+  assert.deepEqual(session.sent.slice(1), [
+    ["Page.screencastFrameAck", { sessionId: 7 }],
+    ["Page.screencastFrameAck", { sessionId: 8 }],
+    ["Page.stopScreencast"],
+  ])
+  assert.equal(session.listeners.has("Page.screencastFrame"), false)
+  // Stopping twice is one stop.
+  assert.equal(await recorder.stop(), recording)
+})
+
+test("screencast recorder fails its stop on a lost write or a frame without a timestamp", async () => {
+  const session = fakeCdpSession()
+  const recorder = createScreencastRecorder({
+    session,
+    framesDir: "/frames",
+    async mkdir() {},
+    async writeFile() {
+      throw new Error("disk full")
+    },
+  })
+  await recorder.start()
+  session.emit(Number.NaN, 1)
+  await assert.rejects(recorder.stop(), (error) => {
+    assert.ok(error instanceof AggregateError)
+    assert.match(error.message, /without a timestamp/)
+    assert.match(error.message, /disk full/)
+    return true
+  })
+})
+
+test("screencast concat gives each frame its real duration and the last one up to the end", () => {
+  const list = screencastConcat(
+    [
+      { file: "frame-000000.png", timestamp: 100 },
+      { file: "frame-000001.png", timestamp: 100.04 },
+      // A paint at the same instant as the next: dropped.
+      { file: "frame-000002.png", timestamp: 103.04 },
+      { file: "frame-000003.png", timestamp: 103.04 },
+    ],
+    105_000,
+  )
+  assert.equal(
+    list,
+    [
+      "ffconcat version 1.0",
+      "file 'frame-000000.png'",
+      "duration 0.040000",
+      // A three-second hold with no paint is one frame shown for three seconds.
+      "file 'frame-000001.png'",
+      "duration 3.000000",
+      "file 'frame-000003.png'",
+      "duration 1.960000",
+      "file 'frame-000003.png'",
+      "",
+    ].join("\n"),
+  )
+  // A last frame at (or after) the end still lasts one output frame.
+  assert.match(screencastConcat([{ file: "f.png", timestamp: 10 }], 10_000), /duration 0\.033333/)
+  assert.throws(() => screencastConcat([], 1), /no frames/)
+  // A frame stamped slightly before the one ahead of it plays in timestamp order.
+  assert.equal(
+    screencastConcat(
+      [
+        { file: "a.png", timestamp: 2 },
+        { file: "b.png", timestamp: 2.1 },
+        { file: "c.png", timestamp: 2.05 },
+      ],
+      3_000,
+    ),
+    [
+      "ffconcat version 1.0",
+      "file 'a.png'",
+      "duration 0.050000",
+      "file 'c.png'",
+      "duration 0.050000",
+      "file 'b.png'",
+      "duration 0.900000",
+      "file 'b.png'",
+      "",
+    ].join("\n"),
+  )
+  assert.throws(
+    () =>
+      screencastConcat(
+        [
+          { file: "a.png", timestamp: 3 },
+          { file: "b.png", timestamp: 1.5 },
+        ],
+        4_000,
+      ),
+    /more than a second earlier than the frame before it/,
+  )
+  assert.throws(() => screencastConcat([{ file: "a'.png", timestamp: 1 }], 2_000), /unsafe file name/)
+})
+
+test("screencast assembly resamples to 30 fps 4:4:4 and always removes the frames", async () => {
+  const calls = []
+  const frames = [
+    { file: "frame-000000.png", timestamp: 100 },
+    { file: "frame-000001.png", timestamp: 101 },
+  ]
+  const result = await assembleScreencastVideo({
+    framesDir: "/runs/run-e/screencast-frames",
+    frames,
+    endEpochMs: 102_000,
+    outputPath: "/runs/run-e/screencast.mp4",
+    async writeFile(path, text) {
+      calls.push(["write", path, text])
+    },
+    async run(command, args) {
+      calls.push([command, args])
+    },
+    async remove(path) {
+      calls.push(["remove", path])
+    },
+  })
+  assert.deepEqual(calls[0], [
+    "write",
+    "/runs/run-e/screencast-frames/frames.ffconcat",
+    screencastConcat(frames, 102_000),
+  ])
+  assert.deepEqual(calls[1], [
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      "/runs/run-e/screencast-frames/frames.ffconcat",
+      "-vf",
+      "fps=30,format=yuv444p",
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "8",
+      "/runs/run-e/screencast.mp4",
+    ],
+  ])
+  assert.deepEqual(calls[2], ["remove", "/runs/run-e/screencast-frames"])
+  assert.deepEqual(result, {
+    videoPath: "/runs/run-e/screencast.mp4",
+    screencast: {
+      format: "png",
+      scale: 1,
+      frameCount: 2,
+      firstFrameEpochMs: 100_000,
+      endEpochMs: 102_000,
+      motion: { frames: 0, fps: 0, p90GapMs: 0 },
+    },
+  })
+  // Gaps under 250 ms are motion; a longer one is a hold.
+  assert.deepEqual(
+    screencastMotion([
+      { timestamp: 1 },
+      { timestamp: 1.02 },
+      { timestamp: 1.06 },
+      { timestamp: 4 },
+      { timestamp: 4.04 },
+    ]),
+    { frames: 3, fps: 30, p90GapMs: 40 },
+  )
+
+  const aborted = []
+  const controller = new AbortController()
+  await assert.rejects(
+    assembleScreencastVideo({
+      framesDir: "/f",
+      frames,
+      endEpochMs: 102_000,
+      outputPath: "/o.mp4",
+      signal: controller.signal,
+      async writeFile() {},
+      async run() {
+        controller.abort(new Error("cancel assembly"))
+        throw new Error("ffmpeg killed")
+      },
+      async remove(path) {
+        aborted.push(path)
+      },
+    }),
+    /ffmpeg killed/,
+  )
+  assert.deepEqual(aborted, ["/f"])
+})
 test("browser acquisition closes Chromium when context creation fails", async () => {
   const calls = []
   const acquisitionError = new Error("context creation failed")
@@ -2914,6 +4400,136 @@ test("browser acquisition closes Chromium when context creation fails", async ()
   assert.deepEqual(calls, ["launch", "new context", "close browser"])
 })
 
+test("browser acquisition records a lossless screencast, reduces motion and hides the Next dev badge", async () => {
+  const calls = []
+  const session = { name: "cdp" }
+  const page = { name: "page" }
+  const recorder = {
+    async start() {
+      calls.push(["start screencast"])
+    },
+  }
+  const chromium = {
+    async launch(options) {
+      calls.push(["launch", options])
+      return {
+        async newContext(options) {
+          calls.push(["new context", options])
+          return {
+            async addInitScript(script) {
+              calls.push(["init script", script])
+            },
+            async newPage() {
+              calls.push(["new page"])
+              return page
+            },
+            async newCDPSession(target) {
+              assert.equal(target, page)
+              calls.push(["cdp session"])
+              return session
+            },
+          }
+        },
+      }
+    },
+  }
+  const resources = await createBrowserResources({
+    chromium,
+    recordingsDir: "/runs/run-a",
+    viewport: { width: 1440, height: 810 },
+    createRecorder(options) {
+      calls.push(["recorder", options])
+      return recorder
+    },
+  })
+  assert.equal(resources.recorder, recorder)
+  assert.equal(resources.framesDir, "/runs/run-a/screencast-frames")
+  assert.equal(resources.outputPath, "/runs/run-a/screencast.mp4")
+  assert.deepEqual(calls, [
+    ["launch", { headless: true, args: ["--force-device-scale-factor=1"] }],
+    [
+      "new context",
+      { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 1, reducedMotion: "reduce" },
+    ],
+    ["init script", HIDE_NEXT_DEV_INDICATOR],
+    ["new page"],
+    ["cdp session"],
+    ["recorder", { session, framesDir: "/runs/run-a/screencast-frames" }],
+    ["start screencast"],
+  ])
+  // Scale 1 by measurement: 2x kept up at about 14 fps in motion, 1x at about 41.
+  assert.equal(SCREENCAST_SCALE, 1)
+  assert.deepEqual(SCREENCAST_OPTIONS, {
+    format: "png",
+    maxWidth: 1440,
+    maxHeight: 810,
+    everyNthFrame: 1,
+  })
+  assert.match(HIDE_NEXT_DEV_INDICATOR, /nextjs-portal \{ display: none !important; \}/)
+})
+
+test("browser acquisition stops a started screencast and removes its frames when it fails late", async () => {
+  const calls = []
+  const failure = new Error("screencast start failed")
+  const chromium = {
+    async launch() {
+      return {
+        async newContext() {
+          return {
+            async addInitScript() {},
+            async newPage() {
+              return {
+                async close() {
+                  calls.push("close page")
+                },
+              }
+            },
+            async newCDPSession() {
+              return {
+                async detach() {
+                  calls.push("detach")
+                },
+              }
+            },
+            async close() {
+              calls.push("close context")
+            },
+          }
+        },
+        async close() {
+          calls.push("close browser")
+        },
+      }
+    },
+  }
+  await assert.rejects(
+    createBrowserResources({
+      chromium,
+      recordingsDir: "/runs/run-b",
+      viewport: { width: 1440, height: 810 },
+      createRecorder: () => ({
+        async start() {
+          throw failure
+        },
+        async stop() {
+          calls.push("stop screencast")
+        },
+      }),
+      async remove(path) {
+        calls.push(`remove ${path}`)
+      },
+    }),
+    (error) => error === failure,
+  )
+  assert.deepEqual(calls, [
+    "stop screencast",
+    "detach",
+    "close page",
+    "close context",
+    "close browser",
+    "remove /runs/run-b/screencast-frames",
+  ])
+})
 test("browser acquisition rolls back a late Chromium launch after abort", async () => {
   const calls = []
   const controller = new AbortController()
@@ -2958,6 +4574,9 @@ test("browser acquisition closes context then Chromium when page creation fails"
         async newContext() {
           calls.push("new context")
           return {
+            async addInitScript() {
+              calls.push("init script")
+            },
             async newPage() {
               calls.push("new page")
               throw acquisitionError
@@ -2985,7 +4604,14 @@ test("browser acquisition closes context then Chromium when page creation fails"
       return true
     },
   )
-  assert.deepEqual(calls, ["launch", "new context", "new page", "close context", "close browser"])
+  assert.deepEqual(calls, [
+    "launch",
+    "new context",
+    "init script",
+    "new page",
+    "close context",
+    "close browser",
+  ])
 })
 
 test("capture invokes the future encoder after finalizing recordings and summary", async () => {
@@ -3004,17 +4630,18 @@ test("capture invokes the future encoder after finalizing recordings and summary
       )
       assert.equal(
         options.summary.videoPath,
-        "/repo/docs/brand/demo/raw-recordings/runs/run-unit-encode/demo.webm",
+        "/repo/docs/brand/demo/raw-recordings/runs/run-unit-encode/screencast.mp4",
       )
     },
   })
 
-  assert.deepEqual(fixture.operations.slice(-7), [
+  assert.deepEqual(fixture.operations.slice(-8), [
     "close browser",
     "publish summary",
     "encode capture",
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -3057,9 +4684,10 @@ test("SIGTERM during encoding aborts and awaits the encoder before final cleanup
   assert.ok(encoderSignal instanceof AbortSignal)
   assert.equal(encoderSettled, true)
   assert.equal(fixture.operations.includes("abort encoder child"), true)
-  assert.deepEqual(fixture.operations.slice(-5), [
+  assert.deepEqual(fixture.operations.slice(-6), [
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
     "remove /repo/docs/brand/demo/artifacts/runs/run-cancel-encoder/capture-summary.json",
@@ -3068,7 +4696,8 @@ test("SIGTERM during encoding aborts and awaits the encoder before final cleanup
 })
 
 test("capture publishes a versioned run-specific manifest with deterministic scene boundaries", async () => {
-  const fixture = orchestrationFixture()
+  // The screencast's first frame came 2.5 s before the timeline started.
+  const fixture = orchestrationFixture({ firstFrameEpochMs: CAPTURE_NOW - 2_500 })
   let tick = 1_000
   const holds = []
   const summary = await captureDemo({
@@ -3086,7 +4715,8 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
         holds.push(durationMs)
       },
     },
-    holdDurations: { preReloadMs: 700, restorationMs: 900 },
+    holdDurations: { mapMs: 700, approvalMs: 800, memoryMs: 900 },
+    wallClock: () => CAPTURE_NOW,
   })
 
   assert.equal(summary.schemaVersion, 1)
@@ -3103,16 +4733,9 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
       stderr: "/repo/docs/brand/demo/artifacts/runs/run-unit-manifest/test.stderr.log",
       result: "/repo/docs/brand/demo/artifacts/runs/run-unit-manifest/test.result.json",
     },
-    recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/demo.webm",
+    recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/screencast.mp4",
   })
-  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), [
-    "author",
-    "test",
-    "workbench-run",
-    "pre-reload-complete",
-    "restoration",
-    "close",
-  ])
+  assert.deepEqual(Object.keys(summary.videoTimeline.scenes), Object.keys(BEAT_SCENES))
   let previousEnd = -1
   for (const boundary of Object.values(summary.videoTimeline.scenes)) {
     assert.equal(Number.isFinite(boundary.startMs), true)
@@ -3120,13 +4743,34 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
     assert.equal(boundary.startMs >= previousEnd, true)
     previousEnd = boundary.endMs
   }
-  assert.deepEqual(holds, [700, 900])
+  // Each app beat's holds, in order: ask; weather; navlog (map, then the
+  // sheet); file (the card, then the reply); reload (the memory, then the
+  // restored thread). Code, title and close beats hold inside the director.
+  assert.deepEqual(holds, [2_000, 2_500, 700, 2_500, 800, 2_000, 900, 2_000])
+  // Scene times map to video time through the wall-clock offset between the
+  // timeline's start and the first screencast frame.
+  assert.equal(summary.videoTimeline.startedAtEpochMs, CAPTURE_NOW)
+  assert.equal(summary.videoTimeline.videoOffsetMs, 2_500)
+  assert.equal(
+    createTrimPlan(summary).start,
+    (summary.videoTimeline.scenes["beat-00-title"].startMs + 2_500) / 1_000,
+  )
+  // Only the successful run's close finalizes the recording.
+  assert.equal(fixture.closes.length, 1)
+  assert.equal(fixture.closes[0].finalize, true)
+  assert.ok(fixture.closes[0].signal instanceof AbortSignal)
   assert.deepEqual(summary.evidence, {
+    scenarioNow: CAPTURE_NOW,
+    departureUtc: CAPTURE_SCENARIO.departureUtc,
     prompt: DEMO_PROMPT,
-    tools: ["computeNavlog"],
-    answer: EXPECTED_ANSWER,
+    filePrompt: DEMO_FILE_PROMPT,
+    planTools: DEMO_PLAN_TOOLS,
+    fileTools: ["fileFlightPlan"],
+    planAnswer: CAPTURE_SCENARIO.planAnswer,
+    filedAnswer: CAPTURE_SCENARIO.filedAnswer,
+    awcHits: { airport: 1, metar: 1, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 },
     threadId: "thread-unit-1",
-    connectUrl: undefined,
+    connectUrl: "http://127.0.0.1:4101/api/copilotkit/agent/default/connect",
   })
 })
 
@@ -3210,9 +4854,10 @@ test("non-record-only capture cleans up when the encoder fails", async () => {
     }),
     /encoder failed/,
   )
-  assert.deepEqual(fixture.operations.slice(-5, -1), [
+  assert.deepEqual(fixture.operations.slice(-6, -1), [
     "stop workbench",
     "stop server",
+    "close AWC stub",
     "close aimock",
     `remove ${fixture.workspaceRoot}`,
   ])
@@ -3222,16 +4867,7 @@ test("non-record-only capture cleans up when the encoder fails", async () => {
   )
 })
 
-const EXPECTED_UPLOAD_PATHS = [
-  "b4/demo/product-loop.mp4",
-  "b4/demo/product-loop.webm",
-  "b4/demo/author.mp4",
-  "b4/demo/author.webm",
-  "b4/demo/test.mp4",
-  "b4/demo/test.webm",
-  "b4/demo/run.mp4",
-  "b4/demo/run.webm",
-]
+const EXPECTED_UPLOAD_PATHS = ["b4/demo/product-loop.mp4", "b4/demo/product-loop.webm"]
 const AUTHORIZED_MEDIA_STORE_ID = "store_9RQ8eZyGheVy0wOp"
 const AUTHORIZED_MEDIA_ORIGIN = "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com"
 
@@ -3336,12 +4972,15 @@ test("upload plan binds the exact suffix-free paths to the validated run manifes
           ...manifest,
           clips: {
             ...manifest.clips,
-            run: { ...manifest.clips.run, mp4: "/tmp/unbound/run.mp4" },
+            "product-loop": {
+              ...manifest.clips["product-loop"],
+              mp4: "/tmp/unbound/product-loop.mp4",
+            },
           },
         },
         baseUrl: AUTHORIZED_MEDIA_ORIGIN,
       }),
-    /run\.mp4.*expected run output root/,
+    /product-loop\.mp4.*expected run output root/,
   )
 })
 
@@ -3636,7 +5275,7 @@ test("OIDC apply passes only the explicit authorized oidcToken and storeId to pu
       assert.doesNotMatch(line, new RegExp(oidcToken))
     },
   })
-  assert.equal(puts.length, 8)
+  assert.equal(puts.length, 2)
   for (const { options } of puts) {
     assert.equal(options.oidcToken, oidcToken)
     assert.equal(options.storeId, AUTHORIZED_MEDIA_STORE_ID)
@@ -3797,11 +5436,11 @@ test("upload preflights all bodies and hashes before the first put", async () =>
   })
 
   assert.equal(
-    events.slice(0, 8).every((event) => event.startsWith("read:")),
+    events.slice(0, 2).every((event) => event.startsWith("read:")),
     true,
   )
   assert.equal(
-    events.slice(8).every((event) => event.startsWith("put:")),
+    events.slice(2).every((event) => event.startsWith("put:")),
     true,
   )
   assert.equal(Object.isFrozen(result.plan), true)
@@ -3833,7 +5472,7 @@ test("a late preflight read failure performs zero puts", async () => {
       },
       async readFile(path) {
         reads += 1
-        if (reads === 8) throw new Error("late local read failed")
+        if (reads === 2) throw new Error("late local read failed")
         return bodies.get(path)
       },
       async put() {
@@ -3843,7 +5482,7 @@ test("a late preflight read failure performs zero puts", async () => {
     }),
     /late local read failed/,
   )
-  assert.equal(reads, 8)
+  assert.equal(reads, 2)
   assert.equal(puts, 0)
 })
 
@@ -3851,7 +5490,7 @@ test("same-size video mutation fails the validation-time hash before any put", a
   const { pointer, manifest } = validUploadFixture()
   const validatedBodies = uploadBodies(manifest)
   const mutatedBodies = new Map(validatedBodies)
-  const sourcePath = manifest.clips.author.mp4
+  const sourcePath = manifest.clips["product-loop"].mp4
   const original = validatedBodies.get(sourcePath)
   const mutated = Buffer.from(original)
   mutated[0] ^= 0xff
@@ -3877,7 +5516,7 @@ test("same-size video mutation fails the validation-time hash before any put", a
       },
       log() {},
     }),
-    /author\.mp4.*SHA-256.*validation-time hash/i,
+    /product-loop\.mp4.*SHA-256.*validation-time hash/i,
   )
   assert.equal(puts, 0)
 })
@@ -3905,7 +5544,7 @@ test("partial provider failure reports safe convergence and a full replay succee
       },
       async put(pathname) {
         firstPuts.push(pathname)
-        if (firstPuts.length === 4) {
+        if (firstPuts.length === 2) {
           throw new Error(`provider failed ${token}`)
         }
         return {
@@ -3921,11 +5560,14 @@ test("partial provider failure reports safe convergence and a full replay succee
     firstError = error
   }
   assert.equal(writes, 0)
-  assert.deepEqual(firstPuts, EXPECTED_UPLOAD_PATHS.slice(0, 4))
-  assert.match(firstError.message, /completed.*product-loop\.mp4.*author\.mp4/is)
-  assert.match(firstError.message, /potentially completed.*author\.webm/is)
-  assert.match(firstError.message, /definitely pending.*test\.mp4.*run\.webm/is)
-  assert.match(firstError.message, /full eight-path.*idempotent.*replay/is)
+  assert.deepEqual(firstPuts, EXPECTED_UPLOAD_PATHS.slice(0, 2))
+  assert.match(firstError.message, /confirmed completed stable paths: [^.]*product-loop\.mp4\./is)
+  assert.match(
+    firstError.message,
+    /potentially completed stable path: b4\/demo\/product-loop\.webm\./is,
+  )
+  assert.match(firstError.message, /definitely pending stable paths: none\./is)
+  assert.match(firstError.message, /full two-path.*idempotent.*replay/is)
   assert.doesNotMatch(inspectErrorSurface(firstError), new RegExp(token))
   assert.doesNotMatch(firstError.message, /rollback/i)
 
@@ -3975,7 +5617,7 @@ test("partial provider failure reports safe convergence and a full replay succee
       ),
     )
   }
-  assert.equal(heads, 8)
+  assert.equal(heads, 2)
   assert.equal(writes, 1)
 })
 
@@ -4016,7 +5658,7 @@ test("apply uses official stable put options and writes only after all HEAD chec
   })
 
   const putEvents = events.filter(({ type }) => type === "put")
-  assert.equal(putEvents.length, 8)
+  assert.equal(putEvents.length, 2)
   for (const [index, event] of putEvents.entries()) {
     assert.equal(event.pathname, EXPECTED_UPLOAD_PATHS[index])
     assert.ok(Buffer.isBuffer(event.body))
@@ -4034,7 +5676,7 @@ test("apply uses official stable put options and writes only after all HEAD chec
     )
   }
   const headEvents = events.filter(({ type }) => type === "head")
-  assert.equal(headEvents.length, 8)
+  assert.equal(headEvents.length, 2)
   for (const event of headEvents) {
     assert.equal(event.options.method, "HEAD")
     assert.equal(event.options.redirect, "error")
@@ -4072,7 +5714,7 @@ test("returned URL mismatch reports the current mutation uncertainty and safe co
         puts += 1
         return {
           url:
-            puts === 3
+            puts === 2
               ? `https://other.example.com/${pathname}-${token}`
               : `${AUTHORIZED_MEDIA_ORIGIN}/${pathname}`,
         }
@@ -4088,16 +5730,16 @@ test("returned URL mismatch reports the current mutation uncertainty and safe co
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 3)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.cause, undefined)
   assert.match(captured.message, /returned URL.*stable public URL/i)
-  assert.match(captured.message, /confirmed completed.*product-loop\.mp4.*product-loop\.webm/is)
-  assert.match(captured.message, /potentially completed.*author\.mp4/is)
-  assert.match(captured.message, /definitely pending.*author\.webm.*run\.webm/is)
+  assert.match(captured.message, /confirmed completed stable paths: b4\/demo\/product-loop\.mp4\./is)
+  assert.match(captured.message, /potentially completed stable path: b4\/demo\/product-loop\.webm\./is)
+  assert.match(captured.message, /definitely pending stable paths: none\./is)
   assert.match(
     captured.message,
-    /correct.*BLOB_READ_WRITE_TOKEN.*B4_MEDIA_PUBLIC_BASE_URL.*full eight-path.*replay/is,
+    /correct.*BLOB_READ_WRITE_TOKEN.*B4_MEDIA_PUBLIC_BASE_URL.*full two-path.*replay/is,
   )
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
@@ -4131,7 +5773,7 @@ test("non-timeout HEAD failure withholds the catalog and reports safe post-mutat
       async fetch(url) {
         headCalls += 1
         return response(
-          url.endsWith("run.webm") ? 503 : 200,
+          url.endsWith("product-loop.webm") ? 503 : 200,
           url.endsWith(".mp4") ? "video/mp4" : "video/webm",
         )
       },
@@ -4143,13 +5785,13 @@ test("non-timeout HEAD failure withholds the catalog and reports safe post-mutat
   } catch (error) {
     captured = error
   }
-  assert.equal(headCalls, 8)
+  assert.equal(headCalls, 2)
   assert.equal(writes, 0)
-  assert.match(captured.message, /run\.webm.*200.*503/i)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /product-loop\.webm.*200.*503/i)
+  assert.match(captured.message, /both upload calls returned/i)
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
-  assert.match(captured.message, /verification outcome.*uncertain.*run\.webm/is)
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /verification outcome.*uncertain.*product-loop\.webm/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
 })
 
 test("HEAD timeout after all puts preserves safe identity and post-mutation guidance", async () => {
@@ -4197,12 +5839,12 @@ test("HEAD timeout after all puts preserves safe identity and post-mutation guid
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 8)
+  assert.equal(puts, 2)
   assert.equal(heads, 1)
   assert.equal(writes, 0)
   assert.equal(captured.code, "B4_MEDIA_REMOTE_TIMEOUT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /both upload calls returned/i)
   for (const pathname of EXPECTED_UPLOAD_PATHS) {
     assert.match(captured.message, new RegExp(pathname.replace(".", "\\.")))
   }
@@ -4211,7 +5853,7 @@ test("HEAD timeout after all puts preserves safe identity and post-mutation guid
     captured.message,
     /verification outcome.*uncertain.*https:\/\/9rq8ezyghevy0wop\.public\.blob\.vercel-storage\.com\/b4\/demo\/product-loop\.mp4/is,
   )
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
 })
 
@@ -4255,15 +5897,15 @@ test("HEAD abort after all puts preserves safe abort identity without a secret-b
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 8)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.name, "AbortError")
   assert.equal(captured.code, "B4_MEDIA_REMOTE_ABORT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /both upload calls returned/i)
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
   assert.match(captured.message, /verification outcome.*uncertain/i)
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
 })
 
@@ -4357,7 +5999,7 @@ test("timeout after prior puts reports uncertainty and full idempotent convergen
       },
       async put(pathname, _body, options) {
         puts += 1
-        if (puts < 3) {
+        if (puts < 2) {
           return {
             url: `${AUTHORIZED_MEDIA_ORIGIN}/${pathname}`,
           }
@@ -4376,14 +6018,14 @@ test("timeout after prior puts reports uncertainty and full idempotent convergen
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 3)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.code, "B4_MEDIA_REMOTE_TIMEOUT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /confirmed completed.*product-loop\.mp4.*product-loop\.webm/is)
-  assert.match(captured.message, /potentially completed.*author\.mp4/is)
-  assert.match(captured.message, /definitely pending.*author\.webm.*run\.webm/is)
-  assert.match(captured.message, /full eight-path.*idempotent.*replay/is)
+  assert.match(captured.message, /confirmed completed stable paths: b4\/demo\/product-loop\.mp4\./is)
+  assert.match(captured.message, /potentially completed stable path: b4\/demo\/product-loop\.webm\./is)
+  assert.match(captured.message, /definitely pending stable paths: none\./is)
+  assert.match(captured.message, /full two-path.*idempotent.*replay/is)
   assert.doesNotMatch(inspectErrorSurface(captured), /timeout-secret/)
 })
 
@@ -4415,7 +6057,7 @@ test("catalog entries contain exactly the six required fields", () => {
     baseUrl: AUTHORIZED_MEDIA_ORIGIN,
   })
   const catalog = buildDemoMediaCatalog({ manifest, plan })
-  assert.deepEqual(Object.keys(catalog), ["productLoop", "author", "test", "run"])
+  assert.deepEqual(Object.keys(catalog), ["productLoop"])
   for (const entry of Object.values(catalog)) {
     assert.deepEqual(Object.keys(entry).sort(), [
       "ariaLabel",
@@ -4428,14 +6070,38 @@ test("catalog entries contain exactly the six required fields", () => {
   }
   assert.deepEqual(validateDemoMediaCatalog(catalog), catalog)
   const missingTranscript = structuredClone(catalog)
-  delete missingTranscript.run.transcript
-  assert.throws(() => validateDemoMediaCatalog(missingTranscript), /run\.transcript.*required/i)
+  delete missingTranscript.productLoop.transcript
+  assert.throws(() => validateDemoMediaCatalog(missingTranscript), /productLoop\.transcript.*required/i)
   const unexpectedField = structuredClone(catalog)
-  unexpectedField.author.extra = true
+  unexpectedField.productLoop.extra = true
   assert.throws(
     () => validateDemoMediaCatalog(unexpectedField),
-    /author.*exactly.*ariaLabel.*transcript/i,
+    /productLoop.*exactly.*ariaLabel.*transcript/i,
   )
+})
+
+test("the checked-in catalog is exactly what the uploader writes for the current caption", async () => {
+  const { pointer, manifest } = validUploadFixture()
+  const catalog = buildDemoMediaCatalog({
+    manifest,
+    plan: createUploadPlan({
+      repoRoot: "/repo",
+      pointer,
+      manifest,
+      baseUrl: AUTHORIZED_MEDIA_ORIGIN,
+    }),
+  })
+  const checkedIn = JSON.parse(
+    await readFile(join(import.meta.dirname, "../../../apps/web/app/lib/demo-media.json"), "utf8"),
+  )
+  assert.deepEqual(checkedIn, catalog)
+  assert.equal(checkedIn.productLoop.caption, MEDIA_CAPTIONS["product-loop"])
+  assert.equal(
+    checkedIn.productLoop.transcript,
+    "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md#navlog-demo",
+  )
+  const transcript = await readFile(join(import.meta.dirname, "transcript.md"), "utf8")
+  assert.match(transcript, /^## Navlog demo$/mu)
 })
 
 test("catalog media URLs require exact stable paths with no authority or URL suffix drift", () => {
@@ -4452,57 +6118,57 @@ test("catalog media URLs require exact stable paths with no authority or URL suf
   for (const [name, url, pattern] of [
     [
       "extra path prefix",
-      "https://b4-media.public.blob.vercel-storage.com/extra/demo/run.mp4",
-      /run\.mp4.*exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/extra/demo/product-loop.mp4",
+      /productLoop\.mp4.*exact stable path/i,
     ],
     [
       "query suffix",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4?unstable=1",
-      /run\.mp4.*query|exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4?unstable=1",
+      /productLoop\.mp4.*query|exact stable path/i,
     ],
     [
       "fragment suffix",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4#unstable",
-      /run\.mp4.*fragment|exact stable path/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4#unstable",
+      /productLoop\.mp4.*fragment|exact stable path/i,
     ],
     [
       "credentials",
-      "https://user:secret@b4-media.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*credentials/i,
+      "https://user:secret@b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /productLoop\.mp4.*credentials/i,
     ],
     [
       "nonstandard port",
-      "https://b4-media.public.blob.vercel-storage.com:8443/demo/run.mp4",
-      /run\.mp4.*port|same public origin/i,
+      "https://b4-media.public.blob.vercel-storage.com:8443/demo/product-loop.mp4",
+      /productLoop\.mp4.*port|same public origin/i,
     ],
     [
       "explicit default port",
-      "https://b4-media.public.blob.vercel-storage.com:443/demo/run.mp4",
-      /run\.mp4.*explicit port/i,
+      "https://b4-media.public.blob.vercel-storage.com:443/demo/product-loop.mp4",
+      /productLoop\.mp4.*explicit port/i,
     ],
     [
       "leading whitespace",
-      " https://b4-media.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*canonical/i,
+      " https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "trailing whitespace",
-      "https://b4-media.public.blob.vercel-storage.com/demo/run.mp4 ",
-      /run\.mp4.*canonical/i,
+      "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4 ",
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "backslashes",
-      "https://b4-media.public.blob.vercel-storage.com\\demo\\run.mp4",
-      /run\.mp4.*canonical/i,
+      "https://b4-media.public.blob.vercel-storage.com\\demo\\product-loop.mp4",
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "uppercase host",
-      "https://B4-MEDIA.public.blob.vercel-storage.com/demo/run.mp4",
-      /run\.mp4.*canonical/i,
+      "https://B4-MEDIA.public.blob.vercel-storage.com/demo/product-loop.mp4",
+      /productLoop\.mp4.*canonical/i,
     ],
   ]) {
     const candidate = structuredClone(catalog)
-    candidate.run.mp4 = url
+    candidate.productLoop.mp4 = url
     assert.throws(() => validateDemoMediaCatalog(candidate), pattern, name)
   }
   for (const [name, noncanonicalHost] of [
@@ -4552,14 +6218,14 @@ test("remote checker loads the checked-in catalog and HEAD-verifies every URL wi
     },
   })
   assert.deepEqual(result.catalog, catalog)
-  assert.equal(calls.length, 8)
+  assert.equal(calls.length, 2)
   for (const call of calls) {
     assert.equal(call.options.method, "HEAD")
     assert.equal(call.options.redirect, "error")
     assert.ok(call.options.signal instanceof AbortSignal)
     assert.equal("headers" in call.options, false)
   }
-  assert.equal(lines.length, 8)
+  assert.equal(lines.length, 2)
   assert.ok(lines.every((line) => line.startsWith("PASS remote:")))
 })
 
@@ -4578,20 +6244,20 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
     [
       "missing URL",
       (value) => {
-        value.test.webm = ""
+        value.productLoop.webm = ""
       },
       async () => response(200, "video/webm"),
-      /test\.webm.*HTTPS URL/i,
+      /productLoop\.webm.*HTTPS URL/i,
     ],
     [
       "non-200",
       () => {},
       async (url) =>
         response(
-          url.endsWith("author.mp4") ? 404 : 200,
+          url.endsWith("product-loop.mp4") ? 404 : 200,
           url.endsWith(".mp4") ? "video/mp4" : "video/webm",
         ),
-      /author\.mp4.*200.*404/i,
+      /productLoop\.mp4.*200.*404/i,
     ],
     [
       "wrong type",
@@ -4599,13 +6265,13 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
       async (url) =>
         response(
           200,
-          url.endsWith("run.webm")
+          url.endsWith("product-loop.webm")
             ? "application/octet-stream"
             : url.endsWith(".mp4")
               ? "video/mp4"
               : "video/webm",
         ),
-      /run\.webm.*video\/webm.*application\/octet-stream/i,
+      /productLoop\.webm.*video\/webm.*application\/octet-stream/i,
     ],
   ]) {
     const candidate = structuredClone(catalog)
@@ -4660,5 +6326,715 @@ test("catalog writer removes its temporary path after real write and rename fail
     assert.equal((await lstat(target)).isDirectory(), true)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Take 2: the deterministic scenario and the AWC stub.
+//
+// The template's own TypeScript (tools, lib and the web's parsers) runs here
+// through tsx, so the fixtures are checked against the code the generated app
+// runs rather than against a copy of it.
+
+const TEMPLATE_ROOT = fileURLToPath(
+  new URL("../../../packages/devkit/templates/app-navlog/", import.meta.url),
+)
+const importTemplate = (relative) =>
+  tsImport(pathToFileURL(join(TEMPLATE_ROOT, relative)).href, import.meta.url)
+
+// Clock times either side of 1400Z, across a month and a year boundary, and
+// through the early-UTC hours where the FB product choice is easiest to get wrong.
+const SCENARIO_NOWS = [
+  "2026-10-08T00:30:00.000Z",
+  "2026-10-08T03:00:00.000Z",
+  "2026-10-08T06:30:00.000Z",
+  "2026-10-08T07:50:00.000Z",
+  "2026-10-07T13:10:00.000Z",
+  "2026-10-07T14:00:00.000Z",
+  "2026-10-07T15:20:00.000Z",
+  "2026-10-31T23:59:00.000Z",
+  "2026-12-31T22:45:00.000Z",
+].map((iso) => Date.parse(iso))
+
+/** The scripted fixtures grouped by the thread (first user message) they answer. */
+function fixtureGroups(fixtures) {
+  const groups = new Map()
+  for (const fixture of fixtures) {
+    const key = fixture.match.userMessage
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(fixture)
+  }
+  return groups
+}
+
+const toolCallOf = (fixture) => {
+  const calls = fixture.response.toolCalls
+  assert.equal(calls?.length, 1, "each scripted step makes exactly one tool call")
+  return calls[0]
+}
+
+function assertScriptedThread(steps, expectedTools) {
+  assert.equal(steps.length, expectedTools.length + 1)
+  steps.forEach((fixture, index) => {
+    assert.equal(fixture.match.turnIndex, index)
+    assert.equal(fixture.match.hasToolResult, index > 0)
+  })
+  assert.deepEqual(
+    steps.slice(0, -1).map((fixture) => toolCallOf(fixture).name),
+    expectedTools,
+  )
+  const reply = steps.at(-1).response.content
+  assert.equal(typeof reply, "string")
+  return { calls: steps.slice(0, -1).map(toolCallOf), reply }
+}
+
+test("demoScenario resolves 1400Z exactly as the template's resolveDeparture does", async () => {
+  const { parseUtcInstant } = await importTemplate("server/src/lib/fpl.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const expected = parseUtcInstant("1400Z", () => now)
+    assert.equal(scenario.departureUtc, expected.toISOString())
+    assert.equal(
+      scenario.hoursAhead,
+      Math.round(((expected.getTime() - now) / 3_600_000) * 10) / 10,
+    )
+  }
+  // The live tool reads the wall clock; it agrees with a scenario built now.
+  const { default: resolveDeparture } = await importTemplate("server/src/tools/resolveDeparture.ts")
+  const before = Date.now()
+  const live = await resolveDeparture({ departure: "1400Z" }, {})
+  assert.equal(live.departureUtc, demoScenario({ now: before }).departureUtc)
+})
+
+test("the parent's turn 1 follows the route's order and hands each child its own thread", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    assert.deepEqual(
+      [...groups.keys()],
+      [DEMO_PROMPT, DEMO_FILE_PROMPT, scenario.weatherInput, scenario.performanceInput],
+    )
+    const { calls, reply } = assertScriptedThread(groups.get(DEMO_PROMPT), [
+      "recall",
+      "resolveDeparture",
+      "writeTodos",
+      "lookupAirport",
+      "lookupAirport",
+      "task",
+      "task",
+      "computeNavlog",
+      "remember",
+      "writeFile",
+    ])
+    assert.deepEqual(scenario.planTools, calls.map((call) => call.name))
+    assert.equal(reply, scenario.planAnswer)
+    const args = calls.map((call) => call.arguments)
+    assert.deepEqual(args[0], { query: "aircraft profile and pilot preferences" })
+    assert.deepEqual(args[1], { departure: "1400Z" })
+    assert.deepEqual(args[2], { todos: scenario.todos })
+    assert.ok(scenario.todos.length >= 3)
+    for (const todo of scenario.todos) {
+      assert.ok(["pending", "in_progress", "completed"].includes(todo.status))
+      assert.equal(typeof todo.content, "string")
+    }
+    assert.deepEqual(args[3], { id: "KSTP" })
+    assert.deepEqual(args[4], { id: "KRST" })
+    // aimock matches a child's turns by its first user message, which is the task input verbatim.
+    assert.deepEqual(args[5], { subagent: "weather", input: scenario.weatherInput })
+    assert.deepEqual(args[6], { subagent: "performance", input: scenario.performanceInput })
+    assert.ok(scenario.weatherInput.includes(scenario.departureUtc))
+    assert.ok(scenario.weatherInput.includes(`hoursAhead ${scenario.hoursAhead}`))
+    assert.ok(scenario.weatherInput.includes("KSTP (44.9346, -93.0603)"))
+    assert.deepEqual(args[7], scenario.navlogInput)
+    assert.equal(args[7].departureTimeUtc, scenario.departureUtc)
+    assert.deepEqual(args[8], scenario.memory)
+    assert.deepEqual(args[9], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
+  }
+})
+
+test("the remember call matches the route's memory schema and states a fact the prompt gives", async () => {
+  const memorySource = await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/memory.ts"), "utf8")
+  const schemaKeys = [...memorySource.matchAll(/^\s{4}(\w+): z\.string\(\)/gm)].map((m) => m[1])
+  assert.deepEqual(schemaKeys, ["subject", "predicate", "value"])
+  const { data, content } = DEMO_SCENARIO.memory
+  assert.deepEqual(Object.keys(data), schemaKeys)
+  for (const value of Object.values(data)) assert.equal(typeof value, "string")
+  assert.deepEqual(Object.keys(DEMO_SCENARIO.memory), ["data", "content"])
+  // The memory panel lists the candidate by its content.
+  assert.ok(content.length > 0 && content.length <= 80)
+  assert.match(content, /N738ZU/)
+  assert.match(DEMO_PROMPT, /N738ZU has long-range tanks/)
+})
+
+test("the children brief from their own tools and turn 2 files the computed plan", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    const weather = assertScriptedThread(groups.get(scenario.weatherInput), [
+      "getMetar",
+      "getTaf",
+      "getWindsAloft",
+      "getAdvisories",
+      "getAdvisories",
+    ])
+    assert.deepEqual(weather.calls[0].arguments, { ids: ["KSTP", "KRST"] })
+    assert.deepEqual(weather.calls[1].arguments, { ids: ["KSTP", "KRST"] })
+    assert.deepEqual(weather.calls[2].arguments, {
+      region: "chi",
+      station: "MSP",
+      altitudeFt: 4500,
+      validAtUtc: scenario.departureUtc,
+    })
+    assert.ok(scenario.windsForecastHours >= 6 && scenario.windsForecastHours <= 24)
+    assert.deepEqual(weather.calls[3].arguments, { lat: 44.9346, lon: -93.0603 })
+    assert.deepEqual(weather.calls[4].arguments, { lat: 43.9083, lon: -92.49 })
+    assert.equal(weather.reply, scenario.weatherBrief)
+
+    const performance = assertScriptedThread(groups.get(scenario.performanceInput), ["readDoc"])
+    assert.deepEqual(performance.calls[0].arguments, { path: "poh/cruise-performance.md" })
+    assert.equal(performance.reply, scenario.performanceBrief)
+
+    const filing = assertScriptedThread(groups.get(DEMO_FILE_PROMPT), ["fileFlightPlan"])
+    assert.deepEqual(filing.calls[0].arguments, { flightPlan: scenario.flightPlan })
+    assert.equal(filing.reply, scenario.filedAnswer)
+    assert.deepEqual(scenario.fileTools, ["fileFlightPlan"])
+  }
+})
+
+test("the navlog numbers and flight plan are what the template's computeNavlog returns", async () => {
+  const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
+  const { formatFplMessage } = await importTemplate("server/src/lib/fpl.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const navlog = computeNavlog(scenario.navlogInput, () => now)
+    assert.deepEqual(scenario.flightPlan, navlog.flightPlan)
+    assert.equal(navlog.departureTimeUtc, scenario.departureUtc)
+    assert.deepEqual(scenario.navlog.totals, navlog.totals)
+    assert.deepEqual(
+      scenario.navlog.legs,
+      navlog.legs.map((leg) => ({
+        segment: leg.segment,
+        magneticHeading: leg.magneticHeading,
+        groundspeedKt: leg.groundspeedKt,
+        distanceNm: leg.distanceNm,
+        eteMin: leg.eteMin,
+        fuelGal: leg.fuelGal,
+      })),
+    )
+    assert.equal(scenario.etaUtc, navlog.legs.at(-1).etaUtc)
+    assert.equal(scenario.navlog.tasKt, navlog.aircraft.tasKt)
+    assert.equal(scenario.navlog.gph, navlog.aircraft.gph)
+    // The performance subagent quotes the same cruise row the code computes with.
+    assert.match(scenario.performanceBrief, new RegExp(`about ${Math.round(navlog.aircraft.tasKt)} KTAS`))
+    assert.match(scenario.performanceBrief, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
+    // The brief and the report quote the code's numbers, never their own.
+    const answer = scenario.planAnswer
+    assert.match(answer, new RegExp(`\\b${navlog.totals.distanceNm} nm\\b`))
+    assert.match(answer, new RegExp(`ETE ${navlog.totals.eteMin} min`))
+    assert.match(answer, new RegExp(`${navlog.totals.fuelGal.toFixed(1)} gal burned`))
+    assert.match(answer, new RegExp(`${navlog.totals.fuelRemainingGal.toFixed(1)} gal at landing`))
+    const reserve = `${Math.floor(navlog.totals.reserveMin / 60)}:${String(navlog.totals.reserveMin % 60).padStart(2, "0")}`
+    assert.match(answer, new RegExp(`reserve ${reserve}\\b`))
+    assert.match(answer, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
+    const eta = navlog.legs.at(-1).etaUtc.slice(11, 16).replace(":", "")
+    assert.match(answer, new RegExp(`${eta}Z ETA`))
+    for (const leg of navlog.legs) {
+      assert.ok(
+        scenario.navlogTable.includes(
+          `| ${leg.from} | ${leg.to} | ${leg.segment} | ${leg.magneticHeading} | ${leg.groundspeedKt} | ${leg.distanceNm} | ${leg.eteMin} | ${leg.fuelGal} |`,
+        ),
+      )
+    }
+    // The filed reply reads the items the tool records.
+    assert.ok(formatFplMessage(navlog.flightPlan).includes(`-${navlog.flightPlan.item15}`))
+    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item15))
+    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item16))
+  }
+})
+
+test("the scripted briefs render in the weather strip, the verdict card and the planning answer", async () => {
+  const { parseWeatherBrief, parseWindsLine } = await importTemplate("web/app/lib/weather-selectors.ts")
+  const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
+  const { parsePlanningAnswer } = await importTemplate("web/app/lib/assistant-text.ts")
+  const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const brief = parseWeatherBrief(scenario.weatherBrief)
+    assert.deepEqual(
+      brief.airports.map((airport) => [airport.id, airport.now, airport.atEta]),
+      [
+        ["KSTP", "VFR", "VFR"],
+        ["KRST", "VFR", "VFR"],
+      ],
+    )
+    for (const airport of brief.airports) {
+      assert.match(airport.metar, new RegExp(`^METAR ${airport.id} `))
+      assert.match(airport.taf, new RegExp(`^TAF ${airport.id} `))
+    }
+    assert.equal(brief.verdict?.level, "GO")
+    assert.deepEqual(brief.advisories, [])
+    assert.equal(brief.winds.length, 1)
+    const wind = parseWindsLine(brief.winds[0])
+    assert.deepEqual([wind.leg, wind.dir, wind.kt, wind.altitudeFt, wind.station], [1, 320, 20, 4500, "MSP"])
+    assert.notEqual(brief.note, "")
+
+    const navlog = computeNavlog(scenario.navlogInput, () => now)
+    const verdict = resolveVerdict({ weather: brief, answer: scenario.planAnswer, navlog })
+    assert.equal(verdict.level, "GO")
+    assert.equal(verdict.raisedFrom, undefined)
+
+    const answer = parsePlanningAnswer(scenario.planAnswer)
+    assert.equal(answer.verdict?.level, "GO")
+    assert.deepEqual(
+      answer.sections.map((section) => section.title),
+      ["Watch for", "Numbers", "Assumptions"],
+    )
+    assert.match(answer.closing ?? "", /file the plan/)
+    assert.ok(scenario.planAnswer.split(/\s+/).length < 180)
+    // The eval's guards on a planning answer.
+    for (const pattern of [/\brecall\(/, /\[(completed|pending|in_progress)\]/, /reports\//, /engine-on/i]) {
+      assert.doesNotMatch(scenario.planAnswer, pattern)
+    }
+    assert.match(scenario.planAnswer, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
+    const assumptions = answer.sections.find((section) => section.title === "Assumptions")
+    assert.match(assumptions.items.join(" "), new RegExp(scenario.departureLabel))
+    assert.match(assumptions.items.join(" "), /1 person on board assumed/)
+
+    const filed = scenario.filedAnswer.split("\n")
+    assert.ok(filed.length >= 2 && filed.length <= 4)
+    assert.match(filed[0], /^Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z /)
+    assert.match(scenario.filedAnswer, /does not transmit to Flight Service/)
+    assert.ok(scenario.filedAnswer.includes(scenario.departureLabel))
+  }
+})
+
+/** GET a stub path and return status, content type and body. */
+async function getStub(baseUrl, path) {
+  const response = await fetch(`${baseUrl}/${path}`)
+  return {
+    status: response.status,
+    type: response.headers.get("content-type") ?? "",
+    body: await response.text(),
+  }
+}
+
+async function portIsFree(port) {
+  return new Promise((resolve) => {
+    const server = createNetServer()
+    server.once("error", () => resolve(false))
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => server.close(() => resolve(true)))
+  })
+}
+
+test("the AWC stub answers every endpoint over loopback, counts hits and frees its port", async () => {
+  const now = Date.parse("2026-10-07T15:20:00Z")
+  let asked = 0
+  const stub = await startAwcStub({
+    now,
+    getPort: async () => {
+      asked += 1
+      return getAvailableLoopbackPort()
+    },
+  })
+  const port = Number(new URL(stub.baseUrl).port)
+  try {
+    assert.equal(asked, 1)
+    assert.match(stub.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+    assert.deepEqual(stub.hits, { airport: 0, metar: 0, taf: 0, windtemp: 0, gairmet: 0, airsigmet: 0 })
+
+    const airport = await getStub(stub.baseUrl, "airport?ids=KSTP&format=json")
+    assert.equal(airport.status, 200)
+    assert.match(airport.type, /^application\/json/)
+    const [kstp] = JSON.parse(airport.body)
+    assert.equal(kstp.icaoId, "KSTP")
+    assert.equal(kstp.elev, 215)
+
+    const metar = await getStub(stub.baseUrl, "metar?ids=KSTP%2CKRST&format=json")
+    assert.equal(metar.status, 200)
+    assert.match(metar.type, /^application\/json/)
+    assert.deepEqual(
+      JSON.parse(metar.body).map((record) => [record.icaoId, record.fltCat, record.wdir, record.wspd]),
+      [
+        ["KSTP", "VFR", 320, 8],
+        ["KRST", "VFR", 320, 8],
+      ],
+    )
+
+    const taf = await getStub(stub.baseUrl, "taf?ids=KRST&format=json")
+    assert.equal(taf.status, 200)
+    assert.deepEqual(JSON.parse(taf.body).map((record) => record.icaoId), ["KRST"])
+
+    const windtemp = await getStub(stub.baseUrl, "windtemp?region=chi&level=low&fcst=06")
+    assert.equal(windtemp.status, 200)
+    assert.match(windtemp.type, /^text\/plain/)
+    assert.match(windtemp.body, /^FT {2}3000 {4}6000/m)
+    assert.match(windtemp.body, /^MSP 3220 3220\+05 /m)
+
+    for (const product of ["gairmet", "airsigmet"]) {
+      const advisories = await getStub(stub.baseUrl, `${product}?format=json`)
+      assert.equal(advisories.status, 200)
+      assert.match(advisories.type, /^application\/json/)
+      assert.deepEqual(JSON.parse(advisories.body), [])
+    }
+
+    // An id the stub does not know matches nothing, as AWC answers.
+    assert.equal((await getStub(stub.baseUrl, "metar?ids=KXXX&format=json")).status, 204)
+
+    const unknown = await getStub(stub.baseUrl, "pirep?format=json")
+    assert.equal(unknown.status, 404)
+    assert.match(unknown.body, /AWC stub: no endpoint \/pirep/)
+    const noFormat = await getStub(stub.baseUrl, "metar?ids=KSTP")
+    assert.equal(noFormat.status, 400)
+    assert.match(noFormat.body, /format=json/)
+    const badRegion = await getStub(stub.baseUrl, "windtemp?region=bos&level=low&fcst=06")
+    assert.equal(badRegion.status, 400)
+    assert.match(badRegion.body, /region/)
+
+    // A request the stub refuses (400) is not a hit: hits count what it served.
+    assert.deepEqual(stub.hits, { airport: 1, metar: 2, taf: 1, windtemp: 1, gairmet: 1, airsigmet: 1 })
+  } finally {
+    await stub.close()
+  }
+  assert.equal(await portIsFree(port), true)
+  // The stub has no clock of its own: it serves the scenario's.
+  await assert.rejects(startAwcStub({}), /needs \{ now \}/)
+  await assert.rejects(startAwcStub(), /needs \{ now \}/)
+  // Without getPort the stub takes any free loopback port.
+  const anyPort = await startAwcStub({ now })
+  try {
+    assert.match(anyPort.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/)
+  } finally {
+    await anyPort.close()
+  }
+})
+
+test("the template's real tools parse the stub and agree with every scripted call and brief", async () => {
+  const now = Date.now()
+  const scenario = demoScenario({ now })
+  const stub = await startAwcStub({ now })
+  // The tools' shared AWC client reads B4_AWC_BASE_URL when its module loads;
+  // set only for this test's imports, so no turbo task depends on it.
+  const awcBaseUrlVariable = "B4_AWC_BASE_URL"
+  const previous = process.env[awcBaseUrlVariable]
+  process.env[awcBaseUrlVariable] = stub.baseUrl
+  try {
+    const tool = async (name) => (await importTemplate(`server/src/tools/${name}.ts`)).default
+    const written = new Map()
+    const ctx = {
+      signal: new AbortController().signal,
+      fs: {
+        async readFile(path) {
+          return readFile(join(TEMPLATE_ROOT, "server/workspace", path), "utf8")
+        },
+        async writeFile(path, content) {
+          written.set(path, content)
+        },
+      },
+    }
+    const groups = fixtureGroups(scenario.fixtures)
+    const callsOf = (key) => groups.get(key).filter((f) => f.response.toolCalls).map(toolCallOf)
+    const results = new Map()
+    const run = async (call) => {
+      const output = await (await tool(call.name))(call.arguments, ctx)
+      results.set(call.id, output)
+      return output
+    }
+
+    // The parent's own tools (the runtime's built-ins aside).
+    const parentCalls = callsOf(DEMO_PROMPT)
+    const byName = (name) => parentCalls.filter((call) => call.name === name)
+    const resolved = await run(byName("resolveDeparture")[0])
+    assert.equal(resolved.departureUtc, scenario.departureUtc)
+    const airports = []
+    for (const call of byName("lookupAirport")) airports.push(await run(call))
+    assert.deepEqual(
+      airports.map(({ id, lat, lon, elevationFt, magneticVariationDeg }) => ({
+        id,
+        kind: "airport",
+        lat,
+        lon,
+        elevationFt,
+        magneticVariationDeg,
+      })),
+      scenario.navlogInput.waypoints.map(({ id, kind, lat, lon, elevationFt, magneticVariationDeg }) => ({
+        id,
+        kind,
+        lat,
+        lon,
+        elevationFt,
+        magneticVariationDeg,
+      })),
+    )
+    const navlog = await run(byName("computeNavlog")[0])
+    assert.deepEqual(navlog.flightPlan, scenario.flightPlan)
+
+    // The weather child: every claim in its brief is what its tools returned.
+    const [metarCall, tafCall, windsCall, ...advisoryCalls] = callsOf(scenario.weatherInput)
+    const metars = await run(metarCall)
+    assert.deepEqual(
+      metars.map((m) => [m.id, m.flightCategory, m.windDirDeg, m.windKt, m.visibilityMi, m.ceilingFt]),
+      [
+        ["KSTP", "VFR", 320, 8, 10, null],
+        ["KRST", "VFR", 320, 8, 10, null],
+      ],
+    )
+    const tafs = await run(tafCall)
+    const eta = Date.parse(scenario.etaUtc)
+    const departure = Date.parse(scenario.departureUtc)
+    for (const taf of tafs) {
+      const covering = taf.periods.filter(
+        (period) => Date.parse(period.fromUtc) <= departure && Date.parse(period.toUtc) >= eta,
+      )
+      assert.equal(covering.length, 1, `${taf.id}'s TAF covers the flight`)
+      assert.equal(covering[0].flightCategory, "VFR")
+      assert.equal(covering[0].windDirDeg, 320)
+      assert.equal(covering[0].windKt, 8)
+      assert.equal(taf.periods.length, 1)
+    }
+    const winds = await run(windsCall)
+    assert.equal(winds.covered, true)
+    assert.equal(winds.forecastHours, scenario.windsForecastHours)
+    assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
+    assert.deepEqual(scenario.navlogInput.winds, [{ dirDegTrue: 320, speedKt: 20 }])
+    for (const call of advisoryCalls) assert.deepEqual(await run(call), [])
+    for (const metar of metars) assert.ok(scenario.weatherBrief.includes(metar.raw))
+    for (const taf of tafs) assert.ok(scenario.weatherBrief.includes(taf.raw))
+    assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
+    assert.doesNotMatch(scenario.weatherBrief, /preliminary/)
+    assert.match(scenario.weatherBrief, /^Advisories: none$/m)
+    assert.match(scenario.weatherBrief, /^Forecast horizon: Departure is within TAF and winds-aloft coverage\.$/m)
+
+    // The performance child reads the real POH table it cites.
+    const [readCall] = callsOf(scenario.performanceInput)
+    const doc = await run(readCall)
+    assert.match(doc.content, /\| 4000 \| 2400 \| 68 \/ 111 \/ 7\.6 \| 64 \/ 110 \/ 7\.1 \|/)
+    assert.match(doc.content, /\| 6000 \| 2400 \| 64 \/ 110 \/ 7\.2 \| 60 \/ 109 \/ 6\.8 \|/)
+    assert.match(scenario.performanceBrief, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
+
+    // Turn 2 records the plan computeNavlog produced.
+    const [fileCall] = callsOf(DEMO_FILE_PROMPT)
+    const filed = await run(fileCall)
+    assert.equal(filed.status, "recorded")
+    assert.equal(filed.transmitted, false)
+    assert.match(written.get(filed.path), /^\(FPL-N738ZU-VG\n/)
+
+    for (const endpoint of Object.keys(stub.hits)) {
+      assert.ok(stub.hits[endpoint] >= 1, `the scripted flow reaches ${endpoint}`)
+    }
+  } finally {
+    if (previous === undefined) delete process.env[awcBaseUrlVariable]
+    else process.env[awcBaseUrlVariable] = previous
+    await stub.close()
+  }
+})
+
+test("demoAwcData keeps the stub's weather consistent with the scripted brief for any clock", () => {
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const data = demoAwcData(now)
+    for (const id of ["KSTP", "KRST"]) {
+      assert.ok(scenario.weatherBrief.includes(data.metars[id].rawOb))
+      assert.ok(scenario.weatherBrief.includes(data.tafs[id].rawTAF))
+      assert.ok(Date.parse(data.metars[id].reportTime) <= now + 60 * 60_000)
+    }
+    const product = data.windtemp(String(scenario.windsForecastHours <= 6 ? 6 : scenario.windsForecastHours <= 12 ? 12 : 24).padStart(2, "0"))
+    assert.match(product, /^MSP 3220 3220\+05 /m)
+  }
+})
+
+/** A `DDHHMMZ` group as the instant nearest `near` whose day of the month matches. */
+function resolveDayGroup(group, near) {
+  const match = /^(\d{2})(\d{2})(\d{2})Z$/.exec(group)
+  assert.ok(match, `${group} is a DDHHMMZ group`)
+  const [, day, hour, minute] = match.map(Number)
+  const candidates = []
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const date = new Date(near + offset * 86_400_000)
+    if (date.getUTCDate() !== day) continue
+    candidates.push(
+      Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), day, hour, minute),
+    )
+  }
+  assert.ok(candidates.length > 0, `${group} falls within three days of the flight`)
+  return candidates.sort((a, b) => Math.abs(a - near) - Math.abs(b - near))[0]
+}
+
+/** The absolute FOR USE window around `validAt`: the HHMM at or before it to the HHMM at or after it. */
+function forUseWindow(forUse, validAt) {
+  const match = /^(\d{2})(\d{2})-(\d{2})(\d{2})Z$/.exec(forUse)
+  assert.ok(match, `${forUse} is an HHMM-HHMMZ window`)
+  const [, fromH, fromM, toH, toM] = match.map(Number)
+  const valid = new Date(validAt)
+  const sameDay = (h, m) =>
+    Date.UTC(valid.getUTCFullYear(), valid.getUTCMonth(), valid.getUTCDate(), h, m)
+  let from = sameDay(fromH, fromM)
+  if (from > validAt) from -= 86_400_000
+  let to = sameDay(toH, toM)
+  if (to < validAt) to += 86_400_000
+  return { from, to }
+}
+
+test("the real tool picks the scenario's FB product, covering the whole flight, at every capture hour", async () => {
+  const awcBaseUrlVariable = "B4_AWC_BASE_URL"
+  const previous = process.env[awcBaseUrlVariable]
+  try {
+    for (const now of SCENARIO_NOWS) {
+      const scenario = demoScenario({ now })
+      const windsCall = fixtureGroups(scenario.fixtures)
+        .get(scenario.weatherInput)
+        .map((fixture) => fixture.response.toolCalls?.[0])
+        .find((call) => call?.name === "getWindsAloft")
+      const stub = await startAwcStub({ now })
+      try {
+        process.env[awcBaseUrlVariable] = stub.baseUrl
+        // Each tsImport is a fresh module namespace, so the tools' shared AWC
+        // client is rebuilt and reads this stub's base URL.
+        const { default: getWindsAloft } = await importTemplate("server/src/tools/getWindsAloft.ts")
+        // The tool places the FB headers' day groups around its own clock,
+        // which in a capture is the clock the scenario was built from.
+        const realNow = Date.now
+        Date.now = () => now
+        let winds
+        try {
+          winds = await getWindsAloft(windsCall.arguments, { signal: new AbortController().signal })
+        } finally {
+          Date.now = realNow
+        }
+        const departure = Date.parse(scenario.departureUtc)
+        const eta = Date.parse(scenario.etaUtc)
+        const label = new Date(now).toISOString()
+        const basedOn = resolveDayGroup(winds.basedOn, now)
+        assert.ok(basedOn <= now, `${label}: FB data time ${winds.basedOn} is not in the future`)
+        assert.ok(now - basedOn <= 8 * 3_600_000, `${label}: FB data time ${winds.basedOn} is current`)
+        const validAt = resolveDayGroup(winds.validAt, departure)
+        const window = forUseWindow(winds.forUse, validAt)
+        assert.ok(
+          window.from <= departure && eta <= window.to,
+          `${label}: FOR USE ${winds.forUse} (valid ${winds.validAt}) spans ${scenario.departureUtc}..${scenario.etaUtc}`,
+        )
+        // The tool's own choice and window agree with the scenario's.
+        assert.equal(winds.validAtUtc, scenario.departureUtc)
+        assert.equal(winds.covered, true, `${label}: the departure is covered`)
+        assert.equal(winds.note, undefined)
+        assert.equal(winds.forecastHours, scenario.windsForecastHours)
+        assert.ok(
+          Date.parse(winds.forUseFromUtc) <= departure && eta <= Date.parse(winds.forUseToUtc),
+          `${label}: the tool's window ${winds.forUseFromUtc}..${winds.forUseToUtc} spans the flight`,
+        )
+        assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
+        assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
+      } finally {
+        await stub.close()
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env[awcBaseUrlVariable]
+    else process.env[awcBaseUrlVariable] = previous
+  }
+})
+
+test("every capture minute of a day gets a covering FB product and a covering TAF", async () => {
+  const { parseWindsAloft } = await importTemplate("server/src/lib/winds-aloft.ts")
+  const start = Date.parse("2026-10-08T00:00:00.000Z")
+  for (let now = start; now < start + 86_400_000; now += 10 * 60_000) {
+    // demoScenario refuses to script a brief whose coverage the stub would not serve.
+    const scenario = demoScenario({ now })
+    const data = demoAwcData(now)
+    const product = parseWindsAloft(data.windtemp(String(scenario.windsForecastHours).padStart(2, "0")))
+    const departure = Date.parse(scenario.departureUtc)
+    const eta = Date.parse(scenario.etaUtc)
+    const window = forUseWindow(product.forUse, resolveDayGroup(product.validAt, departure))
+    assert.ok(window.from <= departure && eta <= window.to, new Date(now).toISOString())
+    assert.ok(resolveDayGroup(product.basedOn, now) <= now)
+    for (const id of ["KSTP", "KRST"]) {
+      const taf = data.tafs[id]
+      assert.ok(taf.validTimeFrom * 1000 <= departure && eta <= taf.validTimeTo * 1000)
+      assert.ok(Date.parse(taf.issueTime) <= now)
+    }
+  }
+})
+
+test("assertScenarioCurrent throws once 1400Z has passed since the scenario was built", () => {
+  const scenario = demoScenario({ now: Date.parse("2026-10-08T13:50:00.000Z") })
+  assert.equal(scenario.departureUtc, "2026-10-08T14:00:00.000Z")
+  assertScenarioCurrent(scenario, Date.parse("2026-10-08T13:59:59.999Z"))
+  assertScenarioCurrent(scenario, Date.parse("2026-10-08T14:00:00.000Z"))
+  assert.throws(
+    () => assertScenarioCurrent(scenario, Date.parse("2026-10-08T14:00:00.001Z")),
+    /stale: "1400Z" now resolves to 2026-10-09T14:00:00\.000Z, but the scenario scripted 2026-10-08T14:00:00\.000Z/,
+  )
+  // The default clock is the wall clock, which a scenario built now agrees with.
+  assertScenarioCurrent(demoScenario())
+})
+
+test("the scripted order and tools agree with the template's route and subagent definitions", async () => {
+  // The prompt is a template literal, so its backticks are escaped in the source.
+  const routeSource = (
+    await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/index.ts"), "utf8")
+  ).replaceAll("\\`", "`")
+  const steps = [...routeSource.matchAll(/^(\d+)\. (.*)$/gm)].map((m) => ({
+    number: Number(m[1]),
+    text: m[2],
+  }))
+  assert.ok(steps.length >= 7, "the route prompt has numbered steps")
+  // Where each tool is called, by its backticked name; the todos step names no tool.
+  const callIn = {
+    recall: /`recall\(/,
+    resolveDeparture: /`resolveDeparture\(/,
+    writeTodos: /\btodos\b/,
+    lookupAirport: /`lookupAirport`/,
+    task: /`task\(/,
+    computeNavlog: /`computeNavlog`/,
+    writeFile: /`writeFile\(/,
+  }
+  const stepOf = (tool) => steps.find((step) => callIn[tool].test(step.text))?.number
+  const order = Object.keys(callIn)
+  const numbers = order.map(stepOf)
+  for (const [index, tool] of order.entries()) {
+    assert.equal(typeof numbers[index], "number", `the route prompt has a step that calls ${tool}`)
+    if (index > 0) {
+      assert.ok(
+        numbers[index] > numbers[index - 1],
+        `${tool} (step ${numbers[index]}) comes after ${order[index - 1]} (step ${numbers[index - 1]})`,
+      )
+    }
+  }
+  // The scripted parent follows that order; remember is the route's to place (steps 1 and 10).
+  const scripted = DEMO_PLAN_TOOLS.filter((tool) => tool !== "remember").filter(
+    (tool, index, all) => tool !== all[index - 1],
+  )
+  assert.deepEqual(scripted, order)
+  assert.ok(steps.some((step) => /`remember`|`remember\(/.test(step.text)))
+
+  const subagentsRoot = join(TEMPLATE_ROOT, "server/src/app/navlog/subagents")
+  const subagents = (await readdir(subagentsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+  const listed = (source, key) => {
+    const match = new RegExp(`\\b${key}: \\[([^\\]]*)\\]`).exec(source)
+    assert.ok(match, `the subagent lists ${key}`)
+    return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+  }
+  for (const now of SCENARIO_NOWS) {
+    const scenario = demoScenario({ now })
+    const groups = fixtureGroups(scenario.fixtures)
+    const tasks = groups
+      .get(DEMO_PROMPT)
+      .flatMap((fixture) => fixture.response.toolCalls ?? [])
+      .filter((call) => call.name === "task")
+      .map((call) => call.arguments)
+    assert.deepEqual(tasks.map((task) => task.subagent).sort(), subagents)
+    for (const task of tasks) {
+      const source = await readFile(join(subagentsRoot, task.subagent, "index.ts"), "utf8")
+      const allow = listed(source, "allow")
+      const deny = listed(source, "deny")
+      const called = groups.get(task.input).flatMap((fixture) => fixture.response.toolCalls ?? [])
+      assert.ok(called.length > 0)
+      for (const call of called) {
+        assert.ok(allow.includes(call.name), `${task.subagent} allows ${call.name}`)
+        assert.ok(!deny.includes(call.name), `${task.subagent} does not deny ${call.name}`)
+      }
+    }
   }
 })

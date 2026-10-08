@@ -34,26 +34,9 @@ const CLIPS = Object.freeze([
   Object.freeze({
     name: "product-loop",
     catalogKey: "productLoop",
-    ariaLabel: "B4.run product loop: author, prove, run, reload, and restore",
-    transcript: `${TRANSCRIPT_BASE_URL}#product-loop-25-seconds`,
-  }),
-  Object.freeze({
-    name: "author",
-    catalogKey: "author",
-    ariaLabel: "B4.run Author clip: inspect a generated route and shared tool",
-    transcript: `${TRANSCRIPT_BASE_URL}#author-clip-9-seconds`,
-  }),
-  Object.freeze({
-    name: "test",
-    catalogKey: "test",
-    ariaLabel: "B4.run Prove clip: run the deterministic offline test",
-    transcript: `${TRANSCRIPT_BASE_URL}#test-clip-9-seconds`,
-  }),
-  Object.freeze({
-    name: "run",
-    catalogKey: "run",
-    ariaLabel: "B4.run Run clip: reload and restore the same Workbench thread",
-    transcript: `${TRANSCRIPT_BASE_URL}#run-clip-10-seconds`,
+    ariaLabel:
+      "B4.run navlog demo: the agent's code, then the Workbench planning a flight, filing it after approval, and restoring the thread",
+    transcript: `${TRANSCRIPT_BASE_URL}#navlog-demo`,
   }),
 ])
 
@@ -259,7 +242,7 @@ function uploadConvergenceError({ error, secrets, index, plan }) {
   const safeError = sanitizeExternalError(
     error,
     secrets,
-    `Upload did not converge at ${current}. Confirmed completed stable paths: ${confirmed.length === 0 ? "none" : confirmed.join(", ")}. Potentially completed stable path: ${current}. Definitely pending stable paths: ${pending.length === 0 ? "none" : pending.join(", ")}. The catalog was not written. Use ${CREDENTIAL_PAIRING_GUIDANCE}, then run a full eight-path idempotent replay with --apply; every stable path is overwritten with no random suffix`,
+    `Upload did not converge at ${current}. Confirmed completed stable paths: ${confirmed.length === 0 ? "none" : confirmed.join(", ")}. Potentially completed stable path: ${current}. Definitely pending stable paths: ${pending.length === 0 ? "none" : pending.join(", ")}. The catalog was not written. Use ${CREDENTIAL_PAIRING_GUIDANCE}, then run a full two-path idempotent replay with --apply; every stable path is overwritten with no random suffix`,
   )
   return preserveRemoteFailureIdentity(safeError, error)
 }
@@ -271,7 +254,7 @@ function verificationConvergenceError({ error, secrets, plan }) {
   const safeError = sanitizeExternalError(
     error,
     secrets,
-    `Remote verification did not converge after all eight upload calls returned for stable paths: ${stablePaths}. The catalog was not written. The verification outcome is uncertain for ${currentUrl}. Run a full eight-path idempotent replay with --apply using ${CREDENTIAL_PAIRING_GUIDANCE}, or equivalently re-verify all eight public URLs before writing the catalog`,
+    `Remote verification did not converge after both upload calls returned for stable paths: ${stablePaths}. The catalog was not written. The verification outcome is uncertain for ${currentUrl}. Run a full two-path idempotent replay with --apply using ${CREDENTIAL_PAIRING_GUIDANCE}, or equivalently re-verify both public URLs before writing the catalog`,
   )
   return preserveRemoteFailureIdentity(safeError, error)
 }

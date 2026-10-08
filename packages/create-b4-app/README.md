@@ -9,14 +9,15 @@ Scaffold a B4.run TypeScript application with a supported starter template and t
 **Use this when:** You are starting a new B4.run application from a supported template.
 
 <p align="center">
-  <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.gif" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="720">
   </a>
+  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
 </p>
 
 ## Install
 
-Requires Node.js 24 or later. Run `npm create b4-app@latest my-agent`; a global installation is not required.
+Requires Node.js 24 or later and npm 11. Run `npm create b4-app@latest <directory>`; a global installation is not required, and the directory must be new or empty. Options: `--template basic|navlog` (default `basic`) and `--dist-tag <tag>`, the npm dist-tag the generated app's B4.run dependencies resolve (default `latest`).
 
 ## Example
 
@@ -29,7 +30,7 @@ npm install
 npm test
 ```
 
-The `basic` template is the default. For the full flight-planning assistant, a `server` and `web` npm workspace with subagents, memory, planning and a map Workbench, select the `navlog` template with `npm create b4-app@latest my-agent -- --template navlog`. Releases up to 0.13.1 ship this workspace as the `research` template and do not know `navlog`; `--template research` keeps working as a deprecated alias that scaffolds navlog. Run `npm view create-b4-app@latest version` to see which release the current dist-tag selects.
+For the flight planner, a `server` and `web` npm workspace with subagents, memory, planning and a map Workbench, run `npm create b4-app@latest my-navlog -- --template navlog`. Its live runs need `OPENAI_API_KEY` in `server/.env`; `npm run dev:server` serves the agent on port 3002 and `npm run dev:web` the Workbench on port 3010.
 
 ## Runtime and stability
 
@@ -37,7 +38,7 @@ The `basic` template is the default. For the full flight-planning assistant, a `
 
 ## Related
 
-Related packages are [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli), which develops and builds the generated app, and [`@b4run/sdk`](https://www.npmjs.com/package/@b4run/sdk), which supplies its author-facing declarations. See the [API catalog](https://b4.run/docs/api#create-b4-app), [Getting Started](https://b4.run/docs/getting-started), [testing guide](https://b4.run/docs/testing-agents), [CLI guide](https://b4.run/docs/cli), and [`create-b4-app` changelog](https://github.com/cacheplane/b4run/blob/main/packages/create-b4-app/CHANGELOG.md).
+Related packages are [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli), which develops and builds the generated app, and [`@b4run/sdk`](https://www.npmjs.com/package/@b4run/sdk), which the app's routes and tools import. See the [API catalog](https://b4.run/docs/api#create-b4-app), [Getting Started](https://b4.run/docs/getting-started), [testing guide](https://b4.run/docs/testing-agents), [CLI guide](https://b4.run/docs/cli), and [`create-b4-app` changelog](https://github.com/cacheplane/b4run/blob/main/packages/create-b4-app/CHANGELOG.md).
 
 ## Maturity and support
 
