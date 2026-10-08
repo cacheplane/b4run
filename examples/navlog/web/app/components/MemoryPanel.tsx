@@ -63,11 +63,10 @@ export const DECISION_FAILURE_NOTICE = "Couldn’t save that decision — nothin
 /**
  * At most this many candidates are listed; the rest are counted.
  *
- * The rail is `w-64` and already owns one scroll region (the thread list). A
- * second one here would compete with it — two independently scrolling columns
- * stacked in 256px is worse than not showing the fourth candidate — so the
- * section is bounded by content instead: three rows, then an honest line about
- * the remainder. The count in the summary is always the true total.
+ * The panel sits in the chat dock above the conversation, which already owns
+ * the dock's scroll region; a long list here would take the answer's space, so
+ * the section is bounded by content instead: three rows, then an honest line
+ * about the remainder. The count in the summary is always the true total.
  */
 const MAX_VISIBLE = 3
 
@@ -156,7 +155,7 @@ export function MemoryPanelView({
     <section
       aria-label="Memory candidates"
       aria-busy={isBusy}
-      className="shrink-0 border-t border-wb-border px-3 pt-3"
+      className="shrink-0 border-t border-wb-border px-3 pt-2"
     >
       {/*
         A native `<details>`, open by default: a candidate the user never sees
@@ -180,34 +179,32 @@ export function MemoryPanelView({
           </span>
           Memory · {candidates.length}
         </summary>
-        <ul className="mt-2 space-y-2">
+        {/*
+          One row per candidate, the decision beside the text: this section sits
+          in the chat dock above the conversation, so every line it takes is a
+          line of the answer the pilot is reading. Three stacked cards (text,
+          a "suggested by" line, then a button row) took up to 40% of the dock.
+        */}
+        <ul className="mt-1.5 space-y-1.5">
           {visible.map((candidate) => (
             <li
               key={candidate.id}
-              className="rounded-wb border border-wb-border bg-wb-surface px-2.5 py-2"
+              className="flex items-start gap-2 rounded-wb border border-wb-border bg-wb-surface px-2.5 py-1.5"
             >
-              {/* `title` carries the full text for the clamped case; the clamp
-                  is what keeps three candidates from pushing the thread list
-                  off the bottom of the rail. */}
-              <p
-                className="line-clamp-3 break-words text-[12px] leading-4"
-                title={candidate.content}
-              >
-                {candidate.content}
-              </p>
-              {/* The store's namespace and the model's confidence are for a
+              {/* `title` carries the full text for the clamped case. The
+                  store's namespace and the model's confidence are for a
                   developer, so they sit in the tooltip, not in the line. */}
               <p
-                className="mt-1 truncate text-[11px] leading-4 text-wb-muted"
-                title={`${candidate.namespace}${
+                className="line-clamp-2 min-w-0 flex-1 break-words text-[12px] leading-4"
+                title={`${candidate.content}\n${candidate.namespace}${
                   typeof candidate.confidence === "number"
                     ? ` · confidence ${candidate.confidence}`
                     : ""
                 }`}
               >
-                Suggested by the planner
+                {candidate.content}
               </p>
-              <div className="mt-1.5 flex gap-1.5">
+              <div className="flex shrink-0 gap-1">
                 {/*
                   Three rows of identically-labelled buttons: "Approve" alone
                   is useless to anyone navigating by control, who gets
@@ -267,7 +264,7 @@ export function MemoryPanelView({
           `aria-live="polite"` plus `aria-atomic="true"`, and polite is right —
           this must not interrupt the answer being read.
         */}
-        <p role="status" className="mt-2 px-1 pb-3 text-[11px] leading-4 text-wb-muted">
+        <p role="status" className="mt-1.5 px-1 pb-2 text-[11px] leading-4 text-wb-muted">
           {outcome ??
             loadFailure ??
             (isBusy ? "Saving…" : "Approving stores the memory. Deleting is permanent.")}
