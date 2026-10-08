@@ -43,7 +43,10 @@ function parkedEnvelope(result: unknown): Record<string, unknown> | undefined {
 
 interface RunTool {
   readonly name: string
-  readonly run: (input: unknown, ctx: { signal: AbortSignal; toolCallId?: string }) => unknown
+  readonly run: (
+    input: unknown,
+    ctx: { signal: AbortSignal; toolCallId?: string; step?: { icon?: string; label?: string } },
+  ) => unknown
 }
 
 const config = { configurable: { thread_id: "t" } }
