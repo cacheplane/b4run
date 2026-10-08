@@ -85,7 +85,7 @@ describe("NavlogChat", () => {
     mocks.turns = awaitingTurns()
     const { input } = render()
     expect(input.textArea?.disabled).toBe(true)
-    expect(input.textArea?.placeholder).toBe("Answer the approval first")
+    expect(input.textArea?.placeholder).toBe("Answer above first")
     expect(input.sendButton?.disabled).toBe(true)
   })
 

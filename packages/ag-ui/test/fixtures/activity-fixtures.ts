@@ -474,6 +474,21 @@ export const APPROVAL_FIXTURES: Readonly<Record<string, ApprovalFixture>> = {
     agent: "The agent",
     label: "file N738ZU KSTP to KRST",
   },
+  "tool with one wrapping object argument": {
+    approval: approval({
+      kind: "tool",
+      offersAlways: false,
+      detail: {
+        toolName: "fileFlightPlan",
+        argsPreview: JSON.stringify({
+          flightPlan: { item7: "N738ZU", item8: "VFR", item13: "KSTP1600" },
+        }),
+        suggestedPattern: "fileFlightPlan",
+      },
+    }),
+    agent: "The agent",
+    label: "file N738ZU KSTP to KRST",
+  },
   "tool without a pattern": {
     approval: approval({ kind: "tool", detail: { argsPreview: "{}" } }),
     agent: "The agent",

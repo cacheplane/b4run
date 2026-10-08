@@ -830,6 +830,14 @@
   content: "";
 }
 
+/* The dock's disabled-input placeholder stays on one line (the textarea is
+   ~20 characters wide at 380px); an overlong one is cut, never wrapped. */
+.wb-dock textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Motion: subtle, and none under reduced motion. */
 .wb-sheet,
 .wb-dock {
