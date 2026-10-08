@@ -117,13 +117,15 @@ try {
 }
 ```
 
-`getRecordedFixtures()` returns only traffic captured for the most recent `run()`. To build match fields, it currently uses:
+`getRecordedFixtures()` returns only traffic captured for the most recent `run()`. It builds each fixture's match fields from that call's own request, read the way aimock reads it on replay:
 
-- `userMessage`: the first user message in the captured request.
-- `hasToolResult`: whether there's any tool-role message in the captured request.
-- `turnIndex`: a zero-based index within only that latest run's captured calls.
+- `userMessage`: the latest user message with text in the request.
+- `hasToolResult`: whether a tool-role message follows that user message.
+- `turnIndex`: the number of assistant messages already in the request.
 
-That is not a safe way to mint a later-turn fixture for an already-active thread. Inspect and correct the match fields by hand, or record from a new harness's first run.
+So each call is keyed by its position within its own agent run. A route that dispatches subagents in parallel records correctly: their calls interleave with the parent's in any order, but each subagent's request carries only its own history.
+
+Every call in record mode goes to the upstream, including a call that an earlier recording in the same run would match. After building the fixtures, `getRecordedFixtures()` replays each recorded request against them. A subagent's input often contains its parent's message, and `userMessage` matches by substring, so one fixture can match another call's request. That fixture gets a `toolName` key (a tool only its own request offers) or a `toolCallId` key (the tool call its request answers). If nothing in the two requests tells them apart, `getRecordedFixtures()` throws and names both turns. It won't return fixtures that replay would serve to the wrong call.
 
 The standalone `record({ out, provider? })` helper is a different API. It launches the aimock recorder in a separate process and returns nothing. There's no harness and no route involved:
 
