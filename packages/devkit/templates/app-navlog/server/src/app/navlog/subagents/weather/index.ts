@@ -28,7 +28,7 @@ The flight window:
 - The window runs from the departure to the ETA. If you were given an en-route time or ETA, use it; otherwise estimate the en-route time from the great-circle distance between the coordinates at about 100 kt, plus 10 minutes for the climb.
 
 Tools:
-- \`getMetar\` and \`getTaf\` for every airport. The flight category (VFR, MVFR, IFR, LIFR) now comes from the METAR, and at the ETA from the TAF group in force then.
+- \`getMetar\` and \`getTaf\` for every airport. The flight category (VFR, MVFR, IFR, LIFR) now comes from the METAR. At the ETA it comes from the TAF \`periods\`: the BASE or FM period whose fromUtc to toUtc contains the ETA, made worse by any TEMPO, BECMG or PROB period that overlaps the flight window. Place every TAF change by its fromUtc and toUtc against departureUtc and the ETA; never decode the raw day-hour groups (such as FM080200) yourself.
 - \`getWindsAloft\` once per leg: choose the FB region for the route (bos, mia, chi, dfw, slc, sfo, alaska, hawaii) and the station nearest the leg's midpoint; if the station is not in the product, use one the error lists. Set forecastHours to the hours from now to when the leg is flown (at least 6, at most 24).
 - \`getAdvisories\` at the departure, the destination and each waypoint, with their coordinates.
 
