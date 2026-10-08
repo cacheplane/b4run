@@ -1,6 +1,7 @@
 import type { B4ToolContext } from "@b4run/sdk"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { awc } from "../src/lib/awc.ts"
+import { forUseWindow, parseWindsAloft } from "../src/lib/winds-aloft.ts"
 import getAdvisories from "../src/tools/getAdvisories.ts"
 import getMetar from "../src/tools/getMetar.ts"
 import getTaf, { flightCategory } from "../src/tools/getTaf.ts"
@@ -208,57 +209,149 @@ describe("getTaf", () => {
 })
 
 describe("getWindsAloft", () => {
-  const product = `FT  3000    6000    9000\nMSP 3332 3229+07 3132+02\n`
-  it("interpolates a station's wind to the requested altitude", async () => {
+  const rows = `FT  3000    6000    9000\nMSP 3332 3229+07 3132+02\n`
+  /** An FB product header as AWC publishes it, over the same station rows. */
+  const fb = (basedOn: string, validAt: string, forUse: string): string =>
+    `DATA BASED ON ${basedOn}\nVALID ${validAt}   FOR USE ${forUse}. TEMPS NEG ABV 24000\n\n${rows}`
+  /** The three products issued from one data time, keyed by the fcst parameter. */
+  const ISSUES: Record<string, Record<string, string>> = {
+    "071800Z": {
+      "06": fb("071800Z", "080000Z", "2000-0300Z"),
+      "12": fb("071800Z", "080600Z", "0300-1200Z"),
+      "24": fb("071800Z", "081800Z", "1200-0000Z"),
+    },
+    "080000Z": {
+      "06": fb("080000Z", "080600Z", "0200-0900Z"),
+      "12": fb("080000Z", "081200Z", "0900-1800Z"),
+      "24": fb("080000Z", "090000Z", "1800-0600Z"),
+    },
+    "081200Z": {
+      "06": fb("081200Z", "081800Z", "1400-2100Z"),
+      "12": fb("081200Z", "090000Z", "2100-0600Z"),
+      "24": fb("081200Z", "091200Z", "0600-1800Z"),
+    },
+  }
+  /** Serve one issue's products, as AWC would at a given time, and fix the clock to that time. */
+  const serve = (now: string, issue: string): void => {
+    vi.setSystemTime(new Date(now))
+    awc.clearCache()
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => text(product)),
+      vi.fn(async (url: string) => {
+        const body = ISSUES[issue]?.[new URL(url).searchParams.get("fcst") ?? ""]
+        return body === undefined ? new Response("", { status: 404 }) : text(body)
+      }),
     )
-    const out = await getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500 }, ctx)
+  }
+  const flight = { region: "chi", station: "MSP", altitudeFt: 4500 } as const
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("interpolates a station's wind to the requested altitude", async () => {
+    serve("2026-10-08T03:00:00Z", "080000Z")
+    const out = await getWindsAloft({ ...flight, validAtUtc: "2026-10-08T14:00:00Z" }, ctx)
     expect(out.station).toBe("MSP")
     expect(out.wind).toEqual({ dirDegTrue: 325, speedKt: 30.5, tempC: null })
   })
-  it("reads the shortest published forecast that reaches the requested hours", async () => {
-    // AWC publishes 6-, 12- and 24-hour products. The live weather subagent asked
-    // for forecastHours 1 and got an error and a retry; it now gets the 6-hour one.
-    // A region no other test reads, so the client's URL cache starts empty here.
-    const fetchMock = vi.fn(async (_url: string) => text(product))
-    vi.stubGlobal("fetch", fetchMock)
-    const asked = [1, 6, 9, 24]
-    const read: number[] = []
-    for (const forecastHours of asked) {
-      const out = await getWindsAloft(
-        { region: "slc", station: "MSP", altitudeFt: 4500, forecastHours },
-        ctx,
-      )
-      read.push(out.forecastHours)
+  it("picks the product whose FOR USE window contains a 1400Z flight, whenever it is asked", async () => {
+    // The subagent used to work out forecast hours itself and could read a
+    // product whose window does not contain the leg. Each run time below
+    // serves the products AWC publishes then; the tool must pick the one
+    // whose FOR USE window contains 1400Z.
+    const cases = [
+      {
+        now: "2026-10-08T00:30:00Z",
+        issue: "071800Z",
+        hours: 24,
+        from: "12:00",
+        to: "2026-10-09T00:00",
+      },
+      {
+        now: "2026-10-08T03:00:00Z",
+        issue: "080000Z",
+        hours: 12,
+        from: "09:00",
+        to: "2026-10-08T18:00",
+      },
+      {
+        now: "2026-10-08T06:30:00Z",
+        issue: "080000Z",
+        hours: 12,
+        from: "09:00",
+        to: "2026-10-08T18:00",
+      },
+      {
+        now: "2026-10-08T13:00:00Z",
+        issue: "081200Z",
+        hours: 6,
+        from: "14:00",
+        to: "2026-10-08T21:00",
+      },
+    ]
+    for (const { now, issue, hours, from, to } of cases) {
+      serve(now, issue)
+      const out = await getWindsAloft({ ...flight, validAtUtc: "2026-10-08T14:00:00Z" }, ctx)
+      expect({ now, hours: out.forecastHours, covered: out.covered }).toEqual({
+        now,
+        hours,
+        covered: true,
+      })
+      expect(out.forUseFromUtc).toBe(`2026-10-08T${from}:00.000Z`)
+      expect(out.forUseToUtc).toBe(`${to}:00.000Z`)
+      expect(out.note).toBeUndefined()
     }
-    expect(read).toEqual([6, 6, 12, 24])
-    expect(fetchMock.mock.calls.map(([url]) => new URL(url).searchParams.get("fcst"))).toEqual([
-      "06",
-      "12",
-      "24",
-    ])
   })
-  it("rejects a period beyond the longest forecast, or a negative one", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => text(product)),
-    )
-    await expect(
-      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: 30 }, ctx),
-    ).rejects.toThrow(/beyond the longest winds-aloft forecast \(24 hours\)/)
-    await expect(
-      getWindsAloft({ region: "chi", station: "MSP", altitudeFt: 4500, forecastHours: -1 }, ctx),
-    ).rejects.toThrow(/number of hours ahead/)
+  it("reads every product's header, so the choice is never computed from the clock alone", async () => {
+    serve("2026-10-08T03:00:00Z", "080000Z")
+    await getWindsAloft({ ...flight, validAtUtc: "2026-10-08T14:00:00Z" }, ctx)
+    const fetchMock = vi.mocked(fetch)
+    expect(
+      fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get("fcst")).sort(),
+    ).toEqual(["06", "12", "24"])
+  })
+  it("says so when no product covers the time yet, and returns the latest as preliminary", async () => {
+    serve("2026-10-08T03:00:00Z", "080000Z")
+    const out = await getWindsAloft({ ...flight, validAtUtc: "2026-10-09T14:00:00Z" }, ctx)
+    expect(out.covered).toBe(false)
+    expect(out.forecastHours).toBe(24)
+    expect(out.forUseToUtc).toBe("2026-10-09T06:00:00.000Z")
+    expect(out.note).toMatch(/No winds-aloft forecast covers 2026-10-09T14:00:00Z yet/)
+    expect(out.note).toMatch(/preliminary/)
+  })
+  it("marks a time before every window uncovered and returns the earliest product", async () => {
+    serve("2026-10-08T03:00:00Z", "080000Z")
+    const out = await getWindsAloft({ ...flight, validAtUtc: "2026-10-08T01:00:00Z" }, ctx)
+    expect(out.covered).toBe(false)
+    expect(out.forecastHours).toBe(6)
+    expect(out.note).toMatch(/before the earliest winds-aloft forecast/)
+  })
+  it("places a 24-hour window that crosses midnight and a month end", async () => {
+    // Read on the 1st, the 24-hour product issued from the 31st's 00Z data is
+    // for use 1800Z on the 31st to 0600Z on the 1st.
+    vi.setSystemTime(new Date("2026-11-01T03:00:00Z"))
+    const window = forUseWindow(parseWindsAloft(fb("311800Z", "010000Z", "1800-0600Z")), Date.now())
+    expect(window).toEqual({
+      fromUtc: "2026-10-31T18:00:00.000Z",
+      toUtc: "2026-11-01T06:00:00.000Z",
+    })
+  })
+  it("rejects a validAtUtc that is not an ISO UTC instant", async () => {
+    serve("2026-10-08T03:00:00Z", "080000Z")
+    for (const validAtUtc of ["1400Z", "in 11 hours", "2026-10-08T14:00:00-05:00"]) {
+      await expect(getWindsAloft({ ...flight, validAtUtc }, ctx)).rejects.toThrow(
+        /validAtUtc must be an ISO 8601 UTC instant/,
+      )
+    }
   })
   it("lists the available stations when the requested one is absent", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => text(product)),
-    )
+    serve("2026-10-08T03:00:00Z", "080000Z")
     await expect(
-      getWindsAloft({ region: "chi", station: "XYZ", altitudeFt: 4500 }, ctx),
+      getWindsAloft({ ...flight, station: "XYZ", validAtUtc: "2026-10-08T14:00:00Z" }, ctx),
     ).rejects.toThrow(/available: MSP/)
   })
 })
