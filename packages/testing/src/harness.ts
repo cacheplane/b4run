@@ -264,6 +264,9 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
     }
     const stream = streamResolvedRoute(streamArgs)
     const result = await collectRunResult(stream, threadId)
+    // The run can end before the mock has recorded and journaled its last
+    // proxied call (#937): wait so getRecordedFixtures() sees every call.
+    if (live || record) await aimock.settled()
     const turnReqs = aimock.getRequests().slice(snapshotLen)
     return { ...result, systemPrompt: systemPromptFromRequests(turnReqs) }
   }

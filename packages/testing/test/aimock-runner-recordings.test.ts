@@ -1,3 +1,5 @@
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { afterAll, expect, it } from "vitest"
 import { createAimock, pairRecordings } from "../src/aimock-runner.js"
 
@@ -95,3 +97,60 @@ it("pairs each recorded response with its own request when they complete out of 
     /matches no proxied request/,
   )
 })
+
+it("settled() waits for a call the client has read to the end but aimock has not recorded yet (#937)", async () => {
+  // aimock relays the stream as it arrives and records the call only when the
+  // upstream response ends. This upstream sends [DONE], then holds the response
+  // open, so the client is finished well before the call is recorded.
+  const chunk = (delta: object, finish: string | null) =>
+    `data: ${JSON.stringify({
+      id: "c",
+      object: "chat.completion.chunk",
+      created: 0,
+      model: "gpt-5-mini",
+      choices: [{ index: 0, delta, finish_reason: finish }],
+    })}\n\n`
+  const upstream = createServer((req, res) => {
+    req.resume()
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "text/event-stream" })
+      res.write(chunk({ role: "assistant", content: "late" }, null))
+      res.write(chunk({}, "stop"))
+      res.write("data: [DONE]\n\n")
+      setTimeout(() => res.end(), 1000)
+    })
+  })
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+  const recorder = await createAimock({
+    fixtures: [],
+    proxy: { openai: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}` },
+    record: true,
+  })
+  try {
+    const response = await fetch(`${recorder.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer test" },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        stream: true,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+    const decoder = new TextDecoder()
+    let text = ""
+    while (!text.includes("[DONE]")) {
+      const { value, done } = await reader.read()
+      if (done) break
+      text += decoder.decode(value)
+    }
+    await recorder.settled()
+    const recordings = recorder.getRecordingsSince(0, 0)
+    expect(recordings).toHaveLength(1)
+    expect(recordings[0]?.response).toMatchObject({ content: "late" })
+    await reader.cancel()
+  } finally {
+    await recorder.close()
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+}, 30_000)

@@ -31,6 +31,13 @@ export interface Aimock {
   getRecordingsSince(journalStart: number, fixtureStart: number): readonly Recording[]
   /** Ordered recordings (request + baked response) for proxied calls captured in record mode. */
   getRecordings(): readonly Recording[]
+  /**
+   * Resolve once every request the mock has received is in its journal. A
+   * proxied response reaches the client as the upstream streams it, and aimock
+   * records the fixture and journals the request only when the upstream ends,
+   * so a run can finish before its own last call is recorded.
+   */
+  settled(timeoutMs?: number): Promise<void>
   close(): Promise<void>
   [Symbol.asyncDispose](): Promise<void>
 }
@@ -94,6 +101,31 @@ export async function createAimock(opts: {
     }
   }
   await mock.start()
+  // For settled(): count the requests the server accepts and the entries its
+  // journal adds. The journal keeps only its newest 1000 entries, so its length
+  // cannot stand in for the count. Both handles are aimock's own
+  // `serverInstance` (its node http.Server and Journal).
+  const instance = (
+    mock as unknown as {
+      serverInstance?: {
+        server?: import("node:http").Server
+        journal?: { add(...args: unknown[]): unknown }
+      }
+    }
+  ).serverInstance
+  let received = 0
+  let journaled = 0
+  instance?.server?.on("request", () => {
+    received++
+  })
+  const journal = instance?.journal
+  if (journal) {
+    const add = journal.add.bind(journal)
+    journal.add = (...args: unknown[]) => {
+      journaled++
+      return add(...args)
+    }
+  }
 
   // Capture the fixture count at start so getRecordings() can diff against it.
   const initialFixtureCount = mock.getFixtures().length
@@ -128,6 +160,11 @@ export async function createAimock(opts: {
     },
     clearFixtures() {
       mock.clearFixtures()
+    },
+    async settled(timeoutMs = 5000) {
+      const deadline = Date.now() + timeoutMs
+      while (journal && journaled < received && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10))
     },
     getRequests() {
       return mock.getRequests() as ReadonlyArray<{
