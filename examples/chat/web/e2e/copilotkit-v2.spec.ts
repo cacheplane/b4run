@@ -32,7 +32,13 @@ function doneTurn(threadId: string): ReplayEvent[] {
         forwardedProps: {},
       },
     },
-    { type: "TOOL_CALL_START", toolCallId: "call-1", toolCallName: "listDir" },
+    // B4.run names the model message that announced a call; this one only called a tool.
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: "call-1",
+      toolCallName: "listDir",
+      parentMessageId: "assistant-0",
+    },
     { type: "TOOL_CALL_ARGS", toolCallId: "call-1", delta: '{"path":"."}' },
     { type: "TOOL_CALL_END", toolCallId: "call-1" },
     {
@@ -53,6 +59,46 @@ function doneTurn(threadId: string): ReplayEvent[] {
   ]
 }
 
+/**
+ * A turn whose first model message speaks and calls a tool, then calls another
+ * with no text, then answers: B4.run files each call under the message that
+ * announced it, so the first call shares a message with "Looking around."
+ */
+function talkingTurn(threadId: string): ReplayEvent[] {
+  const call = (toolCallId: string, parentMessageId: string): ReplayEvent[] => [
+    { type: "TOOL_CALL_START", toolCallId, toolCallName: "listDir", parentMessageId },
+    { type: "TOOL_CALL_ARGS", toolCallId, delta: '{"path":"."}' },
+    { type: "TOOL_CALL_END", toolCallId },
+    { type: "TOOL_CALL_RESULT", messageId: `tool-${toolCallId}`, toolCallId, content: "AGENTS.md" },
+  ]
+  const text = (messageId: string, delta: string): ReplayEvent[] => [
+    { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+    { type: "TEXT_MESSAGE_CONTENT", messageId, delta },
+    { type: "TEXT_MESSAGE_END", messageId },
+  ]
+  return [
+    {
+      type: "RUN_STARTED",
+      threadId,
+      runId: "run-4",
+      input: {
+        threadId,
+        runId: "run-4",
+        messages: [{ id: "user-4", role: "user", content: "Look around twice." }],
+        tools: [],
+        context: [],
+        state: {},
+        forwardedProps: {},
+      },
+    },
+    ...text("assistant-a", "Looking around."),
+    ...call("call-a", "assistant-a"),
+    ...call("call-b", "assistant-b"),
+    ...text("assistant-c", "Both listings show AGENTS.md."),
+    { type: "RUN_FINISHED", threadId, runId: "run-4" },
+  ]
+}
+
 /** A turn parked on a `runBash` permission prompt, as B4.run's adapter emits it. */
 function parkedTurn(threadId: string): ReplayEvent[] {
   return [
@@ -70,7 +116,12 @@ function parkedTurn(threadId: string): ReplayEvent[] {
         forwardedProps: {},
       },
     },
-    { type: "TOOL_CALL_START", toolCallId: "call-2", toolCallName: "runBash" },
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: "call-2",
+      toolCallName: "runBash",
+      parentMessageId: "assistant-2",
+    },
     { type: "TOOL_CALL_ARGS", toolCallId: "call-2", delta: '{"command":"node --version"}' },
     { type: "TOOL_CALL_END", toolCallId: "call-2" },
     {
@@ -185,6 +236,24 @@ test("renders a restored turn with the activity kit", async ({ page }) => {
   await expect(page.getByText("The workspace holds AGENTS.md and notes.txt.")).toBeVisible()
   // The user's bubble restores from the replayed RUN_STARTED's input.
   await expect(page.getByText("List the files in the workspace.")).toBeVisible()
+})
+
+test("a model message that speaks and calls tools shows the turn's one activity after its text", async ({
+  page,
+}) => {
+  await replayOnConnect(page, talkingTurn)
+  await page.goto("/")
+
+  const turn = page.locator('section.b4-turn[data-state="done"]')
+  await expect(turn).toHaveCount(1)
+  // The activity sits in the message that said "Looking around.", and holds both calls.
+  const speaking = page.locator('[data-message-id="assistant-a"]')
+  await expect(speaking).toContainText("Looking around.")
+  await expect(speaking.locator("section.b4-turn")).toHaveCount(1)
+  await turn.locator(":scope > button.b4-turn__summary").click()
+  // Two done calls of one tool fold into one group step.
+  await expect(turn.locator('li.b4-step[data-kind="group"]')).toHaveCount(1)
+  await expect(page.getByText("Both listings show AGENTS.md.")).toBeVisible()
 })
 
 test("restores a parked permission prompt as an approval card", async ({ page }) => {
