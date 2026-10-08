@@ -102,7 +102,7 @@ export const DEMO_INLINE_VIDEO_URL =
   "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
 const CANONICAL_INLINE_VIDEO_LINE = `\n\n${DEMO_INLINE_VIDEO_URL}\n\n`
 
-const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later.
+const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later and npm 11. No API key needed:
 
 \`\`\`bash
 npm create b4-app@latest my-agent

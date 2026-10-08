@@ -17,28 +17,37 @@ Command-line development tools and runtime embedding entry points for B4.run app
 
 ## Install
 
-Requires Node.js 24 or later. Install the CLI as a development dependency for normal application workflows:
+Requires Node.js 24 or later. `create-b4-app` adds the CLI to a new app for you. To add it to an existing app, install it as a regular dependency, not a dev dependency, because the server that `b4 build` emits imports `@b4run/cli` at runtime:
 
 ```bash
-pnpm add -D @b4run/cli
+npm install @b4run/cli
 ```
-
-Install it as a production dependency only when application code imports its runtime entry points.
 
 ## Example
 
-Use the local binary to develop, validate, test, and build an application:
+Run the local `b4` binary through `npx` or a `package.json` script:
 
 ```bash
-pnpm exec b4 dev
-pnpm exec b4 check
-pnpm exec b4 test
-pnpm exec b4 build
+npx b4 dev
+npx b4 check
+npx b4 test
+npx b4 build
 ```
 
-The corresponding commands are `b4 dev`, `b4 check`, `b4 test`, and `b4 build` when the local binary is already on `PATH`.
+| Command | What it does |
+| --- | --- |
+| `b4 dev` | Starts the local development runtime with hot reload on `127.0.0.1`. |
+| `b4 check` | Validates the app's structure and configuration. |
+| `b4 verify` | Checks the app, routes, generated types, dependencies, provider keys and Node version before you run or deploy. |
+| `b4 typegen` | Regenerates the route and tool types under `.b4/`. |
+| `b4 test` | Runs the app's colocated `run.test.ts` route scenarios. The starters' `npm test` runs vitest instead. |
+| `b4 build` | Generates deployment artifacts: a Node server, Dockerfile and LangSmith config by default. |
+| `b4 start` | Serves the app in production, on `0.0.0.0:8000` by default. |
+| `b4 docs` | Prints the B4.run docs bundled with the installed CLI. |
 
-To let application code own a production Node listener, import `serveRuntime` from the package root:
+The [CLI guide](https://b4.run/docs/cli) lists every command and flag.
+
+`b4 start` serves the app without any code of your own. To let application code own the production Node listener instead, import `serveRuntime` from the package root:
 
 ```ts
 import { serveRuntime } from "@b4run/cli"

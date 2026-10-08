@@ -1046,29 +1046,51 @@ describe("entry-package README contracts", () => {
     }
   }
 
-  it("keeps the actual create-b4-app release history valid after later publishes", () => {
+  it("documents the actual create-b4-app templates, options and navlog needs without release history", () => {
     const createReadme = actualEntryPackages.find(
       ({ manifest }) => manifest.name === "create-b4-app",
     )?.readme
 
-    // #989: navlog replaced the research template; releases up to 0.13.1
-    // still ship it as `research`, which current source keeps as an alias.
+    // Navlog has shipped: the README names the flags parseArgs accepts for
+    // users (packages/create-b4-app/src/index.ts) and what navlog needs live.
     assert.match(
       createReadme ?? "",
-      /`server` and `web` npm workspace[^\n]*`npm create b4-app@latest my-agent -- --template navlog`/u,
+      /`server` and `web` npm workspace[^\n]*`npm create b4-app@latest my-navlog -- --template navlog`/u,
     )
+    assert.match(createReadme ?? "", /`--template basic\|navlog` \(default `basic`\)/u)
+    assert.match(createReadme ?? "", /`--dist-tag <tag>`/u)
+    assert.match(createReadme ?? "", /directory must be new or empty/u)
+    assert.match(createReadme ?? "", /Requires Node\.js 24 or later and npm 11\./u)
     assert.match(
       createReadme ?? "",
-      /Releases up to 0\.13\.1 ship this workspace as the `research` template and do not know `navlog`; `--template research` keeps working as a deprecated alias that scaffolds navlog\./u,
+      /`OPENAI_API_KEY` in `server\/\.env`[^\n]*port 3002[^\n]*port 3010/u,
     )
-    assert.match(createReadme ?? "", /`npm view create-b4-app@latest version`/u)
-    for (const selfInvalidatingPhrase of [
-      "published `@latest` version was verified as 0.8.21",
-      "current 0.8.22 repository source",
-      "until that version is published",
+    for (const stalePattern of [
+      /--template research/u,
+      /\bresearch\b/iu,
+      /--mode internal/u,
+      /Releases up to/u,
+      /\b0\.\d+\.\d+\b/u,
+      /npm view create-b4-app@latest version/u,
     ]) {
-      assert.equal(createReadme?.includes(selfInvalidatingPhrase), false)
+      assert.doesNotMatch(createReadme ?? "", stalePattern)
     }
+  })
+
+  it("installs the actual @b4run/cli as a runtime dependency", () => {
+    const cliReadme = actualEntryPackages.find(
+      ({ manifest }) => manifest.name === "@b4run/cli",
+    )?.readme
+
+    // The node target's server.mjs imports @b4run/cli at runtime
+    // (packages/cli/src/lib/build/targets/node.ts), so a dev dependency is
+    // stripped from a production install.
+    assert.match(cliReadme ?? "", /^npm install @b4run\/cli$/mu)
+    assert.doesNotMatch(cliReadme ?? "", /(?:add|install)\s+(?:-D|--save-dev)\b/u)
+    assert.match(
+      cliReadme ?? "",
+      /not a dev dependency, because the server that `b4 build` emits imports `@b4run\/cli` at runtime/u,
+    )
   })
 
   it("labels the actual @b4run/cli/testing subpath as deprecated compatibility", () => {
@@ -1302,29 +1324,50 @@ describe("validateRootReadme", () => {
     assert.deepEqual(validateRootReadme(actualRootReadme, { canonical: true }), [])
   })
 
-  it("documents the published latest and current-source starters before their run commands", () => {
+  it("scaffolds the navlog starter and follows the scaffolder's next steps before the run commands", () => {
     const runStart = actualRootReadme.indexOf("## Run it live")
     const maturityStart = actualRootReadme.indexOf("## Maturity and support")
     assert.ok(runStart !== -1 && runStart < maturityStart)
     const run = actualRootReadme.slice(runStart, maturityStart)
-    const firstCommand = run.indexOf("```bash")
-    assert.ok(firstCommand !== -1)
-    const starters = run.slice(0, firstCommand)
-    assert.match(
-      starters,
-      /Published `@latest`\s+\(0\.13\.1\) selects it with `--template research`/u,
-    )
-    assert.match(
-      starters,
-      /current repository source\s+replaces it with the navlog flight planner, selected with `--template navlog`/u,
-    )
-    assert.match(
-      starters,
-      /`--template research` remains a deprecated alias that scaffolds navlog/u,
-    )
-    assert.match(starters, /OPENAI_API_KEY/)
-    assert.match(run, /export OPENAI_API_KEY=/)
+    const devServer = run.indexOf("npm run dev:server")
+    assert.ok(devServer !== -1)
+    const setup = run.slice(0, devServer)
+    // The navlog scaffold, then the steps create-b4-app prints for it
+    // (packages/create-b4-app/src/index.ts printNextSteps), in that order.
+    let cursor = -1
+    for (const step of [
+      /^npm create b4-app@latest my-navlog -- --template navlog$/mu,
+      /^cd my-navlog$/mu,
+      /^npm install$/mu,
+      /^cp server\/\.env\.example server\/\.env\b[^\n]*OPENAI_API_KEY/mu,
+      /^npm run verify$/mu,
+    ]) {
+      const match = step.exec(setup.slice(cursor + 1))
+      assert.ok(match, `Run it live must show ${step} before npm run dev:server, in order`)
+      cursor += 1 + match.index
+    }
     assert.match(run, /port 3002[^.]*port 3010/u)
+    assert.match(run, /basic\s+starter runs live with `npm run dev` on port 3000/u)
+    // Navlog has shipped: no release history, no alias, no pinned versions.
+    for (const stale of [/--template research/u, /\bresearch\b/iu, /\b0\.\d+\.\d+\b/u]) {
+      assert.doesNotMatch(run, stale)
+    }
+  })
+
+  it("keeps the actual root README free of release history and the retired template id", () => {
+    for (const stale of [
+      /--template research/u,
+      /\bresearch template\b/iu,
+      /Releases up to/u,
+      /clean-room/iu,
+      /Published `@latest`/u,
+    ]) {
+      assert.doesNotMatch(actualRootReadme, stale)
+    }
+    assert.match(
+      actualRootReadme,
+      /`npm test` runs the starter's fixture-backed test offline — no API key, no\s+model calls\./u,
+    )
   })
 
   it("labels the server, Workbench, build, and start commands and the deployment targets", () => {
