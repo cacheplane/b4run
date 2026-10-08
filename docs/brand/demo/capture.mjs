@@ -1193,14 +1193,16 @@ export async function assertRouteMap(page, { headingLabel, airports }) {
 }
 
 /**
- * The memory panel lists the suggested candidate, centred in the transcript
- * so the `memory` framing holds all of it: the fact, "Suggested by the
- * planner", and Approve and Delete.
+ * The memory panel (under the dock's header) lists the suggested candidate,
+ * with the page unscrolled so the `memory` framing holds all of it: the fact,
+ * "Suggested by the planner", and Approve and Delete.
  */
 export async function assertMemoryCandidate(page, { content }) {
-  const panel = page.getByRole("region", { name: "Memory candidates", exact: true })
-  await panel.getByText(content, { exact: true }).first().waitFor(VISIBLE)
-  await centerInScroller(panel.first())
+  await page
+    .getByRole("region", { name: "Memory candidates", exact: true })
+    .getByText(content, { exact: true })
+    .first()
+    .waitFor(VISIBLE)
   await settleWorkbenchViewport(page)
 }
 

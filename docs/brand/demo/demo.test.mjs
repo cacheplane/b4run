@@ -1308,6 +1308,8 @@ test("app camera presets are the seven named regions, as data", () => {
   // The weather framing holds the top-right corner: the strip and, below it,
   // the sheet's GO card.
   assert.deepEqual(APP_FOCUS.weather, { scale: 1.4, origin: "100% 0%" })
+  // The memory framing holds the dock's top: its header and the memory panel.
+  assert.deepEqual(APP_FOCUS.memory, { scale: 1.55, origin: "2% 0%" })
   assert.equal(Object.isFrozen(APP_FOCUS), true)
   for (const [name, preset] of Object.entries(APP_FOCUS)) {
     assert.equal(Object.isFrozen(preset), true, name)

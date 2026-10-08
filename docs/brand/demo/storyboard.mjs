@@ -150,8 +150,8 @@ export const APP_FOCUS = Object.freeze({
   map: Object.freeze({ scale: 1.3, origin: "66% 32%" }),
   sheet: Object.freeze({ scale: 1.38, origin: "100% 100%" }),
   approval: Object.freeze({ scale: 1.55, origin: "2% 92%" }),
-  // The candidate, which the capture centres in the transcript first.
-  memory: Object.freeze({ scale: 1.55, origin: "2% 50%" }),
+  // The dock's top: its header and the memory panel under it, whole.
+  memory: Object.freeze({ scale: 1.55, origin: "2% 0%" }),
 })
 
 /** Every file the storyboard shows, once each, in first-use order. */

@@ -95,9 +95,8 @@ The memory declaration, `server/src/app/navlog/memory.ts`, marked at
 
 ### 10. Reload. Still there.
 
-The capture scrolls the transcript so the memory panel sits in its middle,
-and the camera eases to it. It lists the memory the planner suggested during
-the first turn, “N738ZU has long-range
+The camera eases to the memory panel under the dock's header. It lists the
+memory the planner suggested during the first turn, “N738ZU has long-range
 tanks: 50 gal usable.”, marked “Suggested by the planner”. The camera pulls
 back and the browser frame reloads: the capture navigates the Workbench's frame
 to its own URL, as a browser reload would. It opens the thread list and selects

@@ -184,8 +184,8 @@ Take-2 polish round:
   (`centerInScroller`) and resets the document and `.wb-root` scroll
   (`settleWorkbenchViewport`) after each interaction that can scroll them.
 - **Framings.** `weather` holds the top-right corner (scale 1.4) so the strip
-  and the sheet's GO card are in one frame; `memory` holds the dock's middle,
-  where the capture centres the candidate.
+  and the sheet's GO card are in one frame; `memory` holds the dock's top
+  (scale 1.55 at `2% 0%`): its header and the memory panel under it.
 - **Two-pane code.** The panes use 14px JetBrains Mono; each column is
   `minmax(<focal line>ch + 40px, <longest visible line, at most 100>fr)`, so a
   focal line is always whole, and a line longer than its column fades out over
