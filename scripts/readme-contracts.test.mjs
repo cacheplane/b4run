@@ -1057,9 +1057,15 @@ describe("entry-package README contracts", () => {
       ({ manifest }) => manifest.name === "create-b4-app",
     )?.readme
 
+    // #989: navlog replaced the research template; releases up to 0.13.1
+    // still ship it as `research`, which current source keeps as an alias.
     assert.match(
       createReadme ?? "",
-      /0\.8\.21[^\n]*single-package[^\n]*0\.8\.22[^\n]*`server`[^\n]*`web`/u,
+      /`server` and `web` npm workspace[^\n]*`npm create b4-app@latest my-agent -- --template navlog`/u,
+    )
+    assert.match(
+      createReadme ?? "",
+      /Releases up to 0\.13\.1 ship this workspace as the `research` template and do not know `navlog`; `--template research` keeps working as a deprecated alias that scaffolds navlog\./u,
     )
     assert.match(createReadme ?? "", /`npm view create-b4-app@latest version`/u)
     for (const selfInvalidatingPhrase of [
@@ -1302,29 +1308,41 @@ describe("validateRootReadme", () => {
     assert.deepEqual(validateRootReadme(actualRootReadme, { canonical: true }), [])
   })
 
-  it("documents the working published latest run path before current-source commands", () => {
-    const publishedStart = actualRootReadme.indexOf("### Published `@latest` (0.8.21)")
-    const currentSourceStart = actualRootReadme.indexOf("### Current source (unreleased 0.8.22)")
-    assert.ok(publishedStart !== -1 && publishedStart < currentSourceStart)
-    const published = actualRootReadme.slice(publishedStart, currentSourceStart)
-    assert.match(published, /OPENAI_API_KEY/)
-    assert.match(published, /npm run dev(?:\s|$)/)
-    assert.match(published, /npm run build/)
-    assert.match(published, /\/docs\/dev-server\/agent-protocol/)
-    assert.match(published, /\/docs\/recipes\/flight-planner-web-ui/)
-    assert.doesNotMatch(published, /^npm (?:run dev:(?:server|web)|start)$/mu)
+  it("documents the published latest and current-source starters before their run commands", () => {
+    const runStart = actualRootReadme.indexOf("## Run it live")
+    const maturityStart = actualRootReadme.indexOf("## Maturity and support")
+    assert.ok(runStart !== -1 && runStart < maturityStart)
+    const run = actualRootReadme.slice(runStart, maturityStart)
+    const firstCommand = run.indexOf("```bash")
+    assert.ok(firstCommand !== -1)
+    const starters = run.slice(0, firstCommand)
+    assert.match(
+      starters,
+      /Published `@latest`\s+\(0\.13\.1\) selects it with `--template research`/u,
+    )
+    assert.match(
+      starters,
+      /current repository source\s+replaces it with the navlog flight planner, selected with `--template navlog`/u,
+    )
+    assert.match(
+      starters,
+      /`--template research` remains a deprecated alias that scaffolds navlog/u,
+    )
+    assert.match(starters, /OPENAI_API_KEY/)
+    assert.match(run, /export OPENAI_API_KEY=/)
+    assert.match(run, /port 3002[^.]*port 3010/u)
   })
 
-  it("labels unreleased current-source server, Workbench, build, and start commands", () => {
-    const currentSourceStart = actualRootReadme.indexOf("### Current source (unreleased 0.8.22)")
+  it("labels the server, Workbench, build, and start commands and the deployment targets", () => {
+    const runStart = actualRootReadme.indexOf("## Run it live")
     const maturityStart = actualRootReadme.indexOf("## Maturity and support")
-    assert.ok(currentSourceStart !== -1 && currentSourceStart < maturityStart)
-    const currentSource = actualRootReadme.slice(currentSourceStart, maturityStart)
+    assert.ok(runStart !== -1 && runStart < maturityStart)
+    const run = actualRootReadme.slice(runStart, maturityStart)
     for (const command of ["npm run dev:server", "npm run dev:web", "npm run build", "npm start"]) {
-      assert.match(currentSource, new RegExp(command.replaceAll(" ", "\\s+")))
+      assert.match(run, new RegExp(`^${command.replaceAll(" ", "\\s+")}$`, "mu"))
     }
     for (const deployment of ["node", "langsmith", "edge", "vercel", "kubernetes"]) {
-      assert.match(currentSource, new RegExp(`/docs/deployment/${deployment}`))
+      assert.match(run, new RegExp(`/docs/deployment/${deployment}`))
     }
   })
 
