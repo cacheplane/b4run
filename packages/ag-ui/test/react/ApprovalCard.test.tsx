@@ -108,6 +108,18 @@ describe("ApprovalCard", () => {
       { key: "k", value: "—" },
       { key: "m", value: "two…", full: "two\nlines" },
     ])
+    // One top-level object: its keys are the rows, without the wrapper's prefix.
+    expect(
+      approvalArgsRows({
+        argsPreview: JSON.stringify({ flightPlan: { item7: "N738ZU", item8: { r: "V" } } }),
+      }),
+    ).toEqual([
+      { key: "item7", value: "N738ZU" },
+      { key: "item8", value: '{"r":"V"}' },
+    ])
+    // An empty single object, or a single scalar, keeps the plain rows.
+    expect(approvalArgsRows({ argsPreview: '{"a":{}}' })).toEqual([{ key: "a", value: "—" }])
+    expect(approvalArgsRows({ argsPreview: '{"a":1}' })).toEqual([{ key: "a", value: "1" }])
     // Not an object, empty, cut short by the server, or not the payload the card prints.
     for (const detail of [
       { argsPreview: "[1,2]" },

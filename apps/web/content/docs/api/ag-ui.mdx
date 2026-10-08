@@ -204,7 +204,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `MAX_DETAIL_CHARS` | The longest inputs or output a detail panel shows, 20,000 characters. |
 | `isSafeHref` | Whether a source's link may render as a link: web, mail and same-origin paths only. |
 | `approvalPayload` | The payload an approval card shows: args preview, command, a subagent gate's name, input and reason, or detail JSON. |
-| `approvalArgsRows` | A tool call's arguments as the approval card's rows, when the args preview is a JSON object: one row per key, a nested object's keys as `parent.key`, anything deeper as compact JSON, and a value past 80 characters cut with the whole of it in `full`. Undefined otherwise; the card then prints `approvalPayload`. |
+| `approvalArgsRows` | A tool call's arguments as the approval card's rows, when the args preview is a JSON object: one row per key, a nested object's keys as `parent.key` (or, when the preview holds a single object-valued key, that object's keys with no prefix), anything deeper as compact JSON, and a value past 80 characters cut with the whole of it in `full`. Undefined otherwise; the card then prints `approvalPayload`. |
 | `ApprovalArgRow` | One row: `key`, the one-line `value`, and `full` when the value was cut. |
 | `MAX_APPROVAL_ARG_CHARS` | The longest argument value a row shows (80 characters) before it is cut. |
 | `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |

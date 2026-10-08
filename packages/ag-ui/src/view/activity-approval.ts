@@ -89,7 +89,10 @@ function argRow(key: string, value: unknown): ApprovalArgRow {
  * them: the detail's `argsPreview` is what the card would print (it wins over
  * `command` and a subagent gate's lines, as in `approvalPayload`) and it is a
  * JSON object with at least one key. A nested object's keys become one row
- * each, `parent.key`; anything deeper is compact JSON. A long value is cut,
+ * each, `parent.key`; anything deeper is compact JSON. When the args hold
+ * exactly one top-level key and its value is a non-empty plain object (the
+ * `fileFlightPlan({ flightPlan: {...} })` shape), that wrapper is dropped: the
+ * object's keys are the rows, unprefixed. A long value is cut,
  * with the whole of it in `full`. Undefined otherwise — a preview the server
  * cut short is no longer JSON — and the card prints `approvalPayload`.
  */
@@ -105,8 +108,13 @@ export function approvalArgsRows(
     return undefined
   }
   if (!isPlainObject(args) || Object.keys(args).length === 0) return undefined
+  const entries = Object.entries(args)
+  const only = entries.length === 1 ? entries[0] : undefined
+  if (only !== undefined && isPlainObject(only[1]) && Object.keys(only[1]).length > 0) {
+    return Object.entries(only[1]).map(([key, value]) => argRow(key, value))
+  }
   const rows: ApprovalArgRow[] = []
-  for (const [key, value] of Object.entries(args)) {
+  for (const [key, value] of entries) {
     if (isPlainObject(value) && Object.keys(value).length > 0) {
       for (const [inner, leaf] of Object.entries(value)) rows.push(argRow(`${key}.${inner}`, leaf))
     } else {
