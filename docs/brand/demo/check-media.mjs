@@ -395,10 +395,10 @@ export async function checkLocalMedia({
   const passLines = [
     "PASS dimensions: every video and GIF is 1440x810 (16:9)",
     "PASS frame rate: every video and GIF is 30 fps",
-    "PASS durations: flagship is 20-30s; derivatives are 8-12s",
+    "PASS durations: flagship is 12-18s",
     "PASS codecs: MP4 is H.264, WebM is VP9, and GIF is animated GIF",
     "PASS byte budgets: MP4/WebM <=2MB each and GIF <=4MB",
-    "PASS posters: all four fallbacks are 1440x810 WebP",
+    "PASS posters: the flagship poster is 1440x810 WebP",
     "PASS transcript: the static walkthrough exists",
     "PASS captions: no caption claims scaffolding appears",
   ]
