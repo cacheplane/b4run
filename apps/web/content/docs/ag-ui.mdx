@@ -562,17 +562,23 @@ export class ChatComponent {
 
 Each assistant message renders its text through CopilotKit's own assistant message, then the turn's activity once per turn, and each parked interrupt renders as an approval card that resolves or cancels it through CopilotKit.
 
-Without a chat framework, `@b4run/ag-ui/angular/events` folds the thread's AG-UI events (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) into turns: `provideB4Turns` provides the store, `<b4-message-activity>` renders a turn's activity on its first assistant message in your own transcript, and `<b4-approvals>` renders the parked interrupts' approval cards for you to resume.
+Without CopilotKit — your own transcript, or another Angular chat framework that renders a slot per message — `@b4run/ag-ui/angular/events` folds the thread's AG-UI events (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) into turns: `provideB4Turns` provides the store, `<b4-message-activity>` renders a turn's activity on its first assistant message in your transcript, and `<b4-approvals>` renders the parked interrupts' approval cards for you to resume.
+
+The events source is whatever already carries the run's AG-UI events: an `@ag-ui/client` agent's event stream, or the event observable your chat framework exposes. `[messages]` takes AG-UI `Message`s, or your host's own message type as long as each message has an `id`, a `role`, and its tool calls either as `toolCalls: { id }[]` or as `toolCallIds: string[]`.
+
+B4.run resumes a parked thread only when every parked interrupt is answered at once, and an approval may carry a single-use grant to echo. `toResumeEntries(decisions, interrupts)` from `@b4run/ag-ui/view` builds the run's `resume` from the cards' decisions: it waits until every parked interrupt is decided, maps `once` and `always` to a resolved entry and `deny` to a cancelled one, and puts each grant at `metadata.grant`.
 
 ```ts
 import { Component, inject, input } from "@angular/core"
 import {
   ApprovalsComponent,
   type B4ApprovalDecision,
+  B4TurnsStore,
   MessageActivityComponent,
   provideB4Turns,
 } from "@b4run/ag-ui/angular/events"
-// ThreadEvents: your service that owns the thread's AG-UI event stream and sends resumes.
+import { pendingApprovals, toResumeEntries } from "@b4run/ag-ui/view"
+// ThreadEvents: your service that owns the thread's AG-UI event stream and starts runs.
 
 @Component({
   selector: "app-chat",
@@ -587,10 +593,20 @@ import {
   `,
 })
 export class ChatComponent {
-  readonly messages = input.required<Message[]>()
+  // Your messages: AG-UI `Message`s, or { id, role, toolCallIds } from your chat framework.
+  readonly messages = input.required<readonly { id: string; role: string; toolCallIds?: string[] }[]>()
   readonly #thread = inject(ThreadEvents)
-  readonly resume = ({ interruptId, decision }: B4ApprovalDecision) =>
-    this.#thread.resume(interruptId, decision)
+  readonly #turns = inject(B4TurnsStore)
+  #decisions: B4ApprovalDecision[] = []
+
+  readonly resume = async (decision: B4ApprovalDecision) => {
+    this.#decisions = [...this.#decisions, decision]
+    const parked = pendingApprovals(this.#turns.turns(), this.#turns.labels).map((c) => c.approval)
+    const result = toResumeEntries(this.#decisions, parked)
+    if (!result.ok) return // other interrupts still need a decision
+    this.#decisions = []
+    await this.#thread.run({ resume: result.entries })
+  }
 }
 ```
 
@@ -627,7 +643,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 |---|---|
 | stream start | `RUN_STARTED` |
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
-| `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
+| `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`; `TOOL_CALL_START` carries `parentMessageId`, the id of the model message that announced the call (see [Tool calls and their message](#tool-calls-and-their-message)) |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
 | `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the error text the model receives (a `b4.step` event with `status: "failed"` follows it; see [Step events](#step-events)) |
 | `step` (from a tool's `display`) | `CUSTOM { name: "b4.step", value: { toolCallId, status: "running" \| "completed" \| "denied", icon?, label?, sources? } }`, `running` as the call starts and `completed` as it returns (`denied`, with `icon` only, when a permission or argument constraint blocked it), both before the call's `TOOL_CALL_RESULT` (`failed` comes from the `tool_result` row above); a child's step is tagged `subagentRunId` |
@@ -643,6 +659,10 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
 | `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
+
+### Tool calls and their message
+
+Every `TOOL_CALL_START` carries `parentMessageId`: the id of the model message that announced the call. When that message also streamed text, it is the id its `TEXT_MESSAGE_*` events used, so a client that builds its message list from events keeps the text and the calls in one assistant message; when the model only called tools, no `TEXT_MESSAGE_START` names the id, and the client creates an assistant message for the calls. A subagent's call names the subagent's own message, tagged with its `subagentRunId`. A thread restored with `GET /threads/:id/events` files every call under the same message as the live stream did. A call re-presented when a parked run resumes names a fresh id; a client that already holds the call keeps it where it was.
 
 ### Token usage
 
