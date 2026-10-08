@@ -1,6 +1,6 @@
 "use client"
 import type { Message } from "@ag-ui/client"
-import { useB4ActivityContext, useB4ChatSlots } from "@b4run/ag-ui/copilotkit"
+import { useB4ActivityContext, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
 import { CopilotChat, useAgent } from "@copilotkit/react-core/v2"
 import { type ComponentProps, useCallback, useMemo, useState } from "react"
 import { stripToolEchoes } from "../lib/assistant-text"

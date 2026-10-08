@@ -1,7 +1,7 @@
 /**
  * The activity kit's wording, framework-free: what a turn's summary line, a
  * step's muted tail, a subagent row and a step's detail panel say. The React
- * kit (`./react`) and the Angular kit (`@b4run/ag-ui-angular`) both render
+ * kit (`./react`) and the Angular kit (`@b4run/ag-ui/angular`) both render
  * from these, so the two can never word a turn differently.
  */
 import type { B4PlanActivityContent } from "../activities.js"

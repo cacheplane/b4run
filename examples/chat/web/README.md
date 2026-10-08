@@ -17,7 +17,7 @@ while the package-owned browser test loads this page, proves it discovers
 restored permission prompt). Neither check calls a model.
 
 Scope: basic chat with the `/chat` route. The sidebar runs inside `B4Activity` from
-`@b4run/ag-ui/copilotkit` and takes its `messageView` slots from `useB4ChatSlots()`, so
+`@b4run/ag-ui/react/copilotkit` and takes its `messageView` slots from `useB4ChatSlots()`, so
 each turn renders as one `TurnActivity` (the tool calls, the `writeTodos` plan, the
 model's reasoning) instead of CopilotKit's generic tool rows, and a permission prompt
 renders as an `ApprovalCard` with Allow once, Always allow and Deny. It still drives only

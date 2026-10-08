@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "scripts": {
     "scripts/lib/pack-check.mjs": {
-      "sha256": "6b318648b3bae077863722e1dfa698c55c86b25f28e0331b4c9995d67d04e97a"
+      "sha256": "51f0544c48ed061b1b49693a5042358015172135d796c31b86a12764ee357a9e"
     },
     "scripts/lib/published-artifacts.mjs": {
-      "sha256": "36be212c5d0faa28c8b64b2d82a269e9ab5372f0d8c449ab29a2db3697d76b8a"
+      "sha256": "cf920b76d6dd47ddc37d8883fa99d5640fb5197c1b557fdc60228e2e2d674005"
     },
     "scripts/lib/readme-contracts.mjs": {
       "sha256": "e36d9b1eba8c8fa93a82477cc4317f44cdc812884226ce5bfab82fdbe6b5b6f6"

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.angular.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "allowImportingTsExtensions": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": "dist/tsconfig.angular.test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src/angular/**/*.ts", "test/angular/**/*.ts"]
+}

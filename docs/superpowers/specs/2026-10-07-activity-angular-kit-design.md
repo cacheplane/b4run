@@ -80,3 +80,29 @@ element uses `display: contents` so the contract DOM is what the sheet styles.
 - threadplane (sub-project 4).
 - An Angular navlog example.
 - Angular versions before 22.
+
+## Amendment, 2026-10-08: one package
+
+Decided by Brian: there is one `@b4run/ag-ui` package with a folder per framework, not a
+separate Angular package. This replaces the "Package" and "Private until npm is ready"
+decisions above and the arc spec's decision 6.
+
+| Subpath | Contents |
+|---|---|
+| `@b4run/ag-ui/react` | React kit |
+| `@b4run/ag-ui/react/copilotkit` | React CopilotKit connector (was `./copilotkit`) |
+| `@b4run/ag-ui/angular` | Angular kit |
+| `@b4run/ag-ui/angular/events` | Angular host-agnostic connector |
+| `@b4run/ag-ui/angular/copilotkit` | Angular CopilotKit connector |
+| `@b4run/ag-ui/styles.css` | The one stylesheet (was `./react/styles.css`) |
+| `.`, `./sse`, `./client`, `./view`, `./copilotkit-runtime` | Unchanged |
+
+- The Angular sources live in `packages/ag-ui/src/angular/**` and are compiled by Angular's
+  compiler in partial mode during the package build, under TypeScript 6.0.x (Angular's
+  compiler requires it); the rest of the package keeps its current compiler.
+- Angular packages and `@copilotkit/angular` are optional peers of `@b4run/ag-ui`, as React
+  and `@copilotkit/react-core` are.
+- `packages/ag-ui-angular` is removed. The `@b4run/ag-ui-angular@0.0.0` name reservation on
+  npm is deprecated with a pointer to `@b4run/ag-ui/angular`; it never joins the release
+  train.
+- The renames are breaking (0.x patch on the fixed group, upgrading entry).
