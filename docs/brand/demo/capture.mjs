@@ -14,10 +14,10 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createAimock } from "../../../packages/testing/dist/index.js"
-import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { DEMO_FIXTURES, DEMO_PLAN_ANSWER, DEMO_PLAN_TOOLS, DEMO_PROMPT } from "./scenario.mjs"
 import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
+import { STORYBOARD, storyboardPaths } from "./storyboard.mjs"
 
 // The parent's first turn: its tool steps and its planning answer. The
 // fixtures also script the filing turn and both subagents' own threads.
@@ -1363,9 +1363,6 @@ export async function captureDemo({
         "Generated npm test output did not contain the named navlog test and passing summary",
       )
     }
-    const normalizedTestLog = normalizeLog(rawTestLog, {
-      temporaryRoot: workspaceRoot,
-    })
 
     aimock = await adapters.processes.startAimock(DEMO_FIXTURES)
     assertLoopbackModelBaseUrl(aimock.baseUrl)
@@ -1409,16 +1406,19 @@ export async function captureDemo({
     const racePhase = (label, action) =>
       raceCapturePhase(label, action, managedServices, signalScope.signal)
 
-    const [routeSource, toolSource, ...fontBytes] = await racePhase("read director inputs", () =>
+    const sourcePaths = storyboardPaths()
+    const directorInputs = await racePhase("read director inputs", () =>
       Promise.all([
-        adapters.filesystem.readFile(join(appRoot, "server/src/app/navlog/index.ts"), "utf8"),
-        adapters.filesystem.readFile(join(appRoot, "server/src/tools/computeNavlog.ts"), "utf8"),
+        ...sourcePaths.map((path) => adapters.filesystem.readFile(join(appRoot, path), "utf8")),
         ...Object.values(DIRECTOR_FONTS).map((path) =>
           adapters.filesystem.readFile(join(repoRoot, path)),
         ),
       ]),
     )
-    const directorHtml = renderDirector({ routeSource, toolSource, testLog: normalizedTestLog })
+    const fontBytes = directorInputs.slice(sourcePaths.length)
+    const directorHtml = renderDirector({
+      files: Object.fromEntries(sourcePaths.map((path, index) => [path, directorInputs[index]])),
+    })
     const directorFonts = Object.fromEntries(
       Object.keys(DIRECTOR_FONTS).map((name, index) => [name, fontBytes[index]]),
     )
@@ -1473,11 +1473,19 @@ export async function captureDemo({
       browserPhase(`focus ${target}`, () =>
         browserSession.focus({ target, signal: signalScope.signal }),
       )
-    await timeline.scene("author", () => play("author"))
-    await timeline.scene("prove", () => play("prove"))
+    // Bridge until the take-2 capture (unit C) drives every storyboard beat:
+    // the four take-1 scenes the encoder trims by still play, now as
+    // storyboard beats: title and the agent's code, the tools' code, the
+    // "Ask for a flight" app beat around the existing run, and the close.
+    const beatAt = (id) => STORYBOARD.findIndex((candidate) => candidate.id === id)
+    await timeline.scene("author", async () => {
+      await play(beatAt("title"))
+      await play(beatAt("agent"))
+    })
+    await timeline.scene("prove", () => play(beatAt("tools")))
     let restoration
     const scenario = await timeline.scene("run", async () => {
-      await play("run")
+      await play(beatAt("ask"))
       const ran = await browserPhase("run Workbench scenario", () =>
         browserSession.runScenario({
           prompt: DEMO_PROMPT,
@@ -1486,7 +1494,7 @@ export async function captureDemo({
           signal: signalScope.signal,
         }),
       )
-      await focus("answer")
+      await focus("todos")
       await browserPhase("hold completed run", () =>
         timing.sleep(holdDurations.preReloadMs, { signal: signalScope.signal }),
       )
@@ -1507,7 +1515,7 @@ export async function captureDemo({
       )
       return ran
     })
-    await timeline.scene("close", () => play("close"))
+    await timeline.scene("close", () => play(beatAt("close")))
     result = {
       schemaVersion: 1,
       runId,

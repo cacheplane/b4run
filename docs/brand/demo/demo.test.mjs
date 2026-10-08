@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { EventEmitter } from "node:events"
+import { readFileSync } from "node:fs"
 import {
   lstat,
   mkdir,
@@ -60,13 +61,10 @@ import {
   validateStagedMediaManifest,
 } from "./check-media.mjs"
 import {
-  BEATS,
+  CODE_PANE_LINES,
   DIRECTOR_FONTS,
-  DIRECTOR_TIMING,
-  HEADLINES,
-  PROVE_LOG_WINDOW,
-  RUN_FOCUS,
   renderDirector,
+  windowAround,
   wordmarkSvg,
 } from "./director.mjs"
 import {
@@ -83,6 +81,7 @@ import {
 import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { startAwcStub } from "./awc-stub.mjs"
+import { APP_ACTIONS, APP_FOCUS, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
 import {
   DEMO_FILE_PROMPT,
   DEMO_FIXTURES,
@@ -1177,114 +1176,290 @@ test("normalizeLog validates meaningful inputs", () => {
   assert.throws(() => normalizeLog("PASS", { temporaryRoot: "" }), /temporaryRoot/)
 })
 
-const DIRECTOR_INPUT = {
-  routeSource: [
-    'import { agent } from "@b4run/sdk"',
-    "export default agent({",
-    '  model: "gpt-5-mini",',
-    '  description: "A VFR flight planner for a Cessna 172N <C172N>",',
-    "})",
-  ].join("\n"),
-  toolSource: "export default async (input) => computeNavlog(input)",
-  testLog: [
-    "✓ test/navlog.test.ts > splits the first leg into a climb segment and a cruise segment <time>",
-    " Test Files  1 passed (1)",
-    "Tests  92 passed (92)",
-  ].join("\n"),
-  wordmark: '<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>',
+const NAVLOG_TEMPLATE = fileURLToPath(
+  new URL("../../../packages/devkit/templates/app-navlog/", import.meta.url),
+)
+
+/** The storyboard's files, read from the navlog template the scaffold copies. */
+function templateFiles() {
+  return Object.fromEntries(
+    storyboardPaths().map((path) => [path, readFileSync(join(NAVLOG_TEMPLATE, path), "utf8")]),
+  )
 }
 
-test("director exports the four beats, their headlines, and one timing table", () => {
-  assert.deepEqual(BEATS, ["author", "prove", "run", "close"])
-  assert.deepEqual(HEADLINES, {
-    author: "Write the agent.",
-    prove: "Test it offline.",
-    run: "Reload. Still there.",
-    close: "Ridiculous speed. Readable code.",
-  })
-  for (const value of Object.values(DIRECTOR_TIMING)) {
-    assert.equal(Number.isInteger(value) && value > 0, true)
+const DIRECTOR_WORDMARK = '<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>'
+
+/** Minimal sources that satisfy every focal pattern, with markup to escape. */
+function syntheticFiles() {
+  const files = {}
+  for (const beat of STORYBOARD) {
+    for (const pane of beat.panes ?? []) {
+      const focal = {
+        "server/src/app/navlog/index.ts":
+          '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+        "server/src/app/navlog/subagents/weather/index.ts":
+          '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
+        "server/src/tools/getMetar.ts": '    flightCategory: record.fltCat ?? "UNKNOWN",',
+        "server/src/tools/computeNavlog.ts": "  computeNavlog(input)",
+        "server/src/lib/navlog.ts": "      const tri = solveWindTriangle({",
+        "server/src/app/navlog/memory.ts": '  scope: ["workspace", "route"],',
+      }[pane.path]
+      files[pane.path] = `// ${pane.path} <Generic>\nexport default x\n${focal}\n})`
+    }
   }
-  assert.deepEqual(Object.keys(RUN_FOCUS), ["rest", "answer", "sheet"])
-  assert.equal(Object.isFrozen(DIRECTOR_TIMING) && Object.isFrozen(RUN_FOCUS), true)
+  return files
+}
+
+test("storyboard follows the spec's twelve beats, frozen", () => {
+  assert.deepEqual(
+    STORYBOARD.map(({ id, kind, headline }) => [id, kind, headline]),
+    [
+      ["title", "title", "navlog"],
+      ["agent", "code", "One file is the agent."],
+      ["ask", "app", "Ask for a flight."],
+      ["subagents", "code", "Subagents brief the weather."],
+      ["weather", "app", "Live weather, judged."],
+      ["tools", "code", "Tools do the math."],
+      ["navlog", "app", "A real navlog."],
+      ["gate", "code", "Filing needs a yes."],
+      ["file", "app", "Approve once."],
+      ["memory", "code", "It remembers you."],
+      ["reload", "app", "Reload. Still there."],
+      ["close", "close", "Ridiculous speed. Readable code."],
+    ],
+  )
+  assert.equal(STORYBOARD[0].subtitle, "A VFR flight planner, built with B4.run")
+  assert.equal(new Set(STORYBOARD.map((beat) => beat.id)).size, STORYBOARD.length)
+  assert.equal(Object.isFrozen(STORYBOARD), true)
+  for (const beat of STORYBOARD) {
+    assert.equal(Object.isFrozen(beat), true, beat.id)
+    assert.equal(Number.isInteger(beat.holdMs) && beat.holdMs > 0, true, beat.id)
+    if (beat.kind !== "title") {
+      assert.equal(beat.headline.split(" ").length >= 2 && beat.headline.split(" ").length <= 5, true)
+    }
+    if (beat.kind === "code") {
+      assert.equal(beat.panes.length === 1 || beat.panes.length === 2, true, beat.id)
+      assert.equal(Object.isFrozen(beat.panes), true)
+      for (const pane of beat.panes) {
+        assert.equal(Object.isFrozen(pane), true)
+        assert.match(pane.path, /^server\/src\/.+\.ts$/)
+        assert.equal(pane.focal instanceof RegExp, true)
+      }
+    } else {
+      assert.equal(beat.panes, undefined, beat.id)
+    }
+    if (beat.kind === "app") {
+      assert.equal(Object.hasOwn(APP_FOCUS, beat.focus), true, beat.id)
+      assert.equal(APP_ACTIONS.includes(beat.action), true, beat.id)
+    } else {
+      assert.equal(beat.focus ?? beat.action, undefined, beat.id)
+    }
+  }
+  assert.deepEqual(
+    STORYBOARD.filter((beat) => beat.kind === "app").map((beat) => beat.action),
+    [...APP_ACTIONS],
+  )
+  assert.deepEqual(storyboardPaths(), [
+    "server/src/app/navlog/index.ts",
+    "server/src/app/navlog/subagents/weather/index.ts",
+    "server/src/tools/getMetar.ts",
+    "server/src/tools/computeNavlog.ts",
+    "server/src/lib/navlog.ts",
+    "server/src/app/navlog/memory.ts",
+  ])
 })
 
-test("director page renders the real sources and log, escaped, with one focal mark each", () => {
-  const html = renderDirector(DIRECTOR_INPUT)
-  assert.match(html, /&lt;C172N&gt;/)
-  assert.doesNotMatch(html, /<C172N>/)
-  assert.match(html, /computeNavlog\(input\)/)
-  assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
-  assert.equal(html.match(/class="focus"/g)?.length, 2)
-  assert.match(html, /<span class="focus"> {2}description: /)
-  assert.match(html, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
+test("app camera presets are the seven named regions, as data", () => {
+  assert.deepEqual(Object.keys(APP_FOCUS), [
+    "rest",
+    "todos",
+    "weather",
+    "map",
+    "sheet",
+    "approval",
+    "memory",
+  ])
+  assert.deepEqual(APP_FOCUS.rest, { scale: 1, origin: "50% 50%" })
+  assert.equal(Object.isFrozen(APP_FOCUS), true)
+  for (const [name, preset] of Object.entries(APP_FOCUS)) {
+    assert.equal(Object.isFrozen(preset), true, name)
+    assert.equal(preset.scale >= 1 && preset.scale <= 2, true, name)
+    const [x, y] = preset.origin.split(" ").map((part) => Number(part.replace(/%$/, "")))
+    assert.match(preset.origin, /^\d+(?:\.\d+)?% \d+(?:\.\d+)?%$/, name)
+    assert.equal(x >= 0 && x <= 100 && y >= 0 && y <= 100, true, name)
+  }
 })
 
-test("director prove panel shows a window around the first test-count summary", () => {
-  const log = Array.from({ length: 100 }, (_, at) => `log-line-${String(at + 1).padStart(3, "0")}`)
-  log[89] = "Tests  92 passed (92)"
-  const html = renderDirector({ ...DIRECTOR_INPUT, testLog: log.join("\n") })
-  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
-  assert.match(proof, /log-line-074/)
-  assert.doesNotMatch(proof, /log-line-073/)
-  assert.match(proof, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
-  assert.match(proof, /log-line-091$/)
-  assert.doesNotMatch(proof, /log-line-092/)
-  assert.equal(proof.match(/class="focus"/g)?.length, 1)
-  assert.equal(proof.split("\n").length, PROVE_LOG_WINDOW.before + 1 + PROVE_LOG_WINDOW.after)
-})
-
-test("director prove panel focuses the server workspace's summary, not the web workspace's", () => {
-  const log = Array.from({ length: 80 }, (_, at) => `log-line-${String(at + 1).padStart(3, "0")}`)
-  log[29] = "Tests  92 passed (92)"
-  log[69] = "Tests  348 passed (348)"
-  const html = renderDirector({ ...DIRECTOR_INPUT, testLog: log.join("\n") })
-  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
-  assert.equal(proof.match(/class="focus"/g)?.length, 1)
-  assert.match(proof, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
-  assert.doesNotMatch(proof, /348/)
-})
-
-test("director prove panel falls back only to a line that starts with Tests", () => {
-  const html = renderDirector({
-    ...DIRECTOR_INPUT,
-    testLog: "7 passed in the setup\n Tests all passed\nlast line",
-  })
-  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
-  assert.match(proof, /<span class="focus"> Tests all passed<\/span>/)
-  assert.throws(
-    () => renderDirector({ ...DIRECTOR_INPUT, testLog: "12 passed\nall tests passed" }),
-    /test log has no passing summary/,
+test("every storyboard focal pattern matches exactly its intended line of the real template", () => {
+  const intended = {
+    agent: [
+      '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+    ],
+    subagents: [
+      '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
+      '    flightCategory: record.fltCat ?? "UNKNOWN",',
+    ],
+    tools: ["  computeNavlog(input)", "      const tri = solveWindTriangle({"],
+    gate: [
+      '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
+    ],
+    memory: ['  scope: ["workspace", "route"],'],
+  }
+  const files = templateFiles()
+  for (const beat of STORYBOARD.filter((candidate) => candidate.kind === "code")) {
+    beat.panes.forEach((pane, at) => {
+      const matches = files[pane.path].split("\n").filter((line) => pane.focal.test(line))
+      assert.deepEqual(matches, [intended[beat.id][at]], `${beat.id} ${pane.path}`)
+    })
+  }
+  // The gate beat marks the approve part of the line the agent beat marks whole.
+  const route = files["server/src/app/navlog/index.ts"].split("\n")
+  const toolsLine = route.find((line) => STORYBOARD[1].panes[0].focal.test(line))
+  assert.equal(
+    toolsLine.match(STORYBOARD[7].panes[0].focal)[0],
+    'approve: [{ tool: "fileFlightPlan", allowAlways: false }]',
   )
 })
 
-test("director page holds the Workbench iframe, the wordmark, and the brand tokens, with no header or act chip", () => {
-  const html = renderDirector(DIRECTOR_INPUT)
+test("windowAround keeps a fixed-size window around the index, clamped to the file", () => {
+  const lines = Array.from({ length: 40 }, (_, at) => `line-${at}`)
+  assert.deepEqual(windowAround(lines, 20, { before: 3, after: 2 }), {
+    lines: lines.slice(17, 23),
+    start: 17,
+    focusIndex: 3,
+  })
+  assert.deepEqual(windowAround(lines, 1, { before: 3, after: 2 }), {
+    lines: lines.slice(0, 6),
+    start: 0,
+    focusIndex: 1,
+  })
+  assert.deepEqual(windowAround(lines, 39, { before: 3, after: 2 }), {
+    lines: lines.slice(34, 40),
+    start: 34,
+    focusIndex: 5,
+  })
+  assert.deepEqual(windowAround(lines.slice(0, 4), 2, { before: 3, after: 2 }), {
+    lines: lines.slice(0, 4),
+    start: 0,
+    focusIndex: 2,
+  })
+  assert.throws(() => windowAround(lines, 40, { before: 1, after: 1 }), /index/)
+})
+
+test("director renders a layer per code beat from the real template, escaped and focal-marked", () => {
+  const files = templateFiles()
+  const html = renderDirector({ files, wordmark: DIRECTOR_WORDMARK })
+  const codeBeats = STORYBOARD.filter((beat) => beat.kind === "code")
+  for (const beat of codeBeats) {
+    const layer = html.match(
+      new RegExp(`<div class="layer code[^"]*" data-layer="${beat.id}"[^>]*>([\\s\\S]*?)</section></div>`),
+    )
+    assert.ok(layer, beat.id)
+    assert.equal(layer[1].match(/class="focus"/g)?.length, beat.panes.length, beat.id)
+    for (const pane of beat.panes) assert.ok(layer[1].includes(`<div class="strip">${pane.path}</div>`))
+    if (beat.panes.length === 2) assert.match(layer[0], /class="layer code two"/)
+  }
+  assert.equal(
+    html.match(/class="focus"/g)?.length,
+    codeBeats.reduce((sum, beat) => sum + beat.panes.length, 0),
+  )
+  // Escaped, never raw: computeNavlog.ts has generics, the route has template literals.
+  assert.ok(html.includes("Promise&lt;Navlog&gt;"))
+  assert.equal(html.includes("Promise<Navlog>"), false)
+  assert.ok(html.includes('<span class="hit part">approve: [{ tool: &quot;fileFlightPlan&quot;, allowAlways: false }]</span>'))
+  assert.ok(html.includes('<span class="hit">const tri = solveWindTriangle({</span>'))
+  // A long file shows a window: navlog.ts is far longer than one pane.
+  const navlogPane = html.match(/<div class="strip">server\/src\/lib\/navlog\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.equal(navlogPane.split("\n").length, CODE_PANE_LINES.two)
+  assert.match(navlogPane, /const tri = solveWindTriangle/)
+  assert.doesNotMatch(navlogPane, /^import /m)
+  // A short file shows whole.
+  const memoryPane = html.match(/<div class="strip">server\/src\/app\/navlog\/memory\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(memoryPane, /^import \{ defineMemory \}/)
+  assert.match(memoryPane, /^\}\)$/m)
+})
+
+test("director page holds the title card, the Workbench iframe, the close and the tokens, with no header or act chip", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  assert.ok(html.includes("&lt;Generic&gt;"))
+  assert.equal(html.includes("<Generic>"), false)
+  const title = html.match(/<div class="title">([\s\S]*?)<\/div><\/div>\n/)[1]
+  assert.ok(title.startsWith('<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>'))
+  assert.equal(
+    title.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+    "navlog A VFR flight planner, built with B4.run",
+  )
+  assert.equal(html.match(/<svg viewBox="-5 -5 522 115">/g)?.length, 2)
   assert.match(html, /<iframe name="workbench" src="about:blank"/)
-  assert.match(html, /<svg viewBox="-5 -5 522 115"><circle r="17"\/><\/svg>/)
+  assert.equal(html.match(/<iframe/g)?.length, 1)
   for (const token of ["#f5f4f0", "#111111", "#17181b", "#b4ce37", "#75796a"]) {
     assert.match(html, new RegExp(token, "i"))
   }
   for (const font of Object.keys(DIRECTOR_FONTS)) assert.match(html, new RegExp(`fonts/${font.replace(".", "\\.")}`))
   assert.match(html, /npm create b4-app@latest my-agent/)
-  assert.match(html, /window\.director = /)
-  assert.ok(html.includes(".closing .sweep { left: 0; visibility: visible; }"))
-  assert.ok(html.includes(".focus { position: relative; z-index: 0; }"))
-  assert.ok(html.includes("if (scale !== 1) camera.style.transformOrigin = origin"))
-  assert.doesNotMatch(html, /\b(AUTHOR|PROVE)\b/)
+  assert.match(html, /Ridiculous speed\. Readable code\./)
+  assert.match(html, /<div class="sweep"><\/div>/)
+  assert.match(html, /window\.director = \{ ready: true, reset, play, focus \}/)
+  assert.ok(html.includes(JSON.stringify(APP_FOCUS)))
+  assert.doesNotMatch(html, /<header|\bact-chip\b|\bAUTHOR\b|\bPROVE\b/)
   assert.doesNotMatch(html, /border-radius:\s*(?!50%)\d/)
   assert.doesNotMatch(html, /box-shadow:\s*0 \d/)
 })
 
-test("director page refuses sources without their focal line", () => {
+test("director page keeps the take-1 runtime fixes", () => {
+  const html = renderDirector({ files: syntheticFiles(), wordmark: DIRECTOR_WORDMARK })
+  // The sweep and its dot stay hidden until the close.
+  assert.ok(html.includes(".sweep { visibility: hidden;"))
+  assert.ok(html.includes(".closing .sweep { left: 0; visibility: visible; }"))
+  // The focal bar sits behind its line, not over the code.
+  assert.ok(html.includes(".focus { position: relative; z-index: 0; }"))
+  assert.ok(html.includes(".roll { overflow: hidden; height: 1.12em; }"))
+  assert.match(html, /\.stage \{[^}]*overflow: clip;/)
+  assert.match(html, /\.frame \{[^}]*overflow: clip;/)
+  // The camera's origin never changes: it moves by translate + scale about 0 0,
+  // so no zoom, in or out or between presets, can jump.
+  assert.match(html, /\.camera \{[^}]*transform-origin: 0 0;/)
+  assert.doesNotMatch(html, /transformOrigin/)
+  // Layers stack in DOM order; the Workbench layer is last so it takes clicks.
+  const layers = [...html.matchAll(/data-layer="([a-z-]+)"/g)].map((match) => match[1])
+  assert.deepEqual(layers, [
+    ...STORYBOARD.filter((beat) => beat.kind === "code").map((beat) => beat.id),
+    "app",
+  ])
+  assert.ok(html.includes(".layer:not(.on) { pointer-events: none; }"))
+  // Preparation state: the frame in place with the Workbench showing.
+  assert.match(html, /<div class="stage prep">/)
+  assert.match(html, /<div class="layer app on" data-layer="app">/)
+})
+
+test("director refuses a missing file, a missing focal line and an ambiguous one", () => {
+  const files = syntheticFiles()
+  const { "server/src/lib/navlog.ts": _removed, ...missing } = files
   assert.throws(
-    () => renderDirector({ ...DIRECTOR_INPUT, routeSource: "export default agent({})" }),
-    /route source has no description line/,
+    () => renderDirector({ files: missing, wordmark: DIRECTOR_WORDMARK }),
+    /storyboard beat "tools" needs server\/src\/lib\/navlog\.ts, which files does not include/,
   )
   assert.throws(
-    () => renderDirector({ ...DIRECTOR_INPUT, testLog: "nothing passed here" }),
-    /test log has no passing summary/,
+    () =>
+      renderDirector({
+        files: { ...files, "server/src/app/navlog/memory.ts": "export default defineMemory({})" },
+        wordmark: DIRECTOR_WORDMARK,
+      }),
+    /storyboard beat "memory": no line of server\/src\/app\/navlog\/memory\.ts matches/,
   )
+  assert.throws(
+    () =>
+      renderDirector({
+        files: {
+          ...files,
+          "server/src/tools/computeNavlog.ts": "  computeNavlog(input)\n  computeNavlog(input)",
+        },
+        wordmark: DIRECTOR_WORDMARK,
+      }),
+    /storyboard beat "tools": 2 lines of server\/src\/tools\/computeNavlog\.ts match/,
+  )
+  assert.throws(() => renderDirector({ files: null, wordmark: DIRECTOR_WORDMARK }), /files must be an object/)
+  assert.throws(() => renderDirector({ files, wordmark: "" }), /wordmark must be a non-empty string/)
 })
 
 test("wordmark comes from the ink SVG master without its title or description", () => {
@@ -1641,12 +1816,8 @@ function orchestrationFixture({ failAt } = {}) {
         operations.push("publish summary")
       },
       async readFile(path) {
-        if (path.endsWith("server/src/app/navlog/index.ts")) {
-          return 'export default agent({\n  description: "A VFR flight planner",\n  tools: [computeNavlog],\n})'
-        }
-        if (path.endsWith("server/src/tools/computeNavlog.ts")) {
-          return "export default computeNavlog"
-        }
+        const source = storyboardPaths().find((candidate) => path === `${appRoot}/${candidate}`)
+        if (source !== undefined) return readFileSync(join(NAVLOG_TEMPLATE, source), "utf8")
         if (path.endsWith(".ttf")) {
           return Buffer.from(`font:${path.split("/").at(-1)}`)
         }
@@ -1697,10 +1868,10 @@ function orchestrationFixture({ failAt } = {}) {
             operations.push("open director")
             assert.equal(origin, "http://127.0.0.1:4101")
             assert.match(html, /export default agent\(\{/)
-            assert.match(html, /computeNavlog/)
-            assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
-            assert.match(html, /Tests 7 passed/)
-            assert.match(html, /&lt;workspace&gt;/)
+            for (const path of storyboardPaths()) {
+              assert.ok(html.includes(`<div class="strip">${path}</div>`), path)
+            }
+            assert.match(html, /<span class="hit">computeNavlog\(input\)<\/span>/)
             assert.doesNotMatch(html, /b4-demo-unit-abc123/)
             assert.equal(html.includes("\u001B"), false)
             assert.deepEqual(Object.keys(fonts), [
@@ -1784,15 +1955,16 @@ test("capture orchestrates the real-product phases in exact order and cleans up"
     "start Workbench",
     "open director",
     "prepare Workbench",
-    "play author",
-    "play prove",
-    "play run",
+    "play 0",
+    "play 1",
+    "play 5",
+    "play 2",
     "run Workbench scenario",
-    "focus answer",
+    "focus todos",
     "focus rest",
     "reload",
     "focus sheet",
-    "play close",
+    "play 11",
     "close browser",
     "publish summary",
     "stop workbench",
