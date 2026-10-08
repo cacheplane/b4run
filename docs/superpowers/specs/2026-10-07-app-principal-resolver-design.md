@@ -1,6 +1,6 @@
 # One app-level principal resolver — design proposal
 
-Status: **proposal.** Research for a single "who is calling" seam that every authorization consumer
+Status: **decided 2026-10-08; every open question is answered (§9).** Research for a single "who is calling" seam that every authorization consumer
 reads, so no consumer parses headers itself. Related: cacheplane/b4run#940 (memory scope cannot see
 the request principal).
 
@@ -16,6 +16,16 @@ Decided with Brian on 2026-10-07:
   client-chosen id returns 404 there, and the docs say so. The node runtime keeps implicit create.
 - **navlog memory becomes per-visitor, with auto writes, and its baseline moves into `workspace/`**
   (§7.1).
+
+Decided with Brian on 2026-10-08 (the former open questions, §9):
+
+- **Memory review:** own namespace by default, plus an optional `canReviewMemory(principal)` on
+  `defineAuth` for cross-namespace review.
+- **Anonymous:** an `undefined` principal is anonymous, and each consumer decides.
+- **Typing:** typegen augments `@b4run/sdk`'s `B4Register`.
+- **Grant audit:** a consumed grant records `consumedBy`.
+- **CopilotKit runner:** gets a simple, first-class way to forward the caller, modelled on navlog's
+  proxy.
 
 ## 1. Problem
 
@@ -190,7 +200,7 @@ execute: async (input, ctx) => ctx.principal?.id
 5. **Typing.** Typegen discovers `src/auth.ts` and emits an ambient
    `declare module "@b4run/sdk" { interface B4Register { principal: Exclude<Awaited<ReturnType<typeof auth.authenticate>>, RejectResult | undefined> } }`.
    SDK types read `B4Register["principal"]`, falling back to `B4PrincipalShape` when there is no
-   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. The alternative is a `b4:auth` virtual module the SDK types import, which is open question 5.
+   auth file. Typegen already emits ambient `declare module "b4:routes"` blocks (`core/src/typegen/render-route-types.ts:31`). Augmenting `@b4run/sdk` itself would be new. **Decided** over a `b4:auth` virtual module (§9 Q5).
 
 **Pros:**
 - Matches the two existing discovered files.
@@ -378,7 +388,7 @@ The probes ran against a `langgraphjs dev` server. Visitors A and B each send a 
 
 ## 6. Recommendation
 
-**Option A**, landed in three PRs:
+**Option A**, landed in five PRs:
 
 1. **SDK + runtime.**
    - `defineAuth`/`AuthRequest`/`AuthDefinition` exports.
@@ -392,11 +402,12 @@ The probes ran against a `langgraphjs dev` server. Visitors A and B each send a 
      - one call per request across both orderings
      - two concurrent threads with different principals never share a materialized graph
    - Typegen `B4Register`.
-2. **Memory (#940).**
+   - A consumed approval grant records `consumedBy: principal.id`, as audit only (§9 Q2).
+2. **Memory (#940).** Detailed in `2026-10-07-memory-scope-principal-design.md` (#988).
    - Add `principal` to the `resolveScope` ctx.
-   - Gate `/memory/*` on the principal. The default when an auth file exists is open; the gate
-     itself is open question 1.
-   - Scope candidate listing by namespace when `resolveScope` uses the principal.
+   - An unresolved declared dimension fails closed.
+   - With an auth file, `/memory/*` lists and acts only in the caller's own namespaces, unless
+     `canReviewMemory(principal)` returns true (§9 Q1). Without one, behavior is unchanged.
 3. **Migration.** navlog, the scaffold templates, the software-factory server, and docs. This must
    land together with PR 1, because PR 1 makes a named-export-only `src/auth.ts` a boot error.
    In practice PRs 1 and 3 are one PR, or PR 3 is stacked on PR 1 and merged with it.
@@ -407,6 +418,10 @@ The probes ran against a `langgraphjs dev` server. Visitors A and B each send a 
    - The `x-*` secret refusal.
    - Invoke-time memory namespace.
    - A `langgraphjs dev` harness lane.
+5. **CopilotKit runner identity (§9 Q4).**
+   - `createB4AgentRunner` gets the per-request identity forwarding navlog hand-rolls today.
+   - navlog's web route drops its own `guardedFetch` and uses the option.
+   - Independent of PRs 2 and 4, so it can land any time after PR 1.
 
 serve's `guard` stays a transport-level, pre-routing gate (it also covers non-runtime paths and is
 defense in depth). It isn't folded into the resolver.
@@ -522,8 +537,9 @@ For example, an approved `aircraft.tail_number` becomes every visitor's tail num
   - The principal is per request, frozen, and never written to checkpoints, `configurable`, thread
     metadata, or memory entries (except as a scope key the app chose).
   - Graph-cache bypass when it is set (§4.A.4).
-  - The thread-access stamp remains the only persisted identity, and it remains the policy's
-    explicit choice.
+  - The thread-access stamp remains the only persisted identity that authorization reads, and it
+    remains the policy's explicit choice. A grant's `consumedBy` (§9 Q2) is also persisted, but
+    only for audit. Nothing authorizes from it.
 - **Strict header semantics.** The lowercase, `", "`-joined shape and the strict-equality guidance
   stay.
 - **Existence oracle.** A global `reject` from `authenticate` happens before thread lookup, so it
@@ -535,19 +551,44 @@ For example, an approved `aircraft.tail_number` becomes every visitor's tail num
   Studio auth is disabled in the emitted config, and `x-*` header secrets are refused at build
   time.
 
-## 9. Open questions
+## 9. Decisions on the former open questions (Brian, 2026-10-08)
 
-1. **`/memory/*` gate.** Should it be a fixed rule (principal required when an auth file exists), a
-   predicate on `defineAuth` (`canReviewMemory(principal)`), or thread-access-style policy actions
-   (`memory.candidates.list|approve|reject`)?
-2. **Grant audit.** Should a consumed approval grant record `consumedBy: principal.id`? The grant
-   stays caller-unbound by design; this would be audit only.
-3. **Anonymous default.** Is "`undefined` = anonymous, consumers decide" right, or should an
-   existing auth file make `undefined` a global 401 unless `defineAuth({ anonymous: "allow" })` is
-   set? The latter is safer by default, but it can't express navlog's public `/healthz`-style
-   paths without a per-endpoint escape hatch.
-4. **CopilotKit runner.** `createB4AgentRunner` deliberately forwards no browser headers. Should
-   the runner forward a server-minted principal assertion instead (signed, short-lived), so replay
-   requests resolve the same principal?
-5. **Principal typing.** Should typegen augment `@b4run/sdk`'s `B4Register`, or emit a `b4:auth`
-   ambient module like `b4:routes`?
+1. **`/memory/*` gate: own namespace, plus a predicate.**
+   - When an auth file exists, a caller lists, approves and rejects candidates only in the
+     namespaces `resolveScope` gives their principal. An id outside them is a 404.
+   - `defineAuth({ authenticate, canReviewMemory? })` takes an optional
+     `canReviewMemory(principal) => boolean`. When it returns true, the caller reviews every
+     namespace, as today. Use it for an admin or a demo owner.
+   - With no auth file, `/memory/*` behaves as it does now, so `examples/memory` keeps its review
+     flow.
+   - This replaces the "unavailable over HTTP" interim in the memory spec's D3.
+2. **Grant audit: yes.** A consumed approval grant records `consumedBy: principal.id`, or nothing
+   for an anonymous caller. It is audit only: grants stay caller-unbound, and no check reads the
+   field. Lands in PR 1.
+3. **Anonymous: `undefined` is anonymous, and consumers decide.**
+   - There is no global 401. Middleware can reject, thread access can deny, and memory fails
+     closed (memory spec D2).
+   - navlog's public demo needs no per-endpoint escape hatch.
+4. **CopilotKit runner: yes, kept simple.** This is example-grade code users copy, so it promotes
+   the pattern navlog already runs. It does not add a signing scheme.
+   - **Today navlog does this by hand.** Its web route wraps the runner's `fetch`, and on every
+     upstream call (runs and `/threads/:id/events` replays) it:
+     - strips browser-sent identity headers;
+     - adds the visitor id and a shared server-to-server token.
+
+     `auth.ts` trusts the visitor header only when the token matches, using a constant-time
+     compare.
+   - **The change.**
+     - `createB4AgentRunner` takes an option that supplies those headers for each upstream call,
+       and always strips the same names from the browser's copy.
+     - The B4 side is the app's own `authenticate`: check the token with `safeEqual` (§8), then
+       read the id.
+     - navlog's hand-rolled `guardedFetch` goes away.
+   - **Why no signed assertion.** The hop is already server-to-server and carries a shared secret.
+     Signing would add key handling without closing a gap.
+   - **LangSmith caveat.** LangGraph copies `x-*` headers into the stored thread config (§5.3), so
+     the token must not travel as an `x-*` header there. The runner option and the docs should
+     name a non-`x-` header for the token. Settle the exact names in PR 5.
+5. **Typing: augment `B4Register`.** Typegen emits `declare module "@b4run/sdk" { interface
+   B4Register { principal: … } }` (§4.A.5), and SDK types fall back to `B4PrincipalShape` without
+   an auth file. There is no `b4:auth` module.
