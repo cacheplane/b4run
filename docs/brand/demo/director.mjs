@@ -94,9 +94,9 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .stage { position: relative; width: 1440px; height: 810px; overflow: hidden; }
 .head { position: absolute; left: 163px; top: 44px; font-weight: 600; font-size: 88px; line-height: 1.06; letter-spacing: -0.055em; transform-origin: 0 0; transform: translateY(300px); transition: transform var(--dock) var(--ease-out); white-space: nowrap; }
 .docked .head { transform: scale(0.42); }
-.roll { overflow: hidden; height: 1.06em; }
+.roll { overflow: hidden; height: 1.12em; }
 .lines { transition: transform var(--swap) var(--ease-in-out); }
-.rolling .lines { transform: translateY(-1.06em); }
+.rolling .lines { transform: translateY(-1.12em); }
 .instant, .instant * { transition: none !important; }
 .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.06em; margin-right: 0.22em; }
 .w > span { display: inline-block; transform: translateY(105%); transition: transform var(--reveal) var(--ease-out); }
@@ -110,7 +110,7 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 pre { padding: 24px; color: var(--panel-ink); font: 400 17px/1.65 "JetBrains Mono", ui-monospace, monospace; white-space: pre; overflow: hidden; }
 .author { display: grid; grid-template-rows: 1fr 0.62fr; }
 .author > div + div { border-top: 1px solid #4d5148; }
-.focus { position: relative; }
+.focus { position: relative; z-index: 0; }
 .focus::before { content: ""; position: absolute; left: -24px; right: -2000px; top: -2px; bottom: -2px; background: var(--relay-wash); box-shadow: inset 3px 0 0 var(--relay); transform: scaleX(0); transform-origin: 0 50%; transition: transform var(--swap) var(--ease-out); z-index: -1; }
 .marked .focus::before { transform: none; }
 .run { background: var(--paper); }
@@ -120,9 +120,9 @@ pre { padding: 24px; color: var(--panel-ink); font: 400 17px/1.65 "JetBrains Mon
 .close svg { width: 300px; height: auto; }
 .close .tagline { font-weight: 600; font-size: 72px; line-height: 1.06; letter-spacing: -0.055em; white-space: nowrap; }
 .close .command { padding: 18px 26px; background: var(--panel); color: var(--panel-ink); font: 400 20px/1 "JetBrains Mono", ui-monospace, monospace; }
-.sweep { position: absolute; top: 0; bottom: 0; left: 1440px; width: 1px; z-index: 5; background: var(--rule-strong); transition: left var(--sweep) var(--ease-in-out); }
+.sweep { visibility: hidden; position: absolute; top: 0; bottom: 0; left: 1440px; width: 1px; z-index: 5; background: var(--rule-strong); transition: left var(--sweep) var(--ease-in-out); }
 .sweep::after { content: ""; position: absolute; left: -11px; top: 394px; width: 22px; height: 22px; border-radius: 50%; background: var(--relay); }
-.closing .sweep { left: 0; }
+.closing .sweep { left: 0; visibility: visible; }
 .swept .sweep { visibility: hidden; }
 `
 
@@ -153,7 +153,7 @@ const RUNTIME = `
     for (const element of stage.querySelectorAll(".layer")) element.classList.toggle("on", element.dataset.layer === layer)
   }
   async function cameraTo(scale, origin) {
-    camera.style.transformOrigin = origin
+    if (scale !== 1) camera.style.transformOrigin = origin
     camera.style.transform = scale === 1 ? "none" : "scale(" + scale + ")"
     await wait(T.cameraMs)
   }
