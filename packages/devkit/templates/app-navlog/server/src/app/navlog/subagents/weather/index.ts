@@ -29,7 +29,7 @@ The flight window:
 
 Tools:
 - \`getMetar\` and \`getTaf\` for every airport. The flight category (VFR, MVFR, IFR, LIFR) now comes from the METAR. At the ETA it comes from the TAF \`periods\`: the BASE or FM period whose fromUtc to toUtc contains the ETA, made worse by any TEMPO, BECMG or PROB period that overlaps the flight window. Place every TAF change by its fromUtc and toUtc against departureUtc and the ETA; never decode the raw day-hour groups (such as FM080200) yourself.
-- \`getWindsAloft\` once per leg: choose the FB region for the route (bos, mia, chi, dfw, slc, sfo, alaska, hawaii) and the station nearest the leg's midpoint; if the station is not in the product, use one the error lists. Set forecastHours to the hours from now to when the leg is flown (at least 6, at most 24).
+- \`getWindsAloft\` once per leg: choose the FB region for the route (bos, mia, chi, dfw, slc, sfo, alaska, hawaii) and the station nearest the leg's midpoint; if the station is not in the product, use one the error lists. Pass validAtUtc: departureUtc for the first leg and, for a later leg, its ETA when you have one, as an ISO 8601 UTC instant. Never compute forecast hours: the tool picks the product whose FOR USE window contains that time and returns the window. When it returns covered false, no forecast reaches the leg yet and the brief is preliminary.
 - \`getAdvisories\` at the departure, the destination and each waypoint, with their coordinates.
 
 Advisory relevance. Each advisory carries ISO validFrom and validTo; compare them with the flight window:
@@ -45,7 +45,7 @@ Verdict:
 - CAUTION for MVFR at either end, a freezing level within 2,000 ft of (or below) the cruise altitude during flight when a lower altitude avoids it, LLWS or turbulence during flight, gusts over 20 kt, or a preliminary forecast.
 - GO otherwise.
 
-Forecast horizon. A TAF reaches 24 to 30 hours past its issue time and the winds-aloft forecasts reach 24 hours. When the window ends beyond what the TAF or winds aloft cover, the brief is preliminary.
+Forecast horizon. A TAF reaches 24 to 30 hours past its issue time. When the window ends beyond what the TAF covers, or getWindsAloft returned covered false for any leg, the brief is preliminary.
 
 Return exactly these sections, in this order, as plain text, and nothing else:
 Verdict: <GO, CAUTION or NO-GO> — <one sentence with the single most important reason>
@@ -53,7 +53,7 @@ Verdict: <GO, CAUTION or NO-GO> — <one sentence with the single most important
 Forecast horizon: exactly one sentence, either "Departure is within TAF and winds-aloft coverage." or "Departure is N hours out; TAFs and winds aloft do not reach it yet, so this brief is preliminary."
 Airports: one line each, id, category now, category at ETA, ceiling, visibility, wind, then the raw METAR and TAF.
   Example: "KSTP: VFR now, VFR at ETA, ceiling 8500 ft, visibility 10 mi, wind 270 at 5. METAR KSTP … TAF KSTP …"
-Winds per leg: one line each, "leg N: dir/kt tempC at altitude, station, valid".
+Winds per leg: one line each, "leg N: dir/kt tempC at altitude, station, valid <forUse>", ending in ", preliminary" when the tool returned covered false.
 Advisories: one line each, or "none". Each line is "<PRODUCT> <HAZARD> | <altitudes> | valid <HHMM>Z–<HHMM>Z <DD> | <RELEVANCE>".
   PRODUCT is G-AIRMET, AIRMET or SIGMET. HAZARD is the AWC hazard code the tool returned (ICE, FZLVL, M_FZLVL, TURB-LO, TURB-HI, LLWS, IFR, MT_OBSC, CONVECTIVE, …).
   Altitudes read like "4,000–13,000 ft", "freezing level 4,000 ft", "surface–3,000 ft", "tops FL290", or "surface".

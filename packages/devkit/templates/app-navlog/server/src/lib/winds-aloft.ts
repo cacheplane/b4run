@@ -69,6 +69,59 @@ export function parseWindsAloft(text: string): WindsAloftProduct {
   return { basedOn, validAt, forUse, levelsFt: columns.map((column) => column.levelFt), stations }
 }
 
+const HOUR_MS = 3_600_000
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * A `DDHHMMZ` group as a UTC instant: the date with that day of the month
+ * nearest `now`, so a product read on the 1st that was valid on the 30th lands
+ * in the previous month.
+ */
+export function resolveDayTime(group: string, now: number): number | null {
+  const match = /^(\d{2})(\d{2})(\d{2})Z$/.exec(group)
+  if (!match) return null
+  const [day, hours, minutes] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const today = new Date(now)
+  let best: number | null = null
+  for (const offset of [-1, 0, 1]) {
+    const candidate = Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth() + offset,
+      day,
+      hours,
+      minutes,
+    )
+    // Day 31 of a 30-day month rolls into the next month; that is not this date.
+    if (new Date(candidate).getUTCDate() !== day) continue
+    if (best === null || Math.abs(candidate - now) < Math.abs(best - now)) best = candidate
+  }
+  return best
+}
+
+export interface ForUseWindow {
+  readonly fromUtc: string
+  readonly toUtc: string
+}
+
+/**
+ * The product's FOR USE window as UTC instants. The header gives only clock
+ * times (`FOR USE 1800-0600Z`), so they are placed around the VALID time: the
+ * window opens at the last `from` at or before it and closes at the first `to`
+ * after the opening. Null when the header lacks either group.
+ */
+export function forUseWindow(product: WindsAloftProduct, now: number): ForUseWindow | null {
+  if (product.validAt === null || product.forUse === null) return null
+  const validAt = resolveDayTime(product.validAt, now)
+  const clocks = /^(\d{2})(\d{2})-(\d{2})(\d{2})Z$/.exec(product.forUse)
+  if (validAt === null || !clocks) return null
+  const validDay = validAt - (validAt % DAY_MS)
+  let from = validDay + Number(clocks[1]) * HOUR_MS + Number(clocks[2]) * 60_000
+  if (from > validAt) from -= DAY_MS
+  let to = validDay + Number(clocks[3]) * HOUR_MS + Number(clocks[4]) * 60_000
+  while (to <= from) to += DAY_MS
+  return { fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString() }
+}
+
 function lerpAngle(a: number, b: number, t: number): number {
   const delta = ((b - a + 540) % 360) - 180
   return (a + delta * t + 360) % 360
