@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
-
+import { findAuthFile } from "../../dev/auth-node.js"
 import { findMiddlewareFile } from "../../dev/middleware-node.js"
 import { findThreadAccessFile } from "../../dev/thread-access-node.js"
 import { writeLine } from "../../output.js"
@@ -34,6 +34,7 @@ const DOCKERFILE_MARKER =
  */
 const SERVER_ENTRY = (
   threadAccessExpected: boolean,
+  authExpected: boolean,
 ): string => `import { loadStaticModules, serveRuntime } from "@b4run/cli"
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
@@ -50,7 +51,7 @@ const { readFile, stat } = await import("node:fs/promises")
 if ((await stat(workspaceUrl)).size > 100 * 1024 * 1024) throw new Error("Workspace artifact exceeds size limit")
 const modules = { ...loadedModules, workspace: JSON.parse(await readFile(workspaceUrl, "utf8")) }
 
-await serveRuntime({ appRoot, modules${threadAccessExpected ? ", threadAccessExpected: true" : ""} })
+await serveRuntime({ appRoot, modules${threadAccessExpected ? ", threadAccessExpected: true" : ""}${authExpected ? ", authExpected: true" : ""} })
 `
 
 /**
@@ -103,6 +104,9 @@ export const nodeTarget: BuildTarget = {
     // the server refuses to start. It throws rather than shrugging when a
     // candidate cannot be probed, so an unreadable policy cannot drop out.
     const threadAccessFile = findThreadAccessFile(appRoot)
+    // Auth, the same way and for the same reason: embedded, so a built app can
+    // never boot with every request anonymous because src/auth.ts went missing.
+    const authFile = findAuthFile(appRoot)
     const artifacts: string[] = []
     const workspacePath = join(buildDir, "workspace.json")
     await writeFile(workspacePath, JSON.stringify(workspaceArtifact ?? null), "utf8")
@@ -132,13 +136,18 @@ export const nodeTarget: BuildTarget = {
         discoveries,
         ...(middlewareFile ? { middlewareFile } : {}),
         ...(threadAccessFile ? { threadAccessFile } : {}),
+        ...(authFile ? { authFile } : {}),
       }),
       "utf8",
     )
     artifacts.push(modulesPath)
 
     const serverPath = join(buildDir, "server.mjs")
-    await writeFile(serverPath, SERVER_ENTRY(threadAccessFile !== undefined), "utf8")
+    await writeFile(
+      serverPath,
+      SERVER_ENTRY(threadAccessFile !== undefined, authFile !== undefined),
+      "utf8",
+    )
     artifacts.push(serverPath)
 
     // server.mjs imports @b4run/cli at runtime; `npm ci --omit=dev` strips it

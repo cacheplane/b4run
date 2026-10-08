@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url"
-import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
+import { defineAuth, defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
 import { describe, expect, it } from "vitest"
 
 import { createAgentProtocolInjector } from "../src/http-inject.js"
@@ -29,7 +29,7 @@ describe("createThreadAccessHarness", () => {
     expect(seen).toEqual(["delete", "fallback"])
   })
 
-  it("fills in sane defaults for headers, method, url and operation", async () => {
+  it("fills in sane defaults for method, url and operation, and an anonymous principal", async () => {
     let received: ThreadAccessRequest | undefined
     const harness = createThreadAccessHarness({
       policy: defineThreadAccess({
@@ -42,17 +42,17 @@ describe("createThreadAccessHarness", () => {
     await harness.check({ action: "read", threadId: "t-9" })
     expect(received).toMatchObject({
       action: "read",
-      headers: {},
       method: "GET",
       operation: "thread.get",
       threadId: "t-9",
       url: "/threads/t-9",
     })
+    expect(received?.principal).toBeUndefined()
     expect(received?.thread).toBeUndefined()
     expect(received?.requestedMetadata).toBeUndefined()
   })
 
-  it("passes an explicit operation, headers, thread and requestedMetadata through", async () => {
+  it("passes an explicit operation, principal, thread and requestedMetadata through", async () => {
     let received: ThreadAccessRequest | undefined
     const harness = createThreadAccessHarness({
       policy: defineThreadAccess({
@@ -64,8 +64,8 @@ describe("createThreadAccessHarness", () => {
     })
     await harness.check({
       action: "read",
-      headers: { "x-user-id": "u-1" },
       operation: "thread.state",
+      principal: { id: "u-1" },
       requestedMetadata: { tenant: "acme" },
       thread: {
         access: { ownerId: "u-1" },
@@ -78,7 +78,7 @@ describe("createThreadAccessHarness", () => {
       threadId: "t-9",
     })
     expect(received?.operation).toBe("thread.state")
-    expect(received?.headers).toEqual({ "x-user-id": "u-1" })
+    expect(received?.principal).toEqual({ id: "u-1" })
     expect(received?.thread?.access).toEqual({ ownerId: "u-1" })
     expect(received?.requestedMetadata).toEqual({ tenant: "acme" })
   })
@@ -153,12 +153,16 @@ describe("createThreadAccessHarness", () => {
   })
 })
 
-describe("createAgentProtocolInjector({ threadAccess })", () => {
-  it("gates the injected app's thread endpoints", async () => {
+describe("createAgentProtocolInjector({ threadAccess, auth })", () => {
+  it("gates the injected app's thread endpoints on the injected auth's principal", async () => {
     const ap = await createAgentProtocolInjector({
       appRoot,
+      auth: defineAuth({
+        authenticate: ({ headers }) =>
+          headers["x-api-key"] === "secret" ? { id: "service" } : undefined,
+      }),
       threadAccess: defineThreadAccess({
-        fallback: (req) => (req.headers["x-api-key"] === "secret" ? permit() : deny()),
+        fallback: (req) => (req.principal?.id === "service" ? permit() : deny()),
       }),
     })
     try {

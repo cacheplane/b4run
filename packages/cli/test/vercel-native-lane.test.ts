@@ -9930,6 +9930,7 @@ describe("model-free native fixture", () => {
         headers: Object.fromEntries(headers),
         method: "POST",
         params: {},
+        principal: undefined,
         routeId,
         url: `https://fixture.invalid${routeId}`,
       })

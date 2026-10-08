@@ -8,6 +8,7 @@ const RUN: Omit<MiddlewareAfterRun, "finalMessage"> = {
   assistantId: "/chat#agent",
   context: { tenant: "acme" },
   messages: [{ role: "user", content: "hello" }],
+  principal: undefined,
   routeId: "/chat",
   runId: "rn-1",
   threadId: "th-1",

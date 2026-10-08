@@ -4,6 +4,7 @@
  * Re-exports the pure half so this stays the one import site callers know.
  */
 
+import { isAuthDefinition } from "@b4run/sdk"
 import { validateThreadAccessPolicy } from "../dev/thread-access.js"
 import { registerTsxLoader } from "./register-tsx-loader.js"
 import type { B4StaticModules, StaticRouteModule } from "./static-modules-core.js"
@@ -54,6 +55,14 @@ export async function loadStaticModules(manifestUrl: URL | string): Promise<B4St
         `Static module manifest at ${href} has an invalid threadAccess entry (${reason}) — re-run \`b4 build\`.`,
       )
     }
+  }
+  // Auth is optional, but anything present must be a `defineAuth` value: types
+  // are erased across the manifest import.
+  const auth = (manifest as { readonly auth?: unknown }).auth
+  if (auth !== undefined && !isAuthDefinition(auth)) {
+    throw new Error(
+      `Static module manifest at ${href} has an auth entry that did not come from \`defineAuth\` — re-run \`b4 build\`.`,
+    )
   }
   const routes = (manifest as { readonly routes: readonly unknown[] }).routes
   for (const entry of routes) {

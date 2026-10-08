@@ -178,6 +178,13 @@ export interface ModulesEmitOptions {
    * at boot, still binds the app's policy instead of booting ungated.
    */
   readonly threadAccessFile?: string
+  /**
+   * App auth file (`src/auth.ts`, absolute), when the build probe found one.
+   * Carried like the thread-access policy: a namespace import plus
+   * `normalizeAuthModule`, which throws at link time when the file binds no
+   * `defineAuth` default, so a bundled target cannot boot anonymous.
+   */
+  readonly authFile?: string
 }
 
 /**
@@ -293,6 +300,12 @@ export function emitModulesFileWithFlavor(
     // different export than dev would.
     moduleImports.push(
       `import * as threadAccessModule from ${JSON.stringify(importSpecifier(buildDir, options.threadAccessFile))}`,
+    )
+  }
+
+  if (options.authFile) {
+    moduleImports.push(
+      `import * as authModule from ${JSON.stringify(importSpecifier(buildDir, options.authFile))}`,
     )
   }
 
@@ -425,6 +438,7 @@ export function emitModulesFileWithFlavor(
     `buildStaticRouteModule`,
     ...(options.middlewareFile ? [`normalizeMiddlewareModule`] : []),
     ...(options.threadAccessFile ? [`normalizeThreadAccessModule`] : []),
+    ...(options.authFile ? [`normalizeAuthModule`] : []),
   ]
   return [
     ...flavor.header,
@@ -446,6 +460,9 @@ export function emitModulesFileWithFlavor(
     ...(options.threadAccessFile
       ? [`  threadAccess: normalizeThreadAccessModule(threadAccessModule),`]
       : []),
+    // Last of the hooks, so an app without an auth file emits the same bytes
+    // it emitted before auth existed.
+    ...(options.authFile ? [`  auth: normalizeAuthModule(authModule),`] : []),
     `  routes: [`,
     ...routeCalls,
     `  ],`,

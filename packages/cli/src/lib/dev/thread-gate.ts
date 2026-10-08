@@ -9,7 +9,7 @@ import type {
 } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
-import { headersToRecord } from "./middleware.js"
+import { requestPrincipal } from "./auth.js"
 import { createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
 import { normalizeThreadAccessResult } from "./thread-access.js"
@@ -173,7 +173,9 @@ export function makeThreadGate(
   request: Request,
 ): (spec: GateSpec) => Gate | Promise<Gate> {
   if (!policy) return () => GATE_OK
-  const headers = headersToRecord(request.headers)
+  // Identity comes from the one resolver (`src/auth.ts`), resolved before any
+  // gate ran. The policy gets no headers, so it cannot grow a second parser.
+  const principal = requestPrincipal(request)
   const method = request.method
   const parsed = new URL(request.url)
   const url = `${parsed.pathname}${parsed.search}`
@@ -181,9 +183,9 @@ export function makeThreadGate(
     const handler = policy[spec.action] ?? policy.fallback
     const accessRequest: ThreadAccessRequest = {
       action: spec.action,
-      headers,
       method,
       operation: spec.operation,
+      principal,
       requestedMetadata: spec.requestedMetadata,
       requestedWorkspace: spec.requestedWorkspace,
       // Required on the published type, optional on the spec: an omitted spec

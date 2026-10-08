@@ -3,7 +3,7 @@
 Four independent controls decide what a running route can do: tool scoping, permissions, the execution sandbox and guarded delegation. Each one answers a different question, so they compose. A route uses the controls it needs.
 
 <Callout type="warn" title="Start outside the agent boundary">
-  These controls act on a running route. Authenticating the HTTP service and establishing tenant ownership happen earlier, at the service edge, where you protect health, thread management, state, cancellation, AG-UI, execution and memory-candidate routes. See [Security Architecture](/docs/security-architecture). B4.run middleware is a narrower execution hook, and [Thread Access](/docs/thread-access) decides who may use a thread.
+  These controls act on a running route. Authenticating the HTTP service and establishing tenant ownership happen earlier, at the service edge, where you protect health, thread management, state, cancellation, AG-UI, execution and memory-candidate routes. See [Security Architecture](/docs/security-architecture). [Authentication](#authentication) resolves who is calling once per request, B4.run middleware is a narrower execution hook, and [Thread Access](/docs/thread-access) decides who may use a thread.
 </Callout>
 
 | Control | Question it answers | Docs |
@@ -12,6 +12,53 @@ Four independent controls decide what a running route can do: tool scoping, perm
 | Permissions | *Whether* a given call runs (human-in-the-loop approval) | [Permissions](/docs/permissions) |
 | Execution sandbox | *What* an allowed, approved call can actually touch | [Execution Sandbox](/docs/sandbox) |
 | Guarded delegation | *Whether* a child receives the delegated input before any of its tools execute | [Subagents](/docs/subagents#delegation-policy) |
+
+## Authentication
+
+`src/auth.ts` is the one place an app turns a request into a principal. It default-exports `defineAuth`, and B4.run calls its `authenticate` once per request, before middleware and before the [thread-access policy](/docs/thread-access):
+
+```ts title="src/auth.ts"
+import { defineAuth, reject } from "@b4run/sdk"
+
+export default defineAuth({
+  authenticate: async ({ headers }) => {
+    const session = await verifySession(headers.authorization)
+    if (!session) return reject(401, { error: "unauthorized" })
+    return { id: session.userId, org: session.orgId }
+  },
+})
+```
+
+What `authenticate` returns decides the request:
+
+| Result | What happens |
+|---|---|
+| A principal: an object with a string `id` | Passed to every consumer, shallow-frozen. |
+| `undefined` | The request is anonymous. `principal` is `undefined`, and each consumer decides what that means. |
+| `reject(status, body)` | That response, before any endpoint logic runs. |
+| A throw, or anything else | A 500. Never downgraded to anonymous. |
+
+The same value reaches every consumer, so none of them parses a header for identity:
+
+- `req.principal` in [middleware](/docs/middleware), including the `after` hook's `run.principal`
+- `req.principal` in the [thread-access policy](/docs/thread-access)
+- `ctx.principal` in every tool, and in subagents' tools
+
+Resolution runs for every runtime endpoint except `/healthz`, `/readyz` and CORS preflight. The principal is never persisted: it's not written to checkpoints, thread metadata or run config, and a resumed run gets the resumer's principal. Keep secrets out of it anyway. `setup` and `dispose` hooks work the way they do on [middleware](/docs/middleware).
+
+`b4 typegen` declares the type your `authenticate` resolves to, so `req.principal.org` and `ctx.principal.org` type-check without a cast. It writes `.b4/auth.generated.d.ts`, which `.b4/b4.generated.d.ts` references.
+
+### Comparing headers
+
+`headers` has lowercase keys, and repeated headers arrive joined with `", "`. `X-User-Id: victim` plus `X-User-Id: attacker` is the single string `"victim, attacker"`. That's safe under `===` and unsafe under `includes`, `startsWith` or `split(",")`. Compare with strict equality, compare secrets in constant time, and prefer a signed token over a trusted header wherever the deployment allows it.
+
+### When auth fails to load
+
+A `src/auth.ts` that exists must default-export `defineAuth(...)`. A missing default, a plain object, an import that throws or a path that can't be probed fails the boot with `B4_E3005`, because an auth file the runtime ignored would leave every request anonymous. The node and web build targets carry the file in their build; the `langsmith` target refuses an app that has one (`B4_E1005`).
+
+### Testing
+
+`createAgentHarness` runs the agent directly, so `src/auth.ts` never runs. Pass `principal` to give tools the caller they'd see behind the server. `createAgentProtocolInjector({ auth })` and `createThreadAccessHarness`'s `principal` field drive the gates.
 
 ## Tool scoping
 

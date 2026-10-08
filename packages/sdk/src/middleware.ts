@@ -1,3 +1,4 @@
+import type { B4Principal } from "./auth.js"
 import type { B4MessageContent } from "./content-parts.js"
 
 export interface MiddlewareRequest {
@@ -12,6 +13,12 @@ export interface MiddlewareRequest {
   readonly headers: Readonly<Record<string, string>>
   readonly method: string
   readonly params: Readonly<Record<string, string>>
+  /**
+   * Who is calling, as `src/auth.ts` resolved it for this request. `undefined`
+   * when the app has no auth file or the request is anonymous. Authorize
+   * against this, not `headers`.
+   */
+  readonly principal: B4Principal | undefined
   readonly routeId: string
   readonly url: string
 }
@@ -56,6 +63,8 @@ export interface MiddlewareAfterRun {
   readonly finalMessage: string
   /** The client-supplied conversation the run was started with. */
   readonly messages: readonly MiddlewareAfterMessage[]
+  /** The principal `handle` saw for this request. */
+  readonly principal: B4Principal | undefined
   readonly routeId: string
   readonly runId: string
   readonly threadId: string

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
+import { headerAuth } from "./helpers/header-auth.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -137,6 +138,7 @@ async function createHandler(
   options: Partial<Parameters<typeof createRuntimeFetchHandler>[0]> = {},
 ) {
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("x-pause"),
     appRoot,
     apSseHeartbeatIntervalMs: 60_000,
     drainDeadlineMs: 250,
@@ -638,7 +640,7 @@ describe("attach checkpoint provenance across routes", () => {
         threadAccess: {
           fallback: () => ({ decision: "allow" }),
           update: async (r) => {
-            if (r.headers["x-pause"] === "yes") {
+            if (r.principal?.id === "yes") {
               entered.resolve()
               await releaseGate.promise
             }

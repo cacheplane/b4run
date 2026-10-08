@@ -4,7 +4,7 @@ import { join } from "node:path"
 import type { B4Config, RouteManifest } from "@b4run/core"
 import { providerPackages } from "@b4run/langchain"
 import { type BuiltInModelProviderId, inferProvider } from "@b4run/sdk"
-
+import { findAuthFile } from "../../dev/auth-node.js"
 import { findMiddlewareFile } from "../../dev/middleware-node.js"
 import { findThreadAccessFile } from "../../dev/thread-access-node.js"
 import { loadB4Config } from "../../node-config.js"
@@ -50,6 +50,7 @@ export async function emitWebRuntimeArtifacts(
   // resolves is the ONLY thing the deployed app will ever see. It throws rather
   // than shrugging when a candidate cannot be probed — see `findThreadAccessFile`.
   const threadAccessFile = findThreadAccessFile(appRoot)
+  const authFile = findAuthFile(appRoot)
   const config = await loadBuildConfig(appRoot)
   assertEdgeCapabilities({ appRoot, config, manifest }, targetName)
   const providerImports = await resolveProviderImports(manifest, config, targetName)
@@ -63,6 +64,7 @@ export async function emitWebRuntimeArtifacts(
     providerImports,
     targetName,
     threadAccessExpected: threadAccessFile !== undefined,
+    authExpected: authFile !== undefined,
   })
 
   // The runtime's own discovery functions, run once here at build time —
@@ -102,6 +104,7 @@ export async function emitWebRuntimeArtifacts(
       discoveries,
       ...(middlewareFile ? { middlewareFile } : {}),
       ...(threadAccessFile ? { threadAccessFile } : {}),
+      ...(authFile ? { authFile } : {}),
     },
     targetName,
   )
@@ -606,6 +609,8 @@ function emitAppEntry(options: {
   readonly targetName: WebRuntimeEmitOptions["targetName"]
   /** Did this build find a thread-access policy file? See `threadAccessRecord`. */
   readonly threadAccessExpected: boolean
+  /** Did this build find a `src/auth.ts`? Same stale-manifest record as `threadAccessExpected`. */
+  readonly authExpected: boolean
 }): string {
   const namespace = edgeAppNamespace(options.appRoot)
   const serializable = toSerializableConfig(options.config)
@@ -767,7 +772,7 @@ app.all("*", async (c) => {
     appRoot: APP_ROOT,
     config,
     modules,
-    requestStores,${threadAccessRecord(options.threadAccessExpected)}
+    requestStores,${threadAccessRecord(options.threadAccessExpected)}${options.authExpected ? `\n    authExpected: true,` : ""}
   }).catch((error) => {
     handlerPromise = undefined
     throw error

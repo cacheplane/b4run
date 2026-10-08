@@ -10,8 +10,8 @@ import {
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
+import { headerAuth } from "./helpers/header-auth.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -48,6 +48,7 @@ async function setup(
     await writeFile(filePath, source, "utf8")
   }
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("x-user-id"),
     appRoot,
     ...(options.checkpointer ? { checkpointer: options.checkpointer } : {}),
     drainDeadlineMs: 250,
@@ -237,7 +238,7 @@ describe("GET /threads/:thread_id", () => {
     expect(response.status).toBe(404)
   })
 
-  it("invokes the policy with the row loaded, the operation, the method and the url", async () => {
+  it("invokes the policy with the row loaded, the operation, the principal, the method and the url", async () => {
     const { policy, seen } = recording()
     const { handler } = await setup({ threadAccess: policy })
     const created = await handler.fetch(post("/threads", { metadata: { tenant: "acme" } }))
@@ -247,9 +248,9 @@ describe("GET /threads/:thread_id", () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({
       action: "read",
-      headers: { "x-user-id": "u-1" },
       method: "GET",
       operation: "thread.get",
+      principal: { id: "u-1" },
       threadId: thread_id,
       url: `/threads/${thread_id}?x=1`,
     })

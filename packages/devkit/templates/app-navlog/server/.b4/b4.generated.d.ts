@@ -1,3 +1,4 @@
+/// <reference path="./auth.generated.d.ts" />
 /// <reference path="./scenarios.generated.d.ts" />
 
 declare module "b4:routes" {

@@ -342,6 +342,7 @@ export interface B4ToolDefinition {
     input: unknown,
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
+      readonly principal?: import("@b4run/sdk").B4Principal
       readonly signal: AbortSignal
       // Optional here because pre-wrap invokers (langchain tool-converter/loop)
       // omit it; the cli's prepareRouteExecution wrapper guarantees it at

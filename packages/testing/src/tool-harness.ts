@@ -11,6 +11,7 @@ export interface ToolHarness<I, O> {
 
 export interface ToolHarnessOptions {
   readonly middleware?: Readonly<Record<string, unknown>>
+  readonly principal?: import("@b4run/sdk").B4Principal
   readonly workspace?: WorkspaceHarness
   readonly permissions?: PermissionsStore
 }

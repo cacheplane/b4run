@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const builderPolicy = fileURLToPath(new URL("../../server/src/thread-access.ts", import.meta.url))
-const drafterPolicy = fileURLToPath(new URL("../../drafter/src/thread-access.ts", import.meta.url))
+const workerFile = (worker: "server" | "drafter", file: string) =>
+  fileURLToPath(new URL(`../../${worker}/src/${file}`, import.meta.url))
 const TOKEN = "t".repeat(40)
 
 afterEach(() => {
@@ -16,15 +16,31 @@ async function load(token: string | undefined) {
   if (token === undefined) vi.stubEnv("FACTORY_WORKER_TOKEN", undefined as unknown as string)
   else vi.stubEnv("FACTORY_WORKER_TOKEN", token)
   // `resetModules` above makes this a fresh evaluation, so the module reads the stubbed token.
-  return import("../../server/src/thread-access.ts")
+  return import("../../server/src/auth.ts")
 }
 
-const request = (authorization?: string) => ({
+/** Who `src/auth.ts` says presented `authorization`, with the worker token set to TOKEN. */
+async function principalFor(authorization?: string) {
+  const auth = (await load(TOKEN)).default
+  return await auth.authenticate({
+    headers: authorization === undefined ? {} : { authorization },
+    method: "GET",
+    url: "/threads/t-1",
+  })
+}
+
+async function policy() {
+  return (await import("../../server/src/thread-access.ts")).default
+}
+
+const CONTROLLER = { id: "controller" }
+
+const request = (principal?: { readonly id: string }) => ({
   action: "read" as const,
   operation: "thread.get" as const,
   threadId: "t-1",
   thread: undefined,
-  headers: authorization === undefined ? {} : { authorization },
+  principal,
   method: "GET",
   url: "/threads/t-1",
   requestedMetadata: undefined,
@@ -34,8 +50,8 @@ const request = (authorization?: string) => ({
 
 const DIGEST = "d".repeat(64)
 /** `PUT /workspace/sources/:digest`: a create with no thread, naming the upload's digest. */
-const upload = (authorization?: string) => ({
-  ...request(authorization),
+const upload = (principal?: { readonly id: string }) => ({
+  ...request(principal),
   action: "create" as const,
   operation: "workspace.source.put" as const,
   threadId: undefined,
@@ -45,7 +61,7 @@ const upload = (authorization?: string) => ({
 })
 /** `POST /threads` naming a staged workspace, uploaded by `uploadedBy`. */
 const create = (uploadedBy: readonly Record<string, unknown>[] | undefined) => ({
-  ...request(`Bearer ${TOKEN}`),
+  ...request(CONTROLLER),
   action: "create" as const,
   operation: "thread.create" as const,
   threadId: undefined,
@@ -58,14 +74,18 @@ const create = (uploadedBy: readonly Record<string, unknown>[] | undefined) => (
       : { sourceDigest: DIGEST, environmentLinks: [], uploadedBy },
 })
 
-describe("the workers' thread-access policy", () => {
-  it("is the same file in the builder and the drafter", () => {
-    expect(readFileSync(drafterPolicy, "utf8")).toBe(readFileSync(builderPolicy, "utf8"))
-  })
+describe("the workers' auth and thread-access policy", () => {
+  it.each(["auth.ts", "thread-access.ts"])(
+    "%s is the same file in the builder and the drafter",
+    (file) => {
+      expect(readFileSync(workerFile("drafter", file), "utf8")).toBe(
+        readFileSync(workerFile("server", file), "utf8"),
+      )
+    },
+  )
 
-  it("admits exactly `Bearer <FACTORY_WORKER_TOKEN>` and denies everything else with 403", async () => {
-    const policy = (await load(TOKEN)).default
-    expect(await policy.fallback(request(`Bearer ${TOKEN}`))).toEqual({ decision: "allow" })
+  it("resolves the controller from exactly `Bearer <FACTORY_WORKER_TOKEN>`, and nobody else", async () => {
+    expect(await principalFor(`Bearer ${TOKEN}`)).toEqual(CONTROLLER)
     for (const wrong of [
       undefined,
       TOKEN,
@@ -76,21 +96,28 @@ describe("the workers' thread-access policy", () => {
       `Bearer ${"u".repeat(40)}`,
       "",
     ])
-      expect(await policy.fallback(request(wrong))).toEqual({ decision: "deny", status: 403 })
+      expect(await principalFor(wrong)).toBeUndefined()
+  })
+
+  it("admits the controller to every thread endpoint and denies anyone else with 403", async () => {
+    const { fallback } = await policy()
+    expect(await fallback(request(CONTROLLER))).toEqual({ decision: "allow" })
+    for (const wrong of [undefined, { id: "someone" }])
+      expect(await fallback(request(wrong))).toEqual({ decision: "deny", status: 403 })
   })
 
   it("stamps the controller's uploads as the controller's, and denies anyone else's", async () => {
-    const policy = (await load(TOKEN)).default
-    expect(await policy.fallback(upload(`Bearer ${TOKEN}`))).toEqual({
+    const { fallback } = await policy()
+    expect(await fallback(upload(CONTROLLER))).toEqual({
       decision: "allow",
       stamp: { principal: "controller" },
     })
-    for (const wrong of [undefined, `Bearer ${"u".repeat(40)}`])
-      expect(await policy.fallback(upload(wrong))).toEqual({ decision: "deny", status: 403 })
+    for (const wrong of [undefined, { id: "someone" }])
+      expect(await fallback(upload(wrong))).toEqual({ decision: "deny", status: 403 })
   })
 
   it("admits a create naming a workspace only when the controller uploaded that source", async () => {
-    const policy = (await load(TOKEN)).default
+    const policy = await import("../../server/src/thread-access.ts").then((mod) => mod.default)
     // No workspace named: the ordinary create.
     expect(await policy.fallback(create(undefined))).toEqual({ decision: "allow" })
     expect(await policy.fallback(create([{ principal: "controller" }]))).toEqual({
@@ -118,8 +145,7 @@ describe("the workers' thread-access policy", () => {
   })
 
   it("has no per-action handler: every operation goes through the one check", async () => {
-    const policy = (await load(TOKEN)).default
-    expect(Object.keys(policy)).toEqual(["fallback"])
+    expect(Object.keys(await policy())).toEqual(["fallback"])
   })
 
   it("refuses to load without a token of at least 32 characters and no whitespace", async () => {

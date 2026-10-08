@@ -4,6 +4,7 @@ import type {
   ApprovalGrantMinter,
   B4Agent,
   B4ContentPart,
+  B4Principal,
   BuiltInModelProviderId,
   ClientToolRecorder,
   RetryConfig,
@@ -58,6 +59,7 @@ export interface B4ToolDefinition {
     input: unknown,
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
+      readonly principal?: import("@b4run/sdk").B4Principal
       readonly signal: AbortSignal
       /**
        * The provider's id for this call, stable across LangGraph's re-execution
@@ -162,6 +164,8 @@ async function materializeAgent(
   opts: {
     readonly stateFields?: readonly ResolvedStateField[]
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run; tools read it as `ctx.principal`. Per-request, so it bypasses the graph cache. */
+    readonly principal?: B4Principal
     readonly promptFragments?: readonly PromptFragment[]
     readonly bypassCache?: boolean
     readonly offload?: OffloadFn
@@ -172,13 +176,16 @@ async function materializeAgent(
     readonly responseFormat?: JsonSchemaResponseFormat
   } = {},
 ): Promise<AgentLike> {
-  // Converted tools capture middleware context, including request-specific
-  // identity and authorization. Never read or seed the shared cache with it.
+  // Converted tools capture middleware context and the request principal —
+  // request-specific identity and authorization. Never read or seed the shared
+  // cache with either: a cached graph would hand one caller's principal to the
+  // next caller's tools.
   // A response format is per-request too: it is bound INTO the model, so a
   // cached graph would either carry one request's schema into the next or
   // hand a format-bound request the unbound graph.
   const bypassCache =
     opts.middlewareContext !== undefined ||
+    opts.principal !== undefined ||
     opts.subagentResolver !== undefined ||
     opts.bypassCache === true ||
     opts.responseFormat !== undefined ||
@@ -227,6 +234,7 @@ async function materializeAgent(
       opts.routeParamNames ?? [],
       opts.streamTransformers ?? [],
       modality,
+      opts.principal,
     )
     // `createAgent` ends the run on a flagged tool's result by name, error or
     // not; B4's loop-entry middleware routes these instead (`endsOnReturnDirect`).
@@ -296,6 +304,8 @@ export async function materializeAgentGraph(options: {
   readonly checkpointer?: BaseCheckpointSaver
   readonly descriptor: B4Agent
   readonly middlewareContext?: Readonly<Record<string, unknown>>
+  /** Who started the run; tools read it as `ctx.principal`. Per-request, so it bypasses the graph cache. */
+  readonly principal?: B4Principal
   readonly offload?: OffloadFn
   readonly routeParamNames?: readonly string[]
   readonly tools?: readonly B4ToolDefinition[]
@@ -316,6 +326,7 @@ export async function materializeAgentGraph(options: {
   return materializeAgent(options.descriptor, options.tools ?? [], options.checkpointer, {
     ...(options.stateFields ? { stateFields: options.stateFields } : {}),
     ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+    ...(options.principal ? { principal: options.principal } : {}),
     ...(options.promptFragments ? { promptFragments: options.promptFragments } : {}),
     ...(options.offload ? { offload: options.offload } : {}),
     ...(options.routeParamNames ? { routeParamNames: options.routeParamNames } : {}),
@@ -1243,6 +1254,8 @@ export interface AgentOptions {
    */
   readonly input: unknown
   readonly middlewareContext?: Readonly<Record<string, unknown>>
+  /** Who started the run; tools read it as `ctx.principal`. Per-request, so it bypasses the graph cache. */
+  readonly principal?: B4Principal
   readonly offload?: OffloadFn
   /**
    * Run-level retry for a legacy raw runnable that has no `streamEvents`: the
@@ -1384,6 +1397,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
       {
         ...(options.stateFields ? { stateFields: options.stateFields } : {}),
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+        ...(options.principal ? { principal: options.principal } : {}),
         ...(options.promptFragments ? { promptFragments: options.promptFragments } : {}),
         ...((resolver && hasTaskTool) || options.bypassCache || options.sandboxed
           ? { bypassCache: true }
@@ -1428,6 +1442,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
           options.routeParamNames,
           options.streamTransformers ?? [],
           RAW_RUNNABLE_MODALITY,
+          options.principal,
         ),
   )
   if (langchainTools.length > 0) {

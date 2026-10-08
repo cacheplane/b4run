@@ -15,6 +15,7 @@ import {
 import { isCanonicalRoot } from "../src/lib/dev/thread-workspace-http.ts"
 import { withManagedWorkspaceReader } from "../src/lib/runtime/managed-workspace-reader.ts"
 import { readThreadWorkspace } from "../src/lib/runtime/read-thread-workspace.ts"
+import { headerAuth } from "./helpers/header-auth.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
 const TOKEN = "Bearer endpoint-test-token"
@@ -29,8 +30,8 @@ afterEach(async () => {
 
 /** Admits only `TOKEN`, and denies with 403 as the factory's policy does. */
 const tokenPolicy = {
-  fallback: (req: { headers: Readonly<Record<string, string>> }) =>
-    req.headers.authorization === TOKEN
+  fallback: (req: { principal?: { readonly id: string } }) =>
+    req.principal?.id === TOKEN
       ? { decision: "allow" as const }
       : { decision: "deny" as const, status: 403 as const },
 }
@@ -69,6 +70,7 @@ async function fixture(
     },
   }
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("authorization"),
     appRoot,
     config,
     threadAccess: (options.policy ?? tokenPolicy) as never,

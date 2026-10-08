@@ -15,7 +15,7 @@ import {
 } from "@b4run/cli/runtime"
 import { __clearB4ConfigCacheForTests } from "@b4run/core"
 import { discoverRoutes } from "@b4run/core/node"
-import type { B4ContentPart, B4ToolContext } from "@b4run/sdk"
+import type { B4ContentPart, B4Principal, B4ToolContext } from "@b4run/sdk"
 import { type Aimock, createAimock } from "./aimock-runner.js"
 import type { FixtureSet, ScriptBuilder } from "./fixture-builder.js"
 import { recordingsToFixtures } from "./record-fixtures.js"
@@ -79,6 +79,12 @@ export interface AgentHarnessOptions {
    * behave as they do behind the server. A function is evaluated per turn.
    */
   readonly middlewareContext?: AgentHarnessMiddlewareContext
+  /**
+   * The harness invokes the agent directly, so `src/auth.ts` never runs.
+   * Supply the principal it would have resolved, so tools that read
+   * `ctx.principal` behave as they do behind the server.
+   */
+  readonly principal?: B4Principal
   /**
    * When true, proxy all LLM requests through a real upstream (OPENAI_API_KEY
    * must be set). Requires OPENAI_API_KEY to be present in the environment.
@@ -260,6 +266,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(resolvedResume ? { resume: resolvedResume } : {}),
       ...(middlewareContext !== undefined ? { middlewareContext } : {}),
+      ...(options.principal !== undefined ? { principal: options.principal } : {}),
       ...(responseFormat !== undefined ? { responseFormat } : {}),
     }
     const stream = streamResolvedRoute(streamArgs)

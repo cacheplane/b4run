@@ -1,3 +1,4 @@
+import { findAuthFile } from "../../dev/auth-node.js"
 import { findThreadAccessFile } from "../../dev/thread-access-node.js"
 import { CliError } from "../../output.js"
 
@@ -27,6 +28,24 @@ export function assertNoThreadAccessPolicy(appRoot: string, target: string): voi
     `The "${target}" build target cannot carry a thread access policy, and ${found} exists. ` +
       "Building it anyway would deploy every thread endpoint ungated. Remove the policy file, " +
       'or build for the "node" target, which carries it in its build.',
+    1,
+    { code: "B4_E1005" },
+  )
+}
+
+/**
+ * Fail a build for a target that cannot carry the app's `src/auth.ts` yet.
+ * `langsmith` compiles routes to graphs and runs no app hooks, so building an
+ * app that authenticates would deploy it with every request anonymous. The
+ * LangSmith `auth.path` compile lifts this refusal.
+ */
+export function assertNoAuthFile(appRoot: string, target: string): void {
+  const found = findAuthFile(appRoot)
+  if (!found) return
+  throw new CliError(
+    `The "${target}" build target cannot carry src/auth.ts yet, and ${found} exists. ` +
+      "Building it anyway would deploy every request unauthenticated. " +
+      'Build for the "node" target, or enforce authentication on the platform and remove the file.',
     1,
     { code: "B4_E1005" },
   )

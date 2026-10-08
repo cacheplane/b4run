@@ -17,6 +17,7 @@ import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
 import { terminalStatus } from "../src/lib/dev/terminal-status.js"
+import { headerAuth } from "./helpers/header-auth.ts"
 import { atomicWriteLines, waitForFile } from "./helpers/probe-file.js"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -160,6 +161,7 @@ async function createHandler(
   threadAccess?: ThreadAccessPolicy,
 ) {
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("x-actor"),
     appRoot,
     apSseHeartbeatIntervalMs: 60_000,
     drainDeadlineMs: 250,
@@ -1215,7 +1217,7 @@ const OWNER: Record<string, string> = { "x-actor": "owner" }
 function ownerOnlyPolicy(): ThreadAccessPolicy {
   return {
     fallback: (request) =>
-      request.headers["x-actor"] === "owner" ? { decision: "allow" } : { decision: "deny" },
+      request.principal?.id === "owner" ? { decision: "allow" } : { decision: "deny" },
   }
 }
 
@@ -1245,7 +1247,7 @@ function forbiddenReadOwnerOnlyPolicy(): RecordingPolicy {
     policy: {
       fallback: (request) => {
         operations.push(request.operation)
-        if (request.headers["x-actor"] === "owner") return { decision: "allow" }
+        if (request.principal?.id === "owner") return { decision: "allow" }
         return request.action === "read" ? { decision: "deny", status: 403 } : { decision: "deny" }
       },
     },
@@ -1279,7 +1281,7 @@ function heldDenyOwnerOnlyPolicy(): HeldDenyPolicy {
     denyEntered,
     policy: {
       fallback: async (request) => {
-        if (request.headers["x-actor"] === "owner") return { decision: "allow" }
+        if (request.principal?.id === "owner") return { decision: "allow" }
         markEntered()
         await held
         return { decision: "deny" }

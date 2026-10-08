@@ -21,6 +21,16 @@ export type {
   ToolScope,
 } from "./agent.js"
 export { agent, isB4Agent, normalizeApproveEntries } from "./agent.js"
+export type {
+  AuthDefinition,
+  AuthRequest,
+  AuthResult,
+  AuthSetupContext,
+  B4Principal,
+  B4PrincipalShape,
+  B4Register,
+} from "./auth.js"
+export { defineAuth, isAuthDefinition } from "./auth.js"
 export type { BackendAdapter } from "./backend-adapter.js"
 export type {
   ClientToolCallAnswer,
