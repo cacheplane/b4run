@@ -35,6 +35,7 @@ export {
   MissingClientToolRecorderError,
 } from "./capabilities/client-tools.js"
 export type {
+  GateStepDisplay,
   MemorySupersedeDetail,
   SubagentGateRequest,
 } from "./capabilities/permission-gate.js"

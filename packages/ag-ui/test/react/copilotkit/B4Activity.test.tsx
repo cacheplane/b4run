@@ -188,7 +188,7 @@ describe("B4Activity", () => {
       </B4Activity>,
     )
     act(() => {
-      // A restored parked call: no b4.step label arrived for it.
+      // A tool without `display.running`: no b4.step label arrived for it.
       current.agent.emit(started("r1"))
       current.agent.emit(toolStart("c1", "fileFlightPlan"))
       current.agent.emit(toolStart("c2", "planRoute"))

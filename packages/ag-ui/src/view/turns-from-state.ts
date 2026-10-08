@@ -4,6 +4,7 @@ import {
   B4_STEP_KEY,
   B4_SUBAGENT_KEY,
   B4_TURN_METADATA_KEY,
+  isToolDisplayIcon,
   type PersistedStep,
   type PersistedTurnEnd,
   readPersistedStep,
@@ -146,6 +147,35 @@ function textOf(content: unknown): string {
   return content
     .map((b) => (isRecord(b) && b.type === "text" && typeof b.text === "string" ? b.text : ""))
     .join("")
+}
+
+/**
+ * The `running` step of a parked call: the running display (`step`) its
+ * permission interrupt carries, which the runtime streamed live as the call's
+ * `b4.step` before the gate parked it. A parked call has no ToolMessage to
+ * stamp, so the interrupt is where the checkpoint keeps it. Undefined when the
+ * thread is not parked on this call or the interrupt carries no display.
+ */
+function parkedStep(input: Normalised, toolCallId: string): BaseEvent | undefined {
+  if (input.status !== "interrupted") return undefined
+  for (const pending of input.pendingInterrupts) {
+    const interrupt = toAguiInterrupt(pending.value)
+    if (interrupt?.toolCallId !== toolCallId) continue
+    const step = isRecord(interrupt.metadata) ? interrupt.metadata.step : undefined
+    if (!isRecord(step)) return undefined
+    const { icon, label } = step
+    const display = {
+      ...(isToolDisplayIcon(icon) ? { icon } : {}),
+      ...(typeof label === "string" && label !== "" ? { label } : {}),
+    }
+    if (Object.keys(display).length === 0) return undefined
+    return {
+      type: EventType.CUSTOM,
+      name: B4_STEP_EVENT_NAME,
+      value: { toolCallId, status: "running", ...display },
+    } as BaseEvent
+  }
+  return undefined
 }
 
 /** Reasoning text of a message's content blocks (`thinking`/`reasoning`), joined. */
@@ -602,6 +632,10 @@ function synthesiseNamespace(
           owner,
         )
         push(s, at, { type: EventType.TOOL_CALL_END, toolCallId } as BaseEvent, owner)
+        // Live, a parked call's tool streamed its running step before the gate
+        // parked it; the interrupt kept that display.
+        const running = answered.has(toolCallId) ? undefined : parkedStep(input, toolCallId)
+        if (running !== undefined) push(s, at, running, owner)
         if (call.name === TASK_TOOL && !answered.has(toolCallId)) {
           // The bridge writes the task's ToolMessage only when the child ends:
           // a running or parked child has a namespace but no message yet. The

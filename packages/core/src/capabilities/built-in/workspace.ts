@@ -4,7 +4,7 @@ import { POSIX_SEP, pureJoin, pureRelative, pureResolve } from "@b4run/sdk/pure"
 import type { BackendContext, ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { z } from "zod"
 
-import { gateBashOp } from "../permission-gate.js"
+import { gateBashOp, gateCallOptions } from "../permission-gate.js"
 import type { B4ToolDefinition, CapabilityMarker } from "../types.js"
 import { createWorkspaceFs } from "../workspace-fs.js"
 
@@ -251,7 +251,8 @@ function buildWorkspaceTools(
   // Agent tools run inside the graph, so the handle may surface the
   // interactive LangGraph permission interrupt.
   // Per call: the handle carries the call's signal and, so a parked path
-  // approval names the call it gates, the model's tool-call id.
+  // approval names the call it gates, the model's tool-call id (and how
+  // that call reads while it runs).
   function handleFor(ctx: { readonly signal: AbortSignal; readonly toolCallId?: string }) {
     return createWorkspaceFs({
       workspaceRoot,
@@ -259,7 +260,7 @@ function buildWorkspaceTools(
       permissions,
       signal: ctx.signal,
       interruptCapable: true,
-      ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
+      ...gateCallOptions(ctx),
     })
   }
   const readFile: OverridableTool = {
@@ -364,9 +365,7 @@ function buildWorkspaceTools(
     display: WORKSPACE_DISPLAY.runBash,
     run: async (input, ctx) => {
       const { command } = RUN_BASH_INPUT.parse(input)
-      const gate = await gateBashOp(permissions, command, {
-        ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
-      })
+      const gate = await gateBashOp(permissions, command, gateCallOptions(ctx))
       if (!gate.allowed) {
         throw new Error(gate.reason)
       }

@@ -28,6 +28,13 @@ export interface B4InterruptEnvelope {
   readonly toolCallId?: string
   /** `false` on a tool prompt that must ask every call: no "always" answer. */
   readonly allowAlways?: boolean
+  /**
+   * How the gated call reads while it runs — its tool's `display.icon` and
+   * `display.running` label, as the runtime streamed them in the call's
+   * `running` `b4.step`. Present when the tool has a display; a thread restored
+   * from the checkpoint reads the parked call's label from here.
+   */
+  readonly step?: { readonly icon?: string; readonly label?: string }
   readonly [key: string]: unknown
 }
 

@@ -360,6 +360,17 @@ export interface B4ToolDefinition {
        */
       readonly toolCallId?: string
       /**
+       * How this call reads while it runs — its tool's `display.icon` and
+       * `display.running` label, as the runtime streamed them. A permission
+       * gate that parks the call puts it on the interrupt, so a thread
+       * restored from the checkpoint shows the same label. Absent when the
+       * tool has no display or the call has no `toolCallId`.
+       */
+      readonly step?: {
+        readonly icon?: import("@b4run/sdk").ToolDisplayIcon
+        readonly label?: string
+      }
+      /**
        * Receives how a permission gate answered this call (`once`, `always`,
        * `deny`) when one ran interactively; the runtime persists it on the
        * call's step. Absent outside the runtime's converter.

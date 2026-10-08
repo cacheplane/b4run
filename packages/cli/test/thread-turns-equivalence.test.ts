@@ -18,14 +18,11 @@
 //   so neither side carries one; the comparison strips it anyway so the test
 //   stays about shape, not grant policy (grants are pinned in
 //   `thread-turns-endpoint.test.ts`).
-// - An AWAITING step's `icon`/`label`/`sources`: live shows the `running`
-//   label and icon the runtime streamed as `b4.step` before the gate parked
-//   the call; restored has none, because the only persisted display is the
-//   `b4_step` stamp on the call's ToolMessage, and a parked call has no
-//   ToolMessage yet (spec §2.2: "Awaiting needs no stamp"). `display.running`
-//   is a function the synthesiser cannot run, so a restored awaiting step
-//   falls back on the tool name client-side. Stripped from awaiting steps
-//   only; once the call settles both sides must carry the same done label.
+//
+// An AWAITING step is NOT normalised: live shows the `running` label and icon
+// the runtime streamed as `b4.step` before the gate parked the call, and the
+// gate keeps that display on the checkpointed interrupt (`step`), so the
+// restored awaiting step carries the same label and icon.
 //
 // Everything else — statuses, names, args, results, labels, icons, sources,
 // text, the approval's `interruptId`/`kind`/`detail`/`message`/`offersAlways`,
@@ -232,22 +229,18 @@ async function readTurns(handler: Handler, threadId: string): Promise<TurnsBody>
 // ---------------------------------------------------------------------------
 
 const CLOCK_KEYS: ReadonlySet<string> = new Set(["startedAt", "settledAt", "endedAt", "updatedAt"])
-/** The running display live shows on a parked call and storage never holds (see the top of this file). */
-const AWAITING_DISPLAY_KEYS: ReadonlySet<string> = new Set(["icon", "label", "sources"])
 
 function normaliseValue(value: unknown, path: readonly string[]): unknown {
   if (Array.isArray(value)) return value.map((item) => normaliseValue(item, path))
   if (typeof value !== "object" || value === null) return value
   const record = value as Record<string, unknown>
   const isReasoning = record.kind === "reasoning"
-  const isAwaitingTool = record.kind === "tool" && record.status === "awaiting"
   const out: Record<string, unknown> = {}
   for (const [key, item] of Object.entries(record)) {
     if (key === "runId") out[key] = "turn"
     else if (CLOCK_KEYS.has(key) && typeof item === "number") out[key] = 0
     else if (isReasoning && (key === "id" || key === "messageId")) out[key] = "r"
     else if (key === "grant" && path.at(-1) === "approval") continue
-    else if (isAwaitingTool && AWAITING_DISPLAY_KEYS.has(key)) continue
     else out[key] = normaliseValue(item, [...path, key])
   }
   return out
@@ -341,10 +334,10 @@ describe("a thread restored through GET /threads/:id/turns equals its live AG-UI
         status: "awaiting",
       })
     }
-    // The documented gap: live carries the running display on the parked call, restored does not.
-    expect(toolStep(liveParked)).toMatchObject({ icon: "run", label: "Deploying to staging…" })
-    expect(toolStep(restoredParked.turns).label).toBeUndefined()
-    expect(toolStep(restoredParked.turns).icon).toBeUndefined()
+    // Both carry the running display on the parked call: restored reads it off the interrupt.
+    for (const view of [liveParked, restoredParked.turns]) {
+      expect(toolStep(view)).toMatchObject({ icon: "run", label: "Deploying to staging…" })
+    }
     const interruptId = toolStep(liveParked).approval?.interruptId
     expect(typeof interruptId).toBe("string")
     expect(toolStep(restoredParked.turns).approval?.interruptId).toBe(interruptId)

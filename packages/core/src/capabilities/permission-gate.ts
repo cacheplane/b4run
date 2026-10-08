@@ -10,6 +10,7 @@ import {
   type ConstraintContext,
   type ConstraintPredicate,
   type GateDecision,
+  type ToolDisplayIcon,
   toolDenial,
 } from "@b4run/sdk"
 import { POSIX_SEP } from "@b4run/sdk/pure"
@@ -27,9 +28,59 @@ export type GateResult =
   | { allowed: true; decision?: GateDecision }
   | { allowed: false; reason: string; code?: B4ErrorCode; decision?: GateDecision }
 
-/** The model's id for the tool call a gate is deciding; absent outside a model tool call. */
+/**
+ * How the gated call reads while it runs: the tool's `display.icon` and
+ * `display.running` label, exactly as the runtime streamed them as the call's
+ * `running` step. A parked prompt carries it as `step` on the interrupt, so a
+ * thread restored from the checkpoint shows the same label as the live run.
+ */
+export interface GateStepDisplay {
+  readonly icon?: ToolDisplayIcon
+  readonly label?: string
+}
+
+/** Which call a gate is deciding; absent outside a model tool call. */
 export interface GateCallOptions {
+  /** The model's id for the call. */
   readonly toolCallId?: string | undefined
+  /** The call's running display, when its tool has one. */
+  readonly step?: GateStepDisplay | undefined
+}
+
+/** The call identity a tool's run context carries (`toolCallId`, `step`), as gate options. */
+export function gateCallOptions(context: unknown): GateCallOptions {
+  const { toolCallId, step } = (context ?? {}) as {
+    readonly toolCallId?: unknown
+    readonly step?: unknown
+  }
+  const display = readGateStep(step)
+  return {
+    ...(typeof toolCallId === "string" && toolCallId !== "" ? { toolCallId } : {}),
+    ...(display !== undefined ? { step: display } : {}),
+  }
+}
+
+/** A running display with at least an icon or a non-empty label, else undefined. */
+function readGateStep(value: unknown): GateStepDisplay | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const { icon, label } = value as { readonly icon?: unknown; readonly label?: unknown }
+  const out = {
+    ...(typeof icon === "string" && icon !== "" ? { icon: icon as ToolDisplayIcon } : {}),
+    ...(typeof label === "string" && label !== "" ? { label } : {}),
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** The interrupt fields that name the gated call: its id and its running display. */
+function callFields(opts: GateCallOptions | undefined): {
+  toolCallId?: string
+  step?: GateStepDisplay
+} {
+  const step = readGateStep(opts?.step)
+  return {
+    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...(step !== undefined ? { step } : {}),
+  }
 }
 
 /** Prefix a denial reason with its error code when the tool result is returned to the model. */
@@ -81,7 +132,7 @@ export async function gatePathOp(
     kind: "path",
     operation,
     path: absPath,
-    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...callFields(opts),
     permissions,
   })
   if (decision === "deny") {
@@ -109,7 +160,7 @@ export async function gateBashOp(
   const decision = await emitPermissionInterrupt({
     kind: "command",
     command,
-    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...callFields(opts),
     permissions,
   })
   if (decision === "deny") {
@@ -181,7 +232,7 @@ export async function gateToolOp(
     toolName,
     argsPreview,
     ...(everyCall ? { allowAlways: false as const } : {}),
-    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...callFields(opts),
     permissions,
   })
   if (decision === "deny") {
@@ -313,7 +364,7 @@ export async function gateMemorySupersede(
   const decision = await emitPermissionInterrupt({
     kind: "memory",
     ...detail,
-    ...(opts?.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...callFields(opts),
     permissions,
   })
   if (decision === "deny") {
@@ -371,10 +422,9 @@ export function wrapToolWithApproval<
   return {
     ...tool,
     run: async (input: unknown, context: C) => {
-      const toolCallId = (context as { readonly toolCallId?: string }).toolCallId
       const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
         ...opts,
-        ...(toolCallId ? { toolCallId } : {}),
+        ...gateCallOptions(context),
       })
       reportGateDecision(context, gate)
       if (!gate.allowed) return toolDenial(codedReason(gate))
@@ -449,10 +499,12 @@ export function wrapToolWithConstraint<
         verdict !== null &&
         (verdict as { approve?: unknown }).approve === true
       ) {
-        const toolCallId = (context as { readonly toolCallId?: string }).toolCallId
-        const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
-          ...(toolCallId ? { toolCallId } : {}),
-        })
+        const gate = await gateToolOp(
+          permissions,
+          tool.name,
+          buildArgsPreview(input),
+          gateCallOptions(context),
+        )
         reportGateDecision(context, gate)
         if (!gate.allowed) return toolDenial(codedReason(gate))
         return tool.run(input, context)
@@ -472,6 +524,7 @@ type InterruptArgs =
       kind: "command"
       command: string
       toolCallId?: string | undefined
+      step?: GateStepDisplay | undefined
       permissions: PermissionsStore
     }
   | {
@@ -479,6 +532,7 @@ type InterruptArgs =
       operation: PathOperation
       path: string
       toolCallId?: string | undefined
+      step?: GateStepDisplay | undefined
       permissions: PermissionsStore
     }
   | {
@@ -488,6 +542,7 @@ type InterruptArgs =
       /** `false`: every call prompts; "always" is answered as "once". */
       allowAlways?: false
       toolCallId?: string | undefined
+      step?: GateStepDisplay | undefined
       permissions: PermissionsStore
     }
   | {
@@ -510,6 +565,7 @@ type InterruptArgs =
       oldContent: string
       newContent: string
       toolCallId?: string | undefined
+      step?: GateStepDisplay | undefined
       permissions: PermissionsStore
     }
 
@@ -537,6 +593,11 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
     // `callId` instead (the two coexist on a child's own gate: `callId` is the
     // task call, `toolCallId` the child's call).
     ...("toolCallId" in args && args.toolCallId ? { toolCallId: args.toolCallId } : {}),
+    // How the gated call reads while it runs (its tool's `display.running`
+    // label and icon). The runtime streamed it as the call's `running` step;
+    // it rides on the checkpointed interrupt because a parked call has no
+    // ToolMessage to stamp yet, so a restored thread shows the same label.
+    ...("step" in args && args.step !== undefined ? { step: args.step } : {}),
     detail:
       args.kind === "command"
         ? { command: args.command, suggestedPattern }

@@ -31,7 +31,7 @@
 //   one, and its args are the re-sent ones.
 // - Events tagged `subagentRunId` are dropped on both sides: the chat never
 //   shows a subagent's inner messages.
-// - Turn-level normalisation (run ids, clocks, reasoning ids, awaiting display)
+// - Turn-level normalisation (run ids, clocks, reasoning ids)
 //   is `thread-turns-equivalence.test.ts`'s, reused verbatim.
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -235,22 +235,18 @@ async function readTurns(handler: Handler, threadId: string): Promise<TurnsBody>
 // ---------------------------------------------------------------------------
 
 const CLOCK_KEYS: ReadonlySet<string> = new Set(["startedAt", "settledAt", "endedAt", "updatedAt"])
-/** The running display live shows on a parked call and storage never holds (see the top of this file). */
-const AWAITING_DISPLAY_KEYS: ReadonlySet<string> = new Set(["icon", "label", "sources"])
 
 function normaliseValue(value: unknown, path: readonly string[]): unknown {
   if (Array.isArray(value)) return value.map((item) => normaliseValue(item, path))
   if (typeof value !== "object" || value === null) return value
   const record = value as Record<string, unknown>
   const isReasoning = record.kind === "reasoning"
-  const isAwaitingTool = record.kind === "tool" && record.status === "awaiting"
   const out: Record<string, unknown> = {}
   for (const [key, item] of Object.entries(record)) {
     if (key === "runId") out[key] = "turn"
     else if (CLOCK_KEYS.has(key) && typeof item === "number") out[key] = 0
     else if (isReasoning && (key === "id" || key === "messageId")) out[key] = "r"
     else if (key === "grant" && path.at(-1) === "approval") continue
-    else if (isAwaitingTool && AWAITING_DISPLAY_KEYS.has(key)) continue
     else out[key] = normaliseValue(item, [...path, key])
   }
   return out

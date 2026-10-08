@@ -66,7 +66,7 @@ export interface B4ActivityProps {
  * authors: phrase `display.running` as an infinitive ("run a command") so the
  * card reads "The agent wants to run a command"; a progressive label
  * ("Running node x") reads "wants to running node x". A step with no running
- * label at all (a restored parked call) reads "wants to use <tool>".
+ * label at all (a tool without `display.running`) reads "wants to use <tool>".
  */
 export function B4Activity({
   agentId,

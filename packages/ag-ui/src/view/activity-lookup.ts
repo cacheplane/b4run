@@ -151,7 +151,7 @@ const lowerFirst = (s: string): string => (s.length > 0 ? `${s[0]?.toLowerCase()
 /**
  * What follows "wants to" on an approval card: the step's running label (an
  * app override's, else the server's `display.running`), lower-cased. With
- * neither — a restored parked call carries no running label — `stepLabel`
+ * neither — a tool without `display.running` — `stepLabel`
  * falls back on a progressive "Using X…", which cannot follow "wants to", so
  * the card says "use X" instead.
  */
