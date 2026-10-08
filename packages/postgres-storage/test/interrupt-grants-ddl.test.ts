@@ -57,6 +57,14 @@ describe("INTERRUPT_GRANTS_MIGRATIONS", () => {
     )
   })
 
+  it("pins migration 2's SQL exactly: the audit-only consumed_by column", () => {
+    const migration = INTERRUPT_GRANTS_MIGRATIONS.find((m) => m.version === 2)
+    expect(migration).toBeDefined()
+    expect(normalize(migration?.up(NAMING) ?? "")).toBe(
+      "ALTER TABLE public.b4_interrupt_grants ADD COLUMN IF NOT EXISTS consumed_by text;",
+    )
+  })
+
   it("honours the prefix and schema it is given", () => {
     const sql = INTERRUPT_GRANTS_MIGRATIONS[0]?.up({ schema: "app", prefix: "t_1" }) ?? ""
     expect(sql).toContain("app.t_1_interrupt_grants")
@@ -85,7 +93,7 @@ describe("INTERRUPT_GRANTS_MIGRATIONS", () => {
 })
 
 describe("the statements the store issues", () => {
-  it("names all nine columns in every INSERT", async () => {
+  it("names all ten columns in every INSERT", async () => {
     const { pool, sql } = recordingPool()
     const store = createPostgresInterruptGrantStore({
       pool,
@@ -100,6 +108,7 @@ describe("the statements the store issues", () => {
       expiresAt: null,
       consumedAt: null,
       consumedDecision: null,
+      consumedBy: null,
       voidedAt: null,
     })
 
@@ -116,10 +125,11 @@ describe("the statements the store issues", () => {
         "expires_at",
         "consumed_at",
         "consumed_decision",
+        "consumed_by",
         "voided_at",
       ])
-      // Nine named columns, nine bound placeholders, nothing implicit.
-      expect(insert.match(/\$\d+/g)).toHaveLength(9)
+      // Ten named columns, ten bound placeholders, nothing implicit.
+      expect(insert.match(/\$\d+/g)).toHaveLength(10)
     }
   })
 

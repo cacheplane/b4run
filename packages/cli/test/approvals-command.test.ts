@@ -49,6 +49,7 @@ const row = (over: Partial<InterruptGrantRecord>): InterruptGrantRecord => ({
   expiresAt: null,
   consumedAt: null,
   consumedDecision: null,
+  consumedBy: null,
   voidedAt: null,
   ...over,
 })
@@ -101,6 +102,7 @@ describe("b4 approvals prune", () => {
         interruptId: "stuck",
         consumedAt: thirtyDaysAgo,
         consumedDecision: "once",
+        consumedBy: null,
         voidedAt: null,
       }),
     )

@@ -58,6 +58,7 @@ async function seededApp(): Promise<string> {
     expiresAt: null,
     consumedAt: null,
     consumedDecision: null,
+    consumedBy: null,
     voidedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
   }
   await store.issue(record)

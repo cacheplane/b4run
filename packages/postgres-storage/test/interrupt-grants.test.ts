@@ -19,6 +19,7 @@ const grant = (over: Partial<InterruptGrantRecord> = {}): InterruptGrantRecord =
   expiresAt: null,
   consumedAt: null,
   consumedDecision: null,
+  consumedBy: null,
   voidedAt: null,
   ...over,
 })
@@ -80,6 +81,30 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
     })
   }, 60_000)
 
+  test("consume records who answered as consumedBy, and a replay keeps it", async () => {
+    await withStore(async (store) => {
+      await store.issue(grant())
+      const at = "2026-09-18T11:00:00.000Z"
+      const byAda = await store.consume({
+        threadId: "t-1",
+        interruptId: "i-1",
+        decision: "once",
+        at,
+        by: "ada",
+      })
+      expect(byAda).toMatchObject({ outcome: "consumed", record: { consumedBy: "ada" } })
+      const replay = await store.consume({
+        threadId: "t-1",
+        interruptId: "i-1",
+        decision: "deny",
+        at,
+        by: "bob",
+      })
+      expect(replay).toMatchObject({ outcome: "already_consumed", record: { consumedBy: "ada" } })
+      expect((await store.get("t-1", "i-1"))?.consumedBy).toBe("ada")
+    })
+  }, 60_000)
+
   test("consume once returns consumed and records the decision", async () => {
     await withStore(async (store) => {
       await store.issue(grant())
@@ -94,10 +119,12 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
         record: {
           consumedAt: "2026-09-18T11:00:00.000Z",
           consumedDecision: "once",
+          consumedBy: null,
         },
       })
       expect(await store.get("t-1", "i-1")).toMatchObject({
         consumedDecision: "once",
+        consumedBy: null,
       })
     })
   }, 60_000)
@@ -123,6 +150,7 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
       expect(replay).toMatchObject({
         record: {
           consumedDecision: "always",
+          consumedBy: null,
           consumedAt: "2026-09-18T11:00:00.000Z",
         },
       })
@@ -237,6 +265,7 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
         voidedAt: "2026-09-18T12:00:00.000Z",
         consumedAt: "2026-09-18T11:00:00.000Z",
         consumedDecision: "once",
+        consumedBy: null,
       })
       expect(await store.get("t-other", "i-other")).toMatchObject({
         voidedAt: null,
@@ -317,6 +346,7 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
       // facts are kept on the row.
       expect(rows[0]).toMatchObject({
         consumedDecision: "once",
+        consumedBy: null,
         voidedAt: "2026-09-18T12:00:00.000Z",
       })
       expect(rows[1]).toMatchObject({ voidedAt: "2026-09-18T12:00:00.000Z" })
@@ -376,6 +406,7 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
           interruptId: "stuck_consumed",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
         }),
       )
       // (c) consumed, then voided before the cutoff: deleted.
@@ -384,6 +415,7 @@ describe.skipIf(!enabled)("postgres interrupt grant store against real Postgres"
           interruptId: "consumed_then_voided",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
           voidedAt: OLD,
         }),
       )

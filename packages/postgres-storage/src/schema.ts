@@ -312,6 +312,14 @@ export const INTERRUPT_GRANTS_MIGRATIONS: readonly Migration[] = [
         ON ${qualify(naming, "interrupt_grants")} (thread_id);
     `,
   },
+  {
+    // Who answered: the principal `src/auth.ts` resolved for the consuming
+    // request, audit only. Nullable — a row from before this column, an
+    // unconsumed row, and an anonymous answer all read as NULL.
+    version: 2,
+    up: (naming) =>
+      `ALTER TABLE ${qualify(naming, "interrupt_grants")} ADD COLUMN IF NOT EXISTS consumed_by text;`,
+  },
 ]
 
 /**

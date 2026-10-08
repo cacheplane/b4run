@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { createInterruptGrantStore } from "../src/interrupt-grants/index.js"
+import { INTERRUPT_GRANTS_MIGRATIONS } from "../src/interrupt-grants/schema.js"
 import type { InterruptGrantRecord } from "../src/interrupt-grants/types.js"
 
 describe("createInterruptGrantStore", () => {
@@ -32,6 +33,7 @@ describe("createInterruptGrantStore", () => {
       expiresAt: null,
       consumedAt: null,
       consumedDecision: null,
+      consumedBy: null,
       voidedAt: null,
       ...overrides,
     }
@@ -92,6 +94,63 @@ describe("createInterruptGrantStore", () => {
     expect(second.outcome === "already_consumed" && second.record.consumedAt).toBe(
       "2026-09-18T01:00:00.000Z",
     )
+  })
+
+  it("consume records who answered as consumedBy, null when anonymous, and a replay keeps it", async () => {
+    const store = newStore()
+    await store.issue(record())
+    await store.issue(record({ interruptId: "int-2" }))
+    const at = "2026-09-18T01:00:00.000Z"
+    const byAda = await store.consume({
+      threadId: "t-1",
+      interruptId: "int-1",
+      decision: "once",
+      at,
+      by: "ada",
+    })
+    expect(byAda.outcome === "consumed" && byAda.record.consumedBy).toBe("ada")
+    const anonymous = await store.consume({
+      threadId: "t-1",
+      interruptId: "int-2",
+      decision: "deny",
+      at,
+    })
+    expect(anonymous.outcome === "consumed" && anonymous.record.consumedBy).toBeNull()
+    const replay = await store.consume({
+      threadId: "t-1",
+      interruptId: "int-1",
+      decision: "deny",
+      at,
+      by: "bob",
+    })
+    expect(replay.outcome === "already_consumed" && replay.record.consumedBy).toBe("ada")
+    // Durable: a fresh store over the same file reads it back.
+    expect((await newStore().get("t-1", "int-1"))?.consumedBy).toBe("ada")
+  })
+
+  it("adds consumed_by to a database created before it, leaving old rows null", async () => {
+    // A file migrated to version 1 only, with a row in it: what an existing
+    // .b4/interrupt-grants.sqlite looks like on upgrade.
+    const { DatabaseSync } = await import("node:sqlite")
+    const db = new DatabaseSync(storePath())
+    db.exec(INTERRUPT_GRANTS_MIGRATIONS[0]?.up ?? "")
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    db.exec("INSERT INTO schema_version (version) VALUES (1)")
+    db.prepare(
+      "INSERT INTO interrupt_grants VALUES ('t-1', 'old', 'ns', ?, '2026-09-01T00:00:00.000Z', NULL, NULL, NULL, NULL)",
+    ).run("b".repeat(64))
+    db.close()
+
+    const store = newStore()
+    expect((await store.get("t-1", "old"))?.consumedBy).toBeNull()
+    const result = await store.consume({
+      threadId: "t-1",
+      interruptId: "old",
+      decision: "once",
+      at: "2026-09-18T01:00:00.000Z",
+      by: "ada",
+    })
+    expect(result.outcome === "consumed" && result.record.consumedBy).toBe("ada")
   })
 
   it("consume of a voided grant reports voided and leaves it unconsumed", async () => {
@@ -196,6 +255,7 @@ describe("createInterruptGrantStore", () => {
       voidedAt: "2026-09-18T03:00:00.000Z",
       consumedAt: "2026-09-18T01:00:00.000Z",
       consumedDecision: "always",
+      consumedBy: null,
     })
     expect((await store.get("t-1", "int-open"))?.voidedAt).toBe("2026-09-18T03:00:00.000Z")
   })
@@ -274,6 +334,7 @@ describe("createInterruptGrantStore", () => {
           interruptId: "stuck",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
           voidedAt: null,
         }),
       )
@@ -291,6 +352,7 @@ describe("createInterruptGrantStore", () => {
           interruptId: "consumed_then_voided",
           consumedAt: OLD,
           consumedDecision: "once",
+          consumedBy: null,
           voidedAt: OLD,
         }),
       )

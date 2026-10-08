@@ -184,3 +184,9 @@ export function withPrincipal(request: Request): { readonly principal?: B4Princi
   const principal = principals.get(request)
   return principal ? { principal } : {}
 }
+
+/** `{ consumedBy }` for a request that resolved a principal, else `{}` — what a consumed approval grant records. */
+export function consumedByOf(request: Request): { readonly consumedBy?: string } {
+  const principal = principals.get(request)
+  return principal ? { consumedBy: principal.id } : {}
+}

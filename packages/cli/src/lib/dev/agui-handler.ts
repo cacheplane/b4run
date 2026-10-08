@@ -41,7 +41,7 @@ import {
   minterFor,
   voidSupersededGrants,
 } from "./approval-grants.js"
-import { requestPrincipal, withPrincipal } from "./auth.js"
+import { consumedByOf, requestPrincipal, withPrincipal } from "./auth.js"
 import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
 import {
   ClientToolAbandonError,
@@ -905,6 +905,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         threadId,
         pending: pending.interrupts,
         entries: b4Input.resume,
+        ...consumedByOf(request),
       })
       if (refused) return refused
     }

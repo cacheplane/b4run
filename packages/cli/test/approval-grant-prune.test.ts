@@ -56,6 +56,7 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
     expiresAt: null,
     consumedAt: null,
     consumedDecision: null,
+    consumedBy: null,
     voidedAt: null,
     ...over,
   })
@@ -73,6 +74,7 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
         interruptId: "stuck",
         consumedAt: "2020-01-01T00:00:00.000Z",
         consumedDecision: "once",
+        consumedBy: null,
       }),
     )
     const now = new Date("2026-10-01T12:00:00.000Z")
@@ -151,6 +153,7 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
         interruptId: "consumed_done",
         consumedAt,
         consumedDecision: "once",
+        consumedBy: null,
       }),
     )
     await store.issue(
@@ -159,6 +162,7 @@ describe("pruneSettledGrants (opportunistic sweep)", () => {
         interruptId: "consumed_stuck",
         consumedAt,
         consumedDecision: "once",
+        consumedBy: null,
       }),
     )
     const voided = await voidSupersededGrants({
@@ -320,6 +324,7 @@ async function sweptRowSurvives(approvals: string): Promise<boolean> {
     expiresAt: null,
     consumedAt: null,
     consumedDecision: null,
+    consumedBy: null,
     voidedAt,
   })
   await withParkingModel()
