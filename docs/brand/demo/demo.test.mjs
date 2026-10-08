@@ -659,6 +659,10 @@ test("video and GIF encoders trim the recording, recheck abort before rename, an
     const ss = ffmpegArgs.indexOf("-ss")
     assert.deepEqual(ffmpegArgs.slice(ss, ss + 6), ["-ss", "2.000", "-t", "14.500", "-i", "/run/raw.webm"])
     assert.equal(ffmpegArgs.some((arg) => /overlay|tpad/.test(arg)), false)
+    if (name === "GIF") {
+      const map = ffmpegArgs.indexOf("-map")
+      assert.deepEqual(ffmpegArgs.slice(map, map + 2), ["-map", "[outv]"])
+    }
   }
 })
 
@@ -825,7 +829,13 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
             async encodeVideo({ destination }) {
               await writeFile(destination, "video")
             },
-            async encodePoster({ destination }) {
+            async encodePoster({ source: posterSource, destination, time }) {
+              assert.equal(posterSource, join(artifactsDir, "output/product-loop.mp4"))
+              assert.equal(
+                time,
+                createTrimPlan({ videoTimeline: summary.videoTimeline }).posterTime,
+              )
+              assert.equal(time, 2.75)
               await writeFile(destination, "poster")
             },
             async encodeGif({ destination }) {

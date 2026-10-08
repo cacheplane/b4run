@@ -322,18 +322,18 @@ export async function encodeVideo({
 		await run(
 			"ffmpeg",
 			[
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-y",
-			...trimArguments(trim),
-			"-i",
-			source,
-			"-vf",
-			SCALE_FILTER,
-			"-an",
-			...codecArguments,
-			temporaryPath,
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-y",
+				...trimArguments(trim),
+				"-i",
+				source,
+				"-vf",
+				SCALE_FILTER,
+				"-an",
+				...codecArguments,
+				temporaryPath,
 			],
 			{ signal },
 		);
@@ -405,21 +405,21 @@ export async function encodeGif({
 		await run(
 			"ffmpeg",
 			[
-			"-hide_banner",
-			"-loglevel",
-			"error",
-			"-y",
-			...trimArguments(trim),
-			"-i",
-			source,
-			"-filter_complex",
-			buildGifFilter(),
-			"-map",
-			"[outv]",
-			"-an",
-			"-gifflags",
-			"+transdiff",
-			temporaryPath,
+				"-hide_banner",
+				"-loglevel",
+				"error",
+				"-y",
+				...trimArguments(trim),
+				"-i",
+				source,
+				"-filter_complex",
+				buildGifFilter(),
+				"-map",
+				"[outv]",
+				"-an",
+				"-gifflags",
+				"+transdiff",
+				temporaryPath,
 			],
 			{ signal },
 		);
@@ -527,10 +527,27 @@ export async function encodeCaptureArtifacts({
 	const mp4 = join(outputDir, `${name}.mp4`);
 	const webm = join(outputDir, `${name}.webm`);
 	const poster = join(publicationDir, `${name}-poster.webp`);
-	await encodeVideoImplementation({ source, destination: mp4, trim, format: "mp4", signal });
-	await encodeVideoImplementation({ source, destination: webm, trim, format: "webm", signal });
+	await encodeVideoImplementation({
+		source,
+		destination: mp4,
+		trim,
+		format: "mp4",
+		signal,
+	});
+	await encodeVideoImplementation({
+		source,
+		destination: webm,
+		trim,
+		format: "webm",
+		signal,
+	});
 	await afterPhase("video", { name });
-	await encodePosterImplementation({ source: mp4, destination: poster, time: trim.posterTime, signal });
+	await encodePosterImplementation({
+		source: mp4,
+		destination: poster,
+		time: trim.posterTime,
+		signal,
+	});
 	await afterPhase("poster", { name });
 	const clips = { [name]: { mp4, webm, poster, duration: trim.duration } };
 	const gif = join(publicationDir, "product-loop.gif");
