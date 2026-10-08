@@ -37,9 +37,9 @@
       "recordDigest": "307496c3d233d6120e0bf7a29aba770c8032ff34c83b044f3e78cf8d65a935ac"
     },
     "/docs/access-control": {
-      "lastModified": "2026-10-08T16:31:57.000Z",
-      "sourceDigest": "11f0ed13226c4a64a3932ba722eacb64840765058a9bbd40cd561beeeacfe8b3",
-      "recordDigest": "c73dd4ba292d738cc4ad429ae2c0f08ce3de9d364a6a9032f15b33d2a50f28aa"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "423f1ae0297fa45038aca27c2412e508d51f1fd9512b49b7669a406d171b4af2",
+      "recordDigest": "187e1cf02a716bf533078a7410e8e2553911b0c8c866429fd1228b0305e130df"
     },
     "/docs/ag-ui": {
       "lastModified": "2026-10-08T16:37:10.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-08T16:31:57.000Z",
-      "sourceDigest": "783ca45f1205f7e7587a4c841ddeb699295352a4a9f9fab0f28cf95a7ac2c512",
-      "recordDigest": "a96eb94cca62aef88c0b0894f9f2165fc9f17e3630bb478230352ca7f27767d2"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "9c5a34700eb8b51b261be6a0f963924313571d0f80488721a7242322d0158d7b",
+      "recordDigest": "3391eff8a52e30c5f779bbcd6b2760eb32c754b3a0eb04139e9bdca555b7d14d"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
@@ -152,9 +152,9 @@
       "recordDigest": "f3263c27d2b8a8f03b0b21e52ae3299f7c218a1c3a075558a2fd76db209e3cd0"
     },
     "/docs/configuration": {
-      "lastModified": "2026-10-07T22:26:54.000Z",
-      "sourceDigest": "3d413525fefae4b6366b835232eed0f620513ae944b6380ec881b5c5062ed614",
-      "recordDigest": "82050b2d1f272d7d43098afc3d817226bf1e0a7222ac0923c38051eb0ad2b332"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "6d3e66e0402697f521894a1f2444720a26990ba5e0d0bf385bd00c0c7e59247d",
+      "recordDigest": "be141e0cf398813d5561f4e968897836546772aed5bf9698de9b8afc9411b74f"
     },
     "/docs/context-management": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -197,9 +197,9 @@
       "recordDigest": "80c35fa2ed1ac036a6f052d0349a5bb13570467c95423908aff1f3e1b7871126"
     },
     "/docs/dev-server/agent-protocol": {
-      "lastModified": "2026-10-07T04:26:43.000Z",
-      "sourceDigest": "e929aea823d357e96aba767c56fd168285f530c6fd562d6c965adbcb294e9bac",
-      "recordDigest": "652273a5cc67243ce91c39fb378c109952d5413cb95dd1c10e367140d781b9ba"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "12d4d67b1b12ef0e886f2f5fc6c6ce6b1cade8134efe87ad1d52949d91d05a78",
+      "recordDigest": "1210670c627613c4a0b18783920bfab147086b0d846794517c74a3586322ad79"
     },
     "/docs/embedding": {
       "lastModified": "2026-10-04T23:07:54.000Z",
@@ -237,9 +237,9 @@
       "recordDigest": "798f5dc1c47e0e4c67f29ab0dad153f0a0673a42d283592f9bb7183fc6210b71"
     },
     "/docs/memory/browse": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "a59747f363e06e369df206f6fdb1e63519051d1af7d7dd0ecb81e59d21700e3b",
-      "recordDigest": "5135a9d19bba936898edcedad7d3c53081f5fbdef93409b126486fd821f370d9"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "f825a6bdff53e6244d61d5295e2a3675ab29f1f5dfc25b992bb6064b5ef42afd",
+      "recordDigest": "b1edbebb1cca8eec03f88c107b5bf2782eb9f7663df9c67d1bea07fe268d42ea"
     },
     "/docs/memory/distillation": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -252,14 +252,14 @@
       "recordDigest": "16773c0724e2901c74d96a8295c39af9027f431c26f7c46af17ea15cd4f4397c"
     },
     "/docs/memory/long-term": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "d3dd6e8f060486e4b2869df6b26e02615ca1021058c9597c28764f80e0873385",
-      "recordDigest": "569281ae90a70a1e51503a91c7c9af9bc021afb0cf478b21e494c7388faaeb68"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "4d1a2cd37b3c40ed6094b1e5175613e19f03dd372fff9194780cfca8a27c2263",
+      "recordDigest": "c6f63bfbd26ced96569310491696a169259bb1202b9bf80835f4ba3d2c220a7c"
     },
     "/docs/memory/retrieval": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "b7635b93a3a216c2a01a9e4b9de3ed95298e9b02394d2b4a83cc8b3225321018",
-      "recordDigest": "0ebbb7e49198bf0bb955af3bc52c2f724d5fad0b5cfc23d3632734a0a16ae708"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "560125cc0f40ee6d4490eaf896081d922576e70e6fa8edcb28fa6d37eaf169e1",
+      "recordDigest": "7695d966b9d7f333aa1264bb856e1f478bf6c992c2b289d1a12878fac1a47b17"
     },
     "/docs/mental-model": {
       "lastModified": "2026-10-05T21:54:28.000Z",
@@ -287,9 +287,9 @@
       "recordDigest": "f4df5a5e7ea75b10e314d82e2579c80d19a1ca2e880bd20274db099192d1d3ac"
     },
     "/docs/persistence": {
-      "lastModified": "2026-09-23T06:30:00.000Z",
-      "sourceDigest": "bd383ae2e28fd6ab743f27f448bbe5ac831b895f82e81fe4f95d711a5a52a9d1",
-      "recordDigest": "b49215b3d0bb5053280262e826786d74329e9b4d2d3578be2a2f6a246e9d2843"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "6577159c4187216e40ec822e29706c28fec5bb865f13c3410d0960348f4f3ae3",
+      "recordDigest": "f86da9f424bda9d665e37a974f20ebe31e4d6726bc574e41813c41a9de22de53"
     },
     "/docs/planning": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -372,9 +372,9 @@
       "recordDigest": "defe81e64fe5bd828c0ef89035004bffce5b5f53dd989329b4bbde47ce16916b"
     },
     "/docs/security-architecture": {
-      "lastModified": "2026-10-08T16:31:57.000Z",
-      "sourceDigest": "0548995981eca9c436fa78703bc29ec5d9e0aebbaa7124ad9b7199169e2e1b8c",
-      "recordDigest": "d47b4c028ec8acf8359217e319771a5a061dd3cc51a6a71d511e26a1611ebfa3"
+      "lastModified": "2026-10-08T18:17:53.000Z",
+      "sourceDigest": "82a33f0dfb93b26197fb852a93d4422d9bc30f1e4d71a3e3d422f4c656182dd1",
+      "recordDigest": "536f9ed70bbe79289dbbf461374f34a27e91bea65f23ba30b24982421d51e0d7"
     },
     "/docs/skills": {
       "lastModified": "2026-09-23T06:30:00.000Z",
