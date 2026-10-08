@@ -474,6 +474,7 @@ async function materializeDevkitTemplate(templateDir: string, appRoot: string): 
       b4SandboxSpecifier: "workspace:*",
       b4SdkSpecifier: "workspace:*",
       b4TestingSpecifier: "workspace:*",
+      b4WorkspaceSpecifier: "workspace:*",
     },
     targetDir: appRoot,
     templateDir,
@@ -509,6 +510,25 @@ async function installTemplateTypegenDependencies(appRoot: string): Promise<void
       "export const dockerSandbox = (options) => ({ options })\n",
       "export function dockerSandbox(options: unknown): unknown\n",
     ),
+    // The navlog config's read-only workspace: compose(readOnlyPaths(...))(localFilesystem()).
+    createModuleStub(
+      join(modulesDir, "@b4run", "workspace"),
+      "@b4run/workspace",
+      "export const compose = (...middlewares) => (base) => middlewares.reduceRight((acc, mw) => mw(acc), base)\n",
+      [
+        "export type FilesystemBackend = Record<string, unknown>",
+        "export type BackendContext = { readonly workspaceRoot: string }",
+        "export type FilesystemMiddleware = (next: FilesystemBackend) => FilesystemBackend",
+        "export function compose<T>(...middlewares: ReadonlyArray<(next: T) => T>): (base: T) => T",
+        "",
+      ].join("\n"),
+      {
+        node: {
+          source: "export const localFilesystem = () => ({})\n",
+          types: "export function localFilesystem(): Record<string, unknown>\n",
+        },
+      },
+    ),
     createModuleStub(
       join(modulesDir, "@b4run", "sdk"),
       "@b4run/sdk",
@@ -536,14 +556,25 @@ async function createModuleStub(
   name: string,
   source: string,
   types: string,
+  subpaths: Readonly<Record<string, { readonly source: string; readonly types: string }>> = {},
 ): Promise<void> {
+  const exports: Record<string, { types: string; default: string }> = {
+    ".": { types: "./index.d.ts", default: "./index.js" },
+  }
+  for (const subpath of Object.keys(subpaths)) {
+    exports[`./${subpath}`] = { types: `./${subpath}.d.ts`, default: `./${subpath}.js` }
+  }
   await Promise.all([
     createFile(
       join(moduleDir, "package.json"),
-      `${JSON.stringify({ exports: { ".": { types: "./index.d.ts", default: "./index.js" } }, name, type: "module" }, null, 2)}\n`,
+      `${JSON.stringify({ exports, name, type: "module" }, null, 2)}\n`,
     ),
     createFile(join(moduleDir, "index.js"), source),
     createFile(join(moduleDir, "index.d.ts"), types),
+    ...Object.entries(subpaths).flatMap(([subpath, stub]) => [
+      createFile(join(moduleDir, `${subpath}.js`), stub.source),
+      createFile(join(moduleDir, `${subpath}.d.ts`), stub.types),
+    ]),
   ])
 }
 
