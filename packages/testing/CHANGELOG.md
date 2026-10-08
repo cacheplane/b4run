@@ -1,5 +1,64 @@
 # @dawn-ai/testing
 
+## 0.14.0
+
+### Patch Changes
+
+- c4238e1: The research template's web client renders media parts (images, audio, video, documents) in user messages and beside tool cards, shows a notice for each part the model did not receive (`b4.content_parts_dropped`), restores media when it hydrates a thread, and offers an image attachment when the route's capability document says its model takes images. The research server ships `renderChart`, a tool that returns a text summary and an inline SVG bar chart. `@b4run/testing`'s agent harness `run({ input })` accepts a list of content parts as well as a string.
+- ed43d4f: Carry AG-UI 1.0 content parts to the model. A user message's `image`, `audio`, `video` and `document` parts — inline, by URL, or as a provider file handle — reach the route's model as LangChain content blocks; what the model cannot take (read from its LangChain profile) is dropped and announced, in the server log and on the stream as `CUSTOM` `b4.content_parts_dropped`, never refused: the `422` envelope rejection of media parts is gone. Tools may return `B4ContentPart[]` (new in `@b4run/sdk`), which travels as `TOOL_CALL_RESULT.content`. The Agent Protocol run endpoints now bound their bodies at the same 8 MiB as `/agui`. `B4Message.content` (`@b4run/ag-ui`), `UnwrappedToolResult.content` (`@b4run/langchain`) and `MiddlewareAfterMessage.content` (`@b4run/sdk`) widened from `string` to `string | readonly B4ContentPart[]`, and chain, graph and workflow routes now receive `messages[].content` as that part array whenever the client sent parts (previously flattened to text), so code that narrows on `string` must handle the array.
+- 5caad96: **Breaking:** `agent()`'s `reasoning` is keyed by provider. `reasoning: { effort }` becomes `reasoning: { openai: { effort } }`; a flat `effort`, an unknown key, or a block for a provider the route does not resolve to now fails the route when its model is built (before, a misplaced setting was silently ignored — and the OpenAI effort itself never reached the request, because it was passed as the constructor field `reasoningEffort`, which `@langchain/openai` reads only per call). New controls make reasoning visible: `openai.summary: "auto" | "concise" | "detailed"` streams a reasoning summary (and moves the route to the Responses API); `anthropic.budgetTokens` enables extended thinking. The langchain adapter carries thinking and reasoning blocks as `reasoning` stream chunks; `@b4run/ag-ui` frames them as AG-UI 1.0 `REASONING_START` / `REASONING_MESSAGE_*` / `REASONING_END`, one span and one `role: "reasoning"` message per model invocation, every one closed before the run ends. `GET /agui/:routeId` advertises `reasoning: { supported: true, streaming: true, encrypted: false }` exactly when the route's config makes reasoning stream, `{ supported: false }` otherwise. `IdFactory` gains the `reasoning` and `reasoningSpan` kinds.
+
+  `@b4run/testing`'s `finalMessage` now reads an assistant message whose `content` is a list of blocks (the OpenAI Responses API, Anthropic with tools bound), joining its `text` blocks; before, such a run reported an empty final message.
+
+- 0cd999a: **Breaking (Agent Protocol stream):** a subagent's events now carry the same shapes as the root's. `subagent.message { chunk }` is replaced by `subagent.token { data, messageId }`; `subagent.tool_call` / `subagent.tool_result` carry `name` under the model's tool-call `id` instead of `tool` under an execution run id; new `subagent.reasoning`, `subagent.message_end` and `subagent.tool_call_args`; `subagent.start` gains `parent_call_id` (nested children) and `description`. The langchain adapter announces a child's tool calls from its own model turn with the same per-owner bookkeeping root uses, the dev server's attach digest coalesces `subagent.token` per child invocation, `@b4run/testing` reads the new shapes, and `@b4run/ag-ui` consumes them at the activity boundary with no change on the AG-UI wire (the `SUBAGENT_*` presentation follows in the next release).
+- bcfc8b8: An app can now declare one place that resolves who is calling: `src/auth.ts` default-exports `defineAuth({ authenticate })`. B4.run calls `authenticate` once per request, before middleware and the thread-access policy, and passes the result to middleware and the thread-access policy as `req.principal` and to every tool as `ctx.principal`. A principal is any object with a string `id`. `undefined` makes the request anonymous, `reject(...)` answers it before any endpoint runs, and a throw or malformed result fails it with a 500.
+
+  `b4 typegen` declares the type `authenticate` resolves to on `B4Register`, so `ctx.principal` is typed. The node and web build targets carry `src/auth.ts` in their build, and the `langsmith` target refuses an app that has one. An auth file that does not default-export `defineAuth` fails the boot with `B4_E3005`. The harness takes a `principal` option, and `createAgentProtocolInjector` takes `auth`.
+
+  **Breaking:** `ThreadAccessRequest.headers` is removed. A thread-access policy that read identity from headers must move that read into `src/auth.ts` and use `req.principal`. The `basic` and `navlog` templates are migrated, and the `navlog` template no longer ships `src/middleware.ts`.
+
+- 88066cb: `b4 eval --record` and `getRecordedFixtures()` record a route that dispatches subagents in parallel so that it replays deterministically. Record mode now sends every call upstream instead of answering a call with an earlier recording from the same run. It also waits for the last call of a run to be recorded before returning, so a recording no longer loses its final turn. Each recorded response is paired with the request that produced it, whatever order the calls completed in. Each fixture is keyed on its own request: `turnIndex` is its position within its own agent run, and `userMessage` is the request's latest user message. A fixture that would also match another call's request gets a `toolName` or `toolCallId` key, and a recording that cannot be told apart is refused.
+- Updated dependencies [b006a95]
+- Updated dependencies [d0bb6a1]
+- Updated dependencies [c8b0675]
+- Updated dependencies [e6cfa3d]
+- Updated dependencies [29acd56]
+- Updated dependencies [1180d4c]
+- Updated dependencies [52b19ec]
+- Updated dependencies [6b7f152]
+- Updated dependencies [2c33a3f]
+- Updated dependencies [ed43d4f]
+- Updated dependencies [2d07889]
+- Updated dependencies [5caad96]
+- Updated dependencies [0cd999a]
+- Updated dependencies [0b33206]
+- Updated dependencies [61e5922]
+- Updated dependencies [b25fc3b]
+- Updated dependencies [b61e133]
+- Updated dependencies [0231fb5]
+- Updated dependencies [fd0c456]
+- Updated dependencies [861f84a]
+- Updated dependencies [00b85cf]
+- Updated dependencies [03fb4e6]
+- Updated dependencies [fc59949]
+- Updated dependencies [bcfc8b8]
+- Updated dependencies [936b7bf]
+- Updated dependencies [936b7bf]
+- Updated dependencies [73c9289]
+- Updated dependencies [e9bfd30]
+- Updated dependencies [91726d5]
+- Updated dependencies [bbd4a0c]
+- Updated dependencies [9547137]
+- Updated dependencies [18bc4fd]
+- Updated dependencies [bbc7871]
+- Updated dependencies [d45b2dc]
+- Updated dependencies [b1ae324]
+  - @b4run/cli@0.14.0
+  - @b4run/core@0.14.0
+  - @b4run/sdk@0.14.0
+  - @b4run/workspace@0.14.0
+  - @b4run/memory@0.14.0
+
 ## 0.13.1
 
 ### Patch Changes

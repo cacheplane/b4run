@@ -1,5 +1,33 @@
 # @dawn-ai/workspace
 
+## 0.14.0
+
+### Patch Changes
+
+- d45b2dc: `captureWorkspaceSource` no longer reports "Source changed during capture" when an entry appears in or vanishes from a directory above the source — the capture root, or a staging area several captures share. Those directories are now checked by identity only (same inode, still a directory); the source tree itself and every referenced file are still compared by full metadata.
+- Updated dependencies [e6cfa3d]
+- Updated dependencies [29acd56]
+- Updated dependencies [1180d4c]
+- Updated dependencies [52b19ec]
+- Updated dependencies [2c33a3f]
+- Updated dependencies [ed43d4f]
+- Updated dependencies [5caad96]
+- Updated dependencies [61e5922]
+- Updated dependencies [b25fc3b]
+- Updated dependencies [b61e133]
+- Updated dependencies [fd0c456]
+- Updated dependencies [00b85cf]
+- Updated dependencies [03fb4e6]
+- Updated dependencies [bcfc8b8]
+- Updated dependencies [936b7bf]
+- Updated dependencies [936b7bf]
+- Updated dependencies [91726d5]
+- Updated dependencies [bbd4a0c]
+- Updated dependencies [9547137]
+- Updated dependencies [18bc4fd]
+- Updated dependencies [bbc7871]
+  - @b4run/sdk@0.14.0
+
 ## 0.13.1
 
 ### Patch Changes
