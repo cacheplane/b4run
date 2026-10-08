@@ -95,7 +95,16 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
     let instance: LeafletMap | null = null
     void import("leaflet").then((L) => {
       if (cancelled || container.current === null) return
-      instance = L.map(container.current, { zoomControl: false, attributionControl: false })
+      // Under reduced motion Leaflet's own animations go too: tiles appear
+      // without fading in, and zooms jump rather than glide.
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+      instance = L.map(container.current, {
+        zoomControl: false,
+        attributionControl: false,
+        ...(reduceMotion
+          ? { fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false }
+          : {}),
+      })
       // Both controls in the bottom-right corner. The weather strip owns the
       // top, the dock the left; `theme.css` lifts the bottom-right corner
       // above the sheet by `--wb-map-inset-bottom`, which `WorkbenchLayout`

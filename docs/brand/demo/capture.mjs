@@ -978,6 +978,15 @@ export async function closeBrowserResources({ context, video, browser }) {
   return videoPath === undefined ? {} : { videoPath }
 }
 
+// The Workbench runs under `next dev`, whose dev-tools badge is not part of the
+// product. Hiding it in the capture browser leaves the scaffolded next.config
+// (and every user's dev tools) untouched.
+export const HIDE_NEXT_DEV_INDICATOR = `document.addEventListener("DOMContentLoaded", () => {
+  const style = document.createElement("style")
+  style.textContent = "nextjs-portal { display: none !important; }"
+  document.head.append(style)
+})`
+
 export async function createBrowserResources({ chromium, recordingsDir, viewport, signal }) {
   let browser
   let context
@@ -989,7 +998,12 @@ export async function createBrowserResources({ chromium, recordingsDir, viewport
     context = await browser.newContext({
       viewport,
       recordVideo: { dir: recordingsDir, size: viewport },
+      // The navlog map animates its zoom to the route unless motion is reduced;
+      // the animation adds no evidence and frames GIF compression cannot shrink.
+      reducedMotion: "reduce",
     })
+    signal?.throwIfAborted()
+    await context.addInitScript(HIDE_NEXT_DEV_INDICATOR)
     signal?.throwIfAborted()
     page = await context.newPage()
     signal?.throwIfAborted()

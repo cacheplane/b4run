@@ -1,7 +1,10 @@
 import { script } from "../../../packages/testing/dist/index.js";
 
+// The Workbench titles a thread with its first message cut to 80 characters,
+// and the capture finds the thread, its rail row and its heading by that title,
+// so the prompt must fit whole.
 export const DEMO_PROMPT =
-	"Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.";
+	"Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z.";
 
 // The same inline navlog input the harness journeys use: FAA airport records
 // (field elevation in feet), the POH cruise RPM, and one wind per leg.

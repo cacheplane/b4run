@@ -28,6 +28,7 @@ import {
   fillActiveWorkbenchComposer,
   generatedInstallCommand,
   generatedTestCommand,
+  HIDE_NEXT_DEV_INDICATOR,
   installCaptureSignalHandlers,
   openReadyWorkbench,
   parseCaptureArguments,
@@ -924,18 +925,21 @@ const GENERATED_TREE = [
 test("scenario exports the canonical prompt and deterministic navlog fixture", () => {
   assert.equal(
     DEMO_PROMPT,
-    "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.",
+    "Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z.",
   )
   assert.deepEqual(
     DEMO_FIXTURES,
     script()
-      .user("Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z, and save the navlog.")
+      .user("Plan a VFR flight from KSTP to KRST at 4500 feet, departing 1400Z.")
       .callsTool("computeNavlog", DEMO_NAVLOG_INPUT)
       .replies(
         "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]",
       )
       .build(),
   )
+  // The Workbench cuts a thread title to 80 characters; the capture matches the
+  // whole prompt against that title.
+  assert.ok(DEMO_PROMPT.length <= 80, `DEMO_PROMPT is ${DEMO_PROMPT.length} characters`)
 })
 
 test("normalizeLog narrowly removes capture instability", () => {
@@ -1036,8 +1040,8 @@ test("close stage renders B4.run category, headline, and scaffold command", () =
     testLog: "unused",
   })
 
-  assert.match(html, /TypeScript meta-framework for LangGraph\.js/)
-  assert.match(html, /Build LangGraph agents like Next\.js apps/)
+  assert.match(html, /An agent framework, the way I'd build it\./)
+  assert.match(html, /Ridiculous speed\. Readable code\./)
   assert.match(html, /npm create b4-app@latest my-agent/)
 })
 
@@ -2914,6 +2918,48 @@ test("browser acquisition closes Chromium when context creation fails", async ()
   assert.deepEqual(calls, ["launch", "new context", "close browser"])
 })
 
+test("browser acquisition reduces motion and hides the Next dev badge before the first page", async () => {
+  const calls = []
+  const video = { path: async () => "/ignored/video.webm" }
+  const chromium = {
+    async launch() {
+      return {
+        async newContext(options) {
+          calls.push(["new context", options])
+          return {
+            async addInitScript(script) {
+              calls.push(["init script", script])
+            },
+            async newPage() {
+              calls.push(["new page"])
+              return { video: () => video }
+            },
+          }
+        },
+      }
+    },
+  }
+  const resources = await createBrowserResources({
+    chromium,
+    recordingsDir: "/ignored/raw-recordings",
+    viewport: { width: 1440, height: 810 },
+  })
+  assert.equal(resources.video, video)
+  assert.deepEqual(calls, [
+    [
+      "new context",
+      {
+        viewport: { width: 1440, height: 810 },
+        recordVideo: { dir: "/ignored/raw-recordings", size: { width: 1440, height: 810 } },
+        reducedMotion: "reduce",
+      },
+    ],
+    ["init script", HIDE_NEXT_DEV_INDICATOR],
+    ["new page"],
+  ])
+  assert.match(HIDE_NEXT_DEV_INDICATOR, /nextjs-portal \{ display: none !important; \}/)
+})
+
 test("browser acquisition rolls back a late Chromium launch after abort", async () => {
   const calls = []
   const controller = new AbortController()
@@ -2958,6 +3004,9 @@ test("browser acquisition closes context then Chromium when page creation fails"
         async newContext() {
           calls.push("new context")
           return {
+            async addInitScript() {
+              calls.push("init script")
+            },
             async newPage() {
               calls.push("new page")
               throw acquisitionError
@@ -2985,7 +3034,14 @@ test("browser acquisition closes context then Chromium when page creation fails"
       return true
     },
   )
-  assert.deepEqual(calls, ["launch", "new context", "new page", "close context", "close browser"])
+  assert.deepEqual(calls, [
+    "launch",
+    "new context",
+    "init script",
+    "new page",
+    "close context",
+    "close browser",
+  ])
 })
 
 test("capture invokes the future encoder after finalizing recordings and summary", async () => {

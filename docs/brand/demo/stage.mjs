@@ -101,8 +101,8 @@ export function renderStage({ act, tree, primarySource, secondarySource, testLog
 
   return page(`<main class="close">
   ${brandHeader()}
-  <p class="category">TypeScript meta-framework for LangGraph.js</p>
-  <h1>Build LangGraph agents like Next.js apps</h1>
+  <p class="category">An agent framework, the way I'd build it.</p>
+  <h1>Ridiculous speed. Readable code.</h1>
   <pre class="command"><code>npm create b4-app@latest my-agent</code></pre>
 </main>`)
 }
