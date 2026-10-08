@@ -34,7 +34,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   }),
 }))
 
-vi.mock("@b4run/ag-ui/copilotkit", () => ({
+vi.mock("@b4run/ag-ui/react/copilotkit", () => ({
   B4Activity: ({ children, renderStep }: { children: ReactNode; renderStep: unknown }) => {
     // Counts mounts, not renders: a changed key is a new instance.
     useState(() => {

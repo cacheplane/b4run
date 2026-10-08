@@ -1,5 +1,5 @@
 "use client"
-import { B4Activity, useB4ActivityContext } from "@b4run/ag-ui/copilotkit"
+import { B4Activity, useB4ActivityContext } from "@b4run/ag-ui/react/copilotkit"
 import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {

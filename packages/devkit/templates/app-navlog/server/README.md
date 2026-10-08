@@ -45,7 +45,7 @@ The **web UI** over this endpoint is the sibling [`web/`](../web) package — th
 B4.run Workbench: the streamed plan and brief, each turn's activity, suggestion
 prompts, the flight-plan approval, and memory-candidate review. Start it with
 `npm run dev:web` from the app root. If you write your own client instead, do
-not hand-build the activity view — `@b4run/ag-ui/copilotkit` ships it: a React
+not hand-build the activity view — `@b4run/ag-ui/react/copilotkit` ships it: a React
 client wraps CopilotKit's `<CopilotChat>` in `B4Activity` and spreads
 `useB4ChatSlots()` onto it, so each turn renders its plan, tool steps and
 subagents, and a parked approval renders as a card.

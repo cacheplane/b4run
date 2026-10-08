@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import "@copilotkit/react-core/v2/styles.css"
 // The activity kit's default look, light and dark. Restyle by overriding the
 // `--b4-activity-*` tokens in your own CSS.
-import "@b4run/ag-ui/react/styles.css"
+import "@b4run/ag-ui/styles.css"
 
 export const metadata = { title: "B4.run chat — CopilotKit + AG-UI" }
 
