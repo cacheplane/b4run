@@ -145,7 +145,7 @@ export const APP_FOCUS = Object.freeze({
   todos: Object.freeze({ scale: 1.55, origin: "2% 42%" }),
   weather: Object.freeze({ scale: 1.45, origin: "98% 3%" }),
   map: Object.freeze({ scale: 1.3, origin: "66% 32%" }),
-  sheet: Object.freeze({ scale: 1.45, origin: "70% 94%" }),
+  sheet: Object.freeze({ scale: 1.38, origin: "100% 100%" }),
   approval: Object.freeze({ scale: 1.55, origin: "2% 92%" }),
   memory: Object.freeze({ scale: 1.55, origin: "2% 12%" }),
 })

@@ -14,14 +14,38 @@ export const DIRECTOR_TIMING = Object.freeze({
 
 /**
  * Lines a code pane shows: one pane fills the frame at 17px, two side by side
- * at 14px. A file this short or shorter shows whole; a longer one shows a
+ * at 15px. A file this short or shorter shows whole; a longer one shows a
  * window around its focal line, so the focal line is always on screen before
  * the camera moves.
  */
-export const CODE_PANE_LINES = Object.freeze({ one: 19, two: 24 })
+export const CODE_PANE_LINES = Object.freeze({ one: 19, two: 23 })
 
 /** Lines a window keeps below the focal line; the rest go above it. */
 const CODE_CONTEXT_AFTER = Object.freeze({ one: 6, two: 8 })
+
+/** How far back a window's start may move to reach a block boundary. */
+const SNAP_BACK_LINES = 6
+
+/** A line that opens a block: the file's first line, one after a blank line, or a doc comment. */
+const opensBlock = (lines, at) =>
+  lines[at].trim() !== "" &&
+  (at === 0 || lines[at - 1].trim() === "" || lines[at].trim().startsWith("/**"))
+
+/**
+ * The start of a window of `size` lines that shows line `index`, moved to a
+ * block boundary so the pane never opens mid-function: back up to
+ * SNAP_BACK_LINES lines, else forward to the nearest boundary that still
+ * leaves a line above the focal one, else unchanged.
+ */
+export function snapWindowStart(lines, start, index, size) {
+  for (let at = start; at >= Math.max(0, start - SNAP_BACK_LINES); at--) {
+    if (opensBlock(lines, at) && index - at < size) return at
+  }
+  for (let at = start + 1; at < index && at + size <= lines.length; at++) {
+    if (opensBlock(lines, at)) return at
+  }
+  return start
+}
 
 /** Font files the page loads, served by the capture from the brand kit. */
 export const DIRECTOR_FONTS = Object.freeze({
@@ -97,10 +121,14 @@ function codePane(beat, pane, files, density) {
   }
   const size = CODE_PANE_LINES[density]
   const after = CODE_CONTEXT_AFTER[density]
-  const { lines, focusIndex } =
-    all.length <= size
-      ? { lines: all, focusIndex: matches[0] }
-      : windowAround(all, matches[0], { before: size - 1 - after, after })
+  let lines = all
+  let focusIndex = matches[0]
+  if (all.length > size) {
+    const { start } = windowAround(all, matches[0], { before: size - 1 - after, after })
+    const snapped = snapWindowStart(all, start, matches[0], size)
+    lines = all.slice(snapped, snapped + size)
+    focusIndex = matches[0] - snapped
+  }
   const body = lines
     .map((line, at) => {
       if (at !== focusIndex) return escapeHtml(line)
@@ -160,10 +188,8 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .w > span { display: inline-block; transform: translateY(105%); transition: transform var(--reveal) var(--ease-out); }
 .revealed .head .w > span, .titled .title .w > span, .close-revealed .close .w > span { transform: none; }
 .title { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 20px; pointer-events: none; transition: opacity var(--swap) var(--ease-in-out), filter var(--swap) var(--ease-in-out), transform var(--swap) var(--ease-in-out); }
-.title svg { width: 220px; height: auto; margin-bottom: 12px; opacity: 0; transform: translateY(14px); transition: opacity var(--reveal) var(--ease-out), transform var(--reveal) var(--ease-out); }
-.titled .title svg { opacity: 1; transform: none; }
-.title .name { font-weight: 600; font-size: 148px; line-height: 1.06; letter-spacing: -0.055em; white-space: nowrap; }
-.title .sub { font-size: 34px; line-height: 1.2; letter-spacing: -0.02em; color: var(--ink-muted); white-space: nowrap; }
+.title .name { font-weight: 600; font-size: 184px; line-height: 1.04; letter-spacing: -0.045em; white-space: nowrap; }
+.title .sub { font-size: 36px; line-height: 1.2; letter-spacing: -0.02em; color: var(--ink-muted); white-space: nowrap; }
 .untitled .title { opacity: 0; filter: blur(6px); transform: scale(0.98); }
 .head { position: absolute; left: 163px; top: 44px; font-weight: 600; font-size: 88px; line-height: 1.06; letter-spacing: -0.055em; transform-origin: 0 0; transform: translateY(300px); transition: transform var(--dock) var(--ease-out); white-space: nowrap; }
 .docked .head { transform: scale(0.42); }
@@ -180,13 +206,18 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .pane { min-width: 0; overflow: clip; }
 .pane + .pane { border-left: 1px solid var(--panel-rule); }
 .strip { height: 40px; padding: 11px 24px; background: var(--panel-strip); color: var(--panel-dim); font: 400 14px/18px "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; overflow: hidden; }
-pre { padding: 24px; color: var(--panel-ink); font: 400 17px/1.65 "JetBrains Mono", ui-monospace, monospace; white-space: pre; overflow: hidden; }
+pre { padding: 24px; color: var(--panel-ink); font: 400 17px/1.65 "JetBrains Mono", ui-monospace, monospace; font-variant-ligatures: none; white-space: pre; overflow: hidden; transition: color var(--swap) var(--ease-out); }
 .two .strip { padding: 11px 20px; }
-.two pre { padding: 24px 20px; font-size: 14px; line-height: 1.6; }
+.two pre { padding: 24px 20px; font-size: 15px; line-height: 1.6; }
 .focus { position: relative; z-index: 0; }
 .focus::before { content: ""; position: absolute; left: -24px; right: -2000px; top: -2px; bottom: -2px; background: var(--relay-wash); box-shadow: inset 3px 0 0 var(--relay); transform: scaleX(0); transform-origin: 0 50%; transition: transform var(--swap) var(--ease-out); z-index: -1; }
 .two .focus::before { left: -20px; }
 .marked .focus::before { transform: none; }
+.focus, .hit { transition: color var(--swap) var(--ease-out); }
+.marked pre { color: var(--panel-dim); }
+.marked .focus { color: var(--panel-ink); }
+.marked .focus:has(> .hit.part) { color: var(--panel-dim); }
+.marked .hit { color: var(--panel-ink); }
 .hit.part { text-decoration: underline 2px transparent; text-underline-offset: 5px; transition: text-decoration-color var(--swap) var(--ease-out); }
 .marked .hit.part { text-decoration-color: var(--relay); }
 .app { background: var(--paper); }
@@ -216,7 +247,7 @@ const runtime = (T, beats, presets) => `
   const roll = stage.querySelector(".roll")
   const lines = stage.querySelector(".lines")
   const camera = stage.querySelector(".camera")
-  const MARGIN = 48, CODE_ZOOM = { one: 1.4, two: 1.25 }
+  const MARGIN = 48, CODE_ZOOM = { one: 1.4, two: 1 }
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
   const clamp = (value, low, high) => Math.min(Math.max(value, low), high)
@@ -260,27 +291,30 @@ const runtime = (T, beats, presets) => `
     return { s, x: ox * camera.offsetWidth * (1 - s), y: oy * camera.offsetHeight * (1 - s) }
   }
   /**
-   * A code layer's framing: the union of its focal hits, in untransformed
-   * layer coordinates (rects divided by whatever scale the camera and layer
-   * have now), zoomed as far as fits with a margin, holding the hits' line
-   * still vertically and the left edge still unless the hits would run off
-   * the right.
+   * A code layer's framing, in untransformed layer coordinates (rects divided
+   * by whatever scale the camera and layer have now). The box runs from the
+   * start of the leftmost pane with a focal hit to the hits' right end, and
+   * from the top of the layer (the filename strip) to the hits' bottom. The
+   * zoom never crops it: the top stays anchored, so the strip is always in
+   * view, and the camera never pans left of a pane's start, so no line is cut
+   * at its beginning and the focal bar's Relay edge stays on screen.
    */
   function focalFraming(layer) {
     const box = layer.getBoundingClientRect(), k = layer.offsetWidth / box.width
     const W = camera.offsetWidth, H = camera.offsetHeight
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    let x0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (const hit of layer.querySelectorAll(".hit")) {
-      const r = hit.getBoundingClientRect()
-      x0 = Math.min(x0, (r.left - box.left) * k); x1 = Math.max(x1, (r.right - box.left) * k)
-      y0 = Math.min(y0, (r.top - box.top) * k); y1 = Math.max(y1, (r.bottom - box.top) * k)
+      const r = hit.getBoundingClientRect(), pane = hit.closest(".pane").getBoundingClientRect()
+      x0 = Math.min(x0, (pane.left - box.left) * k); x1 = Math.max(x1, (r.right - box.left) * k)
+      y1 = Math.max(y1, (r.bottom - box.top) * k)
     }
     const zoom = layer.classList.contains("two") ? CODE_ZOOM.two : CODE_ZOOM.one
-    const s = Math.max(1, Math.min(zoom, (W - 2 * MARGIN) / (x1 - x0), (H - 2 * MARGIN) / (y1 - y0)))
-    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hw = (s * (x1 - x0)) / 2, hh = (s * (y1 - y0)) / 2
-    const qx = clamp(s * cx, MARGIN + hw, W - MARGIN - hw)
-    const qy = clamp(cy, MARGIN + hh, H - MARGIN - hh)
-    return { s, x: clamp(qx - s * cx, W - s * W, 0), y: clamp(qy - s * cy, H - s * H, 0) }
+    const s = Math.max(1, Math.min(zoom, (W - MARGIN) / (x1 - x0), (H - MARGIN) / y1))
+    return {
+      s,
+      x: clamp(Math.min(0, W - MARGIN - s * x1), -s * x0, 0),
+      y: clamp(Math.min(0, H - MARGIN - s * y1), H - s * H, 0),
+    }
   }
   async function rollTo(text) {
     lines.append(words(text))
@@ -395,7 +429,7 @@ export function renderDirector({ files, wordmark = wordmarkSvg() }) {
 </head>
 <body>
 <div class="stage prep">
-  <div class="title">${wordmark}<div class="name">${revealWords(title.headline)}</div><div class="sub">${revealWords(title.subtitle, 1)}</div></div>
+  <div class="title"><div class="name">${revealWords(title.headline)}</div><div class="sub">${revealWords(title.subtitle, 1)}</div></div>
   <h1 class="head"><div class="roll"><div class="lines"></div></div></h1>
   <div class="frame"><div class="camera">
     ${layers.join("\n    ")}

@@ -64,6 +64,7 @@ import {
   CODE_PANE_LINES,
   DIRECTOR_FONTS,
   renderDirector,
+  snapWindowStart,
   windowAround,
   wordmarkSvg,
 } from "./director.mjs"
@@ -78,7 +79,6 @@ import {
   README_ANIMATION_WEBP_OPTIONS,
   runEncoderCommand,
 } from "./encode.mjs"
-import { normalizeLog } from "./normalize-log.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { startAwcStub } from "./awc-stub.mjs"
 import { APP_ACTIONS, APP_FOCUS, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
@@ -1148,35 +1148,6 @@ test("scenario prompts fit the thread title and state the aircraft fact", () => 
   assert.deepEqual(DEMO_PLAN_TOOLS, DEMO_SCENARIO.planTools)
 })
 
-test("normalizeLog narrowly removes capture instability", () => {
-  const temporaryRoot = "/tmp/b4-demo-[42]"
-  const raw = [
-    `\u001B[32mPASS\u001B[39m ${temporaryRoot}/server/test/navlog.test.ts 143ms`,
-    "✓ splits the first leg into a climb segment and a cruise segment 1.27s",
-    "command: npm test -- --seed=42",
-    "7 passed, score 98.6, port 3002",
-    "FAIL preserves this test name and exit code 17",
-    "/tmp/b4-demo-other/server 143widgets v1.27stable",
-  ].join("\n")
-
-  assert.equal(
-    normalizeLog(raw, { temporaryRoot }),
-    [
-      "PASS <workspace>/server/test/navlog.test.ts <time>",
-      "✓ splits the first leg into a climb segment and a cruise segment <time>",
-      "command: npm test -- --seed=42",
-      "7 passed, score 98.6, port 3002",
-      "FAIL preserves this test name and exit code 17",
-      "/tmp/b4-demo-other/server 143widgets v1.27stable",
-    ].join("\n"),
-  )
-})
-
-test("normalizeLog validates meaningful inputs", () => {
-  assert.throws(() => normalizeLog(42, { temporaryRoot: "/tmp/demo" }), /log must be a string/)
-  assert.throws(() => normalizeLog("PASS", { temporaryRoot: "" }), /temporaryRoot/)
-})
-
 const NAVLOG_TEMPLATE = fileURLToPath(
   new URL("../../../packages/devkit/templates/app-navlog/", import.meta.url),
 )
@@ -1281,6 +1252,9 @@ test("app camera presets are the seven named regions, as data", () => {
     "memory",
   ])
   assert.deepEqual(APP_FOCUS.rest, { scale: 1, origin: "50% 50%" })
+  // The sheet holds its bottom-right corner, so the zoom never crops the
+  // sheet's right side (the poster comes from that beat).
+  assert.deepEqual(APP_FOCUS.sheet, { scale: 1.38, origin: "100% 100%" })
   assert.equal(Object.isFrozen(APP_FOCUS), true)
   for (const [name, preset] of Object.entries(APP_FOCUS)) {
     assert.equal(Object.isFrozen(preset), true, name)
@@ -1347,6 +1321,37 @@ test("windowAround keeps a fixed-size window around the index, clamped to the fi
   assert.throws(() => windowAround(lines, 40, { before: 1, after: 1 }), /index/)
 })
 
+test("snapWindowStart moves a window to a block boundary, back first, then forward", () => {
+  const lines = [
+    "import x", // 0
+    "", // 1
+    "function a() {", // 2
+    "  one", // 3
+    "  two", // 4
+    "  three", // 5
+    "}", // 6
+    "/**", // 7
+    " * doc", // 8
+    " */", // 9
+    "function b() {", // 10
+    "  focal", // 11
+    "}", // 12
+  ]
+  // Back to the doc comment that opens b.
+  assert.equal(snapWindowStart(lines, 9, 11, 5), 7)
+  // Back to the line after a blank.
+  assert.equal(snapWindowStart(lines, 4, 5, 6), 2)
+  // Already on a boundary.
+  assert.equal(snapWindowStart(lines, 2, 5, 6), 2)
+  // Never so far back that the focal line would leave the window.
+  assert.equal(snapWindowStart(lines, 8, 11, 3), 8)
+  const deep = ["a {", ...Array.from({ length: 10 }, (_, at) => `  x${at}`), "", "b {", "  focal", "}"]
+  // Nothing within reach behind it: forward to "b {", keeping a line above the focal one.
+  assert.equal(snapWindowStart(deep, 10, 13, 3), 12)
+  // Nothing either way: unchanged.
+  assert.equal(snapWindowStart(deep, 5, 8, 4), 5)
+})
+
 test("director renders a layer per code beat from the real template, escaped and focal-marked", () => {
   const files = templateFiles()
   const html = renderDirector({ files, wordmark: DIRECTOR_WORDMARK })
@@ -1374,6 +1379,12 @@ test("director renders a layer per code beat from the real template, escaped and
   assert.equal(navlogPane.split("\n").length, CODE_PANE_LINES.two)
   assert.match(navlogPane, /const tri = solveWindTriangle/)
   assert.doesNotMatch(navlogPane, /^import /m)
+  // Windows open on a block boundary, never mid-function: navlog.ts on the
+  // cruise branch, getMetar.ts on its \`num\` helper.
+  assert.match(navlogPane, /^ {4}if \(cruiseDistance &gt; 0\) \{\n/)
+  const metarPane = html.match(/<div class="strip">server\/src\/tools\/getMetar\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(metarPane, /^const num = /)
+  assert.match(metarPane, /flightCategory: record\.fltCat/)
   // A short file shows whole.
   const memoryPane = html.match(/<div class="strip">server\/src\/app\/navlog\/memory\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
   assert.match(memoryPane, /^import \{ defineMemory \}/)
@@ -1385,12 +1396,14 @@ test("director page holds the title card, the Workbench iframe, the close and th
   assert.ok(html.includes("&lt;Generic&gt;"))
   assert.equal(html.includes("<Generic>"), false)
   const title = html.match(/<div class="title">([\s\S]*?)<\/div><\/div>\n/)[1]
-  assert.ok(title.startsWith('<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>'))
+  // "navlog" is the hero; the wordmark belongs to the close alone.
+  assert.ok(title.startsWith('<div class="name">'))
   assert.equal(
     title.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
     "navlog A VFR flight planner, built with B4.run",
   )
-  assert.equal(html.match(/<svg viewBox="-5 -5 522 115">/g)?.length, 2)
+  assert.equal(html.match(/<svg viewBox="-5 -5 522 115">/g)?.length, 1)
+  assert.match(html, /\.title \.name \{[^}]*letter-spacing: -0\.045em;/)
   assert.match(html, /<iframe name="workbench" src="about:blank"/)
   assert.equal(html.match(/<iframe/g)?.length, 1)
   for (const token of ["#f5f4f0", "#111111", "#17181b", "#b4ce37", "#75796a"]) {
@@ -1415,6 +1428,17 @@ test("director page keeps the take-1 runtime fixes", () => {
   // The focal bar sits behind its line, not over the code.
   assert.ok(html.includes(".focus { position: relative; z-index: 0; }"))
   assert.ok(html.includes(".roll { overflow: hidden; height: 1.12em; }"))
+  // Code renders as typed, and a marked layer dims everything but its focal
+  // hit: the whole focal line, or only the hit when it is part of a line.
+  assert.match(html, /pre \{[^}]*font-variant-ligatures: none;/)
+  assert.ok(html.includes(".marked pre { color: var(--panel-dim); }"))
+  assert.ok(html.includes(".marked .focus { color: var(--panel-ink); }"))
+  assert.ok(html.includes(".marked .focus:has(> .hit.part) { color: var(--panel-dim); }"))
+  assert.ok(html.includes(".marked .hit { color: var(--panel-ink); }"))
+  // Two panes never zoom; the framing never leaves the strip or a pane's start.
+  assert.match(html, /CODE_ZOOM = \{ one: 1\.4, two: 1 \}/)
+  assert.ok(html.includes("x: clamp(Math.min(0, W - MARGIN - s * x1), -s * x0, 0)"))
+  assert.ok(html.includes("y: clamp(Math.min(0, H - MARGIN - s * y1), H - s * H, 0)"))
   assert.match(html, /\.stage \{[^}]*overflow: clip;/)
   assert.match(html, /\.frame \{[^}]*overflow: clip;/)
   // The camera's origin never changes: it moves by translate + scale about 0 0,
