@@ -269,7 +269,10 @@ The live demo runs this client on Vercel in front of the server on Railway (see
 Directory". `vercel.json` builds the client and the workspace packages it uses from
 the repository root (`pnpm turbo run build --filter=@b4-example/navlog-web...`), and
 `scripts/vercel-ignore-build.sh` skips preview builds when nothing the client is built
-from changed. `factory/*` branches never build.
+from changed. `factory/*` branches never build. It also gives the CopilotKit route an
+800-second `maxDuration`: a plan streams through that one request for several minutes,
+and Vercel's 300-second default cuts it mid-run. 800 is the Pro limit; on Hobby, lower
+it to 300.
 
 **Variables** (the same list as `.env.example`):
 
