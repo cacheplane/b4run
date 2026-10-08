@@ -82,7 +82,7 @@ READMEs show its poster, linked to the MP4 on the B4.run media store, with a
 - `product-loop.gif` — the earlier README GIF. It stays only because READMEs
   already published to npm load it from `main`; nothing regenerates it.
 
-MP4, WebM, raw Playwright recordings, test logs, summaries, and media manifests
+MP4, WebM, the raw screencast video, test logs, summaries, and media manifests
 are generated under the gitignored `demo/artifacts/` and
 `demo/raw-recordings/` directories. Only the poster, the legacy GIF, the
 transcript, the catalog, and the capture sources are committed.

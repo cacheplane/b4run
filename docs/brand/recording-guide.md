@@ -33,7 +33,8 @@ current navlog starter in a temporary directory with `--mode internal`,
 installs it, and runs the generated root `npm test` command (its output is kept
 in the run's ignored artifacts; the video does not show it). It then starts
 aimock, a loopback AWC stub, the B4.run server, and the generated Workbench on
-assigned loopback ports and records at 1440×810. ffmpeg is exercised when
+assigned loopback ports and records the 1440×810 page at twice its
+resolution (see "The recorder" below). ffmpeg is exercised when
 encoding begins; ffprobe is exercised by the local checker, so a missing
 executable, encoder, or probe fails at that boundary with the command's
 diagnostic.
@@ -90,6 +91,25 @@ under 1,800 kbit/s. The poster is the encoded MP4's frame 0.25 s before the
 navlog beat ends, with the camera on the navlog sheet. The capture browser asks
 for reduced motion (the navlog map then skips its animations) and hides the
 Next.js dev badge.
+
+### The recorder
+
+Playwright's own video recording is VP8 at about 0.9 Mbit/s and 25 fps, which
+leaves code text soft. The capture instead records a Chromium DevTools
+screencast: the browser runs with `--force-device-scale-factor=2` (headless
+Chromium otherwise sends 1x frames even with the context's
+`deviceScaleFactor: 2`), and `Page.startScreencast` sends a lossless 2880×1620
+PNG each time the page paints. Each frame is written under the run's
+raw-recordings directory with its wall-clock timestamp and acknowledged.
+Because frames arrive only on paint, a hold is the gap between two
+timestamps. When the run ends, ffmpeg's concat demuxer gives every frame its
+real duration (the last lasts until the screencast stops), resamples to a
+constant 30 fps, and writes `screencast.mp4` (near-lossless 4:4:4 H.264); the
+frames are then deleted. A failed or cancelled run deletes them without
+assembling. The timeline records its start on the same wall clock, so the
+summary's `videoTimeline.videoOffsetMs` maps every scene time to video time,
+and the encoder trims by those mapped times and downscales the 2x video to
+1440×810 with lanczos.
 
 ## Validate
 

@@ -193,3 +193,14 @@ Take-2 polish round:
 - **Headline roll.** Each headline line is exactly the 1.12em window tall and
   the outgoing line fades as it rolls, so nothing of it lingers above the new
   one.
+- **The recorder is a 2x DevTools screencast.** Playwright's recordVideo
+  (VP8, about 0.9 Mbit/s, 25 fps) is replaced by `Page.startScreencast` PNG
+  frames at 2880×1620, assembled with the concat demuxer into a 30 fps 4:4:4
+  raw video and downscaled by the encoder. Headless Chromium sends 1x frames
+  with only the context's `deviceScaleFactor: 2`, so the browser also launches
+  with `--force-device-scale-factor=2`. PNG and JPEG (quality 100 or 95)
+  measured the same frame rate at 2x on the director page (about 31 fps in
+  motion), so the lossless PNG stays. The summary records `videoOffsetMs`
+  (timeline start minus first frame, both wall clock) and the trim maps scene
+  times through it. The WebM is now explicitly `yuv420p`, since the raw video
+  is 4:4:4 and browsers play VP9 profile 0.

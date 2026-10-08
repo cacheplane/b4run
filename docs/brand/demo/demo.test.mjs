@@ -28,8 +28,10 @@ import {
   buildChildEnvironment,
   centerInScroller,
   captureDemo,
+  assembleScreencastVideo,
   closeBrowserResources,
   createBrowserResources,
+  createScreencastRecorder,
   createManagedChildRegistry,
   createManagedServiceMonitor,
   expectedRootToolSteps,
@@ -44,7 +46,9 @@ import {
   raceCapturePhase,
   restoreWorkbenchThread,
   runManagedCommand,
+  SCREENCAST_OPTIONS,
   sanitizeOperationalEnvironment,
+  screencastConcat,
   settleWorkbenchViewport,
   startHttpService,
   startWithAssignedPort,
@@ -646,11 +650,32 @@ test("beat scenes are named beat-NN-id in storyboard order", () => {
 
 test("trim plan spans the first beat to the last and poses the poster at the navlog beat's end", () => {
   const trim = createTrimPlan({
-    videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES },
+    videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes: BEAT_SCENES },
   })
   // Beats run 2 s to 14 s; the navlog beat (index 6) ends at 9 s, 7 s into the trim.
   assert.equal(NAVLOG_BEAT, 6)
   assert.deepEqual(trim, { start: 2, duration: 12, posterTime: 6.75 })
+})
+
+test("trim plan maps scene times to video time through the screencast offset", () => {
+  // The first frame came 1.5 s before the timeline started: every scene plays
+  // 1.5 s later in the video than on the scene clock.
+  const trim = createTrimPlan({
+    videoTimeline: { unit: "milliseconds", videoOffsetMs: 1_500, scenes: BEAT_SCENES },
+  })
+  assert.deepEqual(trim, { start: 3.5, duration: 12, posterTime: 6.75 })
+  assert.throws(
+    () => createTrimPlan({ videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES } }),
+    /no video offset/,
+  )
+  // A recording whose first frame came after the first beat began cannot hold it.
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: { unit: "milliseconds", videoOffsetMs: -2_001, scenes: BEAT_SCENES },
+      }),
+    /recording starts after the first beat/,
+  )
 })
 
 test("trim plan keeps the poster inside a navlog beat shorter than its lead", () => {
@@ -659,7 +684,7 @@ test("trim plan keeps the poster inside a navlog beat shorter than its lead", ()
     "beat-06-navlog": { startMs: 8_000, endMs: 8_100 },
   }
   assert.equal(
-    createTrimPlan({ videoTimeline: { unit: "milliseconds", scenes } }).posterTime,
+    createTrimPlan({ videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes } }).posterTime,
     6,
   )
 })
@@ -670,6 +695,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
       createTrimPlan({
         videoTimeline: {
           unit: "milliseconds",
+          videoOffsetMs: 0,
           scenes: { ...BEAT_SCENES, "beat-05-tools": undefined },
         },
       }),
@@ -680,6 +706,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
       createTrimPlan({
         videoTimeline: {
           unit: "milliseconds",
+          videoOffsetMs: 0,
           scenes: { ...BEAT_SCENES, "beat-11-close": { startMs: 7_000, endMs: 9_000 } },
         },
       }),
@@ -690,6 +717,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
       createTrimPlan({
         videoTimeline: {
           unit: "milliseconds",
+          videoOffsetMs: 0,
           scenes: { ...BEAT_SCENES, "beat-04-weather": { startMs: 5_500, endMs: 6_500 } },
         },
       }),
@@ -701,6 +729,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
       createTrimPlan({
         videoTimeline: {
           unit: "milliseconds",
+          videoOffsetMs: 0,
           scenes: {
             author: { startMs: 2_000, endMs: 5_000 },
             prove: { startMs: 5_000, endMs: 8_000 },
@@ -807,6 +836,8 @@ test("WebM encodes constrained-quality VP9 to stay under the video byte budget",
     "2",
     "-row-mt",
     "1",
+    "-pix_fmt",
+    "yuv420p",
     "/run/output/product-loop.webm.tmp.webm",
   ])
 })
@@ -1039,6 +1070,7 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         videoPath: source,
         videoTimeline: {
           unit: "milliseconds",
+          videoOffsetMs: 0,
           scenes: BEAT_SCENES,
         },
       }
@@ -1110,7 +1142,7 @@ test("a successful encode publishes the poster, manifest and pointer, and no REA
       summary: {
         runId,
         videoPath: source,
-        videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES },
+        videoTimeline: { unit: "milliseconds", videoOffsetMs: 0, scenes: BEAT_SCENES },
       },
       summaryPath: join(artifactsDir, "capture-summary.json"),
       dependencies: {
@@ -1839,13 +1871,14 @@ const AWC_STUB_URL = "http://127.0.0.1:4050"
 
 const scenarioFor = (now) => demoScenario({ now })
 
-function orchestrationFixture({ failAt, awcHits } = {}) {
+function orchestrationFixture({ failAt, awcHits, firstFrameEpochMs } = {}) {
   const operations = []
   const writes = []
   const renames = []
   const stopped = []
   const childEnvironments = []
   const actions = []
+  const closes = []
   const workspaceRoot = "/tmp/b4-demo-unit-abc123"
   const appRoot = `${workspaceRoot}/my-agent`
   const server = { name: "server" }
@@ -1968,6 +2001,7 @@ function orchestrationFixture({ failAt, awcHits } = {}) {
     },
     browser: {
       async open(options) {
+        const firstFrame = firstFrameEpochMs ?? Date.now()
         assert.deepEqual(options.viewport, { width: 1440, height: 810 })
         assert.match(
           options.recordingsDir,
@@ -2038,9 +2072,13 @@ function orchestrationFixture({ failAt, awcHits } = {}) {
             assert.equal(options.threadId, "thread-unit-1")
             return { connectUrl: "http://127.0.0.1:4101/api/copilotkit/agent/default/connect" }
           },
-          async close() {
+          async close(closeOptions) {
             operations.push("close browser")
-            return { videoPath: `${options.recordingsDir}/demo.webm` }
+            closes.push(closeOptions)
+            return {
+              videoPath: `${options.recordingsDir}/screencast.mp4`,
+              screencast: { format: "png", scale: 2, frameCount: 9, firstFrameEpochMs: firstFrame },
+            }
           },
         }
       },
@@ -2061,6 +2099,7 @@ function orchestrationFixture({ failAt, awcHits } = {}) {
     appRoot,
     awcStub,
     childEnvironments,
+    closes,
     operations,
     renames,
     stopped,
@@ -4001,33 +4040,296 @@ test("capture retains and awaits its memoized browser finalization after cancell
   assert.equal(signals.handlers.size, 0)
 })
 
-test("browser cleanup always closes Chromium even when context finalization fails", async () => {
+function closeFixture(calls, { failAt } = {}) {
+  const step = (name, value) => async () => {
+    calls.push(name)
+    if (name === failAt) throw new Error(`${name} failed`)
+    return value
+  }
+  return {
+    recorder: {
+      stop: step("stop screencast", {
+        frames: [{ file: "frame-000000.png", timestamp: 100 }],
+        stoppedAtEpochMs: 101_000,
+      }),
+    },
+    session: { detach: step("detach") },
+    context: { close: step("close context") },
+    browser: { close: step("close browser") },
+    framesDir: "/runs/run-c/screencast-frames",
+    outputPath: "/runs/run-c/screencast.mp4",
+    async remove(path) {
+      calls.push(`remove ${path}`)
+    },
+    async assemble(options) {
+      calls.push(["assemble", options])
+      return { videoPath: options.outputPath, screencast: { firstFrameEpochMs: 100_000 } }
+    },
+  }
+}
+
+test("browser cleanup stops the screencast, then the session, the context and Chromium, then assembles", async () => {
   const calls = []
-  await assert.rejects(
-    closeBrowserResources({
-      context: {
-        async close() {
-          calls.push("context")
-          throw new Error("context failed")
-        },
+  const signal = new AbortController().signal
+  const result = await closeBrowserResources({ ...closeFixture(calls), finalize: true, signal })
+  assert.deepEqual(calls, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    [
+      "assemble",
+      {
+        framesDir: "/runs/run-c/screencast-frames",
+        frames: [{ file: "frame-000000.png", timestamp: 100 }],
+        endEpochMs: 101_000,
+        outputPath: "/runs/run-c/screencast.mp4",
+        signal,
       },
-      video: {
-        async path() {
-          calls.push("video")
-          return "/ignored/demo.webm"
-        },
-      },
-      browser: {
-        async close() {
-          calls.push("browser")
-        },
-      },
-    }),
-    /context failed/,
-  )
-  assert.deepEqual(calls, ["context", "video", "browser"])
+    ],
+  ])
+  assert.deepEqual(result, {
+    videoPath: "/runs/run-c/screencast.mp4",
+    screencast: { firstFrameEpochMs: 100_000 },
+  })
 })
 
+test("browser cleanup without finalizing, or after a failed step, only removes the frames", async () => {
+  const unfinalized = []
+  assert.deepEqual(await closeBrowserResources(closeFixture(unfinalized)), {})
+  assert.deepEqual(unfinalized, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    "remove /runs/run-c/screencast-frames",
+  ])
+  const failed = []
+  await assert.rejects(
+    closeBrowserResources({ ...closeFixture(failed, { failAt: "close context" }), finalize: true }),
+    /close context failed/,
+  )
+  // Chromium still closes, nothing is assembled, and the frames go.
+  assert.deepEqual(failed, [
+    "stop screencast",
+    "detach",
+    "close context",
+    "close browser",
+    "remove /runs/run-c/screencast-frames",
+  ])
+})
+
+/** A DevTools session that records what the recorder sends and lets the test emit frames. */
+function fakeCdpSession() {
+  const sent = []
+  const listeners = new Map()
+  return {
+    sent,
+    listeners,
+    on(event, listener) {
+      listeners.set(event, listener)
+    },
+    off(event, listener) {
+      if (listeners.get(event) === listener) listeners.delete(event)
+    },
+    async send(method, params) {
+      sent.push(params === undefined ? [method] : [method, params])
+    },
+    emit(timestamp, sessionId, data = "AAEC") {
+      listeners.get("Page.screencastFrame")({ data, metadata: { timestamp }, sessionId })
+    },
+  }
+}
+
+test("screencast recorder writes every frame with its timestamp and acknowledges it", async () => {
+  const session = fakeCdpSession()
+  const writes = []
+  const recorder = createScreencastRecorder({
+    session,
+    framesDir: "/runs/run-d/screencast-frames",
+    async mkdir(path, options) {
+      writes.push(["mkdir", path, options])
+    },
+    async writeFile(path, bytes) {
+      writes.push([path, [...bytes]])
+    },
+    wallClock: () => 1_791_000_012_000,
+  })
+  await recorder.start()
+  assert.deepEqual(session.sent, [["Page.startScreencast", { ...SCREENCAST_OPTIONS }]])
+  session.emit(1_791_000_010.25, 7)
+  session.emit(1_791_000_011.5, 8)
+  const recording = await recorder.stop()
+  assert.deepEqual(recording, {
+    frames: [
+      { file: "frame-000000.png", timestamp: 1_791_000_010.25 },
+      { file: "frame-000001.png", timestamp: 1_791_000_011.5 },
+    ],
+    stoppedAtEpochMs: 1_791_000_012_000,
+  })
+  assert.deepEqual(writes, [
+    ["mkdir", "/runs/run-d/screencast-frames", { recursive: true }],
+    ["/runs/run-d/screencast-frames/frame-000000.png", [0, 1, 2]],
+    ["/runs/run-d/screencast-frames/frame-000001.png", [0, 1, 2]],
+  ])
+  assert.deepEqual(session.sent.slice(1), [
+    ["Page.screencastFrameAck", { sessionId: 7 }],
+    ["Page.screencastFrameAck", { sessionId: 8 }],
+    ["Page.stopScreencast"],
+  ])
+  assert.equal(session.listeners.has("Page.screencastFrame"), false)
+  // Stopping twice is one stop.
+  assert.equal(await recorder.stop(), recording)
+})
+
+test("screencast recorder fails its stop on a lost write or a frame without a timestamp", async () => {
+  const session = fakeCdpSession()
+  const recorder = createScreencastRecorder({
+    session,
+    framesDir: "/frames",
+    async mkdir() {},
+    async writeFile() {
+      throw new Error("disk full")
+    },
+  })
+  await recorder.start()
+  session.emit(Number.NaN, 1)
+  await assert.rejects(recorder.stop(), (error) => {
+    assert.ok(error instanceof AggregateError)
+    assert.match(error.message, /without a timestamp/)
+    assert.match(error.message, /disk full/)
+    return true
+  })
+})
+
+test("screencast concat gives each frame its real duration and the last one up to the end", () => {
+  const list = screencastConcat(
+    [
+      { file: "frame-000000.png", timestamp: 100 },
+      { file: "frame-000001.png", timestamp: 100.04 },
+      // A paint at the same instant as the next: dropped.
+      { file: "frame-000002.png", timestamp: 103.04 },
+      { file: "frame-000003.png", timestamp: 103.04 },
+    ],
+    105_000,
+  )
+  assert.equal(
+    list,
+    [
+      "ffconcat version 1.0",
+      "file 'frame-000000.png'",
+      "duration 0.040000",
+      // A three-second hold with no paint is one frame shown for three seconds.
+      "file 'frame-000001.png'",
+      "duration 3.000000",
+      "file 'frame-000003.png'",
+      "duration 1.960000",
+      "file 'frame-000003.png'",
+      "",
+    ].join("\n"),
+  )
+  // A last frame at (or after) the end still lasts one output frame.
+  assert.match(screencastConcat([{ file: "f.png", timestamp: 10 }], 10_000), /duration 0\.033333/)
+  assert.throws(() => screencastConcat([], 1), /no frames/)
+  assert.throws(
+    () =>
+      screencastConcat(
+        [
+          { file: "a.png", timestamp: 2 },
+          { file: "b.png", timestamp: 1 },
+        ],
+        3_000,
+      ),
+    /earlier than the frame before it/,
+  )
+  assert.throws(() => screencastConcat([{ file: "a'.png", timestamp: 1 }], 2_000), /unsafe file name/)
+})
+
+test("screencast assembly resamples to 30 fps 4:4:4 and always removes the frames", async () => {
+  const calls = []
+  const frames = [
+    { file: "frame-000000.png", timestamp: 100 },
+    { file: "frame-000001.png", timestamp: 101 },
+  ]
+  const result = await assembleScreencastVideo({
+    framesDir: "/runs/run-e/screencast-frames",
+    frames,
+    endEpochMs: 102_000,
+    outputPath: "/runs/run-e/screencast.mp4",
+    async writeFile(path, text) {
+      calls.push(["write", path, text])
+    },
+    async run(command, args) {
+      calls.push([command, args])
+    },
+    async remove(path) {
+      calls.push(["remove", path])
+    },
+  })
+  assert.deepEqual(calls[0], [
+    "write",
+    "/runs/run-e/screencast-frames/frames.ffconcat",
+    screencastConcat(frames, 102_000),
+  ])
+  assert.deepEqual(calls[1], [
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      "/runs/run-e/screencast-frames/frames.ffconcat",
+      "-vf",
+      "fps=30,format=yuv444p",
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "8",
+      "/runs/run-e/screencast.mp4",
+    ],
+  ])
+  assert.deepEqual(calls[2], ["remove", "/runs/run-e/screencast-frames"])
+  assert.deepEqual(result, {
+    videoPath: "/runs/run-e/screencast.mp4",
+    screencast: {
+      format: "png",
+      scale: 2,
+      frameCount: 2,
+      firstFrameEpochMs: 100_000,
+      endEpochMs: 102_000,
+    },
+  })
+
+  const aborted = []
+  const controller = new AbortController()
+  await assert.rejects(
+    assembleScreencastVideo({
+      framesDir: "/f",
+      frames,
+      endEpochMs: 102_000,
+      outputPath: "/o.mp4",
+      signal: controller.signal,
+      async writeFile() {},
+      async run() {
+        controller.abort(new Error("cancel assembly"))
+        throw new Error("ffmpeg killed")
+      },
+      async remove(path) {
+        aborted.push(path)
+      },
+    }),
+    /ffmpeg killed/,
+  )
+  assert.deepEqual(aborted, ["/f"])
+})
 test("browser acquisition closes Chromium when context creation fails", async () => {
   const calls = []
   const acquisitionError = new Error("context creation failed")
@@ -4060,11 +4362,18 @@ test("browser acquisition closes Chromium when context creation fails", async ()
   assert.deepEqual(calls, ["launch", "new context", "close browser"])
 })
 
-test("browser acquisition reduces motion and hides the Next dev badge before the first page", async () => {
+test("browser acquisition records a 2x screencast, reduces motion and hides the Next dev badge", async () => {
   const calls = []
-  const video = { path: async () => "/ignored/video.webm" }
+  const session = { name: "cdp" }
+  const page = { name: "page" }
+  const recorder = {
+    async start() {
+      calls.push(["start screencast"])
+    },
+  }
   const chromium = {
-    async launch() {
+    async launch(options) {
+      calls.push(["launch", options])
       return {
         async newContext(options) {
           calls.push(["new context", options])
@@ -4074,7 +4383,12 @@ test("browser acquisition reduces motion and hides the Next dev badge before the
             },
             async newPage() {
               calls.push(["new page"])
-              return { video: () => video }
+              return page
+            },
+            async newCDPSession(target) {
+              assert.equal(target, page)
+              calls.push(["cdp session"])
+              return session
             },
           }
         },
@@ -4083,25 +4397,99 @@ test("browser acquisition reduces motion and hides the Next dev badge before the
   }
   const resources = await createBrowserResources({
     chromium,
-    recordingsDir: "/ignored/raw-recordings",
+    recordingsDir: "/runs/run-a",
     viewport: { width: 1440, height: 810 },
+    createRecorder(options) {
+      calls.push(["recorder", options])
+      return recorder
+    },
   })
-  assert.equal(resources.video, video)
+  assert.equal(resources.recorder, recorder)
+  assert.equal(resources.framesDir, "/runs/run-a/screencast-frames")
+  assert.equal(resources.outputPath, "/runs/run-a/screencast.mp4")
   assert.deepEqual(calls, [
+    ["launch", { headless: true, args: ["--force-device-scale-factor=2"] }],
     [
       "new context",
-      {
-        viewport: { width: 1440, height: 810 },
-        recordVideo: { dir: "/ignored/raw-recordings", size: { width: 1440, height: 810 } },
-        reducedMotion: "reduce",
-      },
+      { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 2, reducedMotion: "reduce" },
     ],
     ["init script", HIDE_NEXT_DEV_INDICATOR],
     ["new page"],
+    ["cdp session"],
+    ["recorder", { session, framesDir: "/runs/run-a/screencast-frames" }],
+    ["start screencast"],
   ])
+  assert.deepEqual(SCREENCAST_OPTIONS, {
+    format: "png",
+    maxWidth: 2880,
+    maxHeight: 1620,
+    everyNthFrame: 1,
+  })
   assert.match(HIDE_NEXT_DEV_INDICATOR, /nextjs-portal \{ display: none !important; \}/)
 })
 
+test("browser acquisition stops a started screencast and removes its frames when it fails late", async () => {
+  const calls = []
+  const failure = new Error("screencast start failed")
+  const chromium = {
+    async launch() {
+      return {
+        async newContext() {
+          return {
+            async addInitScript() {},
+            async newPage() {
+              return {
+                async close() {
+                  calls.push("close page")
+                },
+              }
+            },
+            async newCDPSession() {
+              return {
+                async detach() {
+                  calls.push("detach")
+                },
+              }
+            },
+            async close() {
+              calls.push("close context")
+            },
+          }
+        },
+        async close() {
+          calls.push("close browser")
+        },
+      }
+    },
+  }
+  await assert.rejects(
+    createBrowserResources({
+      chromium,
+      recordingsDir: "/runs/run-b",
+      viewport: { width: 1440, height: 810 },
+      createRecorder: () => ({
+        async start() {
+          throw failure
+        },
+        async stop() {
+          calls.push("stop screencast")
+        },
+      }),
+      async remove(path) {
+        calls.push(`remove ${path}`)
+      },
+    }),
+    (error) => error === failure,
+  )
+  assert.deepEqual(calls, [
+    "stop screencast",
+    "detach",
+    "close page",
+    "close context",
+    "close browser",
+    "remove /runs/run-b/screencast-frames",
+  ])
+})
 test("browser acquisition rolls back a late Chromium launch after abort", async () => {
   const calls = []
   const controller = new AbortController()
@@ -4202,7 +4590,7 @@ test("capture invokes the future encoder after finalizing recordings and summary
       )
       assert.equal(
         options.summary.videoPath,
-        "/repo/docs/brand/demo/raw-recordings/runs/run-unit-encode/demo.webm",
+        "/repo/docs/brand/demo/raw-recordings/runs/run-unit-encode/screencast.mp4",
       )
     },
   })
@@ -4268,7 +4656,8 @@ test("SIGTERM during encoding aborts and awaits the encoder before final cleanup
 })
 
 test("capture publishes a versioned run-specific manifest with deterministic scene boundaries", async () => {
-  const fixture = orchestrationFixture()
+  // The screencast's first frame came 2.5 s before the timeline started.
+  const fixture = orchestrationFixture({ firstFrameEpochMs: CAPTURE_NOW - 2_500 })
   let tick = 1_000
   const holds = []
   const summary = await captureDemo({
@@ -4304,7 +4693,7 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
       stderr: "/repo/docs/brand/demo/artifacts/runs/run-unit-manifest/test.stderr.log",
       result: "/repo/docs/brand/demo/artifacts/runs/run-unit-manifest/test.result.json",
     },
-    recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/demo.webm",
+    recording: "/repo/docs/brand/demo/raw-recordings/runs/run-unit-manifest/screencast.mp4",
   })
   assert.deepEqual(Object.keys(summary.videoTimeline.scenes), Object.keys(BEAT_SCENES))
   let previousEnd = -1
@@ -4318,8 +4707,18 @@ test("capture publishes a versioned run-specific manifest with deterministic sce
   // sheet); file (the card, then the reply); reload (the memory, then the
   // restored thread). Code, title and close beats hold inside the director.
   assert.deepEqual(holds, [2_000, 2_500, 700, 2_500, 800, 2_000, 900, 2_000])
-  // The trim plan reads this timeline as it is.
-  assert.equal(createTrimPlan(summary).start, summary.videoTimeline.scenes["beat-00-title"].startMs / 1_000)
+  // Scene times map to video time through the wall-clock offset between the
+  // timeline's start and the first screencast frame.
+  assert.equal(summary.videoTimeline.startedAtEpochMs, CAPTURE_NOW)
+  assert.equal(summary.videoTimeline.videoOffsetMs, 2_500)
+  assert.equal(
+    createTrimPlan(summary).start,
+    (summary.videoTimeline.scenes["beat-00-title"].startMs + 2_500) / 1_000,
+  )
+  // Only the successful run's close finalizes the recording.
+  assert.equal(fixture.closes.length, 1)
+  assert.equal(fixture.closes[0].finalize, true)
+  assert.ok(fixture.closes[0].signal instanceof AbortSignal)
   assert.deepEqual(summary.evidence, {
     scenarioNow: CAPTURE_NOW,
     departureUtc: CAPTURE_SCENARIO.departureUtc,

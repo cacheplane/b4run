@@ -55,6 +55,12 @@ export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
 		throw new Error("capture summary timeline must use milliseconds");
 	}
 	const scenes = summary.videoTimeline.scenes;
+	// Scene times run from the timeline's start; the video's from its first
+	// screencast frame. The capture records the offset between the two.
+	const offsetMs = summary.videoTimeline.videoOffsetMs;
+	if (!Number.isFinite(offsetMs)) {
+		throw new Error("capture summary timeline has no video offset");
+	}
 	const names = storyboard.map((beat, index) => beatSceneName(index, beat));
 	const beats = names.map((name) => requireBeat(scenes, name));
 	for (let index = 1; index < beats.length; index++) {
@@ -71,8 +77,11 @@ export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
 	const first = beats[0];
 	const last = beats.at(-1);
 	const poster = beats[posterIndex];
+	if (first.startMs + offsetMs < 0) {
+		throw new Error("the recording starts after the first beat");
+	}
 	return {
-		start: first.startMs / 1_000,
+		start: (first.startMs + offsetMs) / 1_000,
 		duration: (last.endMs - first.startMs) / 1_000,
 		posterTime: Math.max(
 			(poster.startMs - first.startMs) / 1_000,
@@ -128,6 +137,9 @@ export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
 		"2",
 		"-row-mt",
 		"1",
+		// The raw screencast video is 4:4:4; browsers play VP9 profile 0 only.
+		"-pix_fmt",
+		"yuv420p",
 	]),
 });
 

@@ -18,6 +18,7 @@ import { startAwcStub as startLoopbackAwcStub } from "./awc-stub.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { assertScenarioCurrent, demoScenario } from "./scenario.mjs"
 import { DIRECTOR_FONTS, renderDirector } from "./director.mjs"
+import { runEncoderCommand } from "./encode.mjs"
 import { beatSceneName, STORYBOARD, storyboardPaths } from "./storyboard.mjs"
 
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, "../../..")
@@ -115,9 +116,12 @@ export function validateRunId(value) {
   return value
 }
 
-function createVideoTimeline(now) {
+function createVideoTimeline(now, wallClock = Date.now) {
   if (typeof now !== "function") throw new TypeError("timing.now must be a function")
   const startedAtMonotonicMs = now()
+  // The same instant on the wall clock, the clock the screencast stamps its
+  // frames with: the bridge from scene times to video time.
+  const startedAtEpochMs = wallClock()
   const scenes = {}
   let previousEnd = 0
   return {
@@ -135,6 +139,7 @@ function createVideoTimeline(now) {
       return {
         unit: "milliseconds",
         startedAtMonotonicMs,
+        startedAtEpochMs,
         endedAtMonotonicMs: startedAtMonotonicMs + previousEnd,
         scenes: { ...scenes },
       }
@@ -1265,25 +1270,228 @@ export function frameSurface(page, frame) {
   }
 }
 
-export async function closeBrowserResources({ context, video, browser }) {
+/**
+ * The recorder: a Chromium DevTools screencast at twice the CSS resolution,
+ * one lossless frame per paint. Playwright's recordVideo is VP8 at about
+ * 0.9 Mbit/s and 25 fps, which leaves code text soft; these frames are the
+ * compositor's own pixels, and the encoder supersamples them down to 1440x810.
+ */
+export const SCREENCAST_SCALE = 2
+export const SCREENCAST_OPTIONS = Object.freeze({
+  format: "png",
+  maxWidth: 1440 * SCREENCAST_SCALE,
+  maxHeight: 810 * SCREENCAST_SCALE,
+  everyNthFrame: 1,
+})
+const SCREENCAST_FRAMES_DIR = "screencast-frames"
+const SCREENCAST_VIDEO = "screencast.mp4"
+const SCREENCAST_FPS = 30
+
+/**
+ * Writes every `Page.screencastFrame` to `framesDir` with its timestamp (wall
+ * clock seconds) and acknowledges it, which is what lets Chromium send the
+ * next. Frames arrive only when the page paints, so a hold is the gap between
+ * two timestamps. `stop()` stops the screencast, waits for every write, and
+ * returns the frames in order with the wall-clock time it stopped.
+ */
+export function createScreencastRecorder({
+  session,
+  framesDir,
+  options = SCREENCAST_OPTIONS,
+  writeFile = nodeWriteFile,
+  mkdir = nodeMkdir,
+  wallClock = Date.now,
+}) {
+  const frames = []
+  const pending = new Set()
   const errors = []
-  let videoPath
-  try {
-    await context.close()
-  } catch (error) {
-    errors.push(error)
-  }
-  if (video !== null) {
+  const extension = options.format === "jpeg" ? "jpg" : "png"
+  let stopping
+  const onFrame = ({ data, metadata, sessionId }) => {
+    if (stopping !== undefined) return
+    const timestamp = metadata?.timestamp
+    if (!Number.isFinite(timestamp)) {
+      errors.push(new Error("A screencast frame arrived without a timestamp"))
+    }
+    const file = `frame-${String(frames.length).padStart(6, "0")}.${extension}`
+    frames.push({ file, timestamp })
+    const write = Promise.resolve()
+      .then(() => writeFile(join(framesDir, file), Buffer.from(data, "base64")))
+      .catch((error) => {
+        errors.push(error)
+      })
+    pending.add(write)
+    write.finally(() => pending.delete(write))
+    // Acknowledge at once: Chromium sends the next frame only after this. A
+    // failed ack (the session closing) only ends the stream.
     try {
-      videoPath = await video.path()
+      Promise.resolve(session.send("Page.screencastFrameAck", { sessionId })).catch(() => {})
+    } catch {}
+  }
+  return {
+    async start() {
+      await mkdir(framesDir, { recursive: true })
+      session.on("Page.screencastFrame", onFrame)
+      await session.send("Page.startScreencast", { ...options })
+    },
+    stop() {
+      stopping ??= (async () => {
+        try {
+          await session.send("Page.stopScreencast")
+        } catch (error) {
+          errors.push(error)
+        }
+        session.off("Page.screencastFrame", onFrame)
+        const stoppedAtEpochMs = wallClock()
+        await Promise.all([...pending])
+        if (errors.length > 0) {
+          throw new AggregateError(
+            errors,
+            `The screencast failed: ${errors.map(errorMessage).join("; ")}`,
+          )
+        }
+        return { frames: [...frames], stoppedAtEpochMs }
+      })()
+      return stopping
+    },
+  }
+}
+
+/**
+ * The ffconcat list for the frames: each frame lasts until the next one's
+ * timestamp, and the last until `endEpochMs` (at least one output frame).
+ * A frame with the same timestamp as the next is dropped. Times are seconds.
+ */
+export function screencastConcat(frames, endEpochMs) {
+  if (!Array.isArray(frames) || frames.length === 0) {
+    throw new Error("The screencast recorded no frames")
+  }
+  for (const [index, frame] of frames.entries()) {
+    if (!Number.isFinite(frame.timestamp)) {
+      throw new Error(`Screencast frame ${index} has no timestamp`)
+    }
+    if (index > 0 && frame.timestamp < frames[index - 1].timestamp) {
+      throw new Error(`Screencast frame ${index} is earlier than the frame before it`)
+    }
+    if (!/^[A-Za-z0-9._-]+$/u.test(frame.file)) {
+      throw new Error(`Screencast frame ${index} has an unsafe file name`)
+    }
+  }
+  if (!Number.isFinite(endEpochMs)) throw new Error("The screencast end time is not a number")
+  const lines = ["ffconcat version 1.0"]
+  for (const [index, frame] of frames.entries()) {
+    const last = index === frames.length - 1
+    const next = last ? endEpochMs / 1_000 : frames[index + 1].timestamp
+    const duration = last ? Math.max(1 / SCREENCAST_FPS, next - frame.timestamp) : next - frame.timestamp
+    if (duration <= 0) continue
+    lines.push(`file '${frame.file}'`, `duration ${duration.toFixed(6)}`)
+  }
+  // The concat demuxer honours the last entry's duration only when a file follows it.
+  lines.push(`file '${frames.at(-1).file}'`)
+  return `${lines.join("\n")}\n`
+}
+
+/**
+ * Turns the frames into the run's raw video: the concat demuxer gives each
+ * frame its real duration, `fps=30` resamples them to a constant 30 fps, and
+ * near-lossless 4:4:4 H.264 keeps the 2x pixels for the encoder to downscale.
+ * The frames directory is removed whatever happens. Video time 0 is the first
+ * frame's timestamp, returned as `firstFrameEpochMs`.
+ */
+export async function assembleScreencastVideo({
+  framesDir,
+  frames,
+  endEpochMs,
+  outputPath,
+  signal,
+  run = runEncoderCommand,
+  writeFile = nodeWriteFile,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const listPath = join(framesDir, "frames.ffconcat")
+  try {
+    signal?.throwIfAborted()
+    await writeFile(listPath, screencastConcat(frames, endEpochMs), "utf8")
+    await run(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        listPath,
+        "-vf",
+        `fps=${SCREENCAST_FPS},format=yuv444p`,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "8",
+        outputPath,
+      ],
+      { signal },
+    )
+  } finally {
+    await remove(framesDir)
+  }
+  return {
+    videoPath: outputPath,
+    screencast: {
+      format: SCREENCAST_OPTIONS.format,
+      scale: SCREENCAST_SCALE,
+      frameCount: frames.length,
+      firstFrameEpochMs: frames[0].timestamp * 1_000,
+      endEpochMs,
+    },
+  }
+}
+
+/**
+ * Stops the screencast, closes the DevTools session, the context and
+ * Chromium, in that order, then either assembles the raw video (`finalize`)
+ * or just removes the frames (a failed or cancelled run).
+ */
+export async function closeBrowserResources({
+  context,
+  browser,
+  session,
+  recorder,
+  framesDir,
+  outputPath,
+  finalize = false,
+  signal,
+  assemble = assembleScreencastVideo,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const errors = []
+  let recording
+  for (const step of [
+    async () => {
+      recording = await recorder.stop()
+    },
+    () => session.detach(),
+    () => context.close(),
+    () => browser.close(),
+  ]) {
+    try {
+      await step()
     } catch (error) {
       errors.push(error)
     }
   }
-  try {
-    await browser.close()
-  } catch (error) {
-    errors.push(error)
+  if (errors.length > 0 || !finalize) {
+    try {
+      await remove(framesDir)
+    } catch (error) {
+      errors.push(error)
+    }
   }
   if (errors.length > 0) {
     throw new AggregateError(
@@ -1291,7 +1499,14 @@ export async function closeBrowserResources({ context, video, browser }) {
       `Browser cleanup failed: ${errors.map(errorMessage).join("; ")}`,
     )
   }
-  return videoPath === undefined ? {} : { videoPath }
+  if (!finalize) return {}
+  return assemble({
+    framesDir,
+    frames: recording.frames,
+    endEpochMs: recording.stoppedAtEpochMs,
+    outputPath,
+    signal,
+  })
 }
 
 // The Workbench runs under `next dev`, whose dev-tools badge is not part of the
@@ -1303,17 +1518,33 @@ export const HIDE_NEXT_DEV_INDICATOR = `document.addEventListener("DOMContentLoa
   document.head.append(style)
 })`
 
-export async function createBrowserResources({ chromium, recordingsDir, viewport, signal }) {
+export async function createBrowserResources({
+  chromium,
+  recordingsDir,
+  viewport,
+  signal,
+  createRecorder = createScreencastRecorder,
+  remove = (path) => nodeRm(path, { recursive: true, force: true }),
+}) {
+  const framesDir = join(recordingsDir, SCREENCAST_FRAMES_DIR)
   let browser
   let context
   let page
+  let session
+  let recorder
   try {
     signal?.throwIfAborted()
-    browser = await chromium.launch({ headless: true })
+    // Headless Chromium screencasts at CSS size unless the device scale is
+    // forced for the whole browser; the context's deviceScaleFactor alone
+    // still sends 1x frames.
+    browser = await chromium.launch({
+      headless: true,
+      args: [`--force-device-scale-factor=${SCREENCAST_SCALE}`],
+    })
     signal?.throwIfAborted()
     context = await browser.newContext({
       viewport,
-      recordVideo: { dir: recordingsDir, size: viewport },
+      deviceScaleFactor: SCREENCAST_SCALE,
       // The navlog map animates its zoom to the route unless motion is reduced;
       // the animation adds no evidence and spends the video byte budget on motion.
       reducedMotion: "reduce",
@@ -1323,13 +1554,33 @@ export async function createBrowserResources({ chromium, recordingsDir, viewport
     signal?.throwIfAborted()
     page = await context.newPage()
     signal?.throwIfAborted()
-    return { browser, context, page, video: page.video() }
+    session = await context.newCDPSession(page)
+    signal?.throwIfAborted()
+    recorder = createRecorder({ session, framesDir })
+    await recorder.start()
+    signal?.throwIfAborted()
+    return {
+      browser,
+      context,
+      page,
+      session,
+      recorder,
+      framesDir,
+      outputPath: join(recordingsDir, SCREENCAST_VIDEO),
+    }
   } catch (error) {
     const cleanupErrors = []
-    for (const resource of [page, context, browser]) {
-      if (resource === undefined) continue
+    for (const cleanup of [
+      recorder === undefined ? undefined : () => recorder.stop(),
+      session === undefined ? undefined : () => session.detach(),
+      page === undefined ? undefined : () => page.close(),
+      context === undefined ? undefined : () => context.close(),
+      browser === undefined ? undefined : () => browser.close(),
+      recorder === undefined ? undefined : () => remove(framesDir),
+    ]) {
+      if (cleanup === undefined) continue
       try {
-        await resource.close()
+        await cleanup()
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError)
       }
@@ -1348,15 +1599,18 @@ function createBrowserAdapter() {
     async open({ recordingsDir, viewport, signal }) {
       signal?.throwIfAborted()
       const { chromium } = await import("@playwright/test")
-      const { browser, context, page, video } = await createBrowserResources({
+      const resources = await createBrowserResources({
         chromium,
         recordingsDir,
         viewport,
         signal,
       })
+      const { page } = resources
       let closePromise
-      const close = () => {
-        closePromise ??= closeBrowserResources({ context, video, browser })
+      // The first close decides: a finalizing close assembles the video; any
+      // other (a failure or a cancellation) only removes the frames.
+      const close = ({ finalize = false, signal: closeSignal } = {}) => {
+        closePromise ??= closeBrowserResources({ ...resources, finalize, signal: closeSignal })
         return closePromise
       }
       const runSessionOperation = async (operationSignal, action) => {
@@ -1728,8 +1982,8 @@ export async function captureDemo({
       disposeResult: (lateSession) => lateSession.close(),
     })
     let browserClosePromise
-    closeBrowserSession = () => {
-      browserClosePromise ??= Promise.resolve().then(() => browserSession.close())
+    closeBrowserSession = (options) => {
+      browserClosePromise ??= Promise.resolve().then(() => browserSession.close(options))
       return browserClosePromise
     }
     const browserPhase = (label, action) =>
@@ -1743,7 +1997,7 @@ export async function captureDemo({
     // The recording starts with the page; the timeline starts here, so the
     // director's load and the Workbench's warm-up fall before the first beat
     // and the encoder trims them off.
-    const timeline = createVideoTimeline(timing.now)
+    const timeline = createVideoTimeline(timing.now, wallClock)
     await browserPhase("open director", () =>
       browserSession.openDirector({
         origin: workbenchUrl,
@@ -1879,7 +2133,19 @@ export async function captureDemo({
       videoTimeline: timeline.manifest(),
     }
 
-    browserResult = await browserPhase("finalize browser recording", () => closeBrowserSession())
+    browserResult = await browserPhase("finalize browser recording", () =>
+      closeBrowserSession({ finalize: true, signal: signalScope.signal }),
+    )
+    const screencast = browserResult.screencast
+    if (!Number.isFinite(screencast?.firstFrameEpochMs)) {
+      throw new Error("The browser recording reported no screencast timing")
+    }
+    // Video time 0 is the first frame; scene time 0 is the timeline's start.
+    // Both are on the wall clock, so a scene at t plays at t + videoOffsetMs.
+    result.videoTimeline = {
+      ...result.videoTimeline,
+      videoOffsetMs: result.videoTimeline.startedAtEpochMs - screencast.firstFrameEpochMs,
+    }
     browserSession = undefined
     closeBrowserSession = undefined
     const summary = {
