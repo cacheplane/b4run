@@ -869,7 +869,9 @@ describe("dependency security graph invariants", () => {
     // An extension edits another package's manifest, so it can change the
     // dependency graph; each one is reviewed. The Angular test plugin declares
     // no TypeScript peer, so without this it would load the root's TypeScript 7,
-    // which has no compiler API, instead of the Angular kit's TypeScript 6.
+    // which has no compiler API, instead of `@b4run/ag-ui`'s TypeScript 6 (its
+    // `typescript` devDependency aliases `@typescript/typescript6`, which the
+    // Angular compiler and this plugin resolve as their `typescript` peer).
     const manifest = requireRecord(
       JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")),
       "root package.json",

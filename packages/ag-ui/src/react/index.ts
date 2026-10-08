@@ -3,7 +3,7 @@
  *
  * React is an OPTIONAL peer dependency: importing the root (`@b4run/ag-ui`) or
  * `./sse` never loads this module. This entry has no CopilotKit dependency;
- * the CopilotKit connector lives at `@b4run/ag-ui/copilotkit`.
+ * the CopilotKit connector lives at `@b4run/ag-ui/react/copilotkit`.
  *
  * Components take plain props built by `@b4run/ag-ui/view` (`reduceTurns`) and
  * render the DOM contract in the activity-components spec: `TurnActivity` for a

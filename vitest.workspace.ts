@@ -5,7 +5,7 @@ export default defineConfig({
     projects: [
       "./apps/web/vitest.config.ts",
       "./packages/ag-ui/vitest.config.ts",
-      "./packages/ag-ui-angular/vitest.config.ts",
+      "./packages/ag-ui/vitest.angular.config.ts",
       "./packages/cli/vitest.config.ts",
       "./packages/core/vitest.config.ts",
       "./packages/create-b4-app/vitest.config.ts",

@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
+    // The Angular kit's tests need Angular's compiler: `vitest.angular.config.ts`.
+    exclude: ["test/angular/**"],
     passWithNoTests: true,
     setupFiles: ["test/setup.ts"],
     server: {
