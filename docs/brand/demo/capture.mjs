@@ -960,7 +960,14 @@ export async function restoreWorkbenchThread(
  */
 export function frameSurface(page, frame) {
   const goto = async (url, options) => {
-    const response = await frame.goto(url, options)
+    let response
+    try {
+      response = await frame.goto(url, options)
+    } catch (error) {
+      throw new Error(`The Workbench did not load inside the director frame (${error.message})`, {
+        cause: error,
+      })
+    }
     const loaded = frame.url()
     if (loaded.startsWith("chrome-error:")) {
       throw new Error(`The Workbench did not load inside the director frame (${loaded})`)
@@ -974,7 +981,15 @@ export function frameSurface(page, frame) {
     waitForTimeout: (ms) => frame.waitForTimeout(ms),
     waitForResponse: (...args) => page.waitForResponse(...args),
     goto,
-    reload: (options) => goto(frame.url(), options),
+    reload: async (options) => {
+      // A null response is a same-document navigation (e.g. a URL with a
+      // hash): nothing reloaded, so the restoration would prove nothing.
+      const response = await goto(frame.url(), options)
+      if (response === null) {
+        throw new Error("The Workbench frame did not reload (same-document navigation)")
+      }
+      return response
+    },
   }
 }
 

@@ -36,7 +36,7 @@ export const RUN_FOCUS = Object.freeze({
 })
 
 /** Lines of the test log the prove panel shows around its focal summary line. */
-export const PROVE_LOG_WINDOW = Object.freeze({ before: 18, after: 2 })
+export const PROVE_LOG_WINDOW = Object.freeze({ before: 16, after: 1 })
 
 /** Font files the page loads, served by the capture from the brand kit. */
 export const DIRECTOR_FONTS = Object.freeze({
@@ -82,12 +82,16 @@ function markedCode(source, focal, missing) {
     .join("\n")
 }
 
-/** The last Vitest test-count line, else the last broader passing line, with its surrounding window. */
+/**
+ * The first Vitest test-count line, else the first broader `Tests … passed`
+ * line, with its surrounding window. `npm test` runs the workspaces server
+ * first, so the first summary is the agent's own tests, not the web client's.
+ */
 function windowedLog(testLog) {
   const lines = testLog.split("\n")
-  const lastMatch = (pattern) => lines.findLastIndex((line) => pattern.test(line))
-  let index = lastMatch(/^\s*Tests\s+\d+\s+passed/u)
-  if (index === -1) index = lastMatch(/(?:Tests?\s+.*passed|\d+\s+passed)/iu)
+  const firstMatch = (pattern) => lines.findIndex((line) => pattern.test(line))
+  let index = firstMatch(/^\s*Tests\s+\d+\s+passed/u)
+  if (index === -1) index = firstMatch(/^\s*Tests\b.*\bpassed\b/u)
   if (index === -1) throw new Error("test log has no passing summary")
   const start = Math.max(0, index - PROVE_LOG_WINDOW.before)
   return {
@@ -108,7 +112,7 @@ const STYLE = `
 }
 * { box-sizing: border-box; margin: 0; }
 html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--paper); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-.stage { position: relative; width: 1440px; height: 810px; overflow: hidden; }
+.stage { position: relative; width: 1440px; height: 810px; overflow: clip; }
 .head { position: absolute; left: 163px; top: 44px; font-weight: 600; font-size: 88px; line-height: 1.06; letter-spacing: -0.055em; transform-origin: 0 0; transform: translateY(300px); transition: transform var(--dock) var(--ease-out); white-space: nowrap; }
 .docked .head { transform: scale(0.42); }
 .roll { overflow: hidden; height: 1.12em; }
@@ -118,7 +122,7 @@ html, body { width: 1440px; height: 810px; overflow: hidden; background: var(--p
 .w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.06em; margin-right: 0.22em; }
 .w > span { display: inline-block; transform: translateY(105%); transition: transform var(--reveal) var(--ease-out); }
 .revealed .head .w > span, .close-revealed .close .w > span { transform: none; }
-.frame { position: absolute; left: 163px; top: 128px; width: 1113px; height: 626px; overflow: hidden; outline: 1px solid var(--rule-strong); background: var(--panel); transform: translateY(820px); transition: transform var(--dock) var(--ease-out); }
+.frame { position: absolute; left: 163px; top: 128px; width: 1113px; height: 626px; overflow: clip; outline: 1px solid var(--rule-strong); background: var(--panel); transform: translateY(820px); transition: transform var(--dock) var(--ease-out); }
 .docked .frame, .prep .frame { transform: none; }
 .camera { position: absolute; inset: 0; transition: transform var(--camera) var(--ease-in-out); }
 .layer { position: absolute; inset: 0; opacity: 0; filter: blur(6px); transform: scale(1.03); transition: opacity var(--swap) var(--ease-in-out), filter var(--swap) var(--ease-in-out), transform var(--swap) var(--ease-in-out); }

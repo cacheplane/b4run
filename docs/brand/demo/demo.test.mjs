@@ -967,17 +967,42 @@ test("director page renders the real sources and log, escaped, with one focal ma
   assert.match(html, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
 })
 
-test("director prove panel shows a window around the last test-count summary", () => {
+test("director prove panel shows a window around the first test-count summary", () => {
   const log = Array.from({ length: 100 }, (_, at) => `log-line-${String(at + 1).padStart(3, "0")}`)
   log[89] = "Tests  92 passed (92)"
   const html = renderDirector({ ...DIRECTOR_INPUT, testLog: log.join("\n") })
   const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
-  assert.match(proof, /log-line-072/)
-  assert.doesNotMatch(proof, /log-line-071/)
+  assert.match(proof, /log-line-074/)
+  assert.doesNotMatch(proof, /log-line-073/)
   assert.match(proof, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
-  assert.match(proof, /log-line-091\nlog-line-092$/)
+  assert.match(proof, /log-line-091$/)
+  assert.doesNotMatch(proof, /log-line-092/)
   assert.equal(proof.match(/class="focus"/g)?.length, 1)
   assert.equal(proof.split("\n").length, PROVE_LOG_WINDOW.before + 1 + PROVE_LOG_WINDOW.after)
+})
+
+test("director prove panel focuses the server workspace's summary, not the web workspace's", () => {
+  const log = Array.from({ length: 80 }, (_, at) => `log-line-${String(at + 1).padStart(3, "0")}`)
+  log[29] = "Tests  92 passed (92)"
+  log[69] = "Tests  348 passed (348)"
+  const html = renderDirector({ ...DIRECTOR_INPUT, testLog: log.join("\n") })
+  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.equal(proof.match(/class="focus"/g)?.length, 1)
+  assert.match(proof, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
+  assert.doesNotMatch(proof, /348/)
+})
+
+test("director prove panel falls back only to a line that starts with Tests", () => {
+  const html = renderDirector({
+    ...DIRECTOR_INPUT,
+    testLog: "7 passed in the setup\n Tests all passed\nlast line",
+  })
+  const proof = html.match(/<div class="strip">npm test<\/div><pre>([\s\S]*?)<\/pre>/)[1]
+  assert.match(proof, /<span class="focus"> Tests all passed<\/span>/)
+  assert.throws(
+    () => renderDirector({ ...DIRECTOR_INPUT, testLog: "12 passed\nall tests passed" }),
+    /test log has no passing summary/,
+  )
 })
 
 test("director page holds the Workbench iframe, the wordmark, and the brand tokens, with no header or act chip", () => {
@@ -2315,6 +2340,46 @@ test("frame surface sends DOM calls to the Workbench frame and network waits to 
   assert.deepEqual(calls.at(-1), [
     "frame.goto",
     "http://127.0.0.1:4101/",
+    { waitUntil: "domcontentloaded" },
+  ])
+})
+
+test("frame surface wraps a refused framing navigation", async () => {
+  const blocked = new Error("net::ERR_BLOCKED_BY_RESPONSE at http://127.0.0.1:4101/")
+  const frame = {
+    goto: async () => {
+      throw blocked
+    },
+    url: () => "about:blank",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  await assert.rejects(surface.goto("http://127.0.0.1:4101/"), (error) => {
+    assert.equal(
+      error.message,
+      "The Workbench did not load inside the director frame (net::ERR_BLOCKED_BY_RESPONSE at http://127.0.0.1:4101/)",
+    )
+    assert.equal(error.cause, blocked)
+    return true
+  })
+})
+
+test("frame surface goto accepts a null response, but reload treats it as no reload", async () => {
+  const calls = []
+  const frame = {
+    goto: async (url, options) => {
+      calls.push([url, options])
+      return null
+    },
+    url: () => "http://127.0.0.1:4101/#thread",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  assert.equal(await surface.goto("http://127.0.0.1:4101/"), null)
+  await assert.rejects(
+    surface.reload({ waitUntil: "domcontentloaded" }),
+    /^Error: The Workbench frame did not reload \(same-document navigation\)$/,
+  )
+  assert.deepEqual(calls.at(-1), [
+    "http://127.0.0.1:4101/#thread",
     { waitUntil: "domcontentloaded" },
   ])
 })
