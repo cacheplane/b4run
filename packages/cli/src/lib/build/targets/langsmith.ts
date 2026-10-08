@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
 import { extractDeploymentConfig } from "../deployment-config.js"
 import type { BuildEmitContext, BuildTarget } from "./index.js"
-import { assertNoAuthFile, assertNoThreadAccessPolicy } from "./thread-access-probe.js"
+import { emitLangSmithAuth } from "./langsmith-auth.js"
 
 /**
  * The LangSmith deploy target. Emits the per-route materialized graph entry
@@ -11,12 +11,13 @@ import { assertNoAuthFile, assertNoThreadAccessPolicy } from "./thread-access-pr
  */
 export const langsmithTarget: BuildTarget = {
   name: "langsmith",
-  async emit({ appRoot, buildDir, manifest }: BuildEmitContext) {
-    // Permanent for this target: LangSmith materializes no app middleware
-    // either, so there is nowhere for the policy to run.
-    assertNoThreadAccessPolicy(appRoot, "langsmith")
-    assertNoAuthFile(appRoot, "langsmith")
-    const artifacts: string[] = []
+  async emit({ appRoot, buildDir, io, manifest }: BuildEmitContext) {
+    // src/auth.ts compiles to LangGraph's `auth.path`, with an `ownedThreads`
+    // thread policy as its handlers. Anything that cannot run there (a
+    // hand-written policy, per-caller memory, an `x-*` secret) is refused
+    // before a single artifact is written.
+    const auth = await emitLangSmithAuth({ appRoot, buildDir, manifest, ...(io ? { io } : {}) })
+    const artifacts: string[] = auth ? [auth.file] : []
     const graphs: Record<string, string> = {}
 
     for (const route of manifest.routes) {
@@ -83,6 +84,7 @@ export const langsmithTarget: BuildTarget = {
       dependencies: deployment.dependencies,
       env: deployment.env,
       node_version: deployment.node_version,
+      ...(auth ? { auth: auth.config } : {}),
     }
 
     const outputLanggraphPath = join(buildDir, "langgraph.json")

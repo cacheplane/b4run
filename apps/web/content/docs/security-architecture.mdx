@@ -100,7 +100,7 @@ Each build target draws the service edge in a different place:
 
 - **Node** (`b4 start`, `serveRuntime`, generated server). Your reverse proxy or Node host provides blanket auth. B4.run middleware covers execution and AG-UI only. Node can use configured sandboxes.
 - **Hono**. Hono or platform middleware must protect the rooted B4.run app. B4.run execution middleware is included in the static manifest. Filesystem workspace and B4.run sandbox features are gated off this target.
-- **LangSmith**. The LangSmith platform handles authentication. Generated graph entries don't include B4.run HTTP middleware. Route tool scope and the applicable agent controls remain part of graph materialization.
+- **LangSmith**. `src/auth.ts` compiles to LangGraph's auth layer, and an `ownedThreads` policy to its thread handlers; otherwise the platform handles authentication. Generated graph entries don't include B4.run HTTP middleware. Route tool scope and the applicable agent controls remain part of graph materialization.
 
 Check the capabilities of your chosen [Deployment Option](/docs/deployment) before assuming a control carries over unchanged between targets.
 

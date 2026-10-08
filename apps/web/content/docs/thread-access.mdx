@@ -210,7 +210,7 @@ B4.run: no thread access policy (all thread endpoints are open)
 
 ## Build targets
 
-`b4 build --target langsmith` **fails** with `B4_E1005` while a policy file exists, and always will. That target materializes per-route graphs and no B4.run HTTP layer, so there is nowhere for the hook to run. A build that silently dropped it would deploy every thread endpoint ungated. Put equivalent authorization in the LangSmith platform.
+`b4 build --target langsmith` carries an `ownedThreads` policy, compiled to LangGraph's metadata-filter handlers alongside the app's `src/auth.ts`. It **fails** with `B4_E1005` for any other policy, and for a policy with no `src/auth.ts`. That target materializes per-route graphs and no B4.run HTTP layer, and LangGraph's handlers never see the stored thread, so arbitrary policy code has nowhere to run. A build that silently dropped it would deploy every thread endpoint ungated. See [LangSmith](/docs/deployment/langsmith#authentication).
 
 `node`, `hono` and `vercel` carry the policy. The built manifest has a slot for it: the policy rides in as a static import, and the generated entry point (`server.mjs` for `node`, `app.mjs` for the web targets) records that the build saw one. So the built app never probes the disk for the policy at boot, where a missing file would read as "no policy". For `node`, the built app is `node .b4/build/server.mjs`, the entry point of the generated `Dockerfile`. `b4 start` doesn't run the build output: it serves the source tree, and reads the policy from source the way `b4 dev` does. Instead of a disk probe, the built app handles a missing policy like this:
 

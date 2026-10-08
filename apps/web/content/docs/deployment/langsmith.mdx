@@ -57,9 +57,26 @@ If the app root contains a hand-authored `langgraph.json`, B4.run shallow-merges
 
 The merge is shallow, so a user `graphs` map is replaced as a whole.
 
-## Platform authentication and missing B4.run surfaces
+## Authentication
 
-Configure authentication and tenant authorization on LangSmith or your hosting platform. The generated target does not include B4.run HTTP `middleware`, the AG-UI server, the B4.run `sandbox` manager or B4.run's Agent Protocol thread-management server.
+An app's [`src/auth.ts`](/docs/access-control#authentication) compiles to LangGraph's own auth layer. The build writes `.b4/build/auth.ts` and sets `langgraph.json` `auth` to `{ "path": "./.b4/build/auth.ts:auth", "disable_studio_auth": true }`. The second key stops Studio's `x-auth-scheme: langsmith` header from skipping `authenticate`.
+
+- `authenticate` runs once per request. `reject(status, body)` becomes that status. A throw is a 500.
+- **An anonymous request is a 401.** LangGraph has no anonymous user, so `undefined` can't pass through as it does on the node target.
+- Tools read the caller as `ctx.principal`, the same as on node. LangGraph stores the user, principal included, in each run's config, where the thread's owner can read it back. A principal must carry no secrets.
+- **Thread access compiles only from `ownedThreads`.** LangGraph's handlers never see the stored thread, so a hand-written `defineThreadAccess` policy is refused (`B4_E1005`). `ownedThreads` compiles to owner-stamp metadata filters, so another caller's thread reads as not found. `adminsRead` can't be expressed, so admins read only their own threads there, and the build warns.
+- **Clients create a thread with `POST /threads` before running on it.** A run on a client-chosen id that has no row yet returns 404 under the owner filter. The node target creates and stamps the thread in that case.
+
+The build refuses what would deploy ungated or leak:
+
+- **An `x-*` header compared as a secret** in `src/auth.ts`. LangGraph copies `x-*` request headers into the stored run config, where the thread's owner can read them. Send a secret as `authorization` instead.
+- **Memory scoped by `user`, `tenant` or `agent`.** Graphs are built once, before any request, so those dimensions can't be resolved per caller yet.
+
+These rules were checked against the open-source `langgraphjs dev` server, not a hosted LangSmith deployment. Confirm both behaviors on your deployment: that Studio's header no longer bypasses `authenticate`, and how `x-*` headers are copied.
+
+## Missing B4.run surfaces
+
+The generated target does not include B4.run HTTP `middleware` (the build warns when `src/middleware.ts` exists), the AG-UI server, the B4.run `sandbox` manager or B4.run's Agent Protocol thread-management server.
 
 Agent routes still get policy-aware graph construction. If you need the HTTP or sandbox surfaces, deploy [Node and Docker](/docs/deployment/node), or [Edge and Hono](/docs/deployment/edge) if your app passes its capability gate.
 
@@ -71,7 +88,7 @@ The emitter currently writes `node_version: "22"`, but B4.run packages require N
 
 1. Confirm that every route has the expected `<routeId>#<kind>` entry and use it as `assistant_id`.
 2. Inspect the environment-file path and move actual secrets into platform-managed configuration.
-3. Add platform authentication and tenant authorization.
+3. Add a `src/auth.ts`, and an `ownedThreads` thread policy if callers own threads, or configure authentication on the platform.
 4. Test agent materialization and raw workflow/graph/chain entries through the platform transport.
 5. Resolve the Node 22/Node 24 incompatibility with the target platform before production use.
 6. Confirm that no requirement depends on B4.run HTTP middleware, AG-UI, or the sandbox manager.
@@ -80,7 +97,8 @@ The emitter currently writes `node_version: "22"`, but B4.run packages require N
 
 - **A user config field disappeared:** generated `graphs`, `dependencies`, `env` and `node_version` take precedence by design.
 - **The platform can't find an assistant:** use the full `<routeId>#<kind>` key from generated `graphs`.
-- **HTTP middleware didn't run:** these entries don't include it. Enforce authentication on the platform.
+- **HTTP middleware didn't run:** these entries don't include it. Put identity in `src/auth.ts`, which does run here.
+- **Every request is a 401:** `authenticate` returned `undefined`. LangGraph has no anonymous user.
 - **Local Node HTTP tests pass but platform calls fail:** exercise the platform transport and its environment/build process directly.
 
 <RelatedCards

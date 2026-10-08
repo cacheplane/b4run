@@ -1,0 +1,148 @@
+import { existsSync, readFileSync } from "node:fs"
+import { writeFile } from "node:fs/promises"
+import { dirname, join, relative } from "node:path"
+import type { RouteManifest } from "@b4run/core"
+import { ownedThreadsOptions } from "@b4run/sdk"
+
+import { findAuthFile } from "../../dev/auth-node.js"
+import { findMiddlewareFile } from "../../dev/middleware-node.js"
+import { findThreadAccessFile, loadThreadAccess } from "../../dev/thread-access-node.js"
+import type { CommandIo } from "../../output.js"
+import { CliError, writeLine } from "../../output.js"
+import { loadRouteMemory } from "../../runtime/load-memory.js"
+import { registerTsxLoader } from "../../runtime/register-tsx-loader.js"
+
+/** Memory dimensions that only a request principal can fill. */
+const PER_CALLER_DIMENSIONS = ["tenant", "user", "agent"] as const
+
+/**
+ * A secret compared out of an `x-*` header. LangGraph copies every `x-*`
+ * request header (but `x-api-key`, `x-tenant-id` and `x-service-key`) into the
+ * run's config, which is stored on the thread and returned to its owner, so
+ * such a secret leaks to every authenticated caller. Heuristic: an `x-*`
+ * header read inside a constant-time comparison.
+ */
+const X_HEADER_SECRET =
+  /\b(?:timingSafeEqual|safeEqual|sameSecret|constantTimeEqual|timingSafeHexEqual)\s*\([^)]*headers(?:\[\s*["']x-|\.x[A-Z_])/
+
+function refuse(message: string): never {
+  throw new CliError(message, 1, { code: "B4_E1005" })
+}
+
+function importSpecifier(fromDir: string, file: string): string {
+  const path = relative(fromDir, file).replaceAll("\\", "/").replace(/\.ts$/, ".js")
+  return path.startsWith(".") ? path : `./${path}`
+}
+
+/**
+ * Compile the app's `src/auth.ts` (and an `ownedThreads` thread policy) for
+ * the LangSmith target: write `.b4/build/auth.ts` and return the `auth` block
+ * for `langgraph.json`. Undefined when the app has no auth file. Refuses what
+ * cannot run there instead of deploying it ungated.
+ */
+export async function emitLangSmithAuth(options: {
+  readonly appRoot: string
+  readonly buildDir: string
+  readonly manifest: RouteManifest
+  readonly io?: CommandIo
+}): Promise<
+  | {
+      readonly config: { readonly path: string; readonly disable_studio_auth: true }
+      readonly file: string
+    }
+  | undefined
+> {
+  const { appRoot, buildDir, io } = options
+  const authFile = findAuthFile(appRoot)
+  const threadAccessFile = findThreadAccessFile(appRoot)
+
+  if (!authFile) {
+    if (threadAccessFile) {
+      refuse(
+        `The "langsmith" build target cannot carry ${threadAccessFile} without a src/auth.ts: there ` +
+          "would be no principal to check it against. Add src/auth.ts, or remove the policy.",
+      )
+    }
+    return undefined
+  }
+
+  if (X_HEADER_SECRET.test(readFileSync(authFile, "utf8"))) {
+    refuse(
+      `${authFile} compares a secret from an \`x-*\` header. LangGraph copies \`x-*\` request headers ` +
+        "into the run config stored on each thread, where the thread's owner can read it back. Send " +
+        "the secret as `authorization` (or a name without the `x-` prefix) before building for langsmith.",
+    )
+  }
+
+  await registerTsxLoader()
+
+  for (const route of options.manifest.routes) {
+    const memoryFile = join(route.routeDir, "memory.ts")
+    if (!existsSync(memoryFile)) continue
+    const memory = await loadRouteMemory(memoryFile)
+    const perCaller = memory.scope.filter((dimension) =>
+      (PER_CALLER_DIMENSIONS as readonly string[]).includes(dimension),
+    )
+    if (perCaller.length > 0) {
+      refuse(
+        `${memoryFile} scopes memory by ${perCaller.join(", ")}, which the "langsmith" target cannot ` +
+          "resolve per caller yet: graphs are built once there, before any request. Build for the " +
+          '"node" target, or scope this memory by workspace and route only.',
+      )
+    }
+  }
+
+  if (threadAccessFile) {
+    const policy = await loadThreadAccess(appRoot)
+    const owned = ownedThreadsOptions(policy)
+    if (owned === undefined) {
+      refuse(
+        `The "langsmith" target can only carry an \`ownedThreads(...)\` thread policy, and ${threadAccessFile} ` +
+          "is written by hand. LangGraph's handlers never see the stored thread, so arbitrary policy code " +
+          'cannot run there. Use ownedThreads, or build for the "node" target.',
+      )
+    }
+    if (owned.adminsRead && io) {
+      writeLine(
+        io.stderr,
+        "B4.run: ownedThreads({ adminsRead }) cannot be expressed on langsmith; admins there read only their own threads.",
+      )
+    }
+  }
+
+  if (findMiddlewareFile(appRoot) && io) {
+    writeLine(
+      io.stderr,
+      "B4.run: the langsmith target runs no app middleware, so src/middleware.ts is not deployed. " +
+        "Identity comes from src/auth.ts there.",
+    )
+  }
+
+  const file = join(buildDir, "auth.ts")
+  await writeFile(
+    file,
+    [
+      "// Generated by b4 build (langsmith target) from src/auth.ts. Do not edit.",
+      'import { Auth, HTTPException } from "@langchain/langgraph-sdk/auth"',
+      'import { createLangSmithAuth } from "@b4run/cli/runtime"',
+      `import app from ${JSON.stringify(importSpecifier(dirname(file), authFile))}`,
+      ...(threadAccessFile
+        ? [
+            `import threadAccess from ${JSON.stringify(importSpecifier(dirname(file), threadAccessFile))}`,
+          ]
+        : []),
+      "",
+      `export const auth = createLangSmithAuth({ Auth, HTTPException, auth: app${threadAccessFile ? ", threadAccess" : ""} })`,
+      "",
+    ].join("\n"),
+    "utf8",
+  )
+  return {
+    // Studio's `x-auth-scheme: langsmith` would otherwise skip authenticate entirely.
+    config: {
+      path: `./${relative(appRoot, file).replaceAll("\\", "/")}:auth`,
+      disable_studio_auth: true,
+    },
+    file,
+  }
+}

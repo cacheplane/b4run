@@ -137,6 +137,8 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `invokeResolvedRoute` | Invoke a resolved route graph. |
 | `loadStaticModules` | Load generated route modules. |
 | `materializeResolvedRouteGraph` | Materialize a resolved graph. |
+| `createLangSmithAuth` | Build LangGraph's `Auth` for an app's `src/auth.ts` and an optional `ownedThreads` policy, given the `Auth` and `HTTPException` classes from `@langchain/langgraph-sdk/auth`. The `langsmith` build target's generated `.b4/build/auth.ts` calls it. |
+| `LANGSMITH_OWNER_KEY` | The thread metadata key (`"b4:owner"`) an `ownedThreads` policy stamps and filters on, on LangSmith. |
 | `normalizeMiddlewareModule` | Normalize middleware exports. |
 | `normalizeThreadAccessModule` | Normalize thread-access policy exports. |
 | `normalizeAuthModule` | Bind an `src/auth.ts` export, refusing one that is not `defineAuth`. |

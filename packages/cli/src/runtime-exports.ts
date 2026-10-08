@@ -58,6 +58,7 @@ export {
   seedPreparedRouteModules,
   streamResolvedRoute,
 } from "./lib/runtime/execute-route.js"
+export { createLangSmithAuth, LANGSMITH_OWNER_KEY } from "./lib/runtime/langsmith-auth.js"
 // Exposed so wiring tests (and any out-of-band driver) can build the same
 // per-server SandboxManager the runtime HTTP server builds, then thread it
 // (+ threadId) into streamResolvedRoute — exactly what createRuntimeRequestListener

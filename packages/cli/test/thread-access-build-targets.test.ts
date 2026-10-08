@@ -5,7 +5,6 @@ import type { RouteManifest } from "@b4run/core"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { buildTargets } from "../src/lib/build/targets/index.js"
-import { assertNoThreadAccessPolicy } from "../src/lib/build/targets/thread-access-probe.js"
 import { emitWebRuntimeArtifacts } from "../src/lib/build/targets/web-runtime.js"
 import { findThreadAccessFile } from "../src/lib/dev/thread-access-node.js"
 
@@ -41,31 +40,7 @@ function emitContext(appRoot: string) {
   }
 }
 
-describe("assertNoThreadAccessPolicy", () => {
-  it("does nothing when the app has no policy file", async () => {
-    const appRoot = await fixtureApp()
-    expect(() => assertNoThreadAccessPolicy(appRoot, "hono")).not.toThrow()
-  })
-
-  it("throws B4_E1005 naming the target and the file", async () => {
-    const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
-    expect(() => assertNoThreadAccessPolicy(appRoot, "hono")).toThrow(/src\/thread-access\.ts/)
-    try {
-      assertNoThreadAccessPolicy(appRoot, "hono")
-      expect.unreachable("expected a CliError")
-    } catch (error) {
-      expect(error).toMatchObject({ code: "B4_E1005" })
-      expect(String(error)).toContain("hono")
-    }
-  })
-
-  it("probes every candidate path, not just src/", async () => {
-    const appRoot = await fixtureApp({ "thread-access.js": POLICY_FILE })
-    expect(() => assertNoThreadAccessPolicy(appRoot, "langsmith")).toThrow(/thread-access\.js/)
-  })
-})
-
-describe("build targets that cannot carry a policy", () => {
+describe("the langsmith target without src/auth.ts", () => {
   it("fails the langsmith build", async () => {
     const appRoot = await fixtureApp({ "src/thread-access.ts": POLICY_FILE })
     await expect(buildTargets.langsmith?.emit(emitContext(appRoot))).rejects.toMatchObject({

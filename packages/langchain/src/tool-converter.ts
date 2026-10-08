@@ -142,6 +142,9 @@ export function convertToolToLangChain(
         if (paramNameSet.has(key) && typeof value === "string") params[key] = value
       }
       const toolCallId = extractToolCallId(liveConfig)
+      // On LangSmith there is no B4 request to hand the principal in: LangGraph
+      // runs the compiled src/auth.ts and puts the user in configurable.
+      const callPrincipal = principal ?? langGraphPrincipal(configurable)
       // Server-kind row in the tool-call record, around the whole body (see
       // `recordToolCall` for the park rule). The client stub records its own
       // client-kind row and is skipped via its marker. Inside a subagent the row
@@ -163,7 +166,7 @@ export function convertToolToLangChain(
       let decision: GateDecision | undefined
       const context = {
         ...(middlewareContext ? { middleware: middlewareContext } : {}),
-        ...(principal ? { principal } : {}),
+        ...(callPrincipal ? { principal: callPrincipal } : {}),
         signal,
         ...(threadId ? { threadId } : {}),
         ...(Object.keys(params).length > 0 ? { params } : {}),
@@ -440,4 +443,22 @@ function extractToolCallId(config: unknown): string {
   const metadata = c.metadata as { tool_call_id?: string } | undefined
   if (typeof metadata?.tool_call_id === "string") return metadata.tool_call_id
   return ""
+}
+
+/**
+ * The principal LangGraph's auth layer put in `configurable` on a LangSmith
+ * deployment (`langgraph_auth_user.b4_principal`, from the compiled
+ * `src/auth.ts`). Accepted only as an object with a string `id`: B4's own
+ * `configurable` is built from string route params, so nothing a request sends
+ * can take this shape.
+ */
+function langGraphPrincipal(configurable: Record<string, unknown>): B4Principal | undefined {
+  const user = configurable.langgraph_auth_user
+  if (typeof user !== "object" || user === null) return undefined
+  const principal = (user as { readonly b4_principal?: unknown }).b4_principal
+  return typeof principal === "object" &&
+    principal !== null &&
+    typeof (principal as { readonly id?: unknown }).id === "string"
+    ? (principal as B4Principal)
+    : undefined
 }
