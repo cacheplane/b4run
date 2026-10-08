@@ -56,6 +56,15 @@ import {
   validateStagedMediaManifest,
 } from "./check-media.mjs"
 import {
+  BEATS,
+  DIRECTOR_FONTS,
+  DIRECTOR_TIMING,
+  HEADLINES,
+  RUN_FOCUS,
+  renderDirector,
+  wordmarkSvg,
+} from "./director.mjs"
+import {
   buildGifFilter,
   createTrimPlan,
   encodeCaptureArtifacts,
@@ -994,6 +1003,82 @@ test("close stage renders B4.run category, headline, and scaffold command", () =
   assert.match(html, /An agent framework, the way I'd build it\./)
   assert.match(html, /Ridiculous speed\. Readable code\./)
   assert.match(html, /npm create b4-app@latest my-agent/)
+})
+
+const DIRECTOR_INPUT = {
+  routeSource: [
+    'import { agent } from "@b4run/sdk"',
+    "export default agent({",
+    '  model: "gpt-5-mini",',
+    '  description: "A VFR flight planner for a Cessna 172N <C172N>",',
+    "})",
+  ].join("\n"),
+  toolSource: "export default async (input) => computeNavlog(input)",
+  testLog: [
+    "✓ test/navlog.test.ts > splits the first leg into a climb segment and a cruise segment <time>",
+    "Tests  92 passed (92)",
+  ].join("\n"),
+  wordmark: '<svg viewBox="-5 -5 522 115"><circle r="17"/></svg>',
+}
+
+test("director exports the four beats, their headlines, and one timing table", () => {
+  assert.deepEqual(BEATS, ["author", "prove", "run", "close"])
+  assert.deepEqual(HEADLINES, {
+    author: "Write the agent.",
+    prove: "Test it offline.",
+    run: "Reload. Still there.",
+    close: "Ridiculous speed. Readable code.",
+  })
+  for (const value of Object.values(DIRECTOR_TIMING)) {
+    assert.equal(Number.isInteger(value) && value > 0, true)
+  }
+  assert.deepEqual(Object.keys(RUN_FOCUS), ["rest", "answer", "sheet"])
+  assert.equal(Object.isFrozen(DIRECTOR_TIMING) && Object.isFrozen(RUN_FOCUS), true)
+})
+
+test("director page renders the real sources and log, escaped, with one focal mark each", () => {
+  const html = renderDirector(DIRECTOR_INPUT)
+  assert.match(html, /&lt;C172N&gt;/)
+  assert.doesNotMatch(html, /<C172N>/)
+  assert.match(html, /computeNavlog\(input\)/)
+  assert.match(html, /splits the first leg into a climb segment and a cruise segment/)
+  assert.equal(html.match(/class="focus"/g)?.length, 2)
+  assert.match(html, /<span class="focus"> {2}description: /)
+  assert.match(html, /<span class="focus">Tests {2}92 passed \(92\)<\/span>/)
+})
+
+test("director page holds the Workbench iframe, the wordmark, and the brand tokens, with no header or act chip", () => {
+  const html = renderDirector(DIRECTOR_INPUT)
+  assert.match(html, /<iframe name="workbench" src="about:blank"/)
+  assert.match(html, /<svg viewBox="-5 -5 522 115"><circle r="17"\/><\/svg>/)
+  for (const token of ["#f5f4f0", "#111111", "#17181b", "#b4ce37", "#75796a"]) {
+    assert.match(html, new RegExp(token, "i"))
+  }
+  for (const font of Object.keys(DIRECTOR_FONTS)) assert.match(html, new RegExp(`fonts/${font.replace(".", "\\.")}`))
+  assert.match(html, /npm create b4-app@latest my-agent/)
+  assert.match(html, /window\.director = /)
+  assert.doesNotMatch(html, /\b(AUTHOR|PROVE)\b/)
+  assert.doesNotMatch(html, /border-radius:\s*(?!50%)\d/)
+  assert.doesNotMatch(html, /box-shadow:\s*0 \d/)
+})
+
+test("director page refuses sources without their focal line", () => {
+  assert.throws(
+    () => renderDirector({ ...DIRECTOR_INPUT, routeSource: "export default agent({})" }),
+    /route source has no description line/,
+  )
+  assert.throws(
+    () => renderDirector({ ...DIRECTOR_INPUT, testLog: "nothing passed here" }),
+    /test log has no passing summary/,
+  )
+})
+
+test("wordmark comes from the ink SVG master without its title or description", () => {
+  const svg = wordmarkSvg()
+  assert.match(svg, /^<svg /)
+  assert.match(svg, /viewBox="-5 -5 522 115"/)
+  assert.doesNotMatch(svg, /<title>|<desc>/)
+  assert.match(svg, /fill="#111111"/)
 })
 
 test("renderStage rejects unsupported acts and incomplete author input", () => {
