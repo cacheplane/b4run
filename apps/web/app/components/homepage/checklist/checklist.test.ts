@@ -26,6 +26,7 @@ import { DOCS_INDEX } from "../../docs/search-index"
 import { CHECKLIST_FIXTURES, checklist, describeToggle } from "./checklist"
 import sandboxConfig from "./fixtures/b4.config.sandbox"
 import support from "./fixtures/src/app/support/index"
+import auth from "./fixtures/src/auth"
 import middleware from "./fixtures/src/middleware"
 import threadAccess from "./fixtures/src/thread-access"
 
@@ -176,23 +177,24 @@ describe("the checklist shows real code", () => {
   })
 
   it("stamps a thread's owner, and lets only that owner back in", async () => {
-    const request = (headers: Record<string, string>, ownerId?: string) =>
+    // The principal comes from the fixture's src/auth.ts, as it does in the runtime.
+    const request = async (headers: Record<string, string>, ownerId?: string) =>
       ({
         action: "read",
-        headers,
+        principal: await auth.authenticate({ headers, method: "GET", url: "/threads/t-1" }),
         thread: ownerId === undefined ? undefined : { access: { ownerId } },
       }) as unknown as ThreadAccessRequest
-    await expect(threadAccess.create?.(request({ "x-user-id": "ada" }))).resolves.toEqual(
+    expect(await threadAccess.create?.(await request({ "x-user-id": "ada" }))).toEqual(
       permit({ ownerId: "ada" }),
     )
-    await expect(threadAccess.create?.(request({}))).resolves.toEqual(deny())
-    await expect(threadAccess.fallback(request({ "x-user-id": "ada" }, "ada"))).resolves.toEqual(
+    expect(await threadAccess.create?.(await request({}))).toEqual(deny())
+    expect(await threadAccess.fallback(await request({ "x-user-id": "ada" }, "ada"))).toEqual(
       permit(),
     )
-    await expect(threadAccess.fallback(request({ "x-user-id": "bob" }, "ada"))).resolves.toEqual(
+    expect(await threadAccess.fallback(await request({ "x-user-id": "bob" }, "ada"))).toEqual(
       deny(),
     )
-    await expect(threadAccess.fallback(request({ "x-user-id": "ada" }))).resolves.toEqual(deny())
+    expect(await threadAccess.fallback(await request({ "x-user-id": "ada" }))).toEqual(deny())
   })
 
   it("names exactly the three approval decisions", () => {
