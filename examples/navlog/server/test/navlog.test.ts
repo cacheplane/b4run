@@ -178,6 +178,13 @@ describe("computeNavlog", () => {
     expect(log.departureTimeUtc).toBe("2026-10-07T14:00:00.000Z")
     expect(log.legs[0]?.etaUtc).toBe("2026-10-07T14:06:00.000Z")
   })
+  it("takes a wind with no forecast temperature, as getWindsAloft returns at 3,000 ft", () => {
+    const noTemp = computeNavlog({
+      ...base,
+      winds: [{ dirDegTrue: 320, speedKt: 20, tempC: null }],
+    })
+    expect(noTemp.totals).toEqual(computeNavlog(base).totals)
+  })
   it("names its POH sources", () => {
     const log = computeNavlog(base)
     expect(log.sources.map((s) => s.figure)).toEqual(["Figure 5-6", "Figure 5-7"])
