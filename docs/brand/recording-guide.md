@@ -1,8 +1,9 @@
-# B4.run product-loop recording guide
+# B4.run navlog demo recording guide
 
-This guide rebuilds the silent flagship product-loop video, the GitHub/npm
-README animation, and the poster fallback from the current local B4.run
-source tree.
+This guide rebuilds the silent navlog demo video (MP4 and WebM) and its poster
+from the current local B4.run source tree. The GitHub and npm READMEs show the
+poster and link it to the MP4 on the B4.run media store; there is no README
+animation.
 
 ## Prerequisites
 
@@ -23,49 +24,72 @@ Run every command from the repository root.
 pnpm media:readme:capture
 ```
 
+Do not start a capture in the 15 minutes before 1400Z: the scenario resolves
+the prompt's “1400Z” when it is built, and the capture refuses to send the
+prompt once the live `resolveDeparture` tool would resolve it to the next day.
+
 The command checks Node and pnpm before it builds the repository, creates the
 current navlog starter in a temporary directory with `--mode internal`,
-installs it, and runs the generated root `npm test` command. It then starts
-aimock, the B4.run server, and the generated Workbench on assigned loopback ports
-and records at 1440×810. ffmpeg is exercised when encoding begins; ffprobe is
-exercised by the local checker, so a missing executable, encoder, or probe fails
-at that boundary with the command's diagnostic.
+installs it, and runs the generated root `npm test` command (its output is kept
+in the run's ignored artifacts; the video does not show it). It then starts
+aimock, a loopback AWC stub, the B4.run server, and the generated Workbench on
+assigned loopback ports and records at 1440×810. ffmpeg is exercised when
+encoding begins; ffprobe is exercised by the local checker, so a missing
+executable, encoder, or probe fails at that boundary with the command's
+diagnostic.
+
+The run is deterministic, offline and keyless:
+
+- **The scenario.** `docs/brand/demo/scenario.mjs` builds both prompts, one
+  aimock script for two parent turns and both subagents, and the stub's weather,
+  all from one clock reading. Turn 1 plans the flight: recall, the 1400Z
+  departure, a four-item plan, both airports, the weather and performance
+  subagents, `computeNavlog`, a `remember` call, the saved navlog, and the
+  answer. Turn 2 (“File the flight plan.”) calls `fileFlightPlan` with the
+  flight plan `computeNavlog` produced, and replies.
+- **The AWC stub.** `docs/brand/demo/awc-stub.mjs` is a loopback HTTP server
+  that answers the weather tools with fixed data in AWC's shapes: KSTP and KRST
+  VFR, clear, 10 SM, wind 320 at 8, FB winds 320/20 at MSP, no AIRMET, SIGMET or
+  G-AIRMET. Only the B4.run server is pointed at it (`B4_AWC_BASE_URL`), and the
+  capture fails if any endpoint the run reaches was never served.
 
 Aimock is the only model endpoint. Provider credentials are excluded from child
 environments and capture fails if the model base URL is not loopback. The
 generated Workbench has no demo or fixture mode and receives no marketing-only
-runtime branch.
-
-The director page reads the generated route, the shared tool, and the
-normalized real test log. Test-log normalization is deliberately narrow: it strips ANSI, replaces the temporary
-workspace root with `<workspace>`, and replaces durations such as `143ms` or
-`1.27s` with `<time>`. Test names, PASS/FAIL text, commands, counts, ports, and
-all other numeric output remain untouched.
+runtime branch; every tool runs for real.
 
 The capture records one page, the **director page** (`docs/brand/demo/director.mjs`).
 Playwright serves it at the Workbench's own origin under
 `/__b4_demo_director/` (the request never reaches the Workbench server), with
 fonts from the brand kit. The real Workbench loads in its iframe and is
-prepared out of shot. The capture then plays four beats:
+prepared out of shot, with the first prompt filled into its composer. The
+capture then plays the twelve beats of the **storyboard**
+(`docs/brand/demo/storyboard.mjs`), recording one scene per beat
+(`beat-00-title` … `beat-11-close`):
 
-1. **Write the agent.** The real route and shared tool.
-2. **Test it offline.** The real, narrowly normalized `npm test` output, around
-   the server workspace's passing summary.
-3. **Reload. Still there.** The real Workbench run, a frame reload, and the same
-   thread restored.
-4. **Close.** The wordmark, the tagline, and the create command.
+- a title card, then code beats that show real files from the generated
+  workspace (the route, the weather subagent and `getMetar`, `computeNavlog`
+  and the wind triangle, the approval line, the memory declaration), each with
+  its focal line marked;
+- app beats in the real Workbench, each with evidence assertions: the plan's
+  to-dos after Send; the weather strip's and verdict card's “GO”; the route on
+  the map and 66 nm on the navlog sheet; the filing request, whose approval
+  card must offer Allow once and Deny and no Always allow, and the capture's
+  click on **Allow once**; the suggested memory; and a frame reload that
+  restores both turns of the same thread;
+- the close: the wordmark, the tagline, and the create command.
 
 Headlines, the camera, and the crossfades are CSS on the director page; the
 product moments happen in real time inside the frame, and nothing is
-synthesized. ffmpeg trims the recording from the start of the first beat to the
-end of the close and encodes one flagship of about 15 seconds: MP4, WebM, the
-README animation, and a WebP poster taken from the docked first beat. The
-README animation is an animated WebP because the camera zooms and blur
-crossfades make a GIF under the byte budget impossible, and because this
-ffmpeg build has no WebP encoder, ffmpeg writes an intermediate 256-colour GIF
-that sharp converts. The capture
-browser asks for reduced motion (the navlog map then skips its animations) and
-hides the Next.js dev badge.
+synthesized. Holds are real waits (each beat's `holdMs`). ffmpeg trims the
+recording from the start of the first beat to the end of the close, about 50
+seconds, and encodes the MP4 and WebM at 1440×810 and 30 fps, with codec
+settings chosen for crisp code text (`VIDEO_CODEC_ARGUMENTS` in `encode.mjs`):
+H.264 CRF 23 with a 2,500 kbit/s ceiling, and constrained-quality VP9 at CRF 32
+under 1,800 kbit/s. The poster is the encoded MP4's frame 0.25 s before the
+navlog beat ends, with the camera on the navlog sheet. The capture browser asks
+for reduced motion (the navlog map then skips its animations) and hides the
+Next.js dev badge.
 
 ## Validate
 
@@ -73,17 +97,15 @@ hides the Next.js dev badge.
 pnpm media:readme:check -- --local
 ```
 
-The checker invokes ffprobe with JSON output for the videos and the poster,
-reads the README animation's frame metadata with sharp (ffprobe cannot read
-animated WebP), and verifies:
+The checker invokes ffprobe with JSON output for the videos and the poster, and
+verifies:
 
 - exact 1440×810 16:9 geometry and 30 fps for the videos;
-- a 12–18 second flagship;
+- a 45–75 second flagship;
 - H.264 MP4 and VP9 WebM for the flagship;
-- no MP4 or WebM above 2,000,000 bytes;
-- an animated WebP README animation at 960×540, at most 15 fps, under
-  4,000,000 bytes;
-- the WebP poster and the Markdown transcript;
+- no MP4 or WebM above 12,000,000 bytes (the media store hosts both; nothing
+  is embedded in a README);
+- the 1440×810 WebP poster and the Markdown transcript;
 - captions that describe the existing workspace footage without claiming the
   scaffold command is shown.
 
@@ -101,11 +123,11 @@ docs/brand/demo/artifacts/runs/<run-id>/
 
 Its local MP4 and WebM files are in the run's `output/` directory. A gitignored
 `docs/brand/demo/artifacts/latest-media.json` pointer lets the local checker find
-the most recent successful encode. Posters and the README animation are first
-completed and validated in that run's `publication/` directory, then published
-together with the pointer using rollback backups. The checker requires exact
-run-scoped paths and verifies that the fixed poster and animation hashes match
-the selected run. Raw recordings, logs, MP4, and WebM files are not committed.
+the most recent successful encode. The poster is first completed and validated
+in that run's `publication/` directory, then published together with the
+manifest and the pointer using rollback backups. The checker requires exact
+run-scoped paths and verifies that the fixed poster's hash matches the selected
+run. Raw recordings, logs, MP4, and WebM files are not committed.
 
 ## Authorized publication convergence
 
@@ -161,19 +183,29 @@ through the same atomic path.
 Committed outputs are:
 
 ```text
-docs/brand/product-loop.webp
 apps/web/public/demo/product-loop-poster.webp
 apps/web/app/lib/demo-media.json
 docs/brand/demo/transcript.md
 ```
 
+The root README and the `@b4run/cli`, `@b4run/sdk` and `create-b4-app` READMEs
+show that poster (the package READMEs through its `raw.githubusercontent.com`
+URL) linked to the stable MP4 URL, with a “Watch the 50-second navlog demo”
+link under it. If a new take changes the rounded duration, update that line and
+its pin in `scripts/lib/readme-contracts.mjs`. `docs/brand/product-loop.gif`
+stays until the next release, because READMEs already published to npm load it
+from `main`; nothing regenerates it.
+
 ## Visual inspection
 
 Inspect the poster and representative frames from the local MP4 and WebM at
-full 1440×810 size and at reduced README and mobile widths. Confirm that the
-file paths, the `npm test` result, `computeNavlog`, the cited answer, the frame
-reload, the restored thread, and the four headlines correspond exactly to
-[the transcript](./demo/transcript.md). No remote upload or store mutation is
+full 1440×810 size and at reduced README and mobile widths; a contact sheet
+(`ffmpeg -i <mp4> -vf "fps=1,scale=480:-1,tile=6x10" -frames:v 1 sheet.png`)
+shows every second at once. Confirm that the file paths and focal lines, the
+plan, the weather verdict, the navlog numbers, the approval card and the filed
+reply, the suggested memory, the frame reload, the restored thread, and the
+twelve headlines correspond exactly to [the transcript](./demo/transcript.md).
+Code text must stay legible in the held frames. No remote upload or store mutation is
 part of regeneration or local validation.
 
 The B4.run uploader writes the two stable video paths under `b4/demo/` in the

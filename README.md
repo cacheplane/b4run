@@ -33,12 +33,13 @@ npm create b4-app@latest my-agent
 ```
 
 <p align="center">
-  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.webp" alt="Animation showing the generated navlog agent's route, an offline npm test, and a B4.run Workbench run restored after a browser reload" width="900">
+  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
+    <img src="apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">
   </a>
+  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
 </p>
 
-[Read the product-loop transcript](docs/brand/demo/transcript.md).
+[Read the navlog demo transcript](docs/brand/demo/transcript.md).
 
 ## Quickstart
 

@@ -87,24 +87,49 @@ function trimArguments(trim) {
 
 const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:flags=lanczos`;
 
-const ANIMATION_WIDTH = 960;
-const ANIMATION_HEIGHT = 540;
-const ANIMATION_FPS = 12;
-export const README_ANIMATION_WEBP_OPTIONS = Object.freeze({
-	quality: 62,
-	effort: 6,
-});
-
 /**
- * The README animation's intermediate GIF: 960x540 at 12 fps with a full
- * 256-colour palette. The camera zooms and blur crossfades make a GIF that
- * fits the README budget impossible, so this GIF is only an intermediate:
- * sharp re-encodes it as the published animated WebP, because this ffmpeg
- * build has no libwebp encoder.
+ * Codec settings for the ~60 s 1440x810 flagship, quality first: the code
+ * beats are small monospaced text that must stay crisp, and the blob store
+ * hosts both files under a 12 MB budget each. H.264 is CRF with a VBV ceiling
+ * that only caps the crossfade and camera-move peaks; VP9 is constrained
+ * quality (CRF under a target bitrate).
  */
-export function buildAnimationFilter() {
-	return `[0:v]fps=${ANIMATION_FPS},scale=${ANIMATION_WIDTH}:${ANIMATION_HEIGHT}:flags=lanczos,split[a][b];[b]palettegen=max_colors=256:stats_mode=diff[p];[a][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[outv]`;
-}
+export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
+	mp4: Object.freeze([
+		"-c:v",
+		"libx264",
+		"-preset",
+		"slow",
+		"-crf",
+		"23",
+		"-maxrate",
+		"2500k",
+		"-bufsize",
+		"5000k",
+		"-pix_fmt",
+		"yuv420p",
+		"-movflags",
+		"+faststart",
+	]),
+	webm: Object.freeze([
+		"-c:v",
+		"libvpx-vp9",
+		"-b:v",
+		"1800k",
+		"-crf",
+		"32",
+		"-maxrate",
+		"2200k",
+		"-bufsize",
+		"4400k",
+		"-deadline",
+		"good",
+		"-cpu-used",
+		"2",
+		"-row-mt",
+		"1",
+	]),
+});
 
 export function runEncoderCommand(
 	command,
@@ -315,42 +340,10 @@ export async function encodeVideo({
 }) {
 	const temporaryPath = `${destination}.tmp.${format}`;
 	let published = false;
-	const codecArguments =
-		format === "mp4"
-			? [
-					"-c:v",
-					"libx264",
-					"-preset",
-					"slow",
-					"-crf",
-					"32",
-					"-maxrate",
-					"420k",
-					"-bufsize",
-					"840k",
-					"-pix_fmt",
-					"yuv420p",
-					"-movflags",
-					"+faststart",
-				]
-			: [
-					"-c:v",
-					"libvpx-vp9",
-					"-b:v",
-					"800k",
-					"-crf",
-					"44",
-					"-maxrate",
-					"900k",
-					"-bufsize",
-					"1800k",
-					"-deadline",
-					"good",
-					"-cpu-used",
-					"2",
-					"-row-mt",
-					"1",
-				];
+	const codecArguments = VIDEO_CODEC_ARGUMENTS[format];
+	if (codecArguments === undefined) {
+		throw new TypeError(`unsupported video format ${format}`);
+	}
 	try {
 		await run(
 			"ffmpeg",
@@ -419,55 +412,6 @@ export async function encodePoster({
 		published = true;
 	} finally {
 		await remove(framePath);
-		if (!published) await remove(temporaryPath);
-	}
-}
-
-export async function encodeReadmeAnimation({
-	source,
-	destination,
-	trim,
-	signal,
-	run = runEncoderCommand,
-	convert = (input, output) =>
-		sharp(input, { animated: true, limitInputPixels: false })
-			.webp(README_ANIMATION_WEBP_OPTIONS)
-			.toFile(output),
-	rename = nodeRename,
-	remove = (path) => nodeRm(path, { force: true }),
-}) {
-	const intermediatePath = `${destination}.tmp.gif`;
-	const temporaryPath = `${destination}.tmp.webp`;
-	let published = false;
-	try {
-		await run(
-			"ffmpeg",
-			[
-				"-hide_banner",
-				"-loglevel",
-				"error",
-				"-y",
-				...trimArguments(trim),
-				"-i",
-				source,
-				"-filter_complex",
-				buildAnimationFilter(),
-				"-map",
-				"[outv]",
-				"-an",
-				"-gifflags",
-				"+transdiff",
-				intermediatePath,
-			],
-			{ signal },
-		);
-		signal?.throwIfAborted();
-		await convert(intermediatePath, temporaryPath);
-		signal?.throwIfAborted();
-		await rename(temporaryPath, destination);
-		published = true;
-	} finally {
-		await remove(intermediatePath);
 		if (!published) await remove(temporaryPath);
 	}
 }
@@ -550,8 +494,6 @@ export async function encodeCaptureArtifacts({
 	}
 	const encodeVideoImplementation = dependencies.encodeVideo ?? encodeVideo;
 	const encodePosterImplementation = dependencies.encodePoster ?? encodePoster;
-	const encodeReadmeAnimationImplementation =
-		dependencies.encodeReadmeAnimation ?? encodeReadmeAnimation;
 	const validateStagedMedia =
 		dependencies.validateStagedMedia ?? validateStagedMediaManifest;
 	const afterPhase = dependencies.afterPhase ?? (() => {});
@@ -592,19 +534,10 @@ export async function encodeCaptureArtifacts({
 	});
 	await afterPhase("poster", { name });
 	const clips = { [name]: { mp4, webm, poster, duration: trim.duration } };
-	const animation = join(publicationDir, "product-loop.webp");
-	await encodeReadmeAnimationImplementation({
-		source,
-		destination: animation,
-		trim,
-		signal,
-	});
-	await afterPhase("animation");
 	signal?.throwIfAborted();
 
 	const manifestPath = join(artifactsDir, "media-manifest.json");
 	const assetHashes = {
-		animation: await hashFile(animation),
 		posters: { [name]: await hashFile(poster) },
 	};
 	const manifest = {
@@ -614,7 +547,6 @@ export async function encodeCaptureArtifacts({
 		sourceRecording: source,
 		outputRoot: outputDir,
 		clips,
-		animation,
 		assetHashes,
 		captions: MEDIA_CAPTIONS,
 	};
@@ -642,11 +574,6 @@ export async function encodeCaptureArtifacts({
 				stagedPath: clip.poster,
 				targetPath: join(posterDir, `${name}-poster.webp`),
 			})),
-			{
-				name: "animation",
-				stagedPath: animation,
-				targetPath: join(repoRoot, "docs/brand/product-loop.webp"),
-			},
 			{
 				name: "pointer",
 				stagedPath: stagedPointer,

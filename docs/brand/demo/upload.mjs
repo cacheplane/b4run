@@ -34,8 +34,9 @@ const CLIPS = Object.freeze([
   Object.freeze({
     name: "product-loop",
     catalogKey: "productLoop",
-    ariaLabel: "B4.run product loop: write the agent, test it offline, run it, reload, and restore",
-    transcript: `${TRANSCRIPT_BASE_URL}#product-loop`,
+    ariaLabel:
+      "B4.run navlog demo: the agent's code, then the Workbench planning a flight, filing it after approval, and restoring the thread",
+    transcript: `${TRANSCRIPT_BASE_URL}#navlog-demo`,
   }),
 ])
 

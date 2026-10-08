@@ -150,3 +150,25 @@ Unit 4 (`capture.mjs`), checked against a real Workbench run:
   root tool steps and turn 2 with one (`expectedRootToolSteps`).
 - **Beat scenes are `beat-NN-id`** (`beat-06-navlog`); a failure names its beat
   (`Beat 8 (file): …`) with the original error as its cause.
+
+Units 5–8 (media contract, README and copy):
+
+- **The watch link sits inside the poster's paragraph.** It is a
+  `<br><a href="…mp4">▶ Watch the 50-second navlog demo</a>` line under the
+  linked poster rather than a paragraph of its own, because
+  `scripts/check-docs.mjs` keeps `packages/create-b4-app/README.md` at 50 lines
+  or fewer. The root README contract pins that line (with the rounded duration)
+  and leaves both video links out of the hero's four-text-link count.
+- **The transcript heading is "Navlog demo"** (`#navlog-demo`). `upload.mjs`'s
+  transcript anchor and aria label and the checked-in `demo-media.json` follow
+  it, and a test holds the checked-in catalog equal to what the uploader would
+  write. The README's transcript link reads "Read the navlog demo transcript".
+- **The transcript says the weather is the stub's.** The beat 4 headline is
+  "Live weather, judged."; the footage's weather comes from the loopback AWC
+  stub, so the transcript states that next to the beat.
+- **The evidence matrix is unchanged.** No root README claim changed: the
+  README only swaps its animation for the linked poster.
+- **Codecs:** H.264 `-preset slow -crf 23 -maxrate 2500k -bufsize 5000k`; VP9
+  `-b:v 1800k -crf 32 -maxrate 2200k -bufsize 4400k`. The quality ceiling is the
+  Playwright recording itself (VP8 at 25 fps, about 0.9 Mbit/s), so a lower CRF
+  adds bytes without sharper text.

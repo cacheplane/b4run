@@ -86,10 +86,18 @@ const CANONICAL_ROOT_NAVIGATION = `<p align="center">
   <a href="https://github.com/cacheplane/b4run/discussions">Discussions</a>
 </p>`
 
+/** The demo video on the media store; the README links it through its poster. */
+const DEMO_VIDEO_URL =
+  "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4"
+const DEMO_POSTER_PATH = "apps/web/public/demo/product-loop-poster.webp"
+
+const CANONICAL_DEMO_WATCH_LINK = `<br><a href="${DEMO_VIDEO_URL}">▶ Watch the 50-second navlog demo</a>`
+
 const CANONICAL_PRODUCT_LOOP_BLOCK = `<p align="center">
-  <a href="https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md">
-    <img src="docs/brand/product-loop.webp" alt="Animation showing the generated navlog agent's route, an offline npm test, and a B4.run Workbench run restored after a browser reload" width="900">
+  <a href="${DEMO_VIDEO_URL}">
+    <img src="${DEMO_POSTER_PATH}" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="900">
   </a>
+  ${CANONICAL_DEMO_WATCH_LINK}
 </p>`
 
 const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later.
@@ -102,7 +110,7 @@ npm test
 \`\`\``
 
 const CANONICAL_TRANSCRIPT_LINK =
-  "[Read the product-loop transcript](docs/brand/demo/transcript.md)."
+  "[Read the navlog demo transcript](docs/brand/demo/transcript.md)."
 const CANONICAL_FINAL_CTA = `Ready to start?
 
 \`\`\`bash
@@ -654,12 +662,12 @@ function hasPurposeStatement(readme, firstH1, headings) {
     )
 }
 
-function productLoopImagePresent(markdownSource, htmlSource) {
+function demoPosterPresent(markdownSource, htmlSource) {
   return (
-    /!\[[^\]]*\]\([^\r\n)]*docs\/brand\/product-loop\.webp(?:[?#][^\r\n)]*)?\)/iu.test(
+    /!\[[^\]]*\]\([^\r\n)]*apps\/web\/public\/demo\/product-loop-poster\.webp(?:[?#][^\r\n)]*)?\)/iu.test(
       markdownSource,
     ) ||
-    /<img\b[^>]*\bsrc=["'][^"']*docs\/brand\/product-loop\.webp(?:[?#][^"']*)?["'][^>]*>/iu.test(
+    /<img\b[^>]*\bsrc=["'][^"']*apps\/web\/public\/demo\/product-loop-poster\.webp(?:[?#][^"']*)?["'][^>]*>/iu.test(
       htmlSource,
     )
   )
@@ -959,24 +967,22 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     .filter(
       (source) =>
         source !== "docs/brand/b4-logo-horizontal-black-on-white.png" &&
-        source !== "docs/brand/product-loop.webp",
+        source !== DEMO_POSTER_PATH,
     )
   const firstScrollMarkdownImages = markdownImageDestinations(firstScrollMarkdown).filter(
     (destination) =>
-      ![
-        "docs/brand/b4-logo-horizontal-black-on-white.png",
-        "docs/brand/product-loop.webp",
-      ].includes(destination.split(/[?#]/u, 1)[0]),
+      !["docs/brand/b4-logo-horizontal-black-on-white.png", DEMO_POSTER_PATH].includes(
+        destination.split(/[?#]/u, 1)[0],
+      ),
   )
   const firstScrollReferenceImages = markdownReferenceImageDestinations(
     firstScrollMarkdown,
     definitions,
   ).filter(
     (destination) =>
-      ![
-        "docs/brand/b4-logo-horizontal-black-on-white.png",
-        "docs/brand/product-loop.webp",
-      ].includes(destination.split(/[?#]/u, 1)[0]),
+      !["docs/brand/b4-logo-horizontal-black-on-white.png", DEMO_POSTER_PATH].includes(
+        destination.split(/[?#]/u, 1)[0],
+      ),
   )
   if (
     firstScrollImages.length +
@@ -987,7 +993,7 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
     failures.push("README must contain exactly five approved badges")
   }
   const firstScrollTextLinks = [...firstScroll.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/giu)].filter(
-    (match) => !/<img\b/iu.test(match[1]),
+    (match) => !/<img\b/iu.test(match[1]) && !match[0].startsWith(`<a href="${DEMO_VIDEO_URL}">`),
   )
   const firstScrollMarkdownTextLinks = markdownLinkDestinations(firstScrollMarkdown, {
     excludeImageLabels: true,
@@ -1009,21 +1015,22 @@ function validateCanonicalRootReadme(readme, withoutComments, visibleMarkdown, v
   }
 
   const firstCommand = withoutComments.indexOf("npm create b4-app@latest my-agent")
-  const productLoopAnimation = withoutComments.indexOf("docs/brand/product-loop.webp")
-  if (firstCommand === -1 || productLoopAnimation === -1 || firstCommand >= productLoopAnimation) {
-    failures.push("README must put the first scaffold command before the product-loop animation")
+  const demoPoster = withoutComments.indexOf(DEMO_POSTER_PATH)
+  if (firstCommand === -1 || demoPoster === -1 || firstCommand >= demoPoster) {
+    failures.push("README must put the first scaffold command before the demo poster")
   }
 
   if (!readme.includes(CANONICAL_PRODUCT_LOOP_BLOCK)) {
-    failures.push(
-      "README is missing the linked product-loop animation with canonical anchor and alt text",
-    )
+    failures.push("README is missing the demo poster linked to the video with canonical alt text")
+  }
+  if (!readme.includes(CANONICAL_DEMO_WATCH_LINK)) {
+    failures.push("README is missing the canonical link to watch the demo video")
   }
   if (!readme.includes(CANONICAL_QUICKSTART_BLOCK)) {
     failures.push("README is missing the complete no-key Quickstart sequence")
   }
   if (!readme.includes(CANONICAL_TRANSCRIPT_LINK)) {
-    failures.push("README is missing the canonical product-loop transcript link")
+    failures.push("README is missing the canonical demo transcript link")
   }
   if (!readme.includes(CANONICAL_FINAL_CTA)) {
     failures.push("README is missing the final scaffold CTA")
@@ -1122,9 +1129,9 @@ export function validatePackageReadme({ tier, manifest, readme }) {
     }
   }
 
-  if (tier === "entry" && !productLoopImagePresent(visible.markdown, visible.rendered)) {
+  if (tier === "entry" && !demoPosterPresent(visible.markdown, visible.rendered)) {
     failures.push(
-      `${packageName ?? "package"}: entry README is missing the docs/brand/product-loop.webp image`,
+      `${packageName ?? "package"}: entry README is missing the ${DEMO_POSTER_PATH} image`,
     )
   }
 
@@ -1169,8 +1176,8 @@ export function validateRootReadme(source, options = {}) {
       "README is missing the canonical scaffold command: npm create b4-app@latest my-agent",
     )
   }
-  if (!productLoopImagePresent(visible.markdown, visible.rendered)) {
-    failures.push("README is missing the docs/brand/product-loop.webp image")
+  if (!demoPosterPresent(visible.markdown, visible.rendered)) {
+    failures.push(`README is missing the ${DEMO_POSTER_PATH} image`)
   }
   if (!markdownLinkPresent(visible.markdown, ROOT_LINK_CONTRACTS.migration)) {
     failures.push("README is missing the /docs/migrating-from-langgraph migration link")

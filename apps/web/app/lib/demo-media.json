@@ -3,8 +3,8 @@
     "mp4": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4",
     "webm": "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.webm",
     "poster": "/demo/product-loop-poster.webp",
-    "caption": "Write the navlog agent's route, test it offline with npm test, run it in the B4.run Workbench, then reload it and see the same thread restored.",
-    "ariaLabel": "B4.run product loop: write the agent, test it offline, run it, reload, and restore",
-    "transcript": "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md#product-loop"
+    "caption": "A navlog demo: the agent's route, subagents, tools, approval gate and memory in code, each followed by the real B4.run Workbench running it — plan, weather brief, navlog, approved filing, and a reload that restores the thread.",
+    "ariaLabel": "B4.run navlog demo: the agent's code, then the Workbench planning a flight, filing it after approval, and restoring the thread",
+    "transcript": "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md#navlog-demo"
   }
 }

@@ -61,8 +61,8 @@ import {
   validateDemoMediaCatalog,
   validateLocalMediaContract,
   validateMediaManifestLayout,
-  validateAnimation,
   validateStagedMediaManifest,
+  VIDEO_BYTE_LIMIT,
 } from "./check-media.mjs"
 import {
   CODE_PANE_LINES,
@@ -73,15 +73,13 @@ import {
   wordmarkSvg,
 } from "./director.mjs"
 import {
-  buildAnimationFilter,
   createTrimPlan,
   encodeCaptureArtifacts,
   encodePoster,
-  encodeReadmeAnimation,
   encodeVideo,
   publishFixedAssets,
-  README_ANIMATION_WEBP_OPTIONS,
   runEncoderCommand,
+  VIDEO_CODEC_ARGUMENTS,
 } from "./encode.mjs"
 import { getAvailableLoopbackPort, spawnManaged, stopManaged, waitForHttp } from "./processes.mjs"
 import { startAwcStub } from "./awc-stub.mjs"
@@ -137,45 +135,21 @@ function videoProbe({
   }
 }
 
-const README_ANIMATION = "docs/brand/product-loop.webp"
-
-/**
- * sharp's animated metadata for a deduplicated 15 fps encode: 220 frames whose
- * uneven delays total 15.2 seconds.
- */
-function animationMetadata(overrides = {}) {
-  const delay = Array.from({ length: 220 }, (_, index) => (index < 40 ? 133 : 54))
-  delay[0] += 15_200 - delay.reduce((total, value) => total + value, 0)
-  return {
-    format: "webp",
-    width: 960,
-    pageHeight: 540,
-    pages: delay.length,
-    delay,
-    loop: 0,
-    ...overrides,
-  }
-}
-
-function animationFile({ size = 3_200_000, ...overrides } = {}) {
-  return { size, animation: animationMetadata(overrides) }
-}
-
 function validMediaFixtures() {
   const files = new Map()
   for (const contract of MEDIA_CONTRACTS) {
     files.set(contract.mp4, {
-      size: 1_200_000,
+      size: 8_400_000,
       probe: videoProbe({
         codecName: "h264",
-        duration: 15,
+        duration: 58,
       }),
     })
     files.set(contract.webm, {
-      size: 1_100_000,
+      size: 8_100_000,
       probe: videoProbe({
         codecName: "vp9",
-        duration: 15,
+        duration: 58,
       }),
     })
     files.set(contract.poster, {
@@ -183,7 +157,6 @@ function validMediaFixtures() {
       probe: videoProbe({ codecName: "webp", duration: 0 }),
     })
   }
-  files.set(README_ANIMATION, animationFile())
   files.set("docs/brand/demo/transcript.md", {
     size: 2_000,
     text: "Exact static walkthrough",
@@ -198,7 +171,7 @@ async function validateMedia(overrides = new Map()) {
     files,
     captions: {
       "product-loop":
-        "Write an agent route, test it offline, run it in the Workbench, and restore the same thread after a browser reload.",
+        "The navlog agent's code, then the Workbench planning, approving and restoring a flight.",
     },
   })
 }
@@ -207,91 +180,66 @@ test("media contracts accept the exact flagship formats", async () => {
   assert.deepEqual(await validateMedia(), [])
 })
 
-test("the README animation contract points at the animated WebP", () => {
-  assert.equal(MEDIA_CONTRACTS[0].animation, README_ANIMATION)
-  assert.equal(Object.hasOwn(MEDIA_CONTRACTS[0], "gif"), false)
-})
-
-test("README animation accepts a deduplicated 960x540 15 fps animated WebP", () => {
-  const file = animationFile()
-  assert.equal(file.animation.pages, 220)
-  assert.equal(
-    file.animation.delay.reduce((total, value) => total + value, 0),
-    15_200,
+test("the flagship contract is one 45-75 s clip with 12,000,000-byte videos and no README animation", () => {
+  assert.equal(MEDIA_CONTRACTS.length, 1)
+  assert.deepEqual(
+    { ...MEDIA_CONTRACTS[0] },
+    {
+      name: "product-loop",
+      minimumDuration: 45,
+      maximumDuration: 75,
+      mp4: "docs/brand/demo/artifacts/output/product-loop.mp4",
+      webm: "docs/brand/demo/artifacts/output/product-loop.webm",
+      poster: "apps/web/public/demo/product-loop-poster.webp",
+    },
   )
-  assert.deepEqual(validateAnimation(README_ANIMATION, file), [])
+  assert.equal(VIDEO_BYTE_LIMIT, 12_000_000)
 })
 
-test("README animation reports a missing file", () => {
-  assert.deepEqual(validateAnimation(README_ANIMATION, undefined), [
-    "docs/brand/product-loop.webp is missing",
+test("media contracts accept the duration window's edges and the byte budget exactly", async () => {
+  for (const duration of [45, 75]) {
+    assert.deepEqual(
+      await validateMedia(
+        new Map([
+          [
+            "docs/brand/demo/artifacts/output/product-loop.mp4",
+            { size: 12_000_000, probe: videoProbe({ codecName: "h264", duration }) },
+          ],
+          [
+            "docs/brand/demo/artifacts/output/product-loop.webm",
+            { size: 12_000_000, probe: videoProbe({ codecName: "vp9", duration }) },
+          ],
+        ]),
+      ),
+      [],
+      `${duration} s at 12,000,000 bytes`,
+    )
+  }
+})
+
+test("media contracts no longer hold the videos to the take-1 2 MB budget or 12-18 s window", async () => {
+  assert.deepEqual(
+    await validateMedia(
+      new Map([
+        [
+          "docs/brand/demo/artifacts/output/product-loop.mp4",
+          { size: 9_500_000, probe: videoProbe({ codecName: "h264", duration: 61.2 }) },
+        ],
+      ]),
+    ),
+    [],
+  )
+  const failures = await validateMedia(
+    new Map([
+      [
+        "docs/brand/demo/artifacts/output/product-loop.mp4",
+        { size: 1_200_000, probe: videoProbe({ codecName: "h264", duration: 15 }) },
+      ],
+    ]),
+  )
+  assert.deepEqual(failures, [
+    "product-loop must be 45-75 seconds; docs/brand/demo/artifacts/output/product-loop.mp4 is 15",
   ])
-})
-
-for (const [label, file, message] of [
-  [
-    "a non-WebP format",
-    animationFile({ format: "gif" }),
-    "docs/brand/product-loop.webp must use animated WebP",
-  ],
-  [
-    "a single still frame",
-    animationFile({ pages: 1, delay: [15_200] }),
-    "docs/brand/product-loop.webp must be animated (more than one frame)",
-  ],
-  [
-    "the wrong width",
-    animationFile({ width: 1440 }),
-    "docs/brand/product-loop.webp must be exactly 960x540; received 1440x540",
-  ],
-  [
-    "the wrong frame height",
-    animationFile({ pageHeight: 810 }),
-    "docs/brand/product-loop.webp must be exactly 960x540; received 960x810",
-  ],
-  [
-    "a finite loop count",
-    animationFile({ loop: 1 }),
-    "docs/brand/product-loop.webp must loop forever",
-  ],
-  [
-    "a total delay under the flagship window",
-    animationFile({ delay: Array.from({ length: 150 }, () => 66), pages: 150 }),
-    "product-loop must be 12-18 seconds; docs/brand/product-loop.webp is 9.9",
-  ],
-  [
-    "a total delay over the flagship window",
-    animationFile({ delay: Array.from({ length: 200 }, () => 91), pages: 200 }),
-    "product-loop must be 12-18 seconds; docs/brand/product-loop.webp is 18.2",
-  ],
-  [
-    "missing frame delays",
-    animationFile({ delay: undefined }),
-    "product-loop must be 12-18 seconds; docs/brand/product-loop.webp is unknown",
-  ],
-  [
-    "a file over the byte budget",
-    animationFile({ size: 4_000_001 }),
-    "docs/brand/product-loop.webp must be at most 4,000,000 bytes",
-  ],
-]) {
-  test(`README animation rejects ${label}`, () => {
-    assert.deepEqual(validateAnimation(README_ANIMATION, file), [message])
-  })
-}
-
-test("README animation rejects an accidental 30 fps encode", () => {
-  const delay = Array.from({ length: 450 }, () => 33)
-  delay[0] += 15_000 - delay.reduce((total, value) => total + value, 0)
-  assert.deepEqual(validateAnimation(README_ANIMATION, animationFile({ pages: 450, delay })), [
-    "docs/brand/product-loop.webp must be at most 15 fps; received 30.00 fps",
-  ])
-})
-
-test("README animation accepts a full 15 fps encode with no merged frames", () => {
-  const delay = Array.from({ length: 228 }, () => 66)
-  delay[0] += 15_200 - delay.reduce((total, value) => total + value, 0)
-  assert.deepEqual(validateAnimation(README_ANIMATION, animationFile({ pages: 228, delay })), [])
 })
 
 test("media contracts reject wrong dimensions and aspect ratio", async () => {
@@ -300,10 +248,10 @@ test("media contracts reject wrong dimensions and aspect ratio", async () => {
       [
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 1_200_000,
+          size: 8_400_000,
           probe: videoProbe({
             codecName: "h264",
-            duration: 15,
+            duration: 58,
             width: 1280,
             height: 800,
           }),
@@ -321,20 +269,20 @@ test("media contracts reject durations outside the flagship window", async () =>
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
           size: 1_200_000,
-          probe: videoProbe({ codecName: "h264", duration: 11.99 }),
+          probe: videoProbe({ codecName: "h264", duration: 44.99 }),
         },
       ],
       [
         "docs/brand/demo/artifacts/output/product-loop.webm",
         {
           size: 1_100_000,
-          probe: videoProbe({ codecName: "vp9", duration: 18.01 }),
+          probe: videoProbe({ codecName: "vp9", duration: 75.01 }),
         },
       ],
     ]),
   )
-  assert.ok(failures.some((failure) => /product-loop\.mp4/.test(failure) && /12-18 seconds/.test(failure)))
-  assert.ok(failures.some((failure) => /product-loop\.webm/.test(failure) && /12-18 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.mp4/.test(failure) && /45-75 seconds/.test(failure)))
+  assert.ok(failures.some((failure) => /product-loop\.webm/.test(failure) && /45-75 seconds/.test(failure)))
 })
 
 test("media contracts reject files over their byte budgets", async () => {
@@ -343,15 +291,23 @@ test("media contracts reject files over their byte budgets", async () => {
       [
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 2_000_001,
-          probe: videoProbe({ codecName: "h264", duration: 15 }),
+          size: 12_000_001,
+          probe: videoProbe({ codecName: "h264", duration: 58 }),
         },
       ],
-      [README_ANIMATION, animationFile({ size: 4_000_001 })],
+      [
+        "docs/brand/demo/artifacts/output/product-loop.webm",
+        {
+          size: 12_000_001,
+          probe: videoProbe({ codecName: "vp9", duration: 58 }),
+        },
+      ],
     ]),
   )
-  assert.ok(failures.some((failure) => /product-loop\.mp4.*2,000,000 bytes/.test(failure)))
-  assert.ok(failures.some((failure) => /product-loop\.webp.*4,000,000 bytes/.test(failure)))
+  assert.deepEqual(failures, [
+    "docs/brand/demo/artifacts/output/product-loop.mp4 must be at most 12,000,000 bytes",
+    "docs/brand/demo/artifacts/output/product-loop.webm must be at most 12,000,000 bytes",
+  ])
 })
 
 test("media contracts require every poster and the transcript", async () => {
@@ -406,17 +362,17 @@ test("media contracts require H.264 MP4, VP9 WebM, and 30 fps", async () => {
       [
         "docs/brand/demo/artifacts/output/product-loop.mp4",
         {
-          size: 1_200_000,
-          probe: videoProbe({ codecName: "hevc", duration: 15 }),
+          size: 8_400_000,
+          probe: videoProbe({ codecName: "hevc", duration: 58 }),
         },
       ],
       [
         "docs/brand/demo/artifacts/output/product-loop.webm",
         {
-          size: 1_100_000,
+          size: 8_100_000,
           probe: videoProbe({
             codecName: "vp8",
-            duration: 15,
+            duration: 58,
             frameRate: "25/1",
           }),
         },
@@ -452,9 +408,7 @@ function validManifestLayout(repoRoot = "/repo", runId = "run-a") {
           },
         ]),
       ),
-      animation: `${publicationRoot}/product-loop.webp`,
       assetHashes: {
-        animation: "a".repeat(64),
         posters: Object.fromEntries(MEDIA_CONTRACTS.map(({ name }) => [name, "b".repeat(64)])),
       },
     },
@@ -512,22 +466,10 @@ test("media manifest layout rejects stale identity and cross-run paths", () => {
         pointer,
         manifest: {
           ...manifest,
-          animation: "/repo/docs/brand/demo/artifacts/runs/run-a/publication/product-loop.gif",
+          assetHashes: { posters: { "product-loop": "not a hash" } },
         },
       }),
-    /README animation.*expected run output root/,
-  )
-  assert.throws(
-    () =>
-      validateMediaManifestLayout({
-        repoRoot,
-        pointer,
-        manifest: {
-          ...manifest,
-          assetHashes: { ...manifest.assetHashes, animation: undefined, gif: "a".repeat(64) },
-        },
-      }),
-    /README animation hash is missing or invalid/,
+    /product-loop poster hash is missing or invalid/,
   )
 })
 
@@ -572,20 +514,14 @@ test("local checker adapters surface manifest, probe, and CLI failures", async (
         throw new Error(`unexpected read: ${path}`)
       },
       async stat(path) {
-        return {
-          size: path.endsWith("product-loop.webp")
-            ? 3_200_000
-            : path.endsWith(".mp4")
-              ? 1_200_000
-              : 80_000,
-        }
+        return { size: path.endsWith(".mp4") ? 8_400_000 : 80_000 }
       },
       async access() {},
       async probe() {
         throw new Error("probe failed")
       },
-      async hash(path) {
-        return path.endsWith("product-loop.webp") ? "a".repeat(64) : "b".repeat(64)
+      async hash() {
+        return "b".repeat(64)
       },
       log() {},
     }),
@@ -611,7 +547,7 @@ test("local checker rejects a fixed asset that differs from its selected run", a
       },
       async hash(path) {
         if (path === fixedProductPoster) return "c".repeat(64)
-        return path.endsWith("product-loop.webp") ? "a".repeat(64) : "b".repeat(64)
+        return "b".repeat(64)
       },
       log() {},
     }),
@@ -634,11 +570,11 @@ test("staged validation aborts and joins ffprobe before caller cleanup", async (
     manifest,
     manifestPath: pointer.manifestPath,
     signal: controller.signal,
-    async hash(path) {
-      return path.endsWith("product-loop.webp") ? "a".repeat(64) : "b".repeat(64)
+    async hash() {
+      return "b".repeat(64)
     },
     async stat(path) {
-      return { size: path.endsWith(".mp4") ? 1_200_000 : 1_100_000 }
+      return { size: path.endsWith(".mp4") ? 8_400_000 : 8_100_000 }
     },
     async access() {},
     async readFile() {
@@ -778,57 +714,62 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
   )
 })
 
-test("README animation filter makes a 960x540 12 fps 256-colour intermediate with no overlays", () => {
-  assert.equal(
-    buildAnimationFilter(),
-    "[0:v]fps=12,scale=960:540:flags=lanczos,split[a][b];[b]palettegen=max_colors=256:stats_mode=diff[p];[a][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[outv]",
-  )
+test("MP4 encodes CRF 23 H.264 with a VBV ceiling, for crisp code text under the video byte budget", async () => {
+  let ffmpegArgs
+  await encodeVideo({
+    source: "/run/raw.webm",
+    destination: "/run/output/product-loop.mp4",
+    trim: { start: 2, duration: 58, posterTime: 30 },
+    format: "mp4",
+    async run(_command, args) {
+      ffmpegArgs = args
+    },
+    async rename() {},
+    async remove() {},
+  })
+  const codec = ffmpegArgs.indexOf("-c:v")
+  assert.deepEqual(ffmpegArgs.slice(codec), [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "23",
+    "-maxrate",
+    "2500k",
+    "-bufsize",
+    "5000k",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "/run/output/product-loop.mp4.tmp.mp4",
+  ])
+  const filter = ffmpegArgs.indexOf("-vf")
+  assert.equal(ffmpegArgs[filter + 1], "fps=30,scale=1440:810:flags=lanczos")
 })
 
-test("README animation encodes a trimmed intermediate GIF, converts it to WebP, and removes the intermediate", async () => {
-  const calls = []
-  await encodeReadmeAnimation({
-    source: "/run/raw.webm",
-    destination: "/run/publication/product-loop.webp",
-    trim: { start: 2, duration: 14.5, posterTime: 2.75 },
-    async run(command, args) {
-      calls.push({ command, args })
-    },
-    async convert(input, output) {
-      calls.push({ convert: [input, output] })
-    },
-    async rename(source, destination) {
-      calls.push({ rename: [source, destination] })
-    },
-    async remove(path) {
-      calls.push({ remove: path })
-    },
-  })
-
-  assert.equal(calls[0].command, "ffmpeg")
-  const args = calls[0].args
-  const ss = args.indexOf("-ss")
-  assert.deepEqual(args.slice(ss, ss + 6), ["-ss", "2.000", "-t", "14.500", "-i", "/run/raw.webm"])
-  const filter = args.indexOf("-filter_complex")
-  assert.equal(args[filter + 1], buildAnimationFilter())
-  const map = args.indexOf("-map")
-  assert.deepEqual(args.slice(map, map + 2), ["-map", "[outv]"])
-  const gifflags = args.indexOf("-gifflags")
-  assert.deepEqual(args.slice(gifflags, gifflags + 2), ["-gifflags", "+transdiff"])
-  assert.equal(args.at(-1), "/run/publication/product-loop.webp.tmp.gif")
-  assert.equal(args.includes("libwebp"), false)
-  assert.deepEqual(calls.slice(1), [
-    {
-      convert: [
-        "/run/publication/product-loop.webp.tmp.gif",
-        "/run/publication/product-loop.webp.tmp.webp",
-      ],
-    },
-    {
-      rename: ["/run/publication/product-loop.webp.tmp.webp", "/run/publication/product-loop.webp"],
-    },
-    { remove: "/run/publication/product-loop.webp.tmp.gif" },
-  ])
+test("video codec settings are frozen and an unknown format is refused before ffmpeg runs", async () => {
+  assert.deepEqual(Object.keys(VIDEO_CODEC_ARGUMENTS), ["mp4", "webm"])
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS), true)
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS.mp4), true)
+  assert.equal(Object.isFrozen(VIDEO_CODEC_ARGUMENTS.webm), true)
+  let ran = false
+  await assert.rejects(
+    encodeVideo({
+      source: "/run/raw.webm",
+      destination: "/run/output/product-loop.gif",
+      trim: { start: 2, duration: 58, posterTime: 30 },
+      format: "gif",
+      async run() {
+        ran = true
+      },
+      async rename() {},
+      async remove() {},
+    }),
+    /unsupported video format gif/,
+  )
+  assert.equal(ran, false)
 })
 
 test("WebM encodes constrained-quality VP9 to stay under the video byte budget", async () => {
@@ -850,13 +791,13 @@ test("WebM encodes constrained-quality VP9 to stay under the video byte budget",
     "-c:v",
     "libvpx-vp9",
     "-b:v",
-    "800k",
-    "-crf",
-    "44",
-    "-maxrate",
-    "900k",
-    "-bufsize",
     "1800k",
+    "-crf",
+    "32",
+    "-maxrate",
+    "2200k",
+    "-bufsize",
+    "4400k",
     "-deadline",
     "good",
     "-cpu-used",
@@ -864,44 +805,6 @@ test("WebM encodes constrained-quality VP9 to stay under the video byte budget",
     "-row-mt",
     "1",
     "/run/output/product-loop.webm.tmp.webm",
-  ])
-})
-
-test("README animation WebP conversion uses quality 62 at effort 6", () => {
-  assert.deepEqual(README_ANIMATION_WEBP_OPTIONS, { quality: 62, effort: 6 })
-  assert.equal(Object.isFrozen(README_ANIMATION_WEBP_OPTIONS), true)
-})
-
-test("README animation rechecks abort after conversion and removes both temps", async () => {
-  const controller = new AbortController()
-  const calls = []
-  await assert.rejects(
-    encodeReadmeAnimation({
-      source: "/run/raw.webm",
-      destination: "/run/publication/product-loop.webp",
-      trim: { start: 2, duration: 14.5, posterTime: 2.75 },
-      signal: controller.signal,
-      async run() {
-        calls.push("ffmpeg")
-      },
-      async convert() {
-        calls.push("convert")
-        controller.abort(new Error("abort after convert"))
-      },
-      async rename(...args) {
-        calls.push(["rename", ...args])
-      },
-      async remove(path) {
-        calls.push(["remove", path])
-      },
-    }),
-    /abort after convert/,
-  )
-  assert.deepEqual(calls, [
-    "ffmpeg",
-    "convert",
-    ["remove", "/run/publication/product-loop.webp.tmp.gif"],
-    ["remove", "/run/publication/product-loop.webp.tmp.webp"],
   ])
 })
 
@@ -946,31 +849,21 @@ test("poster encoding extracts a real frame before WebP conversion", async () =>
   })
 })
 
-test("video and README animation encoders trim the recording, recheck abort before rename, and clean their temps", async () => {
+test("video encoders trim the recording, recheck abort before rename, and clean their temps", async () => {
   const trim = { start: 2, duration: 14.5, posterTime: 2.75 }
-  for (const [name, encode, destination, expectedTemporaryPaths] of [
-    [
-      "video",
-      encodeVideo,
-      "/run/output/product-loop.mp4",
-      ["/run/output/product-loop.mp4.tmp.mp4"],
-    ],
-    [
-      "animation",
-      encodeReadmeAnimation,
-      "/run/publication/product-loop.webp",
-      ["/run/publication/product-loop.webp.tmp.gif", "/run/publication/product-loop.webp.tmp.webp"],
-    ],
+  for (const [name, format, destination, expectedTemporaryPaths] of [
+    ["mp4", "mp4", "/run/output/product-loop.mp4", ["/run/output/product-loop.mp4.tmp.mp4"]],
+    ["webm", "webm", "/run/output/product-loop.webm", ["/run/output/product-loop.webm.tmp.webm"]],
   ]) {
     const controller = new AbortController()
     const calls = []
     let ffmpegArgs
     await assert.rejects(
-      encode({
+      encodeVideo({
         source: "/run/raw.webm",
         destination,
         trim,
-        ...(name === "video" ? { format: "mp4" } : {}),
+        format,
         signal: controller.signal,
         async run(_command, args) {
           ffmpegArgs = args
@@ -994,18 +887,14 @@ test("video and README animation encoders trim the recording, recheck abort befo
     )
     const ss = ffmpegArgs.indexOf("-ss")
     assert.deepEqual(ffmpegArgs.slice(ss, ss + 6), ["-ss", "2.000", "-t", "14.500", "-i", "/run/raw.webm"])
-    assert.equal(ffmpegArgs.some((arg) => /overlay|tpad/.test(arg)), false)
-    if (name === "animation") {
-      const map = ffmpegArgs.indexOf("-map")
-      assert.deepEqual(ffmpegArgs.slice(map, map + 2), ["-map", "[outv]"])
-    }
+    assert.equal(ffmpegArgs.some((arg) => /overlay|tpad|palette|gif/.test(arg)), false)
   }
 })
 
 test("fixed media publication rolls back every prior asset and pointer", async () => {
   const root = await mkdtemp(join(tmpdir(), "b4-media-publish-"))
   try {
-    for (const failureAt of ["poster", "animation", "pointer"]) {
+    for (const failureAt of ["manifest", "poster", "pointer"]) {
       const caseRoot = join(root, failureAt)
       const stagedRoot = join(caseRoot, "staged")
       const fixedRoot = join(caseRoot, "fixed")
@@ -1013,7 +902,7 @@ test("fixed media publication rolls back every prior asset and pointer", async (
         mkdir(stagedRoot, { recursive: true }),
         mkdir(fixedRoot, { recursive: true }),
       ])
-      const entries = ["poster", "animation", "pointer"].map((name) => ({
+      const entries = ["manifest", "poster", "pointer"].map((name) => ({
         name,
         stagedPath: join(stagedRoot, name),
         targetPath: join(fixedRoot, name),
@@ -1036,7 +925,7 @@ test("fixed media publication rolls back every prior asset and pointer", async (
       for (const entry of entries) {
         assert.equal(await readFile(entry.targetPath, "utf8"), `old-${entry.name}`)
       }
-      assert.deepEqual((await readdir(fixedRoot)).sort(), ["animation", "pointer", "poster"])
+      assert.deepEqual((await readdir(fixedRoot)).sort(), ["manifest", "pointer", "poster"])
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -1055,7 +944,7 @@ test("failed backup restoration preserves and reports the recovery file", async 
     let thrown
     try {
       await publishFixedAssets({
-        entries: [{ name: "animation", stagedPath, targetPath }],
+        entries: [{ name: "poster", stagedPath, targetPath }],
         transactionId,
         afterPublish() {
           throw new Error("publish failed")
@@ -1119,7 +1008,7 @@ test("publication preflight preserves and reports every existing recovery backup
 test("encoding failures never mix fixed assets or the latest pointer across runs", async () => {
   const root = await mkdtemp(join(tmpdir(), "b4-media-encode-"))
   try {
-    for (const failureAt of ["video", "poster", "animation", "pointer"]) {
+    for (const failureAt of ["video", "poster", "pointer"]) {
       const repoRoot = join(root, failureAt)
       const runId = `run-${failureAt}`
       const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
@@ -1131,7 +1020,6 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         ...MEDIA_CONTRACTS.map(({ name }) =>
           join(repoRoot, `apps/web/public/demo/${name}-poster.webp`),
         ),
-        join(repoRoot, "docs/brand/product-loop.webp"),
         join(repoRoot, "docs/brand/demo/artifacts/latest-media.json"),
       ]
       await Promise.all([
@@ -1174,14 +1062,6 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
               assert.equal(time, 6.75)
               await writeFile(destination, "poster")
             },
-            async encodeReadmeAnimation({ destination, trim }) {
-              assert.equal(
-                destination,
-                join(artifactsDir, "publication/product-loop.webp"),
-              )
-              assert.deepEqual(trim, { start: 2, duration: 12, posterTime: 6.75 })
-              await writeFile(destination, "animation")
-            },
             async validateStagedMedia(options) {
               assert.equal(options.signal, controller.signal)
             },
@@ -1201,6 +1081,69 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         false,
       )
     }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("a successful encode publishes the poster, manifest and pointer, and no README animation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "b4-media-success-"))
+  try {
+    const repoRoot = root
+    const runId = "run-success"
+    const artifactsDir = join(repoRoot, "docs/brand/demo/artifacts/runs", runId)
+    const recordingsDir = join(repoRoot, "docs/brand/demo/raw-recordings/runs", runId)
+    const source = join(recordingsDir, "raw.webm")
+    await Promise.all([
+      mkdir(recordingsDir, { recursive: true }),
+      mkdir(artifactsDir, { recursive: true }),
+    ])
+    await writeFile(source, "raw")
+    const encoded = []
+    const manifest = await encodeCaptureArtifacts({
+      repoRoot,
+      artifactsDir,
+      recordingsDir,
+      summary: {
+        runId,
+        videoPath: source,
+        videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES },
+      },
+      summaryPath: join(artifactsDir, "capture-summary.json"),
+      dependencies: {
+        async encodeVideo({ destination, format }) {
+          encoded.push(format)
+          await writeFile(destination, format)
+        },
+        async encodePoster({ destination }) {
+          encoded.push("poster")
+          await writeFile(destination, "poster")
+        },
+        async validateStagedMedia() {},
+      },
+    })
+    assert.deepEqual(encoded, ["mp4", "webm", "poster"])
+    assert.equal(Object.hasOwn(manifest, "animation"), false)
+    assert.deepEqual(Object.keys(manifest.assetHashes), ["posters"])
+    assert.equal(
+      manifest.assetHashes.posters["product-loop"],
+      createHash("sha256").update("poster").digest("hex"),
+    )
+    assert.deepEqual(manifest.captions, MEDIA_CAPTIONS)
+    assert.equal(
+      await readFile(join(repoRoot, "apps/web/public/demo/product-loop-poster.webp"), "utf8"),
+      "poster",
+    )
+    assert.deepEqual(
+      JSON.parse(await readFile(join(repoRoot, "docs/brand/demo/artifacts/latest-media.json"), "utf8")),
+      { schemaVersion: 1, runId, manifestPath: join(artifactsDir, "media-manifest.json") },
+    )
+    await assert.rejects(lstat(join(repoRoot, "docs/brand/product-loop.webp")), { code: "ENOENT" })
+    assert.deepEqual((await readdir(join(artifactsDir, "publication"))).sort(), [
+      "latest-media.json",
+      "media-manifest.json",
+      "product-loop-poster.webp",
+    ])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -5591,6 +5534,30 @@ test("catalog entries contain exactly the six required fields", () => {
     () => validateDemoMediaCatalog(unexpectedField),
     /productLoop.*exactly.*ariaLabel.*transcript/i,
   )
+})
+
+test("the checked-in catalog is exactly what the uploader writes for the current caption", async () => {
+  const { pointer, manifest } = validUploadFixture()
+  const catalog = buildDemoMediaCatalog({
+    manifest,
+    plan: createUploadPlan({
+      repoRoot: "/repo",
+      pointer,
+      manifest,
+      baseUrl: AUTHORIZED_MEDIA_ORIGIN,
+    }),
+  })
+  const checkedIn = JSON.parse(
+    await readFile(join(import.meta.dirname, "../../../apps/web/app/lib/demo-media.json"), "utf8"),
+  )
+  assert.deepEqual(checkedIn, catalog)
+  assert.equal(checkedIn.productLoop.caption, MEDIA_CAPTIONS["product-loop"])
+  assert.equal(
+    checkedIn.productLoop.transcript,
+    "https://github.com/cacheplane/b4run/blob/main/docs/brand/demo/transcript.md#navlog-demo",
+  )
+  const transcript = await readFile(join(import.meta.dirname, "transcript.md"), "utf8")
+  assert.match(transcript, /^## Navlog demo$/mu)
 })
 
 test("catalog media URLs require exact stable paths with no authority or URL suffix drift", () => {

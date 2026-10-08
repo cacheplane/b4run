@@ -9,9 +9,10 @@ Author-facing TypeScript declarations for B4.run agents, tools, middleware, memo
 **Use this when:** You are authoring routes, tools, middleware, memory declarations, or typed runtime contracts.
 
 <p align="center">
-  <a href="https://b4.run/#product-loop">
-    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/docs/brand/product-loop.webp" alt="B4.run product loop: route, deterministic test, and Workbench" width="720">
+  <a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">
+    <img src="https://raw.githubusercontent.com/cacheplane/b4run/main/apps/web/public/demo/product-loop-poster.webp" alt="The B4.run navlog demo: a VFR flight plan with its navlog sheet in the Workbench. Opens the demo video." width="720">
   </a>
+  <br><a href="https://9rq8ezyghevy0wop.public.blob.vercel-storage.com/b4/demo/product-loop.mp4">▶ Watch the 50-second navlog demo</a>
 </p>
 
 ## Install
