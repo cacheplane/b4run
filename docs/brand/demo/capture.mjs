@@ -949,6 +949,34 @@ export async function restoreWorkbenchThread(
   return { connectUrl: response.url() }
 }
 
+/**
+ * A page-shaped view of the Workbench iframe, so `openReadyWorkbench`,
+ * `fillActiveWorkbenchComposer`, `waitForWorkbenchRunCompletion`,
+ * `expandLatestTurn` and `restoreWorkbenchThread` drive the real Workbench
+ * inside the director page unchanged. DOM calls go to the frame; response
+ * waits go to the page, which sees the frame's requests; a reload is a fresh
+ * navigation of the frame to its own URL, as a browser reload would be.
+ */
+export function frameSurface(page, frame) {
+  const goto = async (url, options) => {
+    const response = await frame.goto(url, options)
+    const loaded = frame.url()
+    if (loaded.startsWith("chrome-error:")) {
+      throw new Error(`The Workbench did not load inside the director frame (${loaded})`)
+    }
+    return response
+  }
+  return {
+    getByRole: (...args) => frame.getByRole(...args),
+    locator: (...args) => frame.locator(...args),
+    evaluate: (...args) => frame.evaluate(...args),
+    waitForTimeout: (ms) => frame.waitForTimeout(ms),
+    waitForResponse: (...args) => page.waitForResponse(...args),
+    goto,
+    reload: (options) => goto(frame.url(), options),
+  }
+}
+
 export async function closeBrowserResources({ context, video, browser }) {
   const errors = []
   let videoPath

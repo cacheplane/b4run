@@ -26,6 +26,7 @@ import {
   createManagedChildRegistry,
   createManagedServiceMonitor,
   fillActiveWorkbenchComposer,
+  frameSurface,
   generatedInstallCommand,
   generatedTestCommand,
   HIDE_NEXT_DEV_INDICATOR,
@@ -2331,6 +2332,77 @@ test("restoration connects the thread, then proves the restored turn, its steps 
     ["count", ROOT_TOOL_STEPS],
     ["waitFor", `main > text=${JSON.stringify(EXPECTED_ANSWER)} (exact) .last`, "visible"],
   ])
+})
+
+test("frame surface sends DOM calls to the Workbench frame and network waits to the page", async () => {
+  const calls = []
+  const frame = {
+    getByRole: (...args) => {
+      calls.push(["frame.getByRole", ...args])
+      return "role"
+    },
+    locator: (...args) => {
+      calls.push(["frame.locator", ...args])
+      return "locator"
+    },
+    evaluate: async (...args) => {
+      calls.push(["frame.evaluate", ...args])
+      return "value"
+    },
+    waitForTimeout: async (ms) => {
+      calls.push(["frame.waitForTimeout", ms])
+    },
+    goto: async (url, options) => {
+      calls.push(["frame.goto", url, options])
+      return { ok: () => true }
+    },
+    url: () => "http://127.0.0.1:4101/",
+  }
+  const page = {
+    waitForResponse: async (...args) => {
+      calls.push(["page.waitForResponse", ...args])
+      return "response"
+    },
+  }
+  const surface = frameSurface(page, frame)
+
+  assert.equal(surface.getByRole("button", { name: "Send" }), "role")
+  assert.equal(surface.locator("main"), "locator")
+  assert.equal(await surface.evaluate(() => 1), "value")
+  await surface.waitForTimeout(5)
+  assert.equal(await surface.waitForResponse(() => true), "response")
+  await surface.goto("http://127.0.0.1:4101/", { waitUntil: "domcontentloaded" })
+  await surface.reload({ waitUntil: "domcontentloaded" })
+
+  assert.deepEqual(
+    calls.map(([name]) => name),
+    [
+      "frame.getByRole",
+      "frame.locator",
+      "frame.evaluate",
+      "frame.waitForTimeout",
+      "page.waitForResponse",
+      "frame.goto",
+      "frame.goto",
+    ],
+  )
+  assert.deepEqual(calls.at(-1), [
+    "frame.goto",
+    "http://127.0.0.1:4101/",
+    { waitUntil: "domcontentloaded" },
+  ])
+})
+
+test("frame surface fails when the Workbench refuses to load in the frame", async () => {
+  const frame = {
+    goto: async () => null,
+    url: () => "chrome-error://chromewebdata/",
+  }
+  const surface = frameSurface({ waitForResponse: async () => undefined }, frame)
+  await assert.rejects(
+    surface.goto("http://127.0.0.1:4101/"),
+    /The Workbench did not load inside the director frame \(chrome-error:\/\/chromewebdata\/\)/,
+  )
 })
 
 test("restoration matches only this Workbench's connect POST for this thread", async () => {
