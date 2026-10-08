@@ -404,21 +404,24 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  /* A tool call's arguments as key/value rows, in the payload's box. */
+  /*
+   * A tool call's arguments as key/value rows, in the payload's box. It never
+   * scrolls: values are cut to one line, and a scroll region would need a tab
+   * stop of its own (axe scrollable-region-focusable).
+   */
   .b4-approval__args {
     display: grid;
-    grid-template-columns: fit-content(40%) minmax(0, 1fr);
+    grid-template-columns: fit-content(60%) minmax(0, 1fr);
     gap: 2px 12px;
-    max-height: 240px;
-    overflow: auto;
     white-space: normal;
   }
   .b4-approval__arg {
     display: contents;
   }
+  /* A key breaks only when it cannot fit at all, never mid-name. */
   .b4-approval__args dt {
     color: var(--b4-activity-muted);
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .b4-approval__args dd {
     margin: 0;
