@@ -19,7 +19,7 @@ would build against a moving target:
 
 | Resolver spec open question | What it decides here |
 |---|---|
-| Q1 `/memory/*` gate | Who may list and approve candidates outside their own namespace (§3.3) |
+| Q1 `/memory/*` gate | Who may list and approve candidates outside their own namespace (§3.3). Decided: `canReviewMemory` |
 | Q3 anonymous default | Whether `principal === undefined` can reach a route that declares `user` at all (§3.2) |
 | Q5 principal typing | The type of `ctx.principal` in `resolveScope` (`B4Register` augmentation or `b4:auth`) |
 
@@ -95,11 +95,11 @@ resolver spec, `middleware` is the stopgap (decision D1).
   - A caller with no resolvable namespace gets an empty list, not every namespace.
 - `POST /memory/candidates/:id/approve|reject`: load the record and refuse with 404, not 403, when
   its namespace isn't one of the caller's. A 404 doesn't reveal which ids exist.
-- **Cross-namespace review (owner/admin) needs resolver-spec Q1.** Today's
-  list-everything behavior becomes whatever that gate allows: a fixed rule, a
-  `canReviewMemory(principal)` predicate, or policy actions. Until it's decided, cross-namespace
-  review is unavailable over HTTP whenever an auth file exists. The `b4 memory` CLI (local,
-  operator-run) keeps listing everything.
+- **Cross-namespace review (owner/admin)** is resolver-spec Q1, decided 2026-10-08.
+  - `defineAuth` takes an optional `canReviewMemory(principal) => boolean`.
+  - When it returns true, the caller lists and acts across every namespace, as today.
+  - With no auth file, `/memory/*` is unchanged.
+  - The `b4 memory` CLI (local, operator-run) keeps listing everything.
 
 ### 3.4 Docs and pins
 
@@ -135,6 +135,6 @@ change. For this part:
 - **D2. Unresolved declared dimension:** fail closed (§3.2 step 2). An app that declares `user`
   or `tenant` and never resolves it gets a tool error instead of the shared namespace. The
   changeset and the upgrade notes must call this out.
-- **D3. Cross-namespace candidate review:** unavailable over HTTP whenever an auth file exists,
-  until resolver-spec Q1 settles the `/memory/*` gate. The `b4 memory` CLI keeps listing
-  everything.
+- **D3. Cross-namespace candidate review:** superseded on 2026-10-08 by resolver-spec Q1. The
+  caller's own namespace is the default, and `canReviewMemory(principal)` on `defineAuth` opens
+  every namespace (§3.3). The interim "unavailable over HTTP" rule never ships.
