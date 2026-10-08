@@ -169,10 +169,10 @@ Units 5–8 (media contract, README and copy):
   stub.
 - **The evidence matrix is unchanged.** No root README claim changed: the
   README only swaps its animation for the linked poster.
-- **Codecs:** H.264 `-preset slow -crf 23 -maxrate 2500k -bufsize 5000k`; VP9
-  `-b:v 1800k -crf 32 -maxrate 2200k -bufsize 4400k`. The quality ceiling is the
-  Playwright recording itself (VP8 at 25 fps, about 0.9 Mbit/s), so a lower CRF
-  adds bytes without sharper text.
+- **Codecs:** H.264 `-preset slow -crf 18 -maxrate 4000k -bufsize 8000k`; VP9
+  `-b:v 2500k -crf 28 -maxrate 3000k -bufsize 6000k -pix_fmt yuv420p`. With the
+  2x screencast as the source, a 52 s take measures about 5.6 MB in each
+  (Playwright's VP8 recording had capped quality, and CRF 23 / CRF 32 then).
 
 Take-2 polish round:
 

@@ -86,8 +86,8 @@ synthesized. Holds are real waits (each beat's `holdMs`). ffmpeg trims the
 recording from the start of the first beat to the end of the close, about 50
 seconds, and encodes the MP4 and WebM at 1440×810 and 30 fps, with codec
 settings chosen for crisp code text (`VIDEO_CODEC_ARGUMENTS` in `encode.mjs`):
-H.264 CRF 23 with a 2,500 kbit/s ceiling, and constrained-quality VP9 at CRF 32
-under 1,800 kbit/s. The poster is the encoded MP4's frame 0.25 s before the
+H.264 CRF 18 with a 4,000 kbit/s ceiling, and constrained-quality VP9 at CRF 28
+under 2,500 kbit/s. The poster is the encoded MP4's frame 0.25 s before the
 navlog beat ends, with the camera on the navlog sheet. The capture browser asks
 for reduced motion (the navlog map then skips its animations) and hides the
 Next.js dev badge.

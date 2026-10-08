@@ -747,7 +747,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
   )
 })
 
-test("MP4 encodes CRF 23 H.264 with a VBV ceiling, for crisp code text under the video byte budget", async () => {
+test("MP4 encodes CRF 18 H.264 with a VBV ceiling, for crisp code text under the video byte budget", async () => {
   let ffmpegArgs
   await encodeVideo({
     source: "/run/raw.webm",
@@ -767,11 +767,11 @@ test("MP4 encodes CRF 23 H.264 with a VBV ceiling, for crisp code text under the
     "-preset",
     "slow",
     "-crf",
-    "23",
+    "18",
     "-maxrate",
-    "2500k",
+    "4000k",
     "-bufsize",
-    "5000k",
+    "8000k",
     "-pix_fmt",
     "yuv420p",
     "-movflags",
@@ -824,13 +824,13 @@ test("WebM encodes constrained-quality VP9 to stay under the video byte budget",
     "-c:v",
     "libvpx-vp9",
     "-b:v",
-    "1800k",
+    "2500k",
     "-crf",
-    "32",
+    "28",
     "-maxrate",
-    "2200k",
+    "3000k",
     "-bufsize",
-    "4400k",
+    "6000k",
     "-deadline",
     "good",
     "-cpu-used",

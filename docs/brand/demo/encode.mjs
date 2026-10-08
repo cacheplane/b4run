@@ -97,11 +97,12 @@ function trimArguments(trim) {
 const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:flags=lanczos`;
 
 /**
- * Codec settings for the ~60 s 1440x810 flagship, quality first: the code
- * beats are small monospaced text that must stay crisp, and the blob store
- * hosts both files under a 12 MB budget each. H.264 is CRF with a VBV ceiling
- * that only caps the crossfade and camera-move peaks; VP9 is constrained
- * quality (CRF under a target bitrate).
+ * Codec settings for the ~50-60 s 1440x810 flagship, quality first: the code
+ * beats are small monospaced text, supersampled from the 2x screencast, that
+ * must stay crisp, and the blob store hosts both files under a 12 MB budget
+ * each. H.264 is CRF 18 with a VBV ceiling that only caps the crossfade and
+ * camera-move peaks; VP9 is constrained quality (CRF 28 under a target
+ * bitrate). A 52 s take measures about 5.6 MB in each.
  */
 export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
 	mp4: Object.freeze([
@@ -110,11 +111,11 @@ export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
 		"-preset",
 		"slow",
 		"-crf",
-		"23",
+		"18",
 		"-maxrate",
-		"2500k",
+		"4000k",
 		"-bufsize",
-		"5000k",
+		"8000k",
 		"-pix_fmt",
 		"yuv420p",
 		"-movflags",
@@ -124,13 +125,13 @@ export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
 		"-c:v",
 		"libvpx-vp9",
 		"-b:v",
-		"1800k",
+		"2500k",
 		"-crf",
-		"32",
+		"28",
 		"-maxrate",
-		"2200k",
+		"3000k",
 		"-bufsize",
-		"4400k",
+		"6000k",
 		"-deadline",
 		"good",
 		"-cpu-used",
