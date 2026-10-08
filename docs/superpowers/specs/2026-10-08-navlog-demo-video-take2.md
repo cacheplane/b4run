@@ -171,8 +171,10 @@ Units 5–8 (media contract, README and copy):
   README only swaps its animation for the linked poster.
 - **Codecs:** H.264 `-preset slow -crf 18 -maxrate 4000k -bufsize 8000k`; VP9
   `-b:v 2500k -crf 28 -maxrate 3000k -bufsize 6000k -pix_fmt yuv420p`. With the
-  2x screencast as the source, a 52 s take measures about 5.6 MB in each
-  (Playwright's VP8 recording had capped quality, and CRF 23 / CRF 32 then).
+  lossless screencast as the source, a 49 s take measures 8.2 MB (MP4) and
+  6.3 MB (WebM); a take near the 75 s limit could pass 12 MB in the MP4, so
+  holds should not grow much (Playwright's VP8 recording had capped quality,
+  and CRF 23 / CRF 32 then).
 
 Take-2 polish round:
 
@@ -193,14 +195,16 @@ Take-2 polish round:
 - **Headline roll.** Each headline line is exactly the 1.12em window tall and
   the outgoing line fades as it rolls, so nothing of it lingers above the new
   one.
-- **The recorder is a 2x DevTools screencast.** Playwright's recordVideo
-  (VP8, about 0.9 Mbit/s, 25 fps) is replaced by `Page.startScreencast` PNG
-  frames at 2880×1620, assembled with the concat demuxer into a 30 fps 4:4:4
-  raw video and downscaled by the encoder. Headless Chromium sends 1x frames
-  with only the context's `deviceScaleFactor: 2`, so the browser also launches
-  with `--force-device-scale-factor=2`. PNG and JPEG (quality 100 or 95)
-  measured the same frame rate at 2x on the director page (about 31 fps in
-  motion), so the lossless PNG stays. The summary records `videoOffsetMs`
-  (timeline start minus first frame, both wall clock) and the trim maps scene
-  times through it. The WebM is now explicitly `yuv420p`, since the raw video
-  is 4:4:4 and browsers play VP9 profile 0.
+- **The recorder is a lossless 1x DevTools screencast, not 2x.**
+  Playwright's recordVideo (VP8, about 0.9 Mbit/s, 25 fps) is replaced by
+  `Page.startScreencast` PNG frames, assembled with the concat demuxer into a
+  30 fps 4:4:4 raw video. The plan was 2x frames supersampled down; headless
+  Chromium needs `--force-device-scale-factor=2` for those, and on the real
+  run they kept up at only about 14 fps in motion (p90 gap about 155 ms) with
+  PNG or JPEG 95, against about 41 fps (p90 42 ms) at 1x, and the downscaled
+  text was not visibly crisper. So the scale is 1 (`SCREENCAST_SCALE`), a
+  one-line switch. Frames play in timestamp order (Chromium can stamp one
+  slightly early). The summary records `videoOffsetMs` (timeline start minus
+  first frame, both wall clock) and `screencast.motion`; the trim maps scene
+  times through the offset. The WebM is now explicitly `yuv420p`, since the
+  raw video is 4:4:4 and browsers play VP9 profile 0.

@@ -33,8 +33,8 @@ current navlog starter in a temporary directory with `--mode internal`,
 installs it, and runs the generated root `npm test` command (its output is kept
 in the run's ignored artifacts; the video does not show it). It then starts
 aimock, a loopback AWC stub, the B4.run server, and the generated Workbench on
-assigned loopback ports and records the 1440×810 page at twice its
-resolution (see "The recorder" below). ffmpeg is exercised when
+assigned loopback ports and records the 1440×810 page as a lossless
+screencast (see "The recorder" below). ffmpeg is exercised when
 encoding begins; ffprobe is exercised by the local checker, so a missing
 executable, encoder, or probe fails at that boundary with the command's
 diagnostic.
@@ -96,20 +96,26 @@ Next.js dev badge.
 
 Playwright's own video recording is VP8 at about 0.9 Mbit/s and 25 fps, which
 leaves code text soft. The capture instead records a Chromium DevTools
-screencast: the browser runs with `--force-device-scale-factor=2` (headless
-Chromium otherwise sends 1x frames even with the context's
-`deviceScaleFactor: 2`), and `Page.startScreencast` sends a lossless 2880×1620
-PNG each time the page paints. Each frame is written under the run's
-raw-recordings directory with its wall-clock timestamp and acknowledged.
-Because frames arrive only on paint, a hold is the gap between two
-timestamps. When the run ends, ffmpeg's concat demuxer gives every frame its
-real duration (the last lasts until the screencast stops), resamples to a
-constant 30 fps, and writes `screencast.mp4` (near-lossless 4:4:4 H.264); the
-frames are then deleted. A failed or cancelled run deletes them without
-assembling. The timeline records its start on the same wall clock, so the
-summary's `videoTimeline.videoOffsetMs` maps every scene time to video time,
-and the encoder trims by those mapped times and downscales the 2x video to
-1440×810 with lanczos.
+screencast: `Page.startScreencast` sends a lossless 1440×810 PNG each time the
+page paints. Each frame is written under the run's raw-recordings directory
+with its wall-clock timestamp and acknowledged. Because frames arrive only on
+paint, a hold is the gap between two timestamps; Chromium can stamp a frame
+slightly before the one ahead of it, so frames play in timestamp order. When
+the run ends, ffmpeg's concat demuxer gives every frame its real duration (the
+last lasts until the screencast stops), resamples to a constant 30 fps, and
+writes `screencast.mp4` (near-lossless 4:4:4 H.264); the frames are then
+deleted. A failed or cancelled run deletes them without assembling. The
+timeline records its start on the same wall clock, so the summary's
+`videoTimeline.videoOffsetMs` maps every scene time to video time, and the
+encoder trims by those mapped times. The summary's `screencast.motion`
+reports the frame rate while the page moved.
+
+The screencast runs at scale 1 (`SCREENCAST_SCALE` in `capture.mjs`) by
+measurement. At scale 2 (with `--force-device-scale-factor=2`, since headless
+Chromium otherwise sends 1x frames) the 2880×1620 frames kept up at only about
+14 fps while the page moved, PNG and JPEG alike, so camera moves stuttered,
+and the downscaled text was not visibly crisper than the lossless 1x frames,
+which arrive at about 41 fps.
 
 ## Validate
 

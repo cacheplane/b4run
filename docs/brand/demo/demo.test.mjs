@@ -47,6 +47,7 @@ import {
   restoreWorkbenchThread,
   runManagedCommand,
   SCREENCAST_OPTIONS,
+  SCREENCAST_SCALE,
   sanitizeOperationalEnvironment,
   screencastConcat,
   screencastMotion,
@@ -4326,7 +4327,7 @@ test("screencast assembly resamples to 30 fps 4:4:4 and always removes the frame
     videoPath: "/runs/run-e/screencast.mp4",
     screencast: {
       format: "png",
-      scale: 2,
+      scale: 1,
       frameCount: 2,
       firstFrameEpochMs: 100_000,
       endEpochMs: 102_000,
@@ -4399,7 +4400,7 @@ test("browser acquisition closes Chromium when context creation fails", async ()
   assert.deepEqual(calls, ["launch", "new context", "close browser"])
 })
 
-test("browser acquisition records a 2x screencast, reduces motion and hides the Next dev badge", async () => {
+test("browser acquisition records a lossless screencast, reduces motion and hides the Next dev badge", async () => {
   const calls = []
   const session = { name: "cdp" }
   const page = { name: "page" }
@@ -4445,10 +4446,10 @@ test("browser acquisition records a 2x screencast, reduces motion and hides the 
   assert.equal(resources.framesDir, "/runs/run-a/screencast-frames")
   assert.equal(resources.outputPath, "/runs/run-a/screencast.mp4")
   assert.deepEqual(calls, [
-    ["launch", { headless: true, args: ["--force-device-scale-factor=2"] }],
+    ["launch", { headless: true, args: ["--force-device-scale-factor=1"] }],
     [
       "new context",
-      { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 2, reducedMotion: "reduce" },
+      { viewport: { width: 1440, height: 810 }, deviceScaleFactor: 1, reducedMotion: "reduce" },
     ],
     ["init script", HIDE_NEXT_DEV_INDICATOR],
     ["new page"],
@@ -4456,10 +4457,12 @@ test("browser acquisition records a 2x screencast, reduces motion and hides the 
     ["recorder", { session, framesDir: "/runs/run-a/screencast-frames" }],
     ["start screencast"],
   ])
+  // Scale 1 by measurement: 2x kept up at about 14 fps in motion, 1x at about 41.
+  assert.equal(SCREENCAST_SCALE, 1)
   assert.deepEqual(SCREENCAST_OPTIONS, {
     format: "png",
-    maxWidth: 2880,
-    maxHeight: 1620,
+    maxWidth: 1440,
+    maxHeight: 810,
     everyNthFrame: 1,
   })
   assert.match(HIDE_NEXT_DEV_INDICATOR, /nextjs-portal \{ display: none !important; \}/)

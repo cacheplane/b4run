@@ -98,11 +98,11 @@ const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:f
 
 /**
  * Codec settings for the ~50-60 s 1440x810 flagship, quality first: the code
- * beats are small monospaced text, supersampled from the 2x screencast, that
- * must stay crisp, and the blob store hosts both files under a 12 MB budget
+ * beats are small monospaced text, from the lossless screencast, that must
+ * stay crisp, and the blob store hosts both files under a 12 MB budget
  * each. H.264 is CRF 18 with a VBV ceiling that only caps the crossfade and
  * camera-move peaks; VP9 is constrained quality (CRF 28 under a target
- * bitrate). A 52 s take measures about 5.6 MB in each.
+ * bitrate). A 49 s take measures about 8.2 MB (MP4) and 6.3 MB (WebM).
  */
 export const VIDEO_CODEC_ARGUMENTS = Object.freeze({
 	mp4: Object.freeze([

@@ -1273,12 +1273,17 @@ export function frameSurface(page, frame) {
 }
 
 /**
- * The recorder: a Chromium DevTools screencast at twice the CSS resolution,
- * one lossless frame per paint. Playwright's recordVideo is VP8 at about
- * 0.9 Mbit/s and 25 fps, which leaves code text soft; these frames are the
- * compositor's own pixels, and the encoder supersamples them down to 1440x810.
+ * The recorder: a Chromium DevTools screencast, one lossless PNG per paint.
+ * Playwright's recordVideo is VP8 at about 0.9 Mbit/s and 25 fps, which leaves
+ * code text soft; these frames are the compositor's own pixels.
+ *
+ * The scale is 1 by measurement. At 2 (2880x1620 frames, supersampled down by
+ * the encoder) the screencast kept up at only about 14 fps while the page
+ * moved (90th-percentile gap about 155 ms, PNG and JPEG alike), so camera
+ * moves and crossfades stuttered, and the downscaled text was not visibly
+ * crisper than lossless 1x frames, which arrive at about 41 fps.
  */
-export const SCREENCAST_SCALE = 2
+export const SCREENCAST_SCALE = 1
 export const SCREENCAST_OPTIONS = Object.freeze({
   format: "png",
   maxWidth: 1440 * SCREENCAST_SCALE,
@@ -1406,7 +1411,7 @@ export function screencastConcat(input, endEpochMs) {
 /**
  * Turns the frames into the run's raw video: the concat demuxer gives each
  * frame its real duration, `fps=30` resamples them to a constant 30 fps, and
- * near-lossless 4:4:4 H.264 keeps the 2x pixels for the encoder to downscale.
+ * near-lossless 4:4:4 H.264 keeps the screencast's pixels for the encoder.
  * The frames directory is removed whatever happens. Video time 0 is the first
  * frame's timestamp, returned as `firstFrameEpochMs`.
  */
