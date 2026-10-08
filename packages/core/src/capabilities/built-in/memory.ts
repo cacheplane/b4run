@@ -2,7 +2,7 @@ import type { ToolDisplay } from "@b4run/sdk"
 import { sha1Hex } from "@b4run/sdk/pure"
 import { z } from "zod"
 import { readRuntimeEnv } from "../../runtime-env.js"
-import { gateMemorySupersede } from "../permission-gate.js"
+import { gateCallOptions, gateMemorySupersede } from "../permission-gate.js"
 import type {
   CapabilityMarker,
   MemoryContext,
@@ -354,7 +354,7 @@ export function createMemoryMarker(): CapabilityMarker {
                     oldContent: target.content,
                     newContent: content,
                   },
-                  { ...(ctx?.toolCallId ? { toolCallId: ctx.toolCallId } : {}) },
+                  gateCallOptions(ctx),
                 )
                 if (!gate.allowed) {
                   return {

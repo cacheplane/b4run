@@ -20,6 +20,7 @@ import {
   isToolDenial,
   type PersistedStep,
   type ToolDisplay,
+  type ToolDisplayIcon,
 } from "@b4run/sdk"
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
@@ -63,6 +64,8 @@ interface B4ToolDefinition {
        * model tool call.
        */
       readonly toolCallId?: string
+      /** How this call reads while it runs (`display.icon`/`running`), for a gate that parks it. */
+      readonly step?: { readonly icon?: ToolDisplayIcon; readonly label?: string }
       /**
        * Receives how a permission gate answered this call (`once`, `always`,
        * `deny`) when one ran interactively; the runtime persists it on the
@@ -147,12 +150,9 @@ export function convertToolToLangChain(
           : { toolCallId, toolName: tool.name, ...(origin ? { origin } : {}) }
       // A step is only worth streaming when a client can attach it to a call.
       const display = toolCallId !== "" ? tool.display : undefined
-      if (display !== undefined) {
-        await dispatchStep(liveConfig, {
-          tool_call_id: toolCallId,
-          status: "running",
-          ...describeRunning(display, input, tool.name),
-        })
+      const running = display !== undefined ? describeRunning(display, input, tool.name) : undefined
+      if (running !== undefined) {
+        await dispatchStep(liveConfig, { tool_call_id: toolCallId, status: "running", ...running })
       }
       // The converter's own clock bounds the call; both ends ride on the
       // persisted step so a restored thread knows how long the tool took.
@@ -164,6 +164,9 @@ export function convertToolToLangChain(
         ...(threadId ? { threadId } : {}),
         ...(Object.keys(params).length > 0 ? { params } : {}),
         ...(toolCallId !== "" ? { toolCallId } : {}),
+        // A gate that parks this call keeps its running display on the
+        // interrupt: a parked call has no ToolMessage to stamp.
+        ...(running !== undefined && Object.keys(running).length > 0 ? { step: running } : {}),
         onGateDecision: (reported: GateDecision) => {
           decision = reported
         },

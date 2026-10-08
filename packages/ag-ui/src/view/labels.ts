@@ -92,6 +92,59 @@ export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): s
   return live ? `Using ${step.name}…` : `Used ${step.name}`
 }
 
+/** A group subject longer than this reads as a sentence, not a name: no list. */
+const MAX_GROUP_SUBJECT_CHARS = 32
+/** A group subject with more words than this reads as a sentence, not a name: no list. */
+const MAX_GROUP_SUBJECT_WORDS = 4
+/** How many subjects a group label names before it counts the rest ("and 2 more"). */
+const GROUP_SUBJECTS_SHOWN = 3
+
+/**
+ * A group label phrased from its steps' own labels, when they read as one verb
+ * phrase over different names: "Looked up KSTP" and "Looked up KRST" become
+ * "Looked up KSTP and KRST"; three read "Looked up KSTP, KRST and KMSP"; more
+ * name the first two and count the rest ("… KRST and 2 more"). Every label
+ * must share the leading words and differ only in a short trailing subject —
+ * at most four words, no `,`, `;` or `:`, not cut short — after dropping a
+ * trailing parenthetical ("Looked up KSTP (St Paul Downtown)" reads as
+ * "KSTP"). Repeated subjects are named once; a single distinct subject is not
+ * a list. Undefined when the labels do not fit: the caller falls back to
+ * "Used X n times".
+ */
+export function phraseGroupLabel(labels: readonly string[]): string | undefined {
+  if (labels.length < 2) return undefined
+  const words = labels.map((label) => label.trim().split(/\s+/))
+  const first = words[0] as string[]
+  let shared = 0
+  while (shared < first.length && words.every((w) => w[shared] === first[shared])) shared++
+  if (shared === 0) return undefined
+  const subjects: string[] = []
+  for (const w of words) {
+    const subject = w
+      .slice(shared)
+      .join(" ")
+      .replace(/\s*\([^()]*\)$/, "")
+    if (
+      subject === "" ||
+      subject.endsWith("…") ||
+      /[,;:]/.test(subject) ||
+      [...subject].length > MAX_GROUP_SUBJECT_CHARS ||
+      subject.split(" ").length > MAX_GROUP_SUBJECT_WORDS
+    ) {
+      return undefined
+    }
+    if (!subjects.includes(subject)) subjects.push(subject)
+  }
+  if (subjects.length < 2) return undefined
+  const prefix = first.slice(0, shared).join(" ")
+  if (subjects.length > GROUP_SUBJECTS_SHOWN) {
+    const more = subjects.length - 2
+    return `${prefix} ${subjects[0]}, ${subjects[1]} and ${more} more`
+  }
+  const last = subjects.pop() as string
+  return `${prefix} ${subjects.join(", ")} and ${last}`
+}
+
 export interface StepGroup {
   readonly kind: "group"
   readonly name: string
@@ -103,11 +156,13 @@ export type GroupedStep = StepView | StepGroup
 
 /**
  * Consecutive done calls of one tool, two or more, folded into a group with a
- * summary label ("Read 2 files"). Running, failed, denied and awaiting steps never
- * join a group, and `task`/`writeTodos` never do. A group override that
- * throws or returns nothing falls back to the built-in or default wording.
- * Steps that are not grouped
- * are returned as the same objects they came in as.
+ * summary label. The label is the app's `group` override, else B4.run's
+ * wording for a built-in tool ("Read 2 files"), else one phrased from the
+ * steps' own labels when they share a verb phrase ("Looked up KSTP and KRST",
+ * see `phraseGroupLabel`), else "Used X n times". Running, failed, denied and
+ * awaiting steps never join a group, and `task`/`writeTodos` never do. A group
+ * override that throws or returns nothing falls back to the next wording.
+ * Steps that are not grouped are returned as the same objects they came in as.
  */
 export function groupSteps(
   steps: readonly StepView[],
@@ -122,6 +177,7 @@ export function groupSteps(
       const label =
         tryLabel(() => lookup(overrides, name)?.group?.(n)) ??
         lookup(BUILT_IN_GROUP_LABELS, name)?.(n) ??
+        phraseGroupLabel(run.map((step) => stepLabel(step, overrides))) ??
         `Used ${name} ${n} times`
       out.push({ kind: "group", name, label: truncate(label), steps: run })
     } else {

@@ -5,10 +5,13 @@
  */
 export type { B4StepEventValue, B4StepStatus } from "../step.js"
 export {
+  type ApprovalArgRow,
   type ApprovalDecision,
+  approvalArgsRows,
   approvalErrorLine,
   approvalPayload,
   dispatchDecision,
+  MAX_APPROVAL_ARG_CHARS,
   scopeLine,
 } from "./activity-approval.js"
 export {
@@ -78,6 +81,7 @@ export {
   BUILT_IN_GROUP_LABELS,
   type GroupedStep,
   groupSteps,
+  phraseGroupLabel,
   type StepGroup,
   type StepLabelOverride,
   type StepLabelOverrides,

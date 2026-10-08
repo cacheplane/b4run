@@ -43,7 +43,10 @@ function parkedEnvelope(result: unknown): Record<string, unknown> | undefined {
 
 interface RunTool {
   readonly name: string
-  readonly run: (input: unknown, ctx: { signal: AbortSignal; toolCallId?: string }) => unknown
+  readonly run: (
+    input: unknown,
+    ctx: { signal: AbortSignal; toolCallId?: string; step?: { icon?: string; label?: string } },
+  ) => unknown
 }
 
 const config = { configurable: { thread_id: "t" } }
@@ -151,5 +154,47 @@ describe("permission envelopes name the tool call they gate", () => {
     )
     const envelope = parkedEnvelope(await app.invoke({}, config))
     expect(envelope).toMatchObject({ kind: "tool", toolCallId: "call_deploy_3" })
+  })
+})
+
+describe("permission envelopes keep the gated call's running display", () => {
+  const step = { icon: "run", label: "Deploy to staging" } as const
+
+  it("wrapToolWithApproval puts the run context's step on the envelope", async () => {
+    const wrapped = wrapToolWithApproval<
+      { signal: AbortSignal; toolCallId?: string; step?: typeof step },
+      RunTool
+    >({ name: "deployProd", run: async () => "deployed" }, askingStore())
+    const app = parkingGraph(() =>
+      Promise.resolve(
+        wrapped.run({}, { signal: new AbortController().signal, toolCallId: "call_1", step }),
+      ),
+    )
+    const envelope = parkedEnvelope(await app.invoke({}, config))
+    expect(envelope).toMatchObject({ kind: "tool", toolCallId: "call_1", step })
+  })
+
+  it("every call-scoped gate forwards step; an empty or absent one is left off", async () => {
+    const parked = async (body: () => Promise<unknown>) =>
+      parkedEnvelope(await parkingGraph(body).invoke({}, config))
+    expect(await parked(() => gateBashOp(askingStore(), "ls", { step }))).toMatchObject({ step })
+    expect(
+      await parked(() => gatePathOp(askingStore(), "readFile", "/outside/x", "/ws", { step })),
+    ).toMatchObject({ step })
+    expect(
+      await parked(() =>
+        gateMemorySupersede(
+          askingStore(),
+          { namespace: "ns", identity: "id", oldId: "m1", oldContent: "a", newContent: "b" },
+          { step },
+        ),
+      ),
+    ).toMatchObject({ step })
+    expect(
+      await parked(() => gateToolOp(askingStore(), "deployProd", "{}", { step: { label: "" } })),
+    ).not.toHaveProperty("step")
+    expect(await parked(() => gateToolOp(askingStore(), "deployProd", "{}"))).not.toHaveProperty(
+      "step",
+    )
   })
 })

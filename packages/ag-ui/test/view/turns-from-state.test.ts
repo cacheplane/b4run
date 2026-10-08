@@ -277,6 +277,45 @@ describe("turnsFromState", () => {
     })
   })
 
+  test("a parked call shows the running display its interrupt kept, as live did", () => {
+    const call = {
+      id: "c1",
+      name: "fileFlightPlan",
+      args: { flightPlan: { item7: "N738ZU" } },
+      type: "tool_call",
+    }
+    const history = [
+      ckpt("k0", 0, [human("u1", "file it")]),
+      ckpt("k1", 1, [human("u1", "file it"), ai("a1", "", [call])]),
+    ]
+    const value = (step: unknown) => ({
+      interruptId: "perm-1",
+      type: "permission-request",
+      kind: "tool",
+      toolCallId: "c1",
+      ...(step !== undefined ? { step } : {}),
+      detail: { toolName: "fileFlightPlan", argsPreview: "{}", suggestedPattern: "fileFlightPlan" },
+    })
+    const restore = (step: unknown) =>
+      firstTurn(
+        turnsFromState(
+          base(history, {}, [{ interruptId: "perm-1", value: value(step) }], "interrupted"),
+        ).turns,
+      ).steps[0]
+    expect(restore({ icon: "write", label: "File N738ZU KSTP to KRST" })).toMatchObject({
+      status: "awaiting",
+      icon: "write",
+      label: "File N738ZU KSTP to KRST",
+    })
+    // An older interrupt without `step`, or a malformed one, leaves the step bare.
+    for (const step of [undefined, "File it", { icon: "nope", label: 7 }]) {
+      const restored = restore(step)
+      expect(restored).toMatchObject({ status: "awaiting" })
+      expect(restored).not.toHaveProperty("label")
+      expect(restored).not.toHaveProperty("icon")
+    }
+  })
+
   test("a restored every-call tool prompt does not offer always", () => {
     const call = { id: "c1", name: "fileFlightPlan", args: {}, type: "tool_call" }
     const history = [

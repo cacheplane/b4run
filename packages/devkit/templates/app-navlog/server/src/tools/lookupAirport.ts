@@ -95,6 +95,7 @@ export default async (input: { readonly id: string }, ctx: B4ToolContext): Promi
 export const display = {
   icon: "web",
   running: ({ id }) => `Looking up ${id.toUpperCase()}`,
+  // The airport's details in parentheses: two calls merge as "Looked up KSTP and KRST".
   done: ({ id }, airport) =>
-    `Looked up ${id.toUpperCase()}, ${airport.name}, field elevation ${airport.elevationFt} ft`,
+    `Looked up ${id.toUpperCase()} (${airport.name}, field elevation ${airport.elevationFt} ft)`,
 } satisfies ToolDisplay<{ readonly id: string }, Airport>

@@ -270,6 +270,30 @@ describe("eventsFromState", () => {
     await expect(verified(events)).resolves.toHaveLength(events.length)
   })
 
+  it("replays a parked call's running step from its interrupt, inside the subagent, verifier-clean", async () => {
+    const state = parkedChild()
+    const [pending] = state.pendingInterrupts
+    const value = { ...(pending?.value as object), step: { icon: "run", label: "Run ls" } }
+    const { events, warnings } = eventsFromState({
+      ...state,
+      pendingInterrupts: [{ interruptId: "perm-2", value }],
+    })
+    expect(warnings).toEqual([])
+    const end = events.findIndex(
+      (e) =>
+        e.type === EventType.TOOL_CALL_END && (e as { toolCallId?: string }).toolCallId === "n1",
+    )
+    expect(events[end + 1]).toMatchObject({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: { toolCallId: "n1", status: "running", icon: "run", label: "Run ls" },
+      subagentRunId: "ct",
+    })
+    const outcome = (events.at(-1) as BaseEvent & { outcome: { interrupts: unknown[] } }).outcome
+    expect(outcome.interrupts[0]).toMatchObject({ metadata: { step: { label: "Run ls" } } })
+    await expect(verified(events)).resolves.toHaveLength(events.length)
+  })
+
   it.each([
     ["stopped", "cancelled", "The run was cancelled.", "cancelled"],
     ["done", "unterminated", "The run ended before the subagent finished.", "success"],

@@ -2,7 +2,7 @@ import type { PermissionsStore } from "@b4run/permissions"
 import type { WorkspaceFs } from "@b4run/sdk"
 import { POSIX_SEP, pureResolve } from "@b4run/sdk/pure"
 import type { FilesystemBackend } from "@b4run/workspace"
-import { gatePathOp, type PathOperation } from "./permission-gate.js"
+import { type GateStepDisplay, gatePathOp, type PathOperation } from "./permission-gate.js"
 
 export interface CreateWorkspaceFsOptions {
   /**
@@ -33,6 +33,12 @@ export interface CreateWorkspaceFsOptions {
    * memory gates already do). A handle outside a tool call has none.
    */
   readonly toolCallId?: string | undefined
+  /**
+   * That call's running display (its tool's `display.running` label and
+   * icon), which a parked path approval carries so a restored thread shows
+   * the same label as the live run.
+   */
+  readonly step?: GateStepDisplay | undefined
   /**
    * Whether this execution context can surface the interactive LangGraph
    * permission interrupt (true inside agent-route tool execution; false for
@@ -99,6 +105,7 @@ export function createWorkspaceFs(opts: CreateWorkspaceFsOptions): WorkspaceFs {
     const result = await gatePathOp(opts.permissions, operation, canonicalPath, canonicalRoot, {
       interruptCapable: opts.interruptCapable,
       ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+      ...(opts.step !== undefined ? { step: opts.step } : {}),
     })
     if (!result.allowed) throw new Error(result.reason)
     return absPath

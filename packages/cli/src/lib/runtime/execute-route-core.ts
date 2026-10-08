@@ -26,6 +26,7 @@ import {
   CLIENT_TOOL_PREFIX,
   type ClientToolDefinition,
   type ClientToolResumeValue,
+  type CreateWorkspaceFsOptions,
   configureApprovalGrants,
   createAgentsMdMarker,
   createCapabilityRegistry,
@@ -1953,6 +1954,7 @@ async function prepareRouteExecutionForInvocation(
         readonly middleware?: Readonly<Record<string, unknown>>
         readonly signal: AbortSignal
         readonly toolCallId?: string
+        readonly step?: CreateWorkspaceFsOptions["step"]
       },
     ) =>
       t.run(input, {
@@ -1961,6 +1963,7 @@ async function prepareRouteExecutionForInvocation(
           ...workspaceFsOptions,
           signal: ctx.signal,
           ...(ctx.toolCallId ? { toolCallId: ctx.toolCallId } : {}),
+          ...(ctx.step !== undefined ? { step: ctx.step } : {}),
         }),
         ...(admittedWorkspace ? { workspace: workspaceContext(ctx.signal) } : {}),
       }),

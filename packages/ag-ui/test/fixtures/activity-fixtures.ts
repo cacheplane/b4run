@@ -456,6 +456,24 @@ export const APPROVAL_FIXTURES: Readonly<Record<string, ApprovalFixture>> = {
     agent: "deployer",
     label: "deploy",
   },
+  "tool with nested and long arguments": {
+    approval: approval({
+      kind: "tool",
+      offersAlways: false,
+      detail: {
+        toolName: "fileFlightPlan",
+        argsPreview: JSON.stringify({
+          flightPlan: { item7: "N738ZU", item13: "KSTP1600", item16: "KRST0045" },
+          remarks: `RMK/${"VFR FLIGHT PLAN ".repeat(8).trim()}`,
+          crew: ["pilot", "observer"],
+          legs: [{ from: "KSTP", to: "KRST" }],
+        }),
+        suggestedPattern: "fileFlightPlan",
+      },
+    }),
+    agent: "The agent",
+    label: "file N738ZU KSTP to KRST",
+  },
   "tool without a pattern": {
     approval: approval({ kind: "tool", detail: { argsPreview: "{}" } }),
     agent: "The agent",
