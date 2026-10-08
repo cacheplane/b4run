@@ -695,10 +695,10 @@ test("trim plan rejects a missing or out-of-order beat", () => {
   )
 })
 
-test("README animation filter makes a 960x540 15 fps 256-colour intermediate with no overlays", () => {
+test("README animation filter makes a 960x540 12 fps 256-colour intermediate with no overlays", () => {
   assert.equal(
     buildAnimationFilter(),
-    "[0:v]fps=15,scale=960:540:flags=lanczos,split[a][b];[b]palettegen=max_colors=256:stats_mode=diff[p];[a][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[outv]",
+    "[0:v]fps=12,scale=960:540:flags=lanczos,split[a][b];[b]palettegen=max_colors=256:stats_mode=diff[p];[a][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[outv]",
   )
 })
 

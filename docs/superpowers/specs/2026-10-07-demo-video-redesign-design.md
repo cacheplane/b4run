@@ -117,7 +117,7 @@ All paths are under `docs/brand/demo/`.
 3. **`encode.mjs`**.
    - Trims the raw recording to the recorded start of Author and end of Close.
    - Encodes H.264 MP4, constrained-quality VP9 WebM and the README animation
-     (a 960×540, 15 fps intermediate GIF that sharp converts to animated WebP),
+     (a 960×540, 12 fps intermediate GIF that sharp converts to animated WebP),
      and extracts the poster frame from the MP4.
    - The label chips, frozen-hold padding, `buildLabelInputs` and the per-clip
      timeline plans all go.
@@ -227,3 +227,6 @@ These changes from the first re-capture are kept:
 - **WebM rate control.** The WebM uses constrained-quality VP9 (`-b:v 800k
   -crf 44 -maxrate 900k -bufsize 1800k`) so that captures from 15.9 to 16.9 s
   stay under the 2,000,000-byte limit.
+- **README animation rate.** The WebP converts at quality 62, effort 6, and the
+  encoder samples 12 fps (the checker still allows up to 15): at 15 fps a
+  16.5 s capture produced 3.88 MB, too close to the 4 MB limit.

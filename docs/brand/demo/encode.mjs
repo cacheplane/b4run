@@ -75,14 +75,14 @@ const SCALE_FILTER = `fps=${OUTPUT_FPS},scale=${OUTPUT_WIDTH}:${OUTPUT_HEIGHT}:f
 
 const ANIMATION_WIDTH = 960;
 const ANIMATION_HEIGHT = 540;
-const ANIMATION_FPS = 15;
+const ANIMATION_FPS = 12;
 export const README_ANIMATION_WEBP_OPTIONS = Object.freeze({
 	quality: 62,
 	effort: 6,
 });
 
 /**
- * The README animation's intermediate GIF: 960x540 at 15 fps with a full
+ * The README animation's intermediate GIF: 960x540 at 12 fps with a full
  * 256-colour palette. The camera zooms and blur crossfades make a GIF that
  * fits the README budget impossible, so this GIF is only an intermediate:
  * sharp re-encodes it as the published animated WebP, because this ffmpeg
