@@ -43,9 +43,10 @@ import { script } from "../../../packages/testing/dist/index.js"
 // The Workbench titles a thread with its first message cut to 80 characters,
 // and the capture finds the thread, its rail row and its heading by that title,
 // so the prompt must fit whole. It states the aircraft fact the route
-// remembers: the tail number and long-range tanks (50 gal usable by the
-// route's POH default), so the scripted `remember` call and the 50 gal in the
-// brief both come from what the pilot said.
+// remembers: the tail number and long-range tanks (50 gal usable, as the
+// route's aircraft baseline gives for long-range tanks), so the scripted
+// `remember` call and the tail number in the brief come from what the pilot
+// said, which overrides the baseline's N734ST.
 export const DEMO_PROMPT =
   "Plan a VFR flight KSTP to KRST at 4500 ft, 1400Z. N738ZU has long-range tanks."
 
@@ -57,7 +58,8 @@ const DAY_MS = 24 * HOUR_MS
 const DEPARTURE_HOUR_UTC = 14
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-const PROFILE_QUERY = "aircraft profile and pilot preferences"
+const BASELINE_PATH = "aircraft/c172n.md"
+const PROFILE_QUERY = "pilot aircraft overrides and preferences"
 const AIRCRAFT = Object.freeze({ tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 })
 const ALTITUDE_FT = 4500
 
@@ -164,7 +166,8 @@ const FLIGHT_PLAN_ITEMS = Object.freeze({
 
 const PLAN_TODOS = Object.freeze([
   {
-    content: "Recall the aircraft profile and parse the route, altitude and departure time",
+    content:
+      "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
     status: "completed",
   },
   { content: "Brief the weather and look up POH performance", status: "in_progress" },
@@ -423,7 +426,7 @@ export function demoScenario({ now = Date.now() } = {}) {
     `Bottom line: GO — KSTP and KRST are VFR now and at the ${hhmm(eta)}Z ETA, with no advisory during the flight.`,
     "Watch for: none during the flight.",
     `Numbers: ${t.distanceNm} nm; ETE ${t.eteMin} min; ${t.fuelGal.toFixed(1)} gal burned, which includes 1.1 gal for start, taxi and takeoff; ${t.fuelRemainingGal.toFixed(1)} gal at landing; reserve ${reserve} at 2400 RPM, ${NAVLOG.gph.toFixed(1)} GPH [poh/cruise-performance.md, Figure 5-7].`,
-    `Assumptions: departure ${departureLabel}; 50 gal usable for long-range tanks and cruise 2400 RPM (POH defaults); 1 person on board assumed — tell me if different.`,
+    `Assumptions: departure ${departureLabel}; 50 gal usable for long-range tanks and cruise 2400 RPM (aircraft baseline); 1 person on board assumed — tell me if different.`,
     "Want me to file the plan, try another altitude, or re-brief closer to departure?",
   ].join("\n")
 
@@ -450,6 +453,7 @@ export function demoScenario({ now = Date.now() } = {}) {
   const fixtures = script()
     // The parent, turn 1, in the route's order.
     .user(DEMO_PROMPT)
+    .callsTool("readDoc", { path: BASELINE_PATH })
     .callsTool("recall", { query: PROFILE_QUERY })
     .callsTool("resolveDeparture", { departure: "1400Z" })
     .callsTool("writeTodos", { todos })
@@ -511,6 +515,7 @@ export function demoScenario({ now = Date.now() } = {}) {
     planAnswer,
     filedAnswer,
     planTools: [
+      "readDoc",
       "recall",
       "resolveDeparture",
       "writeTodos",

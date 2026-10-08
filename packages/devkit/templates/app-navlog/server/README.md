@@ -97,10 +97,10 @@ Run these in order: `build` writes the configured deployment artifacts, then
 | Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
 | Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
-| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the aircraft profile |
+| Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the pilot's own aircraft facts and preferences, which override the `aircraft/c172n.md` baseline |
 | Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
 | HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before every call (`allowAlways: false`: no "Always allow") |
-| Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans, behind a path-jail |
+| Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans, behind a path-jail; `AGENTS.md`, `aircraft/`, `poh/` and `regs/` are read-only via `b4.config.ts` |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scripted cases + scorers + a gate |

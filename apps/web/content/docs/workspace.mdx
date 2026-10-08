@@ -226,6 +226,7 @@ The `navlog` template (`create-b4-app --template navlog`) shows how these tools 
 ```text
 workspace/
   AGENTS.md          ← agent memory (see /docs/memory)
+  aircraft/          ← the demo aircraft baseline the agent reads
   poh/               ← Cessna 172N POH tables the agent reads
   regs/              ← regulation excerpts (VFR cruising altitudes, fuel reserves)
   reports/           ← agent-written navlogs (writeFile creates this)
@@ -234,10 +235,11 @@ workspace/
 
 Here's how the agent uses them:
 
-- `readDoc` reads a POH table under `poh/` or a regulation excerpt under `regs/`, and an offloaded result under `tool-outputs/`.
+- `readDoc` reads the aircraft baseline under `aircraft/`, a POH table under `poh/` or a regulation excerpt under `regs/`, and an offloaded result under `tool-outputs/`.
 - `writeFile` saves each navlog to `workspace/reports/`, creating the directory on the first write.
 - The runtime offloads a large tool result to `workspace/tool-outputs/` and keeps a preview in context.
 - The route denies `runBash`, so the agent never runs a shell command.
+- `b4.config.ts` wraps the local filesystem with a [middleware](#middleware) that refuses writes to `AGENTS.md`, `aircraft/`, `poh/` and `regs/`. The workspace is shared by every thread, so the reference corpus stays read-only.
 
 Agent memory lives in `workspace/AGENTS.md`, and B4.run adds it to the system prompt. See [Memory](/docs/memory).
 

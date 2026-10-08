@@ -151,7 +151,8 @@ const COPILOTKIT_CONNECT_PATH = "/api/copilotkit/agent/default/connect"
 const WEB_READY_PATH = "/api/b4/memory/candidates"
 const todos = [
   {
-    content: "Recall the aircraft profile and parse the route, altitude and departure time",
+    content:
+      "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
     status: "completed",
   },
   { content: "Brief the weather and look up POH performance", status: "in_progress" },
@@ -186,7 +187,7 @@ interface AgUiTranscriptRecorder {
 function createPlanFixtures() {
   const root = script()
     .user(PLAN_PROMPT)
-    .callsTool("recall", { query: "aircraft profile and pilot preferences" })
+    .callsTool("recall", { query: "pilot aircraft overrides and preferences" })
     .callsTool("writeTodos", { todos })
     .callsTool("task", { subagent: "performance", input: PERF_INPUT })
     .callsTool("computeNavlog", NAVLOG_INPUT)
@@ -851,7 +852,7 @@ function assertSafeResearchJourney(
       toolCallId: rootCallId("recall"),
       status: "running",
       icon: "memory",
-      label: "Recalling “aircraft profile and pilot preferences”",
+      label: "Recalling “pilot aircraft overrides and preferences”",
     },
     {
       toolCallId: rootCallId("recall"),

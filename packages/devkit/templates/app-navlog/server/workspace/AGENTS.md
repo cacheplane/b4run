@@ -1,9 +1,10 @@
 # Navlog workspace memory
 
-B4.run injects this file into the agent's system prompt every turn. Use it for
-durable flight-planning conventions; the agent updates it with
-`writeFile({ path: "AGENTS.md", content: "..." })` when it learns something
-worth keeping across sessions.
+B4.run injects this file into the agent's system prompt every turn. It is
+read-only house style: the app's `b4.config.ts` refuses writes to it, to
+`aircraft/`, `poh/` and `regs/`, so one visitor's turn can never change what
+every other visitor's agent is told. Durable facts about a pilot go to memory
+with `remember`.
 
 ## House style
 

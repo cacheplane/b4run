@@ -1,6 +1,9 @@
 import { config } from "@b4run/cli"
 import { openaiEmbedder } from "@b4run/langchain"
 import { pgvectorMemoryStore } from "@b4run/memory-pgvector"
+import { compose } from "@b4run/workspace"
+import { localFilesystem } from "@b4run/workspace/node"
+import { readOnlyPaths } from "./src/lib/read-only-paths.js"
 
 // Memory backend: SQLite with keyword recall by default, which is what every
 // keyless run gets. Postgres + pgvector when DATABASE_URL is set (the live
@@ -13,6 +16,20 @@ const embedder = databaseUrl && process.env.OPENAI_API_KEY ? openaiEmbedder() : 
 
 export default config({
   appDir: "src/app",
+
+  // The reference corpus is read-only. The workspace is one directory every
+  // visitor's turns share, and B4.run's path gate covers only paths outside
+  // it, so without this any visitor could get the agent to rewrite the POH
+  // tables, the aircraft baseline or AGENTS.md for everyone. Reports,
+  // flight plans and offloaded tool outputs stay writable.
+  backends: {
+    filesystem: compose(readOnlyPaths(["AGENTS.md", "aircraft/", "poh/", "regs/"]))(
+      localFilesystem(),
+    ),
+  },
+  // ...and the prompt agrees: AGENTS.md is injected as read-only project
+  // guidance, without the default "update it with writeFile" instruction.
+  agentsMd: { writable: false },
 
   // Tool scoping lives on the route (src/app/navlog/index.ts): runBash is
   // denied and fileFlightPlan asks a person before each call.

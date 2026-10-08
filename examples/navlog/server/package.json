@@ -23,6 +23,7 @@
     "@b4run/memory-pgvector": "workspace:*",
     "@b4run/postgres-storage": "workspace:*",
     "@b4run/sdk": "workspace:*",
+    "@b4run/workspace": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

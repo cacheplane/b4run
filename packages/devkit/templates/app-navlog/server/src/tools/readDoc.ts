@@ -1,6 +1,6 @@
 import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
 
-const ROOTS = ["poh/", "regs/", "tool-outputs/"]
+const ROOTS = ["aircraft/", "poh/", "regs/", "tool-outputs/"]
 
 function assertDocPath(path: string): void {
   if (!ROOTS.some((root) => path.startsWith(root)) || path.includes("..") || path.startsWith("/")) {
@@ -9,9 +9,9 @@ function assertDocPath(path: string): void {
 }
 
 /**
- * Read a POH table or regulation excerpt by its workspace path, e.g.
- * "poh/cruise-performance.md", or an offloaded tool output named by a
- * "Full output saved to: tool-outputs/..." stub.
+ * Read the aircraft baseline, a POH table or a regulation excerpt by its
+ * workspace path, e.g. "aircraft/c172n.md" or "poh/cruise-performance.md", or
+ * an offloaded tool output named by a "Full output saved to: tool-outputs/..." stub.
  */
 export default async (input: { readonly path: string }, ctx: B4ToolContext) => {
   assertDocPath(input.path)
