@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "vitest"
-import { createAimock } from "../src/aimock-runner.js"
+import { createAimock, pairRecordings } from "../src/aimock-runner.js"
 
 it("getRecordingsSince windows to a single run (no cross-burst misalignment)", async () => {
   const upstream = await createAimock({
@@ -75,3 +75,23 @@ it("getRecordings() captures a proxied response from a local upstream", async ()
   expect(recordings[0]?.response).toHaveProperty("usage")
   expect(recordings[0]?.request.messages?.[0]).toEqual({ role: "user", content: "ping" })
 }, 30_000)
+
+it("pairs each recorded response with its own request when they complete out of order (#937)", () => {
+  const request = (content: string) => ({ messages: [{ role: "user", content }] })
+  const fixture = (userMessage: string, content: string) => ({
+    match: { userMessage, turnIndex: 0, hasToolResult: false },
+    response: { content },
+  })
+  // Journal order: alpha, beta. Recording order: beta finished first.
+  const recordings = pairRecordings(
+    [fixture("beta", "B"), fixture("alpha", "A")],
+    [request("alpha"), request("beta")],
+  )
+  expect(recordings.map((r) => [r.request.messages?.[0]?.content, r.response])).toEqual([
+    ["beta", { content: "B" }],
+    ["alpha", { content: "A" }],
+  ])
+  expect(() => pairRecordings([fixture("gamma", "G")], [request("alpha")])).toThrow(
+    /matches no proxied request/,
+  )
+})

@@ -11,6 +11,10 @@ export interface AimockFixture {
     readonly userMessage?: string
     readonly turnIndex?: number
     readonly hasToolResult?: boolean
+    /** Only a request that offers a tool of this name. Recordings add it to tell agents apart. */
+    readonly toolName?: string
+    /** Only a request whose last message is the result of this tool call. */
+    readonly toolCallId?: string
   }
   readonly response: AimockResponse
 }
