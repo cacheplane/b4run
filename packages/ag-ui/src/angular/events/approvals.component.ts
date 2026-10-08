@@ -1,13 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from "@angular/core"
-import { type ApprovalDecision, pendingApprovals } from "@b4run/ag-ui/view"
+import { type ApprovalDecision, type InterruptDecision, pendingApprovals } from "@b4run/ag-ui/view"
 import { ApprovalCardComponent } from "../index.js"
 import { B4TurnsStore, resolveStore } from "./turns-store.js"
 
-/** A decision on one parked interrupt. */
-export interface B4ApprovalDecision {
-  readonly interruptId: string
-  readonly decision: ApprovalDecision
-}
+/**
+ * A decision on one parked interrupt: `toResumeEntries` (`@b4run/ag-ui/view`)
+ * turns the decisions on every parked interrupt into the run's `resume`.
+ */
+export type B4ApprovalDecision = InterruptDecision
 
 /**
  * One `<b4-approval-card>` per parked interrupt of the thread, read from the
@@ -22,6 +22,20 @@ export interface B4ApprovalDecision {
  * which offers the buttons again. A host that resumes from `(decide)` alone
  * must call the store's `clearResuming()` itself when its resume fails.
  * `once` and `always` resolve the interrupt with that value; `deny` cancels it.
+ *
+ * B4.run resumes only when every parked interrupt is answered, so a host
+ * collects the decisions and builds the resume with `toResumeEntries`, which
+ * also echoes each interrupt's approval grant:
+ *
+ * ```ts
+ * const decisions: B4ApprovalDecision[] = []
+ * const resume = async (decision: B4ApprovalDecision) => {
+ *   decisions.push(decision)
+ *   const parked = pendingApprovals(store.turns(), store.labels).map((card) => card.approval)
+ *   const result = toResumeEntries(decisions, parked)
+ *   if (result.ok) await agent.runAgent({ resume: result.entries })
+ * }
+ * ```
  */
 @Component({
   selector: "b4-approvals",

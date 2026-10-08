@@ -68,6 +68,7 @@ export {
   type PendingApproval,
   pendingApprovals,
   type TranscriptMessage,
+  toolCallIdsOf,
   turnForMessage,
   turnForToolCalls,
 } from "./activity-lookup.js"
@@ -89,6 +90,12 @@ export {
 } from "./labels.js"
 export { isSubagentMessage } from "./messages.js"
 export { blocksToParts } from "./parts.js"
+export {
+  type InterruptDecision,
+  type ResumableInterrupt,
+  type ResumeEntriesResult,
+  toResumeEntries,
+} from "./resume.js"
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, readStepEvent } from "./step.js"
 export {
   type ApprovalView,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { Component, Injector, input } from "@angular/core"
 import { TestBed } from "@angular/core/testing"
-import type { TranscriptMessage } from "@b4run/ag-ui/view"
+import { pendingApprovals, type TranscriptMessage, toResumeEntries } from "@b4run/ag-ui/view"
 import axe from "axe-core"
 import { Subject } from "rxjs"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
@@ -22,6 +22,8 @@ import {
   serializeContract,
 } from "../fixtures/contract-serializer.ts"
 import {
+  commandInterrupt,
+  parked,
   parkedRun,
   runError,
   runFinished,
@@ -232,6 +234,32 @@ describe("<b4-message-activity>", () => {
     expect(row?.querySelector(".b4-step__children section.b4-turn")).not.toBeNull()
   })
 
+  test("a host transcript that lists toolCallIds instead of toolCalls gets the same blocks", () => {
+    const { events, store } = live()
+    for (const e of [
+      runStarted("r1"),
+      toolStart("c1", "runBash"),
+      toolResult("c1", "ok"),
+      runFinished("r1"),
+      runStarted("r2"),
+      toolStart("c2", "runBash"),
+      runError("boom"),
+    ]) {
+      events.next(e)
+    }
+    const { root, slot } = chat(store, [
+      user("u1"),
+      { id: "a1", role: "assistant", toolCallIds: ["c1"] },
+      { id: "a1b", role: "assistant", toolCallIds: [] },
+      user("u2"),
+      { id: "a2", role: "assistant", toolCallIds: ["c2"] },
+    ])
+    expect(root.querySelectorAll("section.b4-turn")).toHaveLength(2)
+    expect(slot("a1").querySelector("section")?.getAttribute("data-state")).toBe("done")
+    expect(slot("a2").querySelector("section")?.getAttribute("data-state")).toBe("failed")
+    expect(slot("a1b").textContent).toBe("")
+  })
+
   test("a store passed as [store] wins over the injected one", () => {
     const store = new B4TurnsStore({ now: () => 0 })
     store.apply(runStarted("r1"))
@@ -312,6 +340,47 @@ describe("<b4-approvals>", () => {
     expect(cleared).toHaveBeenCalledOnce()
     expect(root.querySelector("section.b4-approval")?.getAttribute("data-state")).toBe("failed")
     expect(root.querySelector(".b4-approval__error")?.textContent).toContain("network down")
+  })
+
+  test("[resume] with toResumeEntries: nothing goes out until every parked interrupt is decided, grants echoed", async () => {
+    const { events, store } = live()
+    const second = { ...commandInterrupt, id: "i2", toolCallId: "c2" }
+    for (const e of [
+      runStarted("r1"),
+      toolStart("c1", "runBash"),
+      toolEnd("c1"),
+      toolStart("c2", "runBash"),
+      toolEnd("c2"),
+      parked("r1", [
+        { ...commandInterrupt, metadata: { ...commandInterrupt.metadata, grant: "g1" } },
+        second,
+      ]),
+    ]) {
+      events.next(e)
+    }
+    const { fixture, root } = chat(store, [user("u1"), assistant("a1", "c1", "c2")])
+    const sent: unknown[] = []
+    const decisions: B4ApprovalDecision[] = []
+    fixture.componentRef.setInput("resume", async (decision: B4ApprovalDecision) => {
+      decisions.push(decision)
+      const parkedSet = pendingApprovals(store.turns(), store.labels).map((card) => card.approval)
+      const result = toResumeEntries(decisions, parkedSet)
+      if (result.ok) sent.push(result.entries)
+    })
+    fixture.detectChanges()
+    const cards = () => [...root.querySelectorAll("section.b4-approval")] as HTMLElement[]
+    expect(cards()).toHaveLength(2)
+    click(fixture, button(cards()[0] as HTMLElement, "Allow once"))
+    await settle(fixture)
+    expect(sent).toEqual([])
+    click(fixture, button(cards()[1] as HTMLElement, "Deny"))
+    await settle(fixture)
+    expect(sent).toEqual([
+      [
+        { interruptId: "i1", status: "resolved", payload: "once", metadata: { grant: "g1" } },
+        { interruptId: "i2", status: "cancelled" },
+      ],
+    ])
   })
 
   test("no card unless the thread is awaiting", () => {
