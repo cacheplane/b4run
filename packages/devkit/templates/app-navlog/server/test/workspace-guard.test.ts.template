@@ -53,5 +53,8 @@ describe("the navlog agent's writeFile tool", () => {
       "poh/cruise-performance.md is read-only reference material in this app",
     )
     await expect(readFile(pohFile, "utf8")).resolves.toBe(original)
+    // agentsMd.writable: false — AGENTS.md is injected as read-only guidance.
+    expect(run.systemPrompt).toContain("# Project guidance")
+    expect(run.systemPrompt).not.toContain('writeFile({ path: "AGENTS.md"')
   }, 120_000)
 })

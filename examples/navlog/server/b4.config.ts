@@ -27,6 +27,9 @@ export default config({
       localFilesystem(),
     ),
   },
+  // ...and the prompt agrees: AGENTS.md is injected as read-only project
+  // guidance, without the default "update it with writeFile" instruction.
+  agentsMd: { writable: false },
 
   // Tool scoping lives on the route (src/app/navlog/index.ts): runBash is
   // denied and fileFlightPlan asks a person before each call.

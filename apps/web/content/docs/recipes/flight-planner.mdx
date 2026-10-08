@@ -119,6 +119,7 @@ export default config({
       localFilesystem(),
     ),
   },
+  agentsMd: { writable: false },
   toolOutput: {
     offloadThresholdChars: 12000,
     previewLines: 10,
@@ -162,7 +163,7 @@ server/workspace/
 - `plan.md` turns on [planning](/docs/planning). Its checklist seeds each thread's todos.
 - `workspace/AGENTS.md` and the route's `memory.md` add persistent prompt guidance.
 - `workspace/aircraft/c172n.md` is the demo aircraft the plan starts from. A pilot's own facts, held in memory, override it, and what the pilot says in the request overrides both.
-- `b4.config.ts` wraps the workspace filesystem with `readOnlyPaths`, so `AGENTS.md`, `aircraft/`, `poh/` and `regs/` can't be rewritten by the agent. Every visitor's turns share one workspace directory, and B4.run's [path gate](/docs/permissions) covers only paths outside it.
+- `b4.config.ts` wraps the workspace filesystem with `readOnlyPaths`, so `AGENTS.md`, `aircraft/`, `poh/` and `regs/` can't be rewritten by the agent, and `agentsMd: { writable: false }` injects `AGENTS.md` as read-only guidance instead of telling the model to update it. Every visitor's turns share one workspace directory, and B4.run's [path gate](/docs/permissions) covers only paths outside it.
 - `memory.ts` defines typed [memory](/docs/memory) records that the agent reads with `recall` and writes with `remember`.
 - The agent loads [skills](/docs/skills) under `skills/` by name when it needs them.
 
