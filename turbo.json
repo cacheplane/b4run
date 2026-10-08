@@ -3,7 +3,14 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        ".b4/build/**",
+        ".b4/b4.generated.d.ts",
+        ".b4/auth.generated.d.ts"
+      ]
     },
     "@b4run/cli#build": {
       "dependsOn": ["^build"],
@@ -68,7 +75,14 @@
     "@b4-example/software-factory-server#build": {
       "dependsOn": ["^build"],
       "env": ["FACTORY_BUILDER_LANE"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        ".b4/build/**",
+        ".b4/b4.generated.d.ts",
+        ".b4/auth.generated.d.ts"
+      ]
     },
     "@b4-example/software-factory-server#check": {
       "dependsOn": ["^check"],
@@ -77,7 +91,14 @@
     "@b4-example/software-factory-drafter#build": {
       "dependsOn": ["^build"],
       "env": ["FACTORY_DRAFTER_IMAGE"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".b4/build/**", ".b4/b4.generated.d.ts"]
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        ".b4/build/**",
+        ".b4/b4.generated.d.ts",
+        ".b4/auth.generated.d.ts"
+      ]
     },
     "@b4-example/software-factory-drafter#check": {
       "dependsOn": ["^check"],

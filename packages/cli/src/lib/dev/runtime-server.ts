@@ -5,7 +5,7 @@ import type { B4Config } from "@b4run/core"
 // runtime - this module's VALUE graph stays node-http-only.
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import type { AuthDefinition, B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import type { RuntimeBootFallbacks } from "../runtime/execute-route-core.js"
@@ -105,6 +105,18 @@ export interface StartRuntimeServerOptions {
    * come up with every thread endpoint open.
    */
   readonly threadAccessExpected?: boolean
+  /**
+   * Pre-loaded auth (`defineAuth`). Absent: the build manifest's entry, then
+   * the dynamic src/auth.ts probe.
+   */
+  readonly auth?: AuthDefinition
+  /**
+   * What the BUILD saw: true when `b4 build` found a `src/auth.ts`. With it
+   * set, a `modules` manifest that carries no `auth` entry fails the boot
+   * instead of serving every request anonymously — the same stale-manifest
+   * guard as `threadAccessExpected`.
+   */
+  readonly authExpected?: boolean
   /** Boot-resolved sandbox manager. Absent: built from `config.sandbox`. */
   readonly sandboxManager?: SandboxManager
   /**

@@ -11,6 +11,7 @@ interface ToolExecutor {
     input: unknown,
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
+      readonly principal?: import("@b4run/sdk").B4Principal
       readonly signal: AbortSignal
     },
   ) => Promise<unknown> | unknown
@@ -20,6 +21,7 @@ export interface ExecuteWithToolLoopOptions {
   readonly chain: { readonly invoke: (input: unknown) => Promise<unknown> }
   readonly input: unknown
   readonly middlewareContext?: Readonly<Record<string, unknown>>
+  readonly principal?: import("@b4run/sdk").B4Principal
   readonly tools: readonly ToolExecutor[]
   readonly signal: AbortSignal
   readonly maxIterations?: number
@@ -30,6 +32,7 @@ export async function executeWithToolLoop(options: ExecuteWithToolLoopOptions): 
     chain,
     input,
     middlewareContext,
+    principal,
     tools,
     signal,
     maxIterations = DEFAULT_MAX_ITERATIONS,
@@ -56,6 +59,7 @@ export async function executeWithToolLoop(options: ExecuteWithToolLoopOptions): 
         try {
           const output = await tool.run(call.args, {
             ...(middlewareContext ? { middleware: middlewareContext } : {}),
+            ...(principal ? { principal } : {}),
             signal,
           })
           if (!isContentPartArray(output) || output.length === 0) {

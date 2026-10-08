@@ -1,4 +1,5 @@
 import {
+  type B4Principal,
   type B4ThreadAccess,
   defineThreadAccess,
   deny,
@@ -84,7 +85,7 @@ const request: ThreadAccessRequest = {
   operation: "thread.state",
   threadId: "t-1",
   thread: subject,
-  headers: { "x-user-id": "u-1" },
+  principal: { id: "u-1" },
   method: "GET",
   url: "/threads/t-1/state",
   requestedMetadata: undefined,
@@ -114,10 +115,10 @@ type _RequestedWorkspaceShape = Expect<
 // kept with the upload and handed back on the create that names it.
 const sameUploader: B4ThreadAccess = (req) => {
   if (req.operation === "workspace.source.put")
-    return permit({ ownerId: req.headers["x-user-id"] ?? "anonymous" })
+    return permit({ ownerId: req.principal?.id ?? "anonymous" })
   const uploadedBy = req.requestedWorkspace?.uploadedBy
   return uploadedBy !== undefined &&
-    !uploadedBy.some((principal) => principal.ownerId === req.headers["x-user-id"])
+    !uploadedBy.some((uploader) => uploader.ownerId === req.principal?.id)
     ? deny({ status: 403 })
     : permit()
 }
@@ -125,7 +126,7 @@ void sameUploader
 
 // One rule covers staging and choosing a workspace.
 const serviceChoosesWorkspaces: B4ThreadAccess = (req) =>
-  req.requestedWorkspace !== undefined && req.headers["x-service"] !== "controller"
+  req.requestedWorkspace !== undefined && req.principal?.id !== "controller"
     ? deny({ status: 403 })
     : permit()
 void serviceChoosesWorkspaces
@@ -138,27 +139,31 @@ type _Resuming = Expect<Equal<ThreadAccessRequest["resuming"], boolean>>
 // A resume-aware policy: the AG-UI door reports `run.agui` whether or not it is
 // resuming, so `operation` cannot answer this question and `resuming` must.
 const stepUpOnResume: B4ThreadAccess = (req) =>
-  req.resuming && req.headers["x-step-up"] === undefined ? deny({ status: 403 }) : permit()
+  req.resuming && req.principal === undefined ? deny({ status: 403 }) : permit()
 void stepUpOnResume
 
+// The principal comes from the one resolver (`src/auth.ts`); there is no
+// `headers` field to parse a second time.
+type _Principal = Expect<Equal<ThreadAccessRequest["principal"], B4Principal | undefined>>
+
 declare function sessionFor(
-  token: string | undefined,
+  userId: string | undefined,
 ): Promise<{ readonly userId: string } | undefined>
 
 // A sync handler: header-only, no await, the hot-path shape.
 const owned: B4ThreadAccess = (req) => {
-  const caller = req.headers["x-user-id"]
+  const caller = req.principal?.id
   return caller !== undefined && req.thread?.access?.ownerId === caller ? permit() : deny()
 }
 
 const policy: ThreadAccessPolicy = defineThreadAccess({
   create: (req) => {
-    const caller = req.headers["x-user-id"]
+    const caller = req.principal?.id
     return caller === undefined ? deny({ status: 403 }) : permit({ ownerId: caller, org: "acme" })
   },
   // An async handler is equally correct.
   read: async (req) => {
-    const session = await sessionFor(req.headers.authorization)
+    const session = await sessionFor(req.principal?.id)
     if (session === undefined) return deny({ body: { error: "not found" }, status: 404 })
     return req.thread?.access?.ownerId === session.userId ? permit() : deny({ status: 404 })
   },

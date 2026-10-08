@@ -14,6 +14,7 @@ import type { JsonSchemaProperty, StreamTransformer } from "@b4run/core"
 import {
   B4_STEP_KEY,
   type B4ContentPart,
+  type B4Principal,
   type BuiltInModelProviderId,
   contentPartsText,
   type GateDecision,
@@ -54,6 +55,7 @@ interface B4ToolDefinition {
     input: unknown,
     context: {
       readonly middleware?: Readonly<Record<string, unknown>>
+      readonly principal?: import("@b4run/sdk").B4Principal
       readonly signal: AbortSignal
       readonly threadId?: string
       readonly params?: Readonly<Record<string, string>>
@@ -104,6 +106,7 @@ export function convertToolToLangChain(
   routeParamNames: readonly string[] = [],
   streamTransformers: readonly StreamTransformer[] = [],
   modality?: ToolResultModality,
+  principal?: B4Principal,
 ): DynamicStructuredTool {
   const schema = toZodSchema(tool.schema)
   const paramNameSet = new Set(routeParamNames)
@@ -160,6 +163,7 @@ export function convertToolToLangChain(
       let decision: GateDecision | undefined
       const context = {
         ...(middlewareContext ? { middleware: middlewareContext } : {}),
+        ...(principal ? { principal } : {}),
         signal,
         ...(threadId ? { threadId } : {}),
         ...(Object.keys(params).length > 0 ? { params } : {}),

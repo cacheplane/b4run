@@ -1,3 +1,5 @@
+import type { B4Principal } from "./auth.js"
+
 /**
  * Sandboxed filesystem handle scoped to the route's workspace/ directory.
  *
@@ -56,5 +58,11 @@ export interface B4ToolContext {
   readonly threadId?: string
   readonly workspace?: WorkspaceContext
   readonly middleware?: Readonly<Record<string, unknown>>
+  /**
+   * Who started this run, as `src/auth.ts` resolved it for the request. Absent
+   * when the app has no auth file or the request was anonymous. A resumed run
+   * carries the resumer's principal.
+   */
+  readonly principal?: B4Principal
   readonly fs: WorkspaceFs
 }

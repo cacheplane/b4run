@@ -1,5 +1,6 @@
 import { normalizeThreadAccessResult } from "@b4run/cli/runtime"
 import type {
+  B4Principal,
   ThreadAccessPolicy,
   ThreadAccessRequest,
   ThreadAccessRequestedWorkspace,
@@ -16,7 +17,8 @@ export interface ThreadAccessCheckSpec {
   readonly operation?: ThreadOperation
   readonly threadId?: string
   readonly thread?: ThreadSubject
-  readonly headers?: Readonly<Record<string, string>>
+  /** Who is calling — what `src/auth.ts` would have resolved. Defaults to anonymous (`undefined`). */
+  readonly principal?: B4Principal
   readonly method?: string
   readonly url?: string
   readonly requestedMetadata?: Readonly<Record<string, unknown>>
@@ -74,9 +76,9 @@ export function createThreadAccessHarness(options: {
       const operation = spec.operation ?? DEFAULT_OPERATION[spec.action]
       const request: ThreadAccessRequest = {
         action: spec.action,
-        headers: spec.headers ?? {},
         method: spec.method ?? defaultMethod(spec.action),
         operation,
+        principal: spec.principal,
         requestedMetadata: spec.requestedMetadata,
         requestedWorkspace: spec.requestedWorkspace,
         resuming: spec.resuming ?? false,

@@ -1,3 +1,5 @@
+import type { B4Principal } from "./auth.js"
+
 /**
  * Thread authorization: who may create, read, mutate, or destroy a thread.
  *
@@ -171,13 +173,12 @@ export interface ThreadAccessRequest {
    */
   readonly thread: ThreadSubject | undefined
   /**
-   * Lowercase keys, repeated headers joined with ", " — the same shape route
-   * middleware sees. Compare with STRICT EQUALITY: `X-User-Id: victim` plus
-   * `X-User-Id: attacker` arrives as the one string `"victim, attacker"`, which
-   * `includes`/`startsWith`/`split(",")` comparisons get wrong and `===` gets
-   * right.
+   * Who is calling, as `src/auth.ts` resolved it for this request. `undefined`
+   * when the app has no auth file or the request is anonymous. There is no
+   * `headers` field: identity comes from the one resolver, so a policy cannot
+   * grow a second header parser that disagrees with it.
    */
-  readonly headers: Readonly<Record<string, string>>
+  readonly principal: B4Principal | undefined
   readonly method: string
   /** Path + query, e.g. `"/threads/t-1/state"`. */
   readonly url: string

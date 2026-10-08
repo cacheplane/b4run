@@ -98,6 +98,7 @@ import {
   type RouteSubagentInfo,
 } from "../runtime/execute-route-core.js"
 import { type ApprovalGrantRuntime, grantsRefuseEveryResume } from "./approval-grants.js"
+import { requestPrincipal } from "./auth.js"
 import type { ClientToolRuntime } from "./client-tool-runtime.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
 import { resolveRunEnvelopePolicy } from "./run-envelope.js"
@@ -162,6 +163,7 @@ export async function handleAgUiCapabilitiesRequest(
   const middlewareRequest: MiddlewareRequest = {
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
+    principal: requestPrincipal(request),
     method: "GET",
     params: {},
     routeId: route.routeId,

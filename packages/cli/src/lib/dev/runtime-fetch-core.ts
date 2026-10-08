@@ -5,6 +5,7 @@ import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
 import type {
   ApprovalGrantMode,
+  AuthDefinition,
   InterruptGrantStore,
   MiddlewareAfterHook,
   MiddlewareHandler,
@@ -13,7 +14,7 @@ import type {
   ThreadAccessPolicy,
   ThreadOperation,
 } from "@b4run/sdk"
-import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import { isAuthDefinition, THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { StagedWorkspaceReference } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -51,6 +52,13 @@ import {
   validateInterruptGrantStore,
   voidSupersededGrants,
 } from "./approval-grants.js"
+import {
+  authBootLine,
+  bindAuth,
+  requestPrincipal,
+  setRequestPrincipal,
+  withPrincipal,
+} from "./auth.js"
 import {
   payloadTooLarge,
   RequestBodyTimeoutError,
@@ -541,6 +549,39 @@ export async function createRuntimeFetchHandler(
     } catch (error) {
       console.error(
         `B4.run: middleware dispose() failed — ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+  // The app's `src/auth.ts`, resolved like the thread-access policy below and
+  // for the same reason fail-closed: an auth file that exists but binds
+  // nothing throws B4_E3005 rather than serving every request anonymously.
+  // `authExpected` is the same stale-manifest guard as `threadAccessExpected`.
+  if (options.authExpected && options.modules && options.modules.auth === undefined) {
+    throw Object.assign(
+      new Error(
+        "This build found src/auth.ts, but its static module manifest carries no auth entry, so " +
+          "every request would be anonymous. The manifest and the entry point come from different " +
+          "builds — re-run `b4 build`.",
+      ),
+      { code: "B4_E3005" },
+    )
+  }
+  const auth: AuthDefinition | undefined =
+    options.auth ?? options.modules?.auth ?? (await fallbacks?.loadAuth?.(options.appRoot))
+  if (auth !== undefined && !isAuthDefinition(auth)) {
+    throw Object.assign(
+      new Error("The supplied auth did not come from `defineAuth`, so it cannot be bound."),
+      { code: "B4_E3005" },
+    )
+  }
+  const boundAuth = bindAuth(auth, { appRoot: options.appRoot })
+  console.log(authBootLine(auth !== undefined))
+  const disposeAuth = async (): Promise<void> => {
+    try {
+      await boundAuth.dispose()
+    } catch (error) {
+      console.error(
+        `B4.run: auth dispose() failed — ${error instanceof Error ? error.message : String(error)}`,
       )
     }
   }
@@ -1141,6 +1182,16 @@ export async function createRuntimeFetchHandler(
           ...(storesError !== undefined ? { storesError } : {}),
         }
         perRequest.set(request, lifetime)
+        // Who is calling, resolved once, before any gate: every consumer on
+        // this request (middleware, thread access, tools) reads this value
+        // through `requestPrincipal`. The two probes stay unauthenticated, and
+        // a preflight never reaches here. A throw or a malformed result
+        // travels the catch-all below as a 500 — never an anonymous request.
+        if (boundAuth.resolve && probe === undefined) {
+          const outcome = await boundAuth.resolve(request)
+          if (outcome.kind === "reject") return statusResponse(outcome.status, outcome.body)
+          setRequestPrincipal(request, outcome.kind === "principal" ? outcome.principal : undefined)
+        }
         const response = await dispatch(routes, request, matched)
         const body = response.body
         if (body && isStreamingBody(response.headers.get("content-type"))) {
@@ -1311,6 +1362,7 @@ export async function createRuntimeFetchHandler(
       // executing against a sandbox are never yanked mid-request.
       if (sandboxManager) await sandboxManager.releaseAll()
       await disposeMiddleware()
+      await disposeAuth()
       state.closed = true
     }
     const close = (): Promise<void> => {
@@ -1348,6 +1400,7 @@ export async function createRuntimeFetchHandler(
     // middleware whose `dispose` releases something the module opened at
     // import time, so a failed boot does not leave the process pinned on it.
     await disposeMiddleware()
+    await disposeAuth()
     try {
       await sandboxManager?.releaseAll()
     } catch (cleanupError) {
@@ -2666,6 +2719,7 @@ async function handleApStreamRequest(options: {
     ...(middleware ? { body: structuredClone(body) } : {}),
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
+    principal: requestPrincipal(request),
     method: request.method,
     params: extractRouteParams(route.routeId, input),
     routeId: route.routeId,
@@ -2865,6 +2919,7 @@ async function handleApStreamRequest(options: {
             input,
             memoryStore: getMemoryStore,
             ...(mwResult.context ? { middlewareContext: mwResult.context } : {}),
+            ...withPrincipal(request),
             permissionsStore,
             routeFile: route.routeFile,
             routeId: route.routeId,
@@ -3144,6 +3199,7 @@ async function handleApWaitRequest(options: {
     ...(middleware ? { body: structuredClone(body) } : {}),
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
+    principal: requestPrincipal(request),
     method: request.method,
     params: extractRouteParams(route.routeId, input),
     routeId: route.routeId,
@@ -3377,6 +3433,7 @@ async function handleApWaitRequest(options: {
       input,
       memoryStore: getMemoryStore,
       ...(mwResult.context ? { middlewareContext: mwResult.context } : {}),
+      ...withPrincipal(request),
       permissionsStore,
       routeFile: route.routeFile,
       routeId: route.routeId,
@@ -3795,6 +3852,7 @@ async function gateThreadRead(
   const mwRequest: MiddlewareRequest = {
     assistantId: route.assistantId,
     headers: headersToRecord(request.headers),
+    principal: requestPrincipal(request),
     // The first AP endpoint where middleware sees a method other than POST.
     method: "GET",
     // Always empty: run endpoints derive params from the request input via
@@ -4026,6 +4084,7 @@ async function handleApAttachRequest(options: {
       const mwResult = await runMiddleware(middleware, {
         assistantId: route.assistantId,
         headers: headersToRecord(request.headers),
+        principal: requestPrincipal(request),
         method: "GET",
         params: {},
         routeId: route.routeId,
@@ -4373,6 +4432,7 @@ async function handleResumeRequest(options: {
       ...(middleware ? { body: structuredClone(body) } : {}),
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
+      principal: requestPrincipal(request),
       method: "POST",
       params: {},
       routeId: route.routeId,
@@ -4458,6 +4518,7 @@ async function handleResumeRequest(options: {
               memoryStore: getMemoryStore,
               resume: resumeResolution.resume,
               ...(mwResult.context ? { middlewareContext: mwResult.context } : {}),
+              ...withPrincipal(request),
               permissionsStore,
               routeFile: route.routeFile,
               routeId: route.routeId,

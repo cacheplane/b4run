@@ -86,7 +86,9 @@ import {
 } from "@b4run/permissions"
 import type {
   ApprovalGrantMinter,
+  AuthDefinition,
   B4Middleware,
+  B4Principal,
   ClientToolCallStore,
   ClientToolRecorder,
   InterruptGrantStore,
@@ -156,6 +158,12 @@ export interface RuntimeBootFallbacks {
    * source.
    */
   readonly loadThreadAccess?: (appRoot: string) => Promise<ThreadAccessPolicy | undefined>
+  /**
+   * Dynamic `src/auth.ts` probe. Optional for the same reason as
+   * `loadThreadAccess`; an absent auth file resolves to undefined, and a
+   * present one that cannot be bound throws B4_E3005.
+   */
+  readonly loadAuth?: (appRoot: string) => Promise<AuthDefinition | undefined>
   /** Per-route disk load: route module, tools, state fields, memory.ts. */
   readonly loadRouteModules: (options: {
     readonly appRoot: string
@@ -431,6 +439,8 @@ export type PrepareRouteExecutionOptions = Omit<BootResolvedInstances, "checkpoi
   readonly checkpointer?: BaseCheckpointSaver | false
   readonly isSubagent?: boolean
   readonly middlewareContext?: Readonly<Record<string, unknown>>
+  /** Who started the run — see `B4ToolContext.principal`. */
+  readonly principal?: B4Principal
   readonly routeFile: string
   readonly routeId: string
   readonly routeParams?: Readonly<Record<string, string>>
@@ -464,6 +474,8 @@ export async function executeResolvedRoute(
     readonly input: unknown
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run — see `B4ToolContext.principal`. */
+    readonly principal?: B4Principal
     readonly routeFile: string
     readonly routeId: string
     readonly routePath: string
@@ -489,6 +501,8 @@ export type MaterializeResolvedRouteGraphOptions = Omit<BootResolvedInstances, "
   readonly appRoot: string
   readonly checkpointer?: BaseCheckpointSaver
   readonly middlewareContext?: Readonly<Record<string, unknown>>
+  /** Who started the run — see `B4ToolContext.principal`. */
+  readonly principal?: B4Principal
   readonly routeFile: string
   readonly routeId: string
   readonly routePath: string
@@ -522,7 +536,7 @@ export async function materializeResolvedRouteGraph(
     checkpointer: options.checkpointer ?? false,
   })
   if (!prepared.ok) throw new Error(prepared.message)
-  return await materializePreparedAgentGraph(prepared, options.middlewareContext)
+  return await materializePreparedAgentGraph(prepared, options.middlewareContext, options.principal)
 }
 
 /**
@@ -536,6 +550,8 @@ export async function invokeResolvedRoute(
     readonly appRoot: string
     readonly input: unknown
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run — see `B4ToolContext.principal`. */
+    readonly principal?: B4Principal
     readonly routeFile: string
     readonly routeId: string
     readonly routePath: string
@@ -558,6 +574,8 @@ export async function* streamResolvedRoute(
     readonly input: unknown
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run — see `B4ToolContext.principal`. */
+    readonly principal?: B4Principal
     /**
      * When set, the agent-adapter receives `Command({resume})`
      * as its input instead of the normal `input` field. Used by the resume
@@ -645,6 +663,7 @@ export async function* streamResolvedRoute(
       // Non-agent routes don't support incremental streaming — execute and emit done
       const context = createB4Context({
         ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
+        ...(options.principal ? { principal: options.principal } : {}),
         fs: workspaceFs,
         tools,
         ...(options.signal ? { signal: options.signal } : {}),
@@ -691,6 +710,7 @@ export async function* streamResolvedRoute(
         entry: normalized.entry,
         input: agentInput,
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+        ...(options.principal ? { principal: options.principal } : {}),
         routeParamNames,
         signal: options.signal ?? new AbortController().signal,
         ...(stateFields ? { stateFields } : {}),
@@ -1915,6 +1935,7 @@ async function prepareRouteExecutionForInvocation(
             ...(options.bootFallbacks ? { bootFallbacks: options.bootFallbacks } : {}),
             isSubagent: true,
             ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+            ...(options.principal ? { principal: options.principal } : {}),
             routeFile: route.entryFile,
             routeId: route.id,
             routeParams: context.params,
@@ -1928,6 +1949,7 @@ async function prepareRouteExecutionForInvocation(
           const graph = await materializePreparedAgentGraph(
             childPrepared,
             options.middlewareContext,
+            options.principal,
           )
           assertResolvedSubagentGraph(graph)
           return {
@@ -1951,6 +1973,7 @@ async function prepareRouteExecutionForInvocation(
       input: unknown,
       ctx: {
         readonly middleware?: Readonly<Record<string, unknown>>
+        readonly principal?: import("@b4run/sdk").B4Principal
         readonly signal: AbortSignal
         readonly toolCallId?: string
       },
@@ -2060,6 +2083,8 @@ export async function executeRouteAtResolvedPath(
     readonly input: unknown
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run — see `B4ToolContext.principal`. */
+    readonly principal?: B4Principal
     readonly routeFile: string
     readonly routeId: string
     readonly routePath: string
@@ -2130,6 +2155,7 @@ export async function executeRouteAtResolvedPath(
 
     const context = createB4Context({
       ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
+      ...(options.principal ? { principal: options.principal } : {}),
       fs: workspaceFs,
       tools,
       ...(options.signal ? { signal: options.signal } : {}),
@@ -2143,6 +2169,7 @@ export async function executeRouteAtResolvedPath(
       {
         ...(checkpointer ? { checkpointer } : {}),
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+        ...(options.principal ? { principal: options.principal } : {}),
         routeId: options.routeId,
         ...(stateFields ? { stateFields } : {}),
         tools,
@@ -2230,6 +2257,8 @@ async function invokeEntry(
     readonly bypassCache?: boolean
     readonly checkpointer?: BaseCheckpointSaver
     readonly middlewareContext?: Readonly<Record<string, unknown>>
+    /** Who started the run — see `B4ToolContext.principal`. */
+    readonly principal?: B4Principal
     readonly offload?: OffloadFn
     readonly summarization?: ResolvedSummarizationConfig
     readonly routeId: string
@@ -2242,6 +2271,7 @@ async function invokeEntry(
         input: unknown,
         context: {
           readonly middleware?: Readonly<Record<string, unknown>>
+          readonly principal?: import("@b4run/sdk").B4Principal
           readonly signal: AbortSignal
         },
       ) => Promise<unknown> | unknown
@@ -2273,6 +2303,7 @@ async function invokeEntry(
       ...(agentContext?.middlewareContext
         ? { middlewareContext: agentContext.middlewareContext }
         : {}),
+      ...(agentContext?.principal ? { principal: agentContext.principal } : {}),
       routeParamNames,
       signal: agentContext?.signal ?? new AbortController().signal,
       ...(agentContext?.stateFields ? { stateFields: agentContext.stateFields } : {}),
@@ -2522,6 +2553,7 @@ function childGraphCacheKey(entry: ResolvedSubagent, context: ChildPreparationCo
 async function materializePreparedAgentGraph(
   prepared: PreparedRoute,
   middlewareContext?: Readonly<Record<string, unknown>>,
+  principal?: B4Principal,
 ): Promise<unknown> {
   if (prepared.normalized.kind !== "agent" || !isB4Agent(prepared.normalized.entry)) {
     throw new Error(
@@ -2533,6 +2565,7 @@ async function materializePreparedAgentGraph(
     ...(prepared.checkpointer ? { checkpointer: prepared.checkpointer } : {}),
     descriptor: prepared.normalized.entry,
     ...(middlewareContext ? { middlewareContext } : {}),
+    ...(principal ? { principal } : {}),
     ...(prepared.offload ? { offload: prepared.offload } : {}),
     ...(prepared.promptFragments ? { promptFragments: prepared.promptFragments } : {}),
     routeParamNames: extractRouteParamNames(prepared.routeId),

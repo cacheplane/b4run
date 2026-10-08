@@ -79,6 +79,7 @@ export {
 export {
   type B4StaticModules,
   buildStaticRouteModule,
+  normalizeAuthModule,
   normalizeMiddlewareModule,
   normalizeThreadAccessModule,
   type StaticRouteModule,

@@ -35,6 +35,7 @@ import {
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { loadAuth } from "../dev/auth-node.js"
 import { loadMiddleware } from "../dev/middleware-node.js"
 import { loadThreadAccess } from "../dev/thread-access-node.js"
 import { loadB4Config, loadOptionalB4Config } from "../node-config.js"
@@ -422,6 +423,7 @@ export const nodeBootFallbacks: RuntimeBootFallbacks = {
   loadRouteModules: loadPreparedRouteModules,
   loadSubagentDescription,
   loadThreadAccess,
+  loadAuth,
   markerFs: nodeMarkerFs,
   resolveIdentityKeys,
   resolveCheckpointer,

@@ -11,8 +11,9 @@ import {
   type RouteKind,
   resolveStateFields,
 } from "@b4run/core"
-import type { B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import type { AuthDefinition, B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
 
+import { authExportError } from "../dev/auth.js"
 import { selectMiddlewareExport } from "../dev/middleware.js"
 import { selectThreadAccessExport, validateThreadAccessPolicy } from "../dev/thread-access.js"
 import { pureDirname, pureJoin } from "./pure-path.js"
@@ -120,6 +121,13 @@ export interface B4StaticModules {
    * itself can also populate it directly.
    */
   readonly threadAccess?: ThreadAccessPolicy
+  /**
+   * The app's `src/auth.ts` (`defineAuth`), bound from the manifest's static
+   * import when the app has an auth file. Emitted as
+   * `auth: normalizeAuthModule(...)`, which throws at link time when the file
+   * binds no auth, and re-validated on the boot path.
+   */
+  readonly auth?: AuthDefinition
   readonly routes: readonly StaticRouteModule[]
 }
 
@@ -321,4 +329,25 @@ export function normalizeThreadAccessModule(mod: unknown): ThreadAccessPolicy {
   const reason = validateThreadAccessPolicy(selected)
   if (reason) throw new ManifestThreadAccessError(reason)
   return selected as ThreadAccessPolicy
+}
+
+/**
+ * Runtime companion for the manifest's auth entry: the same rule the dynamic
+ * probe (`loadAuth`) applies — the default export must come from
+ * `defineAuth`. Throws when it does not, at manifest link time, for the reason
+ * `normalizeThreadAccessModule` throws: the emitter only writes this call for
+ * an app that HAS an auth file, so binding nothing would serve every request
+ * anonymously while claiming the app authenticates.
+ */
+export function normalizeAuthModule(mod: unknown): AuthDefinition {
+  const reason = authExportError(mod)
+  if (reason) {
+    const error = new Error(
+      `The auth file in this app's static module manifest is not usable: ${reason}. ` +
+        "Fix src/auth.ts and re-run `b4 build`.",
+    )
+    ;(error as Error & { code: string }).code = "B4_E3005"
+    throw error
+  }
+  return (mod as { readonly default: AuthDefinition }).default
 }

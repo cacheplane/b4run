@@ -5,8 +5,8 @@ import type { ThreadAccessPolicy, ThreadAccessRequest, ThreadOperation } from "@
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { CreateThreadInput, Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
-
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
+import { headerAuth } from "./helpers/header-auth.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -42,6 +42,7 @@ async function setup(
     await writeFile(filePath, source, "utf8")
   }
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("x-actor"),
     appRoot,
     drainDeadlineMs: 250,
     ...(options.threadAccess ? { threadAccess: options.threadAccess } : {}),
@@ -108,7 +109,7 @@ function heldDenyOwnerOnlyPolicy(): HeldDenyPolicy {
     denyEntered,
     policy: {
       fallback: async (request) => {
-        if (request.headers["x-actor"] === "owner") return { decision: "allow" }
+        if (request.principal?.id === "owner") return { decision: "allow" }
         markEntered()
         await held
         return { decision: "deny" }
@@ -494,11 +495,11 @@ const RUN_ENDPOINTS: readonly RunEndpoint[] = [
 function stampingOwnerPolicy(legacyUnstamped: "allow" | "deny"): ThreadAccessPolicy {
   return {
     create: (request) => {
-      const actor = request.headers["x-actor"]
+      const actor = request.principal?.id
       return actor ? { decision: "allow", stamp: { ownerId: actor } } : { decision: "deny" }
     },
     fallback: (request) => {
-      const actor = request.headers["x-actor"]
+      const actor = request.principal?.id
       if (!actor) return { decision: "deny" }
       // No row yet: the endpoint is about to make one, and only the `create`
       // handler above decides who owns it. Denying here instead would refuse

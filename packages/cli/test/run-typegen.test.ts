@@ -100,6 +100,34 @@ async function setupAliasedApp(options: { readonly withTsconfig: boolean }) {
 }
 
 describe("runTypegen", () => {
+  test("declares the app's principal type from src/auth.ts, and drops it when the file goes", async () => {
+    const { appRoot } = await setupApp()
+    const authPath = join(appRoot, "src", "auth.ts")
+    await createFile(
+      authPath,
+      'import { defineAuth } from "@b4run/sdk"\nexport default defineAuth({ authenticate: () => ({ id: "u-1" }) })\n',
+    )
+    const generated = join(appRoot, ".b4", "auth.generated.d.ts")
+    const routesDts = join(appRoot, ".b4", "b4.generated.d.ts")
+
+    await runTypegen({ appRoot, manifest: await discoverRoutes({ appRoot }) })
+    const declaration = await readFile(generated, "utf8")
+    // A module file (it imports), so `declare module` augments the SDK rather than replacing it.
+    expect(declaration).toContain('import type { AuthDefinition } from "@b4run/sdk"')
+    expect(declaration).toContain('declare module "@b4run/sdk" {')
+    expect(declaration).toContain(
+      'principal: typeof import("../src/auth.js").default extends AuthDefinition<infer P> ? P : never',
+    )
+    expect((await readFile(routesDts, "utf8")).split("\n")[0]).toBe(
+      '/// <reference path="./auth.generated.d.ts" />',
+    )
+
+    await rm(authPath)
+    await runTypegen({ appRoot, manifest: await discoverRoutes({ appRoot }) })
+    expect(existsSync(generated)).toBe(false)
+    expect(await readFile(routesDts, "utf8")).not.toContain("auth.generated.d.ts")
+  })
+
   test("derives tool schemas through the app's tsconfig `paths` aliases", async () => {
     const { appRoot } = await setupAliasedApp({ withTsconfig: true })
     const manifest = await discoverRoutes({ appRoot })
@@ -384,9 +412,11 @@ describe("runTypegen", () => {
       const templateRoot = join(repoRoot, "packages", "devkit", "templates", templateName)
       const templateDir =
         templateName === "app-navlog" ? join(templateRoot, "server") : templateRoot
-      const trackedPaths = generatedDeclarationFiles.map((fileName) =>
-        join(templateDir, ".b4", fileName),
-      )
+      // A template with a src/auth.ts also tracks the principal declaration.
+      const declarationFiles = existsSync(join(templateDir, "src", "auth.ts"))
+        ? [...generatedDeclarationFiles, "auth.generated.d.ts"]
+        : [...generatedDeclarationFiles]
+      const trackedPaths = declarationFiles.map((fileName) => join(templateDir, ".b4", fileName))
       for (const trackedPath of trackedPaths) {
         expect(existsSync(trackedPath)).toBe(true)
       }
@@ -399,9 +429,7 @@ describe("runTypegen", () => {
       await materializeDevkitTemplate(templateDir, appRoot)
       await installTemplateTypegenDependencies(appRoot)
       await Promise.all(
-        generatedDeclarationFiles.map((fileName) =>
-          rm(join(appRoot, ".b4", fileName), { force: true }),
-        ),
+        declarationFiles.map((fileName) => rm(join(appRoot, ".b4", fileName), { force: true })),
       )
 
       process.chdir(appRoot)
@@ -412,7 +440,7 @@ describe("runTypegen", () => {
         process.chdir(originalCwd)
       }
 
-      for (const [index, fileName] of generatedDeclarationFiles.entries()) {
+      for (const [index, fileName] of declarationFiles.entries()) {
         const regeneratedPath = join(appRoot, ".b4", fileName)
         expect(existsSync(regeneratedPath)).toBe(true)
         await expect(readFile(regeneratedPath, "utf8")).resolves.toBe(trackedDeclarations[index])

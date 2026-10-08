@@ -1,6 +1,6 @@
 import { createRuntimeFetchHandler } from "@b4run/cli/runtime"
 import { __clearB4ConfigCacheForTests } from "@b4run/core"
-import type { ThreadAccessPolicy } from "@b4run/sdk"
+import type { AuthDefinition, ThreadAccessPolicy } from "@b4run/sdk"
 
 export interface InjectResult {
   readonly statusCode: number
@@ -23,10 +23,13 @@ export async function createAgentProtocolInjector(options: {
   appRoot: string
   /** Injected rather than probed from disk, so a test needs no policy file. */
   threadAccess?: ThreadAccessPolicy
+  /** Injected `defineAuth` value, so a test can drive the principal without an auth file. */
+  auth?: AuthDefinition
 }): Promise<AgentProtocolInjector> {
   const core = await createRuntimeFetchHandler({
     appRoot: options.appRoot,
     ...(options.threadAccess ? { threadAccess: options.threadAccess } : {}),
+    ...(options.auth ? { auth: options.auth } : {}),
   })
 
   const injector: AgentProtocolInjector = {

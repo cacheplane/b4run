@@ -4,8 +4,8 @@ import { dirname, join } from "node:path"
 import type { ThreadAccessPolicy } from "@b4run/sdk"
 import type { CreateThreadInput, Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { afterEach, describe, expect, it } from "vitest"
-
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
+import { headerAuth } from "./helpers/header-auth.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -33,6 +33,7 @@ async function setup(options: {
     await writeFile(filePath, source, "utf8")
   }
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("x-caller"),
     appRoot,
     drainDeadlineMs: 250,
     threadAccess: options.threadAccess,
@@ -145,7 +146,7 @@ describe("AG-UI run-slot ordering under a create-race denial", () => {
       fallback: () => ({ decision: "allow" }),
       create: () => ({ decision: "allow" }),
       update: async (request) => {
-        if (request.headers["x-caller"] === "b") {
+        if (request.principal?.id === "b") {
           bEnteredRecheck.resolve()
           await releaseB.promise
           return { decision: "deny" }

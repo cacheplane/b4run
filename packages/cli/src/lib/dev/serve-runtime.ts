@@ -38,6 +38,8 @@ export interface ServeRuntimeOptions {
    * fails the boot instead of serving every thread endpoint open.
    */
   readonly threadAccessExpected?: boolean
+  /** The build saw a `src/auth.ts` — see `StartRuntimeServerOptions.authExpected`. */
+  readonly authExpected?: boolean
 }
 
 export interface ServeRuntimeHandle {
@@ -110,6 +112,7 @@ export async function serveRuntime(opts: ServeRuntimeOptions): Promise<ServeRunt
     permissionsMode: "boot",
     port,
     ...(opts.threadAccessExpected ? { threadAccessExpected: true } : {}),
+    ...(opts.authExpected ? { authExpected: true } : {}),
     ...(opts.threadsStore ? { threadsStore: opts.threadsStore } : {}),
   })
 

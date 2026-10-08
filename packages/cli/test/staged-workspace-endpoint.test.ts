@@ -17,6 +17,7 @@ import {
 } from "../src/lib/dev/runtime-fetch-handler.ts"
 import { stagedWorkspaceField } from "../src/lib/dev/thread-workspace-http.ts"
 import { resolveSandboxManager } from "../src/lib/runtime/resolve-sandbox.ts"
+import { headerAuth } from "./helpers/header-auth.ts"
 import { managedProviderFixture } from "./support/managed-provider.ts"
 
 const TOKEN = "Bearer staged-test-token"
@@ -96,7 +97,7 @@ async function fixture(
       action: string
       operation: string
       threadId: string | undefined
-      headers: Readonly<Record<string, string>>
+      principal?: { readonly id: string }
       requestedWorkspace: unknown
     }) => {
       decisions.push({
@@ -106,7 +107,7 @@ async function fixture(
       })
       if (req.action === "update" && req.operation === "thread.create" && req.threadId)
         written.push(req.threadId)
-      return req.headers.authorization === TOKEN
+      return req.principal?.id === TOKEN
         ? { decision: "allow" as const }
         : { decision: "deny" as const, status: 403 as const }
     },
@@ -144,6 +145,7 @@ async function fixture(
       })
     }
     const handler = await createRuntimeFetchHandler({
+      auth: headerAuth("authorization", "x-user-id"),
       appRoot,
       config: config as never,
       threadAccess: (options.policy ?? threadAccess) as never,
@@ -467,12 +469,14 @@ it("a built app's embedded policy satisfies the option and gates the upload; a m
   const artifact = threadSandboxArtifact()
   await expect(
     createRuntimeFetchHandler({
+      auth: headerAuth("authorization", "x-user-id"),
       appRoot,
       config: config as never,
       modules: { routes: [], workspace: artifact } as never,
     }),
   ).rejects.toThrow(/sandbox.stagedWorkspaces .* no thread-access policy/)
   const handler = await createRuntimeFetchHandler({
+    auth: headerAuth("authorization", "x-user-id"),
     appRoot,
     config: config as never,
     modules: {
@@ -550,10 +554,10 @@ it("binds an upload to its uploader, so a policy can refuse another principal's 
   const sameUploader = {
     fallback: (req: {
       operation: string
-      headers: Readonly<Record<string, string>>
+      principal?: { readonly id: string }
       requestedWorkspace?: { uploadedBy?: readonly Record<string, unknown>[] }
     }) => {
-      const user = req.headers["x-user-id"]
+      const user = req.principal?.id
       if (!user) return { decision: "deny" as const, status: 403 as const }
       if (req.operation === "workspace.source.put")
         return { decision: "allow" as const, stamp: { ownerId: user } }

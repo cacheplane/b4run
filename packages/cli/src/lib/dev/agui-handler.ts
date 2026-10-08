@@ -41,6 +41,7 @@ import {
   minterFor,
   voidSupersededGrants,
 } from "./approval-grants.js"
+import { requestPrincipal, withPrincipal } from "./auth.js"
 import { payloadTooLarge, RequestBodyTooLargeError, readBoundedText } from "./bounded-body.js"
 import {
   ClientToolAbandonError,
@@ -540,6 +541,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       ...(middleware ? { body: structuredClone(parsedJson) } : {}),
       assistantId: route.assistantId,
       headers: headersToRecord(request.headers),
+      principal: requestPrincipal(request),
       method: request.method,
       params: extractRouteParams(route.routeId, knownRunAgentInput(b4Input.raw)),
       routeId: route.routeId,
@@ -1122,6 +1124,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         instances: routeInstances,
         store: clientToolStore,
         middlewareContext: middlewareResult.context,
+        ...withPrincipal(request),
         registry,
         signal: run.signal,
       })
@@ -1255,6 +1258,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               // site's presence check and park without a grant.
               ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               ...(middlewareResult.context ? { middlewareContext: middlewareResult.context } : {}),
+              ...withPrincipal(request),
               routeFile: route.routeFile,
               routeId: route.routeId,
               routePath: route.routePath,
@@ -1278,6 +1282,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                   assistantId: route.assistantId,
                   context: middlewareResult.context,
                   messages: b4Input.messages.map(toAfterMessage),
+                  principal: requestPrincipal(request),
                   routeId: route.routeId,
                   runId: input.runId,
                   threadId,
@@ -1556,6 +1561,7 @@ async function closeAbandonedClientParks(options: {
     readonly threadsStore: ThreadsStore
   }
   readonly middlewareContext: Readonly<Record<string, unknown>> | undefined
+  readonly principal?: import("@b4run/sdk").B4Principal
   readonly registry: RuntimeRegistry
   readonly signal: AbortSignal
   readonly store: ClientToolRuntime["store"]
@@ -1607,6 +1613,8 @@ async function closeAbandonedClientParks(options: {
       ...(sameRoute && options.middlewareContext
         ? { middlewareContext: options.middlewareContext }
         : {}),
+      // The principal is the request's, not a route's, so it travels either way.
+      ...(options.principal ? { principal: options.principal } : {}),
       routeFile: parkedRoute.routeFile,
       routeId: parkedRoute.routeId,
       routePath: parkedRoute.routePath,

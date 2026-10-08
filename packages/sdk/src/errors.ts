@@ -108,6 +108,11 @@ export const B4_ERRORS = {
     title: "Middleware failed to load",
     docsPath: "/docs/middleware#when-middleware-fails-to-load",
   },
+  B4_E3005: {
+    code: "B4_E3005",
+    title: "Auth failed to load",
+    docsPath: "/docs/access-control#authentication",
+  },
   B4_E4001: {
     code: "B4_E4001",
     title: "Model provider package missing",
