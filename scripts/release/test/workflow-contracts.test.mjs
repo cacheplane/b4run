@@ -130,8 +130,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the one-package AG-UI layout: pack-check.mjs and published-artifacts.mjs
 // expect the React connector at dist/react/copilotkit, the Angular entries and the one
 // dist/styles.css, and forbid the retired dist/copilotkit and dist/react/styles.css.
+// Repinned for the take-2 demo and the README audit: readme-contracts.mjs pins the
+// inline GitHub demo video, the navlog "Run it live" steps and the create-b4-app flags.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "729b4871cfd9fd8b192fcbba53d2886aba88071c007a220083eb732f30802cdf"
+  "c68cbd37351850cea95fb4ee0fa8043665756c722d7512e5a936e836afd2bb7a"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
