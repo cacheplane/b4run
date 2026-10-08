@@ -18,70 +18,24 @@
  * Run `b4 docs thread-access` for the full reference.
  */
 
-import { defineThreadAccess, deny, permit, type ThreadAccessRequest } from "@b4run/sdk"
+import { ownedThreads } from "@b4run/sdk"
 
-const owned = (req: ThreadAccessRequest) => {
-  // Resolved once per request by src/auth.ts, before this policy runs.
-  const user = req.principal
-  if (!user) return deny()
+import type { Principal } from "./auth.js"
 
-  // `thread: undefined` reaches `delete`, `update` and `read` alike — B4.run
-  // invokes the policy on every gated request rather than short-circuiting to
-  // the endpoint's natural 404 or 204. Denying it FIRST, ahead of any admin
-  // branch, is what keeps "not yours" and "never existed" the same answer. An
-  // admin allowed to delete a row that never existed reopens the existence
-  // oracle this default closes. Do not relax this line for `delete` or `read`.
-  //
-  // It does NOT refuse a first AG-UI turn, which is the thing people expect it
-  // to. `POST /agui/{routeId}`, `/runs/stream` and `/runs/wait` create the row
-  // when the id names none, and B4.run asks about that create under
-  // `action: "create"` — the handler below, not this one. CopilotKit picking
-  // its `threadId` in the browser is therefore served, and the row it writes
-  // carries the stamp that create returned, so every later turn matches
-  // `owner === user.id`. Only `/resume` arrives here with no row, because it
-  // needs an already-parked thread and creates nothing.
-  //
-  // What that costs, and it is a real cost: ownership of a client-chosen id is
-  // first come, first served. Any authenticated caller can claim an unused id
-  // by naming it — including claiming one your user was about to use, which
-  // then denies it to them for good. Mint ids with `POST /threads` and hand the
-  // returned `thread_id` to the client if that matters to you; those ids are
-  // server-generated, so nobody can call them first.
-  if (req.thread === undefined) return deny()
-
-  // `req.thread.access`, never `req.thread.metadata`. Metadata is
-  // client-supplied and untrusted — anyone who can create a thread can write
-  // anything into it. `access` is the stamp this policy's own `create` decision
-  // returned, stored under a reserved key B4.run strips from client input on
-  // every create path, so a client cannot forge one.
-  const owner = req.thread.access?.ownerId
-
-  // `undefined` means a thread created before this app had a policy. B4.run does
-  // not guess what that should mean. Admin-only is the conservative answer; a
-  // one-time backfill is the other one. Do not permit it outright.
-  if (owner === undefined) return user.isAdmin ? permit() : deny()
-
-  if (owner === user.id) return permit()
-  if (req.action === "read" && user.isAdmin) return permit()
-  return deny()
-}
-
-export default defineThreadAccess({
-  // `POST /threads`, and every run endpoint that finds no row for the thread id
-  // it was given. The stamp this returns is the thread's owner record: B4.run
-  // stores it under a reserved key no client can write, and it is what `owned`
-  // above authorizes against for the whole life of the thread.
-  create: (req) => {
-    const user = req.principal
-    return user ? permit({ ownerId: user.id, org: user.org }) : deny()
-  },
-  // `fallback` is required, and it is the deny-by-default floor: an action with
-  // no handler of its own lands here rather than falling through to an allow.
-  //
-  // It also handles the `update` recheck B4.run runs after every create, on
-  // `POST /threads` and on a run endpoint's implicit create alike. The row just
-  // stamped has `ownerId === user.id`, so `owned` permits it; a row the store
-  // handed back on an id collision carries someone else's, so `owned` denies
-  // and the caller never receives a thread they do not own.
-  fallback: owned,
-})
+// `ownedThreads` is the common policy as a value. What it does, and why:
+//
+// - `POST /threads`, and every run endpoint that finds no row for the id it was
+//   given, asks under `action: "create"`. That create is permitted for a caller
+//   with a principal and stamps the thread `{ ownerId }`, under a reserved key no
+//   client can write. Every later request is checked against that stamp,
+//   `req.thread.access`, never `thread.metadata`, which is client-supplied.
+// - So a first AG-UI turn on a browser-chosen `threadId` (`POST /agui/{routeId}`)
+//   is served: it creates the row. The cost: ownership of a client-chosen id is
+//   first come, first served. Mint ids with `POST /threads` if that matters.
+// - A request for a thread with no row is denied before any admin branch, so
+//   "not yours" and "never existed" are the same answer.
+// - Admins (`adminsRead`) may read every thread, and threads created before
+//   this app had a policy; they never update or delete another caller's.
+//
+// Need more than ownership? Write the policy yourself with `defineThreadAccess`.
+export default ownedThreads<Principal>({ adminsRead: (user) => user.isAdmin })

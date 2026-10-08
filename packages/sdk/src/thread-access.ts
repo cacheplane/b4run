@@ -1,4 +1,4 @@
-import type { B4Principal } from "./auth.js"
+import type { B4Principal, B4PrincipalShape } from "./auth.js"
 
 /**
  * Thread authorization: who may create, read, mutate, or destroy a thread.
@@ -287,6 +287,79 @@ export interface ThreadAccessPolicy {
 /** Identity helper — runtime no-op, exists for inference. Mirrors `defineMiddleware`. */
 export function defineThreadAccess(policy: ThreadAccessPolicy): ThreadAccessPolicy {
   return policy
+}
+
+/** What {@link ownedThreads} takes. */
+export interface OwnedThreadsOptions<P extends B4PrincipalShape = B4Principal> {
+  /** The owner id a thread is stamped with and checked against. Default: `principal.id`. */
+  readonly owner?: (principal: P) => string
+  /**
+   * Whether a principal may read every thread, and a thread created before the
+   * app had a policy. Default: nobody. Admins never update or delete another
+   * caller's thread.
+   */
+  readonly adminsRead?: (principal: P) => boolean
+}
+
+/**
+ * The brand {@link ownedThreads} stamps on its policy, with the options it was
+ * built from: a build target that cannot run arbitrary policy code (LangSmith,
+ * whose handlers never see the stored row) recognizes this one declarative
+ * policy and compiles it instead.
+ */
+const OWNED_THREADS = Symbol.for("b4run.ownedThreads")
+
+/**
+ * The common thread policy as a value: each caller reaches only the threads it
+ * created, and `adminsRead` principals may also read the rest.
+ *
+ * - **Create** (`POST /threads`, and a run endpoint naming an id with no row)
+ *   permits a caller with a principal and stamps the thread `{ ownerId }`. The
+ *   stamp is stored under a reserved key no client can write, and it is what
+ *   every later request is checked against — never `thread.metadata`, which is
+ *   client-supplied.
+ * - **Every other action** denies an anonymous caller, and denies a request for
+ *   a thread with no row *before* any admin branch, so "not yours" and "never
+ *   existed" stay the same answer. Then: the owner is allowed; an admin may
+ *   read; everyone else is denied. A thread with no stamp (created before the
+ *   app had a policy) is readable by admins only.
+ *
+ * Ownership of a client-chosen thread id is first come, first served: a
+ * caller can claim an unused id by naming it. Mint ids with `POST /threads` if
+ * that matters to you.
+ */
+export function ownedThreads<P extends B4PrincipalShape = B4Principal>(
+  options: OwnedThreadsOptions<P> = {},
+): ThreadAccessPolicy {
+  const ownerOf = (principal: P) => (options.owner ? options.owner(principal) : principal.id)
+  const isAdmin = (principal: P) => options.adminsRead?.(principal) === true
+  const owned: B4ThreadAccess = (req) => {
+    const principal = req.principal as P | undefined
+    if (!principal) return deny()
+    if (req.thread === undefined) return deny()
+    const ownerId = req.thread.access?.ownerId
+    if (ownerId === undefined) return isAdmin(principal) ? permit() : deny()
+    if (ownerId === ownerOf(principal)) return permit()
+    if (req.action === "read" && isAdmin(principal)) return permit()
+    return deny()
+  }
+  const policy: ThreadAccessPolicy = {
+    create: (req) => {
+      const principal = req.principal as P | undefined
+      return principal ? permit({ ownerId: ownerOf(principal) }) : deny()
+    },
+    // Also the `update` recheck after every create: a row just stamped for this
+    // caller passes; a row the store handed back on an id collision does not.
+    fallback: owned,
+  }
+  Object.defineProperty(policy, OWNED_THREADS, { value: Object.freeze({ ...options }) })
+  return policy
+}
+
+/** The options an {@link ownedThreads} policy was built from, or undefined for any other policy. */
+export function ownedThreadsOptions(policy: unknown): OwnedThreadsOptions | undefined {
+  if (typeof policy !== "object" || policy === null) return undefined
+  return (policy as Record<symbol, OwnedThreadsOptions | undefined>)[OWNED_THREADS]
 }
 
 export function permit(stamp?: Record<string, unknown>): ThreadAccessAllow {

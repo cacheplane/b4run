@@ -138,6 +138,7 @@ export type {
 } from "./runtime-context.js"
 export type {
   B4ThreadAccess,
+  OwnedThreadsOptions,
   ThreadAccessAllow,
   ThreadAccessDeny,
   ThreadAccessPolicy,
@@ -148,7 +149,14 @@ export type {
   ThreadOperation,
   ThreadSubject,
 } from "./thread-access.js"
-export { defineThreadAccess, deny, permit, THREAD_ACCESS_METADATA_KEY } from "./thread-access.js"
+export {
+  defineThreadAccess,
+  deny,
+  ownedThreads,
+  ownedThreadsOptions,
+  permit,
+  THREAD_ACCESS_METADATA_KEY,
+} from "./thread-access.js"
 export type { ToolDenial } from "./tool-denial.js"
 export { isToolDenial, TOOL_DENIAL, toolDenial } from "./tool-denial.js"
 export type { ToolDisplay, ToolDisplayIcon, ToolDisplaySource } from "./tool-display.js"
