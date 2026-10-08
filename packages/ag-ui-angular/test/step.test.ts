@@ -129,8 +129,8 @@ describe("li[b4-step]", () => {
     fixture.componentInstance.renderStep.set({})
     fixture.detectChanges()
     click(fixture, root.querySelector("button"))
-    const codes = Array.from(root.querySelectorAll(".b4-step__code"), (pre) => pre.textContent)
-    expect(codes).toEqual(['{\n  "query": "a"\n}', "ok"])
+    expect(root.querySelector(".b4-step__field > dt")?.textContent).toBe("query")
+    expect(root.querySelector(".b4-step__value")?.textContent).toBe("ok")
   })
 
   test("a step opened while awaiting stays open when the same call starts running", () => {

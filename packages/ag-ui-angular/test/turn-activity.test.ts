@@ -107,16 +107,25 @@ describe("b4-turn-activity", () => {
     expect(root.textContent).toContain("· awaiting approval")
   })
 
-  test("nested turns name the subagent", () => {
-    const done = html(
-      mount(TurnActivityComponent, {
-        turn: turn({}),
-        now: zero,
-        nested: { name: "researcher", status: "done" },
-      }),
-    )
-    expect(done.querySelector(".b4-turn__text")?.textContent).toBe("researcher finished")
-    expect(done.querySelector(".b4-turn__time")?.textContent).toBe("· 2 steps")
+  test("a settled nested turn shows its steps without repeating the subagent row's summary", () => {
+    for (const status of ["done", "failed"] as const) {
+      const root = html(
+        mount(TurnActivityComponent, {
+          turn: turn({}),
+          now: zero,
+          nested: { name: "researcher", status },
+        }),
+      )
+      expect(root.querySelector(".b4-turn__summary")).toBeNull()
+      expect(root.querySelector("section.b4-turn > ol.b4-turn__steps")).not.toBeNull()
+      expect(root.querySelector("section.b4-turn")?.getAttribute("data-expanded")).toBe("true")
+      expect(root.querySelector("[role=status]")?.textContent).toBe(
+        `researcher ${status === "done" ? "finished" : "failed"}`,
+      )
+    }
+  })
+
+  test("a paused nested turn keeps its summary line", () => {
     const paused = html(
       mount(TurnActivityComponent, {
         turn: turn({ status: "awaiting", endedAt: undefined }),

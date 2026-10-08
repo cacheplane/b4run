@@ -16,7 +16,7 @@ import { type DropNotice, DropNotices } from "./DropNotices"
 import { MemoryPanel } from "./MemoryPanel"
 import { NavlogChat } from "./NavlogChat"
 import { RunError } from "./RunError"
-import { NAVLOG_STEP_RENDERERS } from "./StepViews"
+import { NAVLOG_STEP_LABELS, NAVLOG_STEP_RENDERERS } from "./StepViews"
 import { ThreadRail, UNTITLED_THREAD_LABEL } from "./ThreadRail"
 import { WorkbenchLayout } from "./WorkbenchLayout"
 
@@ -433,7 +433,11 @@ export function AppShell({
     )
 
   return (
-    <B4Activity key={`${activeThreadId}:${connectNonce}`} renderStep={NAVLOG_STEP_RENDERERS}>
+    <B4Activity
+      key={`${activeThreadId}:${connectNonce}`}
+      labels={NAVLOG_STEP_LABELS}
+      renderStep={NAVLOG_STEP_RENDERERS}
+    >
       <ThreadWorkbench
         threadId={activeThreadId}
         canAttachImages={canAttachImages}

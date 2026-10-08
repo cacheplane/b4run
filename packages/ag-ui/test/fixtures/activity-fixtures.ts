@@ -258,7 +258,7 @@ export const TURN_FIXTURES: Readonly<Record<string, TurnFixture>> = {
       ],
     }),
   },
-  "details: JSON, text, empty and truncated": {
+  "details: fields, text, code, empty and truncated": {
     now: 0,
     turn: turn({
       steps: [
@@ -266,6 +266,20 @@ export const TURN_FIXTURES: Readonly<Record<string, TurnFixture>> = {
         tool("t", { name: "readDoc", args: "plain text", result: "not json {", icon: "read" }),
         tool("e", { name: "noop", args: "", label: "Did nothing", icon: "tool" }),
         tool("x", { name: "dump", args: "{}", result: "x".repeat(20_010), label: "Dumped" }),
+        tool("n", {
+          name: "getMetar",
+          args: '{"ids":["KSTP","KRST"]}',
+          result: '[{"id":"KSTP","flightCategory":"VFR"}]',
+          label: "Fetched METARs",
+          icon: "web",
+        }),
+        tool("w", {
+          name: "writeFile",
+          args: JSON.stringify({ path: "reports/a.md", content: `| Leg |\n${"-".repeat(90)}` }),
+          result: '"wrote 99 bytes"',
+          label: "Saved reports/a.md",
+          icon: "write",
+        }),
       ],
     }),
   },

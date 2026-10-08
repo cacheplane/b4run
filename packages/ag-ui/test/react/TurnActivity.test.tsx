@@ -114,13 +114,23 @@ describe("TurnActivity", () => {
     expect(markup).toContain("· awaiting approval")
   })
 
-  test("nested turns name the subagent", () => {
-    const markup = renderToStaticMarkup(
-      <TurnActivity turn={turn({})} now={zero} nested={{ name: "researcher", status: "done" }} />,
-    )
-    expect(markup).toContain(
-      '<span class="b4-turn__text">researcher finished</span><span class="b4-turn__time">· 2 steps</span>',
-    )
+  test("a settled nested turn shows its steps without repeating the subagent row's summary", () => {
+    for (const status of ["done", "failed"] as const) {
+      const markup = renderToStaticMarkup(
+        <TurnActivity turn={turn({})} now={zero} nested={{ name: "researcher", status }} />,
+      )
+      expect(markup).not.toContain("b4-turn__summary")
+      expect(markup).toMatch(
+        /^<section class="b4-turn" data-state="done" data-expanded="true"><ol class="b4-turn__steps">/,
+      )
+      // The live region still names the outcome for assistive technology.
+      expect(markup).toContain(
+        `<span class="b4-visually-hidden" role="status">researcher ${status === "done" ? "finished" : "failed"}</span>`,
+      )
+    }
+  })
+
+  test("a paused nested turn keeps its summary line", () => {
     const paused = renderToStaticMarkup(
       <TurnActivity
         turn={turn({ status: "awaiting", endedAt: undefined })}

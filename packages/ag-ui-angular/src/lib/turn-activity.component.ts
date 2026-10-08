@@ -3,6 +3,7 @@ import {
   CHEVRON_GLYPH,
   type GroupedStep,
   groupSteps,
+  isSubagentLive,
   type NestedTurn,
   nestedSummaryLine,
   type StepLabelOverrides,
@@ -18,6 +19,8 @@ import { StepGroupComponent } from "./step-group.component"
 // sides reference the other through `forwardRef`, so either may load first.
 import { SubagentStepComponent } from "./subagent-step.component"
 import { CHEVRON_TEMPLATE, SvgAttrsDirective } from "./svg"
+
+const STEPS = `<ol class="b4-turn__steps">@for (item of grouped(); track trackItem(item)) {@switch (item.kind) {@case ("group") {<li b4-step-group [group]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}@case ("tool") {<li b4-step [step]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}@case ("plan") {<li b4-plan-step [step]="item" [live]="turn().status === 'working'"></li>}@case ("reasoning") {<li b4-reasoning-step [step]="item"></li>}@case ("subagent") {<li b4-subagent-step [step]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}}}</ol>`
 
 const trackItem = (item: GroupedStep): string =>
   item.kind === "group" ? `g:${item.steps[0]?.id}` : item.id
@@ -43,7 +46,7 @@ const trackItem = (item: GroupedStep): string =>
   host: { style: "display: contents" },
   // One live region per turn (spec §5.5). It carries the sentence only, never
   // the ticking time, so its text node changes only when the sentence does.
-  template: `<section class="b4-turn" [attr.data-state]="turn().status" [attr.data-expanded]="panel.open() ? 'true' : null"><button type="button" class="b4-turn__summary" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<span class="b4-turn__text" [attr.data-live]="line().live ? 'true' : null">{{ line().text }}</span>@if (line().meta) {<span class="b4-turn__time">{{ line().meta }}</span>}</button>@if (panel.open()) {<ol class="b4-turn__steps">@for (item of grouped(); track trackItem(item)) {@switch (item.kind) {@case ("group") {<li b4-step-group [group]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}@case ("tool") {<li b4-step [step]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}@case ("plan") {<li b4-plan-step [step]="item" [live]="turn().status === 'working'"></li>}@case ("reasoning") {<li b4-reasoning-step [step]="item"></li>}@case ("subagent") {<li b4-subagent-step [step]="item" [labels]="labels()" [renderStep]="renderStep()" [now]="now()"></li>}}}</ol>}<span class="b4-visually-hidden" role="status">{{ line().text }}</span></section>`,
+  template: `<section class="b4-turn" [attr.data-state]="turn().status" [attr.data-expanded]="panel.open() || settledNested() ? 'true' : null">@if (settledNested()) {${STEPS}} @else {<button type="button" class="b4-turn__summary" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<span class="b4-turn__text" [attr.data-live]="line().live ? 'true' : null">{{ line().text }}</span>@if (line().meta) {<span class="b4-turn__time">{{ line().meta }}</span>}</button>@if (panel.open()) {${STEPS}}}<span class="b4-visually-hidden" role="status">{{ line().text }}</span></section>`,
 })
 export class TurnActivityComponent {
   readonly turn = input.required<TurnView>()
@@ -70,4 +73,10 @@ export class TurnActivityComponent {
   // No key: a turn that becomes live again is automation's.
   protected readonly panel = disclosure(this.live, this.live)
   protected readonly grouped = computed(() => groupSteps(this.turn().steps, this.labels()))
+  // A settled subagent's row already says "researcher finished · 5 steps", so
+  // its own turn shows the steps straight away instead of repeating that line.
+  protected readonly settledNested = computed(() => {
+    const nested = this.nested()
+    return nested !== undefined && !isSubagentLive(nested)
+  })
 }

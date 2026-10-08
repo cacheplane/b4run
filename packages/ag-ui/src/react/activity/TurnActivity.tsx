@@ -1,5 +1,10 @@
 import { type ReactElement, useMemo } from "react"
-import { type NestedTurn, nestedSummaryLine, summaryLine } from "../../view/activity-format.js"
+import {
+  isSubagentLive,
+  type NestedTurn,
+  nestedSummaryLine,
+  summaryLine,
+} from "../../view/activity-format.js"
 import { groupSteps, type StepLabelOverrides } from "../../view/labels.js"
 import type { TurnView } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
@@ -40,67 +45,72 @@ export function TurnActivity({
   // starts folded. No key: a turn that becomes live again is automation's.
   const { open, toggle } = useDisclosure(live, live)
   const grouped = useMemo(() => groupSteps(turn.steps, labels), [turn.steps, labels])
+  // A settled subagent's row already says "researcher finished · 5 steps", so
+  // its own turn shows the steps straight away instead of repeating that line.
+  const settledNested = nested !== undefined && !isSubagentLive(nested)
+
+  const steps = (
+    <ol className="b4-turn__steps">
+      {grouped.map((item) => {
+        switch (item.kind) {
+          case "group":
+            return (
+              <StepGroup
+                key={`g:${item.steps[0]?.id}`}
+                group={item}
+                labels={labels}
+                renderStep={renderStep}
+                now={now}
+              />
+            )
+          case "tool":
+            return (
+              <Step key={item.id} step={item} labels={labels} renderStep={renderStep} now={now} />
+            )
+          case "plan":
+            return <PlanStep key={item.id} step={item} live={turn.status === "working"} />
+          case "reasoning":
+            return <ReasoningStep key={item.id} step={item} />
+          default:
+            return (
+              <SubagentStep
+                key={item.id}
+                step={item}
+                labels={labels}
+                renderStep={renderStep}
+                now={now}
+              />
+            )
+        }
+      })}
+    </ol>
+  )
 
   return (
     <section
       className="b4-turn"
       data-state={turn.status}
-      {...(open ? { "data-expanded": "true" } : {})}
+      {...(open || settledNested ? { "data-expanded": "true" } : {})}
     >
-      <Disclosure
-        className="b4-turn__summary"
-        open={open}
-        onToggle={toggle}
-        summary={
-          <>
-            <span className="b4-turn__text" {...(line.live ? { "data-live": "true" } : {})}>
-              {line.text}
-            </span>
-            {line.meta ? <span className="b4-turn__time">{line.meta}</span> : null}
-          </>
-        }
-      >
-        <ol className="b4-turn__steps">
-          {grouped.map((item) => {
-            switch (item.kind) {
-              case "group":
-                return (
-                  <StepGroup
-                    key={`g:${item.steps[0]?.id}`}
-                    group={item}
-                    labels={labels}
-                    renderStep={renderStep}
-                    now={now}
-                  />
-                )
-              case "tool":
-                return (
-                  <Step
-                    key={item.id}
-                    step={item}
-                    labels={labels}
-                    renderStep={renderStep}
-                    now={now}
-                  />
-                )
-              case "plan":
-                return <PlanStep key={item.id} step={item} live={turn.status === "working"} />
-              case "reasoning":
-                return <ReasoningStep key={item.id} step={item} />
-              default:
-                return (
-                  <SubagentStep
-                    key={item.id}
-                    step={item}
-                    labels={labels}
-                    renderStep={renderStep}
-                    now={now}
-                  />
-                )
-            }
-          })}
-        </ol>
-      </Disclosure>
+      {settledNested ? (
+        steps
+      ) : (
+        <Disclosure
+          className="b4-turn__summary"
+          open={open}
+          onToggle={toggle}
+          summary={
+            <>
+              <span className="b4-turn__text" {...(line.live ? { "data-live": "true" } : {})}>
+                {line.text}
+              </span>
+              {line.meta ? <span className="b4-turn__time">{line.meta}</span> : null}
+            </>
+          }
+        >
+          {steps}
+        </Disclosure>
+      )}
       {/*
         One live region per turn (spec §5.5). It carries the sentence only, never
         the ticking time, so React touches this text node only when the sentence

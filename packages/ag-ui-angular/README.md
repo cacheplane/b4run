@@ -71,7 +71,7 @@ Every component is standalone, uses `OnPush` and signal inputs, and renders the 
 | `<li b4-plan-step [step] [live]>` | `PlanStep` | "Made a plan · 2 of 4 done" with the checklist. |
 | `<li b4-reasoning-step [step]>` | `ReasoningStep` | "Thinking…", "Thought for 4s" or "Show reasoning". |
 | `<li b4-subagent-step [step]>` | `SubagentStep` | "Asked researcher" with the child's activity nested. |
-| `<b4-step-detail [args] [result]>` | `StepDetail` | A step's Inputs and Output. |
+| `<b4-step-detail [args] [result]>` | `StepDetail` | A step's input and result: rows, plain text or pretty JSON, with "Show raw" when rows reshaped a value. |
 | `<b4-source-chips [sources] [limit]>` | `SourceChips` | File or URL chips with "+N" overflow. |
 | `<b4-disclosure [open] [className] (toggle)>` | `Disclosure` | A `button[aria-expanded]` and its panel, for custom steps. Project the button's content with `ngProjectAs="b4-summary"`. |
 | `<b4-step-icon [name]>` | `StepIcon` | The glyph for a `ToolDisplayIcon` name. |

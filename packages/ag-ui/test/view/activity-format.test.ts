@@ -3,8 +3,10 @@ import {
   countSources,
   countSteps,
   formatDuration,
+  MAX_FIELD_CHARS,
   planProgress,
   reasoningLabel,
+  stepDetailView,
   summaryLine,
 } from "../../src/view/activity-format.js"
 import type { ToolStep, TurnView } from "../../src/view/turns.js"
@@ -198,5 +200,127 @@ describe("counts and labels", () => {
     expect(
       reasoningLabel({ kind: "reasoning", id: "r", text: "hmm", status: "done", startedAt: 0 }),
     ).toBe("Show reasoning")
+  })
+})
+
+describe("stepDetailView", () => {
+  test("a flat object becomes rows: scalars as text, null as a dash, scalar arrays joined", () => {
+    const view = stepDetailView(
+      '{"id":"KSTP","n":2,"ok":true,"none":null,"ids":["A","B"],"empty":[]}',
+      undefined,
+    )
+    expect(view.input).toEqual({
+      kind: "fields",
+      fields: [
+        { key: "id", value: "KSTP" },
+        { key: "n", value: "2" },
+        { key: "ok", value: "true" },
+        { key: "none", value: "—" },
+        { key: "ids", value: "A, B" },
+        { key: "empty", value: "—" },
+      ],
+    })
+    expect(view.result).toBeUndefined()
+    expect(view.raw).toEqual({ input: expect.stringContaining('"id": "KSTP"'), result: "" })
+    expect(view.empty).toBe(false)
+  })
+
+  test("a long or multi-line field value shows its first line, cut, with its full length", () => {
+    const content = `| Leg | From | To |\n${"x".repeat(200)}`
+    const view = stepDetailView(JSON.stringify({ path: "a.md", content }), undefined)
+    expect(view.input?.kind).toBe("fields")
+    const fields = view.input?.kind === "fields" ? view.input.fields : []
+    expect(fields[1]).toEqual({
+      key: "content",
+      value: `| Leg | From | To | … (${content.length} chars)`,
+    })
+    const long = "y".repeat(MAX_FIELD_CHARS + 1)
+    const cut = stepDetailView(JSON.stringify({ q: long }), undefined).input
+    expect(cut).toEqual({
+      kind: "fields",
+      fields: [
+        { key: "q", value: `${"y".repeat(MAX_FIELD_CHARS)} … (${MAX_FIELD_CHARS + 1} chars)` },
+      ],
+    })
+  })
+
+  test("strings, scalars and scalar arrays read as text; nested values stay code", () => {
+    expect(stepDetailView("", '"wrote 4 bytes"').result).toEqual({
+      kind: "text",
+      text: "wrote 4 bytes",
+    })
+    expect(stepDetailView("", "plain words").result).toEqual({ kind: "text", text: "plain words" })
+    expect(stepDetailView("", "42").result).toEqual({ kind: "text", text: "42" })
+    expect(stepDetailView("", '["a","b"]').result).toEqual({ kind: "text", text: "a, b" })
+    expect(stepDetailView("", "[[1,2]]").result).toEqual({
+      kind: "code",
+      text: "[\n  [\n    1,\n    2\n  ]\n]",
+    })
+    expect(stepDetailView('{"a":{"b":{"c":1}}}', undefined).input?.kind).toBe("code")
+  })
+
+  test("one nested level reads as dotted keys", () => {
+    expect(
+      stepDetailView('{"data":{"subject":"aircraft","value":"2400"},"confidence":0.9}', undefined)
+        .input,
+    ).toEqual({
+      kind: "fields",
+      fields: [
+        { key: "data.subject", value: "aircraft" },
+        { key: "data.value", value: "2400" },
+        { key: "confidence", value: "0.9" },
+      ],
+    })
+  })
+
+  test("a short list of objects reads as one group of rows each; a long one stays code", () => {
+    expect(
+      stepDetailView("", '[{"id":"KSTP","vfr":true},{"id":"KRST","vfr":false}]').result,
+    ).toEqual({
+      kind: "records",
+      records: [
+        [
+          { key: "id", value: "KSTP" },
+          { key: "vfr", value: "true" },
+        ],
+        [
+          { key: "id", value: "KRST" },
+          { key: "vfr", value: "false" },
+        ],
+      ],
+    })
+    const eleven = JSON.stringify(Array.from({ length: 11 }, (_, i) => ({ i })))
+    expect(stepDetailView("", eleven).result?.kind).toBe("code")
+    expect(stepDetailView("", '[{"a":1},2]').result?.kind).toBe("code")
+    expect(stepDetailView("", '[{"a":1}]').raw).toEqual({
+      input: "",
+      result: '[\n  {\n    "a": 1\n  }\n]',
+    })
+  })
+
+  test("an object with more than twelve keys reads better as JSON", () => {
+    const wide = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`k${i}`, i]))
+    expect(stepDetailView(JSON.stringify(wide), undefined).input?.kind).toBe("code")
+  })
+
+  test("raw is offered only when rows reshaped a value", () => {
+    expect(stepDetailView("", '"text"').raw).toBeUndefined()
+    expect(stepDetailView('{"a":{"b":{"c":1}}}', "done").raw).toBeUndefined()
+    expect(stepDetailView('{"a":1}', '"ok"').raw).toEqual({ input: '{\n  "a": 1\n}', result: "" })
+    expect(stepDetailView("[[1]]", '{"b":2}').raw).toEqual({
+      input: "",
+      result: '{\n  "b": 2\n}',
+    })
+  })
+
+  test("nothing to show: empty text, an empty object, an empty array, a blank string", () => {
+    for (const args of ["", "  ", "{}", "[]", '""']) {
+      expect(stepDetailView(args, undefined)).toEqual({
+        input: undefined,
+        result: undefined,
+        raw: undefined,
+        empty: true,
+      })
+    }
   })
 })
