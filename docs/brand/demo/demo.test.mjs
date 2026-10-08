@@ -56,8 +56,8 @@ import {
   validateStagedMediaManifest,
 } from "./check-media.mjs"
 import {
-  buildTimelineFilter,
-  createTimelinePlan,
+  buildGifFilter,
+  createTrimPlan,
   encodeCaptureArtifacts,
   encodeGif,
   encodePoster,
@@ -535,83 +535,48 @@ test("staged validation aborts and joins ffprobe before caller cleanup", async (
   ])
 })
 
-test("encoding plan builds the four honest capture timelines", () => {
-  const plan = createTimelinePlan({
-    videoTimeline: {
-      unit: "milliseconds",
-      scenes: {
-        author: { startMs: 0, endMs: 1_500 },
-        test: { startMs: 1_500, endMs: 3_000 },
-        "workbench-run": { startMs: 3_000, endMs: 7_000 },
-        "pre-reload-complete": { startMs: 7_000, endMs: 8_200 },
-        restoration: { startMs: 8_200, endMs: 12_200.063 },
-        close: { startMs: 12_200.063, endMs: 13_500 },
-      },
-    },
-  })
+const BEAT_SCENES = {
+  author: { startMs: 2_000, endMs: 5_000 },
+  prove: { startMs: 5_000, endMs: 8_000 },
+  run: { startMs: 8_000, endMs: 14_000 },
+  close: { startMs: 14_000, endMs: 16_500 },
+}
 
-  assert.deepEqual(Object.keys(plan), ["product-loop", "author", "test", "run"])
-  assert.equal(plan["product-loop"].duration, 25)
-  assert.equal(plan.author.duration, 9)
-  assert.equal(plan.test.duration, 9)
-  assert.equal(plan.run.duration, 10)
-  assert.deepEqual(
-    plan["product-loop"].segments.map(({ scene }) => scene),
-    ["author", "test", "workbench", "close"],
-  )
-  assert.deepEqual(
-    plan.run.segments.map(({ scene }) => scene),
-    ["run-completed", "reload-and-restoration"],
-  )
-  assert.deepEqual(
-    plan["product-loop"].segments.map(({ actLabel }) => actLabel ?? null),
-    ["Author", "Prove", "Run", null],
-    "the encoded flagship must visibly identify its three acts",
-  )
-  assert.deepEqual(
-    [plan.author.actLabel, plan.test.actLabel, plan.run.actLabel],
-    ["Author", "Prove", "Run"],
-    "derivative encodes must preserve the matching visual act label",
-  )
-  assert.equal(plan["product-loop"].segments[0].sourceEnd, 1.3)
-  assert.equal(plan.author.segments[0].sourceEnd, 1.3)
-  assert.equal(plan.test.segments[0].sourceEnd, 2.8)
-  assert.equal(plan.run.segments[0].sourceEnd, 8)
-  assert.equal(plan.run.segments[1].sourceEnd, 12.000063)
-  const flagshipFilter = buildTimelineFilter(plan["product-loop"], {
-    labelInputIndexes: [1, 2, 3, undefined],
-  }).filter
-  assert.match(flagshipFilter, /\[segment0base\]\[1:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment1base\]\[2:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment2base\]\[3:v\]overlay=/)
-  assert.match(flagshipFilter, /\[segment3base\]null\[segment3\]/)
+test("trim plan spans the recorded beats and poses the poster on the docked author beat", () => {
+  const trim = createTrimPlan({
+    videoTimeline: { unit: "milliseconds", scenes: BEAT_SCENES },
+  })
+  assert.deepEqual(trim, { start: 2, duration: 14.5, posterTime: 2.75 })
+})
+
+test("trim plan rejects a missing or out-of-order beat", () => {
   assert.throws(
-    () => buildTimelineFilter(plan["product-loop"]),
-    /Author act label has no visual input/,
+    () =>
+      createTrimPlan({
+        videoTimeline: { unit: "milliseconds", scenes: { ...BEAT_SCENES, prove: undefined } },
+      }),
+    /invalid prove beat/,
+  )
+  assert.throws(
+    () =>
+      createTrimPlan({
+        videoTimeline: {
+          unit: "milliseconds",
+          scenes: { ...BEAT_SCENES, close: { startMs: 7_000, endMs: 9_000 } },
+        },
+      }),
+    /close beat starts before run ends/,
+  )
+  assert.throws(
+    () => createTrimPlan({ videoTimeline: { unit: "seconds", scenes: BEAT_SCENES } }),
+    /milliseconds/,
   )
 })
 
-test("encoding refuses to truncate an overlong Workbench restoration endpoint", () => {
-  const plan = createTimelinePlan({
-    videoTimeline: {
-      unit: "milliseconds",
-      scenes: {
-        author: { startMs: 0, endMs: 1_500 },
-        test: { startMs: 1_500, endMs: 3_000 },
-        "workbench-run": { startMs: 3_000, endMs: 8_000 },
-        "pre-reload-complete": { startMs: 8_000, endMs: 9_000 },
-        restoration: { startMs: 9_000, endMs: 13_500 },
-        close: { startMs: 13_500, endMs: 15_000 },
-      },
-    },
-  })
-
-  assert.throws(
-    () =>
-      buildTimelineFilter(plan["product-loop"], {
-        labelInputIndexes: [1, 2, 3, undefined],
-      }),
-    /workbench.*restored endpoint.*10\.3.*10 seconds/i,
+test("GIF filter keeps 1440x810 at 30 fps with a diff palette and no overlays", () => {
+  assert.equal(
+    buildGifFilter(),
+    "[0:v]fps=30,scale=1440:810:flags=lanczos,split[gifbase][paletteinput];[paletteinput]palettegen=max_colors=28:stats_mode=diff[palette];[gifbase][palette]paletteuse=dither=none:diff_mode=rectangle[outv]",
   )
 })
 
@@ -619,7 +584,7 @@ test("poster encoding extracts a real frame before WebP conversion", async () =>
   const calls = []
   await encodePoster({
     source: "/capture/raw.webm",
-    destination: "/repo/apps/web/public/demo/author-poster.webp",
+    destination: "/repo/apps/web/public/demo/product-loop-poster.webp",
     time: 0.75,
     async run(command, args) {
       calls.push({ command, args })
@@ -641,37 +606,25 @@ test("poster encoding extracts a real frame before WebP conversion", async () =>
   assert.equal(calls[0].args.includes("libwebp"), false)
   assert.deepEqual(calls[1], {
     convert: [
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.png",
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.png",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.webp",
     ],
   })
   assert.deepEqual(calls[2], {
     rename: [
-      "/repo/apps/web/public/demo/author-poster.webp.tmp.webp",
-      "/repo/apps/web/public/demo/author-poster.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.webp",
+      "/repo/apps/web/public/demo/product-loop-poster.webp",
     ],
   })
   assert.deepEqual(calls[3], {
-    remove: "/repo/apps/web/public/demo/author-poster.webp.tmp.png",
+    remove: "/repo/apps/web/public/demo/product-loop-poster.webp.tmp.png",
   })
 })
 
-test("video and GIF encoders recheck abort before rename and clean their temps", async () => {
-  const plan = {
-    duration: 2,
-    segments: [
-      {
-        scene: "author",
-        sourceStart: 0,
-        sourceEnd: 1,
-        duration: 2,
-        actLabel: "Author",
-      },
-    ],
-  }
-  const labelAssets = new Map([["Author", "/run/labels/author.png"]])
+test("video and GIF encoders trim the recording, recheck abort before rename, and clean their temps", async () => {
+  const trim = { start: 2, duration: 14.5, posterTime: 2.75 }
   for (const [name, encode, destination, expectedTemporaryPath] of [
-    ["video", encodeVideo, "/run/output/author.mp4", "/run/output/author.mp4.tmp.mp4"],
+    ["video", encodeVideo, "/run/output/product-loop.mp4", "/run/output/product-loop.mp4.tmp.mp4"],
     [
       "GIF",
       encodeGif,
@@ -681,15 +634,16 @@ test("video and GIF encoders recheck abort before rename and clean their temps",
   ]) {
     const controller = new AbortController()
     const calls = []
+    let ffmpegArgs
     await assert.rejects(
       encode({
         source: "/run/raw.webm",
         destination,
-        plan,
+        trim,
         ...(name === "video" ? { format: "mp4" } : {}),
-        labelAssets,
         signal: controller.signal,
-        async run() {
+        async run(_command, args) {
+          ffmpegArgs = args
           controller.abort(new Error(`abort ${name}`))
         },
         async rename(...args) {
@@ -702,6 +656,9 @@ test("video and GIF encoders recheck abort before rename and clean their temps",
       new RegExp(`abort ${name}`),
     )
     assert.deepEqual(calls, [["remove", expectedTemporaryPath]])
+    const ss = ffmpegArgs.indexOf("-ss")
+    assert.deepEqual(ffmpegArgs.slice(ss, ss + 6), ["-ss", "2.000", "-t", "14.500", "-i", "/run/raw.webm"])
+    assert.equal(ffmpegArgs.some((arg) => /overlay|tpad/.test(arg)), false)
   }
 })
 
@@ -851,14 +808,7 @@ test("encoding failures never mix fixed assets or the latest pointer across runs
         videoPath: source,
         videoTimeline: {
           unit: "milliseconds",
-          scenes: {
-            author: { startMs: 0, endMs: 1_500 },
-            test: { startMs: 1_500, endMs: 3_000 },
-            "workbench-run": { startMs: 3_000, endMs: 7_000 },
-            "pre-reload-complete": { startMs: 7_000, endMs: 8_200 },
-            restoration: { startMs: 8_200, endMs: 12_000 },
-            close: { startMs: 12_000, endMs: 13_500 },
-          },
+          scenes: BEAT_SCENES,
         },
       }
       const controller = new AbortController()
