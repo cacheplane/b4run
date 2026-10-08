@@ -698,6 +698,37 @@ describe("reduceTurns", () => {
     expect(steps[1]).toMatchObject({ status: "streaming" })
   })
 
+  it("keeps a reasoning span's length unknown when it ends at the instant it started", () => {
+    const at = (ms: number) => ({ now: () => ms })
+    let view = reduceTurns(
+      EMPTY_TURNS,
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      at(0),
+    )
+    // A restored span: start and end carry its message's one checkpoint time.
+    view = reduceTurns(
+      view,
+      { type: EventType.REASONING_START, messageId: "r1" } as BaseEvent,
+      at(5),
+    )
+    view = reduceTurns(view, { type: EventType.REASONING_END, messageId: "r1" } as BaseEvent, at(5))
+    // A live span that took four seconds.
+    view = reduceTurns(
+      view,
+      { type: EventType.REASONING_START, messageId: "r2" } as BaseEvent,
+      at(6),
+    )
+    view = reduceTurns(
+      view,
+      { type: EventType.REASONING_END, messageId: "r2" } as BaseEvent,
+      at(10),
+    )
+    const [restored, live] = view.turns[0]?.steps ?? []
+    expect(restored).toMatchObject({ status: "done", startedAt: 5 })
+    expect(restored).not.toHaveProperty("settledAt")
+    expect(live).toMatchObject({ status: "done", startedAt: 6, settledAt: 10 })
+  })
+
   it("streams a reasoning message inside its span rather than opening a second step", async () => {
     const view = await fold([
       { type: "reasoning", data: "think" },

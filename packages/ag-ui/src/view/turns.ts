@@ -87,6 +87,11 @@ export interface ReasoningStep {
   readonly text: string
   readonly status: "streaming" | "done"
   readonly startedAt: number
+  /**
+   * When the span ended. Absent while streaming, and for a span that started
+   * and ended at the same instant: a restored thread replays each span at its
+   * message's checkpoint time, so its length is unknown, not zero.
+   */
   readonly settledAt?: number
 }
 
@@ -761,7 +766,10 @@ export function reduceTurns(
     case EventType.REASONING_END: {
       // Closes the span by its id, or by its current message's id when a
       // producer ends the span before (or instead of) the message: tolerant
-      // on purpose, since either shape leaves nothing more to stream.
+      // on purpose, since either shape leaves nothing more to stream. A span
+      // that ends at the instant it started has no known length (a restored
+      // thread stamps the whole span with its message's checkpoint time), so
+      // it keeps no `settledAt` and never claims "<1s".
       const { messageId } = event as ReasoningEndEvent
       const at = now()
       return withTurns(
@@ -770,7 +778,10 @@ export function reduceTurns(
           mapReasoning(
             turn,
             (s) => s.status === "streaming" && (s.id === messageId || s.messageId === messageId),
-            (s) => ({ ...s, status: "done", settledAt: at }),
+            (s) =>
+              at === s.startedAt
+                ? { ...s, status: "done" }
+                : { ...s, status: "done", settledAt: at },
           ),
         ),
       )

@@ -119,6 +119,8 @@ describe("turnsFromState", () => {
     // boundary: before the messages k1 added (the reasoning and the call).
     expect(turn.steps.map((s) => s.kind)).toEqual(["plan", "reasoning", "tool"])
     expect(turn.steps[1]).toMatchObject({ kind: "reasoning", text: "plan it", status: "done" })
+    // The checkpoint keeps no reasoning timing: the span reads "Show reasoning", never "<1s".
+    expect(turn.steps[1]).not.toHaveProperty("settledAt")
     expect(turn.steps[0]).toMatchObject({ kind: "plan", todos })
     expect(turn.steps[2]).toMatchObject({
       kind: "tool",
