@@ -3269,16 +3269,7 @@ test("non-record-only capture cleans up when the encoder fails", async () => {
   )
 })
 
-const EXPECTED_UPLOAD_PATHS = [
-  "b4/demo/product-loop.mp4",
-  "b4/demo/product-loop.webm",
-  "b4/demo/author.mp4",
-  "b4/demo/author.webm",
-  "b4/demo/test.mp4",
-  "b4/demo/test.webm",
-  "b4/demo/run.mp4",
-  "b4/demo/run.webm",
-]
+const EXPECTED_UPLOAD_PATHS = ["b4/demo/product-loop.mp4", "b4/demo/product-loop.webm"]
 const AUTHORIZED_MEDIA_STORE_ID = "store_9RQ8eZyGheVy0wOp"
 const AUTHORIZED_MEDIA_ORIGIN = "https://9rq8ezyghevy0wop.public.blob.vercel-storage.com"
 
@@ -3383,12 +3374,15 @@ test("upload plan binds the exact suffix-free paths to the validated run manifes
           ...manifest,
           clips: {
             ...manifest.clips,
-            run: { ...manifest.clips.run, mp4: "/tmp/unbound/run.mp4" },
+            "product-loop": {
+              ...manifest.clips["product-loop"],
+              mp4: "/tmp/unbound/product-loop.mp4",
+            },
           },
         },
         baseUrl: AUTHORIZED_MEDIA_ORIGIN,
       }),
-    /run\.mp4.*expected run output root/,
+    /product-loop\.mp4.*expected run output root/,
   )
 })
 
@@ -3683,7 +3677,7 @@ test("OIDC apply passes only the explicit authorized oidcToken and storeId to pu
       assert.doesNotMatch(line, new RegExp(oidcToken))
     },
   })
-  assert.equal(puts.length, 8)
+  assert.equal(puts.length, 2)
   for (const { options } of puts) {
     assert.equal(options.oidcToken, oidcToken)
     assert.equal(options.storeId, AUTHORIZED_MEDIA_STORE_ID)
@@ -3844,11 +3838,11 @@ test("upload preflights all bodies and hashes before the first put", async () =>
   })
 
   assert.equal(
-    events.slice(0, 8).every((event) => event.startsWith("read:")),
+    events.slice(0, 2).every((event) => event.startsWith("read:")),
     true,
   )
   assert.equal(
-    events.slice(8).every((event) => event.startsWith("put:")),
+    events.slice(2).every((event) => event.startsWith("put:")),
     true,
   )
   assert.equal(Object.isFrozen(result.plan), true)
@@ -3880,7 +3874,7 @@ test("a late preflight read failure performs zero puts", async () => {
       },
       async readFile(path) {
         reads += 1
-        if (reads === 8) throw new Error("late local read failed")
+        if (reads === 2) throw new Error("late local read failed")
         return bodies.get(path)
       },
       async put() {
@@ -3890,7 +3884,7 @@ test("a late preflight read failure performs zero puts", async () => {
     }),
     /late local read failed/,
   )
-  assert.equal(reads, 8)
+  assert.equal(reads, 2)
   assert.equal(puts, 0)
 })
 
@@ -3898,7 +3892,7 @@ test("same-size video mutation fails the validation-time hash before any put", a
   const { pointer, manifest } = validUploadFixture()
   const validatedBodies = uploadBodies(manifest)
   const mutatedBodies = new Map(validatedBodies)
-  const sourcePath = manifest.clips.author.mp4
+  const sourcePath = manifest.clips["product-loop"].mp4
   const original = validatedBodies.get(sourcePath)
   const mutated = Buffer.from(original)
   mutated[0] ^= 0xff
@@ -3924,7 +3918,7 @@ test("same-size video mutation fails the validation-time hash before any put", a
       },
       log() {},
     }),
-    /author\.mp4.*SHA-256.*validation-time hash/i,
+    /product-loop\.mp4.*SHA-256.*validation-time hash/i,
   )
   assert.equal(puts, 0)
 })
@@ -3952,7 +3946,7 @@ test("partial provider failure reports safe convergence and a full replay succee
       },
       async put(pathname) {
         firstPuts.push(pathname)
-        if (firstPuts.length === 4) {
+        if (firstPuts.length === 2) {
           throw new Error(`provider failed ${token}`)
         }
         return {
@@ -3968,11 +3962,14 @@ test("partial provider failure reports safe convergence and a full replay succee
     firstError = error
   }
   assert.equal(writes, 0)
-  assert.deepEqual(firstPuts, EXPECTED_UPLOAD_PATHS.slice(0, 4))
-  assert.match(firstError.message, /completed.*product-loop\.mp4.*author\.mp4/is)
-  assert.match(firstError.message, /potentially completed.*author\.webm/is)
-  assert.match(firstError.message, /definitely pending.*test\.mp4.*run\.webm/is)
-  assert.match(firstError.message, /full eight-path.*idempotent.*replay/is)
+  assert.deepEqual(firstPuts, EXPECTED_UPLOAD_PATHS.slice(0, 2))
+  assert.match(firstError.message, /confirmed completed stable paths: [^.]*product-loop\.mp4\./is)
+  assert.match(
+    firstError.message,
+    /potentially completed stable path: b4\/demo\/product-loop\.webm\./is,
+  )
+  assert.match(firstError.message, /definitely pending stable paths: none\./is)
+  assert.match(firstError.message, /full two-path.*idempotent.*replay/is)
   assert.doesNotMatch(inspectErrorSurface(firstError), new RegExp(token))
   assert.doesNotMatch(firstError.message, /rollback/i)
 
@@ -4022,7 +4019,7 @@ test("partial provider failure reports safe convergence and a full replay succee
       ),
     )
   }
-  assert.equal(heads, 8)
+  assert.equal(heads, 2)
   assert.equal(writes, 1)
 })
 
@@ -4063,7 +4060,7 @@ test("apply uses official stable put options and writes only after all HEAD chec
   })
 
   const putEvents = events.filter(({ type }) => type === "put")
-  assert.equal(putEvents.length, 8)
+  assert.equal(putEvents.length, 2)
   for (const [index, event] of putEvents.entries()) {
     assert.equal(event.pathname, EXPECTED_UPLOAD_PATHS[index])
     assert.ok(Buffer.isBuffer(event.body))
@@ -4081,7 +4078,7 @@ test("apply uses official stable put options and writes only after all HEAD chec
     )
   }
   const headEvents = events.filter(({ type }) => type === "head")
-  assert.equal(headEvents.length, 8)
+  assert.equal(headEvents.length, 2)
   for (const event of headEvents) {
     assert.equal(event.options.method, "HEAD")
     assert.equal(event.options.redirect, "error")
@@ -4119,7 +4116,7 @@ test("returned URL mismatch reports the current mutation uncertainty and safe co
         puts += 1
         return {
           url:
-            puts === 3
+            puts === 2
               ? `https://other.example.com/${pathname}-${token}`
               : `${AUTHORIZED_MEDIA_ORIGIN}/${pathname}`,
         }
@@ -4135,16 +4132,16 @@ test("returned URL mismatch reports the current mutation uncertainty and safe co
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 3)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.cause, undefined)
   assert.match(captured.message, /returned URL.*stable public URL/i)
-  assert.match(captured.message, /confirmed completed.*product-loop\.mp4.*product-loop\.webm/is)
-  assert.match(captured.message, /potentially completed.*author\.mp4/is)
-  assert.match(captured.message, /definitely pending.*author\.webm.*run\.webm/is)
+  assert.match(captured.message, /confirmed completed stable paths: b4\/demo\/product-loop\.mp4\./is)
+  assert.match(captured.message, /potentially completed stable path: b4\/demo\/product-loop\.webm\./is)
+  assert.match(captured.message, /definitely pending stable paths: none\./is)
   assert.match(
     captured.message,
-    /correct.*BLOB_READ_WRITE_TOKEN.*B4_MEDIA_PUBLIC_BASE_URL.*full eight-path.*replay/is,
+    /correct.*BLOB_READ_WRITE_TOKEN.*B4_MEDIA_PUBLIC_BASE_URL.*full two-path.*replay/is,
   )
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
@@ -4178,7 +4175,7 @@ test("non-timeout HEAD failure withholds the catalog and reports safe post-mutat
       async fetch(url) {
         headCalls += 1
         return response(
-          url.endsWith("run.webm") ? 503 : 200,
+          url.endsWith("product-loop.webm") ? 503 : 200,
           url.endsWith(".mp4") ? "video/mp4" : "video/webm",
         )
       },
@@ -4190,13 +4187,13 @@ test("non-timeout HEAD failure withholds the catalog and reports safe post-mutat
   } catch (error) {
     captured = error
   }
-  assert.equal(headCalls, 8)
+  assert.equal(headCalls, 2)
   assert.equal(writes, 0)
-  assert.match(captured.message, /run\.webm.*200.*503/i)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /product-loop\.webm.*200.*503/i)
+  assert.match(captured.message, /both upload calls returned/i)
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
-  assert.match(captured.message, /verification outcome.*uncertain.*run\.webm/is)
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /verification outcome.*uncertain.*product-loop\.webm/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
 })
 
 test("HEAD timeout after all puts preserves safe identity and post-mutation guidance", async () => {
@@ -4244,12 +4241,12 @@ test("HEAD timeout after all puts preserves safe identity and post-mutation guid
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 8)
+  assert.equal(puts, 2)
   assert.equal(heads, 1)
   assert.equal(writes, 0)
   assert.equal(captured.code, "B4_MEDIA_REMOTE_TIMEOUT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /both upload calls returned/i)
   for (const pathname of EXPECTED_UPLOAD_PATHS) {
     assert.match(captured.message, new RegExp(pathname.replace(".", "\\.")))
   }
@@ -4258,7 +4255,7 @@ test("HEAD timeout after all puts preserves safe identity and post-mutation guid
     captured.message,
     /verification outcome.*uncertain.*https:\/\/9rq8ezyghevy0wop\.public\.blob\.vercel-storage\.com\/b4\/demo\/product-loop\.mp4/is,
   )
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
 })
 
@@ -4302,15 +4299,15 @@ test("HEAD abort after all puts preserves safe abort identity without a secret-b
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 8)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.name, "AbortError")
   assert.equal(captured.code, "B4_MEDIA_REMOTE_ABORT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /all eight upload calls returned/i)
+  assert.match(captured.message, /both upload calls returned/i)
   assert.match(captured.message, /catalog.*not written|catalog.*withheld/i)
   assert.match(captured.message, /verification outcome.*uncertain/i)
-  assert.match(captured.message, /full eight-path.*replay|re-verif/is)
+  assert.match(captured.message, /full two-path.*replay|re-verif/is)
   assert.doesNotMatch(inspectErrorSurface(captured), new RegExp(token))
 })
 
@@ -4404,7 +4401,7 @@ test("timeout after prior puts reports uncertainty and full idempotent convergen
       },
       async put(pathname, _body, options) {
         puts += 1
-        if (puts < 3) {
+        if (puts < 2) {
           return {
             url: `${AUTHORIZED_MEDIA_ORIGIN}/${pathname}`,
           }
@@ -4423,14 +4420,14 @@ test("timeout after prior puts reports uncertainty and full idempotent convergen
   } catch (error) {
     captured = error
   }
-  assert.equal(puts, 3)
+  assert.equal(puts, 2)
   assert.equal(writes, 0)
   assert.equal(captured.code, "B4_MEDIA_REMOTE_TIMEOUT")
   assert.equal(captured.cause, undefined)
-  assert.match(captured.message, /confirmed completed.*product-loop\.mp4.*product-loop\.webm/is)
-  assert.match(captured.message, /potentially completed.*author\.mp4/is)
-  assert.match(captured.message, /definitely pending.*author\.webm.*run\.webm/is)
-  assert.match(captured.message, /full eight-path.*idempotent.*replay/is)
+  assert.match(captured.message, /confirmed completed stable paths: b4\/demo\/product-loop\.mp4\./is)
+  assert.match(captured.message, /potentially completed stable path: b4\/demo\/product-loop\.webm\./is)
+  assert.match(captured.message, /definitely pending stable paths: none\./is)
+  assert.match(captured.message, /full two-path.*idempotent.*replay/is)
   assert.doesNotMatch(inspectErrorSurface(captured), /timeout-secret/)
 })
 
@@ -4500,52 +4497,52 @@ test("catalog media URLs require exact stable paths with no authority or URL suf
     [
       "extra path prefix",
       "https://b4-media.public.blob.vercel-storage.com/extra/demo/product-loop.mp4",
-      /product-loop\.mp4.*exact stable path/i,
+      /productLoop\.mp4.*exact stable path/i,
     ],
     [
       "query suffix",
       "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4?unstable=1",
-      /product-loop\.mp4.*query|exact stable path/i,
+      /productLoop\.mp4.*query|exact stable path/i,
     ],
     [
       "fragment suffix",
       "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4#unstable",
-      /product-loop\.mp4.*fragment|exact stable path/i,
+      /productLoop\.mp4.*fragment|exact stable path/i,
     ],
     [
       "credentials",
       "https://user:secret@b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
-      /product-loop\.mp4.*credentials/i,
+      /productLoop\.mp4.*credentials/i,
     ],
     [
       "nonstandard port",
       "https://b4-media.public.blob.vercel-storage.com:8443/demo/product-loop.mp4",
-      /product-loop\.mp4.*port|same public origin/i,
+      /productLoop\.mp4.*port|same public origin/i,
     ],
     [
       "explicit default port",
       "https://b4-media.public.blob.vercel-storage.com:443/demo/product-loop.mp4",
-      /product-loop\.mp4.*explicit port/i,
+      /productLoop\.mp4.*explicit port/i,
     ],
     [
       "leading whitespace",
       " https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4",
-      /product-loop\.mp4.*canonical/i,
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "trailing whitespace",
       "https://b4-media.public.blob.vercel-storage.com/demo/product-loop.mp4 ",
-      /product-loop\.mp4.*canonical/i,
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "backslashes",
       "https://b4-media.public.blob.vercel-storage.com\\demo\\product-loop.mp4",
-      /product-loop\.mp4.*canonical/i,
+      /productLoop\.mp4.*canonical/i,
     ],
     [
       "uppercase host",
       "https://B4-MEDIA.public.blob.vercel-storage.com/demo/product-loop.mp4",
-      /product-loop\.mp4.*canonical/i,
+      /productLoop\.mp4.*canonical/i,
     ],
   ]) {
     const candidate = structuredClone(catalog)
@@ -4628,7 +4625,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
         value.productLoop.webm = ""
       },
       async () => response(200, "video/webm"),
-      /test\.webm.*HTTPS URL/i,
+      /productLoop\.webm.*HTTPS URL/i,
     ],
     [
       "non-200",
@@ -4638,7 +4635,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
           url.endsWith("product-loop.mp4") ? 404 : 200,
           url.endsWith(".mp4") ? "video/mp4" : "video/webm",
         ),
-      /author\.mp4.*200.*404/i,
+      /productLoop\.mp4.*200.*404/i,
     ],
     [
       "wrong type",
@@ -4652,7 +4649,7 @@ test("remote checker fails for a missing URL, non-200 status, or wrong content t
               ? "video/mp4"
               : "video/webm",
         ),
-      /run\.webm.*video\/webm.*application\/octet-stream/i,
+      /productLoop\.webm.*video\/webm.*application\/octet-stream/i,
     ],
   ]) {
     const candidate = structuredClone(catalog)
