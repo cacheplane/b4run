@@ -248,17 +248,22 @@ function windsHeader(basedOn, fcst) {
 }
 
 /**
- * The FB product (6, 12 or 24) of the cycle published by `now` whose FOR USE
- * window spans the whole flight, or null when none does. For a 1400Z departure
- * one always does (the cycle is at most 26 hours before the departure, and its
- * products cover 2 to 30 hours after it with no gaps); demo.test.mjs sweeps a
- * full day to hold that.
+ * The FB product (6, 12 or 24) of the cycle published by `now` that
+ * getWindsAloft picks for the departure (the first whose FOR USE window holds
+ * it, `from <= departure < to`), or null when none does or its window ends
+ * before the ETA, so a brief that calls the leg covered is true for the whole
+ * flight. For a 1400Z departure one always qualifies (the cycle is at most 26
+ * hours before the departure, its products cover 2 to 30 hours after it with
+ * no gaps, and every window edge is on the hour); demo.test.mjs sweeps a full
+ * day to hold that.
  */
 export function demoWindsProduct(now, departure, eta) {
   const basedOn = windsCycle(now)
   for (const fcst of [6, 12, 24]) {
     const header = windsHeader(basedOn, fcst)
-    if (header.forUseFrom <= departure && eta <= header.forUseTo) return { fcst, ...header }
+    if (header.forUseFrom <= departure && departure < header.forUseTo) {
+      return eta <= header.forUseTo ? { fcst, ...header } : null
+    }
   }
   return null
 }
@@ -355,9 +360,9 @@ export function demoScenario({ now = Date.now() } = {}) {
   // resolveDeparture: hours ahead to one decimal.
   const hoursAhead = Math.round(((departure - now) / HOUR_MS) * 10) / 10
   const eta = departure + NAVLOG.totals.eteMin * 60_000
-  // The FB product whose FOR USE window spans the flight. The scripted
-  // forecastHours names that product directly (getWindsAloft maps 6, 12 and 24
-  // to themselves), so the brief's "valid" time and coverage claim are true.
+  // The FB product getWindsAloft picks for validAtUtc (the departure), whose
+  // FOR USE window also reaches the ETA, so the brief's "valid <forUse>" and
+  // its coverage claim are true.
   const winds = demoWindsProduct(now, departure, eta)
   if (winds === null) {
     // Unreachable for a 1400Z departure (see demoWindsProduct); refuse rather
@@ -406,7 +411,7 @@ export function demoScenario({ now = Date.now() } = {}) {
         `${id}: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 320 at 8. ${awc.metars[id].rawOb} ${awc.tafs[id].rawTAF}`,
     ),
     "Winds per leg:",
-    `leg 1: 320/20 at ${ALTITUDE_FT} ft, ${WINDS_STATION}, valid ${winds.validAt}`,
+    `leg 1: 320/20 at ${ALTITUDE_FT} ft, ${WINDS_STATION}, valid ${winds.forUse}`,
     "Advisories: none",
     "Go/no-go note: VFR at both ends with a light northwest wind, and no AIRMET or SIGMET touches the route.",
   ].join("\n")
@@ -468,7 +473,7 @@ export function demoScenario({ now = Date.now() } = {}) {
       region: awc.windsRegion,
       station: WINDS_STATION,
       altitudeFt: ALTITUDE_FT,
-      forecastHours: windsForecastHours,
+      validAtUtc: departureUtc,
     })
     .callsTool("getAdvisories", { lat: WAYPOINTS[0].lat, lon: WAYPOINTS[0].lon })
     .callsTool("getAdvisories", { lat: WAYPOINTS[1].lat, lon: WAYPOINTS[1].lon })

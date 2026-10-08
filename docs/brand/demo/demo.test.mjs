@@ -6483,7 +6483,7 @@ test("the children brief from their own tools and turn 2 files the computed plan
       region: "chi",
       station: "MSP",
       altitudeFt: 4500,
-      forecastHours: scenario.windsForecastHours,
+      validAtUtc: scenario.departureUtc,
     })
     assert.ok(scenario.windsForecastHours >= 6 && scenario.windsForecastHours <= 24)
     assert.deepEqual(weather.calls[3].arguments, { lat: 44.9346, lon: -93.0603 })
@@ -6792,12 +6792,15 @@ test("the template's real tools parse the stub and agree with every scripted cal
       assert.equal(taf.periods.length, 1)
     }
     const winds = await run(windsCall)
+    assert.equal(winds.covered, true)
+    assert.equal(winds.forecastHours, scenario.windsForecastHours)
     assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
     assert.deepEqual(scenario.navlogInput.winds, [{ dirDegTrue: 320, speedKt: 20 }])
     for (const call of advisoryCalls) assert.deepEqual(await run(call), [])
     for (const metar of metars) assert.ok(scenario.weatherBrief.includes(metar.raw))
     for (const taf of tafs) assert.ok(scenario.weatherBrief.includes(taf.raw))
-    assert.ok(scenario.weatherBrief.includes(`valid ${winds.validAt}`))
+    assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
+    assert.doesNotMatch(scenario.weatherBrief, /preliminary/)
     assert.match(scenario.weatherBrief, /^Advisories: none$/m)
     assert.match(scenario.weatherBrief, /^Forecast horizon: Departure is within TAF and winds-aloft coverage\.$/m)
 
@@ -6871,7 +6874,7 @@ function forUseWindow(forUse, validAt) {
   return { from, to }
 }
 
-test("the stub's FB product covers the whole flight at every capture hour, through the real tool", async () => {
+test("the real tool picks the scenario's FB product, covering the whole flight, at every capture hour", async () => {
   const awcBaseUrlVariable = "B4_AWC_BASE_URL"
   const previous = process.env[awcBaseUrlVariable]
   try {
@@ -6887,7 +6890,16 @@ test("the stub's FB product covers the whole flight at every capture hour, throu
         // Each tsImport is a fresh module namespace, so the tools' shared AWC
         // client is rebuilt and reads this stub's base URL.
         const { default: getWindsAloft } = await importTemplate("server/src/tools/getWindsAloft.ts")
-        const winds = await getWindsAloft(windsCall.arguments, { signal: new AbortController().signal })
+        // The tool places the FB headers' day groups around its own clock,
+        // which in a capture is the clock the scenario was built from.
+        const realNow = Date.now
+        Date.now = () => now
+        let winds
+        try {
+          winds = await getWindsAloft(windsCall.arguments, { signal: new AbortController().signal })
+        } finally {
+          Date.now = realNow
+        }
         const departure = Date.parse(scenario.departureUtc)
         const eta = Date.parse(scenario.etaUtc)
         const label = new Date(now).toISOString()
@@ -6900,8 +6912,16 @@ test("the stub's FB product covers the whole flight at every capture hour, throu
           window.from <= departure && eta <= window.to,
           `${label}: FOR USE ${winds.forUse} (valid ${winds.validAt}) spans ${scenario.departureUtc}..${scenario.etaUtc}`,
         )
-        assert.equal(winds.forecastHours, windsCall.arguments.forecastHours)
-        assert.ok(scenario.weatherBrief.includes(`valid ${winds.validAt}`))
+        // The tool's own choice and window agree with the scenario's.
+        assert.equal(winds.validAtUtc, scenario.departureUtc)
+        assert.equal(winds.covered, true, `${label}: the departure is covered`)
+        assert.equal(winds.note, undefined)
+        assert.equal(winds.forecastHours, scenario.windsForecastHours)
+        assert.ok(
+          Date.parse(winds.forUseFromUtc) <= departure && eta <= Date.parse(winds.forUseToUtc),
+          `${label}: the tool's window ${winds.forUseFromUtc}..${winds.forUseToUtc} spans the flight`,
+        )
+        assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
         assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
       } finally {
         await stub.close()
