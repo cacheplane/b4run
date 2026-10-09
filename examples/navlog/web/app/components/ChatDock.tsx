@@ -44,13 +44,13 @@ function StatusBadge({ status }: { status: string | undefined }) {
     // word stays in the accessibility tree and in the tooltip.
     <span
       title={label}
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 max-md:border-transparent max-md:bg-transparent max-md:px-1 ${TONE_CLASS[tone]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 max-lg:border-transparent max-lg:bg-transparent max-lg:px-1 ${TONE_CLASS[tone]}`}
     >
       <span
         aria-hidden="true"
-        className={`size-1.5 rounded-full bg-current max-md:size-2 ${tone === "running" ? "motion-safe:animate-pulse" : ""} ${tone === "idle" ? "opacity-60" : ""}`}
+        className={`size-1.5 rounded-full bg-current max-lg:size-2 ${tone === "running" ? "motion-safe:animate-pulse" : ""} ${tone === "idle" ? "opacity-60" : ""}`}
       />
-      <span className="max-md:sr-only">{label}</span>
+      <span className="max-lg:sr-only">{label}</span>
     </span>
   )
 }
@@ -84,7 +84,7 @@ export function ChatDock({ header, status, memory, banner, notices, children }: 
         </h2>
         <StatusBadge status={status} />
       </header>
-      <div className="max-h-[30%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-md:max-h-[25%]">
+      <div className="max-h-[30%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-lg:max-h-[25%]">
         {memory}
       </div>
       {banner ? <div className="shrink-0 px-3 pt-2">{banner}</div> : null}

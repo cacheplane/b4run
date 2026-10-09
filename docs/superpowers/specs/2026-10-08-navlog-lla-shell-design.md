@@ -109,7 +109,7 @@ and fails on:
 
 `tracking-tight` (negative) is allowed.
 
-## 2. Desktop layout (768px and wider)
+## 2. Desktop layout (1024px and wider)
 
 The window is the grey canvas with a 12px gutter around and between three
 columns, each the full window height. There is no top bar.
@@ -173,7 +173,7 @@ All of `AppShell`'s behaviour: thread switching, the three error surfaces,
 approvals, the hover-leg map highlight, `SheetControlContext`, drop notices and
 memory refresh.
 
-## 3. Mobile layout (narrower than 768px)
+## 3. Mobile layout (narrower than 1024px)
 
 Top to bottom:
 

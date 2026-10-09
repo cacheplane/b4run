@@ -23,7 +23,7 @@ It is a workbench rather than a chat widget, and it is map-first:
   legs table, the ICAO flight plan items 7 to 19 and the brief. **Print** prints
   the sheet alone on one landscape page and **Copy FPL** copies the `(FPL-…)`
   message. Hovering a leg highlights it on the map.
-- **Phones.** Under 768 px: a top row, one full-screen panel and a bottom tab
+- **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
   bar (Chat, Map, Navlog, the navlog as one card per leg). The menu opens the
   sidenav as a drawer.
 

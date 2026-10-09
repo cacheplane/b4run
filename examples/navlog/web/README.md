@@ -49,7 +49,7 @@ a legacy base-URL POST.
   copies the filing-ready `(FPL-…)` message. Hovering or focusing a row highlights that
   leg on the map. The chat's opened `computeNavlog` step
   (`StepViews.tsx`) shows the totals and a link that opens the sheet.
-- **Phones** (under 768 px) — a top row (menu, wordmark, New plan), one full-screen panel,
+- **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
   and a bottom tab bar: **Chat**, **Map** and **Navlog** (one card per leg). Map and Navlog
   get a dot when a new navlog arrives while you are in the chat, and an approval always
   brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that

@@ -50,8 +50,8 @@ export interface WorkbenchLayoutProps {
 
 /** The margin the route fit keeps inside the map panel, in pixels. */
 const MAP_MARGIN = 24
-/** Tailwind's `md` breakpoint. */
-const DESKTOP_QUERY = "(min-width: 768px)"
+/** Tailwind's `lg` breakpoint. */
+const DESKTOP_QUERY = "(min-width: 1024px)"
 /** Where a phone panel sits: all three stack in one box, inside the gutter. */
 const PANEL_BOX = "absolute inset-x-2 top-0 bottom-2"
 
@@ -113,7 +113,7 @@ function Icon({ path }: { readonly path: string }) {
 }
 
 /**
- * Desktop (`md` and up): a grey canvas with three docked columns and no top
+ * Desktop (`lg` and up): a grey canvas with three docked columns and no top
  * bar: the sidenav, the chat, and the map stacked over the navlog sheet.
  * Phone: a top row (menu, wordmark, New plan), one full-screen panel, and a
  * bottom tab bar (Chat, Map, Navlog); the sidenav opens as a drawer.

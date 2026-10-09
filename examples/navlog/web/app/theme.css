@@ -237,7 +237,7 @@
 }
 
 /* Phones pinch to zoom; the buttons would only crowd the small map. */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .wb-map.leaflet-container .leaflet-control-zoom {
     display: none;
   }
