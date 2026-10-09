@@ -5,7 +5,7 @@
  * Restyling the app is editing this file.
  *
  * LiveLoveApp's rules: Hanken Grotesk and JetBrains Mono, ink plus one cobalt
- * accent (links, the focus ring and the selected thread only), pill buttons,
+ * accent (links, the focus ring, the selected thread and the hovered map leg only), pill buttons,
  * solid fills. Light only. `app/design-rules.test.ts` scans for the rest.
  *
  * (The activity kit's tokens are all mapped onto this palette in the
@@ -109,11 +109,13 @@
   --radius: var(--wb-radius);
   --cpk-font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
   --cpk-font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --cpk-default-font-family: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --cpk-default-mono-font-family: var(--font-jetbrains), ui-monospace, monospace;
 }
 /* CopilotKit paints `background-color: var(--background)` on every
    [data-copilotkit] element (the chat root, the message list, each message,
    the suggestions row, the input's full-width wrapper), so the dock's
-   translucent .wb-panel showed through none of them. Clear them in the dock.
+   white .wb-panel fill showed through none of them. Clear them in the dock.
    Elements with a data-slot (suggestion pills, tooltips, menus) keep their
    own fill, and the input box's fill is a class, not this attribute. */
 .wb-dock [data-copilotkit]:not([data-slot]) {
@@ -901,7 +903,7 @@
 }
 
 .wb-prose a {
-  color: inherit;
+  color: var(--wb-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }

@@ -96,11 +96,11 @@ The same file holds the focus ring (`wb-focus`), the wordmark
 (`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
 
 The look is light only: Hanken Grotesk and JetBrains Mono (loaded in
-`app/layout.tsx`), ink plus one cobalt accent for links, focus and the selected
-thread, pill buttons and solid fills. Flight-category, verdict and status
+`app/layout.tsx`), ink plus one cobalt accent for links, the focus ring, the selected
+thread and the hovered map leg, pill buttons and solid fills. Flight-category, verdict and status
 colors are data, shown as labelled chips and dots. `app/design-rules.test.ts`
-fails on uppercase, positive letter-spacing, gradients, shadows, glass, a dark
-scheme, or any other font.
+fails the test suite on uppercase, positive letter-spacing, gradients, shadows,
+glass, a dark scheme, or any Google font other than those two.
 
 It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max`
 and `--wb-gutter` for the layout, `--wb-route` for the route line, the

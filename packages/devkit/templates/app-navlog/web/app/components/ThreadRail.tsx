@@ -32,7 +32,7 @@ export const UNTITLED_THREAD_LABEL = "New conversation"
 const ROW_BASE =
   "block w-full truncate rounded-wb px-2.5 py-1.5 text-left text-[13px] transition-colors wb-focus pointer-coarse:py-3"
 
-const ROW_ACTIVE = "bg-wb-rail font-medium text-wb-text"
+const ROW_ACTIVE = "bg-wb-rail font-medium text-wb-accent"
 
 const ROW_IDLE = "text-wb-muted hover:bg-wb-rail hover:text-wb-text"
 
@@ -50,7 +50,7 @@ export function ThreadRail({
           <button
             type="button"
             onClick={onCreate}
-            className="w-full rounded-wb border border-wb-border bg-wb-surface px-3 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors hover:border-wb-muted wb-focus"
+            className="w-full rounded-full border border-wb-border bg-wb-surface px-3 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors hover:border-wb-muted wb-focus"
           >
             + New conversation
           </button>

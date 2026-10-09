@@ -187,11 +187,11 @@ the wordmark (`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
 
 The look follows [LiveLoveApp](https://liveloveapp.com)'s design rules: Hanken Grotesk
 and JetBrains Mono (loaded with `next/font/google` in `app/layout.tsx`), ink `#0d0d0d`
-plus one cobalt accent `#002fa7` used only for links, focus and the selected thread,
+plus one cobalt accent `#002fa7` used for links, the focus ring, the selected thread and the hovered map leg,
 pill buttons, solid fills. The app is light only. The flight-category, verdict and
 status colors are the one exception to the single accent: they are data, shown only as
-labelled chips and dots. `app/design-rules.test.ts` fails the build on uppercase,
-positive letter-spacing, gradients, shadows, glass, a dark scheme, or any other font.
+labelled chips and dots. `app/design-rules.test.ts` fails the test suite on uppercase,
+positive letter-spacing, gradients, shadows, glass, a dark scheme, or any Google font other than those two.
 
 It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max` and
 `--wb-gutter` for the layout, `--wb-route` for the route line, the `--wb-cat-*`

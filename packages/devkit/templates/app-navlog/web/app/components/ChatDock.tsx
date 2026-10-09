@@ -20,7 +20,7 @@ export interface ChatDockProps {
 
 /** The two header buttons' shared box: compact on a desktop pointer, 44 px tall under a finger. */
 const HEADER_BUTTON =
-  "wb-focus inline-flex min-h-7 shrink-0 items-center rounded-wb-sm px-2 text-[12px] transition-colors disabled:opacity-60 pointer-coarse:min-h-11 pointer-coarse:px-3"
+  "wb-focus inline-flex min-h-7 shrink-0 items-center rounded-full px-2 text-[12px] transition-colors disabled:opacity-60 pointer-coarse:min-h-11 pointer-coarse:px-3"
 
 /**
  * The run's state, as a word a person reads plus a dot: Running (pulsing,

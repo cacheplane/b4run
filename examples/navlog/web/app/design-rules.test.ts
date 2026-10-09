@@ -46,21 +46,27 @@ describe("design rules", () => {
 
   test("uses no positive letter-spacing", () => {
     expect(
-      offenders(/tracking-(wide|wider|widest)\b|tracking-\[0?\.\d|letter-spacing:\s*0?\.\d+em/),
+      offenders(
+        /tracking-(wide|wider|widest)\b|tracking-\[0?\.?\d|letter-spacing:\s*(?!-)\.?\d*[1-9]/,
+      ),
     ).toEqual([])
   })
 
   test("uses no gradients, shadows or glass", () => {
     expect(
-      offenders(/gradient|shadow-|box-shadow|drop-shadow|backdrop-blur|backdrop-filter/),
+      offenders(
+        /gradient|\bshadow\b|shadow-|box-shadow|text-shadow|drop-shadow|backdrop-blur|backdrop-filter/,
+      ),
     ).toEqual([])
   })
 
   test("has no dark scheme", () => {
-    expect(offenders(/prefers-color-scheme:\s*dark|data-wb-theme|\bdark:/)).toEqual([])
+    expect(
+      offenders(/prefers-color-scheme:\s*dark|data-wb-theme|\bdark:|\.dark\b|color-scheme:\s*dark/),
+    ).toEqual([])
   })
 
-  test("loads only Hanken Grotesk and JetBrains Mono", () => {
+  test("loads only Hanken Grotesk and JetBrains Mono from Google Fonts", () => {
     const names = files.flatMap(({ source }) =>
       [...source.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']next\/font\/google["']/g)].flatMap(
         (match) => (match[1] ?? "").split(",").map((name) => name.trim()),

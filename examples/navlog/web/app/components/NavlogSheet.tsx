@@ -117,7 +117,7 @@ export function NavlogSheet({
   return (
     <section
       // On the phone the sheet already sits in the bottom sheet's panel, so
-      // it drops its own glass and height cap instead of nesting a second card.
+      // it drops its own panel and height cap instead of nesting a second card.
       className={`wb-sheet flex flex-col ${
         collapsible ? "wb-panel max-h-[var(--wb-sheet-max)]" : "wb-sheet-flat"
       }`}
