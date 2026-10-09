@@ -69,9 +69,10 @@ const removeAll = (layers: RouteLayers): void => {
 }
 
 /**
- * The map behind everything. Leaflet is imported once, in the mount effect, so
- * this module never touches `window` on the server; `WorkbenchLayout` also
- * loads it with `next/dynamic` and `ssr: false` for the same reason.
+ * The route map: it fills its panel (the right column on desktop, the Map tab
+ * on phones). Leaflet is imported once, in the mount effect, so this module
+ * never touches `window` on the server; `WorkbenchLayout` also loads it with
+ * `next/dynamic` and `ssr: false` for the same reason.
  *
  * Three effects, in this order, and the order matters: DRAW (a new route),
  * STYLE (new flight categories) and FIT (a new route, or new room around it).

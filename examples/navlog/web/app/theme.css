@@ -123,13 +123,12 @@
 }
 
 /*
- * Layout tokens for the map-dominant workbench. The map fills the viewport;
- * the dock, the weather strip and the navlog sheet float over it.
+ * Layout tokens: the canvas's gutter, the sidenav's width, and how tall the open navlog sheet may grow inside the right column.
  */
 :root {
-  --wb-dock-width: min(380px, 34vw);
-  --wb-sheet-max: 46vh;
-  --wb-gutter: 16px;
+  --wb-nav-width: 200px;
+  --wb-sheet-max: 55dvh;
+  --wb-gutter: 12px;
   /* The route line is ink; the categories and statuses below carry the color. */
   --wb-route: var(--wb-text);
   --wb-route-casing: #ffffff;
@@ -182,16 +181,13 @@
 
 /*
  * The zoom and attribution controls share Leaflet's bottom-right corner (see
- * `RouteMap`). The weather strip owns the top and the dock the left, so
- * nothing else floats there; the corner rises above whatever floats along the
- * bottom (the sheet on desktop, the bottom sheet and weather row on phones) by
- * `--wb-map-inset-bottom`, which `WorkbenchLayout` measures. The OpenStreetMap
- * tile policy requires the attribution to stay visible.
+ * `RouteMap`). The weather chips own the top of the map panel, so nothing
+ * covers the corner; the OpenStreetMap tile policy requires the attribution to
+ * stay visible.
  */
 .wb-map .leaflet-bottom.leaflet-right {
-  bottom: calc(var(--wb-map-inset-bottom, 0px) + var(--wb-gutter) - 8px);
-  right: calc(var(--wb-gutter) - 10px);
-  transition: bottom 240ms ease;
+  bottom: 4px;
+  right: 2px;
 }
 
 .wb-map .leaflet-bottom.leaflet-right .leaflet-control {
@@ -389,23 +385,80 @@
   }
 }
 
-/* The phone's tabs: 44px targets with an underline on the selected one. */
+/* The phone's bottom tab bar: icon over label, 52px targets, ink when selected. */
 .wb-tab {
-  min-height: 44px;
-  border-bottom: 2px solid transparent;
-  padding: 0 12px;
-  font-size: 13.5px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  font-size: 11.5px;
   font-weight: 500;
   color: var(--wb-muted);
 }
 
 .wb-tab[aria-selected="true"] {
-  border-bottom-color: var(--wb-text);
+  font-weight: 650;
   color: var(--wb-text);
 }
 
 .wb-tab:disabled {
   opacity: 0.45;
+}
+
+/* A new result on a tab the pilot is not looking at. */
+.wb-tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--wb-surface);
+  border-radius: 999px;
+  background: var(--wb-accent);
+}
+
+/* The phone's top-row buttons: 44px round targets. */
+.wb-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+}
+
+.wb-icon-button:disabled {
+  opacity: 0.6;
+}
+
+.wb-icon-button-primary {
+  border-color: var(--wb-text);
+  background: var(--wb-text);
+  color: var(--wb-surface);
+}
+
+/* The phone's navigation drawer and the scrim behind it. */
+.wb-scrim {
+  background: rgb(13 13 13 / 0.3);
+}
+
+.wb-drawer {
+  animation: wb-drawer-in 200ms ease-out;
+}
+
+@keyframes wb-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 /* Flight-category chips and markers. Color never stands alone: every chip carries its text. */
@@ -721,8 +774,8 @@
   content: "";
 }
 
-/* The dock's disabled-input placeholder stays on one line (the textarea is
-   ~20 characters wide at 380px); an overlong one is cut, never wrapped. */
+/* The dock's disabled-input placeholder stays on one line (the textarea can be
+   narrow); an overlong one is cut, never wrapped. */
 .wb-dock textarea::placeholder {
   white-space: nowrap;
   overflow: hidden;
@@ -740,10 +793,13 @@
   .wb-sheet,
   .wb-dock,
   .wb-map .leaflet-tile,
-  .wb-map .leaflet-bottom.leaflet-right,
   .wb-button,
+  .wb-drawer,
   .wb-navlog-table tbody tr {
     transition: none;
+  }
+  .wb-drawer {
+    animation: none;
   }
 }
 
@@ -774,12 +830,15 @@
     border: 0 !important;
   }
   /*
-   * The sheet's ancestors are a full-viewport, overflow-hidden root and an
-   * absolutely positioned wrapper. Flattened, the sheet prints in the page flow
+   * The sheet's ancestors are a full-viewport grid (desktop) or flex column (phone). Flattened, the sheet prints in the page flow
    * at its full length instead of clipped to one screen.
    */
   .wb-root,
   .wb-sheet-wrap {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    display: block !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    padding: 0 !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     position: static !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
@@ -792,10 +851,12 @@
     overflow: visible !important;
   }
   .wb-sheet-actions,
-  .wb-sheet-grip,
-  .wb-sheet-tabs,
   .wb-sheet .wb-button {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    display: none !important;
+  }
+  .wb-print-hide {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     display: none !important;
   }
 }
