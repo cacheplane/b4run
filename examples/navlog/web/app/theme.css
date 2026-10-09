@@ -5,7 +5,7 @@
  * Restyling the app is editing this file.
  *
  * LiveLoveApp's rules: Hanken Grotesk and JetBrains Mono, ink plus one cobalt
- * accent (links, the focus ring, the selected thread and the hovered map leg only), pill buttons,
+ * accent (links, the focus ring, the selected thread and the selected map leg only), pill buttons,
  * solid fills. Light only. `app/design-rules.test.ts` scans for the rest.
  *
  * (The activity kit's tokens are all mapped onto this palette in the
