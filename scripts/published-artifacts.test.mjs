@@ -1615,6 +1615,7 @@ describe("AG-UI installed probes", () => {
     assert.match(source, /import \{ agUiContentType, encodeAgUiEvent \} from "@b4run\/ag-ui\/sse"/)
     assert.ok(
       source.includes(`assert.deepEqual(Object.keys(root).sort(), [
+  "B4_CONTENT_PARTS_DROPPED_EVENT",
   "B4_PLAN_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
@@ -1624,6 +1625,10 @@ describe("AG-UI installed probes", () => {
       "ESM probe must compare the complete sorted root export surface",
     )
     assert.match(source, /assert\.equal\(root\.B4_PLAN_ACTIVITY_TYPE, "b4\.plan"\)/)
+    assert.match(
+      source,
+      /assert\.equal\(root\.B4_CONTENT_PARTS_DROPPED_EVENT, "b4\.content_parts_dropped"\)/,
+    )
     assert.ok(
       source.includes(`for (const exportName of [
   "createCounterIdFactory",
@@ -3336,6 +3341,7 @@ async function createAgUiProbeFixture(options = {}) {
 export function createDefaultIdFactory() {}
 export function fromRunAgentInput(input) { return input }
 export function toAguiEvents(events) { return events }
+export const B4_CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
 export { B4_PLAN_ACTIVITY_TYPE } from "./activities.js"
 `
   const canonicalFunctionDeclarations = {
@@ -3361,6 +3367,7 @@ export interface AguiOutboundEvent { readonly type: string }
 export interface ToAguiOptions { readonly idFactory?: IdFactory }
 export type B4AgentStreamChunk = { readonly type: string; readonly data?: unknown }
 export interface RunContext { readonly threadId: string; readonly runId: string }
+export declare const B4_CONTENT_PARTS_DROPPED_EVENT: "b4.content_parts_dropped"
 export { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "./activities.js"
 ${includedFunctionDeclarations}
 ${options.extraRootDeclarations ?? ""}`
