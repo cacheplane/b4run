@@ -345,6 +345,19 @@
   white-space: nowrap;
 }
 
+/*
+ * One pane: the window never scrolls, only the panels' own regions do (the
+ * transcript, the thread list, the navlog, the memory list). Without this, any
+ * absolutely positioned descendant whose containing block sits outside its
+ * scroller (the activity kit's visually hidden labels, for one) stretches the
+ * document and the whole page scrolls. Print flattens it back below.
+ */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 /* A surface: solid white, a hairline, the workbench radius. No glass, no lift. */
 .wb-panel {
   border: 1px solid var(--wb-border);
@@ -925,6 +938,13 @@
   @page {
     size: landscape;
     margin: 12mm;
+  }
+  html,
+  body {
+    /* biome-ignore lint/complexity/noImportantStyles: print must undo the one-pane lock */
+    height: auto !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must undo the one-pane lock */
+    overflow: visible !important;
   }
   body * {
     visibility: hidden;

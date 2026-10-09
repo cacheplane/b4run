@@ -203,8 +203,9 @@ export function WorkbenchLayout({
 
   const closeMemory = useCallback(() => {
     setMemoryOpen(false)
-    // Back to the control that opened it (the drawer's copy is gone on a phone).
-    requestAnimationFrame(() => memoryButton.current?.focus())
+    // Back to the control that opened it; on a phone the drawer copy is gone,
+    // so the menu button that opens the drawer takes focus instead.
+    requestAnimationFrame(() => (memoryButton.current ?? menuButton.current)?.focus())
   }, [])
 
   const toggleMemory = useCallback(() => {
