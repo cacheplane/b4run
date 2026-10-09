@@ -87,6 +87,10 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   const container = useRef<HTMLElement>(null)
   const layers = useRef<RouteLayers>(NO_LAYERS)
   const highlightRef = useRef<number | null>(highlightedLeg)
+  // A fit asked for while the map had no size (a hidden panel, a layout not
+  // yet laid out): fitting a 0×0 box zooms all the way in, so it waits here
+  // and RESIZE runs it once the map has a size.
+  const pendingFit = useRef<(() => void) | null>(null)
   // State, not a ref: the effects below must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
   const [leaflet, setLeaflet] = useState<{ L: LeafletModule; map: LeafletMap } | null>(null)
@@ -130,12 +134,20 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
 
   // RESIZE: the map fills a panel now, not the viewport. The panel changes
   // size when the navlog sheet opens or closes, and goes from zero to full
-  // size when a phone's Map tab is shown; Leaflet must re-measure each time
-  // or it draws tiles for the old box.
+  // size if the map first lays out hidden; Leaflet must re-measure each time
+  // or it draws tiles for the old box. A fit that found no size runs here.
   useEffect(() => {
     if (leaflet === null || container.current === null) return
     if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(() => leaflet.map.invalidateSize())
+    const observer = new ResizeObserver(() => {
+      leaflet.map.invalidateSize()
+      const pending = pendingFit.current
+      if (pending === null) return
+      const size = leaflet.map.getSize()
+      if (size.x === 0 || size.y === 0) return
+      pendingFit.current = null
+      pending()
+    })
     observer.observe(container.current)
     return () => observer.disconnect()
   }, [leaflet])
@@ -203,19 +215,31 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   // never moves the map under the pilot. No animation under reduced motion.
   const { left, top, bottom } = padding
   useEffect(() => {
-    if (leaflet === null || geometry === null) return
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-    leaflet.map.fitBounds(
-      [
-        [geometry.bounds[0][0], geometry.bounds[0][1]],
-        [geometry.bounds[1][0], geometry.bounds[1][1]],
-      ],
-      {
-        paddingTopLeft: [left, top],
-        paddingBottomRight: [72, bottom],
-        ...(reduceMotion ? { animate: false } : {}),
-      },
-    )
+    if (leaflet === null || geometry === null) {
+      pendingFit.current = null
+      return
+    }
+    const fitRoute = (): void => {
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+      leaflet.map.fitBounds(
+        [
+          [geometry.bounds[0][0], geometry.bounds[0][1]],
+          [geometry.bounds[1][0], geometry.bounds[1][1]],
+        ],
+        {
+          paddingTopLeft: [left, top],
+          paddingBottomRight: [72, bottom],
+          ...(reduceMotion ? { animate: false } : {}),
+        },
+      )
+    }
+    const size = leaflet.map.getSize()
+    if (size.x === 0 || size.y === 0) {
+      pendingFit.current = fitRoute
+      return
+    }
+    pendingFit.current = null
+    fitRoute()
   }, [leaflet, geometry, left, top, bottom])
 
   useEffect(() => {

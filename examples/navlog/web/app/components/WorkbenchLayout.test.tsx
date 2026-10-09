@@ -205,6 +205,22 @@ describe("WorkbenchLayout phone tabs and drawer", () => {
     expect(view.container.querySelector("#wb-tab-navlog .wb-tab-dot")).not.toBeNull()
     view.unmount()
   })
+  test("an inactive panel keeps its size: invisible and inert, never hidden", () => {
+    const view = mount()
+    const panel = (id: string) => view.container.querySelector(`#wb-panel-${id}`) as HTMLElement
+    const isHidden = (element: HTMLElement) =>
+      element.classList.contains("invisible") && element.hasAttribute("inert")
+    expect(isHidden(panel("map"))).toBe(true)
+    expect(panel("map").hidden).toBe(false)
+    expect(panel("map").classList.contains("hidden")).toBe(false)
+    expect(panel("chat").classList.contains("invisible")).toBe(false)
+    expect(panel("chat").hasAttribute("inert")).toBe(false)
+    view.click("#wb-tab-map")
+    expect(panel("map").classList.contains("invisible")).toBe(false)
+    expect(panel("map").hasAttribute("inert")).toBe(false)
+    expect(isHidden(panel("chat"))).toBe(true)
+    view.unmount()
+  })
   test("an approval switches back to Chat", () => {
     const view = mount()
     view.click("#wb-tab-navlog")

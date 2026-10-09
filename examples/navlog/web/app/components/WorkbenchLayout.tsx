@@ -52,6 +52,8 @@ export interface WorkbenchLayoutProps {
 const MAP_MARGIN = 24
 /** Tailwind's `md` breakpoint. */
 const DESKTOP_QUERY = "(min-width: 768px)"
+/** Where a phone panel sits: all three stack in one box, inside the gutter. */
+const PANEL_BOX = "absolute inset-x-2 top-0 bottom-2"
 
 type PhoneTab = "chat" | "map" | "navlog"
 
@@ -305,17 +307,21 @@ export function WorkbenchLayout({
           </button>
         </header>
         {/*
-          All three panels stay mounted and the inactive ones are hidden with
-          a class, not unmounted: a switch keeps the chat's scroll position,
-          the input's draft and any parked approval card, the map keeps its
-          view, and the navlog panel still prints (`print:block`) from any tab.
+          All three panels stay mounted, stacked in one box, and the inactive
+          ones are hidden with `invisible` and `inert`, not unmounted and not
+          `display: none`: a switch keeps the chat's scroll position, the
+          input's draft and any parked approval card; the map keeps its size
+          (so its fit and the strip's measured height stay right) and the
+          pilot's view; and the navlog panel still prints from any tab (the
+          print rules make `.wb-sheet` visible and flatten its wrapper).
         */}
-        <div className="relative min-h-0 flex-1 px-2 pb-2">
+        <div className="relative min-h-0 flex-1">
           <div
             role="tabpanel"
             id="wb-panel-chat"
             aria-labelledby="wb-tab-chat"
-            className={`h-full min-h-0 flex-col print:hidden ${activeTab === "chat" ? "flex" : "hidden"}`}
+            inert={activeTab !== "chat"}
+            className={`${PANEL_BOX} flex min-h-0 flex-col print:hidden ${activeTab === "chat" ? "" : "invisible"}`}
           >
             {chat}
           </div>
@@ -323,7 +329,8 @@ export function WorkbenchLayout({
             role="tabpanel"
             id="wb-panel-map"
             aria-labelledby="wb-tab-map"
-            className={`wb-panel relative h-full overflow-hidden print:hidden ${activeTab === "map" ? "" : "hidden"}`}
+            inert={activeTab !== "map"}
+            className={`wb-panel ${PANEL_BOX} overflow-hidden print:hidden ${activeTab === "map" ? "" : "invisible"}`}
           >
             {map}
             <div
@@ -338,7 +345,8 @@ export function WorkbenchLayout({
               role="tabpanel"
               id="wb-panel-navlog"
               aria-labelledby="wb-tab-navlog"
-              className={`wb-sheet-wrap h-full overflow-auto ${activeTab === "navlog" ? "" : "hidden print:block"}`}
+              inert={activeTab !== "navlog"}
+              className={`wb-sheet-wrap ${PANEL_BOX} overflow-auto ${activeTab === "navlog" ? "" : "invisible"}`}
             >
               <NavlogSheet
                 navlog={navlog}
