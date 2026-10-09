@@ -57,7 +57,7 @@ export function Drawer({ id, onClose, children }: DrawerProps) {
         id={id}
         role="dialog"
         aria-modal="true"
-        aria-label="Navigation"
+        aria-label="Menu"
         className="wb-drawer absolute inset-y-0 left-0 flex w-[80%] max-w-80 p-2 pt-[max(8px,env(safe-area-inset-top))] pb-[max(8px,env(safe-area-inset-bottom))]"
       >
         {children}

@@ -31,9 +31,8 @@ export interface SideNavProps {
  * panel stays above the conversation (see `memory-anchor.ts`). With nothing
  * waiting the item is disabled rather than hidden, so the nav does not jump.
  *
- * "New plan" is disabled until hydration for the reason the dock's header
- * buttons were: it is in the server render, and a click before its handler
- * exists is dropped.
+ * "New plan" is disabled until hydration: it is in the server render, and a
+ * click before its handler exists would be dropped.
  */
 export function SideNav({
   brand,

@@ -123,7 +123,8 @@
 }
 
 /*
- * Layout tokens: the canvas's gutter, the sidenav's width, and how tall the open navlog sheet may grow inside the right column.
+ * Layout tokens: the canvas's gutter, the sidenav's width, and how tall the
+ * open navlog sheet may grow inside the right column.
  */
 :root {
   --wb-nav-width: 200px;
@@ -237,7 +238,7 @@
 }
 
 /* Phones pinch to zoom; the buttons would only crowd the small map. */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .wb-map.leaflet-container .leaflet-control-zoom {
     display: none;
   }
@@ -417,7 +418,7 @@
   height: 8px;
   border: 2px solid var(--wb-surface);
   border-radius: 999px;
-  background: var(--wb-accent);
+  background: var(--wb-text);
 }
 
 /* The phone's top-row buttons: 44px round targets. */
@@ -445,7 +446,7 @@
 
 /* The phone's navigation drawer and the scrim behind it. */
 .wb-scrim {
-  background: rgb(13 13 13 / 0.3);
+  background: color-mix(in srgb, var(--wb-text) 30%, transparent);
 }
 
 .wb-drawer {
@@ -806,8 +807,7 @@
 /*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
  * sheet's own position, height and border come from rules (utilities and
- * `.wb-panel`) this block must beat whatever their
- * specificity.
+ * `.wb-panel`) this block must beat whatever their specificity.
  */
 @media print {
   @page {
@@ -830,8 +830,11 @@
     border: 0 !important;
   }
   /*
-   * The sheet's ancestors are a full-viewport grid (desktop) or flex column (phone). Flattened, the sheet prints in the page flow
-   * at its full length instead of clipped to one screen.
+   * The sheet's ancestors are a full-viewport grid (desktop) or flex column
+   * (phone), and on a phone its wrapper is an absolutely placed, possibly
+   * invisible tab panel. Flattened, the sheet prints in the page flow at its
+   * full length instead of clipped to one screen, from any tab: the wrapper's
+   * `visibility: hidden` does not reach `.wb-sheet`, which sets its own.
    */
   .wb-root,
   .wb-sheet-wrap {

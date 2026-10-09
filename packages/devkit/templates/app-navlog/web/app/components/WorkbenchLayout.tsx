@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -50,8 +51,10 @@ export interface WorkbenchLayoutProps {
 
 /** The margin the route fit keeps inside the map panel, in pixels. */
 const MAP_MARGIN = 24
-/** Tailwind's `md` breakpoint. */
-const DESKTOP_QUERY = "(min-width: 768px)"
+/** Tailwind's `lg` breakpoint. */
+const DESKTOP_QUERY = "(min-width: 1024px)"
+/** Where a phone panel sits: all three stack in one box, inside the gutter. */
+const PANEL_BOX = "absolute inset-x-2 top-0 bottom-2"
 
 type PhoneTab = "chat" | "map" | "navlog"
 
@@ -111,7 +114,7 @@ function Icon({ path }: { readonly path: string }) {
 }
 
 /**
- * Desktop (`md` and up): a grey canvas with three docked columns and no top
+ * Desktop (`lg` and up): a grey canvas with three docked columns and no top
  * bar: the sidenav, the chat, and the map stacked over the navlog sheet.
  * Phone: a top row (menu, wordmark, New plan), one full-screen panel, and a
  * bottom tab bar (Chat, Map, Navlog); the sidenav opens as a drawer.
@@ -165,8 +168,12 @@ export function WorkbenchLayout({
   }, [awaitingApproval])
 
   // A new navlog while the pilot is in the chat: dot the two tabs that show it.
+  // Read by the navlog effect below. A layout effect runs before every
+  // passive effect of the same commit, so it always sees this render's tab.
   const activeTabRef = useRef(activeTab)
-  activeTabRef.current = activeTab
+  useLayoutEffect(() => {
+    activeTabRef.current = activeTab
+  }, [activeTab])
   const previousNavlog = useRef(navlog)
   useEffect(() => {
     if (navlog !== null && navlog !== previousNavlog.current && activeTabRef.current === "chat") {
@@ -174,6 +181,12 @@ export function WorkbenchLayout({
     }
     previousNavlog.current = navlog
   }, [navlog])
+
+  // The drawer is the phone's; a window widened past the breakpoint with it
+  // open must not bring it back on the next narrowing.
+  useEffect(() => {
+    if (isDesktop) setDrawerOpen(false)
+  }, [isDesktop])
 
   const selectTab = useCallback((next: PhoneTab): void => {
     setTab(next)
@@ -305,17 +318,21 @@ export function WorkbenchLayout({
           </button>
         </header>
         {/*
-          All three panels stay mounted and the inactive ones are hidden with
-          a class, not unmounted: a switch keeps the chat's scroll position,
-          the input's draft and any parked approval card, the map keeps its
-          view, and the navlog panel still prints (`print:block`) from any tab.
+          All three panels stay mounted, stacked in one box, and the inactive
+          ones are hidden with `invisible` and `inert`, not unmounted and not
+          `display: none`: a switch keeps the chat's scroll position, the
+          input's draft and any parked approval card; the map keeps its size
+          (so its fit and the strip's measured height stay right) and the
+          pilot's view; and the navlog panel still prints from any tab (the
+          print rules make `.wb-sheet` visible and flatten its wrapper).
         */}
-        <div className="relative min-h-0 flex-1 px-2 pb-2">
+        <div className="relative min-h-0 flex-1">
           <div
             role="tabpanel"
             id="wb-panel-chat"
             aria-labelledby="wb-tab-chat"
-            className={`h-full min-h-0 flex-col print:hidden ${activeTab === "chat" ? "flex" : "hidden"}`}
+            inert={activeTab !== "chat"}
+            className={`${PANEL_BOX} flex min-h-0 flex-col print:hidden ${activeTab === "chat" ? "" : "invisible"}`}
           >
             {chat}
           </div>
@@ -323,7 +340,8 @@ export function WorkbenchLayout({
             role="tabpanel"
             id="wb-panel-map"
             aria-labelledby="wb-tab-map"
-            className={`wb-panel relative h-full overflow-hidden print:hidden ${activeTab === "map" ? "" : "hidden"}`}
+            inert={activeTab !== "map"}
+            className={`wb-panel ${PANEL_BOX} overflow-hidden print:hidden ${activeTab === "map" ? "" : "invisible"}`}
           >
             {map}
             <div
@@ -338,7 +356,8 @@ export function WorkbenchLayout({
               role="tabpanel"
               id="wb-panel-navlog"
               aria-labelledby="wb-tab-navlog"
-              className={`wb-sheet-wrap h-full overflow-auto ${activeTab === "navlog" ? "" : "hidden print:block"}`}
+              inert={activeTab !== "navlog"}
+              className={`wb-sheet-wrap ${PANEL_BOX} overflow-auto ${activeTab === "navlog" ? "" : "invisible"}`}
             >
               <NavlogSheet
                 navlog={navlog}
@@ -366,7 +385,10 @@ export function WorkbenchLayout({
                 role="tab"
                 id={`wb-tab-${item.id}`}
                 aria-selected={activeTab === item.id}
-                aria-controls={`wb-panel-${item.id}`}
+                // The Navlog panel only exists with a navlog.
+                {...(item.id === "navlog" && navlog === null
+                  ? {}
+                  : { "aria-controls": `wb-panel-${item.id}` })}
                 disabled={item.id !== "chat" && navlog === null}
                 className="wb-focus wb-tab"
                 onClick={() => selectTab(item.id)}
