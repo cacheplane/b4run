@@ -5,7 +5,7 @@ A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
 workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in a
-floating dock inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
+the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
 `performance` subagents, tool steps and approval appear in the conversation, and the
 map, sheet and weather strip read the same turns from outside the chat.
 
@@ -62,7 +62,7 @@ a legacy base-URL POST.
   message the chat shows the starter suggestions (`DemoSuggestions.tsx`). The input waits
   while an approval is open, and takes PNG, JPEG, GIF and WebP attachments up to 4 MB when
   the route's model takes images; a refused file gets one dismissible line above the chat.
-  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the dock
+  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the chat column
   (`DropNotices.tsx`), and run errors as a banner (`RunError.tsx`).
 
 ### How data reaches the map and the sheet
@@ -98,7 +98,7 @@ browser
   `useSingleEndpoint={false}`, a 100 ms render throttle) plus a
   `CopilotChatConfigurationProvider` carrying the active thread id. `AppShell` mounts
   `<B4Activity key={threadId}>` (keyed so a thread switch resets the turns and any open
-  approval) and the dock's `NavlogChat` inside it.
+  approval) and the chat column's `NavlogChat` inside it.
 
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
 (`"default"`), which the runtime route registers as the B4.run `/navlog` agent — same
@@ -111,7 +111,7 @@ CopilotKit's `connect`; the runtime route's runner (`createB4AgentRunner`) answe
 `GET /threads/:id/events` from B4.run's checkpoints as the AG-UI events a live run would
 have sent — messages, the turns (plan, subagents, tool steps), attachments and tool
 media, and a parked approval. A restored thread and a live one therefore render through
-one path, and the browser never reads thread state itself. The thread rail
+one path, and the browser never reads thread state itself. The thread list
 (`app/lib/thread-source.ts`) keeps only ids, titles and recency in `localStorage`.
 
 A thread with no checkpoint yet (a brand-new one) restores as an empty chat, not an
@@ -149,7 +149,7 @@ The panel is **candidates only**. It lists what the agent proposed with `remembe
 offers two decisions per candidate: **Approve** (`/approve`, which reports back when the
 new record supersedes an older belief) and **Delete** (`/reject`, a hard delete on the
 server with no undo — hence the label, not "Dismiss"). It shows at most three at a time
-and counts the rest, so it cannot push the thread list off the rail. With no candidates it
+and counts the rest, so it cannot push the thread list off the sidenav. With no candidates it
 renders nothing at all — except the one line reporting the outcome of the decision you
 just made, or a load failure. It cannot browse, search, or edit stored
 memories — that is still `b4 memory list` and the rest of the `b4 memory` CLI.
@@ -239,7 +239,7 @@ by unit tests only.
   before you ship. Offline, the map is blank and the route, markers and labels still
   draw on it. It opens on the continental US until a navlog arrives.
 
-- **Threads are local to the browser.** The rail keeps its own list in `localStorage`
+- **Threads are local to the browser.** The sidenav keeps its own list in `localStorage`
   (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer
