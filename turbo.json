@@ -41,7 +41,8 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/pnpm-lock.yaml",
         "$TURBO_ROOT$/examples/chat/web/package.json",
-        "$TURBO_ROOT$/examples/navlog/web/package.json"
+        "$TURBO_ROOT$/examples/navlog/web/package.json",
+        "$TURBO_ROOT$/scripts/published-artifact-smoke.mjs"
       ]
     },
     "@b4run/cli#test": {
