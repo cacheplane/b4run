@@ -930,6 +930,42 @@ body {
 }
 
 /*
+ * The navlog grid (pretable). Its tokens mapped onto the workbench's, so it
+ * reads as this app rather than pretable's house look: our fonts, ink, rules
+ * and cobalt focus; flat (no shadows) per LiveLoveApp's rules.
+ */
+.wb-navlog-grid {
+  --pretable-font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --pretable-font-size-cell: 13px;
+  --pretable-font-size-header: 12px;
+  --pretable-text-cell: var(--wb-text);
+  --pretable-text-header: var(--wb-muted);
+  --pretable-text-dim: var(--wb-muted);
+  --pretable-bg-grid: var(--wb-surface);
+  --pretable-bg-grid-alt: var(--wb-surface);
+  --pretable-bg-pinned: var(--wb-surface);
+  --pretable-bg-header: var(--wb-surface);
+  --pretable-bg-hover: var(--wb-rail);
+  --pretable-bg-selected: color-mix(in srgb, var(--wb-accent) 8%, var(--wb-surface));
+  --pretable-selection-bg: color-mix(in srgb, var(--wb-accent) 8%, var(--wb-surface));
+  --pretable-text-selected: var(--wb-text);
+  --pretable-rule: var(--wb-border);
+  --pretable-rule-header: var(--wb-border);
+  --pretable-accent: var(--wb-accent);
+  --pretable-focus-ring: var(--wb-accent);
+  --pretable-cell-padding-x: 8px;
+  --pretable-shadow-card: none;
+  --pretable-shadow-header: none;
+  --pretable-shadow-overlay: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Figures in mono; the leg name stays in the text face. */
+.wb-navlog-grid [data-pretable-cell]:not([data-pretable-column-id="leg"]) {
+  font-family: var(--font-mono);
+}
+
+/*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
  * sheet's own position, height and border come from rules (utilities and
  * `.wb-panel`) this block must beat whatever their specificity.
