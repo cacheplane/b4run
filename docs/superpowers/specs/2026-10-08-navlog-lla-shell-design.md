@@ -249,6 +249,28 @@ the sheet.
 
 `@b4-example/navlog-web` is private, so no changeset.
 
+### Constraints found while planning
+
+- **Scaffold template parity.** Every file under `examples/navlog/web/app` has a
+  byte-for-byte twin under `packages/devkit/templates/app-navlog/web/app` (test
+  files with a `.template` suffix), enforced by
+  `packages/devkit/test/templates.test.ts`, which also counts the template's
+  test files. Both PRs mirror every change there. The template's own
+  `web/README.md` is written separately and is updated by hand.
+- **The workbench harness.** `test/harness/workbench-*.ts` drives the scaffolded
+  app in Chromium (part of `harness-verify` in `validate`) by accessible name:
+  "+ New conversation", "Threads", "Send", the "Memory candidates" region,
+  `section[aria-label="Chat"]`, `main`, and axe colour-contrast. PR 1 keeps all
+  of them. PR 2 removes the "Threads" disclosure, so it updates
+  `workbench-suggestions.ts` to pick the thread from the sidenav, and keeps
+  "+ New conversation" as the New plan button's accessible name.
+- **Memory placement (open for PR 2).** `ChatDock` deliberately shows
+  `MemoryPanel` inline above the conversation, and only when a candidate is
+  waiting, so a proposed memory is seen without hunting (the teach journey in
+  the harness relies on it). Section 2's "Memory opens in place of the
+  conversation" would hide new candidates behind a click. PR 2's plan settles
+  this before implementation.
+
 ### Delivery
 
 Two PRs, merged in order:
