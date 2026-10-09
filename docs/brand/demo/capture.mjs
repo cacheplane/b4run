@@ -789,35 +789,15 @@ export async function openReadyWorkbench(page, url) {
 }
 
 /**
- * The map Workbench keeps its thread list behind a "Threads" disclosure button
- * in the chat dock (`ChatDock.tsx`). Opens it if it is closed and returns the
- * toggle, so the caller can close it again once it has used a row: left open,
- * the list floats over the transcript.
+ * The map Workbench shows its thread list in the desktop sidenav
+ * (`SideNav.tsx`, rendering `ThreadRail`): always visible, never behind a
+ * toggle. Waits for that list, so a row wait after it is waiting on the row,
+ * not on the layout.
  */
-async function openThreadList(page, { timeoutMs = 60_000, settleMs = 2_000, pollMs = 100 } = {}) {
-  const toggle = page.getByRole("button", { name: "Threads", exact: true })
-  await toggle.waitFor({ state: "visible", timeout: timeoutMs })
-  const deadline = Date.now() + timeoutMs
-  // The Workbench disables the toggle until React has hydrated, and
-  // Playwright's click waits for "enabled", so the first click normally
-  // works. The poll is the backstop: a click that is still dropped (CI load
-  // put one before hydration) gets re-sent once its settle window passes,
-  // instead of the journey waiting 60s on a list that never opened.
-  while ((await toggle.getAttribute("aria-expanded")) !== "true") {
-    if (Date.now() > deadline) {
-      throw new Error("The Workbench thread list did not open: Threads stayed aria-expanded=false")
-    }
-    await toggle.click({ timeout: Math.max(1, deadline - Date.now()) })
-    const settleBy = Date.now() + settleMs
-    while (Date.now() < settleBy && (await toggle.getAttribute("aria-expanded")) !== "true") {
-      await new Promise((resolve) => setTimeout(resolve, pollMs))
-    }
-  }
-  // Expanded is the state; the list itself being laid out is what a row wait needs.
+async function openThreadList(page, { timeoutMs = 60_000 } = {}) {
   await page
     .getByRole("navigation", { name: "Conversations" })
-    .waitFor({ state: "visible", timeout: Math.max(1, deadline - Date.now()) })
-  return toggle
+    .waitFor({ state: "visible", timeout: timeoutMs })
 }
 
 /** A thread row, scrolled into the list's visible area before it is waited on. */
@@ -827,18 +807,13 @@ async function threadRow(page, name) {
   return row
 }
 
-async function closeThreadList(toggle) {
-  if ((await toggle.getAttribute("aria-expanded")) === "true") await toggle.click()
-}
-
 export async function fillActiveWorkbenchComposer(page, prompt) {
   requireString(prompt, "prompt")
   // The untitled active thread's row is the readiness proof: it exists only
   // once the Workbench has created or restored the thread a send binds to.
-  const threads = await openThreadList(page)
+  await openThreadList(page)
   const activeRow = await threadRow(page, "New conversation")
   await activeRow.waitFor({ state: "visible", timeout: 60_000 })
-  await closeThreadList(threads)
   const messageBox = page.getByRole("textbox", { name: "Message" })
   await messageBox.fill(prompt)
 }
@@ -1010,19 +985,16 @@ export async function restoreWorkbenchThread(page, options) {
   )
   const interaction = Promise.resolve().then(async () => {
     await page.reload({ waitUntil: "domcontentloaded" })
-    const threads = await openThreadList(page)
+    await openThreadList(page)
     const row = await threadRow(page, prompt)
     await row.waitFor({ state: "visible", timeout: 60_000 })
     await row.click()
     // Selecting another thread remounts the workbench (the activity is keyed
-    // by the thread), which closes the list and detaches this row: the dock
-    // title is the evidence the selection took, not the row's aria-current.
+    // by the thread), which can detach this row: the chat header's title is
+    // the evidence the selection took, not the row's aria-current.
     await page
       .getByRole("heading", { level: 2, name: prompt, exact: true })
       .waitFor({ state: "visible", timeout: 60_000 })
-    // The reload usually lands on this thread already (the newest is active),
-    // and re-selecting it remounts nothing, so the list is still open.
-    await closeThreadList(threads)
   })
   const [response] = await Promise.all([connected, interaction])
   if (!response.ok()) {
@@ -1118,7 +1090,7 @@ export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
 /**
  * Scrolls `locator` to the middle of its nearest scrolling ancestor (the
  * transcript) and nothing else. `scrollIntoView` would also scroll the
- * Workbench's `overflow: hidden` root, pushing the weather strip and the dock
+ * Workbench's `overflow: hidden` root, pushing the weather strip and the chat
  * header out of the top of the page, which no reader's scroll can do.
  */
 export async function centerInScroller(locator) {
@@ -1193,7 +1165,7 @@ export async function assertRouteMap(page, { headingLabel, airports }) {
 }
 
 /**
- * The memory panel (under the dock's header) lists the suggested candidate,
+ * The memory panel (under the chat's header) lists the suggested candidate,
  * with the page unscrolled so the `memory` framing holds all of it: the fact
  * and its Approve and Delete buttons.
  */
@@ -2113,7 +2085,7 @@ export async function captureDemo({
         await focus("sheet")
       },
       async "file-approve"() {
-        // The approval framing holds the bottom of the dock: the composer,
+        // The approval framing holds the bottom of the chat: the composer,
         // its Send button and, once it opens, the card above them. Every
         // click lands on screen without moving the camera.
         await browserPhase("request filing", () =>
