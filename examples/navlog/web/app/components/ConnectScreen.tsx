@@ -1,4 +1,5 @@
-import { neutralButton } from "./ui"
+import { primaryButton } from "./ui"
+import { Wordmark } from "./Wordmark"
 
 export interface ConnectScreenProps {
   /**
@@ -44,8 +45,8 @@ export function ConnectScreen({ serverUrl, onRetry }: ConnectScreenProps) {
   return (
     <div className="flex h-dvh items-center justify-center bg-wb-bg px-6">
       <div className="max-w-md text-center">
-        <span className="wb-brand-mark text-[15px] font-semibold tracking-tight">
-          B4.run navlog
+        <span className="text-[16px]">
+          <Wordmark />
         </span>
         <h1 className="mt-6 text-xl font-semibold tracking-tight">{CONNECT_SCREEN_HEADING}</h1>
         <p className="mt-3 text-sm leading-6 text-wb-muted">
@@ -64,7 +65,7 @@ export function ConnectScreen({ serverUrl, onRetry }: ConnectScreenProps) {
           Set a real <code className="text-[13px]">OPENAI_API_KEY</code> in that{" "}
           <code className="text-[13px]">server/.env</code> — there is no keyless demo mode.
         </p>
-        <button type="button" onClick={onRetry} className={`${neutralButton("md")} mt-8`}>
+        <button type="button" onClick={onRetry} className={`${primaryButton("md")} mt-8`}>
           Try again
         </button>
       </div>
