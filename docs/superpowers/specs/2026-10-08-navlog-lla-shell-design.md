@@ -264,12 +264,16 @@ the sheet.
   of them. PR 2 removes the "Threads" disclosure, so it updates
   `workbench-suggestions.ts` to pick the thread from the sidenav, and keeps
   "+ New conversation" as the New plan button's accessible name.
-- **Memory placement (open for PR 2).** `ChatDock` deliberately shows
+- **Memory placement (decided for PR 2: keep it inline).** `ChatDock` deliberately shows
   `MemoryPanel` inline above the conversation, and only when a candidate is
   waiting, so a proposed memory is seen without hunting (the teach journey in
   the harness relies on it). Section 2's "Memory opens in place of the
-  conversation" would hide new candidates behind a click. PR 2's plan settles
-  this before implementation.
+  conversation" would hide new candidates behind a click. Decision: the panel
+  stays inline above the conversation; the sidenav's "Memory" item shows the
+  candidate count, is disabled at zero, and scrolls the panel into view.
+- **The New plan button's accessible name** is its visible text, "New plan"
+  (WCAG label-in-name), so the harness journeys click "New plan" instead of
+  "+ New conversation".
 
 ### Delivery
 
