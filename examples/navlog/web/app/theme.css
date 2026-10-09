@@ -123,7 +123,8 @@
 }
 
 /*
- * Layout tokens: the canvas's gutter, the sidenav's width, and how tall the open navlog sheet may grow inside the right column.
+ * Layout tokens: the canvas's gutter, the sidenav's width, and how tall the
+ * open navlog sheet may grow inside the right column.
  */
 :root {
   --wb-nav-width: 200px;
@@ -806,8 +807,7 @@
 /*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
  * sheet's own position, height and border come from rules (utilities and
- * `.wb-panel`) this block must beat whatever their
- * specificity.
+ * `.wb-panel`) this block must beat whatever their specificity.
  */
 @media print {
   @page {
@@ -830,8 +830,11 @@
     border: 0 !important;
   }
   /*
-   * The sheet's ancestors are a full-viewport grid (desktop) or flex column (phone). Flattened, the sheet prints in the page flow
-   * at its full length instead of clipped to one screen.
+   * The sheet's ancestors are a full-viewport grid (desktop) or flex column
+   * (phone), and on a phone its wrapper is an absolutely placed, possibly
+   * invisible tab panel. Flattened, the sheet prints in the page flow at its
+   * full length instead of clipped to one screen, from any tab: the wrapper's
+   * `visibility: hidden` does not reach `.wb-sheet`, which sets its own.
    */
   .wb-root,
   .wb-sheet-wrap {
