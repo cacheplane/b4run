@@ -1,111 +1,21 @@
-import { formatGal, formatHeading, formatHhmm, formatUtcHhmm, formatVariation } from "../lib/format"
-import type { Navlog, NavlogLeg } from "../lib/navlog-types"
+import {
+  LEG_COLUMNS,
+  type LegColumn,
+  legName,
+  totalFor,
+  VARIATION_SOURCE,
+} from "../lib/navlog-columns"
+import type { Navlog } from "../lib/navlog-types"
 
-const legName = (leg: NavlogLeg): string => `${leg.from} → ${leg.to} (${leg.segment})`
-
-interface Column {
-  readonly key: string
-  readonly label: string
-  /** The header's tooltip, spelling out the abbreviation. */
-  readonly title: string
-  readonly value: (leg: NavlogLeg) => string
-}
-
-/** Where the variation comes from; the footnote under the table says the same. */
-export const VARIATION_SOURCE = "Variation from the FAA airport record"
-
-const COLUMNS: readonly Column[] = [
-  { key: "tc", label: "TC", title: "True course", value: (leg) => formatHeading(leg.trueCourse) },
-  {
-    key: "var",
-    label: "Var",
-    title: `Magnetic variation. ${VARIATION_SOURCE}, which may be dated.`,
-    value: (leg) => formatVariation(leg.variation),
-  },
-  {
-    key: "mc",
-    label: "MC",
-    title: "Magnetic course",
-    value: (leg) => formatHeading(leg.magneticCourse),
-  },
-  {
-    key: "wind",
-    label: "Wind",
-    title: "Wind aloft, direction/knots",
-    value: (leg) => `${formatHeading(leg.wind.dir)}/${leg.wind.kt}`,
-  },
-  {
-    key: "wca",
-    label: "WCA",
-    title: "Wind correction angle",
-    value: (leg) => `${leg.wca > 0 ? "+" : ""}${leg.wca}`,
-  },
-  {
-    key: "mh",
-    label: "MH",
-    title: "Magnetic heading",
-    value: (leg) => formatHeading(leg.magneticHeading),
-  },
-  {
-    key: "tas",
-    label: "TAS",
-    title: "True airspeed, knots",
-    value: (leg) => String(Math.round(leg.tasKt)),
-  },
-  {
-    key: "gs",
-    label: "GS",
-    title: "Groundspeed, knots",
-    value: (leg) => String(leg.groundspeedKt),
-  },
-  { key: "dist", label: "Dist", title: "Leg distance, nm", value: (leg) => String(leg.distanceNm) },
-  {
-    key: "rem",
-    label: "Rem",
-    title: "Distance remaining, nm",
-    value: (leg) => String(leg.remainingNm),
-  },
-  { key: "ete", label: "ETE", title: "Time en route", value: (leg) => formatHhmm(leg.eteMin) },
-  {
-    key: "eta",
-    label: "ETA",
-    title: "Estimated arrival, UTC",
-    value: (leg) => formatUtcHhmm(leg.etaUtc),
-  },
-  { key: "fuel", label: "Fuel", title: "Fuel burned, gal", value: (leg) => formatGal(leg.fuelGal) },
-  {
-    key: "fuelrem",
-    label: "Fuel rem",
-    title: "Fuel remaining, gal",
-    value: (leg) => formatGal(leg.fuelRemainingGal),
-  },
-]
-
-const column = (key: string): Column => COLUMNS.find((c) => c.key === key) as Column
+const column = (key: string): LegColumn => LEG_COLUMNS.find((c) => c.key === key) as LegColumn
 
 /** Phone cards: the six numbers flown by, fuel remaining last and loudest. */
 const CARD_KEYS = ["mh", "gs", "ete", "eta", "fuel", "fuelrem"] as const
-
-function totalFor(navlog: Navlog, key: string): string {
-  switch (key) {
-    case "dist":
-      return String(navlog.totals.distanceNm)
-    case "ete":
-      return formatHhmm(navlog.totals.eteMin)
-    case "fuel":
-      return formatGal(navlog.totals.fuelGal)
-    case "fuelrem":
-      return formatGal(navlog.totals.fuelRemainingGal)
-    default:
-      return ""
-  }
-}
 
 export interface NavlogTableProps {
   readonly navlog: Navlog
   /** `table` (desktop) or `cards` (phone). */
   readonly variant?: "table" | "cards"
-  readonly onHoverLeg?: (index: number | null) => void
 }
 
 function VariationNote() {
@@ -117,7 +27,7 @@ function VariationNote() {
 }
 
 /** The classic paper navlog: one row per leg segment, a totals row. */
-export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTableProps) {
+export function NavlogTable({ navlog, variant = "table" }: NavlogTableProps) {
   if (variant === "cards") {
     return (
       <div className="pt-1">
@@ -164,7 +74,7 @@ export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTab
             <th scope="col" className="text-left">
               Leg
             </th>
-            {COLUMNS.map((c) => (
+            {LEG_COLUMNS.map((c) => (
               <th
                 key={c.key}
                 scope="col"
@@ -179,18 +89,9 @@ export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTab
         </thead>
         <tbody>
           {navlog.legs.map((leg, index) => (
-            <tr
-              key={`${leg.from}-${leg.to}-${leg.segment}`}
-              data-leg={index}
-              tabIndex={0}
-              className="wb-focus"
-              onMouseEnter={() => onHoverLeg?.(index)}
-              onMouseLeave={() => onHoverLeg?.(null)}
-              onFocus={() => onHoverLeg?.(index)}
-              onBlur={() => onHoverLeg?.(null)}
-            >
+            <tr key={`${leg.from}-${leg.to}-${leg.segment}`} data-leg={index}>
               <td className="text-left">{legName(leg)}</td>
-              {COLUMNS.map((c) => (
+              {LEG_COLUMNS.map((c) => (
                 <td
                   key={c.key}
                   className={`text-right ${c.key === "fuelrem" ? "wb-col-loud" : ""}`}
@@ -206,7 +107,7 @@ export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTab
             <th scope="row" className="text-left">
               Totals
             </th>
-            {COLUMNS.map((c) => (
+            {LEG_COLUMNS.map((c) => (
               <td key={c.key} className={`text-right ${c.key === "fuelrem" ? "wb-col-loud" : ""}`}>
                 {totalFor(navlog, c.key)}
               </td>

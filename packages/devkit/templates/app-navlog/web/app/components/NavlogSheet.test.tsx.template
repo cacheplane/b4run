@@ -1,18 +1,52 @@
+// @vitest-environment jsdom
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, test } from "vitest"
+import { describe, expect, test, vi } from "vitest"
 import { SAMPLE_NAVLOG } from "../lib/navlog-types"
-import { NavlogSheet } from "./NavlogSheet"
+import type { NavlogSheetProps } from "./NavlogSheet"
+
+// pretable needs layout; the grid is a stand-in here (its own tests cover it,
+// and the real grid is checked in the browser).
+vi.mock("./NavlogGrid", () => ({
+  NavlogGrid: () => <div data-testid="pretable" />,
+}))
+
+const { NavlogSheet } = await import("./NavlogSheet")
+
+const props = (overrides: Partial<NavlogSheetProps> = {}): NavlogSheetProps => ({
+  navlog: SAMPLE_NAVLOG,
+  brief: "VFR all the way.",
+  open: true,
+  onToggle: () => {},
+  tab: "legs",
+  onTabChange: () => {},
+  ...overrides,
+})
+
+const render = (overrides: Partial<NavlogSheetProps> = {}): string =>
+  renderToStaticMarkup(<NavlogSheet {...props(overrides)} />)
+
+function mountSheet(overrides: Partial<NavlogSheetProps> = {}) {
+  ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+  const container = document.createElement("div")
+  document.body.append(container)
+  const root = createRoot(container)
+  act(() => root.render(<NavlogSheet {...props(overrides)} />))
+  return {
+    container,
+    unmount: () => {
+      act(() => root.unmount())
+      container.remove()
+    },
+  }
+}
+
+const BODY_HIDDEN = /class="wb-sheet-body[^"]*hidden print:block"/
 
 describe("NavlogSheet", () => {
   test("collapsed shows the totals line and the actions", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet
-        navlog={SAMPLE_NAVLOG}
-        brief="VFR all the way."
-        open={false}
-        onToggle={() => {}}
-      />,
-    )
+    const html = render({ open: false })
     expect(html).toContain("KSTP → KRST")
     expect(html).toContain("66 nm")
     expect(html).toContain("0:33")
@@ -22,42 +56,29 @@ describe("NavlogSheet", () => {
     expect(html).toContain("Copy FPL")
     expect(html).toContain('aria-expanded="false"')
     expect(html).toContain("Show navlog")
+    expect(html).not.toContain('role="tablist"')
   })
   test("collapsed keeps the body in the DOM, hidden on screen but printed", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet navlog={SAMPLE_NAVLOG} brief="" open={false} onToggle={() => {}} />,
-    )
+    const html = render({ open: false, brief: "" })
     expect(html).toContain("<table")
-    expect(html).toMatch(/class="wb-sheet-body[^"]*hidden print:block"/)
+    expect(html).toMatch(BODY_HIDDEN)
   })
-  test("open shows the table, the flight plan and the brief", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet
-        navlog={SAMPLE_NAVLOG}
-        brief="VFR all the way."
-        open={true}
-        onToggle={() => {}}
-      />,
-    )
+  test("open holds the print table, the flight plan and the brief", () => {
+    const html = render()
     expect(html).toContain("<table")
     expect(html).toContain("7 Aircraft ID")
     expect(html).toContain("VFR all the way.")
-    expect(html).not.toContain("hidden print:block")
+    expect(html).not.toMatch(BODY_HIDDEN)
   })
   test("warns when the reserve is short", () => {
     const thirsty = {
       ...SAMPLE_NAVLOG,
       totals: { ...SAMPLE_NAVLOG.totals, reserveOk: false, reserveMin: 20 },
     }
-    const html = renderToStaticMarkup(
-      <NavlogSheet navlog={thirsty} brief="" open={false} onToggle={() => {}} />,
-    )
-    expect(html).toContain("Reserve under 45 min")
+    expect(render({ navlog: thirsty, brief: "", open: false })).toContain("Reserve under 45 min")
   })
   test("is a disclosure with aria-expanded", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet navlog={SAMPLE_NAVLOG} brief="" open={true} onToggle={() => {}} />,
-    )
+    const html = render({ brief: "" })
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain("Hide navlog")
     const controls = /aria-controls="([^"]+)"/.exec(html)?.[1]
@@ -65,18 +86,98 @@ describe("NavlogSheet", () => {
     expect(html).toContain(`id="${controls}"`)
   })
   test("on the phone tab the totals are plain text, not a toggle", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet
-        navlog={SAMPLE_NAVLOG}
-        brief=""
-        open={true}
-        onToggle={() => {}}
-        variant="cards"
-        collapsible={false}
-      />,
-    )
+    const html = render({ brief: "", variant: "cards", collapsible: false })
     expect(html).not.toContain("aria-expanded")
     expect(html).toContain("66 nm")
-    expect(html).not.toContain("hidden print:block")
+    expect(html).not.toMatch(BODY_HIDDEN)
+  })
+})
+
+describe("navlog sheet: strip and tabs", () => {
+  test("a verdict strip region, then Legs · Totals & plan · Brief with Legs selected", () => {
+    const html = render({ brief: "Bottom line: GO — VFR all the way." })
+    expect(html).toMatch(/<section aria-label="Go\/no-go verdict"[^>]*wb-verdict-strip/)
+    expect(html).toContain('role="tablist"')
+    expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Legs</)
+    expect(html).toContain(">Totals &amp; plan<")
+    expect(html).toContain(">Brief<")
+  })
+  test("the strip's reason selects the Brief tab", () => {
+    const onTabChange = vi.fn()
+    const view = mountSheet({ brief: "Bottom line: GO — VFR all the way.", onTabChange })
+    act(() => {
+      view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")?.click()
+    })
+    expect(onTabChange).toHaveBeenCalledWith("brief")
+    view.unmount()
+  })
+  test("Legs: the grid, the totals strip, and a print-only table with every leg", () => {
+    const html = render({ variant: "table" })
+    expect(html).toContain('data-testid="pretable"')
+    expect(html).toMatch(/aria-label="Leg totals"/)
+    expect(html).toMatch(/<div class="hidden print:block"><div><table/)
+    for (const leg of SAMPLE_NAVLOG.legs) expect(html).toContain(`${leg.from} → ${leg.to}`)
+  })
+  test("the totals tiles live on Totals & plan, labelled apart from the strip", () => {
+    const html = render({ tab: "plan" })
+    expect(html).toMatch(
+      /role="tabpanel"[^>]*id="[^"]*-plan"[^>]*>(?:(?!role="tabpanel").)*aria-label="Totals"/,
+    )
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-plan"(?![^>]*hidden)[^>]*>/)
+  })
+  test("the reserve warning shows in the totals strip", () => {
+    const short = { ...SAMPLE_NAVLOG, totals: { ...SAMPLE_NAVLOG.totals, reserveOk: false } }
+    const html = render({ navlog: short })
+    expect(html).toMatch(/aria-label="Leg totals"(?:(?!<\/dl>).)*under 45 min/)
+  })
+  test("phones keep the cards on Legs, with no grid", () => {
+    const html = render({ variant: "cards", collapsible: false })
+    expect(html).not.toContain('data-testid="pretable"')
+    expect(html).toContain("wb-leg-card")
+    expect(html).toContain('role="tablist"')
+  })
+  test("inactive panels stay mounted but hidden, and print", () => {
+    const html = render({ tab: "brief" })
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-legs"[^>]*hidden=""/)
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-plan"[^>]*hidden=""/)
+    expect(html).not.toMatch(/role="tabpanel"[^>]*id="[^"]*-brief"[^>]*hidden=""/)
+    expect(html).toContain("7 Aircraft ID")
+  })
+  test("the full verdict card is on the Brief tab only", () => {
+    const html = render({ tab: "brief", brief: "Bottom line: GO — VFR all the way." })
+    expect(html).toMatch(
+      /role="tabpanel"[^>]*id="[^"]*-brief"[^>]*>(?:(?!role="tabpanel").)*class="wb-verdict"/,
+    )
+    expect(html.split('class="wb-verdict"').length - 1).toBe(1)
+  })
+  test("tabs control their panels, with a roving tabIndex", () => {
+    const view = mountSheet({ tab: "plan" })
+    const tabs = [...view.container.querySelectorAll('[role="tab"]')]
+    expect(tabs.map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"])
+    for (const t of tabs) {
+      const panel = document.getElementById(t.getAttribute("aria-controls") ?? "")
+      expect(panel?.getAttribute("aria-labelledby")).toBe(t.id)
+    }
+    view.unmount()
+  })
+  test("arrow keys move between tabs", () => {
+    const onTabChange = vi.fn()
+    const view = mountSheet({ onTabChange })
+    const selected = () => view.container.querySelector('[role="tab"][aria-selected="true"]')
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("plan")
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("brief")
+    view.unmount()
+  })
+  test("the open desktop sheet has a definite height for the grid to fill", () => {
+    expect(render()).toMatch(/<section[^>]*class="[^"]* h-\[var\(--wb-sheet-max\)\]/)
+    expect(render({ open: false })).toMatch(
+      /<section[^>]*class="[^"]*max-h-\[var\(--wb-sheet-max\)\]/,
+    )
   })
 })

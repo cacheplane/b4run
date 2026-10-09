@@ -530,11 +530,11 @@ describe("navlog template parity with examples/navlog/web", () => {
     const templateSuffixedPaths = await collectTemplateSuffixedPaths(templateWebRoot)
 
     expect(templateSuffixedPaths.filter((path) => path.endsWith(".test.ts.template"))).toHaveLength(
-      16,
+      17,
     )
     expect(
       templateSuffixedPaths.filter((path) => path.endsWith(".test.tsx.template")),
-    ).toHaveLength(16)
+    ).toHaveLength(17)
     expect(templateSuffixedPaths).toContain("gitignore.template")
     expect(templateSuffixedPaths).toContain("tsconfig.json.template")
 

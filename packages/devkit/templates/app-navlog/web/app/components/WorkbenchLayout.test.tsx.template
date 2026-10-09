@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { pairIndexOf } from "../lib/route-geometry"
 import { SheetControlContext } from "./sheet-control"
 import { WorkbenchLayout, type WorkbenchLayoutProps } from "./WorkbenchLayout"
 
@@ -14,8 +15,11 @@ const map = vi.hoisted(
     ({}) as {
       categories?: Readonly<Record<string, string>>
       padding?: { readonly left: number; readonly top: number; readonly bottom: number }
+      highlightedLeg?: number | null
     },
 )
+/** What the layout last handed the (stubbed) legs grid. */
+const grid = vi.hoisted(() => ({}) as { onSelectLeg?: (index: number | null) => void })
 
 // Leaflet needs a DOM; the map is a stand-in here (recording its props) and
 // `RouteMap` itself is exercised in the browser.
@@ -25,11 +29,20 @@ vi.mock("next/dynamic", () => ({
     (mapProps: {
       categories: Readonly<Record<string, string>>
       padding: { readonly left: number; readonly top: number; readonly bottom: number }
+      highlightedLeg: number | null
     }) => {
       map.categories = mapProps.categories
       map.padding = mapProps.padding
+      map.highlightedLeg = mapProps.highlightedLeg
       return <div data-testid="map" />
     },
+}))
+// pretable needs layout; the grid is a stand-in that hands over its selection callback.
+vi.mock("./NavlogGrid", () => ({
+  NavlogGrid: (gridProps: { onSelectLeg: (index: number | null) => void }) => {
+    grid.onSelectLeg = gridProps.onSelectLeg
+    return <div data-testid="pretable" />
+  },
 }))
 vi.mock("../lib/use-media-query", () => ({ useMediaQuery: () => viewport.desktop }))
 const sidebar = vi.hoisted(() => ({
@@ -65,13 +78,16 @@ describe("WorkbenchLayout on desktop", () => {
   beforeEach(() => {
     viewport.desktop = true
   })
-  test("sidenav, chat, map and navlog are docked panels; no top bar, no tabs", () => {
+  test("sidenav, chat, map and navlog are docked panels; no top bar, no view tabs", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
     expect(html).toContain('aria-label="Navigation"')
     expect(html).toContain('aria-label="Chat"')
     expect(html).toContain('data-testid="map"')
     expect(html).toContain('aria-label="Navlog"')
-    expect(html).not.toContain('role="tablist"')
+    // The sheet's own tabs are the only tablist; the phone's view tabs are absent.
+    expect(count(html, 'role="tablist"')).toBe(1)
+    expect(html).toContain('aria-label="Navlog views"')
+    expect(html).not.toContain('aria-label="Views"')
     expect(html).not.toContain('<header class="wb-topbar')
   })
   test("exactly one main and one h1, the wordmark in the sidenav", () => {
@@ -177,24 +193,56 @@ function mount(overrides: Partial<WorkbenchLayoutProps> = {}) {
 }
 
 describe("WorkbenchLayout sheet control", () => {
-  test("on a desktop, a step's openSheet opens the collapsed sheet", () => {
+  const sheetTab = (container: HTMLElement) =>
+    container.querySelector('section[aria-label="Navlog"] [role="tab"][aria-selected="true"]')
+      ?.textContent
+  test("on a desktop, a step's openSheet opens the collapsed sheet on the Legs tab", () => {
     viewport.desktop = true
     const view = mount()
     const toggle = () =>
       view.container.querySelector('section[aria-label="Navlog"] button[aria-expanded]')
+    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(3)')
+    expect(sheetTab(view.container)).toBe("Brief")
     view.click('section[aria-label="Navlog"] button[aria-expanded]')
     expect(toggle()?.getAttribute("aria-expanded")).toBe("false")
     view.click("[data-open-sheet]")
     expect(toggle()?.getAttribute("aria-expanded")).toBe("true")
+    expect(sheetTab(view.container)).toBe("Legs")
     view.unmount()
   })
-  test("on a phone, a step's openSheet selects the Navlog tab", () => {
+  test("on a phone, a step's openSheet selects the Navlog tab and its Legs", () => {
     viewport.desktop = false
     const view = mount()
     const navlogTab = () => view.container.querySelector("#wb-tab-navlog")
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("false")
+    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(2)')
+    expect(sheetTab(view.container)).toBe("Totals & plan")
     view.click("[data-open-sheet]")
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("true")
+    expect(sheetTab(view.container)).toBe("Legs")
+    view.unmount()
+  })
+})
+
+describe("WorkbenchLayout map highlight", () => {
+  beforeEach(() => {
+    viewport.desktop = true
+  })
+  test("the leg selected in the grid lights on the map; clearing it clears the map", () => {
+    const view = mount()
+    expect(map.highlightedLeg).toBeNull()
+    act(() => grid.onSelectLeg?.(0))
+    expect(map.highlightedLeg).toBe(pairIndexOf(SAMPLE_NAVLOG, 0))
+    act(() => grid.onSelectLeg?.(null))
+    expect(map.highlightedLeg).toBeNull()
+    view.unmount()
+  })
+  test("a new navlog clears the selection", () => {
+    const view = mount()
+    act(() => grid.onSelectLeg?.(0))
+    expect(map.highlightedLeg).not.toBeNull()
+    view.render({ navlog: { ...SAMPLE_NAVLOG } })
+    expect(map.highlightedLeg).toBeNull()
     view.unmount()
   })
 })
