@@ -71,8 +71,8 @@
   --b4-activity-surface: var(--wb-surface);
   --b4-activity-border: var(--wb-border);
   --b4-activity-text: var(--wb-text);
-  /* Darker than --wb-muted: the kit draws timestamps and step meta at 75%
-     opacity, and #3f3f46 keeps them above 4.5:1 on white and on --wb-bg. */
+  /* Darker than --wb-muted: step lines sit at 0.8 opacity, and #3f3f46
+     keeps their muted text above 4.5:1 on white and on --wb-bg. */
   --b4-activity-muted: #3f3f46;
   --b4-activity-radius: var(--wb-radius);
   --b4-activity-surface-alt: var(--wb-rail);
@@ -84,6 +84,15 @@
   --b4-activity-primary: var(--wb-text);
   --b4-activity-on-primary: var(--wb-surface);
   --b4-activity-font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+/* The kit fades timestamps and step meta (0.75 opacity, inside a step line
+   at 0.8), which takes any muted grey below 4.5:1. Here they stay solid and
+   --b4-activity-muted does the quieting. Same specificity as the kit's rule,
+   and this sheet loads after it (layout.tsx), so this wins. */
+.b4-turn__time,
+.b4-step__meta {
+  opacity: 1;
 }
 
 /* CopilotChat's shadcn tokens (declared unlayered on [data-copilotkit]).
