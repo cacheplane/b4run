@@ -16,7 +16,6 @@ export interface NavlogTableProps {
   readonly navlog: Navlog
   /** `table` (desktop) or `cards` (phone). */
   readonly variant?: "table" | "cards"
-  readonly onHoverLeg?: (index: number | null) => void
 }
 
 function VariationNote() {
@@ -28,7 +27,7 @@ function VariationNote() {
 }
 
 /** The classic paper navlog: one row per leg segment, a totals row. */
-export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTableProps) {
+export function NavlogTable({ navlog, variant = "table" }: NavlogTableProps) {
   if (variant === "cards") {
     return (
       <div className="pt-1">
@@ -90,16 +89,7 @@ export function NavlogTable({ navlog, variant = "table", onHoverLeg }: NavlogTab
         </thead>
         <tbody>
           {navlog.legs.map((leg, index) => (
-            <tr
-              key={`${leg.from}-${leg.to}-${leg.segment}`}
-              data-leg={index}
-              tabIndex={0}
-              className="wb-focus"
-              onMouseEnter={() => onHoverLeg?.(index)}
-              onMouseLeave={() => onHoverLeg?.(null)}
-              onFocus={() => onHoverLeg?.(index)}
-              onBlur={() => onHoverLeg?.(null)}
-            >
+            <tr key={`${leg.from}-${leg.to}-${leg.segment}`} data-leg={index}>
               <td className="text-left">{legName(leg)}</td>
               {LEG_COLUMNS.map((c) => (
                 <td
