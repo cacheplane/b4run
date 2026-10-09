@@ -67,8 +67,14 @@ describe("SideNav collapsed (the rail)", () => {
     expect(html).toMatch(/<h1 class="sr-only">/)
     expect(html).toMatch(/aria-label="Expand sidebar"[^>]*aria-expanded="false"/)
     expect(html).toMatch(/aria-label="New plan"[^>]*data-tip="New plan"/)
-    expect(html).toMatch(/aria-label="Memory"[^>]*data-tip="Memory"/)
+    expect(html).toMatch(/aria-label="Memory, 2 waiting for review"[^>]*data-tip="Memory"/)
     expect(html).toContain('class="wb-badge')
+  })
+  test("the rail's Memory is plainly named when nothing waits", () => {
+    const html = renderToStaticMarkup(
+      <SideNav {...props({ memoryCount: 0, collapse: collapse(true) })} />,
+    )
+    expect(html).toMatch(/aria-label="Memory"[^>]*data-tip="Memory"/)
   })
 })
 

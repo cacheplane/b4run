@@ -34,6 +34,8 @@ export interface SideNavProps {
   readonly id?: string
   /** Where focus returns when Memory mode closes. */
   readonly memoryButtonRef?: Ref<HTMLButtonElement>
+  /** Where focus goes when Memory mode closes and the Memory toggle is disabled. */
+  readonly newPlanButtonRef?: Ref<HTMLButtonElement>
   readonly className?: string
 }
 
@@ -60,6 +62,7 @@ export function SideNav({
   collapse,
   id,
   memoryButtonRef,
+  newPlanButtonRef,
   className = "",
 }: SideNavProps) {
   const hydrated = useHydrated()
@@ -117,6 +120,7 @@ export function SideNav({
           </div>
           <div className="flex flex-col items-center gap-3 pt-1">
             <button
+              ref={newPlanButtonRef}
               type="button"
               aria-label="New plan"
               data-tip="New plan"
@@ -132,7 +136,7 @@ export function SideNav({
             <button
               ref={memoryButtonRef}
               type="button"
-              aria-label="Memory"
+              aria-label={memoryCount > 0 ? `Memory, ${memoryCount} waiting for review` : "Memory"}
               data-tip="Memory"
               aria-pressed={memoryOpen}
               disabled={memoryDisabled}
@@ -152,6 +156,7 @@ export function SideNav({
           </div>
           <div className="px-2 pt-1">
             <button
+              ref={newPlanButtonRef}
               type="button"
               disabled={!hydrated}
               onClick={onNewConversation}

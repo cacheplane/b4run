@@ -151,6 +151,7 @@ export function WorkbenchLayout({
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const memoryButton = useRef<HTMLButtonElement>(null)
+  const newPlanButton = useRef<HTMLButtonElement>(null)
   const [sidebar, toggleSidebar] = useSidebarState()
   const sidenavId = useId()
   const menuButton = useRef<HTMLButtonElement>(null)
@@ -161,13 +162,31 @@ export function WorkbenchLayout({
   const activeTab: PhoneTab = navlog ? tab : "chat"
   const awaitingApproval = status === "awaiting approval"
 
+  /**
+   * Where focus goes once Memory mode has closed, a frame later (after the
+   * re-render): the desktop Memory toggle that opened it, unless closing
+   * disabled it (nothing left to review); then the sidebar's New plan; on a
+   * phone, whose drawer copies are gone, the menu button that opens the drawer.
+   */
+  const focusAfterMemory = useCallback(() => {
+    requestAnimationFrame(() => {
+      const target = [memoryButton.current, newPlanButton.current, menuButton.current].find(
+        (button): button is HTMLButtonElement => button?.isConnected === true && !button.disabled,
+      )
+      target?.focus()
+    })
+  }, [])
+
   // An approval card lives in the chat; never leave it behind another tab.
   useEffect(() => {
-    if (!awaitingApproval) return
-    setTab("chat")
-    // On a phone the chat is hidden while Memory mode shows; the card must be seen.
-    if (!isDesktop) setMemoryOpen(false)
-  }, [awaitingApproval, isDesktop])
+    if (awaitingApproval) setTab("chat")
+  }, [awaitingApproval])
+  // On a phone the chat is hidden while Memory mode shows; the card must be seen.
+  useEffect(() => {
+    if (!awaitingApproval || isDesktop || !memoryOpen) return
+    setMemoryOpen(false)
+    focusAfterMemory()
+  }, [awaitingApproval, isDesktop, memoryOpen, focusAfterMemory])
 
   // A new navlog while the pilot is in the chat: dot the two tabs that show it.
   // Read by the navlog effect below. A layout effect runs before every
@@ -203,10 +222,8 @@ export function WorkbenchLayout({
 
   const closeMemory = useCallback(() => {
     setMemoryOpen(false)
-    // Back to the control that opened it; on a phone the drawer copy is gone,
-    // so the menu button that opens the drawer takes focus instead.
-    requestAnimationFrame(() => (memoryButton.current ?? menuButton.current)?.focus())
-  }, [])
+    focusAfterMemory()
+  }, [focusAfterMemory])
 
   const toggleMemory = useCallback(() => {
     if (memoryOpen) {
@@ -214,8 +231,11 @@ export function WorkbenchLayout({
       return
     }
     setDrawerOpen(false)
+    // On a phone the mode would hide the chat, and a pending approval card
+    // must stay in view.
+    if (!isDesktop && awaitingApproval) return
     setMemoryOpen(true)
-  }, [memoryOpen, closeMemory])
+  }, [memoryOpen, closeMemory, isDesktop, awaitingApproval])
 
   // A thread switch needs nothing here: `AppShell` keys the workbench by
   // thread, so a switch remounts the layout with Memory mode off.
@@ -287,6 +307,7 @@ export function WorkbenchLayout({
             memoryCount={memoryCount}
             memoryOpen={memoryOpen}
             memoryButtonRef={memoryButton}
+            newPlanButtonRef={newPlanButton}
             onNewConversation={newConversation}
             onToggleMemory={toggleMemory}
             collapse={{
