@@ -310,7 +310,7 @@ const CARD = 'page > main > .b4-approval[role="alert"]'
 const GOLDEN_CALLS: readonly string[] = [
   "open",
   // Plan a flight
-  'click page > button="+ New conversation"',
+  'click page > button="New plan"',
   "click page > button=/^Plan a flight/",
   "complete",
   `waitFor:visible ${TURN} .first`,
@@ -338,14 +338,14 @@ const GOLDEN_CALLS: readonly string[] = [
   `waitFor:visible page > main > text=${JSON.stringify(PLAN_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(PLAN_REPLY)}`,
   // File the plan
-  'click page > button="+ New conversation"',
+  'click page > button="New plan"',
   "click page > button=/^File the plan/",
   `waitFor:visible ${CARD} .first`,
   `count ${CARD}`,
   `waitFor:visible ${CARD} > heading=${JSON.stringify(APPROVAL_TITLE)}`,
   'axe include section[aria-label="Chat"]',
   "axe analyze",
-  'focus page > button="Threads"',
+  'focus page > button="New plan"',
   `focused? ${CARD} > button="Allow once"`,
   "press Enter",
   `waitFor:hidden ${CARD}`,
@@ -353,7 +353,7 @@ const GOLDEN_CALLS: readonly string[] = [
   `waitFor:visible page > main > text=${JSON.stringify(GATED_REPLY)} .first`,
   `count page > main > text=${JSON.stringify(GATED_REPLY)}`,
   // Teach it the aircraft
-  'click page > button="+ New conversation"',
+  'click page > button="New plan"',
   "click page > button=/^Teach it the aircraft/",
   "complete",
   `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
@@ -381,27 +381,26 @@ describe("runWorkbenchSuggestionJourneys", () => {
     const starts = calls.filter(
       (call) =>
         call.startsWith("click ") &&
-        (call.includes('button="+ New conversation"') || call.includes("button=/^")),
+        (call.includes('button="New plan"') || call.includes("button=/^")),
     )
     expect(starts).toEqual([
-      'click page > button="+ New conversation"',
+      'click page > button="New plan"',
       "click page > button=/^Plan a flight/",
-      'click page > button="+ New conversation"',
+      'click page > button="New plan"',
       "click page > button=/^File the plan/",
-      'click page > button="+ New conversation"',
+      'click page > button="New plan"',
       "click page > button=/^Teach it the aircraft/",
     ])
   })
 
   it("fails with Playwright's own message when the create button is missing", async () => {
-    // The rail's create button is `+ New conversation`; the bare string is the
-    // UNTITLED ROW's label. Dropping the plus must not stay green.
+    // The sidenav's create button is `New plan`; a rename must not stay green.
     const { deps } = fakeBrowser({
-      countFor: (desc) => (desc.includes('button="+ New conversation"') ? 0 : undefined),
+      countFor: (desc) => (desc.includes('button="New plan"') ? 0 : undefined),
     })
     const rejection = await rejectionOf(runWorkbenchSuggestionJourneys(baseOptions, deps))
     expect(rejection.message).toMatch(/^Plan a flight: locator\.click: Timeout 45000ms/)
-    expect(rejection.message).toContain('button="+ New conversation"')
+    expect(rejection.message).toContain('button="New plan"')
   })
 
   it("fails when a suggestion button is missing", async () => {

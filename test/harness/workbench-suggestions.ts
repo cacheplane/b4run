@@ -128,13 +128,11 @@ async function expectExactlyOne(locator: Locator, what: string): Promise<void> {
  * each journey its own — without it the second journey would append to the
  * first one's transcript and the empty state would never be on screen.
  *
- * THE `+` IS LOAD-BEARING. The rail's create button renders the literal
- * `+ New conversation`, while an UNTITLED THREAD ROW renders exactly
- * `New conversation` (`UNTITLED_THREAD_LABEL`) — see ThreadRail.tsx. Matching
- * the bare string therefore finds the ROW, not the button: one element on a
- * fresh load (clicking it is a no-op, which is why journey 1 would still pass)
- * and ZERO once journey 1 has titled that thread, so journey 2 would retry
- * until it timed out. Do not "tidy" the plus away.
+ * The sidenav's create button is named by its visible text, `New plan`
+ * (`SideNav.tsx`; the `+` beside it is decorative). It cannot collide with an
+ * untitled thread row, which reads `New conversation`
+ * (`UNTITLED_THREAD_LABEL`). Exact match, so a renamed button fails loudly
+ * instead of clicking a row.
  *
  * `handleCreate` no-ops when the active thread is already untitled, so clicking
  * the real button on a fresh load behaves exactly as before.
@@ -145,7 +143,7 @@ async function expectExactlyOne(locator: Locator, what: string): Promise<void> {
  */
 async function startSuggestion(page: Page, title: string): Promise<void> {
   await page
-    .getByRole("button", { name: "+ New conversation", exact: true })
+    .getByRole("button", { name: "New plan", exact: true })
     .click({ timeout: LOCATOR_TIMEOUT_MS })
   await page
     .getByRole("button", { name: new RegExp(`^${escapeRegExp(title)}`) })
@@ -251,12 +249,13 @@ async function gateJourney(
     ...(axe === undefined ? {} : { axe }),
     when: "with the approval card open",
   })
-  // Keyboard only: from the dock's header into the conversation, Tab to the
-  // card's primary action and press Enter. The message box is disabled while
-  // the approval is open, so the dock's Threads button is the entry point.
+  // Keyboard only: from the sidenav into the conversation, Tab to the card's
+  // primary action and press Enter. The message box is disabled while the
+  // approval is open, so the sidenav's New plan button is the entry point;
+  // the thread rows and Memory sit between it and the chat.
   const allowOnce = card.getByRole("button", { name: "Allow once", exact: true })
   await page
-    .getByRole("button", { name: "Threads", exact: true })
+    .getByRole("button", { name: "New plan", exact: true })
     .focus({ timeout: LOCATOR_TIMEOUT_MS })
   await tabUntilFocused(page, allowOnce, { maxTabs: 40, what: "Allow once" })
   await page.keyboard.press("Enter")
