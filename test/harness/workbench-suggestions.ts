@@ -273,9 +273,14 @@ async function teachJourney(
 ): Promise<void> {
   await startSuggestion(page, "Teach it the aircraft")
   await journey.waitForWorkbenchRunCompletion(page)
+  // Memory review is a mode now (the sidebar's Memory toggle), not an inline
+  // panel: open it once the run has proposed the candidate (the button is
+  // disabled until the count is non-zero, and Playwright waits for enabled).
+  await page.getByRole("button", { name: /^Memory/ }).click({ timeout: LOCATOR_TIMEOUT_MS })
   // The panel reloads on the agent's onRunFinishedEvent, so no reload is needed;
-  // it renders null when empty, so this locator resolves only once a candidate
-  // exists (Playwright locators are lazy, which is why locating it is safe).
+  // the panel is always rendered in Memory mode; the candidate text appears once
+  // the post-run reload lands (Playwright locators are lazy, which is why
+  // locating it is safe).
   const panel = page.getByLabel("Memory candidates")
   await panel.getByText(options.teachContent, { exact: true }).waitFor(VISIBLE)
   // Armed BEFORE the click, and the one assertion `Delete` cannot satisfy.
