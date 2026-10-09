@@ -15,6 +15,9 @@ a legacy base-URL POST.
 
 ## Layout
 
+The window never scrolls: the workbench is one pane, and only the panels inside it
+scroll (the connect screen scrolls itself on a short viewport).
+
 - **Connect screen** (`app/components/ConnectScreen.tsx`) — replaces the whole shell when
   the B4.run server is not answering, with the two commands that start it. It re-probes
   every 5 seconds through `GET /api/b4/memory/candidates` (an allowlisted read, so it
@@ -33,8 +36,7 @@ a legacy base-URL POST.
   cruise magnetic heading at each leg's midpoint, then fits the route inside its
   panel. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
 - **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
-  status and the chat (`app/components/NavlogChat.tsx`, below). The window never scrolls:
-  it is one pane, and only the panels inside it scroll.
+  status and the chat (`app/components/NavlogChat.tsx`, below).
 - **Weather strip** (along the top of the map, `app/components/WeatherStrip.tsx`) — one chip
   per airport in the `weather` subagent's brief, colored by the worse of the category
   now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,

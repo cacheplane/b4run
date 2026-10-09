@@ -32,8 +32,9 @@ New plan, "Recent" and the thread list, and Memory pinned at the bottom.
 
 **Collapsed (64px):** a column of identical 44px icon buttons, centred:
 
-- the top row holds only the expand button (`aria-label="Expand sidebar"`), in
-  the same position as the collapse button so the toggle never moves;
+- the top row holds only the expand button (`aria-label="Expand sidebar"`): the
+  toggle stays in the top row in both states (right-aligned when expanded,
+  centred in the rail);
 - New plan as an ink `+` button, accessible name "New plan";
 - the thread list is hidden;
 - Memory at the bottom, with its count badge on the icon's top-right corner.
