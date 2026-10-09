@@ -10,6 +10,26 @@ import { NavlogTable } from "./NavlogTable"
 import { PlanningBrief } from "./PlanningBrief"
 import { VerdictCard, VerdictPill } from "./VerdictCard"
 
+/**
+ * A number per navlog object, the grid's key. Row ids are leg indexes, so a
+ * replan of equal length would otherwise keep pretable's old selection on
+ * screen (and the grid's dedupe would swallow re-selecting that leg) while the
+ * layout clears its selected leg. A new navlog remounts the grid instead.
+ */
+const navlogRevisions = new WeakMap<Navlog, number>()
+let lastNavlogRevision = 0
+function navlogRevision(navlog: Navlog): number {
+  let revision = navlogRevisions.get(navlog)
+  if (revision === undefined) {
+    lastNavlogRevision += 1
+    revision = lastNavlogRevision
+    navlogRevisions.set(navlog, revision)
+  }
+  return revision
+}
+
+const noSelectLeg = (): void => {}
+
 export type SheetTab = "legs" | "plan" | "brief"
 
 const SHEET_TABS: readonly { readonly id: SheetTab; readonly label: string }[] = [
@@ -290,7 +310,11 @@ export function NavlogSheet({
         >
           {variant === "table" ? (
             <div className="min-h-0 flex-1">
-              <NavlogGrid navlog={navlog} onSelectLeg={onSelectLeg ?? (() => {})} />
+              <NavlogGrid
+                key={navlogRevision(navlog)}
+                navlog={navlog}
+                onSelectLeg={onSelectLeg ?? noSelectLeg}
+              />
             </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
