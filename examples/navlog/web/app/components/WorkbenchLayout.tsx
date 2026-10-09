@@ -393,7 +393,7 @@ export function WorkbenchLayout({
               onNewConversation={onNewConversation}
               onShowMemory={showMemory}
               onNavigate={closeDrawer}
-              className="flex-1"
+              className="min-w-0 flex-1"
             />
           </Drawer>
         ) : null}
