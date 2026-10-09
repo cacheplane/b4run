@@ -1,6 +1,6 @@
 # Flight Planner Web UI
 
-B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. CopilotKit's stock `<CopilotChat>` sits in a floating dock over a route map, inside B4.run's `<B4Activity>`, so the streamed brief, the turn's plan, subagent and tool steps, and the approval card all appear in message order, while the map, the navlog sheet, and the weather strip read the same turns from outside the chat.
+B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. CopilotKit's stock `<CopilotChat>` sits in the middle column, between a sidenav of threads and the route map, inside B4.run's `<B4Activity>`, so the streamed brief, the turn's plan, subagent and tool steps, and the approval card all appear in message order, while the map, the navlog sheet, and the weather strip read the same turns from outside the chat.
 
 This recipe covers the application wiring. For the endpoint, events, threading, and interrupt outcomes, see [AG-UI and Web Clients](/docs/ag-ui).
 
@@ -8,7 +8,7 @@ This recipe covers the application wiring. For the endpoint, events, threading, 
 
 The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
-- **Thread rail:** "New conversation" plus the list of threads, each titled from its first user message.
+- **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory with a count of the candidates waiting for review.
 - **Chat + report:** streamed markdown output and citations in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in.
 - **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
 - **Map, sheet and weather strip:** the route, the navlog legs, and the weather chips are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
@@ -111,7 +111,7 @@ The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths u
 Two pieces of that tree matter most, plus the suggestions:
 
 - `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full planning run streams hundreds of events, which pegs the renderer.
-- `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a row in the rail would change nothing.
+- `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a thread in the sidenav would change nothing.
 - `<DemoSuggestions />` renders nothing. It publishes the starter prompts into CopilotKit's suggestion registry, and `<CopilotChat>` shows them on an empty thread.
 
 ## The workbench shell
@@ -130,7 +130,7 @@ const slots = useB4ChatSlots()
 
 Run failures still need a subscription. `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the shell turns into a banner above the chat.
 
-Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the rail keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`. The rail holds ids, titles and recency only.
+Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the sidenav keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`. The list holds ids, titles and recency only.
 
 The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `weather-selectors.ts`) pick the latest `computeNavlog` result and `weather` brief from them.
 
@@ -174,7 +174,7 @@ A tool result's media arrives on the step as `parts`, live and after a restore, 
 
 ### Parts the model didn't see
 
-When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and shows each event as a muted line in the dock above the chat, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`.
+When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and shows each event as a muted line in the chat column above the conversation, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`.
 
 CopilotKit keeps no record of `CUSTOM` events, so the notices live only in the shell's state. Switching threads clears them, and a reload or a restored thread doesn't bring them back.
 
@@ -254,7 +254,7 @@ That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function l
   before this leaves your own machine.
 </Callout>
 
-`app/components/MemoryPanel.tsx` renders the candidates in the thread rail with Approve and Delete on each. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
+`app/components/MemoryPanel.tsx` renders the candidates above the conversation with Approve and Delete on each, and the sidenav's Memory item shows how many are waiting. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
 
 ```tsx title="examples/navlog/web/app/components/MemoryPanel.tsx"
 useEffect(() => {
