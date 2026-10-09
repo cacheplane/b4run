@@ -57,7 +57,7 @@ export function ThreadRail({
         </div>
       ) : null}
       <p
-        className={`px-4 ${showCreate ? "pt-6" : "pt-1"} pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-wb-muted`}
+        className={`px-4 ${showCreate ? "pt-6" : "pt-1"} pb-2 text-[12px] font-medium text-wb-muted`}
       >
         Recent
       </p>

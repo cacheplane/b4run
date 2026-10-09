@@ -167,13 +167,13 @@ export function MemoryPanelView({
       <details open className="group">
         {/*
           `list-none` hides the platform marker (which is a filled triangle on
-          the left, at a size that fights an 11px uppercase label), so the
+          the left, at a size that fights a 12px label), so the
           disclosure needs its own affordance or "Memory · 2" reads as a plain
           heading. Same idea as the activity kit's chevron: one glyph, rotated
           by CSS on the open state. `group-open:` needs the `group` class on
           the `<details>`, which is why it is there.
         */}
-        <summary className="wb-focus flex cursor-pointer list-none items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-wb-muted">
+        <summary className="wb-focus flex cursor-pointer list-none items-center gap-1.5 px-1 text-[12px] font-medium text-wb-muted">
           <span aria-hidden="true" className="transition-transform group-open:rotate-90">
             ▸
           </span>
