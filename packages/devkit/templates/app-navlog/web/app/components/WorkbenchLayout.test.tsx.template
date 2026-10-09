@@ -58,7 +58,7 @@ describe("WorkbenchLayout on desktop", () => {
     expect(html).toContain("transcript")
     expect(html).toContain('aria-label="Navlog"')
     expect(html).toContain("Thread one")
-    expect(html).toContain("B4.run navlog")
+    expect(html).toContain('class="wb-wordmark"')
   })
   test("renders one dock, so there is exactly one main and no phone tabs", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
