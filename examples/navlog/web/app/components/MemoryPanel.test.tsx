@@ -136,6 +136,20 @@ describe("memory panel view", () => {
     )
   })
 
+  test("the empty state keeps the live region but drops the approve/delete hint", () => {
+    const html = render({ candidates: [] })
+    expect(html).toContain('role="status"')
+    expect(visibleText(html)).not.toContain("Deleting is permanent")
+    expect(visibleText(render({ candidates: [], isBusy: true }))).toContain("Saving…")
+    expect(visibleText(render({ candidates: [], loadFailure: LOAD_FAILURE_NOTICE }))).toContain(
+      LOAD_FAILURE_NOTICE,
+    )
+  })
+
+  test("the truncated metadata line carries its full text as a title", () => {
+    expect(render()).toContain('title="default · confidence 0.8"')
+  })
+
   test("marks the section busy and says so while a decision is in flight", () => {
     const markup = render({ isBusy: true })
     expect(markup).toContain('aria-busy="true"')

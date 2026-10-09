@@ -163,7 +163,12 @@ export function MemoryPanelView({
       <p role="status" className="px-4 pt-3 text-[12px] leading-4 text-wb-muted">
         {outcome ??
           loadFailure ??
-          (isBusy ? "Saving…" : "Approving stores the memory. Deleting is permanent.")}
+          (isBusy
+            ? "Saving…"
+            : // The hint is about the buttons; with no candidates it says nothing.
+              candidates.length > 0
+              ? "Approving stores the memory. Deleting is permanent."
+              : null)}
       </p>
       {candidates.length === 0 ? (
         <div className="px-4 pt-6">
@@ -175,52 +180,59 @@ export function MemoryPanelView({
         </div>
       ) : (
         <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-3">
-          {candidates.map((candidate) => (
-            <li
-              key={candidate.id}
-              className="wb-row flex items-start gap-3 border border-wb-border bg-wb-surface px-2 py-2.5"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="break-words text-[13px] leading-5">{candidate.content}</p>
-                <p className="mt-0.5 truncate font-mono text-[12px] text-wb-muted">
-                  {[candidate.namespace, ...(candidate.tags ?? [])].join(" · ")}
-                  {typeof candidate.confidence === "number"
-                    ? ` · confidence ${candidate.confidence}`
-                    : ""}
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-2">
-                {/*
+          {candidates.map((candidate) => {
+            const metadata =
+              [candidate.namespace, ...(candidate.tags ?? [])].join(" · ") +
+              (typeof candidate.confidence === "number"
+                ? ` · confidence ${candidate.confidence}`
+                : "")
+            return (
+              <li
+                key={candidate.id}
+                className="wb-row flex items-start gap-3 border border-wb-border bg-wb-surface px-2 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-[13px] leading-5">{candidate.content}</p>
+                  <p
+                    title={metadata}
+                    className="mt-0.5 truncate font-mono text-[12px] text-wb-muted"
+                  >
+                    {metadata}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  {/*
                   `aria-label` carries which candidate a button acts on: rows
                   of identical "Approve" buttons are otherwise
                   indistinguishable to anyone navigating by control.
                 */}
-                <button
-                  type="button"
-                  disabled={isBusy}
-                  aria-label={`Approve: ${shortLabel(candidate.content)}`}
-                  onClick={() => onApprove(candidate.id)}
-                  className={`${primaryButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
-                >
-                  Approve
-                </button>
-                {/*
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    aria-label={`Approve: ${shortLabel(candidate.content)}`}
+                    onClick={() => onApprove(candidate.id)}
+                    className={`${primaryButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
+                  >
+                    Approve
+                  </button>
+                  {/*
                   "Delete", not "Reject": the endpoint is `…/reject`, but it
                   hard-deletes the candidate. Naming the button after the
                   effect is the warning.
                 */}
-                <button
-                  type="button"
-                  disabled={isBusy}
-                  aria-label={`Delete permanently: ${shortLabel(candidate.content)}`}
-                  onClick={() => onReject(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
-                >
-                  Delete
-                </button>
-              </div>
-            </li>
-          ))}
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    aria-label={`Delete permanently: ${shortLabel(candidate.content)}`}
+                    onClick={() => onReject(candidate.id)}
+                    className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

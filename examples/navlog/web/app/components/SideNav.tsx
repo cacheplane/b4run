@@ -136,7 +136,7 @@ export function SideNav({
             <button
               ref={memoryButtonRef}
               type="button"
-              aria-label="Memory"
+              aria-label={memoryCount > 0 ? `Memory, ${memoryCount} waiting for review` : "Memory"}
               data-tip="Memory"
               aria-pressed={memoryOpen}
               disabled={memoryDisabled}
