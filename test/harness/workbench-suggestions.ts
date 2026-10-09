@@ -276,7 +276,12 @@ async function teachJourney(
   // Memory review is a mode now (the sidebar's Memory toggle), not an inline
   // panel: open it once the run has proposed the candidate (the button is
   // disabled until the count is non-zero, and Playwright waits for enabled).
-  await page.getByRole("button", { name: /^Memory/ }).click({ timeout: LOCATOR_TIMEOUT_MS })
+  // It is a toggle, so a mode already open is left open, not closed again
+  // (as `docs/brand/demo/capture.mjs` `assertMemoryCandidate` does).
+  const memory = page.getByRole("button", { name: /^Memory/ })
+  if ((await memory.getAttribute("aria-pressed", { timeout: LOCATOR_TIMEOUT_MS })) !== "true") {
+    await memory.click({ timeout: LOCATOR_TIMEOUT_MS })
+  }
   // The panel reloads on the agent's onRunFinishedEvent, so no reload is needed;
   // the panel is always rendered in Memory mode; the candidate text appears once
   // the post-run reload lands (Playwright locators are lazy, which is why
