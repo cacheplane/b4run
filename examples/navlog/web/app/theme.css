@@ -45,6 +45,7 @@
 
   --radius-wb: var(--wb-radius);
   --radius-wb-sm: calc(var(--wb-radius) - 3px);
+  --radius-wb-row: var(--wb-radius-row);
 
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
@@ -141,6 +142,12 @@
   --wb-nav-width: 200px;
   --wb-sheet-max: 55dvh;
   --wb-gutter: 12px;
+  /* One header row height across the sidebar, the chat and the memory panel. */
+  --wb-header-h: 56px;
+  /* List rows (threads, memory candidates); controls are pills, panels 14px. */
+  --wb-radius-row: 10px;
+  /* The one motion token: every transition uses it. */
+  --wb-motion: 200ms ease-out;
   /* The route line is ink; the categories and statuses below carry the color. */
   --wb-route: var(--wb-text);
   --wb-route-casing: #ffffff;
@@ -188,7 +195,7 @@
 }
 
 .wb-map .leaflet-tile {
-  transition: opacity 280ms ease-out;
+  transition: opacity var(--wb-motion);
 }
 
 /*
@@ -198,12 +205,17 @@
  * stay visible.
  */
 .wb-map .leaflet-bottom.leaflet-right {
-  bottom: 4px;
-  right: 2px;
+  right: 0;
+  bottom: 0;
 }
 
+/* One corner on the 16px inset, the two controls 8px apart. */
 .wb-map .leaflet-bottom.leaflet-right .leaflet-control {
-  margin-bottom: 8px;
+  margin: 0 16px 8px 0;
+}
+
+.wb-map .leaflet-bottom.leaflet-right .leaflet-control:last-child {
+  margin-bottom: 16px;
 }
 
 .wb-map.leaflet-container .leaflet-control-zoom {
@@ -340,6 +352,93 @@
   background: var(--wb-surface);
 }
 
+/* The 56px row every column starts with. */
+.wb-header-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: var(--wb-header-h);
+}
+
+/* A list row: threads, memory candidates. */
+.wb-row {
+  border-radius: var(--wb-radius-row);
+}
+
+/* The sidebar column: 200px, or the 64px rail. */
+.wb-root[data-sidebar] {
+  transition: grid-template-columns var(--wb-motion);
+}
+
+.wb-root[data-sidebar="collapsed"] {
+  --wb-nav-width: 64px;
+}
+
+/* A count on a control: mono, tabular, ink. */
+.wb-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--wb-text);
+  color: var(--wb-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An icon button with no fill until hovered: the rail and panel headers. */
+.wb-icon-button-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--wb-muted);
+}
+
+.wb-icon-button-quiet:hover {
+  background: var(--wb-rail);
+  color: var(--wb-text);
+}
+
+/* A pressed toggle (Memory) reads as selected, like the current thread. */
+.wb-icon-button[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--wb-rail);
+  color: var(--wb-accent);
+}
+
+/* A label for an icon-only control, on hover and on keyboard focus. */
+.wb-tip {
+  position: relative;
+}
+
+.wb-tip[data-tip]::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  z-index: 50;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 4px 10px;
+  color: var(--wb-surface);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  content: attr(data-tip);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--wb-motion);
+}
+
+.wb-tip[data-tip]:hover::after,
+.wb-tip[data-tip]:focus-visible::after {
+  opacity: 1;
+}
+
 .wb-sheet {
   background: var(--wb-surface);
 }
@@ -381,8 +480,8 @@
   color: var(--wb-text);
   cursor: pointer;
   transition:
-    background-color 150ms ease,
-    border-color 150ms ease;
+    background-color var(--wb-motion),
+    border-color var(--wb-motion);
 }
 
 .wb-button:hover {
@@ -739,7 +838,7 @@
 }
 
 .wb-navlog-table tbody tr {
-  transition: background-color 120ms ease;
+  transition: background-color var(--wb-motion);
 }
 
 .wb-navlog-table tbody tr:hover,
@@ -798,8 +897,8 @@
 .wb-sheet,
 .wb-dock {
   transition:
-    transform 240ms ease,
-    opacity 240ms ease;
+    transform var(--wb-motion),
+    opacity var(--wb-motion);
 }
 @media (prefers-reduced-motion: reduce) {
   .wb-sheet,
@@ -807,7 +906,9 @@
   .wb-map .leaflet-tile,
   .wb-button,
   .wb-drawer,
-  .wb-navlog-table tbody tr {
+  .wb-navlog-table tbody tr,
+  .wb-root[data-sidebar],
+  .wb-tip[data-tip]::after {
     transition: none;
   }
   .wb-drawer {
