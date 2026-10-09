@@ -460,6 +460,21 @@ body {
   background: transparent;
 }
 
+/* The sheet's tabs: 40px targets, ink underline on the selected one. */
+.wb-sheet-tab {
+  min-height: 40px;
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-sheet-tab[aria-selected="true"] {
+  border-bottom-color: var(--wb-text);
+  color: var(--wb-text);
+}
+
 .wb-strip {
   pointer-events: auto;
 }
@@ -965,6 +980,11 @@ body {
   font-family: var(--font-mono);
 }
 
+/* Fuel remaining is the number flown by: today's emphasis, as on the cards. */
+.wb-navlog-grid [data-pretable-cell][data-pretable-column-id="fuelrem"] {
+  font-weight: 650;
+}
+
 /*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
  * sheet's own position, height and border come from rules (utilities and
@@ -993,6 +1013,8 @@ body {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     position: static !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    height: auto !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     max-height: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     border: 0 !important;
@@ -1017,10 +1039,14 @@ body {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     height: auto !important;
   }
-  .wb-sheet-body {
+  .wb-sheet-body,
+  .wb-sheet [role="tabpanel"] {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     overflow: visible !important;
   }
+  /* The tabs and the strip are screen navigation; the Brief panel prints the full verdict card. */
+  .wb-sheet [role="tablist"],
+  .wb-verdict-strip,
   .wb-sheet-actions,
   .wb-sheet .wb-button {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
@@ -1029,6 +1055,22 @@ body {
   .wb-print-hide {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     display: none !important;
+  }
+}
+
+/*
+ * Print every tab panel, the inactive ones too. They carry `hidden`, which
+ * Tailwind's preflight turns into `display: none !important` in the base
+ * layer; an `!important` declaration in a later layer (utilities, so
+ * `print:!block`) or outside the layers loses to it, so the override sits in
+ * the same layer with a more specific selector.
+ */
+@layer base {
+  @media print {
+    .wb-sheet [role="tabpanel"][hidden] {
+      /* biome-ignore lint/complexity/noImportantStyles: must beat preflight's [hidden] rule, which is !important */
+      display: block !important;
+    }
   }
 }
 
