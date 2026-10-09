@@ -22,8 +22,8 @@ a legacy base-URL POST.
   moment the server comes up — no reload. "Try again" probes immediately.
 - **Route map** (full viewport, `app/components/RouteMap.tsx`) — a
   [Leaflet](https://leafletjs.com) map on OpenStreetMap tiles (credited in the map's
-  attribution control, as the tile policy requires), muted in light mode and inverted in
-  dark so the route carries the color. It draws the planned route, one marker per
+  attribution control, as the tile policy requires), shown in grey so the ink route and the
+  flight-category colors carry the map. It draws the planned route, one marker per
   waypoint colored by flight category and labelled with the category as text, and the
   cruise magnetic heading at each leg's midpoint, then fits the route between the
   floating panels. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
@@ -180,20 +180,23 @@ these checks exercises a live model; this client intentionally has no demo/mock 
 
 `app/theme.css` is the one file to edit. The whole palette is defined there as CSS
 variables and re-exported as Tailwind tokens via `@theme inline`, which is why the app's
-utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`. Change
-a `--wb-*` value and the light and dark palettes, the activity-card tokens, and every
-utility move together. The same file holds the single focus ring (`wb-focus`), the two
-roles the b4 gradient is allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and
-the `.wb-prose` rules for rendered markdown.
+utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`,
+`font-sans`. Change a `--wb-*` value and the activity-card tokens, CopilotChat's tokens
+and every utility move together. The same file holds the single focus ring (`wb-focus`),
+the wordmark (`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
+
+The look follows [LiveLoveApp](https://liveloveapp.com)'s design rules: Hanken Grotesk
+and JetBrains Mono (loaded with `next/font/google` in `app/layout.tsx`), ink `#0d0d0d`
+plus one cobalt accent `#002fa7` used for links, the focus ring, the selected thread and the hovered map leg,
+pill buttons, solid fills. The app is light only. The flight-category, verdict and
+status colors are the one exception to the single accent: they are data, shown only as
+labelled chips and dots. `app/design-rules.test.ts` fails the test suite on uppercase,
+positive letter-spacing, gradients, shadows, glass, a dark scheme, or any Google font other than those two.
 
 It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max` and
 `--wb-gutter` for the layout, `--wb-route` for the route line, the `--wb-cat-*`
-flight-category colors the chips and the markers share, the filter that mutes the map
-tiles (inverted in dark mode), and the print rules.
-
-The palette follows the OS light/dark setting. To pin one regardless, set
-`data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>` — `theme.css` defines both
-branches.
+flight-category colors the chips and the markers share, the filter that turns the map
+tiles grey, and the print rules.
 
 The plan and subagent steps are **not forks**. They are the packaged
 `@b4run/ag-ui/react` components `B4Activity` renders (`TurnActivity` and its steps),

@@ -150,7 +150,7 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
           [from[0], from[1]],
           [to[0], to[1]],
         ],
-        { color: cssVar("--wb-accent-from"), weight: 9, opacity: 0, interactive: false },
+        { color: cssVar("--wb-accent"), weight: 9, opacity: 0, interactive: false },
       ).addTo(map)
     })
     const waypoints = geometry.markers.map((marker) => ({

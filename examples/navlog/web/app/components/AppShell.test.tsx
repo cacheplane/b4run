@@ -259,7 +259,7 @@ describe("app shell workbench", () => {
   test("renders no chat until the thread id resolves (CopilotChat would mint its own)", async () => {
     await render(undefined)
     expect(container.querySelector("[data-chat]")).toBeNull()
-    expect(text()).toContain("B4.run navlog")
+    expect(text()).toContain("B4.run / navlog")
   })
 
   test("attachments follow the route's capability document", async () => {

@@ -4,39 +4,35 @@
  * The workbench palette, its Tailwind tokens, and the markdown styling.
  * Restyling the app is editing this file.
  *
+ * LiveLoveApp's rules: Hanken Grotesk and JetBrains Mono, ink plus one cobalt
+ * accent (links, the focus ring, the selected thread and the hovered map leg only), pill buttons,
+ * solid fills. Light only. `app/design-rules.test.ts` scans for the rest.
+ *
  * (The activity kit's tokens are all mapped onto this palette in the
  * `--b4-activity-*` block below, status colors included, so the kit and
- * CopilotChat follow the workbench in both schemes.)
- *
- * The b4 gradient has exactly two ROLES by design — the brand mark and the
- * primary action — so the app reads as a tool that happens to be named B4.run
- * rather than a themed demo. (Two roles, three render sites: the brand mark
- * appears in the rail and again in the empty state.)
+ * CopilotChat follow the workbench.)
  */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
-  --wb-bg: #fafafa;
+  --wb-bg: #f4f4f5;
   --wb-surface: #ffffff;
   --wb-border: #e4e4e7;
-  --wb-text: #18181b;
-  --wb-muted: #71717a;
+  --wb-text: #0d0d0d;
+  --wb-muted: #52525b;
   --wb-rail: #f4f4f5;
-  --wb-accent-from: #f97316;
-  --wb-accent-to: #ec4899;
-  --wb-radius: 10px;
+  --wb-accent: #002fa7;
+  --wb-radius: 14px;
 }
 
 /*
  * The palette as Tailwind tokens: `bg-wb-surface`, `border-wb-border`,
- * `text-wb-muted`, `rounded-wb`.
+ * `text-wb-muted`, `rounded-wb`, `font-sans`, `font-mono`.
  *
  * `@theme inline`, not plain `@theme`. Inline substitutes the *value* into the
  * generated utility, so `bg-wb-bg` compiles to `background-color: var(--wb-bg)`
- * and the `--wb-*` variables above stay the single source of truth — including
- * for the dark-mode overrides below and the --b4-activity-* mapping. A plain
- * `@theme` would emit a second set of variables that the media query would not
- * reach, and dark mode would silently stop working for every utility.
+ * and the `--wb-*` variables above stay the single source of truth, including
+ * for the --b4-activity-* mapping.
  */
 @theme inline {
   --color-wb-bg: var(--wb-bg);
@@ -45,17 +41,19 @@
   --color-wb-text: var(--wb-text);
   --color-wb-muted: var(--wb-muted);
   --color-wb-rail: var(--wb-rail);
-  --color-wb-accent-from: var(--wb-accent-from);
-  --color-wb-accent-to: var(--wb-accent-to);
+  --color-wb-accent: var(--wb-accent);
 
   --radius-wb: var(--wb-radius);
   --radius-wb-sm: calc(var(--wb-radius) - 3px);
+
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 }
 
 /* The app's one focus ring. Every interactive element wears `wb-focus`. */
 @utility wb-focus {
   &:focus-visible {
-    outline: 2px solid var(--wb-accent-from);
+    outline: 2px solid var(--wb-accent);
     outline-offset: 2px;
   }
 }
@@ -76,19 +74,19 @@
   --b4-activity-muted: var(--wb-muted);
   --b4-activity-radius: var(--wb-radius);
   --b4-activity-surface-alt: var(--wb-rail);
-  --b4-activity-running: var(--wb-route);
-  --b4-activity-running-bg: color-mix(in srgb, var(--wb-route) 10%, var(--wb-surface));
+  --b4-activity-running: var(--wb-running);
+  --b4-activity-running-bg: color-mix(in srgb, var(--wb-running) 10%, var(--wb-surface));
   --b4-activity-complete: var(--wb-go);
   --b4-activity-failed: var(--wb-nogo);
   --b4-activity-failed-bg: var(--wb-nogo-bg);
   --b4-activity-primary: var(--wb-text);
   --b4-activity-on-primary: var(--wb-surface);
+  --b4-activity-font-mono: var(--font-jetbrains), ui-monospace, monospace;
 }
 
-/* CopilotChat's shadcn tokens (declared unlayered on [data-copilotkit] and
-   .dark [data-copilotkit]). (0,2,0) and imported after the CopilotKit sheet in
-   layout.tsx, so these win in both schemes; :root rather than .wb-dock so
-   Radix tooltip/menu portals match too. */
+/* CopilotChat's shadcn tokens (declared unlayered on [data-copilotkit]).
+   (0,2,0) and imported after the CopilotKit sheet in layout.tsx, so these win;
+   :root rather than .wb-dock so Radix tooltip/menu portals match too. */
 :root [data-copilotkit] {
   --background: var(--wb-surface);
   --foreground: var(--wb-text);
@@ -107,42 +105,21 @@
   --destructive: var(--wb-chat-danger);
   --border: var(--wb-border);
   --input: var(--wb-border);
-  --ring: var(--wb-accent-from);
+  --ring: var(--wb-accent);
   --radius: var(--wb-radius);
+  --cpk-font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --cpk-font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --cpk-default-font-family: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --cpk-default-mono-font-family: var(--font-jetbrains), ui-monospace, monospace;
 }
 /* CopilotKit paints `background-color: var(--background)` on every
    [data-copilotkit] element (the chat root, the message list, each message,
    the suggestions row, the input's full-width wrapper), so the dock's
-   translucent .wb-panel showed through none of them. Clear them in the dock.
+   white .wb-panel fill showed through none of them. Clear them in the dock.
    Elements with a data-slot (suggestion pills, tooltips, menus) keep their
    own fill, and the input box's fill is a class, not this attribute. */
 .wb-dock [data-copilotkit]:not([data-slot]) {
   background-color: transparent;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-wb-theme="light"]) {
-    --wb-bg: #0c0d10;
-    --wb-surface: #141519;
-    --wb-border: #26272d;
-    --wb-text: #e4e6eb;
-    --wb-muted: #8b909c;
-    --wb-rail: #101114;
-  }
-}
-
-:root[data-wb-theme="light"] {
-  color-scheme: light;
-}
-
-:root[data-wb-theme="dark"] {
-  color-scheme: dark;
-  --wb-bg: #0c0d10;
-  --wb-surface: #141519;
-  --wb-border: #26272d;
-  --wb-text: #e4e6eb;
-  --wb-muted: #8b909c;
-  --wb-rail: #101114;
 }
 
 /*
@@ -153,7 +130,11 @@
   --wb-dock-width: min(380px, 34vw);
   --wb-sheet-max: 46vh;
   --wb-gutter: 16px;
-  --wb-route: #2563eb;
+  /* The route line is ink; the categories and statuses below carry the color. */
+  --wb-route: var(--wb-text);
+  --wb-route-casing: #ffffff;
+  /* The activity kit's "running" and the dock's Running badge. */
+  --wb-running: #1d4ed8;
   --wb-cat-vfr: #15803d;
   --wb-cat-mvfr: #1d4ed8;
   --wb-cat-ifr: #b91c1c;
@@ -174,81 +155,13 @@
   --wb-nogo-bg: #fef2f2;
   --wb-nogo-border: #fecaca;
 
-  /* The map's own surfaces: the color under the tiles while they load, and the floating panels' glass. */
-  --wb-map-bg: #e9e8e3;
-  --wb-float: rgb(255 255 255 / 0.86);
-  --wb-float-border: rgb(24 24 27 / 0.1);
-  --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
-  --wb-route-casing: #ffffff;
+  /* The color under the tiles while they load: the grey of the desaturated map. */
+  --wb-map-bg: #e8e8e8;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-wb-theme="light"]) {
-    --wb-route: #60a5fa;
-    --wb-cat-vfr: #4ade80;
-    --wb-cat-mvfr: #93c5fd;
-    --wb-cat-ifr: #fca5a5;
-    --wb-cat-lifr: #f0abfc;
-    --wb-cat-vfr-bg: #052e16;
-    --wb-cat-mvfr-bg: #172554;
-    --wb-cat-ifr-bg: #450a0a;
-    --wb-cat-lifr-bg: #4a044e;
-    --wb-go: #4ade80;
-    --wb-go-bg: #052e16;
-    --wb-go-border: #14532d;
-    --wb-caution: #fbbf24;
-    --wb-caution-bg: #2a1a04;
-    --wb-caution-border: #78350f;
-    --wb-nogo: #f87171;
-    --wb-nogo-bg: #2c0b0b;
-    --wb-nogo-border: #7f1d1d;
-    --wb-map-bg: #1a1c20;
-    --wb-float: rgb(20 21 25 / 0.84);
-    --wb-float-border: rgb(255 255 255 / 0.08);
-    --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
-    --wb-route-casing: #0c0d10;
-  }
-}
-
-:root[data-wb-theme="dark"] {
-  --wb-route: #60a5fa;
-  --wb-cat-vfr: #4ade80;
-  --wb-cat-mvfr: #93c5fd;
-  --wb-cat-ifr: #fca5a5;
-  --wb-cat-lifr: #f0abfc;
-  --wb-cat-vfr-bg: #052e16;
-  --wb-cat-mvfr-bg: #172554;
-  --wb-cat-ifr-bg: #450a0a;
-  --wb-cat-lifr-bg: #4a044e;
-  --wb-go: #4ade80;
-  --wb-go-bg: #052e16;
-  --wb-go-border: #14532d;
-  --wb-caution: #fbbf24;
-  --wb-caution-bg: #2a1a04;
-  --wb-caution-border: #78350f;
-  --wb-nogo: #f87171;
-  --wb-nogo-bg: #2c0b0b;
-  --wb-nogo-border: #7f1d1d;
-  --wb-map-bg: #1a1c20;
-  --wb-float: rgb(20 21 25 / 0.84);
-  --wb-float-border: rgb(255 255 255 / 0.08);
-  --wb-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -8px rgb(0 0 0 / 0.6);
-  --wb-route-casing: #0c0d10;
-}
-
-/* The OpenStreetMap tiles, muted in light mode and inverted in dark mode so the route carries the color. */
+/* The OpenStreetMap tiles in grey, so the ink route and the category colors carry the map. */
 .wb-map .leaflet-tile-pane {
-  filter: saturate(0.55) contrast(0.95);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-wb-theme="light"]) .wb-map .leaflet-tile-pane {
-    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
-  }
-}
-
-:root[data-wb-theme="dark"] .wb-map .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.6);
+  filter: grayscale(1) contrast(0.92) brightness(1.04);
 }
 
 /*
@@ -286,13 +199,10 @@
 }
 
 .wb-map.leaflet-container .leaflet-control-zoom {
-  border: 1px solid var(--wb-float-border);
-  border-radius: var(--wb-radius);
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
   overflow: hidden;
-  box-shadow: var(--wb-shadow);
-  background: var(--wb-float);
-  -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  backdrop-filter: blur(12px) saturate(1.4);
+  background: var(--wb-surface);
 }
 
 .wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out) {
@@ -314,16 +224,14 @@
 }
 
 .wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out):focus-visible {
-  outline: 2px solid var(--wb-accent-from);
+  outline: 2px solid var(--wb-accent);
   outline-offset: -2px;
 }
 
 .wb-map.leaflet-container .leaflet-control-attribution {
-  border-radius: 6px;
-  background: var(--wb-float);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 1px 8px;
   font-size: 10.5px;
   color: var(--wb-muted);
 }
@@ -363,7 +271,6 @@
   border: 2.5px solid var(--wb-surface);
   border-radius: 999px;
   background: var(--wb-muted);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
 }
 
 .wb-map .wb-wp-dot[data-cat="VFR"] {
@@ -384,14 +291,12 @@
   top: 50%;
   left: calc(100% + 6px);
   transform: translateY(-50%);
-  border: 1px solid var(--wb-float-border);
-  border-radius: 6px;
-  background: var(--wb-float);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
   padding: 1px 6px;
   font-size: 12px;
   font-weight: 650;
-  letter-spacing: 0.01em;
   color: var(--wb-text);
   white-space: nowrap;
 }
@@ -418,22 +323,17 @@
   font-variant-numeric: tabular-nums;
   color: var(--wb-surface);
   white-space: nowrap;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
 
-/* A floating surface over the map: frosted glass, a hairline and a soft lift. */
+/* A surface: solid white, a hairline, the workbench radius. No glass, no lift. */
 .wb-panel {
-  border: 1px solid var(--wb-float-border);
-  border-radius: calc(var(--wb-radius) + 2px);
-  background: var(--wb-float);
-  box-shadow: var(--wb-shadow);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
-  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
 }
 
-/* The sheet holds a dense table: a little more opaque than the other panels. */
 .wb-sheet {
-  background: color-mix(in srgb, var(--wb-surface) 94%, transparent);
+  background: var(--wb-surface);
 }
 
 .wb-sheet.wb-sheet-flat {
@@ -444,12 +344,10 @@
   pointer-events: auto;
 }
 
-/* Small uppercase section labels. */
+/* A section's own heading inside a panel ("Planning brief", "Go / no-go"): sentence case, muted. */
 .wb-eyebrow {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   color: var(--wb-muted);
 }
 
@@ -467,9 +365,9 @@
   gap: 6px;
   min-height: 32px;
   border: 1px solid var(--wb-border);
-  border-radius: calc(var(--wb-radius) - 3px);
+  border-radius: 999px;
   background: var(--wb-surface);
-  padding: 0 10px;
+  padding: 0 12px;
   font-size: 12px;
   font-weight: 500;
   color: var(--wb-text);
@@ -487,7 +385,7 @@
 @media (pointer: coarse) {
   .wb-button {
     min-height: 44px;
-    padding: 0 12px;
+    padding: 0 14px;
   }
 }
 
@@ -502,7 +400,7 @@
 }
 
 .wb-tab[aria-selected="true"] {
-  border-bottom-color: var(--wb-accent-from);
+  border-bottom-color: var(--wb-text);
   color: var(--wb-text);
 }
 
@@ -625,7 +523,6 @@
   padding: 3px 10px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.04em;
 }
 
 .wb-verdict {
@@ -647,7 +544,6 @@
 .wb-verdict-word {
   font-size: 20px;
   font-weight: 750;
-  letter-spacing: 0.02em;
   line-height: 1.15;
 }
 
@@ -661,7 +557,6 @@
 .wb-verdict-pill-raised {
   font-size: 10.5px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   opacity: 0.85;
 }
 
@@ -730,10 +625,8 @@
 }
 
 .wb-stat dt {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--wb-muted);
 }
 
@@ -774,10 +667,8 @@
   top: 0;
   z-index: 1;
   background: var(--wb-surface);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--wb-muted);
   cursor: help;
 }
@@ -807,7 +698,7 @@
 
 /* The planning brief. */
 .wb-bottom-line {
-  border-left: 3px solid var(--wb-accent-from);
+  border-left: 3px solid var(--wb-text);
   padding-left: 10px;
   font-size: 14px;
   font-weight: 550;
@@ -858,8 +749,8 @@
 
 /*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
- * sheet's own position, height and panel shadow come from rules (utilities and
- * the dark-mode `.wb-panel` selector) this block must beat whatever their
+ * sheet's own position, height and border come from rules (utilities and
+ * `.wb-panel`) this block must beat whatever their
  * specificity.
  */
 @media print {
@@ -879,8 +770,6 @@
     position: static !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     max-height: none !important;
-    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
-    box-shadow: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     border: 0 !important;
   }
@@ -911,16 +800,17 @@
   }
 }
 
-.wb-brand-mark {
-  background: linear-gradient(135deg, var(--wb-accent-from), var(--wb-accent-to));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* The app's name, "B4.run / navlog", in ink type (`Wordmark.tsx`). */
+.wb-wordmark {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--wb-text);
 }
 
-.wb-primary-action {
-  background: linear-gradient(135deg, var(--wb-accent-from), var(--wb-accent-to));
-  color: #ffffff;
+.wb-wordmark-product {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--wb-muted);
 }
 
 /*
@@ -1013,7 +903,7 @@
 }
 
 .wb-prose a {
-  color: inherit;
+  color: var(--wb-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1022,7 +912,7 @@
   border-radius: 4px;
   background: var(--wb-rail);
   padding: 0.1em 0.35em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
@@ -1073,27 +963,11 @@
 /* chat dock: start */
 /*
  * The chat dock's two signal colors: a warning (an approval waiting, a denied
- * call) and a failure. Tokens with dark values rather than Tailwind's `dark:`
- * variant: that variant follows the OS setting only, while the workbench also
- * honors an explicit `data-wb-theme`.
+ * call) and a failure.
  */
 :root {
   --wb-chat-warn: #b45309;
   --wb-chat-warn-bg: rgb(245 158 11 / 0.1);
   --wb-chat-danger: #b91c1c;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-wb-theme="light"]) {
-    --wb-chat-warn: #fbbf24;
-    --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
-    --wb-chat-danger: #f87171;
-  }
-}
-
-:root[data-wb-theme="dark"] {
-  --wb-chat-warn: #fbbf24;
-  --wb-chat-warn-bg: rgb(245 158 11 / 0.12);
-  --wb-chat-danger: #f87171;
 }
 /* chat dock: end */

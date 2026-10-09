@@ -44,7 +44,7 @@ describe("chat dock header", () => {
   test("the brand is the page's one h1, kept for screen readers on a phone", () => {
     const html = render("Plan")
     expect(html.split("<h1").length - 1).toBe(1)
-    expect(html).toMatch(/<h1[^>]*max-md:sr-only[^>]*>B4\.run navlog<\/h1>/)
+    expect(html).toMatch(/<h1[^>]*max-md:sr-only[^>]*><span class="wb-wordmark">B4\.run /)
   })
 })
 

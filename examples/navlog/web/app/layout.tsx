@@ -1,4 +1,5 @@
 import type { Viewport } from "next"
+import { Hanken_Grotesk, JetBrains_Mono } from "next/font/google"
 import type { ReactNode } from "react"
 import "@copilotkit/react-core/v2/styles.css"
 // Required, not optional polish: the activity kit carries no inline styles, so
@@ -10,36 +11,27 @@ import "./theme.css"
 
 export const metadata = { title: "B4.run navlog — a C172N VFR flight planner" }
 
+// LiveLoveApp's two faces. `theme.css` maps these variables onto Tailwind's
+// `font-sans` / `font-mono`, CopilotChat's `--cpk-font-*` and the activity
+// kit's `--b4-activity-font-mono`.
+const sans = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", display: "swap" })
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" })
+
 // `viewport-fit=cover` so the phone's bottom sheet can pad itself clear of the
 // home indicator (`env(safe-area-inset-bottom)` is 0 without it); the theme
-// colors match `--wb-bg` so the browser chrome blends with the app.
+// color matches `--wb-bg` so the browser chrome blends with the app.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0d10" },
-  ],
+  themeColor: "#f4f4f5",
 }
-
-// CopilotChat's dark mode is `.dark`-only (its tokens sit on `.dark
-// [data-copilotkit]` and its `cpk:dark:` utilities compile to `:is(.dark *)`),
-// while this app's dark theme is a media query. Mirror the media query onto
-// `<html class="dark">` before first paint and keep it in sync.
-// `data-b4-theme="auto"` makes the activity kit's tokens follow the same media
-// query on their own (`@b4run/ag-ui/styles.css`), so they are right even
-// before the script runs or where it cannot.
-const DARK_CLASS_SCRIPT = `(function(){try{var m=matchMedia("(prefers-color-scheme: dark)"),r=document.documentElement,t=function(){r.classList.toggle("dark",m.matches)};t();m.addEventListener("change",t)}catch(e){}})()`
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    // suppressHydrationWarning: the inline script adds `class="dark"` before hydration.
-    <html lang="en" data-b4-theme="auto" suppressHydrationWarning>
-      <head>
-        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a static constant, no user input */}
-        <script dangerouslySetInnerHTML={{ __html: DARK_CLASS_SCRIPT }} />
-      </head>
+    // Light only. `data-b4-theme="light"` pins the activity kit's own tokens
+    // to light even when the OS is dark.
+    <html lang="en" data-b4-theme="light" className={`${sans.variable} ${mono.variable}`}>
       <body className="m-0 font-sans bg-wb-bg text-wb-text">{children}</body>
     </html>
   )

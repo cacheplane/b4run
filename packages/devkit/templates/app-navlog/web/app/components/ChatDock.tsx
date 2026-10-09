@@ -1,6 +1,7 @@
 "use client"
 import { type ReactNode, useEffect, useId, useState } from "react"
 import { useHydrated } from "../lib/use-hydrated"
+import { Wordmark } from "./Wordmark"
 
 export interface ChatDockProps {
   readonly header: string
@@ -19,7 +20,7 @@ export interface ChatDockProps {
 
 /** The two header buttons' shared box: compact on a desktop pointer, 44 px tall under a finger. */
 const HEADER_BUTTON =
-  "wb-focus inline-flex min-h-7 shrink-0 items-center rounded-wb-sm px-2 text-[12px] transition-colors disabled:opacity-60 pointer-coarse:min-h-11 pointer-coarse:px-3"
+  "wb-focus inline-flex min-h-7 shrink-0 items-center rounded-full px-2 text-[12px] transition-colors disabled:opacity-60 pointer-coarse:min-h-11 pointer-coarse:px-3"
 
 /**
  * The run's state, as a word a person reads plus a dot: Running (pulsing,
@@ -116,8 +117,8 @@ export function ChatDock({
         accessibility tree (`sr-only`) rather than leaving it.
       */}
       <header className="relative flex shrink-0 flex-wrap items-center gap-x-1.5 gap-y-1.5 border-b border-wb-border px-3 py-2 md:pb-2.5">
-        <h1 className="wb-brand-mark mr-auto shrink-0 text-[13px] font-semibold tracking-tight max-md:sr-only">
-          B4.run navlog
+        <h1 className="mr-auto shrink-0 text-[14px] max-md:sr-only">
+          <Wordmark />
         </h1>
         {/*
           The visible text is short for the dock's width; the accessible name

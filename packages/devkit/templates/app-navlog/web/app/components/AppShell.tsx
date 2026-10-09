@@ -417,7 +417,7 @@ export function AppShell({
   //
   // The rail and header disappear with the chat: nothing in the shell works
   // without a server, including thread switching. `ConnectScreen` carries its
-  // own brand mark so the app still has an identity on screen.
+  // own wordmark so the app still has an identity on screen.
   if (serverStatus === "down") {
     return <ConnectScreen serverUrl={DEFAULT_SERVER_URL} onRetry={runProbe} />
   }

@@ -42,9 +42,16 @@ describe("ConnectScreen", () => {
     expect(html).toContain("OPENAI_API_KEY")
   })
 
-  test("renders the brand mark, same as the empty state", () => {
+  test("renders the wordmark, same as the dock", () => {
     const html = render()
-    expect(html).toContain("wb-brand-mark")
+    expect(html).toContain('class="wb-wordmark"')
+    expect(html).toContain("B4.run")
+    expect(html).toContain("/ navlog")
+  })
+
+  test("Try again is the primary (ink) button", () => {
+    const html = render()
+    expect(html).toMatch(/<button[^>]*bg-wb-text[^>]*>Try again<\/button>/)
   })
 
   test("renders a retry button", () => {

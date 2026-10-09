@@ -90,20 +90,22 @@ npm run build --workspace web
 `app/theme.css` is the one file to edit. The palette is defined there as CSS
 variables and re-exported as Tailwind tokens through `@theme inline`, which is
 why the app's utilities read `bg-wb-surface`, `border-wb-border`,
-`text-wb-muted`, `rounded-wb`. Change a `--wb-*` value and the light palette,
-the dark palette, the activity-card tokens, and every utility move together.
-The same file holds the focus ring (`wb-focus`), the two roles the gradient is
-allowed to play (`.wb-brand-mark`, `.wb-primary-action`), and the `.wb-prose`
-rules for rendered markdown.
+`text-wb-muted`, `rounded-wb`, `font-sans`. Change a `--wb-*` value and the
+activity-card tokens, CopilotChat's tokens and every utility move together.
+The same file holds the focus ring (`wb-focus`), the wordmark
+(`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
+
+The look is light only: Hanken Grotesk and JetBrains Mono (loaded in
+`app/layout.tsx`), ink plus one cobalt accent for links, the focus ring, the selected
+thread and the hovered map leg, pill buttons and solid fills. Flight-category, verdict and status
+colors are data, shown as labelled chips and dots. `app/design-rules.test.ts`
+fails the test suite on uppercase, positive letter-spacing, gradients, shadows,
+glass, a dark scheme, or any Google font other than those two.
 
 It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max`
 and `--wb-gutter` for the layout, `--wb-route` for the route line, the
 `--wb-cat-*` flight-category colors shared by the chips and the markers, the
-filter that mutes the map tiles (inverted in dark mode), and the print rules.
-
-The palette follows the OS light/dark setting. To pin one, set
-`data-wb-theme="light"` or `data-wb-theme="dark"` on `<html>`; `theme.css`
-defines both branches.
+filter that turns the map tiles grey, and the print rules.
 
 The plan and subagent steps are **not forks**. They are the packaged
 `@b4run/ag-ui/react` components `B4Activity` renders (`TurnActivity` and its
