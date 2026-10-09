@@ -42,7 +42,8 @@
         "$TURBO_ROOT$/pnpm-lock.yaml",
         "$TURBO_ROOT$/examples/chat/web/package.json",
         "$TURBO_ROOT$/examples/navlog/web/package.json",
-        "$TURBO_ROOT$/scripts/published-artifact-smoke.mjs"
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
       ]
     },
     "@b4run/cli#test": {
@@ -130,6 +131,8 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/package.json",
         "$TURBO_ROOT$/packages/vite-plugin/package.json",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
         "$TURBO_ROOT$/test/fixtures/contracts/manifest.snap.json"
       ]
     },
@@ -154,6 +157,8 @@
         "$TURBO_ROOT$/.github/workflows/ci.yml",
         "$TURBO_ROOT$/charts/b4-sandbox-infra/values.yaml",
         "$TURBO_ROOT$/examples/code-fixer/server/sample/**",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
         "!$TURBO_ROOT$/examples/code-fixer/server/sample/**/node_modules/**",
         "$TURBO_ROOT$/test/code-fixer/fixtures/nullable-inputs/**",
         "!$TURBO_ROOT$/test/code-fixer/fixtures/nullable-inputs/**/node_modules/**"
@@ -167,6 +172,8 @@
         "$TURBO_ROOT$/examples/memory/server/package.json",
         "$TURBO_ROOT$/examples/memory/server/tsconfig.json",
         "$TURBO_ROOT$/examples/memory/server/src/**",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
         "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/b4.config.ts",
         "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/package.json",
         "$TURBO_ROOT$/test/runtime/fixtures/sandbox-app/src/**"
@@ -175,6 +182,54 @@
     "create-b4-app#test": {
       "dependsOn": ["build", "^test"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/harness/**"]
+    },
+    "@b4run/langchain#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
+    },
+    "@b4run/langgraph#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
+    },
+    "@b4run/memory-pgvector#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
+    },
+    "@b4run/postgres-storage#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
+    },
+    "@b4run/sdk#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
+    },
+    "@b4run/vite-plugin#test": {
+      "dependsOn": ["build", "^test"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+      ]
     },
     "typecheck": {
       "dependsOn": ["build"]

@@ -17,6 +17,11 @@ import {
   resolveRequestedVersion,
 } from "./lib/published-artifacts.mjs"
 import { runTypeScriptToolingProbe as defaultRunTypeScriptToolingProbe } from "./lib/typescript-tooling-probe.mjs"
+import {
+  AG_UI_ROOT_CONSTANTS,
+  AG_UI_ROOT_EXPORTS,
+  AG_UI_ROOT_FUNCTIONS,
+} from "./release/smoke/published-surface.mjs"
 
 const NATIVE_BUILD_INDICATORS =
   /\b(?:node-gyp|prebuild|prebuild-install|node-pre-gyp|cmake-js|node-gyp-build|prebuildify)\b|gyp ERR!/i
@@ -346,22 +351,15 @@ import * as root from "@b4run/ag-ui"
 import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 assert.deepEqual(Object.keys(root).sort(), [
-  "B4_CONTENT_PARTS_DROPPED_EVENT",
-  "B4_PLAN_ACTIVITY_TYPE",
-  "createCounterIdFactory",
-  "createDefaultIdFactory",
-  "fromRunAgentInput",
-  "toAguiEvents",
+${probeStringList(AG_UI_ROOT_EXPORTS)}
 ])
 
-assert.equal(root.B4_PLAN_ACTIVITY_TYPE, "b4.plan")
-assert.equal(root.B4_CONTENT_PARTS_DROPPED_EVENT, "b4.content_parts_dropped")
+${Object.entries(AG_UI_ROOT_CONSTANTS)
+  .map(([name, value]) => `assert.equal(root.${name}, ${JSON.stringify(value)})`)
+  .join("\n")}
 
 for (const exportName of [
-  "createCounterIdFactory",
-  "createDefaultIdFactory",
-  "fromRunAgentInput",
-  "toAguiEvents",
+${probeStringList(AG_UI_ROOT_FUNCTIONS)}
 ]) {
   assert.equal(typeof root[exportName], "function", \`canonical export \${exportName} must be a function\`)
 }
@@ -389,6 +387,10 @@ assert.ok(frame instanceof Uint8Array, "a protobuf frame is bytes")
 const declared = new DataView(frame.buffer, frame.byteOffset, 4).getUint32(0, false)
 assert.equal(frame.length, 4 + declared, "a protobuf frame is its 4-byte length prefix plus the event")
 `
+}
+
+function probeStringList(names) {
+  return names.map((name) => `  ${JSON.stringify(name)},`).join("\n")
 }
 
 export function agUiTypeProbeSource() {

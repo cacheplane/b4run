@@ -167,6 +167,7 @@
       "scripts/release/smoke-result.mjs",
       "scripts/release/smoke/docker-identity.mjs",
       "scripts/release/smoke/published-harness.mjs",
+      "scripts/release/smoke/published-surface.mjs",
       "scripts/release/smoke/runtime-targets.mjs",
       "scripts/release/smoke/scaffold.mjs",
       "scripts/release/smoke/storage.mjs",
