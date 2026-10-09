@@ -17,7 +17,7 @@ export const metadata = { title: "B4.run navlog — a C172N VFR flight planner" 
 const sans = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", display: "swap" })
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" })
 
-// `viewport-fit=cover` so the phone's bottom sheet can pad itself clear of the
+// `viewport-fit=cover` so the phone's tab bar can pad itself clear of the
 // home indicator (`env(safe-area-inset-bottom)` is 0 without it); the theme
 // color matches `--wb-bg` so the browser chrome blends with the app.
 export const viewport: Viewport = {
