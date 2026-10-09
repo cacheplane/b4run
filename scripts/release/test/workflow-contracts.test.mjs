@@ -132,8 +132,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // dist/styles.css, and forbid the retired dist/copilotkit and dist/react/styles.css.
 // Repinned for the take-2 demo and the README audit: readme-contracts.mjs pins the
 // inline GitHub demo video, the navlog "Run it live" steps and the create-b4-app flags.
+// Repinned for the AG-UI root export probe: published-artifact-smoke.mjs expects
+// B4_CONTENT_PARTS_DROPPED_EVENT (#912), whose absence failed v0.14.0's published-harness lane.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "c68cbd37351850cea95fb4ee0fa8043665756c722d7512e5a936e836afd2bb7a"
+  "aecf61462f8f70bef2dd7b88f159a050c7cabf0e359deee0bf2ec68ae62bc5d7"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

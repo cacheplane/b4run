@@ -346,6 +346,7 @@ import * as root from "@b4run/ag-ui"
 import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
 
 assert.deepEqual(Object.keys(root).sort(), [
+  "B4_CONTENT_PARTS_DROPPED_EVENT",
   "B4_PLAN_ACTIVITY_TYPE",
   "createCounterIdFactory",
   "createDefaultIdFactory",
@@ -354,6 +355,7 @@ assert.deepEqual(Object.keys(root).sort(), [
 ])
 
 assert.equal(root.B4_PLAN_ACTIVITY_TYPE, "b4.plan")
+assert.equal(root.B4_CONTENT_PARTS_DROPPED_EVENT, "b4.content_parts_dropped")
 
 for (const exportName of [
   "createCounterIdFactory",
