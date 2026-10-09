@@ -16,8 +16,8 @@ export interface ThreadRailProps {
   readonly onCreate: () => void
   /**
    * Whether the rail draws its own "+ New conversation" button. The map
-   * workbench turns it off: the dock header carries that button, always in
-   * view, while the list lives behind the "Threads" disclosure.
+   * workbench turns it off: the sidenav's New plan button carries it, and
+   * the list is always in view below it.
    */
   readonly showCreate?: boolean
 }

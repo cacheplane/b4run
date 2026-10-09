@@ -175,7 +175,8 @@ caller.
 - **Memory review is candidates only.** The panel lists what the agent proposed
   with `remember()` and offers Approve and Delete on each — Delete is a hard
   delete on the server with no undo. It shows at most three candidates at a time
-  and counts the rest, so it cannot push the thread list off the sidenav. It cannot
+  and counts the rest, because it sits above the conversation and takes the
+  conversation's space; with none waiting it takes none. It cannot
   browse, search, or edit stored memories; that is `npm run memory:list` and the
   rest of the `b4 memory` CLI, or `npx b4 inspect --cwd server` for a browser UI.
 - **The map needs the network.** Tiles come from `tile.openstreetmap.org` under

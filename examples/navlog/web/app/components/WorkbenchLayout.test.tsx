@@ -161,9 +161,11 @@ function mount(overrides: Partial<WorkbenchLayoutProps> = {}) {
   render()
   const click = (selector: string) =>
     act(() => (container.querySelector(selector) as HTMLElement).click())
-  const key = (key: string) =>
+  const key = (key: string, init: KeyboardEventInit = {}) =>
     act(() => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }))
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }),
+      )
     })
   return { container, click, key, render, unmount: () => act(() => root.unmount()) }
 }
@@ -240,6 +242,50 @@ describe("WorkbenchLayout phone tabs and drawer", () => {
     expect(dialog?.contains(document.activeElement)).toBe(true)
     view.key("Escape")
     expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    view.unmount()
+  })
+  test("Tab and Shift+Tab wrap inside the open drawer", () => {
+    const view = mount()
+    view.click('button[aria-label="Open navigation"]')
+    const dialog = view.container.querySelector('[role="dialog"]') as HTMLElement
+    const items = [...dialog.querySelectorAll<HTMLElement>("button:not([disabled])")]
+    const first = items[0]
+    const last = items.at(-1)
+    expect(items.length).toBeGreaterThan(1)
+    act(() => last?.focus())
+    view.key("Tab")
+    expect(document.activeElement).toBe(first)
+    view.key("Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(last)
+    view.unmount()
+  })
+  test("Escape returns focus to the menu button", () => {
+    const view = mount()
+    view.click('button[aria-label="Open navigation"]')
+    view.key("Escape")
+    expect(document.activeElement).toBe(
+      view.container.querySelector('button[aria-label="Open navigation"]'),
+    )
+    view.unmount()
+  })
+  test("widening to a desktop closes the drawer", () => {
+    const view = mount()
+    view.click('button[aria-label="Open navigation"]')
+    expect(view.container.querySelector('[role="dialog"]')).not.toBeNull()
+    viewport.desktop = true
+    view.render()
+    viewport.desktop = false
+    view.render()
+    expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    view.unmount()
+  })
+  test("a tab names its panel only when the panel exists", () => {
+    const view = mount({ navlog: null })
+    const tab = (id: string) => view.container.querySelector(`#wb-tab-${id}`)
+    expect(tab("navlog")?.hasAttribute("aria-controls")).toBe(false)
+    expect(tab("map")?.getAttribute("aria-controls")).toBe("wb-panel-map")
+    view.render({ navlog: SAMPLE_NAVLOG })
+    expect(tab("navlog")?.getAttribute("aria-controls")).toBe("wb-panel-navlog")
     view.unmount()
   })
   test("choosing a thread in the drawer closes it", () => {

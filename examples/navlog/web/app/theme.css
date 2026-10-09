@@ -417,7 +417,7 @@
   height: 8px;
   border: 2px solid var(--wb-surface);
   border-radius: 999px;
-  background: var(--wb-accent);
+  background: var(--wb-text);
 }
 
 /* The phone's top-row buttons: 44px round targets. */
@@ -445,7 +445,7 @@
 
 /* The phone's navigation drawer and the scrim behind it. */
 .wb-scrim {
-  background: rgb(13 13 13 / 0.3);
+  background: color-mix(in srgb, var(--wb-text) 30%, transparent);
 }
 
 .wb-drawer {

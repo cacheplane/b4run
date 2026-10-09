@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -167,8 +168,12 @@ export function WorkbenchLayout({
   }, [awaitingApproval])
 
   // A new navlog while the pilot is in the chat: dot the two tabs that show it.
+  // Read by the navlog effect below. A layout effect runs before every
+  // passive effect of the same commit, so it always sees this render's tab.
   const activeTabRef = useRef(activeTab)
-  activeTabRef.current = activeTab
+  useLayoutEffect(() => {
+    activeTabRef.current = activeTab
+  }, [activeTab])
   const previousNavlog = useRef(navlog)
   useEffect(() => {
     if (navlog !== null && navlog !== previousNavlog.current && activeTabRef.current === "chat") {
@@ -176,6 +181,12 @@ export function WorkbenchLayout({
     }
     previousNavlog.current = navlog
   }, [navlog])
+
+  // The drawer is the phone's; a window widened past the breakpoint with it
+  // open must not bring it back on the next narrowing.
+  useEffect(() => {
+    if (isDesktop) setDrawerOpen(false)
+  }, [isDesktop])
 
   const selectTab = useCallback((next: PhoneTab): void => {
     setTab(next)
@@ -374,7 +385,10 @@ export function WorkbenchLayout({
                 role="tab"
                 id={`wb-tab-${item.id}`}
                 aria-selected={activeTab === item.id}
-                aria-controls={`wb-panel-${item.id}`}
+                // The Navlog panel only exists with a navlog.
+                {...(item.id === "navlog" && navlog === null
+                  ? {}
+                  : { "aria-controls": `wb-panel-${item.id}` })}
                 disabled={item.id !== "chat" && navlog === null}
                 className="wb-focus wb-tab"
                 onClick={() => selectTab(item.id)}

@@ -4,7 +4,7 @@ A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/navlog` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
-workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in a
+workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in
 the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
 `performance` subagents, tool steps and approval appear in the conversation, and the
 map, sheet and weather strip read the same turns from outside the chat.
@@ -51,7 +51,7 @@ a legacy base-URL POST.
   (`StepViews.tsx`) shows the totals and a link that opens the sheet.
 - **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
   and a bottom tab bar: **Chat**, **Map** and **Navlog** (one card per leg). Map and Navlog
-  get a dot when a new navlog arrives while you are in the chat, and an approval always
+  get a dot when a navlog arrives while you are in the chat, and an approval always
   brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that
   applies is rendered (`app/lib/use-media-query.ts`), so there is always exactly one chat.
 - **Chat** (`app/components/NavlogChat.tsx`) — `<CopilotChat>` with B4.run's slots
@@ -149,10 +149,11 @@ The panel is **candidates only**. It lists what the agent proposed with `remembe
 offers two decisions per candidate: **Approve** (`/approve`, which reports back when the
 new record supersedes an older belief) and **Delete** (`/reject`, a hard delete on the
 server with no undo — hence the label, not "Dismiss"). It shows at most three at a time
-and counts the rest, so it cannot push the thread list off the sidenav. With no candidates it
-renders nothing at all — except the one line reporting the outcome of the decision you
-just made, or a load failure. It cannot browse, search, or edit stored
-memories — that is still `b4 memory list` and the rest of the `b4 memory` CLI.
+and counts the rest, because it sits above the conversation and every line it takes is the
+conversation's. With no candidates it renders nothing at all and costs no space — except
+the one line reporting the outcome of the decision you just made, or a load failure. It
+cannot browse, search, or edit stored memories — that is still `b4 memory list` and the
+rest of the `b4 memory` CLI.
 
 ## Running
 
