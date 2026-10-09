@@ -30,7 +30,7 @@ export interface ThreadRailProps {
 export const UNTITLED_THREAD_LABEL = "New conversation"
 
 const ROW_BASE =
-  "block w-full truncate rounded-wb px-2.5 py-1.5 text-left text-[13px] transition-colors wb-focus pointer-coarse:py-3"
+  "block w-full truncate wb-row px-2 py-1.5 text-left text-[13px] transition-colors wb-focus pointer-coarse:py-3"
 
 const ROW_ACTIVE = "bg-wb-rail font-medium text-wb-accent"
 
@@ -57,7 +57,7 @@ export function ThreadRail({
         </div>
       ) : null}
       <p
-        className={`px-4 ${showCreate ? "pt-6" : "pt-1"} pb-2 text-[12px] font-medium text-wb-muted`}
+        className={`px-4 ${showCreate ? "pt-6" : "pt-0"} pb-2 text-[12px] font-medium text-wb-muted`}
       >
         Recent
       </p>

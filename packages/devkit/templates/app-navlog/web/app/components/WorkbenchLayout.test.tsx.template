@@ -32,6 +32,13 @@ vi.mock("next/dynamic", () => ({
     },
 }))
 vi.mock("../lib/use-media-query", () => ({ useMediaQuery: () => viewport.desktop }))
+const sidebar = vi.hoisted(() => ({
+  state: "expanded" as "expanded" | "collapsed",
+  toggle: vi.fn(),
+}))
+vi.mock("../lib/use-sidebar-state", () => ({
+  useSidebarState: () => [sidebar.state, sidebar.toggle] as const,
+}))
 
 const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutProps => ({
   navlog: SAMPLE_NAVLOG,
@@ -45,7 +52,7 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
       </li>
     </ul>
   ),
-  memory: <p>memory</p>,
+  memory: ({ open }) => <p data-memory-open={String(open)}>memory</p>,
   memoryCount: 0,
   header: "Thread one",
   onNewConversation: () => {},
@@ -79,9 +86,8 @@ describe("WorkbenchLayout on desktop", () => {
     expect(html).not.toContain(">Threads<")
     expect(html.indexOf("New plan")).toBeLessThan(html.indexOf("<main"))
   })
-  test("the memory panel stays above the conversation; the sidenav counts it", () => {
+  test("the sidenav counts the memory candidates", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ memoryCount: 2 })} />)
-    expect(html.indexOf("<p>memory</p>")).toBeLessThan(html.indexOf("<main"))
     expect(html).toContain(">2<")
   })
   test("map markers take each airport's worst category, as the chips do", () => {
@@ -293,6 +299,101 @@ describe("WorkbenchLayout phone tabs and drawer", () => {
     view.click('button[aria-label="Open navigation"]')
     view.click('[role="dialog"] li button')
     expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    view.unmount()
+  })
+})
+
+describe("WorkbenchLayout sidebar and Memory mode (desktop)", () => {
+  beforeEach(() => {
+    viewport.desktop = true
+    sidebar.state = "expanded"
+  })
+  test("the root carries the sidebar state for the grid", () => {
+    expect(renderToStaticMarkup(<WorkbenchLayout {...props()} />)).toContain(
+      'data-sidebar="expanded"',
+    )
+    sidebar.state = "collapsed"
+    expect(renderToStaticMarkup(<WorkbenchLayout {...props()} />)).toContain(
+      'data-sidebar="collapsed"',
+    )
+  })
+  test("the chat column has no memory panel", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    const start = html.indexOf('aria-label="Chat"')
+    const chat = html.slice(start, html.indexOf("</section>", start))
+    expect(chat).not.toContain("memory")
+  })
+  test("Memory swaps the right column; the map stays mounted, invisible and inert", () => {
+    const view = mount({ memoryCount: 2 })
+    const mapColumn = () => view.container.querySelector("[data-map-column]")
+    const memoryColumn = () => view.container.querySelector("[data-memory-column]")
+    expect(mapColumn()?.hasAttribute("inert")).toBe(false)
+    expect(memoryColumn()?.className).toContain("invisible")
+    expect(memoryColumn()?.className).toContain("print:hidden")
+    view.click('aside [aria-pressed="false"]')
+    expect(mapColumn()?.className).toContain("invisible")
+    expect(mapColumn()?.hasAttribute("inert")).toBe(true)
+    expect(view.container.querySelector('[data-testid="map"]')).not.toBeNull()
+    expect(view.container.querySelector(".wb-sheet-wrap")).not.toBeNull()
+    expect(memoryColumn()?.className).not.toContain("invisible")
+    expect(
+      view.container.querySelector("[data-memory-open]")?.getAttribute("data-memory-open"),
+    ).toBe("true")
+    view.unmount()
+  })
+  test("Escape inside the memory column leaves the mode", () => {
+    const view = mount({ memoryCount: 1 })
+    view.click('aside [aria-pressed="false"]')
+    act(() => {
+      view.container
+        .querySelector("[data-memory-column]")
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
+    expect(view.container.querySelector('aside [aria-pressed="true"]')).toBeNull()
+    view.unmount()
+  })
+  test("New plan leaves the mode", () => {
+    const view = mount({ memoryCount: 1 })
+    view.click('aside [aria-pressed="false"]')
+    const newPlan = [...view.container.querySelectorAll("aside button")].find((b) =>
+      b.textContent?.includes("New plan"),
+    ) as HTMLElement
+    act(() => newPlan.click())
+    expect(view.container.querySelector('aside [aria-pressed="true"]')).toBeNull()
+    view.unmount()
+  })
+})
+
+describe("WorkbenchLayout Memory mode (phone)", () => {
+  beforeEach(() => {
+    viewport.desktop = false
+  })
+  test("Memory from the drawer shows the memory panel and deselects every tab; a tab leaves it", () => {
+    const view = mount({ memoryCount: 1 })
+    view.click('button[aria-label="Open navigation"]')
+    view.click('[role="dialog"] [aria-pressed="false"]')
+    expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    for (const id of ["chat", "map", "navlog"]) {
+      expect(view.container.querySelector(`#wb-tab-${id}`)?.getAttribute("aria-selected")).toBe(
+        "false",
+      )
+    }
+    expect(view.container.querySelector("[data-memory-column]")?.className).not.toContain(
+      "invisible",
+    )
+    expect(view.container.querySelector("#wb-panel-chat")?.hasAttribute("inert")).toBe(true)
+    view.click("#wb-tab-chat")
+    expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
+    expect(view.container.querySelector("[data-memory-column]")?.className).toContain("invisible")
+    view.unmount()
+  })
+  test("an approval leaves Memory mode so the card is seen", () => {
+    const view = mount({ memoryCount: 1 })
+    view.click('button[aria-label="Open navigation"]')
+    view.click('[role="dialog"] [aria-pressed="false"]')
+    view.render({ status: "awaiting approval" })
+    expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
+    expect(view.container.querySelector("[data-memory-column]")?.className).toContain("invisible")
     view.unmount()
   })
 })

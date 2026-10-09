@@ -18,7 +18,7 @@ import { NavlogChat } from "./NavlogChat"
 import { RunError } from "./RunError"
 import { NAVLOG_STEP_LABELS, NAVLOG_STEP_RENDERERS } from "./StepViews"
 import { ThreadRail, UNTITLED_THREAD_LABEL } from "./ThreadRail"
-import { WorkbenchLayout } from "./WorkbenchLayout"
+import { type MemoryControls, WorkbenchLayout } from "./WorkbenchLayout"
 
 /**
  * THE ERROR-SURFACE NOTE. Three surfaces can report a failure in this app, and
@@ -465,7 +465,7 @@ export function AppShell({
           not a conversation's, and the endpoint has no thread parameter. It
           remounts with the workbench on a switch and re-reads the same queue.
         */
-        memory={<MemoryPanel onCountChange={setMemoryCount} />}
+        memory={(controls) => <MemoryPanel onCountChange={setMemoryCount} {...controls} />}
         memoryCount={memoryCount}
         onNewConversation={onCreateThread}
       />
@@ -480,7 +480,7 @@ interface ThreadWorkbenchProps {
   readonly banner: ReactNode
   readonly notices: ReactNode
   readonly rail: ReactNode
-  readonly memory: ReactNode
+  readonly memory: (controls: MemoryControls) => ReactNode
   readonly memoryCount: number
   readonly onNewConversation: () => void
 }

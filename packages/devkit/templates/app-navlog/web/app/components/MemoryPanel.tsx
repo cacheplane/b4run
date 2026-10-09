@@ -1,8 +1,8 @@
 "use client"
 import { useAgent } from "@copilotkit/react-core/v2"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { MEMORY_PANEL_ID } from "./memory-anchor"
-import { neutralButton } from "./ui"
+import { type Ref, useCallback, useEffect, useRef, useState } from "react"
+import { Icon } from "./icons"
+import { neutralButton, primaryButton } from "./ui"
 
 /**
  * The memory candidates the agent has proposed, and the two decisions on them.
@@ -61,16 +61,6 @@ export const LOAD_FAILURE_NOTICE = "Couldn’t load memory candidates."
 /** Shown when a decision does not land. The candidate is still there. */
 export const DECISION_FAILURE_NOTICE = "Couldn’t save that decision — nothing changed."
 
-/**
- * At most this many candidates are listed; the rest are counted.
- *
- * The panel sits in the chat dock above the conversation, which already owns
- * the dock's scroll region; a long list here would take the answer's space, so
- * the section is bounded by content instead: three rows, then an honest line
- * about the remainder. The count in the summary is always the true total.
- */
-const MAX_VISIBLE = 3
-
 export interface MemoryPanelViewProps {
   readonly candidates: readonly MemoryCandidate[]
   readonly onApprove: (id: string) => void
@@ -86,14 +76,18 @@ export interface MemoryPanelViewProps {
   readonly outcome: string | null
   /** A sticky quiet line for a read that failed. Cleared by the next success. */
   readonly loadFailure: string | null
+  /** Shown as the header's close button (Memory mode). */
+  readonly onClose?: () => void
+  /** The heading, focused when Memory mode opens. */
+  readonly headingRef?: Ref<HTMLHeadingElement>
 }
 
 /** "1 earlier memory" / "2 earlier memories". */
 export function describeApprove(action: ApproveAction, supersededCount: number): string | null {
   if (action === "deduped") return "Already remembered — nothing changed."
   if (action !== "superseded" || supersededCount === 0) {
-    // A plain activation says nothing: the row disappearing from a list of
-    // three is the feedback, and a line confirming what the click obviously
+    // A plain activation says nothing: the row disappearing from the list
+    // is the feedback, and a line confirming what the click obviously
     // did is the kind of noise that makes a panel easy to stop reading.
     return null
   }
@@ -120,7 +114,7 @@ function shortLabel(content: string): string {
  * The panel, as pure props.
  *
  * Split out from the container for the reason every other component in this
- * app is: the branching (empty, populated, over the cap, busy, failed) is
+ * app is: the branching (empty, populated, busy, failed) is
  * assertable with `renderToStaticMarkup` and nothing else has to exist for it.
  */
 export function MemoryPanelView({
@@ -130,106 +124,90 @@ export function MemoryPanelView({
   isBusy,
   outcome,
   loadFailure,
+  onClose,
+  headingRef,
 }: MemoryPanelViewProps) {
-  // Empty is the NORMAL state — most sessions never propose a memory — so the
-  // panel's resting appearance is nothing at all, not a heading over "No
-  // candidates". A permanent empty box in a 256px rail is a permanent
-  // suggestion that something is missing.
-  if (candidates.length === 0) {
-    if (outcome === null && loadFailure === null) return null
-    return (
-      <div className="shrink-0 border-t border-wb-border px-4 pt-3">
-        {/* Same `role="status"` as the populated case below, and for the same
-            reason: this is the branch a supersede of the LAST candidate lands
-            in, so it is the one that most needs announcing. */}
-        <p role="status" className="text-[11px] leading-4 text-wb-muted">
-          {outcome ?? loadFailure}
-        </p>
-      </div>
-    )
-  }
-
-  const visible = candidates.slice(0, MAX_VISIBLE)
-  const hidden = candidates.length - visible.length
-
   return (
     <section
-      id={MEMORY_PANEL_ID}
       aria-label="Memory candidates"
       aria-busy={isBusy}
-      className="shrink-0 border-t border-wb-border px-3 pt-2"
+      className="wb-panel flex h-full min-h-0 flex-col"
     >
+      <header className="wb-header-row gap-2 border-b border-wb-border pl-4 pr-2">
+        {/* Focused on open (tabIndex -1: a target, not a tab stop). */}
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className="min-w-0 flex-1 text-[14px] font-semibold leading-5 tracking-tight focus:outline-none"
+        >
+          Memory
+          <span className="ml-1.5 font-mono font-normal text-wb-muted">· {candidates.length}</span>
+        </h2>
+        {onClose ? (
+          <button
+            type="button"
+            aria-label="Close memory"
+            onClick={onClose}
+            className="wb-focus wb-icon-button wb-icon-button-quiet"
+          >
+            <Icon name="close" />
+          </button>
+        ) : null}
+      </header>
       {/*
-        A native `<details>`, open by default: a candidate the user never sees
-        is the same as no panel, and collapsing is theirs to ask for. Native
-        rather than a `useState` toggle so the pure view stays stateless —
-        the tests render it with `renderToStaticMarkup` and never have to
-        drive a disclosure to reach the rows underneath.
+        A live region that is always present, with its text swapped: screen
+        readers announce a change to a region already in the tree far more
+        reliably than an inserted one. Polite (`role="status"`): it must not
+        interrupt.
       */}
-      <details open className="group">
-        {/*
-          `list-none` hides the platform marker (which is a filled triangle on
-          the left, at a size that fights a 12px label), so the
-          disclosure needs its own affordance or "Memory · 2" reads as a plain
-          heading. Same idea as the activity kit's chevron: one glyph, rotated
-          by CSS on the open state. `group-open:` needs the `group` class on
-          the `<details>`, which is why it is there.
-        */}
-        <summary className="wb-focus flex cursor-pointer list-none items-center gap-1.5 px-1 text-[12px] font-medium text-wb-muted">
-          <span aria-hidden="true" className="transition-transform group-open:rotate-90">
-            ▸
-          </span>
-          Memory · {candidates.length}
-        </summary>
-        {/*
-          One row per candidate, the decision beside the text: this section sits
-          in the chat dock above the conversation, so every line it takes is a
-          line of the answer the pilot is reading. Three stacked cards (text,
-          a "suggested by" line, then a button row) took up to 40% of the dock.
-        */}
-        <ul className="mt-1.5 space-y-1.5">
-          {visible.map((candidate) => (
+      <p role="status" className="px-4 pt-3 text-[12px] leading-4 text-wb-muted">
+        {outcome ??
+          loadFailure ??
+          (isBusy ? "Saving…" : "Approving stores the memory. Deleting is permanent.")}
+      </p>
+      {candidates.length === 0 ? (
+        <div className="px-4 pt-6">
+          <p className="text-[13px] font-medium">Nothing waiting for review.</p>
+          <p className="mt-1 text-[12px] leading-5 text-wb-muted">
+            When the planner proposes something to remember, it appears here for you to approve or
+            delete.
+          </p>
+        </div>
+      ) : (
+        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-3">
+          {candidates.map((candidate) => (
             <li
               key={candidate.id}
-              className="flex items-start gap-2 rounded-wb border border-wb-border bg-wb-surface px-2.5 py-1.5"
+              className="wb-row flex items-start gap-3 border border-wb-border bg-wb-surface px-2 py-2.5"
             >
-              {/* `title` carries the full text for the clamped case. The
-                  store's namespace and the model's confidence are for a
-                  developer, so they sit in the tooltip, not in the line. */}
-              <p
-                className="line-clamp-2 min-w-0 flex-1 break-words text-[12px] leading-4"
-                title={`${candidate.content}\n${candidate.namespace}${
-                  typeof candidate.confidence === "number"
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-[13px] leading-5">{candidate.content}</p>
+                <p className="mt-0.5 truncate font-mono text-[12px] text-wb-muted">
+                  {[candidate.namespace, ...(candidate.tags ?? [])].join(" · ")}
+                  {typeof candidate.confidence === "number"
                     ? ` · confidence ${candidate.confidence}`
-                    : ""
-                }`}
-              >
-                {candidate.content}
-              </p>
-              <div className="flex shrink-0 gap-1">
+                    : ""}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
                 {/*
-                  Three rows of identically-labelled buttons: "Approve" alone
-                  is useless to anyone navigating by control, who gets
-                  "Approve, button" three times with nothing to tell them
-                  apart. The visible label stays short; `aria-label` carries
-                  which candidate it acts on.
+                  `aria-label` carries which candidate a button acts on: rows
+                  of identical "Approve" buttons are otherwise
+                  indistinguishable to anyone navigating by control.
                 */}
                 <button
                   type="button"
                   disabled={isBusy}
                   aria-label={`Approve: ${shortLabel(candidate.content)}`}
                   onClick={() => onApprove(candidate.id)}
-                  className={`${neutralButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
+                  className={`${primaryButton("sm")} disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-4`}
                 >
                   Approve
                 </button>
                 {/*
-                  "Delete", not "Reject": the endpoint is
-                  `…/reject`, but what it does is a hard delete — the row is
-                  gone from the store and `{"ok":true}` comes back even for an
-                  id that never existed. Naming the button after the effect
-                  rather than after the route is the whole of the warning
-                  (a confirm dialog in a dev tool this size is not).
+                  "Delete", not "Reject": the endpoint is `…/reject`, but it
+                  hard-deletes the candidate. Naming the button after the
+                  effect is the warning.
                 */}
                 <button
                   type="button"
@@ -244,34 +222,7 @@ export function MemoryPanelView({
             </li>
           ))}
         </ul>
-        {hidden > 0 ? (
-          <p className="mt-2 px-1 text-[11px] leading-4 text-wb-muted">
-            {hidden} more not shown — review the rest with{" "}
-            {/* `<code>` is how the rest of this app names a command (see
-                `ConnectScreen`); backticks in JSX text would render as
-                literal backticks. */}
-            <code className="text-[11px]">b4 memory list</code>.
-          </p>
-        ) : null}
-        {/*
-          A live region, and an ALWAYS-PRESENT one whose text is swapped — not
-          an element that appears when there is something to say. Screen
-          readers announce changes to a region that was already in the
-          accessibility tree far more reliably than they announce a region
-          being inserted, and "Replaced 1 earlier memory" is the one outcome
-          this panel exists not to swallow. Its visual default is the
-          permanence note, so the slot is never empty.
-
-          `aria-live` is not spelled out: `role="status"` implies
-          `aria-live="polite"` plus `aria-atomic="true"`, and polite is right —
-          this must not interrupt the answer being read.
-        */}
-        <p role="status" className="mt-1.5 px-1 pb-2 text-[11px] leading-4 text-wb-muted">
-          {outcome ??
-            loadFailure ??
-            (isBusy ? "Saving…" : "Approving stores the memory. Deleting is permanent.")}
-        </p>
-      </details>
+      )}
     </section>
   )
 }
@@ -315,11 +266,15 @@ function readApproveOutcome(body: unknown): string | null {
  * write is certainly in the store.
  */
 export interface MemoryPanelProps {
-  /** Told the number of waiting candidates whenever it changes (the sidenav's count). */
+  /** Told the number of waiting candidates whenever it changes (the sidebar's count). */
   readonly onCountChange?: (count: number) => void
+  /** Whether Memory mode is showing this panel. Opening focuses the heading. */
+  readonly open?: boolean
+  /** Closes Memory mode (the header's close button). */
+  readonly onClose?: () => void
 }
 
-export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
+export function MemoryPanel({ onCountChange, open = false, onClose }: MemoryPanelProps = {}) {
   const { agent } = useAgent()
   const [candidates, setCandidates] = useState<readonly MemoryCandidate[]>([])
 
@@ -329,6 +284,11 @@ export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
   const [outcome, setOutcome] = useState<string | null>(null)
   const [loadFailure, setLoadFailure] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
+
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    if (open) heading.current?.focus()
+  }, [open])
 
   // Stale-response discipline, and an AbortController is not enough on its
   // own: the re-read after a decision is fired from a `.finally()` that owns
@@ -364,7 +324,7 @@ export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
       // `route.ts`), and it belongs to another surface: the connect screen
       // owns this once a probe reports the server down, and while the
       // shell is up a run failure is the surface. Either way a second
-      // "couldn't load" line in the rail would compete. See the error-surface
+      // "couldn't load" line in the panel would compete. See the error-surface
       // note at the top of `AppShell.tsx`.
       //
       // The list is left as it was — but the notice is CLEARED, because a
@@ -383,7 +343,7 @@ export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
     } catch {
       if (!isCurrent()) return
       // Quiet and muted, NOT a `RunError` row: nothing about the conversation
-      // is broken, the rest of the app works, and a red alert in the rail for
+      // is broken, the rest of the app works, and a red alert in the panel for
       // a failed background read of a review queue is out of proportion to it.
       setLoadFailure(LOAD_FAILURE_NOTICE)
     }
@@ -481,6 +441,8 @@ export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
       isBusy={isBusy}
       outcome={outcome}
       loadFailure={loadFailure}
+      headingRef={heading}
+      {...(onClose ? { onClose } : {})}
     />
   )
 }
