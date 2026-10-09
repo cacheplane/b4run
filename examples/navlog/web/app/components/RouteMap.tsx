@@ -152,7 +152,7 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
     return () => observer.disconnect()
   }, [leaflet])
 
-  // DRAW: the route, its hover segments, the waypoints and the heading labels.
+  // DRAW: the route, its highlight segments, the waypoints and the heading labels.
   useEffect(() => {
     if (leaflet === null) return
     const { L, map } = leaflet
@@ -166,7 +166,7 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
       L.polyline(points, { className: "wb-route-casing", weight: 7, interactive: false }),
       L.polyline(points, { className: "wb-route-line", weight: 3.5, interactive: false }),
     ].map((line) => line.addTo(map))
-    // One invisible, wider segment per waypoint pair, shown when its leg is hovered.
+    // One invisible, wider segment per waypoint pair, shown when its leg is selected in the navlog.
     const segments = geometry.polyline.slice(1).map((to, i) => {
       const from = geometry.polyline[i] as readonly [number, number]
       return L.polyline(
