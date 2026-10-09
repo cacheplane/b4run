@@ -51,9 +51,9 @@ describe("design rules", () => {
   })
 
   test("uses no gradients, shadows or glass", () => {
-    expect(offenders(/gradient|shadow-|box-shadow|drop-shadow|backdrop-blur|backdrop-filter/)).toEqual(
-      [],
-    )
+    expect(
+      offenders(/gradient|shadow-|box-shadow|drop-shadow|backdrop-blur|backdrop-filter/),
+    ).toEqual([])
   })
 
   test("has no dark scheme", () => {
