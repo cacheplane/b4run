@@ -21,10 +21,14 @@ It is a workbench rather than a chat widget, and it is map-first:
 - **Weather strip.** Flight-category chips per airport from the `weather`
   subagent's brief (the worse of now and at ETA), plus the winds-aloft line. A
   chip opens the raw METAR and TAF.
-- **Navlog sheet.** Under the map, with the totals when collapsed; open, the
-  legs table, the ICAO flight plan items 7 to 19 and the brief. **Print** prints
-  the sheet alone on one landscape page and **Copy FPL** copies the `(FPL-…)`
-  message. Hovering a leg highlights it on the map.
+- **Navlog sheet.** Under the map, with the totals when collapsed. Open, a
+  verdict strip sits above three tabs: **Legs** leads with the legs grid
+  (pretable, `NavlogGrid.tsx`; Leg pinned left, selecting a row lights that leg
+  on the map) over a fixed totals strip, **Totals & plan** holds the tiles and
+  the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
+  brief. **Print** prints the sheet alone on one landscape page, every leg
+  included (from a print-only table), and **Copy FPL** copies the `(FPL-…)`
+  message.
 - **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
   bar (Chat, Map, Navlog, the navlog as one card per leg). The menu opens the
   sidenav as a drawer.
@@ -77,7 +81,7 @@ npm run build --workspace web
 | Sidenav | `app/components/SideNav.tsx` | wordmark, new plan, threads, memory count |
 | Chat | `app/components/ChatDock.tsx` | title, status, memory, the chat |
 | Weather strip | `app/components/WeatherStrip.tsx` | flight-category chips and the raw reports |
-| Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx` | totals, legs, ICAO flight plan, print and copy |
+| Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx` | verdict strip, legs grid and tabs, totals, ICAO flight plan, print and copy |
 | Step views | `app/components/StepViews.tsx` | the opened `computeNavlog` and `renderChart` steps, through `B4Activity`'s `renderStep` |
 | Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
 | Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
@@ -102,7 +106,7 @@ The same file holds the focus ring (`wb-focus`), the wordmark
 
 The look is light only: Hanken Grotesk and JetBrains Mono (loaded in
 `app/layout.tsx`), ink plus one cobalt accent for links, the focus ring, the selected
-thread and the hovered map leg, pill buttons and solid fills. Flight-category, verdict and status
+thread and the selected map leg, pill buttons and solid fills. Flight-category, verdict and status
 colors are data, shown as labelled chips and dots. `app/design-rules.test.ts`
 fails the test suite on uppercase, positive letter-spacing, gradients, shadows,
 glass, a dark scheme, or any Google font other than those two.
