@@ -56,7 +56,7 @@ A new `app/components/NavlogGrid.tsx` wrapping `Pretable`:
 - **Columns:** Leg (pinned left, `flex` width) and TC, Var, MC, Wind, WCA, MH,
   TAS, GS, Dist, Rem, ETE, ETA, Fuel, Fuel rem — the same formatters and header
   tooltips as `NavlogTable` (shared, not copied). Figures right-aligned, mono,
-  tabular; MH and GS bold.
+  tabular; Fuel rem keeps today's emphasis.
 - **Behaviour:** sorting and filtering off (route order is the meaning);
   resize and reorder allowed; copy-with-headers on.
 - **Map link:** `onSelectedRowIdChange` reports the selected leg; the layout
