@@ -42,6 +42,7 @@ vi.mock("@pretable/react", () => ({
 }))
 
 const { NavlogGrid } = await import("./NavlogGrid")
+const { NavlogSheet } = await import("./NavlogSheet")
 
 function mount(onSelectLeg = vi.fn()) {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -103,5 +104,40 @@ describe("NavlogGrid", () => {
     act(() => grid.props?.onSelectionChange?.(inRow("leg-2")))
     expect(view.onSelectLeg).toHaveBeenCalledTimes(1)
     view.unmount()
+  })
+  test("a replan remounts the grid, so re-selecting the same leg reports it again", () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    const onSelectLeg = vi.fn()
+    const sheet = (navlog: typeof SAMPLE_NAVLOG) => (
+      <NavlogSheet
+        navlog={navlog}
+        brief=""
+        open={true}
+        onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
+        onSelectLeg={onSelectLeg}
+      />
+    )
+    act(() => root.render(sheet(SAMPLE_NAVLOG)))
+    act(() => grid.props?.onSelectionChange?.(inRow("leg-2")))
+    expect(onSelectLeg).toHaveBeenLastCalledWith(2)
+    // The layout clears its selected leg on a new navlog; the grid starts over too.
+    act(() => root.render(sheet({ ...SAMPLE_NAVLOG, legs: [...SAMPLE_NAVLOG.legs] })))
+    act(() => grid.props?.onSelectionChange?.(inRow("leg-2")))
+    expect(onSelectLeg).toHaveBeenCalledTimes(2)
+    expect(onSelectLeg).toHaveBeenLastCalledWith(2)
+    // Re-rendering the same navlog keeps the grid as it is: no second report.
+    const replanned = { ...SAMPLE_NAVLOG, legs: [...SAMPLE_NAVLOG.legs] }
+    act(() => root.render(sheet(replanned)))
+    act(() => grid.props?.onSelectionChange?.(inRow("leg-2")))
+    act(() => root.render(sheet(replanned)))
+    act(() => grid.props?.onSelectionChange?.(inRow("leg-2")))
+    expect(onSelectLeg).toHaveBeenCalledTimes(3)
+    act(() => root.unmount())
+    container.remove()
   })
 })

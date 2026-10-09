@@ -1,6 +1,6 @@
 "use client"
 import { type PretableColumn, PretableSurface } from "@pretable/react"
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { LEG_COLUMNS, legName } from "../lib/navlog-columns"
 import type { Navlog, NavlogLeg } from "../lib/navlog-types"
 
@@ -103,8 +103,11 @@ export interface NavlogGridProps {
  * `getHeaderCellProps`. The leg comes from the cell selection, because
  * pretable's `onSelectedRowIdChange` reports only whole-row selections (a
  * plain click selects one cell) and is not called when Escape clears it.
+ *
+ * Memoized: its props are the navlog and a stable callback, so the sheet's
+ * re-renders (a tab change, a streaming chat) leave the grid alone.
  */
-export function NavlogGrid({ navlog, onSelectLeg }: NavlogGridProps) {
+export const NavlogGrid = memo(function NavlogGrid({ navlog, onSelectLeg }: NavlogGridProps) {
   const rows = useMemo(
     () => navlog.legs.map((leg, index): LegRow => ({ id: rowId(index), leg })),
     [navlog],
@@ -136,4 +139,4 @@ export function NavlogGrid({ navlog, onSelectLeg }: NavlogGridProps) {
       />
     </div>
   )
-}
+})

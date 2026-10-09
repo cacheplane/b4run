@@ -10,6 +10,26 @@ import { NavlogTable } from "./NavlogTable"
 import { PlanningBrief } from "./PlanningBrief"
 import { VerdictCard, VerdictPill } from "./VerdictCard"
 
+/**
+ * A number per navlog object, the grid's key. Row ids are leg indexes, so a
+ * replan of equal length would otherwise keep pretable's old selection on
+ * screen (and the grid's dedupe would swallow re-selecting that leg) while the
+ * layout clears its selected leg. A new navlog remounts the grid instead.
+ */
+const navlogRevisions = new WeakMap<Navlog, number>()
+let lastNavlogRevision = 0
+function navlogRevision(navlog: Navlog): number {
+  let revision = navlogRevisions.get(navlog)
+  if (revision === undefined) {
+    lastNavlogRevision += 1
+    revision = lastNavlogRevision
+    navlogRevisions.set(navlog, revision)
+  }
+  return revision
+}
+
+const noSelectLeg = (): void => {}
+
 export type SheetTab = "legs" | "plan" | "brief"
 
 const SHEET_TABS: readonly { readonly id: SheetTab; readonly label: string }[] = [
@@ -230,7 +250,8 @@ export function NavlogSheet({
       </div>
       {shown && verdict ? (
         <section
-          aria-label="Go/no-go verdict"
+          // Not "Go/no-go verdict": that names the full card on the Brief tab.
+          aria-label="Verdict summary"
           className="wb-verdict-strip flex shrink-0 items-center gap-3 border-t border-wb-border px-4 py-2"
           data-level={verdict.level}
         >
@@ -238,10 +259,12 @@ export function NavlogSheet({
           <button
             type="button"
             title={verdict.reason}
+            aria-controls={panelId("brief")}
             onClick={() => onTabChange("brief")}
             className="wb-focus min-w-0 flex-1 truncate rounded-wb-sm text-left text-[13px] text-wb-muted hover:text-wb-text"
           >
             {verdict.reason}
+            <span className="sr-only"> (opens the brief)</span>
           </button>
         </section>
       ) : null}
@@ -262,10 +285,20 @@ export function NavlogSheet({
               tabIndex={tab === item.id ? 0 : -1}
               onClick={() => onTabChange(item.id)}
               onKeyDown={(event) => {
-                if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return
+                const count = SHEET_TABS.length
+                const target =
+                  event.key === "ArrowRight"
+                    ? (i + 1) % count
+                    : event.key === "ArrowLeft"
+                      ? (i - 1 + count) % count
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? count - 1
+                          : null
+                if (target === null) return
                 event.preventDefault()
-                const step = event.key === "ArrowRight" ? 1 : -1
-                const next = SHEET_TABS[(i + step + SHEET_TABS.length) % SHEET_TABS.length]
+                const next = SHEET_TABS[target]
                 if (next === undefined) return
                 onTabChange(next.id)
                 requestAnimationFrame(() => document.getElementById(tabId(next.id))?.focus())
@@ -290,7 +323,11 @@ export function NavlogSheet({
         >
           {variant === "table" ? (
             <div className="min-h-0 flex-1">
-              <NavlogGrid navlog={navlog} onSelectLeg={onSelectLeg ?? (() => {})} />
+              <NavlogGrid
+                key={navlogRevision(navlog)}
+                navlog={navlog}
+                onSelectLeg={onSelectLeg ?? noSelectLeg}
+              />
             </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
