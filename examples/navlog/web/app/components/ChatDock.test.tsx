@@ -9,13 +9,7 @@ function render(
   slots: { banner?: ReactNode; notices?: ReactNode; chat?: ReactNode } = {},
 ): string {
   return renderToStaticMarkup(
-    <ChatDock
-      header={header}
-      status={status}
-      memory={<p>memory</p>}
-      banner={slots.banner}
-      notices={slots.notices}
-    >
+    <ChatDock header={header} status={status} banner={slots.banner} notices={slots.notices}>
       {slots.chat ?? null}
     </ChatDock>,
   )
@@ -46,6 +40,10 @@ describe("chat dock header", () => {
     expect(html).not.toContain("Threads")
     expect(html).not.toContain("New conversation")
   })
+
+  test("the header is the shared 56px row", () => {
+    expect(render("Plan")).toMatch(/<header class="wb-header-row[^"]*"/)
+  })
 })
 
 describe("chat dock slots", () => {
@@ -56,13 +54,12 @@ describe("chat dock slots", () => {
       chat: <p>chat</p>,
     })
     const main = html.indexOf("<main")
-    expect(html.indexOf("<p>memory</p>")).toBeLessThan(html.indexOf("<p>banner</p>"))
     expect(html.indexOf("<p>banner</p>")).toBeLessThan(html.indexOf("<p>notices</p>"))
     expect(html.indexOf("<p>notices</p>")).toBeLessThan(main)
     expect(html.indexOf("<p>chat</p>")).toBeGreaterThan(main)
   })
   test("no banner, no banner row", () => {
     const html = render("Plan", undefined, { chat: <p>chat</p> })
-    expect(html).not.toContain("px-3 pt-2")
+    expect(html).not.toContain("px-4 pt-2")
   })
 })
