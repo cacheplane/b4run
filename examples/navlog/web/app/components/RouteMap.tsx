@@ -10,7 +10,7 @@ export interface RouteMapProps {
   readonly categories: Readonly<Record<string, FlightCategory>>
   /** The waypoint-pair index to highlight (see `pairIndexOf`), or null. */
   readonly highlightedLeg: number | null
-  /** Extra padding for the floating surfaces: the dock (left), the strip (top), the sheet (bottom), in pixels. */
+  /** Room to leave around the route when fitting it: the weather chips along the top, in pixels. */
   readonly padding: { readonly left: number; readonly bottom: number; readonly top: number }
 }
 
@@ -69,9 +69,10 @@ const removeAll = (layers: RouteLayers): void => {
 }
 
 /**
- * The map behind everything. Leaflet is imported once, in the mount effect, so
- * this module never touches `window` on the server; `WorkbenchLayout` also
- * loads it with `next/dynamic` and `ssr: false` for the same reason.
+ * The route map: it fills its panel (the right column on desktop, the Map tab
+ * on phones). Leaflet is imported once, in the mount effect, so this module
+ * never touches `window` on the server; `WorkbenchLayout` also loads it with
+ * `next/dynamic` and `ssr: false` for the same reason.
  *
  * Three effects, in this order, and the order matters: DRAW (a new route),
  * STYLE (new flight categories) and FIT (a new route, or new room around it).
@@ -86,6 +87,10 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   const container = useRef<HTMLElement>(null)
   const layers = useRef<RouteLayers>(NO_LAYERS)
   const highlightRef = useRef<number | null>(highlightedLeg)
+  // A fit asked for while the map had no size (a hidden panel, a layout not
+  // yet laid out): fitting a 0×0 box zooms all the way in, so it waits here
+  // and RESIZE runs it once the map has a size.
+  const pendingFit = useRef<(() => void) | null>(null)
   // State, not a ref: the effects below must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
   const [leaflet, setLeaflet] = useState<{ L: LeafletModule; map: LeafletMap } | null>(null)
@@ -105,11 +110,10 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
           ? { fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false }
           : {}),
       })
-      // Both controls in the bottom-right corner. The weather strip owns the
-      // top, the dock the left; `theme.css` lifts the bottom-right corner
-      // above the sheet by `--wb-map-inset-bottom`, which `WorkbenchLayout`
-      // measures, so the OpenStreetMap attribution the tile policy requires
-      // is never covered. Phones pinch to zoom, so the buttons hide there.
+      // Both controls in the bottom-right corner. The weather chips own the
+      // top of the panel, so the bottom-right corner is free and the
+      // OpenStreetMap attribution the tile policy requires is never covered.
+      // Phones pinch to zoom, so the buttons hide there.
       L.control.zoom({ position: "bottomright" }).addTo(instance)
       L.control.attribution({ position: "bottomright", prefix: false }).addTo(instance)
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -127,6 +131,26 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
       setLeaflet(null)
     }
   }, [])
+
+  // RESIZE: the map fills a panel now, not the viewport. The panel changes
+  // size when the navlog sheet opens or closes, and goes from zero to full
+  // size if the map first lays out hidden; Leaflet must re-measure each time
+  // or it draws tiles for the old box. A fit that found no size runs here.
+  useEffect(() => {
+    if (leaflet === null || container.current === null) return
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => {
+      leaflet.map.invalidateSize()
+      const pending = pendingFit.current
+      if (pending === null) return
+      const size = leaflet.map.getSize()
+      if (size.x === 0 || size.y === 0) return
+      pendingFit.current = null
+      pending()
+    })
+    observer.observe(container.current)
+    return () => observer.disconnect()
+  }, [leaflet])
 
   // DRAW: the route, its hover segments, the waypoints and the heading labels.
   useEffect(() => {
@@ -191,19 +215,31 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   // never moves the map under the pilot. No animation under reduced motion.
   const { left, top, bottom } = padding
   useEffect(() => {
-    if (leaflet === null || geometry === null) return
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-    leaflet.map.fitBounds(
-      [
-        [geometry.bounds[0][0], geometry.bounds[0][1]],
-        [geometry.bounds[1][0], geometry.bounds[1][1]],
-      ],
-      {
-        paddingTopLeft: [left, top],
-        paddingBottomRight: [72, bottom],
-        ...(reduceMotion ? { animate: false } : {}),
-      },
-    )
+    if (leaflet === null || geometry === null) {
+      pendingFit.current = null
+      return
+    }
+    const fitRoute = (): void => {
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+      leaflet.map.fitBounds(
+        [
+          [geometry.bounds[0][0], geometry.bounds[0][1]],
+          [geometry.bounds[1][0], geometry.bounds[1][1]],
+        ],
+        {
+          paddingTopLeft: [left, top],
+          paddingBottomRight: [72, bottom],
+          ...(reduceMotion ? { animate: false } : {}),
+        },
+      )
+    }
+    const size = leaflet.map.getSize()
+    if (size.x === 0 || size.y === 0) {
+      pendingFit.current = fitRoute
+      return
+    }
+    pendingFit.current = null
+    fitRoute()
   }, [leaflet, geometry, left, top, bottom])
 
   useEffect(() => {
@@ -211,5 +247,5 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
     applyHighlight(layers.current.segments, highlightedLeg)
   }, [highlightedLeg])
 
-  return <section ref={container} className="wb-map fixed inset-0 z-0" aria-label="Route map" />
+  return <section ref={container} className="wb-map absolute inset-0 z-0" aria-label="Route map" />
 }

@@ -4,8 +4,8 @@ A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 `@copilotkit/runtime/v2`) that talks to B4.run's `/navlog` agent over AG-UI. Its
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
-workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in a
-floating dock inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
+workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in
+the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
 `performance` subagents, tool steps and approval appear in the conversation, and the
 map, sheet and weather strip read the same turns from outside the chat.
 
@@ -20,26 +20,27 @@ a legacy base-URL POST.
   every 5 seconds through `GET /api/b4/memory/candidates` (an allowlisted read, so it
   measures B4.run's own liveness rather than this Next process's), and clears itself the
   moment the server comes up — no reload. "Try again" probes immediately.
-- **Route map** (full viewport, `app/components/RouteMap.tsx`) — a
+- **Sidenav** (left, `app/components/SideNav.tsx`) — the wordmark, **New plan**, the recent
+  threads (`app/components/ThreadRail.tsx`, each titled from its first user message) and
+  **Memory**, which counts the candidates waiting for review and scrolls to them.
+- **Route map** (right column, `app/components/RouteMap.tsx`) — a
   [Leaflet](https://leafletjs.com) map on OpenStreetMap tiles (credited in the map's
   attribution control, as the tile policy requires), shown in grey so the ink route and the
   flight-category colors carry the map. It draws the planned route, one marker per
   waypoint colored by flight category and labelled with the category as text, and the
-  cruise magnetic heading at each leg's midpoint, then fits the route between the
-  floating panels. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
-- **Chat dock** (floating left, `app/components/ChatDock.tsx`) — the brand, the thread
-  title and run status, "+ New conversation", a "Threads" disclosure holding the thread
-  list (`app/components/ThreadRail.tsx`, each thread titled from its first user
-  message), the memory panel (`app/components/MemoryPanel.tsx`, the candidates the agent
+  cruise magnetic heading at each leg's midpoint, then fits the route inside its
+  panel. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
+- **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
+  status, the memory panel (`app/components/MemoryPanel.tsx`, the candidates the agent
   proposed with `remember()`, with Approve and Delete on each; it takes no space until
   one is waiting), and the chat (`app/components/NavlogChat.tsx`, below).
-- **Weather strip** (floating top right, `app/components/WeatherStrip.tsx`) — one chip
+- **Weather strip** (along the top of the map, `app/components/WeatherStrip.tsx`) — one chip
   per airport in the `weather` subagent's brief, colored by the worse of the category
   now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,
   MVFR at ETA`), and the first winds-aloft line. A chip opens the raw METAR (or SPECI)
   and TAF. Each map marker shows the same category as its chip. On phones the chips
   are one horizontally scrolling row.
-- **Navlog sheet** (floating bottom, `app/components/NavlogSheet.tsx`) — collapsed, one
+- **Navlog sheet** (under the map, `app/components/NavlogSheet.tsx`) — collapsed, one
   line of totals (route, distance, ETE, fuel, reserve, with a warning under 45 minutes);
   open, the legs table (`NavlogTable.tsx`: TC, variation, MC, wind, WCA, MH, TAS, GS,
   distance, ETE, ETA and fuel per climb and cruise segment), the ICAO flight plan items
@@ -48,10 +49,11 @@ a legacy base-URL POST.
   copies the filing-ready `(FPL-…)` message. Hovering or focusing a row highlights that
   leg on the map. The chat's opened `computeNavlog` step
   (`StepViews.tsx`) shows the totals and a link that opens the sheet.
-- **Phones** (under 768 px) — the dock and the sheet become one bottom sheet with
-  **Chat** and **Navlog** tabs, the navlog as one card per leg; the map stays behind it
-  and the weather chips sit just above. Only the layout that applies is rendered
-  (`app/lib/use-media-query.ts`), so there is always exactly one chat.
+- **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
+  and a bottom tab bar: **Chat**, **Map** and **Navlog** (one card per leg). Map and Navlog
+  get a dot when a navlog arrives while you are in the chat, and an approval always
+  brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that
+  applies is rendered (`app/lib/use-media-query.ts`), so there is always exactly one chat.
 - **Chat** (`app/components/NavlogChat.tsx`) — `<CopilotChat>` with B4.run's slots
   (`useB4ChatSlots`): one `TurnActivity` per turn (summary line, the plan, the `weather` /
   `performance` subagents nested, each tool call as a step) and the kit's `ApprovalCard`
@@ -60,7 +62,7 @@ a legacy base-URL POST.
   message the chat shows the starter suggestions (`DemoSuggestions.tsx`). The input waits
   while an approval is open, and takes PNG, JPEG, GIF and WebP attachments up to 4 MB when
   the route's model takes images; a refused file gets one dismissible line above the chat.
-  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the dock
+  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the chat column
   (`DropNotices.tsx`), and run errors as a banner (`RunError.tsx`).
 
 ### How data reaches the map and the sheet
@@ -96,7 +98,7 @@ browser
   `useSingleEndpoint={false}`, a 100 ms render throttle) plus a
   `CopilotChatConfigurationProvider` carrying the active thread id. `AppShell` mounts
   `<B4Activity key={threadId}>` (keyed so a thread switch resets the turns and any open
-  approval) and the dock's `NavlogChat` inside it.
+  approval) and the chat column's `NavlogChat` inside it.
 
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
 (`"default"`), which the runtime route registers as the B4.run `/navlog` agent — same
@@ -109,7 +111,7 @@ CopilotKit's `connect`; the runtime route's runner (`createB4AgentRunner`) answe
 `GET /threads/:id/events` from B4.run's checkpoints as the AG-UI events a live run would
 have sent — messages, the turns (plan, subagents, tool steps), attachments and tool
 media, and a parked approval. A restored thread and a live one therefore render through
-one path, and the browser never reads thread state itself. The thread rail
+one path, and the browser never reads thread state itself. The thread list
 (`app/lib/thread-source.ts`) keeps only ids, titles and recency in `localStorage`.
 
 A thread with no checkpoint yet (a brand-new one) restores as an empty chat, not an
@@ -147,10 +149,11 @@ The panel is **candidates only**. It lists what the agent proposed with `remembe
 offers two decisions per candidate: **Approve** (`/approve`, which reports back when the
 new record supersedes an older belief) and **Delete** (`/reject`, a hard delete on the
 server with no undo — hence the label, not "Dismiss"). It shows at most three at a time
-and counts the rest, so it cannot push the thread list off the rail. With no candidates it
-renders nothing at all — except the one line reporting the outcome of the decision you
-just made, or a load failure. It cannot browse, search, or edit stored
-memories — that is still `b4 memory list` and the rest of the `b4 memory` CLI.
+and counts the rest, because it sits above the conversation and every line it takes is the
+conversation's. With no candidates it renders nothing at all and costs no space — except
+the one line reporting the outcome of the decision you just made, or a load failure. It
+cannot browse, search, or edit stored memories — that is still `b4 memory list` and the
+rest of the `b4 memory` CLI.
 
 ## Running
 
@@ -193,7 +196,7 @@ status colors are the one exception to the single accent: they are data, shown o
 labelled chips and dots. `app/design-rules.test.ts` fails the test suite on uppercase,
 positive letter-spacing, gradients, shadows, glass, a dark scheme, or any Google font other than those two.
 
-It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max` and
+It also holds the map workbench's tokens: `--wb-nav-width`, `--wb-sheet-max` and
 `--wb-gutter` for the layout, `--wb-route` for the route line, the `--wb-cat-*`
 flight-category colors the chips and the markers share, the filter that turns the map
 tiles grey, and the print rules.
@@ -237,7 +240,7 @@ by unit tests only.
   before you ship. Offline, the map is blank and the route, markers and labels still
   draw on it. It opens on the continental US until a navlog arrives.
 
-- **Threads are local to the browser.** The rail keeps its own list in `localStorage`
+- **Threads are local to the browser.** The sidenav keeps its own list in `localStorage`
   (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer

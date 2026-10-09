@@ -1,6 +1,7 @@
 "use client"
 import { useAgent } from "@copilotkit/react-core/v2"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { MEMORY_PANEL_ID } from "./memory-anchor"
 import { neutralButton } from "./ui"
 
 /**
@@ -153,6 +154,7 @@ export function MemoryPanelView({
 
   return (
     <section
+      id={MEMORY_PANEL_ID}
       aria-label="Memory candidates"
       aria-busy={isBusy}
       className="shrink-0 border-t border-wb-border px-3 pt-2"
@@ -312,9 +314,18 @@ function readApproveOutcome(body: unknown): string | null {
  * installed `@ag-ui/client@0.0.59`, and a finished run is the first moment the
  * write is certainly in the store.
  */
-export function MemoryPanel() {
+export interface MemoryPanelProps {
+  /** Told the number of waiting candidates whenever it changes (the sidenav's count). */
+  readonly onCountChange?: (count: number) => void
+}
+
+export function MemoryPanel({ onCountChange }: MemoryPanelProps = {}) {
   const { agent } = useAgent()
   const [candidates, setCandidates] = useState<readonly MemoryCandidate[]>([])
+
+  useEffect(() => {
+    onCountChange?.(candidates.length)
+  }, [candidates.length, onCountChange])
   const [outcome, setOutcome] = useState<string | null>(null)
   const [loadFailure, setLoadFailure] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)

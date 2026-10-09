@@ -43,7 +43,7 @@ export function sheetVerdict(
 }
 
 /**
- * The bottom sheet: the route and its totals when collapsed; the verdict, the
+ * The navlog sheet: the route and its totals when collapsed; the verdict, the
  * key totals, the navlog form, the flight plan and the planning brief when
  * open. A native disclosure, not a gesture.
  *
@@ -116,16 +116,13 @@ export function NavlogSheet({
 
   return (
     <section
-      // On the phone the sheet already sits in the bottom sheet's panel, so
-      // it drops its own panel and height cap instead of nesting a second card.
+      // On the phone the sheet is the Navlog tab's whole panel, so it drops
+      // its own panel and height cap instead of nesting a second card.
       className={`wb-sheet flex flex-col ${
         collapsible ? "wb-panel max-h-[var(--wb-sheet-max)]" : "wb-sheet-flat"
       }`}
       aria-label="Navlog"
     >
-      {collapsible ? (
-        <div className="wb-sheet-grip mx-auto mt-1.5 h-1 w-9 rounded-full bg-wb-border" />
-      ) : null}
       {!collapsible && card ? <div className="px-3.5 pt-3">{card}</div> : null}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 pb-2.5 pt-2">
         {collapsible ? (

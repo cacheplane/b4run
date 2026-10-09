@@ -7,23 +7,25 @@ talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
 
 It is a workbench rather than a chat widget, and it is map-first:
 
-- **Route map.** A full-viewport [Leaflet](https://leafletjs.com) map on
+- **Sidenav.** On the left: the wordmark, "New plan", the recent threads and
+  Memory, which counts the candidates waiting for review and scrolls to them.
+- **Route map.** A [Leaflet](https://leafletjs.com) map on
   OpenStreetMap tiles, credited in the map's attribution control. It draws the
   planned route, one marker per waypoint colored by flight category with the
   category as text beside it, and the cruise magnetic heading on each leg.
-- **Chat dock.** A floating panel on the left with "+ New conversation", the
-  thread list behind a "Threads" disclosure, memory review, and the
-  conversation itself: the plan card, the `weather` and `performance` subagent
+- **Chat.** The middle column: the thread title and status, memory review, and
+  the conversation itself: the plan card, the `weather` and `performance` subagent
   cards, tool cards and the `fileFlightPlan` approval, inline and in order.
 - **Weather strip.** Flight-category chips per airport from the `weather`
   subagent's brief (the worse of now and at ETA), plus the winds-aloft line. A
   chip opens the raw METAR and TAF.
-- **Navlog sheet.** A bottom sheet with the totals when collapsed; open, the
+- **Navlog sheet.** Under the map, with the totals when collapsed; open, the
   legs table, the ICAO flight plan items 7 to 19 and the brief. **Print** prints
   the sheet alone on one landscape page and **Copy FPL** copies the `(FPL-…)`
   message. Hovering a leg highlights it on the map.
-- **Phones.** Under 768 px the dock and the sheet become one bottom sheet with
-  Chat and Navlog tabs, the navlog as one card per leg.
+- **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
+  bar (Chat, Map, Navlog, the navlog as one card per leg). The menu opens the
+  sidenav as a drawer.
 
 Every surface reads the thread the client already has through pure, unit-tested
 selectors: `latestNavlog` (the last `computeNavlog` result), `latestWeatherBrief`
@@ -68,21 +70,22 @@ npm run build --workspace web
 | Part | File | What it does |
 |---|---|---|
 | Connect screen | `app/components/ConnectScreen.tsx` | replaces the shell while the server is unreachable |
-| Layout | `app/components/WorkbenchLayout.tsx` | the map with the dock, strip and sheet over it; the phone tabs |
+| Layout | `app/components/WorkbenchLayout.tsx` | the docked columns (sidenav, chat, map with the strip and sheet); the phone tabs |
 | Route map | `app/components/RouteMap.tsx` | Leaflet, browser-only, draws what `routeGeometry` returns |
-| Chat dock | `app/components/ChatDock.tsx` | header, new conversation, threads, memory, the chat |
+| Sidenav | `app/components/SideNav.tsx` | wordmark, new plan, threads, memory count |
+| Chat | `app/components/ChatDock.tsx` | title, status, memory, the chat |
 | Weather strip | `app/components/WeatherStrip.tsx` | flight-category chips and the raw reports |
 | Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx` | totals, legs, ICAO flight plan, print and copy |
 | Step views | `app/components/StepViews.tsx` | the opened `computeNavlog` and `renderChart` steps, through `B4Activity`'s `renderStep` |
 | Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
-| Thread list | `app/components/ThreadRail.tsx` | the thread list behind the dock's "Threads" disclosure |
+| Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
 | Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
 | Chat | `app/components/NavlogChat.tsx` | `<CopilotChat>` with B4.run's slots: turns, approvals, attachments |
 | Notices | `app/components/DropNotices.tsx`, `RunError.tsx` | parts the model never saw, and run errors |
 | CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint, and a `createB4AgentRunner(InMemoryAgentRunner, ...)` runner that restores threads |
 | Server proxy | `app/api/b4/[...path]/route.ts` | forwards the three memory routes to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
-| Thread list | `app/lib/thread-source.ts` | the rail's ids, titles and recency (restoring a thread is the runner's replay) |
+| Thread list | `app/lib/thread-source.ts` | the sidenav's ids, titles and recency (restoring a thread is the runner's replay) |
 | Theme | `app/theme.css` | the whole palette, as CSS variables |
 
 ## Restyling it
@@ -102,7 +105,7 @@ colors are data, shown as labelled chips and dots. `app/design-rules.test.ts`
 fails the test suite on uppercase, positive letter-spacing, gradients, shadows,
 glass, a dark scheme, or any Google font other than those two.
 
-It also holds the map workbench's tokens: `--wb-dock-width`, `--wb-sheet-max`
+It also holds the map workbench's tokens: `--wb-nav-width`, `--wb-sheet-max`
 and `--wb-gutter` for the layout, `--wb-route` for the route line, the
 `--wb-cat-*` flight-category colors shared by the chips and the markers, the
 filter that turns the map tiles grey, and the print rules.
@@ -158,7 +161,7 @@ caller.
 ## Known limits
 
 - **Threads are local to the browser.** B4.run's server cannot enumerate threads,
-  so the rail keeps its own list in `localStorage` (`app/lib/thread-source.ts`).
+  so the sidenav keeps its own list in `localStorage` (`app/lib/thread-source.ts`).
   The list is not shared across browsers, devices, or profiles, and clearing
   site data clears it — the server still holds the conversations, but this
   client no longer knows their ids. Two tabs open at once can also clobber each
@@ -172,7 +175,8 @@ caller.
 - **Memory review is candidates only.** The panel lists what the agent proposed
   with `remember()` and offers Approve and Delete on each — Delete is a hard
   delete on the server with no undo. It shows at most three candidates at a time
-  and counts the rest, so it cannot push the thread list off the rail. It cannot
+  and counts the rest, because it sits above the conversation and takes the
+  conversation's space; with none waiting it takes none. It cannot
   browse, search, or edit stored memories; that is `npm run memory:list` and the
   rest of the `b4 memory` CLI, or `npx b4 inspect --cwd server` for a browser UI.
 - **The map needs the network.** Tiles come from `tile.openstreetmap.org` under

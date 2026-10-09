@@ -2704,47 +2704,30 @@ test("internal scaffold installation uses its pnpm workspace so Workbench resolv
   })
 })
 
-/**
- * The dock's "Threads" disclosure button, as the fake pages below see it: it
- * records each call and flips `aria-expanded` on click, like the real one.
- */
-function threadsToggle(calls, { dropClicks = 0 } = {}) {
-  let expanded = false
-  let dropped = 0
-  return {
-    async waitFor(waitOptions) {
-      calls.push(["threads toggle", waitOptions])
-    },
-    async getAttribute(name) {
-      return name === "aria-expanded" ? String(expanded) : null
-    },
-    async click() {
-      // A click that lands before hydration does nothing.
-      if (dropped < dropClicks) {
-        dropped += 1
-        calls.push("dropped click")
-        return
-      }
-      expanded = !expanded
-      calls.push(expanded ? "open threads" : "close threads")
-    },
-  }
-}
-
-/** The thread list's `nav` landmark, which appears once the list is open. */
+/** The sidenav's thread list, a `nav` landmark that is always on screen. */
 function threadList(calls) {
   return {
     async waitFor(waitOptions) {
-      calls.push(["thread list", waitOptions.state])
+      calls.push(["thread list", waitOptions])
     },
   }
 }
 
-/** A Workbench page with the dock's Threads toggle, its list and the composer. */
-function composerPage(calls, toggle) {
+/**
+ * The Workbench has no thread-list toggle any more: a fake page that is asked
+ * for one fails the test instead of answering.
+ */
+function refuseThreadsToggle(role, options) {
+  if (role === "button" && options.name === "Threads") {
+    throw new Error("the journey looked for a Threads toggle the sidenav no longer has")
+  }
+}
+
+/** A Workbench page with the sidenav's thread list and the composer. */
+function composerPage(calls) {
   return {
     getByRole(role, options) {
-      if (role === "button" && options.name === "Threads") return toggle
+      refuseThreadsToggle(role, options)
       if (role === "navigation" && options.name === "Conversations") return threadList(calls)
       if (role === "button" && options.name === "New conversation") {
         return {
@@ -2770,34 +2753,34 @@ function composerPage(calls, toggle) {
 
 test("Workbench capture waits for the active rail row before filling the keyed composer", async () => {
   const calls = []
-  await fillActiveWorkbenchComposer(composerPage(calls, threadsToggle(calls)), DEMO_PROMPT)
-  // The row lives behind the dock's Threads disclosure: open, wait for the
-  // list, scroll and wait for the row, close, fill.
+  await fillActiveWorkbenchComposer(composerPage(calls), DEMO_PROMPT)
+  // The row is in the always-visible sidenav: wait for the list, scroll and
+  // wait for the row, fill. Nothing is opened or closed.
   assert.deepEqual(calls, [
-    ["threads toggle", { state: "visible", timeout: 60_000 }],
-    "open threads",
-    ["thread list", "visible"],
+    ["thread list", { state: "visible", timeout: 60_000 }],
     "scroll active row",
     ["active row", { state: "visible", timeout: 60_000 }],
-    "close threads",
     ["fill", DEMO_PROMPT],
   ])
 })
 
-test("Workbench capture re-sends a Threads click that was dropped before hydration", async () => {
+test("Workbench capture fails on a missing Conversations list instead of looking for a toggle", async () => {
   const calls = []
-  await fillActiveWorkbenchComposer(
-    composerPage(calls, threadsToggle(calls, { dropClicks: 1 })),
-    DEMO_PROMPT,
-  )
-  // CI's W7 failure: the first click landed before React hydrated and did
-  // nothing. The poll notices aria-expanded stayed false and clicks again.
-  assert.deepEqual(calls.slice(0, 4), [
-    ["threads toggle", { state: "visible", timeout: 60_000 }],
-    "dropped click",
-    "open threads",
-    ["thread list", "visible"],
-  ])
+  const page = composerPage(calls)
+  const missing = {
+    getByRole(role, options) {
+      if (role === "navigation" && options.name === "Conversations") {
+        return {
+          async waitFor() {
+            throw new Error("Timeout 60000ms exceeded waiting for the Conversations list")
+          },
+        }
+      }
+      return page.getByRole(role, options)
+    },
+  }
+  await assert.rejects(fillActiveWorkbenchComposer(missing, DEMO_PROMPT), /Conversations list/)
+  assert.deepEqual(calls, [])
 })
 
 test("Workbench capture arms and verifies CopilotKit runtime readiness before interaction", async () => {
@@ -2990,9 +2973,8 @@ function connectResponse({
   }
 }
 
-/** A Workbench page for the restore: the dock, the thread list and the transcript. */
+/** A Workbench page for the restore: the sidenav's list, the chat header, the transcript. */
 function restorePage(calls, { answers = {}, response = connectResponse() } = {}) {
-  const toggle = threadsToggle(calls)
   const page = {
     predicate: undefined,
     waitForResponse(predicate, options) {
@@ -3004,8 +2986,8 @@ function restorePage(calls, { answers = {}, response = connectResponse() } = {})
       calls.push(["reload", options])
     },
     getByRole(role, options) {
+      refuseThreadsToggle(role, options)
       if (role === "main") return recordingLocator(calls, "main", answers)
-      if (role === "button" && options.name === "Threads") return toggle
       if (role === "navigation" && options.name === "Conversations") return threadList(calls)
       if (role === "heading") {
         return {
@@ -3053,22 +3035,19 @@ test("restoration connects the thread, then proves the restored turn, its steps 
   const result = await restoreWorkbenchThread(page, RESTORE_OPTIONS)
 
   assert.equal(result.connectUrl, CONNECT_URL)
-  // Selecting the thread: reload, open the list, click the row, then the dock
-  // title (an h2) is the evidence — the row detaches when the workbench remounts.
-  assert.deepEqual(calls.slice(0, 9), [
+  // Selecting the thread: reload, wait for the sidenav's list, click the row,
+  // then the chat header's title (an h2) is the evidence — the row can detach
+  // when the workbench remounts.
+  assert.deepEqual(calls.slice(0, 7), [
     ["arm connect", { timeout: 120_000 }],
     ["reload", { waitUntil: "domcontentloaded" }],
-    ["threads toggle", { state: "visible", timeout: 60_000 }],
-    "open threads",
-    ["thread list", "visible"],
+    ["thread list", { state: "visible", timeout: 60_000 }],
     "scroll row",
     ["row", { state: "visible", timeout: 60_000 }],
     "click row",
     ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"],
   ])
-  // Re-selecting the thread the reload already showed remounts nothing.
-  assert.equal(calls[9], "close threads")
-  assert.deepEqual(calls.slice(10), [
+  assert.deepEqual(calls.slice(7), [
     ["waitFor", `main > text=${JSON.stringify(DEMO_PROMPT)} (exact) .last`, "visible"],
     ["waitFor", `main > ${SETTLED_ROOT_TURN} .first`, "visible"],
     ["count", `main > ${ROOT_TURN}`],
@@ -3302,10 +3281,10 @@ test("two-turn restoration proves both prompts, exactly two turns, each turn's s
 
   await restoreWorkbenchThread(page, TWO_TURN_OPTIONS)
 
-  // The dock title is still the first message: the thread's title.
-  assert.deepEqual(calls[8], ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"])
+  // The chat header's title is still the first message: the thread's title.
+  assert.deepEqual(calls[6], ["heading", { level: 2, name: DEMO_PROMPT, exact: true }, "visible"])
   const summary = (index) => `${turnAt(index)} > :scope > button.b4-turn__summary`
-  assert.deepEqual(calls.slice(10), [
+  assert.deepEqual(calls.slice(7), [
     ["waitFor", `main > text=${JSON.stringify(DEMO_PROMPT)} (exact) .last`, "visible"],
     ["waitFor", `main > text=${JSON.stringify(DEMO_FILE_PROMPT)} (exact) .last`, "visible"],
     // The second settled turn, then no turn beyond it.
