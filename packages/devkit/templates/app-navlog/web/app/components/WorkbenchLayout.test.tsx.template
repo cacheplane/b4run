@@ -13,7 +13,7 @@ const map = vi.hoisted(
   () =>
     ({}) as {
       categories?: Readonly<Record<string, string>>
-      padding?: { readonly bottom: number }
+      padding?: { readonly left: number; readonly top: number; readonly bottom: number }
     },
 )
 
@@ -24,7 +24,7 @@ vi.mock("next/dynamic", () => ({
     () =>
     (mapProps: {
       categories: Readonly<Record<string, string>>
-      padding: { readonly bottom: number }
+      padding: { readonly left: number; readonly top: number; readonly bottom: number }
     }) => {
       map.categories = mapProps.categories
       map.padding = mapProps.padding
@@ -38,8 +38,15 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
   brief: null,
   assistantBrief: "ok",
   chat: <p>transcript</p>,
-  rail: <p>rail</p>,
+  rail: (
+    <ul>
+      <li>
+        <button type="button">rail row</button>
+      </li>
+    </ul>
+  ),
   memory: <p>memory</p>,
+  memoryCount: 0,
   header: "Thread one",
   onNewConversation: () => {},
   ...overrides,
@@ -51,33 +58,31 @@ describe("WorkbenchLayout on desktop", () => {
   beforeEach(() => {
     viewport.desktop = true
   })
-  test("dock, strip and sheet float over the map, transcript inside main", () => {
+  test("sidenav, chat, map and navlog are docked panels; no top bar, no tabs", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    expect(html).toContain('aria-label="Navigation"')
+    expect(html).toContain('aria-label="Chat"')
     expect(html).toContain('data-testid="map"')
-    expect(html).toContain("<main")
-    expect(html).toContain("transcript")
     expect(html).toContain('aria-label="Navlog"')
-    expect(html).toContain("Thread one")
-    expect(html).toContain('class="wb-wordmark"')
+    expect(html).not.toContain('role="tablist"')
+    expect(html).not.toContain('<header class="wb-topbar')
   })
-  test("renders one dock, so there is exactly one main and no phone tabs", () => {
+  test("exactly one main and one h1, the wordmark in the sidenav", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
     expect(count(html, "<main")).toBe(1)
-    expect(count(html, "transcript")).toBe(1)
-    expect(html).not.toContain('role="tablist"')
+    expect(count(html, "<h1")).toBe(1)
+    expect(html.indexOf("<h1")).toBeLessThan(html.indexOf('aria-label="Chat"'))
   })
-  test("new conversation is in the dock header; the thread list waits behind Threads", () => {
+  test("the thread list is always in view; there is no Threads disclosure", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
-    const button = html.indexOf('aria-label="+ New conversation"')
-    expect(button).toBeGreaterThan(-1)
-    expect(button).toBeLessThan(html.indexOf("<main"))
-    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>Threads<\/button>/)
-    // The server render (this test) is pre-hydration: both header buttons are
-    // disabled, so a click cannot land before their handlers exist.
-    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*disabled=""[^>]*>Threads<\/button>/)
-    expect(html).toMatch(/<button[^>]*aria-label="\+ New conversation"[^>]*disabled=""/)
-    // Closed, the list is not rendered at all.
-    expect(html).not.toContain("<p>rail</p>")
+    expect(html).toContain("rail row")
+    expect(html).not.toContain(">Threads<")
+    expect(html.indexOf("New plan")).toBeLessThan(html.indexOf("<main"))
+  })
+  test("the memory panel stays above the conversation; the sidenav counts it", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ memoryCount: 2 })} />)
+    expect(html.indexOf("<p>memory</p>")).toBeLessThan(html.indexOf("<main"))
+    expect(html).toContain(">2<")
   })
   test("map markers take each airport's worst category, as the chips do", () => {
     const brief = {
@@ -94,21 +99,14 @@ describe("WorkbenchLayout on desktop", () => {
     expect(map.categories).toEqual({ KSTP: "VFR", KRST: "MVFR" })
     expect(html).toContain("KRST MVFR now, VFR at ETA")
   })
-  test("the map leaves room for the open sheet, and less when there is no navlog", () => {
+  test("the map only leaves a margin: nothing floats over it but the chips", () => {
     renderToStaticMarkup(<WorkbenchLayout {...props()} />)
-    const withSheet = map.padding?.bottom ?? 0
-    renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
-    expect(map.padding?.bottom).toBeLessThan(withSheet)
+    expect(map.padding?.left).toBeLessThan(100)
+    expect(map.padding?.bottom).toBeLessThan(100)
   })
-  test("without a navlog there is no sheet", () => {
+  test("without a navlog there is no navlog panel", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
     expect(html).not.toContain('aria-label="Navlog"')
-  })
-  test("the memory panel sits in the dock, not behind a disclosure", () => {
-    // Threads is closed, and the memory panel still renders.
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
-    expect(html).toContain("<p>memory</p>")
-    expect(html.indexOf("<p>memory</p>")).toBeLessThan(html.indexOf("<main"))
   })
 })
 
@@ -116,26 +114,28 @@ describe("WorkbenchLayout on a phone", () => {
   beforeEach(() => {
     viewport.desktop = false
   })
-  test("phone tabs exist for Navlog and Chat", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ assistantBrief: "" })} />)
+  test("a top row with the menu, the wordmark h1 and New plan", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    expect(html).toMatch(/<button[^>]*aria-label="Open navigation"/)
+    expect(count(html, "<h1")).toBe(1)
+    expect(html).toMatch(/<button[^>]*aria-label="New plan"/)
+  })
+  test("a bottom tab bar: Chat, Map, Navlog; one main", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
     expect(html).toContain('role="tablist"')
-    expect(html).toContain(">Navlog<")
     expect(html).toContain(">Chat<")
-  })
-  test("still renders one dock and one main", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    expect(html).toContain(">Map<")
+    expect(html).toContain(">Navlog<")
     expect(count(html, "<main")).toBe(1)
-    expect(count(html, "transcript")).toBe(1)
   })
-  test("the bottom sheet has a grip that lowers it to a peek", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
-    expect(html).toMatch(
-      /<button[^>]*aria-expanded="true"[^>]*aria-label="Lower the panel to show the map"/,
-    )
-  })
-  test("the Navlog tab is disabled until there is a navlog", () => {
+  test("Map and Navlog are disabled until there is a navlog", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Navlog</)
+    expect(html).toMatch(/<button[^>]*id="wb-tab-map"[^>]*disabled=""/)
+    expect(html).toMatch(/<button[^>]*id="wb-tab-navlog"[^>]*disabled=""/)
+  })
+  test("the drawer is closed, so the thread list is not rendered", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    expect(html).not.toContain("rail row")
   })
 })
 
@@ -154,10 +154,18 @@ function mount(overrides: Partial<WorkbenchLayoutProps> = {}) {
   const container = document.createElement("div")
   document.body.append(container)
   const root = createRoot(container)
-  act(() => root.render(<WorkbenchLayout {...props({ chat: <OpenSheet />, ...overrides })} />))
+  const render = (next: Partial<WorkbenchLayoutProps> = {}) =>
+    act(() =>
+      root.render(<WorkbenchLayout {...props({ chat: <OpenSheet />, ...overrides, ...next })} />),
+    )
+  render()
   const click = (selector: string) =>
     act(() => (container.querySelector(selector) as HTMLElement).click())
-  return { container, click, unmount: () => act(() => root.unmount()) }
+  const key = (key: string) =>
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }))
+    })
+  return { container, click, key, render, unmount: () => act(() => root.unmount()) }
 }
 
 describe("WorkbenchLayout sheet control", () => {
@@ -179,6 +187,50 @@ describe("WorkbenchLayout sheet control", () => {
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("false")
     view.click("[data-open-sheet]")
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("true")
+    view.unmount()
+  })
+})
+
+describe("WorkbenchLayout phone tabs and drawer", () => {
+  beforeEach(() => {
+    viewport.desktop = false
+  })
+  test("a new navlog while on Chat dots Map and Navlog; visiting a tab clears its dot", () => {
+    const view = mount({ navlog: null })
+    expect(view.container.querySelectorAll(".wb-tab-dot")).toHaveLength(0)
+    view.render({ navlog: SAMPLE_NAVLOG })
+    expect(view.container.querySelectorAll(".wb-tab-dot")).toHaveLength(2)
+    view.click("#wb-tab-map")
+    expect(view.container.querySelector("#wb-tab-map .wb-tab-dot")).toBeNull()
+    expect(view.container.querySelector("#wb-tab-navlog .wb-tab-dot")).not.toBeNull()
+    view.unmount()
+  })
+  test("an approval switches back to Chat", () => {
+    const view = mount()
+    view.click("#wb-tab-navlog")
+    expect(view.container.querySelector("#wb-tab-navlog")?.getAttribute("aria-selected")).toBe(
+      "true",
+    )
+    view.render({ status: "awaiting approval" })
+    expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
+    view.unmount()
+  })
+  test("the menu opens a modal drawer with the threads; Escape closes it", () => {
+    const view = mount()
+    view.click('button[aria-label="Open navigation"]')
+    const dialog = view.container.querySelector('[role="dialog"]')
+    expect(dialog?.getAttribute("aria-modal")).toBe("true")
+    expect(dialog?.textContent).toContain("rail row")
+    expect(dialog?.contains(document.activeElement)).toBe(true)
+    view.key("Escape")
+    expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    view.unmount()
+  })
+  test("choosing a thread in the drawer closes it", () => {
+    const view = mount()
+    view.click('button[aria-label="Open navigation"]')
+    view.click('[role="dialog"] li button')
+    expect(view.container.querySelector('[role="dialog"]')).toBeNull()
     view.unmount()
   })
 })

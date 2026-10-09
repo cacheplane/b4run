@@ -228,6 +228,8 @@ export function AppShell({
   const [notices, setNotices] = useState<readonly DropNotice[]>([])
   const [runError, setRunError] = useState<RunErrorState | null>(null)
   const [connectNonce, setConnectNonce] = useState(0)
+  // Memory candidates waiting, reported by `MemoryPanel`, for the sidenav's count.
+  const [memoryCount, setMemoryCount] = useState(0)
 
   // "checking" first paint, never "down" — see `probeB4Server` and the
   // effects below for why nothing but an actual probe through the proxy may
@@ -415,7 +417,7 @@ export function AppShell({
   // `"checking"` is the normal shape of a first paint, and showing "cannot
   // connect" for that beat would be a lie for the common case.
   //
-  // The rail and header disappear with the chat: nothing in the shell works
+  // The sidenav disappears with the chat: nothing in the shell works
   // without a server, including thread switching. `ConnectScreen` carries its
   // own wordmark so the app still has an identity on screen.
   if (serverStatus === "down") {
@@ -463,7 +465,8 @@ export function AppShell({
           not a conversation's, and the endpoint has no thread parameter. It
           remounts with the workbench on a switch and re-reads the same queue.
         */
-        memory={<MemoryPanel />}
+        memory={<MemoryPanel onCountChange={setMemoryCount} />}
+        memoryCount={memoryCount}
         onNewConversation={onCreateThread}
       />
     </B4Activity>
@@ -478,6 +481,7 @@ interface ThreadWorkbenchProps {
   readonly notices: ReactNode
   readonly rail: ReactNode
   readonly memory: ReactNode
+  readonly memoryCount: number
   readonly onNewConversation: () => void
 }
 
@@ -500,6 +504,7 @@ function ThreadWorkbench({
   notices,
   rail,
   memory,
+  memoryCount,
   onNewConversation,
 }: ThreadWorkbenchProps) {
   const { turns } = useB4ActivityContext()
@@ -563,6 +568,7 @@ function ThreadWorkbench({
       status={status}
       rail={rail}
       memory={memory}
+      memoryCount={memoryCount}
       banner={banner}
       notices={notices}
       onNewConversation={onNewConversation}

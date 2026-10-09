@@ -3,6 +3,7 @@ import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from "vitest"
+import { MEMORY_PANEL_ID } from "./memory-anchor"
 
 /**
  * The memory panel, in two halves.
@@ -558,3 +559,9 @@ describe("memory panel container", () => {
  *   against an empty-candidates stub, which proves the panel does not break
  *   the shell, not that the rail places it well.
  */
+
+describe("memory panel anchor", () => {
+  test("the populated panel carries the id the sidenav scrolls to", () => {
+    expect(render()).toContain(`id="${MEMORY_PANEL_ID}"`)
+  })
+})

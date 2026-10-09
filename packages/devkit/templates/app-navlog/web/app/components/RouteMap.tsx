@@ -10,7 +10,7 @@ export interface RouteMapProps {
   readonly categories: Readonly<Record<string, FlightCategory>>
   /** The waypoint-pair index to highlight (see `pairIndexOf`), or null. */
   readonly highlightedLeg: number | null
-  /** Extra padding for the floating surfaces: the dock (left), the strip (top), the sheet (bottom), in pixels. */
+  /** Room to leave around the route when fitting it: the weather chips along the top, in pixels. */
   readonly padding: { readonly left: number; readonly bottom: number; readonly top: number }
 }
 
@@ -69,9 +69,10 @@ const removeAll = (layers: RouteLayers): void => {
 }
 
 /**
- * The map behind everything. Leaflet is imported once, in the mount effect, so
- * this module never touches `window` on the server; `WorkbenchLayout` also
- * loads it with `next/dynamic` and `ssr: false` for the same reason.
+ * The route map: it fills its panel (the right column on desktop, the Map tab
+ * on phones). Leaflet is imported once, in the mount effect, so this module
+ * never touches `window` on the server; `WorkbenchLayout` also loads it with
+ * `next/dynamic` and `ssr: false` for the same reason.
  *
  * Three effects, in this order, and the order matters: DRAW (a new route),
  * STYLE (new flight categories) and FIT (a new route, or new room around it).
@@ -105,11 +106,10 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
           ? { fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false }
           : {}),
       })
-      // Both controls in the bottom-right corner. The weather strip owns the
-      // top, the dock the left; `theme.css` lifts the bottom-right corner
-      // above the sheet by `--wb-map-inset-bottom`, which `WorkbenchLayout`
-      // measures, so the OpenStreetMap attribution the tile policy requires
-      // is never covered. Phones pinch to zoom, so the buttons hide there.
+      // Both controls in the bottom-right corner. The weather chips own the
+      // top of the panel, so the bottom-right corner is free and the
+      // OpenStreetMap attribution the tile policy requires is never covered.
+      // Phones pinch to zoom, so the buttons hide there.
       L.control.zoom({ position: "bottomright" }).addTo(instance)
       L.control.attribution({ position: "bottomright", prefix: false }).addTo(instance)
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -127,6 +127,18 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
       setLeaflet(null)
     }
   }, [])
+
+  // RESIZE: the map fills a panel now, not the viewport. The panel changes
+  // size when the navlog sheet opens or closes, and goes from zero to full
+  // size when a phone's Map tab is shown; Leaflet must re-measure each time
+  // or it draws tiles for the old box.
+  useEffect(() => {
+    if (leaflet === null || container.current === null) return
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(() => leaflet.map.invalidateSize())
+    observer.observe(container.current)
+    return () => observer.disconnect()
+  }, [leaflet])
 
   // DRAW: the route, its hover segments, the waypoints and the heading labels.
   useEffect(() => {
@@ -211,5 +223,5 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
     applyHighlight(layers.current.segments, highlightedLeg)
   }, [highlightedLeg])
 
-  return <section ref={container} className="wb-map fixed inset-0 z-0" aria-label="Route map" />
+  return <section ref={container} className="wb-map absolute inset-0 z-0" aria-label="Route map" />
 }

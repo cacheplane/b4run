@@ -12,11 +12,9 @@ function render(
     <ChatDock
       header={header}
       status={status}
-      rail={null}
       memory={<p>memory</p>}
       banner={slots.banner}
       notices={slots.notices}
-      onNewConversation={() => {}}
     >
       {slots.chat ?? null}
     </ChatDock>,
@@ -41,10 +39,12 @@ describe("chat dock header", () => {
     expect(html).toMatch(new RegExp(`<h2 title="${long.replace(/'/g, "&#x27;")}"[^>]*>`))
   })
 
-  test("the brand is the page's one h1, kept for screen readers on a phone", () => {
+  test("the dock holds no brand and no navigation: those are the sidenav's", () => {
     const html = render("Plan")
-    expect(html.split("<h1").length - 1).toBe(1)
-    expect(html).toMatch(/<h1[^>]*max-md:sr-only[^>]*><span class="wb-wordmark">B4\.run /)
+    expect(html).not.toContain("<h1")
+    expect(html).not.toContain("wb-wordmark")
+    expect(html).not.toContain("Threads")
+    expect(html).not.toContain("New conversation")
   })
 })
 
