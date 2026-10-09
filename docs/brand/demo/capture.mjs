@@ -1134,7 +1134,11 @@ export async function settleWorkbenchViewport(page) {
   })
 }
 
-/** The weather strip's verdict pill and the verdict card both say `verdict`. */
+/**
+ * The weather strip's verdict pill and the navlog sheet's verdict summary both
+ * say `verdict`. The summary, not the full "Go/no-go verdict" card: that card
+ * is on the sheet's Brief tab, hidden while the sheet shows Legs.
+ */
 export async function assertWeatherVerdict(page, { verdict }) {
   await page
     .getByRole("region", { name: "Weather", exact: true })
@@ -1142,7 +1146,7 @@ export async function assertWeatherVerdict(page, { verdict }) {
     .first()
     .waitFor(VISIBLE)
   await page
-    .getByRole("region", { name: "Go/no-go verdict", exact: true })
+    .getByRole("region", { name: "Verdict summary", exact: true })
     .getByText(verdict, { exact: true })
     .first()
     .waitFor(VISIBLE)

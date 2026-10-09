@@ -22,7 +22,7 @@ import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/we
 import { ChatDock } from "./ChatDock"
 import { Drawer } from "./Drawer"
 import { Icon, type IconName } from "./icons"
-import { NavlogSheet } from "./NavlogSheet"
+import { NavlogSheet, type SheetTab } from "./NavlogSheet"
 import { SideNav } from "./SideNav"
 import { type SheetControl, SheetControlContext } from "./sheet-control"
 import { WeatherStrip } from "./WeatherStrip"
@@ -155,7 +155,10 @@ export function WorkbenchLayout({
   const [sidebar, toggleSidebar] = useSidebarState()
   const sidenavId = useId()
   const menuButton = useRef<HTMLButtonElement>(null)
-  const [hoveredLeg, setHoveredLeg] = useState<number | null>(null)
+  // The leg selected in the desktop grid, lit on the map; the sheet's tab,
+  // lifted so a step's openSheet can land on Legs.
+  const [selectedLeg, setSelectedLeg] = useState<number | null>(null)
+  const [sheetTab, setSheetTab] = useState<SheetTab>("legs")
   const [stripRef, stripHeight] = useMeasuredHeight()
   // No navlog, nothing on the Map and Navlog tabs: a thread switch must not
   // leave an empty tab selected.
@@ -202,6 +205,9 @@ export function WorkbenchLayout({
     }
     previousNavlog.current = navlog
   }, [navlog])
+  // A new navlog (a replan) has new legs: the old selection means nothing.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the navlog is the trigger, not an input
+  useEffect(() => setSelectedLeg(null), [navlog])
 
   // The drawer is the phone's; a window widened past the breakpoint with it
   // open must not bring it back on the next narrowing.
@@ -259,7 +265,7 @@ export function WorkbenchLayout({
     () => ({ left: MAP_MARGIN, top: stripHeight + MAP_MARGIN, bottom: MAP_MARGIN }),
     [stripHeight],
   )
-  const highlightedLeg = navlog && hoveredLeg !== null ? pairIndexOf(navlog, hoveredLeg) : null
+  const highlightedLeg = navlog && selectedLeg !== null ? pairIndexOf(navlog, selectedLeg) : null
   const cruise = navlog ? { cruiseFt: navlog.altitudeFt } : {}
   // The same inputs the sheet resolves its verdict from, so the strip's pill
   // and the sheet's card always show the same level.
@@ -273,6 +279,7 @@ export function WorkbenchLayout({
       openSheet: () => {
         if (isDesktop) setSheetOpen(true)
         else selectTab("navlog")
+        setSheetTab("legs")
       },
     }),
     [isDesktop, selectTab],
@@ -346,7 +353,9 @@ export function WorkbenchLayout({
                     weather={brief}
                     open={sheetOpen}
                     onToggle={() => setSheetOpen((value) => !value)}
-                    onHoverLeg={setHoveredLeg}
+                    tab={sheetTab}
+                    onTabChange={setSheetTab}
+                    onSelectLeg={setSelectedLeg}
                   />
                 </div>
               ) : null}
@@ -448,6 +457,8 @@ export function WorkbenchLayout({
                 weather={brief}
                 open={true}
                 onToggle={() => {}}
+                tab={sheetTab}
+                onTabChange={setSheetTab}
                 variant="cards"
                 collapsible={false}
               />

@@ -44,16 +44,21 @@ scroll (the connect screen scrolls itself on a short viewport).
   and TAF. Each map marker shows the same category as its chip. On phones the chips
   are one horizontally scrolling row.
 - **Navlog sheet** (under the map, `app/components/NavlogSheet.tsx`) — collapsed, one
-  line of totals (route, distance, ETE, fuel, reserve, with a warning under 45 minutes);
-  open, the legs table (`NavlogTable.tsx`: TC, variation, MC, wind, WCA, MH, TAS, GS,
-  distance, ETE, ETA and fuel per climb and cruise segment), the ICAO flight plan items
-  7 to 19 (`FlightPlanBlock.tsx`) and the assistant's brief. **Print** prints the sheet
-  alone on one landscape page (the `@media print` rules in `app/theme.css`); **Copy FPL**
-  copies the filing-ready `(FPL-…)` message. Hovering or focusing a row highlights that
-  leg on the map. The chat's opened `computeNavlog` step
-  (`StepViews.tsx`) shows the totals and a link that opens the sheet.
+  line of totals (route, distance, ETE, fuel, reserve, with a warning under 45 minutes).
+  Open, a verdict strip (the go/no-go pill and its reason, which opens Brief) sits above
+  three tabs. **Legs** leads with the legs grid (`NavlogGrid.tsx`, on
+  [pretable](https://www.npmjs.com/package/@pretable/react): TC, variation, MC, wind,
+  WCA, MH, TAS, GS, distance, ETE, ETA and fuel per climb and cruise segment, with Leg
+  pinned left). The grid scrolls in its own region above a fixed totals strip, and
+  selecting a row lights that leg on the map. **Totals & plan** holds the totals tiles
+  and the ICAO flight plan items 7 to 19 (`FlightPlanBlock.tsx`); **Brief** holds the
+  full verdict card and the assistant's brief. **Print** prints the sheet alone on one
+  landscape page (the `@media print` rules in `app/theme.css`), every leg included: the
+  grid virtualizes rows, so print reads a print-only `NavlogTable.tsx`. **Copy FPL**
+  copies the filing-ready `(FPL-…)` message. The chat's opened `computeNavlog` step
+  (`StepViews.tsx`) shows the totals and a link that opens the sheet on Legs.
 - **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
-  and a bottom tab bar: **Chat**, **Map** and **Navlog** (one card per leg). Map and Navlog
+  and a bottom tab bar: **Chat**, **Map** and **Navlog** (the sheet's strip and tabs, one card per leg on Legs). Map and Navlog
   get a dot when a navlog arrives while you are in the chat, and an approval always
   brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that
   applies is rendered (`app/lib/use-media-query.ts`), so there is always exactly one chat.
@@ -194,7 +199,7 @@ the wordmark (`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
 
 The look follows [LiveLoveApp](https://liveloveapp.com)'s design rules: Hanken Grotesk
 and JetBrains Mono (loaded with `next/font/google` in `app/layout.tsx`), ink `#0d0d0d`
-plus one cobalt accent `#002fa7` used for links, the focus ring, the selected thread and the hovered map leg,
+plus one cobalt accent `#002fa7` used for links, the focus ring, the selected thread, the selected map leg and the selected navlog row,
 pill buttons, solid fills. The app is light only. The flight-category, verdict and
 status colors are the one exception to the single accent: they are data, shown only as
 labelled chips and dots. `app/design-rules.test.ts` fails the test suite on uppercase,

@@ -436,6 +436,12 @@ importers:
       '@copilotkit/runtime':
         specifier: 1.77.1
         version: 1.77.1(80df67cfd4eb2b563b1906fb71c81162)
+      '@pretable/react':
+        specifier: ^0.20.2
+        version: 0.20.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@pretable/ui':
+        specifier: ^0.20.2
+        version: 0.20.2
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3
@@ -4394,14 +4400,26 @@ packages:
   '@preact/signals-core@1.14.4':
     resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
 
+  '@pretable/core@0.20.2':
+    resolution: {integrity: sha512-J4MGu9MhhRKrJ/uKFKryh9BiY8ACm1bdZdZypkiWSyde2mmPzEJ/6WbvJ3s6cYCBDmBBZQLB1OTss29Cy8bZ8Q==}
+
   '@pretable/core@0.3.0':
     resolution: {integrity: sha512-zU0b3Xa61V2qqMq49X8e5H73lwXIHvxvJ1ajNTEB3KJ4j3AmuHNyO9sc1RtdIlC1mMbsUhheVU4z431d27tWtQ==}
+
+  '@pretable/react@0.20.2':
+    resolution: {integrity: sha512-GLhiWfHXpYS03U7cu0Tk+HcSwHq5HyWZ2A30Lu23EkQylr7z/pIn2z4MNVtIWDl25COSs8aJ/KCzvXxlpXvNtg==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
 
   '@pretable/react@0.3.0':
     resolution: {integrity: sha512-eM7g6f9Nl3SL2SD6O91i1RiXnFr2xC3zO+Js5vL3u3ubwzEIcNAEFxbS6/Chv5DnZkpGg5SP2TJixf0zdfpxiw==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
+
+  '@pretable/ui@0.20.2':
+    resolution: {integrity: sha512-DuMxcA0NZ7gJgo/l748rYg5WMFxmEwrYALHW7+cSAYpgRJBe3vopjJb83igzpTq+OUIvwJjpC2U3bbLuVnKSeA==}
 
   '@pretable/ui@0.3.0':
     resolution: {integrity: sha512-EEew07Iy/gQNmUUMD7YZPMBnrV3asTQf8FoaZqIZRSss8cZTJhn5dceAWhKz93t6YuVL56KTm6MjahfjIYKhyw==}
@@ -14596,7 +14614,16 @@ snapshots:
 
   '@preact/signals-core@1.14.4': {}
 
+  '@pretable/core@0.20.2': {}
+
   '@pretable/core@0.3.0': {}
+
+  '@pretable/react@0.20.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@pretable/core': 0.20.2
+      '@pretable/ui': 0.20.2
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   '@pretable/react@0.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
@@ -14604,6 +14631,8 @@ snapshots:
       '@pretable/ui': 0.3.0
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
+
+  '@pretable/ui@0.20.2': {}
 
   '@pretable/ui@0.3.0': {}
 

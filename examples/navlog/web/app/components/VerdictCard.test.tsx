@@ -80,10 +80,13 @@ describe("NavlogSheet verdict", () => {
         weather={BRIEF}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
+    expect(html).toContain('aria-label="Verdict summary"')
+    expect(html.indexOf("Verdict summary")).toBeLessThan(html.indexOf('aria-label="Totals"'))
     expect(html).toContain('aria-label="Go/no-go verdict"')
-    expect(html.indexOf("Go/no-go verdict")).toBeLessThan(html.indexOf('aria-label="Totals"'))
     expect(html).toContain("Freezing level 4,000 ft")
   })
   test("falls back to the planning answer's bottom line", () => {
@@ -93,6 +96,8 @@ describe("NavlogSheet verdict", () => {
         brief={"Bottom line: GO — VFR all the way.\nWatch for:\n- Gusts at KRST"}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).toContain('data-level="GO"')
@@ -107,9 +112,12 @@ describe("NavlogSheet verdict", () => {
         weather={parseWeatherBrief("Airports:\nKSTP: VFR now, VFR at ETA")}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).not.toContain("Go/no-go verdict")
+    expect(html).not.toContain("Verdict summary")
     expect(html).toContain("KSTP and KRST are VFR.")
   })
   test("the brief drops echoed tool calls and the plan checklist", () => {
@@ -121,6 +129,8 @@ describe("NavlogSheet verdict", () => {
         }
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).not.toContain("recall(")
@@ -129,14 +139,21 @@ describe("NavlogSheet verdict", () => {
   })
   test("stat tiles carry the key totals, and the variation source is footnoted", () => {
     const html = renderToStaticMarkup(
-      <NavlogSheet navlog={SAMPLE_NAVLOG} brief="" open={true} onToggle={() => {}} />,
+      <NavlogSheet
+        navlog={SAMPLE_NAVLOG}
+        brief=""
+        open={true}
+        onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
+      />,
     )
     for (const label of ["Distance", "ETE", "Fuel burned", "Fuel at landing", "Reserve"]) {
       expect(html).toContain(`<dt>${label}</dt>`)
     }
     expect(html).toContain("Variation from the FAA airport record")
   })
-  test("on the phone the verdict card comes first, and leg cards carry fuel remaining", () => {
+  test("on the phone the verdict strip comes first, and leg cards carry fuel remaining", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
@@ -144,11 +161,14 @@ describe("NavlogSheet verdict", () => {
         weather={BRIEF}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
         variant="cards"
         collapsible={false}
       />,
     )
-    expect(html.indexOf("Go/no-go verdict")).toBeLessThan(html.indexOf("KSTP → KRST"))
+    expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
+    expect(html.indexOf("wb-verdict-strip")).toBeLessThan(html.indexOf("wb-leg-card"))
     expect(html).toContain("Fuel rem")
     expect(html).toContain("WCA")
   })
@@ -245,6 +265,8 @@ describe("a verdict the floor raised", () => {
         weather={GUSTY_GO}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).toContain('class="wb-verdict" data-level="CAUTION"')
@@ -285,6 +307,8 @@ describe("a verdict the floor raised", () => {
         weather={GUSTY_GO}
         open={false}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).toContain('class="wb-verdict-pill" data-level="CAUTION" data-raised="true"')
@@ -300,6 +324,8 @@ describe("a verdict the floor raised", () => {
         brief={"Bottom line: GO — fine."}
         open={true}
         onToggle={() => {}}
+        tab="legs"
+        onTabChange={() => {}}
       />,
     )
     expect(html).toContain('class="wb-verdict" data-level="NO-GO"')

@@ -53,10 +53,18 @@ describe("design rules", () => {
   })
 
   test("uses no gradients, shadows or glass", () => {
+    // Turning a library's shadow token off (`--pretable-shadow-card: none`)
+    // enforces this rule rather than breaking it, so those declarations are
+    // removed before the scan.
+    const shadowOff = /--[a-z0-9-]*shadow[a-z0-9-]*:\s*none\s*;/g
     expect(
-      offenders(
-        /gradient|\bshadow\b|shadow-|box-shadow|text-shadow|drop-shadow|backdrop-blur|backdrop-filter/,
-      ),
+      files
+        .filter(({ source }) =>
+          /gradient|\bshadow\b|shadow-|box-shadow|text-shadow|drop-shadow|backdrop-blur|backdrop-filter/.test(
+            source.replace(shadowOff, ""),
+          ),
+        )
+        .map(({ file }) => file),
     ).toEqual([])
   })
 

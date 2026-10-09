@@ -5,7 +5,8 @@
  * Restyling the app is editing this file.
  *
  * LiveLoveApp's rules: Hanken Grotesk and JetBrains Mono, ink plus one cobalt
- * accent (links, the focus ring, the selected thread and the hovered map leg only), pill buttons,
+ * accent (links, the focus ring, the selected thread, the selected map leg and the
+ * selected navlog row only), pill buttons,
  * solid fills. Light only. `app/design-rules.test.ts` scans for the rest.
  *
  * (The activity kit's tokens are all mapped onto this palette in the
@@ -458,6 +459,21 @@ body {
 
 .wb-sheet.wb-sheet-flat {
   background: transparent;
+}
+
+/* The sheet's tabs: 40px targets, ink underline on the selected one. */
+.wb-sheet-tab {
+  min-height: 40px;
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-sheet-tab[aria-selected="true"] {
+  border-bottom-color: var(--wb-text);
+  color: var(--wb-text);
 }
 
 .wb-strip {
@@ -930,6 +946,69 @@ body {
 }
 
 /*
+ * The navlog grid (pretable). Its tokens mapped onto the workbench's, so it
+ * reads as this app rather than pretable's house look: our fonts, ink, rules
+ * and cobalt focus; flat (no shadows) per LiveLoveApp's rules.
+ */
+.wb-navlog-grid {
+  --pretable-font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --pretable-font-mono: var(--font-jetbrains), ui-monospace, monospace;
+  --pretable-font-size-cell: 13px;
+  --pretable-font-size-header: 12px;
+  --pretable-text-cell: var(--wb-text);
+  --pretable-text-header: var(--wb-muted);
+  --pretable-text-dim: var(--wb-muted);
+  --pretable-bg-grid: var(--wb-surface);
+  --pretable-bg-grid-alt: var(--wb-surface);
+  --pretable-bg-pinned: var(--wb-surface);
+  --pretable-bg-header: var(--wb-surface);
+  /* Translucent, so a hovered row reads over the pinned Leg column's fill too. */
+  --pretable-bg-hover: color-mix(in srgb, var(--wb-text) 4%, transparent);
+  --pretable-bg-selected: color-mix(in srgb, var(--wb-accent) 8%, var(--wb-surface));
+  --pretable-selection-bg: color-mix(in srgb, var(--wb-accent) 8%, var(--wb-surface));
+  --pretable-text-selected: var(--wb-text);
+  --pretable-rule: var(--wb-border);
+  --pretable-rule-header: var(--wb-border);
+  --pretable-accent: var(--wb-accent);
+  --pretable-focus-ring: var(--wb-accent);
+  --pretable-cell-padding-x: 8px;
+  /* 36px rows under a 40px header, for 13px type. pretable reads both heights
+     from the grid's own element, so they scope here. */
+  --pretable-row-height: 36px;
+  --pretable-header-height: 40px;
+  --pretable-cell-padding-y: 8px;
+  /* The sheet is the frame, so the grid's own corners are square; menus are
+     list rows and controls are pills, as everywhere else. */
+  --pretable-radius-frame: 0;
+  --pretable-radius: var(--wb-radius-row);
+  --pretable-radius-control: 999px;
+  --pretable-resize-handle-hover: var(--wb-accent);
+  --pretable-reorder-drop-indicator: var(--wb-accent);
+  /* No fading seam at the frozen edge: a hairline on the pinned cells below. */
+  --pretable-seam-color: transparent;
+  --pretable-shadow-card: none;
+  --pretable-shadow-header: none;
+  --pretable-shadow-overlay: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The frozen Leg column's edge: one hairline, header and body alike. */
+.wb-navlog-grid [data-pretable-cell][data-pretable-pinned="left"],
+.wb-navlog-grid [data-pretable-header-cell][data-pretable-pinned="left"] {
+  border-right: 1px solid var(--wb-border);
+}
+
+/* Figures in mono; the leg name stays in the text face. */
+.wb-navlog-grid [data-pretable-cell]:not([data-pretable-column-id="leg"]) {
+  font-family: var(--font-mono);
+}
+
+/* Fuel remaining is the number flown by: today's emphasis, as on the cards. */
+.wb-navlog-grid [data-pretable-cell][data-pretable-column-id="fuelrem"] {
+  font-weight: 650;
+}
+
+/*
  * Print: the navlog sheet alone, one landscape page. `!important` because the
  * sheet's own position, height and border come from rules (utilities and
  * `.wb-panel`) this block must beat whatever their specificity.
@@ -957,6 +1036,8 @@ body {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     position: static !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
+    height: auto !important;
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     max-height: none !important;
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     border: 0 !important;
@@ -981,10 +1062,14 @@ body {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     height: auto !important;
   }
-  .wb-sheet-body {
+  .wb-sheet-body,
+  .wb-sheet [role="tabpanel"] {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
     overflow: visible !important;
   }
+  /* The tabs and the strip are screen navigation; the Brief panel prints the full verdict card. */
+  .wb-sheet [role="tablist"],
+  .wb-verdict-strip,
   .wb-sheet-actions,
   .wb-sheet .wb-button {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
@@ -993,6 +1078,22 @@ body {
   .wb-print-hide {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     display: none !important;
+  }
+}
+
+/*
+ * Print every tab panel, the inactive ones too. They carry `hidden`, which
+ * Tailwind's preflight turns into `display: none !important` in the base
+ * layer; an `!important` declaration in a later layer (utilities, so
+ * `print:!block`) or outside the layers loses to it, so the override sits in
+ * the same layer with a more specific selector.
+ */
+@layer base {
+  @media print {
+    .wb-sheet [role="tabpanel"][hidden] {
+      /* biome-ignore lint/complexity/noImportantStyles: must beat preflight's [hidden] rule, which is !important */
+      display: block !important;
+    }
   }
 }
 

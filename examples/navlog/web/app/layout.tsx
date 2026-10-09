@@ -7,6 +7,10 @@ import "@copilotkit/react-core/v2/styles.css"
 // Restyle by overriding the `--b4-activity-*` tokens.
 import "@b4run/ag-ui/styles.css"
 import "leaflet/dist/leaflet.css"
+// pretable's house theme and grid skin; `theme.css` maps its tokens onto ours
+// inside `.wb-navlog-grid`.
+import "@pretable/ui/themes/pretable.css"
+import "@pretable/ui/grid.css"
 import "./theme.css"
 
 export const metadata = { title: "B4.run navlog — a C172N VFR flight planner" }
