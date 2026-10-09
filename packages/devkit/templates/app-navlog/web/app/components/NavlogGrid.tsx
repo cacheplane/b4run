@@ -15,6 +15,14 @@ const indexOf = (id: string): number | null => {
   return match ? Number(match[1]) : null
 }
 
+/** Figure column widths in px: wide enough for the header and a value, no wider. */
+const DEFAULT_FIGURE_WIDTH_PX = 52
+const FIGURE_WIDTH_PX: Readonly<Record<string, number>> = {
+  wind: 76,
+  eta: 60,
+  fuelrem: 72,
+}
+
 /** Leg pinned left, then the paper navlog's figures. Route order is the meaning, so no sort or filter. */
 const COLUMNS: PretableColumn<LegRow>[] = [
   {
@@ -32,6 +40,9 @@ const COLUMNS: PretableColumn<LegRow>[] = [
     (column): PretableColumn<LegRow> => ({
       id: column.key,
       header: column.label,
+      // Compact, fixed widths so the figures a pilot flies by fit beside the
+      // pinned Leg column; pretable's autosize otherwise spreads them wide.
+      widthPx: FIGURE_WIDTH_PX[column.key] ?? DEFAULT_FIGURE_WIDTH_PX,
       align: "end",
       sortable: false,
       filterable: false,
