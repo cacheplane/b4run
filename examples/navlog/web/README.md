@@ -22,7 +22,9 @@ a legacy base-URL POST.
   moment the server comes up — no reload. "Try again" probes immediately.
 - **Sidenav** (left, `app/components/SideNav.tsx`) — the wordmark, **New plan**, the recent
   threads (`app/components/ThreadRail.tsx`, each titled from its first user message) and
-  **Memory**, which counts the candidates waiting for review and scrolls to them.
+  **Memory**, a toggle that opens Memory mode and carries a badge counting the
+  candidates waiting for review. On desktop the sidebar collapses to a 64px icon rail
+  (the toggle is in its top row), and the choice is remembered per browser.
 - **Route map** (right column, `app/components/RouteMap.tsx`) — a
   [Leaflet](https://leafletjs.com) map on OpenStreetMap tiles (credited in the map's
   attribution control, as the tile policy requires), shown in grey so the ink route and the
@@ -31,9 +33,8 @@ a legacy base-URL POST.
   cruise magnetic heading at each leg's midpoint, then fits the route inside its
   panel. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
 - **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
-  status, the memory panel (`app/components/MemoryPanel.tsx`, the candidates the agent
-  proposed with `remember()`, with Approve and Delete on each; it takes no space until
-  one is waiting), and the chat (`app/components/NavlogChat.tsx`, below).
+  status and the chat (`app/components/NavlogChat.tsx`, below). The window never scrolls:
+  it is one pane, and only the panels inside it scroll.
 - **Weather strip** (along the top of the map, `app/components/WeatherStrip.tsx`) — one chip
   per airport in the `weather` subagent's brief, colored by the worse of the category
   now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,
@@ -145,13 +146,14 @@ CopilotKit's own runtime route.
 
 ## Memory review
 
-The panel is **candidates only**. It lists what the agent proposed with `remember()` and
+Memory mode (`app/components/MemoryPanel.tsx`) is **candidates only**. The sidebar's
+Memory toggle opens it: on desktop it replaces the map column, on a phone it replaces the
+current panel, and it lists every candidate waiting. It shows what the agent proposed with `remember()` and
 offers two decisions per candidate: **Approve** (`/approve`, which reports back when the
 new record supersedes an older belief) and **Delete** (`/reject`, a hard delete on the
-server with no undo — hence the label, not "Dismiss"). It shows at most three at a time
-and counts the rest, because it sits above the conversation and every line it takes is the
-conversation's. With no candidates it renders nothing at all and costs no space — except
-the one line reporting the outcome of the decision you just made, or a load failure. It
+server with no undo — hence the label, not "Dismiss"). The sidebar's Memory badge counts
+what is waiting. With no candidates the mode shows an empty state, plus the one line
+reporting the outcome of the decision you just made, or a load failure. It
 cannot browse, search, or edit stored memories — that is still `b4 memory list` and the
 rest of the `b4 memory` CLI.
 

@@ -8,12 +8,14 @@ talks to B4.run over [AG-UI](https://github.com/ag-ui-protocol/ag-ui).
 It is a workbench rather than a chat widget, and it is map-first:
 
 - **Sidenav.** On the left: the wordmark, "New plan", the recent threads and
-  Memory, which counts the candidates waiting for review and scrolls to them.
+  Memory, a toggle that opens Memory mode and carries a badge counting the
+  candidates waiting for review. On desktop the sidebar collapses to a 64px icon
+  rail, and the choice is remembered per browser.
 - **Route map.** A [Leaflet](https://leafletjs.com) map on
   OpenStreetMap tiles, credited in the map's attribution control. It draws the
   planned route, one marker per waypoint colored by flight category with the
   category as text beside it, and the cruise magnetic heading on each leg.
-- **Chat.** The middle column: the thread title and status, memory review, and
+- **Chat.** The middle column: the thread title and status, and
   the conversation itself: the plan card, the `weather` and `performance` subagent
   cards, tool cards and the `fileFlightPlan` approval, inline and in order.
 - **Weather strip.** Flight-category chips per airport from the `weather`
@@ -172,11 +174,11 @@ caller.
   and a parked approval. Notices for parts the model never saw come from
   stream-only events and do not come back. A brand-new thread has nothing to
   replay and restores as an empty chat.
-- **Memory review is candidates only.** The panel lists what the agent proposed
-  with `remember()` and offers Approve and Delete on each — Delete is a hard
-  delete on the server with no undo. It shows at most three candidates at a time
-  and counts the rest, because it sits above the conversation and takes the
-  conversation's space; with none waiting it takes none. It cannot
+- **Memory review is candidates only.** The sidebar's Memory toggle opens Memory
+  mode, which replaces the map column (on a phone, the current panel) with every
+  candidate the agent proposed with `remember()`, each with Approve and Delete —
+  Delete is a hard delete on the server with no undo. The Memory badge counts
+  what is waiting. It cannot
   browse, search, or edit stored memories; that is `npm run memory:list` and the
   rest of the `b4 memory` CLI, or `npx b4 inspect --cwd server` for a browser UI.
 - **The map needs the network.** Tiles come from `tile.openstreetmap.org` under
