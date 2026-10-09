@@ -1,0 +1,219 @@
+---
+title: "B4.run 0.14: Show your work"
+description: "Learn what 0.14 adds for the people using your agent: an activity kit for React and Angular, chats that survive a reload, and src/auth.ts."
+date: 2026-10-09
+tags: [typescript, agents]
+type: release
+version: 0.14.0
+author: brian
+---
+
+Most of the agent work in 0.13 happened where nobody could see it: inside a sandbox, inside a thread, inside a container somewhere. That's fine for the agent. It's not fine for the person in the chat.
+
+I ran into this building navlog, our flight-planning example. The agent looks up airports, dispatches a weather subagent and a performance subagent, computes a navlog and then asks before it files a flight plan. A pilot wants to see each of those steps and reload the page without losing them. And when they approve the filing, the server should know who approved it.
+
+B4.run 0.14 is about that person. Let's walk through what changed.
+
+## Goals
+
+We want an agent's chat to:
+
+1. Show what the agent did, in plain language, in React or Angular.
+2. Survive a reload, a restart or another server instance, approvals included.
+3. Know who is calling, in one place.
+4. Speak AG-UI 1.0 fully: media, reasoning, subagents and token usage.
+
+If you call your routes from your own code and never render a chat, most of this won't change much for you. The upgrade notes at the end still apply.
+
+## Say what a tool is doing
+
+It starts with the tool. A tool can now export `display`, which says how a call reads to a person:
+
+```ts
+// src/tools/lookupAirport.ts
+import type { ToolDisplay } from "@b4run/sdk"
+
+export const display = {
+  icon: "web",
+  running: ({ id }) => `Looking up ${id.toUpperCase()}`,
+  done: ({ id }, airport) =>
+    `Looked up ${id.toUpperCase()} (${airport.name}, field elevation ${airport.elevationFt} ft)`,
+} satisfies ToolDisplay<{ readonly id: string }, Airport>
+```
+
+The runtime evaluates `display` for every call and streams it to AG-UI clients as a `b4.step` event. `sources` is optional and lists what a call read, as chips. It also keeps the step on the checkpointed tool message, which matters in a minute. The built-in workspace, memory, skill, plan and subagent tools ship their own labels, so you get readable steps before you write any of these.
+
+## Render the activity
+
+On the client, `@b4run/ag-ui/react` is now an activity kit. It renders each turn as one block: a summary line, the steps, the plan, the reasoning, and each subagent with its own steps nested inside. Wrap CopilotKit's stock chat in `B4Activity` and spread the slots onto it:
+
+```tsx
+import "@b4run/ag-ui/styles.css"
+import { B4Activity, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
+import { CopilotChat, CopilotKit } from "@copilotkit/react-core/v2"
+
+function Chat() {
+  return <CopilotChat {...useB4ChatSlots()} />
+}
+
+export default function Page() {
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
+      <B4Activity>
+        <Chat />
+      </B4Activity>
+    </CopilotKit>
+  )
+}
+```
+
+A few things to note:
+
+1. The rules live in `@b4run/ag-ui/view`, with no framework dependency. `reduceTurns` folds AG-UI events into turns, and every kit renders from the same code.
+2. There's an Angular kit too. Standalone components at `@b4run/ag-ui/angular` render the same DOM as the React kit, with connectors for any AG-UI stream and for CopilotKit's `<copilot-chat>`.
+3. Step details read like a person wrote them. Arguments and results become key/value rows instead of raw JSON, with **Show raw** a click away.
+4. Repeated calls merge. "Looked up KSTP" and "Looked up KRST" become "Looked up KSTP and KRST".
+5. Host UI outside the chat can read the same turns. navlog draws its map and its navlog sheet from `useB4ActivityContext`.
+
+The activity kit replaces the 0.13 activity cards, which are gone. There's more on that in the upgrade notes.
+
+## Ask the right person
+
+Approvals got the most attention in this release. When a tool needs approval, the kit shows an `ApprovalCard` in the chat. The card is titled from the tool's `running` label. navlog's `fileFlightPlan` phrases that label as an infinitive, so its card reads "The agent wants to file N738ZU KSTP to KRST" instead of "wants to use fileFlightPlan". The label is saved with the parked call, so the card reads the same after a reload.
+
+Some calls should never get a standing approval. Filing a flight plan is one of them. Write the `tools.approve` entry as an object to require approval every time:
+
+```ts
+// src/app/navlog/index.ts
+export default agent({
+  model: "gpt-5-mini",
+  tools: { approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+  systemPrompt: "…",
+})
+```
+
+The card then offers only **Allow once** and **Deny**. A client that answers "always" anyway gets "once", and nothing is saved. Why does this matter? On navlog's live demo every visitor shares one permission store, so before this, one visitor could approve filing for everyone.
+
+A denial also reads as a denial now. A call refused by `tools.approve`, `tools.constrain` or a workspace permission settles as a `denied` step, not a failed one. The model still gets the reason as the call's result, and the chat shows "Denied" instead of an error.
+
+## Survive a reload
+
+Here's the problem with all of that so far: reload the page and CopilotKit's in-memory runner forgets the thread. The steps, the plan and the parked approval are gone, even though B4.run's checkpoints still have every bit of it.
+
+In 0.14, `GET /threads/:thread_id/events` replays a thread as the AG-UI events its live runs sent. `createB4AgentRunner` builds a CopilotKit runner that reads it. Give it to your runtime route:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+import { createB4AgentRunner, forwardIdentity } from "@b4run/ag-ui/copilotkit-runtime"
+import { CopilotRuntime, InMemoryAgentRunner } from "@copilotkit/runtime/v2"
+
+const callerFetch = forwardIdentity({
+  headers: ["b4-user-id", "b4-internal-token"],
+  resolve: () => currentCallerHeaders(), // your session lookup
+})
+
+const runtime = new CopilotRuntime({
+  agents: { default: new B4HttpAgent({ url: agentUrl, fetch: callerFetch }) },
+  runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url, fetch: callerFetch }),
+})
+```
+
+Let's break that down:
+
+1. You pass CopilotKit's own `InMemoryAgentRunner` class in. `@b4run/ag-ui` never imports `@copilotkit/runtime`, so the runner extends whichever copy your route resolves.
+2. A reload, a restart or a different instance restores the chat, its activity and any parked approval. A restored turn even reads its real duration, "Worked for 3m 12s".
+3. `forwardIdentity` strips the identity headers from whatever the browser sent, then sets the current caller's. A browser can't claim to be someone else.
+4. The restore goes through the same thread-access policy as the run. A thread the caller can't read restores as an empty chat.
+
+If you don't use CopilotKit, `GET /threads/:thread_id/turns` rebuilds the same turns on the server, so any client can render them. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload).
+
+## Know who's calling
+
+That last point raises a question. Who *is* the caller?
+
+Before 0.14, every consumer answered that on its own. Middleware parsed a header, the thread-access policy parsed it again, and tools never saw it. Now `src/auth.ts` answers it once:
+
+```ts
+// src/auth.ts
+import { defineAuth, reject } from "@b4run/sdk"
+
+export default defineAuth({
+  authenticate: async ({ headers }) => {
+    const session = await verifySession(headers.authorization)
+    if (!session) return reject(401, { error: "unauthorized" })
+    return { id: session.userId, org: session.orgId }
+  },
+})
+```
+
+B4.run calls `authenticate` once per request, before middleware and before the thread-access policy. Let's quickly review where the result goes:
+
+- `req.principal` in middleware and in the thread-access policy.
+- `ctx.principal` in every tool, including subagents' tools. `b4 typegen` declares its type, so `ctx.principal.org` type-checks.
+- `memory.resolveScope`, so each caller can get their own long-term memory: `resolveScope: ({ principal }) => (principal ? { user: principal.id } : {})`.
+- Approval grants, which now record who answered them in `consumedBy`.
+
+The most common thread-access policy is now a value too. `ownedThreads` lets each caller reach only the threads they created:
+
+```ts
+// src/thread-access.ts
+import { ownedThreads } from "@b4run/sdk"
+import type { Principal } from "./auth.js"
+
+export default ownedThreads<Principal>({ adminsRead: (user) => user.isAdmin })
+```
+
+It's also the one policy `b4 build --target langsmith` can carry. That target now compiles `src/auth.ts` to LangGraph's auth layer instead of refusing it, and turns `ownedThreads` into owner-stamp filters. Any other policy is still refused, because a build that dropped it would deploy every thread endpoint ungated. The [Access control guide](/docs/access-control#authentication) covers the rules.
+
+## AG-UI 1.0, all of it
+
+0.13.1 moved B4.run to AG-UI 1.0. 0.14 fills in the rest of the protocol:
+
+- **Media.** A user message's images, audio, video and documents reach the model as content blocks. Whatever the model can't take is dropped and announced as `b4.content_parts_dropped`, never refused. Tools can return content parts too.
+- **Reasoning.** `reasoning: { openai: { summary: "auto" } }` streams a reasoning summary, and `reasoning: { anthropic: { budgetTokens } }` turns on extended thinking. Both arrive as `REASONING_*` events.
+- **Subagents.** A subagent is `SUBAGENT_STARTED`, its own events tagged with `subagentRunId`, then `SUBAGENT_FINISHED` or `SUBAGENT_ERROR`.
+- **Token usage.** `RUN_FINISHED` and `RUN_ERROR` carry `usage`, one entry per provider and model, subagents included.
+- **Capabilities.** `GET /agui/:routeId` returns what the route supports, from the same checks `POST` enforces. `B4HttpAgent` reads it, so CopilotKit's `/info` reports it.
+- **Protobuf.** `POST /agui/:routeId` answers with AG-UI's binary protobuf framing when the request's `Accept` header allows it. Browsers using CopilotKit ask for SSE and see no change.
+
+## Smaller things
+
+A few more changes I think you'll notice.
+
+### navlog is the template
+
+`npm create b4-app -- --template navlog` scaffolds the flight planner: live aviationweather.gov tools with no key, a performance-manual-grounded `computeNavlog`, two subagents, a map-first Workbench and `fileFlightPlan` behind per-call approval. It replaces the research template. `--template research` still works for one more release, with a deprecation notice.
+
+### `serve()`
+
+An app that serves its own HTTP beside the agent can hand both to one listener with `serve({ appRoot, port, fallback })`. B4.run owns its own paths (`/agui`, `/threads`, `/memory` and the rest), your `fallback` gets everything else, and shutdown happens in an order that actually finishes. A `guard` runs ahead of both, for a token check or a rate limit.
+
+### Read-only `AGENTS.md`
+
+`agentsMd: { writable: false }` presents `workspace/AGENTS.md` as project guidance the model shouldn't change, instead of memory it should update. It only changes the prompt, so pair it with a filesystem middleware that refuses writes to that file.
+
+### Stores that clean up after themselves
+
+Approval grants and client tool call records are now pruned. Settled rows age out after 7 days by default, an open one is never deleted, and `b4 approvals prune` and `b4 client-tools prune` run the same pass by hand.
+
+## Upgrade notes
+
+This one has more breaking changes than most. Pin every direct `@b4run/*` dependency to `0.14.0` together, then check these:
+
+1. **The activity cards are gone.** `PlanActivityCard`, `SubagentPanel`, `b4ActivityRenderers` and the rest are removed. Use `B4Activity` with `useB4ChatSlots`. The stylesheet moved to `@b4run/ag-ui/styles.css`, and the CopilotKit connector moved to `@b4run/ag-ui/react/copilotkit`.
+2. **Upgrade CopilotKit to 1.76.0 or later.** It's the first `@copilotkit/react-core` that speaks AG-UI 1.0. npm rejects an older one with `ERESOLVE`.
+3. **`ThreadAccessRequest.headers` is removed.** A policy that read identity from headers moves that read into `src/auth.ts` and uses `req.principal`.
+4. **`reasoning` is keyed by provider.** `reasoning: { effort }` becomes `reasoning: { openai: { effort } }`. A misplaced setting used to be ignored silently, and now fails the route.
+5. **Memory needs its scope resolved.** If a route's `memory.ts` declares `user` or `tenant` and `resolveScope` leaves it empty, memory is unavailable for that request. It no longer falls back to the shared namespace.
+6. **AG-UI events changed shape.** `TOOL_CALL_RESULT.content` is the tool's output, not a serialized `ToolMessage`. Subagents are `SUBAGENT_*` events instead of the `b4.subagent` activity. A message's `content` can be a list of content parts, not just a string.
+7. **`curl` gets protobuf now.** A request without an `Accept` header sends `*/*`, which admits protobuf. Send `accept: text/event-stream` to keep SSE. `encodeAgUiSse` is replaced by `encodeAgUiEvent` and `agUiContentType`.
+8. **Custom stores need new methods.** A custom grant store needs `prune` and `consumedBy`. A custom client tool call store needs `prune`, `settle` and `parentToolCallId`. Boot fails and names whatever is missing.
+9. **Threads written before 0.14 don't restore** through `/events` or `/turns`. The step stamps they need are new.
+
+Then run `npx b4 verify`, your tests and your evals. The [Upgrading guide](/docs/upgrading) has the details for each change.
+
+## Conclusion
+
+An agent can do excellent work and still lose the user if they can't see it. 0.14 gives the person in the chat the same view of the agent that the server has: every step in plain language, every approval asked of the right person, and nothing lost on a reload.
+
+Start with `display` on the tools your users see most, then wrap your chat in `B4Activity`. Add `src/auth.ts` when more than one person uses your app.
