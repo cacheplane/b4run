@@ -16,6 +16,19 @@ export function readSidebarState(storage: Pick<Storage, "getItem"> | undefined):
 }
 
 /**
+ * The browser's `localStorage`, or nothing. Reading the global itself can
+ * throw (a SecurityError when site data is blocked, or in a sandboxed iframe),
+ * so even the lookup sits inside the try.
+ */
+function safeStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The sidebar's state and its toggle. Starts expanded and reads storage after
  * mount, so the server render and the first client render agree; a stored
  * "collapsed" applies one frame later.
@@ -23,13 +36,13 @@ export function readSidebarState(storage: Pick<Storage, "getItem"> | undefined):
 export function useSidebarState(): readonly [SidebarState, () => void] {
   const [state, setState] = useState<SidebarState>("expanded")
   useEffect(() => {
-    setState(readSidebarState(globalThis.localStorage))
+    setState(readSidebarState(safeStorage()))
   }, [])
   const toggle = useCallback(() => {
     const next: SidebarState = state === "expanded" ? "collapsed" : "expanded"
     setState(next)
     try {
-      globalThis.localStorage?.setItem(SIDEBAR_STORAGE_KEY, next)
+      safeStorage()?.setItem(SIDEBAR_STORAGE_KEY, next)
     } catch {
       // Storage blocked (private mode, quota): the choice lasts this page only.
     }

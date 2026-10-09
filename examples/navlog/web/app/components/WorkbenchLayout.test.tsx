@@ -352,6 +352,33 @@ describe("WorkbenchLayout sidebar and Memory mode (desktop)", () => {
     expect(view.container.querySelector('aside [aria-pressed="true"]')).toBeNull()
     view.unmount()
   })
+  test("closing on the last decided candidate focuses New plan, not the disabled Memory", () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    try {
+      const view = mount({ memoryCount: 1 })
+      view.click('aside [aria-pressed="false"]')
+      view.render({ memoryCount: 0 })
+      act(() => {
+        view.container
+          .querySelector("[data-memory-column]")
+          ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      })
+      act(() => {
+        for (const frame of frames.splice(0)) frame(0)
+      })
+      const newPlan = [...view.container.querySelectorAll("aside button")].find((b) =>
+        b.textContent?.includes("New plan"),
+      )
+      expect(document.activeElement).toBe(newPlan)
+      view.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
   test("New plan leaves the mode", () => {
     const view = mount({ memoryCount: 1 })
     view.click('aside [aria-pressed="false"]')
@@ -392,6 +419,14 @@ describe("WorkbenchLayout Memory mode (phone)", () => {
     view.click('button[aria-label="Open navigation"]')
     view.click('[role="dialog"] [aria-pressed="false"]')
     view.render({ status: "awaiting approval" })
+    expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
+    expect(view.container.querySelector("[data-memory-column]")?.className).toContain("invisible")
+    view.unmount()
+  })
+  test("Memory does not open over a pending approval; the chat stays selected", () => {
+    const view = mount({ memoryCount: 1, status: "awaiting approval" })
+    view.click('button[aria-label="Open navigation"]')
+    view.click('[role="dialog"] [aria-pressed="false"]')
     expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
     expect(view.container.querySelector("[data-memory-column]")?.className).toContain("invisible")
     view.unmount()

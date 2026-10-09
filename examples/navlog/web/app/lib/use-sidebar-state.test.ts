@@ -59,4 +59,22 @@ describe("useSidebarState", () => {
     expect(localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("expanded")
     view.unmount()
   })
+  test("a localStorage getter that throws: mount and toggle still work", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
+    Object.defineProperty(globalThis, "localStorage", {
+      get() {
+        throw new Error("SecurityError")
+      },
+      configurable: true,
+    })
+    try {
+      const view = mount()
+      expect(view.seen.state).toBe("expanded")
+      act(() => view.seen.toggle?.())
+      expect(view.seen.state).toBe("collapsed")
+      view.unmount()
+    } finally {
+      if (original) Object.defineProperty(globalThis, "localStorage", original)
+    }
+  })
 })

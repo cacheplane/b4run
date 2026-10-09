@@ -37,6 +37,12 @@ describe("ConnectScreen", () => {
     expect(html).not.toContain("examples/navlog")
   })
 
+  test("scrolls itself on a short viewport, since the window never scrolls", () => {
+    const html = render()
+    expect(html).toMatch(/^<div class="[^"]*\boverflow-y-auto\b/)
+    expect(html).toMatch(/^<div[^>]*>\s*<div class="[^"]*\bmy-auto\b/)
+  })
+
   test("reminds the reader the server needs a real API key", () => {
     const html = render()
     expect(html).toContain("OPENAI_API_KEY")
