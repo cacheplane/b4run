@@ -134,8 +134,11 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // inline GitHub demo video, the navlog "Run it live" steps and the create-b4-app flags.
 // Repinned for the AG-UI root export probe: published-artifact-smoke.mjs expects
 // B4_CONTENT_PARTS_DROPPED_EVENT (#912), whose absence failed v0.14.0's published-harness lane.
+// Repinned for the shared smoke surface: published-artifact-smoke.mjs reads the AG-UI root
+// lists from the new smoke/published-surface.mjs, which the owning packages' tests also read;
+// recovery/policy.json lists that module in the verifier closure.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "aecf61462f8f70bef2dd7b88f159a050c7cabf0e359deee0bf2ec68ae62bc5d7"
+  "6cfd3b0c0c1ecc464438498ce697134a2fa28e761c12c0c673256e24d4d9e40b"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

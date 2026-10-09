@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { afterEach, describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import * as packCheck from "./lib/pack-check.mjs"
+import { expectedFilesForPackage } from "./lib/published-artifacts.mjs"
 
 const {
   expectedExportFailures,
@@ -53,6 +54,19 @@ afterEach(async () => {
 describe("pack manifest validation", () => {
   it("covers every public package exactly once with required package files", () => {
     assert.doesNotThrow(() => validatePackManifest(repoRoot, packages))
+  })
+
+  it("packs every file the release metadata lane expects of the published tarball", async () => {
+    // The metadata lane checks expectedFilesForPackage() against the tarballs on
+    // npm, first after publication. pack:check holds the same files to the packed
+    // tarballs before release, so the expectation must stay within its list.
+    for (const { dir, expectedFiles } of packages) {
+      const { name } = JSON.parse(await readFile(join(repoRoot, dir, "package.json"), "utf8"))
+      const unchecked = expectedFilesForPackage(name).filter(
+        (file) => !expectedFiles.includes(file),
+      )
+      assert.deepEqual(unchecked, [], `${name}: pack:check must expect every published file`)
+    }
   })
 
   it("checks the CLI public subpath exports and metadata", () => {

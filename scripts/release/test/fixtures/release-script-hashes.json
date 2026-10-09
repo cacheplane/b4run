@@ -14,7 +14,7 @@
       "sha256": "91e2c5e978ab14961fd3b52fae3f32000ee7a99792a60196cb79c86a4bd3a538"
     },
     "scripts/published-artifact-smoke.mjs": {
-      "sha256": "b580b7d6d8db98e0e8dcf2c9cd241c0f614fe4d9fa60ce9a6cf3c598f4544142"
+      "sha256": "13c0fd1ea073f18e71c4d0187996025c1d1c87ca673d9936f45ce0a2726d7ea6"
     },
     "scripts/published-artifact-verify.mjs": {
       "sha256": "2a191340bdc3bf63c9c8b195515fcd9d62be4384f7a7710c6e847f8383b41eee"
@@ -188,7 +188,7 @@
       "sha256": "977545b219df5757200ea873b29dee2a2d79e93b9ba18b68c188f7aeb4845442"
     },
     "scripts/release/recovery/policy.json": {
-      "sha256": "21b941c742f90496ccd1f7b0ce0fad05e148fef874fb99efa4f9ef7fc9a674bd"
+      "sha256": "3258c4be44dc9b96a48fe8827c6d3701e71c8cc4650dd34c1722cc6bde31007c"
     },
     "scripts/release/recovery/policy.mjs": {
       "sha256": "4b1cdabb243c9d1bb6d713235d32231f056c1f823777cf6085283e572248b877"
@@ -243,6 +243,9 @@
     },
     "scripts/release/smoke/published-harness.mjs": {
       "sha256": "467f4d9bee072d8561f51cdb4bcc8b5fc38c3556cbae334099a1162c6ddb2dee"
+    },
+    "scripts/release/smoke/published-surface.mjs": {
+      "sha256": "418c6c2aefd3f313ab28f16af70959297ead83d06edff46543517597b338343c"
     },
     "scripts/release/smoke/runtime-targets.mjs": {
       "sha256": "9f4400105520d9562f7fd68b40173ebbd1ee4837a6666cfa50b2df800e39d5b6"
