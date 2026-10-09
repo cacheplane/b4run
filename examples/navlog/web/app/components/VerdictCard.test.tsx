@@ -84,8 +84,9 @@ describe("NavlogSheet verdict", () => {
         onTabChange={() => {}}
       />,
     )
+    expect(html).toContain('aria-label="Verdict summary"')
+    expect(html.indexOf("Verdict summary")).toBeLessThan(html.indexOf('aria-label="Totals"'))
     expect(html).toContain('aria-label="Go/no-go verdict"')
-    expect(html.indexOf("Go/no-go verdict")).toBeLessThan(html.indexOf('aria-label="Totals"'))
     expect(html).toContain("Freezing level 4,000 ft")
   })
   test("falls back to the planning answer's bottom line", () => {
@@ -116,6 +117,7 @@ describe("NavlogSheet verdict", () => {
       />,
     )
     expect(html).not.toContain("Go/no-go verdict")
+    expect(html).not.toContain("Verdict summary")
     expect(html).toContain("KSTP and KRST are VFR.")
   })
   test("the brief drops echoed tool calls and the plan checklist", () => {
@@ -165,7 +167,7 @@ describe("NavlogSheet verdict", () => {
         collapsible={false}
       />,
     )
-    expect(html).toMatch(/<section aria-label="Go\/no-go verdict"[^>]*wb-verdict-strip/)
+    expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
     expect(html.indexOf("wb-verdict-strip")).toBeLessThan(html.indexOf("wb-leg-card"))
     expect(html).toContain("Fuel rem")
     expect(html).toContain("WCA")

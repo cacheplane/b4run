@@ -96,7 +96,7 @@ describe("NavlogSheet", () => {
 describe("navlog sheet: strip and tabs", () => {
   test("a verdict strip region, then Legs · Totals & plan · Brief with Legs selected", () => {
     const html = render({ brief: "Bottom line: GO — VFR all the way." })
-    expect(html).toMatch(/<section aria-label="Go\/no-go verdict"[^>]*wb-verdict-strip/)
+    expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
     expect(html).toContain('role="tablist"')
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Legs</)
     expect(html).toContain(">Totals &amp; plan<")
@@ -109,6 +109,15 @@ describe("navlog sheet: strip and tabs", () => {
       view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")?.click()
     })
     expect(onTabChange).toHaveBeenCalledWith("brief")
+    view.unmount()
+  })
+  test("the strip's reason controls the Brief panel and says it opens it", () => {
+    const view = mountSheet({ brief: "Bottom line: GO — VFR all the way." })
+    const button = view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")
+    const panel = document.getElementById(button?.getAttribute("aria-controls") ?? "")
+    expect(panel?.getAttribute("role")).toBe("tabpanel")
+    expect(panel?.id).toMatch(/-brief$/)
+    expect(button?.querySelector(".sr-only")?.textContent).toBe(" (opens the brief)")
     view.unmount()
   })
   test("Legs: the grid, the totals strip, and a print-only table with every leg", () => {
@@ -172,6 +181,26 @@ describe("navlog sheet: strip and tabs", () => {
       selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
     })
     expect(onTabChange).toHaveBeenLastCalledWith("brief")
+    view.unmount()
+  })
+  test("Home and End move to the first and last tab, with focus", async () => {
+    const onTabChange = vi.fn()
+    const view = mountSheet({ tab: "plan", onTabChange })
+    const tabs = [...view.container.querySelectorAll<HTMLElement>('[role="tab"]')]
+    const selected = () => view.container.querySelector('[role="tab"][aria-selected="true"]')
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve))
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("brief")
+    await act(frame)
+    expect(document.activeElement).toBe(tabs[2])
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("legs")
+    await act(frame)
+    expect(document.activeElement).toBe(tabs[0])
     view.unmount()
   })
   test("the open desktop sheet has a definite height for the grid to fill", () => {
