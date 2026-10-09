@@ -8,7 +8,7 @@ This recipe covers the application wiring. For the endpoint, events, threading, 
 
 The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
-- **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory with a count of the candidates waiting for review.
+- **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory, which opens Memory mode with a count of the candidates waiting; the sidebar collapses to an icon rail.
 - **Chat + report:** streamed markdown output and citations in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in.
 - **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
 - **Map, sheet and weather strip:** the route, the navlog legs, and the weather chips are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
@@ -254,7 +254,7 @@ That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function l
   before this leaves your own machine.
 </Callout>
 
-`app/components/MemoryPanel.tsx` renders the candidates above the conversation with Approve and Delete on each, and the sidenav's Memory item shows how many are waiting. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
+`app/components/MemoryPanel.tsx` renders the candidates in Memory mode, which replaces the map column, with Approve and Delete on each. The sidenav's Memory item opens it and shows how many are waiting. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
 
 ```tsx title="examples/navlog/web/app/components/MemoryPanel.tsx"
 useEffect(() => {
@@ -277,7 +277,7 @@ useEffect(() => {
 }, [agent, load])
 ```
 
-The panel only reviews candidates. It lists at most three and counts the rest. Browsing, searching, and editing stored memories is still the job of the [`b4 memory`](/docs/memory/long-term) CLI.
+The panel only reviews candidates. It lists every candidate waiting. Browsing, searching, and editing stored memories is still the job of the [`b4 memory`](/docs/memory/long-term) CLI.
 
 <Callout title="Deep runs need a higher recursion limit">
   The coordinator plans, dispatches subagents, and makes many tool calls. The

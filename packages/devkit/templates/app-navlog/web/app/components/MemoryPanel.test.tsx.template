@@ -3,14 +3,13 @@ import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from "vitest"
-import { MEMORY_PANEL_ID } from "./memory-anchor"
 
 /**
  * The memory panel, in two halves.
  *
  * The pure `MemoryPanelView` is rendered with `renderToStaticMarkup` — it takes
- * props and nothing else, so every branch it has (empty, populated, over the
- * cap, busy, outcome, failed read) is assertable without a DOM.
+ * props and nothing else, so every branch it has (empty, populated, busy,
+ * outcome, failed read) is assertable without a DOM.
  *
  * The container is mounted over a fake agent in jsdom, because its wiring is
  * the part that can silently be wrong: the three URLs, the `POST`s that must
@@ -39,6 +38,7 @@ const {
   describeApprove,
 } = await import("./MemoryPanel")
 type MemoryCandidate = import("./MemoryPanel").MemoryCandidate
+type MemoryPanelViewProps = import("./MemoryPanel").MemoryPanelViewProps
 
 const noop = () => {}
 
@@ -87,25 +87,6 @@ function disabledButtonCount(markup: string): number {
 }
 
 describe("memory panel view", () => {
-  test("renders a candidate's content on one row, with its namespace in the tooltip rather than the line", () => {
-    const markup = render()
-    const text = visibleText(markup)
-    expect(text).toContain("Prefers concise, cited reports.")
-    expect(text).not.toContain("default")
-    expect(markup).toContain('title="Prefers concise, cited reports.\ndefault · confidence 0.8"')
-  })
-
-  test("heads the section with the true total, not the number of rows shown", () => {
-    const many = [CANDIDATE, SECOND, { ...SECOND, id: "c3" }, { ...SECOND, id: "c4" }]
-    const markup = render({ candidates: many })
-    const text = visibleText(markup)
-    expect(text).toContain("Memory · 4")
-    // Bounded by content rather than by a second scroll region in a 256px
-    // rail — the fourth is counted, not listed.
-    expect(markup.split("<li").length - 1).toBe(3)
-    expect(text).toContain("1 more not shown")
-  })
-
   test("offers both decisions, and names the destructive one after its effect", () => {
     const text = visibleText(render())
     // "Delete", not "Reject": the endpoint is `…/reject` but it hard-deletes,
@@ -155,6 +136,20 @@ describe("memory panel view", () => {
     )
   })
 
+  test("the empty state keeps the live region but drops the approve/delete hint", () => {
+    const html = render({ candidates: [] })
+    expect(html).toContain('role="status"')
+    expect(visibleText(html)).not.toContain("Deleting is permanent")
+    expect(visibleText(render({ candidates: [], isBusy: true }))).toContain("Saving…")
+    expect(visibleText(render({ candidates: [], loadFailure: LOAD_FAILURE_NOTICE }))).toContain(
+      LOAD_FAILURE_NOTICE,
+    )
+  })
+
+  test("the truncated metadata line carries its full text as a title", () => {
+    expect(render()).toContain('title="default · confidence 0.8"')
+  })
+
   test("marks the section busy and says so while a decision is in flight", () => {
     const markup = render({ isBusy: true })
     expect(markup).toContain('aria-busy="true"')
@@ -168,12 +163,6 @@ describe("memory panel view", () => {
     const text = visibleText(render({ isBusy: true, outcome: "Replaced 1 earlier memory." }))
     expect(text).toContain("Replaced 1 earlier memory.")
     expect(text).not.toContain("Saving…")
-  })
-
-  test("renders NOTHING at all when there is nothing to review", () => {
-    // The resting state of most sessions. A permanent empty box in the rail is
-    // a permanent suggestion that something is missing.
-    expect(render({ candidates: [] })).toBe("")
   })
 
   test("shows the superseded outcome even after the last candidate is gone", () => {
@@ -203,6 +192,52 @@ describe("memory panel view", () => {
     // `AppShell.test.tsx` asserts the shell has no `[role="alert"]` in
     // states where a stray one here would break it.
     expect(markup).not.toContain('role="alert"')
+  })
+})
+
+describe("memory panel (Memory mode)", () => {
+  const view = (overrides: Partial<MemoryPanelViewProps> = {}) =>
+    renderToStaticMarkup(
+      <MemoryPanelView
+        candidates={[]}
+        onApprove={() => {}}
+        onReject={() => {}}
+        isBusy={false}
+        outcome={null}
+        loadFailure={null}
+        {...overrides}
+      />,
+    )
+  const candidate = (id: string) => ({
+    id,
+    content: `Fact ${id}`,
+    namespace: "pilot",
+    tags: ["aircraft"],
+  })
+
+  test("always renders the region with a 56px header, even when empty", () => {
+    const html = view()
+    expect(html).toContain('aria-label="Memory candidates"')
+    expect(html).toContain("wb-header-row")
+    expect(html).toContain("Nothing waiting for review.")
+  })
+  test("lists every candidate, with namespace and tags as metadata", () => {
+    const html = view({ candidates: ["a", "b", "c", "d", "e"].map(candidate) })
+    for (const id of ["a", "b", "c", "d", "e"]) expect(html).toContain(`Fact ${id}`)
+    expect(html).toContain("pilot · aircraft")
+    expect(html).not.toContain("more not shown")
+  })
+  test("the confidence joins the metadata line", () => {
+    expect(view({ candidates: [CANDIDATE] })).toContain("default · confidence 0.8")
+  })
+  test("the close button appears only with onClose", () => {
+    expect(view()).not.toContain('aria-label="Close memory"')
+    expect(view({ onClose: () => {} })).toContain('aria-label="Close memory"')
+  })
+  test("the count sits in the heading", () => {
+    expect(view({ candidates: [candidate("a"), candidate("b")] })).toMatch(
+      /<h2[^>]*>Memory<span[^>]*>· 2<\/span>/,
+    )
   })
 })
 
@@ -341,10 +376,29 @@ describe("memory panel container", () => {
     expect(container.textContent).toContain("Prefers concise, cited reports.")
   })
 
-  test("renders nothing for the empty answer, which is the normal case", async () => {
+  test("renders the empty state for the empty answer, which is the normal case", async () => {
     mount()
     await settle()
-    expect(container.textContent).toBe("")
+    expect(container.textContent).toContain("Nothing waiting for review.")
+  })
+
+  test("focuses the heading when Memory mode opens, and closes from the header", async () => {
+    const onClose = vi.fn()
+    act(() => {
+      root.render(<MemoryPanel open onClose={onClose} />)
+    })
+    await settle()
+    expect(document.activeElement?.tagName).toBe("H2")
+    act(() => {
+      ;(container.querySelector('[aria-label="Close memory"]') as HTMLElement).click()
+    })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  test("does not take focus while closed", async () => {
+    mount()
+    await settle()
+    expect(document.activeElement?.tagName).not.toBe("H2")
   })
 
   test("approving POSTs the id with no body, then re-reads the list", async () => {
@@ -370,7 +424,7 @@ describe("memory panel container", () => {
     // not a regression and must not red this.
     expect(init?.body).toBeUndefined()
     expect(urls()[2]).toBe("/api/b4/memory/candidates")
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain("Prefers concise, cited reports.")
   })
 
   test("surfaces a supersede rather than swallowing it", async () => {
@@ -407,7 +461,7 @@ describe("memory panel container", () => {
     act(() => {
       vi.advanceTimersByTime(OUTCOME_LIFETIME_MS)
     })
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain("Replaced 1 earlier memory.")
   })
 
   test("deleting POSTs the reject route and says nothing on success", async () => {
@@ -422,7 +476,7 @@ describe("memory panel container", () => {
     const init = fetchMock().mock.calls[1]?.[1]
     expect(init).toMatchObject({ method: "POST" })
     expect(init?.body).toBeUndefined()
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain("Prefers concise, cited reports.")
   })
 
   test("a failed decision leaves the candidate on screen and says so", async () => {
@@ -463,7 +517,7 @@ describe("memory panel container", () => {
     answering(listing([]), listing([CANDIDATE]))
     mount()
     await settle()
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain("Prefers concise, cited reports.")
     act(() => {
       for (const subscriber of subscribers) subscriber.onRunFinishedEvent?.()
     })
@@ -504,7 +558,7 @@ describe("memory panel container", () => {
     answering(() => new Response(null, { status: 502 }))
     mount()
     await settle()
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain(LOAD_FAILURE_NOTICE)
   })
 
   test("a read that fails for any other reason is one quiet line", async () => {
@@ -540,7 +594,7 @@ describe("memory panel container", () => {
       releaseFirst(Response.json({ candidates: [CANDIDATE] }))
     })
     await settle()
-    expect(container.textContent).toBe("")
+    expect(container.textContent).not.toContain("Prefers concise, cited reports.")
   })
 })
 
@@ -553,15 +607,9 @@ describe("memory panel container", () => {
  *   an `onRunFinishedEvent` because `@ag-ui/client@0.0.59` defines one; that
  *   the installed client actually calls it is a typecheck-and-live-run fact,
  *   not something these tests observe.
- * - anything visual. Whether three clamped candidates plus the thread list fit
- *   in a `w-64` rail is a browser question, and this app has no browser lane.
+ * - anything visual. How the panel sits over the map column is a browser
+ *   question for the harness, not for jsdom.
  * - `AppShell` mounting the panel. `AppShell.test.tsx` renders it incidentally
  *   against an empty-candidates stub, which proves the panel does not break
- *   the shell, not that the rail places it well.
+ *   the shell, not that the layout places it well.
  */
-
-describe("memory panel anchor", () => {
-  test("the populated panel carries the id the sidenav scrolls to", () => {
-    expect(render()).toContain(`id="${MEMORY_PANEL_ID}"`)
-  })
-})

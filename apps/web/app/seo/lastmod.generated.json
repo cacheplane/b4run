@@ -332,9 +332,9 @@
       "recordDigest": "c48bf0907498a04ba752dae660e46d604f704c69e2d21c5fde862efe7fafabc7"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-09T19:21:25.000Z",
-      "sourceDigest": "3f3b6bca413bd157b7ecc86266107cf84961e9aa9dcb36307332e2d678e99b47",
-      "recordDigest": "f09eacf6845f0b48fe69f7bdb10eb340fadb303a7b36978bcabcf48bbf8a3437"
+      "lastModified": "2026-10-09T21:52:15.000Z",
+      "sourceDigest": "2238b6c1a73d5aa220927634b63f4387fe954ec28b6abb537d4fe22c9911ce1b",
+      "recordDigest": "c00910dd1b453d88e5a068740030866e5e4acfdb7d96d690bba1356a18b1d8b3"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

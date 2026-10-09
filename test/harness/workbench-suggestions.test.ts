@@ -356,6 +356,8 @@ const GOLDEN_CALLS: readonly string[] = [
   'click page > button="New plan"',
   "click page > button=/^Teach it the aircraft/",
   "complete",
+  "getAttribute:aria-pressed page > button=/^Memory/",
+  "click page > button=/^Memory/",
   `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
   "waitForResponse",
   `click page > label=Memory candidates > button=${JSON.stringify(`Approve: ${TEACH_CONTENT}`)}`,
@@ -375,13 +377,27 @@ describe("runWorkbenchSuggestionJourneys", () => {
     expect(journey.openReadyWorkbench).toHaveBeenCalledTimes(1)
   })
 
+  it("leaves Memory mode open when the toggle is already pressed", async () => {
+    const { calls, deps } = fakeBrowser({
+      expandedFor: (desc) => (desc === "page > button=/^Memory/" ? "true" : undefined),
+    })
+    await runWorkbenchSuggestionJourneys(baseOptions, deps)
+    expect(calls).toContain("getAttribute:aria-pressed page > button=/^Memory/")
+    expect(calls).not.toContain("click page > button=/^Memory/")
+    expect(calls).toContain(
+      `waitFor:visible page > label=Memory candidates > text=${JSON.stringify(TEACH_CONTENT)}`,
+    )
+  })
+
   it("starts each of the three journeys from a new conversation", async () => {
     const { calls, deps } = fakeBrowser()
     await runWorkbenchSuggestionJourneys(baseOptions, deps)
     const starts = calls.filter(
       (call) =>
         call.startsWith("click ") &&
-        (call.includes('button="New plan"') || call.includes("button=/^")),
+        (call.includes('button="New plan"') || call.includes("button=/^")) &&
+        // Opening Memory mode mid-journey is not a journey start.
+        !call.includes("button=/^Memory/"),
     )
     expect(starts).toEqual([
       'click page > button="New plan"',

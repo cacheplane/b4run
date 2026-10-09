@@ -4,7 +4,6 @@ import type { ReactNode } from "react"
 export interface ChatDockProps {
   readonly header: string
   readonly status?: string | undefined
-  readonly memory: ReactNode
   /** A failure to show above the conversation (`RunError`), or nothing. */
   readonly banner?: ReactNode
   /** Content-parts-dropped notices for the open thread (`DropNotices`), or nothing. */
@@ -56,17 +55,14 @@ function StatusBadge({ status }: { status: string | undefined }) {
 }
 
 /**
- * The chat column: the thread's title and run status, the memory panel, the
- * failure banner, drop notices and the conversation.
+ * The chat column: the thread's title and run status, the failure banner,
+ * drop notices and the conversation.
  *
- * The brand, "New plan" and the thread list are the sidenav's (`SideNav`).
- * The memory panel stays here, inline above the conversation, rather than
- * behind a link: it renders nothing until a candidate is waiting, so it costs
- * no space until there is something to approve, and then it is in view (the
- * teach journey and a person both need to see it without hunting for it).
- * The sidenav's "Memory" item counts the candidates and scrolls here.
+ * The brand, "New plan" and the thread list are the sidebar's (`SideNav`).
+ * Memory review is a mode (`MemoryPanel`, opened from the sidebar), not part
+ * of this column.
  */
-export function ChatDock({ header, status, memory, banner, notices, children }: ChatDockProps) {
+export function ChatDock({ header, status, banner, notices, children }: ChatDockProps) {
   return (
     // `min-w-0`: as a flex item the dock would otherwise grow to its widest
     // content (a long tool-call argument line) and spill into the map.
@@ -74,7 +70,7 @@ export function ChatDock({ header, status, memory, banner, notices, children }: 
       className="wb-panel wb-dock relative flex min-h-0 min-w-0 flex-1 flex-col"
       aria-label="Chat"
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-wb-border px-3 py-2.5">
+      <header className="wb-header-row gap-2 border-b border-wb-border px-4">
         {/* `title` carries the full text when it truncates. */}
         <h2
           title={header}
@@ -84,10 +80,7 @@ export function ChatDock({ header, status, memory, banner, notices, children }: 
         </h2>
         <StatusBadge status={status} />
       </header>
-      <div className="max-h-[30%] shrink-0 overflow-auto border-b border-wb-border empty:hidden max-lg:max-h-[25%]">
-        {memory}
-      </div>
-      {banner ? <div className="shrink-0 px-3 pt-2">{banner}</div> : null}
+      {banner ? <div className="shrink-0 px-4 pt-2">{banner}</div> : null}
       {notices}
       <main className="flex min-h-0 flex-1 flex-col">{children}</main>
     </section>

@@ -23,6 +23,7 @@ import { tsImport } from "tsx/esm/api"
 import {
   assertAwcStubServed,
   assertLoopbackAwcBaseUrl,
+  assertMemoryCandidate,
   assertLoopbackModelBaseUrl,
   awaitApprovalCard,
   buildChildEnvironment,
@@ -3469,6 +3470,65 @@ test("settling the Workbench viewport unscrolls the document and the layout root
   for (const element of [fake.scrollingElement, fake.documentElement, fake.body, ...fake.roots]) {
     assert.deepEqual({ ...element }, { scrollTop: 0, scrollLeft: 0 })
   }
+})
+
+function memoryPage(calls, { pressed }) {
+  const memory = {
+    async getAttribute(name, options) {
+      calls.push(["memory.getAttribute", name, options])
+      return pressed ? "true" : "false"
+    },
+    async click(options) {
+      calls.push(["memory.click", options])
+    },
+  }
+  const region = {
+    getByText(text, options) {
+      calls.push(["region.getByText", text, options])
+      return {
+        first: () => ({
+          async waitFor(options) {
+            calls.push(["text.waitFor", options])
+          },
+        }),
+      }
+    },
+  }
+  return {
+    getByRole(role, options) {
+      calls.push(["page.getByRole", role, options])
+      if (role === "button") return memory
+      assert.equal(role, "region")
+      return region
+    },
+    async evaluate() {
+      calls.push(["page.evaluate"])
+    },
+  }
+}
+
+test("memory evidence opens Memory mode before waiting for the candidate", async () => {
+  const calls = []
+  await assertMemoryCandidate(memoryPage(calls, { pressed: false }), { content: "fact" })
+  assert.deepEqual(calls, [
+    ["page.getByRole", "button", { name: /^Memory/ }],
+    ["memory.getAttribute", "aria-pressed", { timeout: 60_000 }],
+    ["memory.click", { timeout: 60_000 }],
+    ["page.getByRole", "region", { name: "Memory candidates", exact: true }],
+    ["region.getByText", "fact", { exact: true }],
+    ["text.waitFor", { state: "visible", timeout: 120_000 }],
+    ["page.evaluate"],
+  ])
+})
+
+test("memory evidence leaves an open Memory mode open", async () => {
+  const calls = []
+  await assertMemoryCandidate(memoryPage(calls, { pressed: true }), { content: "fact" })
+  assert.equal(
+    calls.some(([name]) => name === "memory.click"),
+    false,
+  )
+  assert.deepEqual(calls.at(-2), ["text.waitFor", { state: "visible", timeout: 120_000 }])
 })
 
 test("approval evidence fails when the card offers Always allow", async () => {

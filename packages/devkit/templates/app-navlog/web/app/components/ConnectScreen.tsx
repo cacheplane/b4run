@@ -43,8 +43,10 @@ export const CONNECT_SCREEN_HEADING = "Can’t reach the B4.run server"
  */
 export function ConnectScreen({ serverUrl, onRetry }: ConnectScreenProps) {
   return (
-    <div className="flex h-dvh items-center justify-center bg-wb-bg px-6">
-      <div className="max-w-md text-center">
+    // The window never scrolls (`theme.css`), so this screen scrolls itself:
+    // on a short viewport `my-auto` stops centring and the top stays reachable.
+    <div className="flex h-dvh flex-col items-center overflow-y-auto bg-wb-bg px-6 py-8">
+      <div className="my-auto max-w-md text-center">
         <span className="text-[16px]">
           <Wordmark />
         </span>

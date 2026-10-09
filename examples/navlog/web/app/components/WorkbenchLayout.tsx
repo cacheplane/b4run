@@ -1,6 +1,7 @@
 "use client"
 import dynamic from "next/dynamic"
 import {
+  type KeyboardEvent,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -15,11 +16,12 @@ import type { Navlog } from "../lib/navlog-types"
 import { pairIndexOf, routeGeometry } from "../lib/route-geometry"
 import { useHydrated } from "../lib/use-hydrated"
 import { useMediaQuery } from "../lib/use-media-query"
+import { useSidebarState } from "../lib/use-sidebar-state"
 import { resolveVerdict } from "../lib/verdict"
 import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { Drawer } from "./Drawer"
-import { revealMemoryPanel } from "./memory-anchor"
+import { Icon, type IconName } from "./icons"
 import { NavlogSheet } from "./NavlogSheet"
 import { SideNav } from "./SideNav"
 import { type SheetControl, SheetControlContext } from "./sheet-control"
@@ -27,6 +29,12 @@ import { WeatherStrip } from "./WeatherStrip"
 import { Wordmark } from "./Wordmark"
 
 const RouteMap = dynamic(() => import("./RouteMap").then((m) => m.RouteMap), { ssr: false })
+
+export interface MemoryControls {
+  /** Whether Memory mode is showing the panel. */
+  readonly open: boolean
+  readonly onClose: () => void
+}
 
 export interface WorkbenchLayoutProps {
   readonly navlog: Navlog | null
@@ -37,7 +45,8 @@ export interface WorkbenchLayoutProps {
   readonly status?: string | undefined
   /** The thread list (`ThreadRail`), for the sidenav. */
   readonly rail: ReactNode
-  readonly memory: ReactNode
+  /** The memory review (`MemoryPanel`), given Memory mode's state. */
+  readonly memory: (controls: MemoryControls) => ReactNode
   /** Memory candidates waiting, for the sidenav's count. */
   readonly memoryCount: number
   /** The chat's failure banner (`RunError`), or nothing. */
@@ -61,15 +70,11 @@ type PhoneTab = "chat" | "map" | "navlog"
 const PHONE_TABS: readonly {
   readonly id: PhoneTab
   readonly label: string
-  readonly icon: string
+  readonly icon: IconName
 }[] = [
-  {
-    id: "chat",
-    label: "Chat",
-    icon: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
-  },
-  { id: "map", label: "Map", icon: "M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" },
-  { id: "navlog", label: "Navlog", icon: "M4 6h16M4 12h16M4 18h10" },
+  { id: "chat", label: "Chat", icon: "chat" },
+  { id: "map", label: "Map", icon: "map" },
+  { id: "navlog", label: "Navlog", icon: "navlog" },
 ]
 
 /**
@@ -96,28 +101,18 @@ function useMeasuredHeight(): [RefObject<HTMLDivElement | null>, number] {
   return [ref, height]
 }
 
-function Icon({ path }: { readonly path: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-5"
-    >
-      <path d={path} />
-    </svg>
-  )
-}
-
 /**
  * Desktop (`lg` and up): a grey canvas with three docked columns and no top
- * bar: the sidenav, the chat, and the map stacked over the navlog sheet.
+ * bar: the sidenav (expanded, or collapsed to a 64px icon rail, remembered
+ * per browser), the chat, and the map stacked over the navlog sheet.
  * Phone: a top row (menu, wordmark, New plan), one full-screen panel, and a
  * bottom tab bar (Chat, Map, Navlog); the sidenav opens as a drawer.
+ *
+ * Memory mode (the sidenav's Memory toggle) replaces the right column with the
+ * full memory review on a desktop, and shows it as a fourth stacked panel on a
+ * phone with no tab selected. The map stays mounted beneath, invisible and
+ * inert, so its view and fit survive. Escape inside the review, its close
+ * button, New plan, or (phone) any tab leaves the mode.
  *
  * Only the layout that applies is rendered, not both hidden by CSS: the dock
  * holds the chat, and two copies would mean two `<main>` elements, two
@@ -154,6 +149,11 @@ export function WorkbenchLayout({
     navlog: false,
   })
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const memoryButton = useRef<HTMLButtonElement>(null)
+  const newPlanButton = useRef<HTMLButtonElement>(null)
+  const [sidebar, toggleSidebar] = useSidebarState()
+  const sidenavId = useId()
   const menuButton = useRef<HTMLButtonElement>(null)
   const [hoveredLeg, setHoveredLeg] = useState<number | null>(null)
   const [stripRef, stripHeight] = useMeasuredHeight()
@@ -162,10 +162,31 @@ export function WorkbenchLayout({
   const activeTab: PhoneTab = navlog ? tab : "chat"
   const awaitingApproval = status === "awaiting approval"
 
+  /**
+   * Where focus goes once Memory mode has closed, a frame later (after the
+   * re-render): the desktop Memory toggle that opened it, unless closing
+   * disabled it (nothing left to review); then the sidebar's New plan; on a
+   * phone, whose drawer copies are gone, the menu button that opens the drawer.
+   */
+  const focusAfterMemory = useCallback(() => {
+    requestAnimationFrame(() => {
+      const target = [memoryButton.current, newPlanButton.current, menuButton.current].find(
+        (button): button is HTMLButtonElement => button?.isConnected === true && !button.disabled,
+      )
+      target?.focus()
+    })
+  }, [])
+
   // An approval card lives in the chat; never leave it behind another tab.
   useEffect(() => {
     if (awaitingApproval) setTab("chat")
   }, [awaitingApproval])
+  // On a phone the chat is hidden while Memory mode shows; the card must be seen.
+  useEffect(() => {
+    if (!awaitingApproval || isDesktop || !memoryOpen) return
+    setMemoryOpen(false)
+    focusAfterMemory()
+  }, [awaitingApproval, isDesktop, memoryOpen, focusAfterMemory])
 
   // A new navlog while the pilot is in the chat: dot the two tabs that show it.
   // Read by the navlog effect below. A layout effect runs before every
@@ -190,6 +211,7 @@ export function WorkbenchLayout({
 
   const selectTab = useCallback((next: PhoneTab): void => {
     setTab(next)
+    setMemoryOpen(false)
     if (next !== "chat") setUnseen((current) => ({ ...current, [next]: false }))
   }, [])
 
@@ -198,11 +220,34 @@ export function WorkbenchLayout({
     menuButton.current?.focus()
   }, [])
 
-  const showMemory = useCallback(() => {
+  const closeMemory = useCallback(() => {
+    setMemoryOpen(false)
+    focusAfterMemory()
+  }, [focusAfterMemory])
+
+  const toggleMemory = useCallback(() => {
+    if (memoryOpen) {
+      closeMemory()
+      return
+    }
     setDrawerOpen(false)
-    setTab("chat")
-    requestAnimationFrame(revealMemoryPanel)
-  }, [])
+    // On a phone the mode would hide the chat, and a pending approval card
+    // must stay in view.
+    if (!isDesktop && awaitingApproval) return
+    setMemoryOpen(true)
+  }, [memoryOpen, closeMemory, isDesktop, awaitingApproval])
+
+  // A thread switch needs nothing here: `AppShell` keys the workbench by
+  // thread, so a switch remounts the layout with Memory mode off.
+  const newConversation = useCallback(() => {
+    setMemoryOpen(false)
+    onNewConversation()
+  }, [onNewConversation])
+
+  // Escape anywhere inside the memory column leaves the mode.
+  const onMemoryKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Escape" && memoryOpen) closeMemory()
+  }
 
   const geometry = useMemo(() => (navlog ? routeGeometry(navlog) : null), [navlog])
   const categories = useMemo(() => {
@@ -234,10 +279,11 @@ export function WorkbenchLayout({
   )
 
   const chat = (
-    <ChatDock header={header} status={status} memory={memory} banner={banner} notices={notices}>
+    <ChatDock header={header} status={status} banner={banner} notices={notices}>
       {conversation}
     </ChatDock>
   )
+  const memoryPanel = memory({ open: memoryOpen, onClose: closeMemory })
   const map = (
     <RouteMap
       geometry={geometry}
@@ -250,43 +296,80 @@ export function WorkbenchLayout({
   if (isDesktop) {
     return (
       <SheetControlContext.Provider value={sheetControl}>
-        <div className="wb-root grid h-dvh grid-cols-[var(--wb-nav-width)_minmax(360px,34%)_minmax(0,1fr)] gap-[var(--wb-gutter)] p-[var(--wb-gutter)]">
+        <div
+          data-sidebar={sidebar}
+          className="wb-root grid h-dvh grid-cols-[var(--wb-nav-width)_minmax(360px,34%)_minmax(0,1fr)] gap-[var(--wb-gutter)] p-[var(--wb-gutter)]"
+        >
           <SideNav
+            id={sidenavId}
             brand="heading"
             rail={rail}
             memoryCount={memoryCount}
-            onNewConversation={onNewConversation}
-            onShowMemory={showMemory}
+            memoryOpen={memoryOpen}
+            memoryButtonRef={memoryButton}
+            newPlanButtonRef={newPlanButton}
+            onNewConversation={newConversation}
+            onToggleMemory={toggleMemory}
+            collapse={{
+              collapsed: sidebar === "collapsed",
+              onToggle: toggleSidebar,
+              controls: sidenavId,
+            }}
             className="wb-print-hide"
           />
           <div className="wb-print-hide flex min-h-0 min-w-0">{chat}</div>
-          <div className="flex min-h-0 min-w-0 flex-col gap-[var(--wb-gutter)]">
-            <div className="wb-panel wb-print-hide relative min-h-0 flex-1 overflow-hidden">
-              {map}
-              <div
-                ref={stripRef}
-                className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-end *:pointer-events-auto"
-              >
-                <WeatherStrip brief={brief} verdict={verdict} {...cruise} />
+          {/*
+            Memory mode covers the map column rather than replacing it: the map
+            keeps its size, fit and view, and the navlog sheet still prints
+            (the print rules force `.wb-sheet` visible).
+          */}
+          <div className="relative min-h-0 min-w-0">
+            <div
+              data-map-column=""
+              inert={memoryOpen}
+              className={`flex h-full min-h-0 flex-col gap-[var(--wb-gutter)] ${memoryOpen ? "invisible" : ""}`}
+            >
+              <div className="wb-panel wb-print-hide relative min-h-0 flex-1 overflow-hidden">
+                {map}
+                <div
+                  ref={stripRef}
+                  className="pointer-events-none absolute inset-x-4 top-4 z-10 flex justify-end *:pointer-events-auto"
+                >
+                  <WeatherStrip brief={brief} verdict={verdict} {...cruise} />
+                </div>
               </div>
+              {navlog ? (
+                <div className="wb-sheet-wrap min-h-0 shrink-0">
+                  <NavlogSheet
+                    navlog={navlog}
+                    brief={assistantBrief}
+                    weather={brief}
+                    open={sheetOpen}
+                    onToggle={() => setSheetOpen((value) => !value)}
+                    onHoverLeg={setHoveredLeg}
+                  />
+                </div>
+              ) : null}
             </div>
-            {navlog ? (
-              <div className="wb-sheet-wrap min-h-0 shrink-0">
-                <NavlogSheet
-                  navlog={navlog}
-                  brief={assistantBrief}
-                  weather={brief}
-                  open={sheetOpen}
-                  onToggle={() => setSheetOpen((value) => !value)}
-                  onHoverLeg={setHoveredLeg}
-                />
-              </div>
-            ) : null}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Escape is handled for the whole column; its controls are real buttons */}
+            <div
+              data-memory-column=""
+              inert={!memoryOpen}
+              onKeyDown={onMemoryKeyDown}
+              className={`absolute inset-0 print:hidden ${memoryOpen ? "" : "invisible"}`}
+            >
+              {memoryPanel}
+            </div>
           </div>
         </div>
       </SheetControlContext.Provider>
     )
   }
+
+  // Memory mode shows over the tabs: no panel of theirs is visible under it.
+  const chatVisible = !memoryOpen && activeTab === "chat"
+  const mapVisible = !memoryOpen && activeTab === "map"
+  const navlogVisible = !memoryOpen && activeTab === "navlog"
 
   return (
     <SheetControlContext.Provider value={sheetControl}>
@@ -302,7 +385,7 @@ export function WorkbenchLayout({
             onClick={() => setDrawerOpen(true)}
             className="wb-focus wb-icon-button"
           >
-            <Icon path="M4 7h16M4 12h16M4 17h16" />
+            <Icon name="menu" />
           </button>
           <h1 className="min-w-0 truncate text-[15px]">
             <Wordmark />
@@ -311,14 +394,14 @@ export function WorkbenchLayout({
             type="button"
             aria-label="New plan"
             disabled={!hydrated}
-            onClick={onNewConversation}
+            onClick={newConversation}
             className="wb-focus wb-icon-button wb-icon-button-primary"
           >
-            <Icon path="M12 5v14M5 12h14" />
+            <Icon name="plus" />
           </button>
         </header>
         {/*
-          All three panels stay mounted, stacked in one box, and the inactive
+          All the panels stay mounted, stacked in one box, and the inactive
           ones are hidden with `invisible` and `inert`, not unmounted and not
           `display: none`: a switch keeps the chat's scroll position, the
           input's draft and any parked approval card; the map keeps its size
@@ -331,8 +414,8 @@ export function WorkbenchLayout({
             role="tabpanel"
             id="wb-panel-chat"
             aria-labelledby="wb-tab-chat"
-            inert={activeTab !== "chat"}
-            className={`${PANEL_BOX} flex min-h-0 flex-col print:hidden ${activeTab === "chat" ? "" : "invisible"}`}
+            inert={!chatVisible}
+            className={`${PANEL_BOX} flex min-h-0 flex-col print:hidden ${chatVisible ? "" : "invisible"}`}
           >
             {chat}
           </div>
@@ -340,13 +423,13 @@ export function WorkbenchLayout({
             role="tabpanel"
             id="wb-panel-map"
             aria-labelledby="wb-tab-map"
-            inert={activeTab !== "map"}
-            className={`wb-panel ${PANEL_BOX} overflow-hidden print:hidden ${activeTab === "map" ? "" : "invisible"}`}
+            inert={!mapVisible}
+            className={`wb-panel ${PANEL_BOX} overflow-hidden print:hidden ${mapVisible ? "" : "invisible"}`}
           >
             {map}
             <div
               ref={stripRef}
-              className="pointer-events-none absolute inset-x-2 top-2 z-10 *:pointer-events-auto"
+              className="pointer-events-none absolute inset-x-4 top-4 z-10 *:pointer-events-auto"
             >
               <WeatherStrip brief={brief} layout="row" verdict={verdict} {...cruise} />
             </div>
@@ -356,8 +439,8 @@ export function WorkbenchLayout({
               role="tabpanel"
               id="wb-panel-navlog"
               aria-labelledby="wb-tab-navlog"
-              inert={activeTab !== "navlog"}
-              className={`wb-sheet-wrap ${PANEL_BOX} overflow-auto ${activeTab === "navlog" ? "" : "invisible"}`}
+              inert={!navlogVisible}
+              className={`wb-sheet-wrap ${PANEL_BOX} overflow-auto ${navlogVisible ? "" : "invisible"}`}
             >
               <NavlogSheet
                 navlog={navlog}
@@ -370,6 +453,15 @@ export function WorkbenchLayout({
               />
             </div>
           ) : null}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Escape is handled for the whole panel; its controls are real buttons */}
+          <div
+            data-memory-column=""
+            inert={!memoryOpen}
+            onKeyDown={onMemoryKeyDown}
+            className={`${PANEL_BOX} flex min-h-0 flex-col print:hidden ${memoryOpen ? "" : "invisible"}`}
+          >
+            {memoryPanel}
+          </div>
         </div>
         <div
           role="tablist"
@@ -384,7 +476,7 @@ export function WorkbenchLayout({
                 type="button"
                 role="tab"
                 id={`wb-tab-${item.id}`}
-                aria-selected={activeTab === item.id}
+                aria-selected={!memoryOpen && activeTab === item.id}
                 // The Navlog panel only exists with a navlog.
                 {...(item.id === "navlog" && navlog === null
                   ? {}
@@ -394,7 +486,7 @@ export function WorkbenchLayout({
                 onClick={() => selectTab(item.id)}
               >
                 <span className="relative">
-                  <Icon path={item.icon} />
+                  <Icon name={item.icon} />
                   {dotted ? (
                     <span className="wb-tab-dot">
                       <span className="sr-only">, new result</span>
@@ -412,8 +504,9 @@ export function WorkbenchLayout({
               brand="label"
               rail={rail}
               memoryCount={memoryCount}
-              onNewConversation={onNewConversation}
-              onShowMemory={showMemory}
+              memoryOpen={memoryOpen}
+              onNewConversation={newConversation}
+              onToggleMemory={toggleMemory}
               onNavigate={closeDrawer}
               className="min-w-0 flex-1"
             />

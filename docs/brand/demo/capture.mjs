@@ -1165,11 +1165,16 @@ export async function assertRouteMap(page, { headingLabel, airports }) {
 }
 
 /**
- * The memory panel (under the chat's header) lists the suggested candidate,
- * with the page unscrolled so the `memory` framing holds all of it: the fact
- * and its Approve and Delete buttons.
+ * Memory mode (the sidebar's Memory toggle) lists the suggested candidate in
+ * the right column, with the page unscrolled so the `memory` framing holds all
+ * of it: the fact and its Approve and Delete buttons. The toggle is disabled
+ * until the count is non-zero, and Playwright's click waits for enabled.
  */
 export async function assertMemoryCandidate(page, { content }) {
+  const memory = page.getByRole("button", { name: /^Memory/ })
+  if ((await memory.getAttribute("aria-pressed", { timeout: 60_000 })) !== "true") {
+    await memory.click({ timeout: 60_000 })
+  }
   await page
     .getByRole("region", { name: "Memory candidates", exact: true })
     .getByText(content, { exact: true })
