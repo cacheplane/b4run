@@ -14,6 +14,8 @@ const SERVER_PARITY_ROOTS = [
   ".env.example",
   "AGENTS.md",
   "b4.config.ts",
+  "data",
+  "scripts",
   "src",
   "test",
   "workspace",
@@ -34,6 +36,7 @@ const WEB_PARITY_ROOTS = [
   ".env.example",
   ".gitignore",
   "app",
+  "data",
   "next.config.mjs",
   "postcss.config.mjs",
   "tsconfig.json",
@@ -530,7 +533,7 @@ describe("navlog template parity with examples/navlog/web", () => {
     const templateSuffixedPaths = await collectTemplateSuffixedPaths(templateWebRoot)
 
     expect(templateSuffixedPaths.filter((path) => path.endsWith(".test.ts.template"))).toHaveLength(
-      20,
+      21,
     )
     expect(
       templateSuffixedPaths.filter((path) => path.endsWith(".test.tsx.template")),

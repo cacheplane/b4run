@@ -77,14 +77,14 @@ proxies, caps `q` at 32 characters, and answers an empty `q` with no results.
 
 ## 2. Snapshot data
 
-- `examples/navlog/scripts/build-waypoints.mjs <airports.csv> <navaids.csv>`
+- `examples/navlog/server/scripts/build-waypoints.mjs <airports.csv> <navaids.csv>`
   reads OurAirports CSVs that the operator downloads (the README gives the
   URLs) and writes:
-  - `web/app/data/waypoints.json`: US small, medium and large airports
+  - `web/data/waypoints.json`: US small, medium and large airports
     (identifier = ICAO code, else GPS code, else ident; plus the local code as
     an alias) and US navaids of the types above. Compact rows plus a
-    `snapshot` date. About 1 MB.
-  - `server/src/data/navaids.json`: the same navaids with magnetic variation,
+    `snapshot` date. About 1.2 MB. OurAirports has a few duplicate US ids (38), so search can return two airports with one id.
+  - `server/data/navaids.json`: the same navaids with magnetic variation,
     for `lookupNavaid`.
 - Both files are committed and mirrored into the template.
 
