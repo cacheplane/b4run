@@ -39,13 +39,7 @@ function placeText(alongNm: number, routeNm: number): string {
   return `${nm} nm along`
 }
 
-function AirportCard({
-  entry,
-  routeNm,
-}: {
-  readonly entry: RoleEntry
-  readonly routeNm: number
-}) {
+function AirportCard({ entry, routeNm }: { readonly entry: RoleEntry; readonly routeNm: number }) {
   const { id, name, alongNm, airport } = entry
   return (
     <li className="rounded-wb-sm border border-wb-border bg-wb-surface p-3">
