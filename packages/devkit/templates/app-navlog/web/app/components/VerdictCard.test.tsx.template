@@ -289,6 +289,34 @@ describe("a verdict the floor raised", () => {
     expect(assumptions).not.toContain("Would you like me to file")
     expect(brief).toContain("Would you like me to file the VFR flight plan now")
   })
+  test("a structured answer's bottom line agrees with the sheet's raised card", () => {
+    const structured = JSON.stringify({
+      ui: [
+        {
+          BottomLine: {
+            props: { level: "GO", reason: "VFR the whole way at 4,500 ft.", cite: [] },
+          },
+        },
+      ],
+    })
+    const html = renderToStaticMarkup(
+      <NavlogSheet
+        navlog={SAMPLE_NAVLOG}
+        brief={structured}
+        weather={GUSTY_GO}
+        open={true}
+        onToggle={() => {}}
+        tab="brief"
+        onTabChange={() => {}}
+      />,
+    )
+    expect(html).toContain('class="wb-verdict" data-level="CAUTION"')
+    const brief = html.slice(html.indexOf('aria-label="Planning brief"'))
+    expect(brief).toContain('data-level="CAUTION"')
+    expect(brief).not.toContain('data-level="GO"')
+    expect(brief).toContain("VFR the whole way at 4,500 ft.")
+    expect(brief).toContain("The planner said GO. Raised: gusts 25 kt at KFCM")
+  })
   test("a planner call as severe as the card keeps its own bottom line", () => {
     const html = renderToStaticMarkup(
       <PlanningBrief

@@ -232,6 +232,23 @@ describe("navlogAnswerText", () => {
     ]
     expect(navlogAnswerText(messages, "n")).toBe("Bottom line: GO — VFR all the way.")
   })
+  test("a structured answer comes back whole, as the JSON the model wrote", () => {
+    const structured = JSON.stringify({
+      ui: [
+        { BottomLine: { props: { level: "CAUTION", reason: "Gusts.", cite: [] } } },
+        { Prose: { props: { markdown: 'recall({ query: "x" })\n\nWant me to file it?' } } },
+      ],
+    })
+    const messages = [
+      call("n"),
+      result("n", navlog),
+      { id: "a1", role: "assistant", content: structured },
+      { id: "u2", role: "user", content: "File it" },
+      { id: "a2", role: "assistant", content: JSON.stringify({ ui: [] }) },
+    ]
+    expect(navlogAnswerText(messages, "n")).toBe(structured)
+    expect(JSON.parse(navlogAnswerText(messages, "n"))).toEqual(JSON.parse(structured))
+  })
   test("is empty until the navlog turn answers, and when the id is not in the messages", () => {
     const messages = [
       { id: "u1", role: "user", content: "Plan it" },

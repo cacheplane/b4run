@@ -1,6 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest"
+import { briefJsonSchema } from "../../../brief/kit"
 
 /**
  * The CopilotKit route forwards the visitor id (and, when deployed, the
@@ -9,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
  * across requests, so the id travels through `AsyncLocalStorage`; this pins
  * that it survives into the run and the capabilities read.
  */
-const seen: { method: string; url: string; headers: IncomingHttpHeaders }[] = []
+const seen: { method: string; url: string; headers: IncomingHttpHeaders; body: string }[] = []
 let server: Server
 let route: typeof import("./route")
 
@@ -46,9 +47,15 @@ function runRequest(headers: Record<string, string> = {}): Request {
 }
 
 beforeAll(async () => {
-  server = createServer((request, response) => {
-    seen.push({ method: request.method ?? "", url: request.url ?? "", headers: request.headers })
-    request.resume()
+  server = createServer(async (request, response) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(chunk as Buffer)
+    seen.push({
+      method: request.method ?? "",
+      url: request.url ?? "",
+      headers: request.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+    })
     const replay = /^\/threads\/([^/]+)\/events$/.exec(request.url ?? "")
     if (request.method === "GET" && replay !== null) {
       if (replay[1] === "t-404") {
@@ -110,6 +117,15 @@ describe("copilotkit proxy route", () => {
     expect(seen.map((entry) => entry.method)).toEqual(["POST"])
     expect(seen[0]?.headers["x-b4-visitor"]).toBe("v-returning01")
     expect(seen[0]?.headers["x-internal-token"]).toBe("server-secret")
+  })
+
+  test("a run asks for the brief kit's schema", async () => {
+    const response = await route.POST(runRequest({ cookie: "__Host-b4_visitor=v-returning01" }))
+    await response.text()
+
+    const body = JSON.parse(seen[0]?.body ?? "{}") as Record<string, unknown>
+    expect(body.hashbrown).toEqual({ ui: true, responseSchema: briefJsonSchema })
+    expect(body.threadId).toBe("t-1")
   })
 
   test("a first visit mints the cookie and forwards that same id, with no token in development", async () => {
