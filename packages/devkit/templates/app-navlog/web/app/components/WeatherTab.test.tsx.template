@@ -92,12 +92,12 @@ describe("WeatherTab", () => {
     expect(destination).toContain('data-cat="MVFR"')
     expect(destination).toContain("VFR now → MVFR at ETA")
     expect(destination).toMatch(
-      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">METAR KRST/,
+      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">KRST/,
     )
-    expect(destination).toMatch(/>TAF<\/p><pre[^>]*>TAF KRST 061130Z/)
+    expect(destination).toMatch(/>TAF<\/p><pre[^>]*>KRST 061130Z/)
     const origin = section(html, "Origin")
     expect(origin).toContain('data-cat="VFR"')
-    expect(origin).toContain("METAR KSTP 061353Z")
+    expect(origin).toContain("KSTP 061353Z")
   })
   test("en route lists stations with their name and distance along, in order", () => {
     const enRoute = section(render(), "En route")

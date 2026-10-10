@@ -174,7 +174,7 @@ export function SideNav({
               aria-pressed={memoryOpen}
               disabled={memoryDisabled}
               onClick={onToggleMemory}
-              className="wb-focus wb-row flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-[13px] font-medium text-wb-muted transition-colors hover:bg-wb-rail hover:text-wb-text aria-pressed:bg-wb-rail aria-pressed:text-wb-accent disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-wb-muted pointer-coarse:py-3"
+              className="wb-focus wb-row flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[13px] font-medium text-wb-muted transition-colors hover:bg-wb-rail hover:text-wb-text aria-pressed:bg-wb-rail aria-pressed:text-wb-accent disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-wb-muted pointer-coarse:py-3"
             >
               <span className="flex items-center gap-2">
                 <Icon name="memory" className="size-4" />

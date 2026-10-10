@@ -167,14 +167,14 @@ export function NavlogSheet({
 
   const title = (
     <span className="flex min-w-0 flex-col">
-      <span className="wb-route-title">
+      <span className="wb-route-title truncate">
         {first} → {last}
       </span>
       {shown ? (
-        <span className="text-[12px] text-wb-muted tabular-nums">{meta}</span>
+        <span className="truncate text-[12px] text-wb-muted tabular-nums">{meta}</span>
       ) : (
         // Collapsed: the totals ride in the header, since the tabs are hidden.
-        <span className="flex flex-wrap gap-x-3 text-[12.5px] tabular-nums text-wb-muted">
+        <span className="flex gap-x-3 overflow-hidden whitespace-nowrap text-[12.5px] tabular-nums text-wb-muted">
           <span>
             <strong className="font-semibold text-wb-text">{totals.distanceNm} nm</strong>
           </span>
@@ -209,14 +209,16 @@ export function NavlogSheet({
       aria-label="Navlog"
     >
       <div
-        className={`flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 ${
-          collapsible ? "wb-header-row" : "pb-2.5 pt-2"
+        // On a desktop the header is one 56px row: the title truncates and the
+        // actions never wrap under it. The phone sheet has room to wrap.
+        className={`flex shrink-0 items-center gap-x-3 gap-y-2 px-4 ${
+          collapsible ? "wb-header-row flex-nowrap" : "flex-wrap pb-2.5 pt-2"
         }`}
       >
         {collapsible ? (
           <button
             type="button"
-            className="wb-focus flex min-w-[14rem] flex-1 items-center gap-3 rounded-wb-sm text-left"
+            className="wb-focus flex min-w-0 flex-1 items-center gap-3 rounded-wb-sm text-left"
             aria-expanded={open}
             aria-controls={bodyId}
             onClick={onToggle}

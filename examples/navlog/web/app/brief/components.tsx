@@ -350,8 +350,10 @@ export function Prose({ markdown }: ProseProps) {
   const Markdown = useContext(BriefMarkdownContext)
   const content = stripToolEchoes(markdown)
   if (content === "") return null
+  // The brief's body size, not the chat's 16px reply size: the closing line
+  // belongs to the brief above it.
   return (
-    <div className="mt-3 first:mt-0">
+    <div className="mt-3 text-[14px] leading-[22px] first:mt-0 [&_li]:text-[14px] [&_p]:text-[14px] [&_p]:leading-[22px]">
       <Markdown content={content} />
     </div>
   )

@@ -241,7 +241,7 @@ export function RouteBar({
         ) : null}
         <input
           type="text"
-          className="wb-routebar-input wb-focus"
+          className="wb-routebar-input"
           role="combobox"
           aria-label="Add waypoint"
           aria-expanded={open}
@@ -308,7 +308,7 @@ export function RouteBar({
       </label>
       <input
         type="text"
-        className="wb-routebar-small wb-focus"
+        className="wb-routebar-small wb-routebar-departure wb-focus"
         aria-label="Departure time"
         placeholder="Dep 1400Z"
         value={draft.departure}

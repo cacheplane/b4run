@@ -29,10 +29,14 @@ describe("MarkerPanel", () => {
     expect(html).toContain('aria-label="KRST weather"')
     expect(html).toContain('data-cat="MVFR"')
     expect(html).toContain("MVFR now → VFR at ETA")
-    expect(html).toContain(
-      `<pre class="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-snug">${KRST.metar}</pre>`,
+    // Under its own label, each report drops the label's word: "METAR KRST …" reads "KRST …".
+    expect(html).toMatch(
+      new RegExp(
+        `>METAR</p><pre class="[^"]*font-mono[^"]*">${KRST.metar.replace(/^METAR /, "")}</pre>`,
+      ),
     )
-    expect(html).toContain(KRST.taf)
+    expect(html).not.toContain("METAR METAR")
+    expect(html).toContain(KRST.taf.replace(/^TAF /, ""))
     expect(html).toMatch(/<button[^>]*aria-label="Close"/)
   })
   test("a station shows its name; a report the brief lacks says so", () => {

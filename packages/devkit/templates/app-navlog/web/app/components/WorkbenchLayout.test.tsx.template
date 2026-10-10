@@ -594,7 +594,7 @@ describe("WorkbenchLayout route bar and marker panel", () => {
     expect(map.selectedMarker).toBe("krst")
     const dialog = panel(view.container)
     expect(dialog?.getAttribute("aria-label")).toBe("krst weather")
-    expect(dialog?.textContent).toContain("METAR KRST 1")
+    expect(dialog?.textContent).toContain("METARKRST 1")
     expect(dialog?.textContent).toContain("MVFR now → VFR at ETA")
     view.click('[role="dialog"] button[aria-label="Close"]')
     expect(panel(view.container)).toBeNull()

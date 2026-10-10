@@ -9,6 +9,7 @@ import {
   windsSummary,
   worstCategory,
 } from "../lib/weather-selectors"
+import { RawReport } from "./RawReport"
 import { HazardChip, HorizonNote, OutsideWindowChip, partitionAdvisories } from "./VerdictCard"
 
 export interface WeatherTabProps {
@@ -26,18 +27,6 @@ export function categoryText({ now, atEta }: AirportWeather): string {
   return `${now} now → ${atEta} at ETA`
 }
 
-function Report({ label, text }: { readonly label: string; readonly text: string }) {
-  if (text.trim() === "") return null
-  return (
-    <div className="mt-2">
-      <p className="text-[11px] font-semibold text-wb-muted">{label}</p>
-      <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-snug text-wb-text">
-        {text}
-      </pre>
-    </div>
-  )
-}
-
 function AirportCard({ entry }: { readonly entry: RoleEntry }) {
   const { id, name, alongNm, airport } = entry
   return (
@@ -49,7 +38,7 @@ function AirportCard({ entry }: { readonly entry: RoleEntry }) {
         ) : null}
         {alongNm !== null ? (
           <span className="text-[12px] tabular-nums text-wb-muted">
-            {Math.round(alongNm)} nm along
+            {Math.round(alongNm) === 0 ? "near departure" : `${Math.round(alongNm)} nm along`}
           </span>
         ) : null}
         {airport !== null ? (
@@ -63,8 +52,8 @@ function AirportCard({ entry }: { readonly entry: RoleEntry }) {
         <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
       ) : (
         <>
-          <Report label="METAR" text={airport.metar} />
-          <Report label="TAF" text={airport.taf} />
+          <RawReport label="METAR" text={airport.metar} />
+          <RawReport label="TAF" text={airport.taf} />
         </>
       )}
     </li>
