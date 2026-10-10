@@ -1,5 +1,8 @@
 "use client"
 import { useId, useMemo } from "react"
+import { BriefRenderer } from "../brief/BriefRenderer"
+import { BriefVerdictContext } from "../brief/components"
+import { isStructuredAnswer } from "../brief/parse"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
 import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
@@ -63,7 +66,7 @@ export interface NavlogSheetProps {
 
 /**
  * The verdict to show: the worse of the weather brief's "Verdict:" and the
- * planning answer's "Bottom line:", raised to the verdict floor (the brief's
+ * planning answer's bottom line, raised to the verdict floor (the brief's
  * written rules, checked against its data and this navlog's reserve). None
  * when neither call exists and the floor finds nothing.
  */
@@ -393,7 +396,16 @@ export function NavlogSheet({
               />
             </div>
           ) : null}
-          {brief ? <PlanningBrief text={brief} verdict={verdict} /> : null}
+          {!brief ? null : isStructuredAnswer(brief) ? (
+            <section aria-label="Planning brief" className="wb-brief mt-4">
+              <h3 className="wb-eyebrow">Planning brief</h3>
+              <BriefVerdictContext.Provider value={verdict}>
+                <BriefRenderer content={brief} idPrefix={`${bodyId}-`} />
+              </BriefVerdictContext.Provider>
+            </section>
+          ) : (
+            <PlanningBrief text={brief} verdict={verdict} />
+          )}
         </div>
       </div>
     </section>

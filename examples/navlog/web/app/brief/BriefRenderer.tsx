@@ -7,6 +7,7 @@ import {
   CitationsContext,
   type CitationsContextValue,
 } from "./components"
+import { isStructuredAnswer } from "./parse"
 import type { Citation } from "./schema"
 
 export interface BriefRendererProps {
@@ -14,11 +15,6 @@ export interface BriefRendererProps {
   readonly content: string
   /** Prefixes the citation anchors, so several answers on one page do not collide. */
   readonly idPrefix?: string | undefined
-}
-
-/** Whether `text` is (the start of) a structured answer rather than markdown. */
-function isStructured(text: string): boolean {
-  return text.trimStart().startsWith("{")
 }
 
 /**
@@ -84,7 +80,7 @@ function StructuredAnswer({ content, idPrefix }: BriefRendererProps) {
  * `BriefMarkdownContext`.
  */
 export function BriefRenderer({ content, idPrefix }: BriefRendererProps) {
-  return isStructured(content) ? (
+  return isStructuredAnswer(content) ? (
     <StructuredAnswer content={content} idPrefix={idPrefix} />
   ) : (
     <Markdown content={content} />

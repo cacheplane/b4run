@@ -5,6 +5,7 @@ import { type ComponentType, createContext, Fragment, type ReactNode, useContext
 import { neutralButton } from "../components/ui"
 import { VerdictIcon } from "../components/VerdictCard"
 import { inlineSegments, textBlocks } from "../lib/assistant-text"
+import { type EffectiveVerdict, isWorse, outrankNote } from "../lib/verdict"
 import {
   type AssumptionOrigin,
   type AssumptionsProps,
@@ -51,6 +52,13 @@ export interface BriefActions {
 }
 
 export const BriefActionsContext = createContext<BriefActions>({ changeAssumption: () => {} })
+
+/**
+ * The verdict the sheet's card shows (`resolveVerdict`), when the answer
+ * renders under it. A worse verdict than the bottom line's own replaces its
+ * level, with the planner's call noted, so the two never disagree.
+ */
+export const BriefVerdictContext = createContext<EffectiveVerdict | null>(null)
 
 /** Renders a markdown string. The chat can swap in its own renderer. */
 export type BriefMarkdownRenderer = (props: { readonly content: string }) => ReactNode
@@ -141,15 +149,21 @@ function Heading({ children }: { readonly children: ReactNode }) {
 }
 
 export function BottomLine({ level, reason, cite }: BottomLineProps) {
+  const verdict = useContext(BriefVerdictContext)
+  const outranked = verdict !== null && isWorse(verdict.level, level) ? verdict : null
+  const shown = outranked?.level ?? level
   return (
     <section aria-label="Bottom line" className="wb-bottom-line mt-3 first:mt-0">
       <span className="wb-eyebrow mr-1.5 inline">Bottom line</span>
-      <span className="wb-verdict-pill mr-1.5 align-middle" data-level={level}>
-        <VerdictIcon level={level} className="size-3.5 shrink-0" />
-        <span>{level}</span>
+      <span className="wb-verdict-pill mr-1.5 align-middle" data-level={shown}>
+        <VerdictIcon level={shown} className="size-3.5 shrink-0" />
+        <span>{shown}</span>
       </span>
       {reason}
       <CiteMarks ids={cite} />
+      {outranked !== null ? (
+        <span className="wb-bottom-line-note">{outrankNote(level, outranked)}</span>
+      ) : null}
     </section>
   )
 }

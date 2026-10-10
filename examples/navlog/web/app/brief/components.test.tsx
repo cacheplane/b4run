@@ -9,6 +9,7 @@ import {
   BottomLine,
   BriefActionsContext,
   BriefMarkdownContext,
+  BriefVerdictContext,
   briefComponents,
   Citations,
   CitationsContext,
@@ -58,6 +59,30 @@ describe("BottomLine", () => {
     expect(html).toContain("Freezing level below cruise.")
     expect(html).toContain('href="#cite-c2"')
     expect(html).toMatch(/<sup[^>]*><a[^>]*>2<\/a><\/sup>/)
+  })
+
+  test("under a worse card verdict it shows that level and notes the planner's", () => {
+    const raised = {
+      level: "CAUTION" as const,
+      reason: "Gusty.",
+      raisedFrom: "GO" as const,
+      floorReasons: ["gusts 25 kt at KRST"],
+    }
+    const html = renderToStaticMarkup(
+      <BriefVerdictContext.Provider value={raised}>
+        <BottomLine level="GO" reason="VFR." cite={[]} />
+      </BriefVerdictContext.Provider>,
+    )
+    expect(html).toContain('data-level="CAUTION"')
+    expect(html).not.toContain('data-level="GO"')
+    expect(html).toContain("The planner said GO. Raised: gusts 25 kt at KRST.")
+    const same = renderToStaticMarkup(
+      <BriefVerdictContext.Provider value={raised}>
+        <BottomLine level="NO-GO" reason="Ice." cite={[]} />
+      </BriefVerdictContext.Provider>,
+    )
+    expect(same).toContain('data-level="NO-GO"')
+    expect(same).not.toContain("The planner said")
   })
 
   test("a citation id the answer does not list draws no marker", () => {

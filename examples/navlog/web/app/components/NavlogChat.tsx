@@ -22,6 +22,7 @@ import {
 } from "react"
 import { BriefRenderer } from "../brief/BriefRenderer"
 import { type BriefActions, BriefActionsContext, BriefMarkdownContext } from "../brief/components"
+import { isStructuredAnswer } from "../brief/parse"
 import { stripToolEchoes } from "../lib/assistant-text"
 import { isAwaitingApproval } from "../lib/navlog-selectors"
 import { neutralButton } from "./ui"
@@ -55,7 +56,7 @@ export function stripEchoMessages(messages: Message[]): Message[] {
   const out = messages.map((message) => {
     if (message.role !== "assistant" || typeof message.content !== "string") return message
     // A structured answer is JSON for the brief kit, not prose: leave it whole.
-    if (message.content.trimStart().startsWith("{")) return message
+    if (isStructuredAnswer(message.content)) return message
     const content = stripToolEchoes(message.content)
     if (content === message.content) return message
     changed = true
