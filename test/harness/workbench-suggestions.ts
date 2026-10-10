@@ -43,6 +43,10 @@ export interface SuggestionJourneyOptions {
    */
   readonly approvalTitle: string
   readonly gatedReply: string
+  /**
+   * The plan reply's visible text, matched exactly. For a structured answer
+   * (the brief kit's JSON) that is its Prose markdown, never the raw JSON.
+   */
   readonly planReply: string
   readonly teachContent: string
   readonly signal?: AbortSignal

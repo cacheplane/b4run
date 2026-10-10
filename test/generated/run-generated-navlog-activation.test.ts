@@ -109,11 +109,45 @@ const FLIGHT_PLAN = {
 const FLIGHT_PLAN_PATH = "flight-plans/261006-KSTP-KRST.txt"
 const BUILT_PROMPT = "Built artifact environment smoke."
 const BUILT_REPLY = "built-env-smoke-ok"
-// The plan fixture's final reply. Named because W8 matches it on screen with
-// `{ exact: true }` — a dropped citation or changed punctuation there is a
+// The plan fixture's closing sentence. Named because W8 matches it on screen
+// with `{ exact: true }` — a dropped citation or changed punctuation there is a
 // 45-second wait on text that is visibly rendered.
-const PLAN_REPLY =
+const PLAN_TEXT =
   "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+// The plan fixture's final reply: a structured answer in the brief kit's shape
+// (`app/brief/schema.ts`), as the model returns it under the response schema
+// the web route sends. W8 renders it with the kit in Chromium; its Prose is
+// PLAN_TEXT, so the on-screen match is unchanged, and the direct journeys'
+// `toContain` on the citation still finds it inside the JSON.
+const PLAN_REPLY = JSON.stringify({
+  ui: [
+    {
+      BottomLine: {
+        props: { level: "GO", reason: "KSTP and KRST are VFR for the whole flight.", cite: [] },
+      },
+    },
+    {
+      KeyNumbers: {
+        props: {
+          items: [
+            { label: "Distance", value: "66", unit: "nm", cite: [] },
+            { label: "ETE", value: "0:33", unit: null, cite: [] },
+            { label: "Fuel burned", value: "5.5", unit: "gal", cite: ["c1"] },
+            { label: "Reserve", value: "6:20", unit: null, cite: ["c1"] },
+          ],
+        },
+      },
+    },
+    {
+      Citations: {
+        props: {
+          items: [{ id: "c1", source: "poh/cruise-performance.md", locator: "Figure 5-7" }],
+        },
+      },
+    },
+    { Prose: { props: { markdown: PLAN_TEXT } } },
+  ],
+})
 const PERF_REPLY =
   "Cruise 2400 RPM at 4500 ft: 64% BHP, 110 KTAS, 7.1 GPH [poh/cruise-performance.md, Figure 5-7]."
 const FILE_REPLY = `Recorded the flight plan at ${FLIGHT_PLAN_PATH}. It was not transmitted.`
@@ -131,7 +165,9 @@ const WEB_GATED_REPLY = "Recorded the flight plan after approval through the web
 // userMessage as a substring and breaks ties by registration order, so a prompt
 // that is a prefix of another is a latent collision.
 const BROWSER_PROMPT = "Workbench gate: compute the navlog for KSTP to KRST."
-const BROWSER_REPLY = PLAN_REPLY
+// Plain text, not the structured PLAN_REPLY: W7 exercises the chat's markdown
+// fallback (a reply that is not JSON), as FILE_REPLY does in W8.
+const BROWSER_REPLY = PLAN_TEXT
 // W8's third journey. The Workbench's "Teach it the aircraft" suggestion sends
 // this exact text; memory is in candidate mode in the template, so the
 // remember() call below becomes a row in the memory panel.
@@ -1958,7 +1994,8 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
                 // fileFlightPlan's running label, as the card's infinitive title.
                 approvalTitle: "The agent wants to file N738ZU KSTP to KRST",
                 gatedReply: FILE_REPLY,
-                planReply: PLAN_REPLY,
+                // What the structured reply shows on screen: its Prose.
+                planReply: PLAN_TEXT,
                 teachContent: TEACH_CONTENT,
                 signal: lifecycleSignal,
               },
