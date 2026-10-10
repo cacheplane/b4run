@@ -1,27 +1,32 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { custom, defineEval, gate, llmJudge, toolCalled } from "@b4run/evals"
 import { script } from "@b4run/testing"
 import { z } from "zod"
 
 const JUDGE_CRITERIA =
-  "The answer opens with a GO, CAUTION or NO-GO bottom line, states the ETE, fuel burned and the reserve at destination, lists its assumptions, and cites at least one POH figure."
+  "The answer is a structured brief that opens with a GO, CAUTION or NO-GO BottomLine, gives the ETE, fuel burned and the reserve at destination in KeyNumbers, lists its assumptions, and cites at least one POH figure in Citations."
 // The scripted judge turn is matched by a substring of the judge's prompt, so
 // derive it from the criteria rather than restating it.
 const JUDGE_MATCH = JUDGE_CRITERIA.slice(0, 32)
 
 // The workspace the cited POH files live in, resolved from this file.
 const WORKSPACE = fileURLToPath(new URL("../../../../workspace/", import.meta.url))
-const CITATION = /\[(poh\/[a-z-]+\.md)/g
-const BOTTOM_LINE = /^Bottom line: (GO|CAUTION|NO-GO) — /
-// What a planning answer must never contain: an echoed tool call, the todo
-// list's statuses, a workspace path, or ETE mislabelled as engine time.
-const NEVER_IN_ANSWER = [
-  /\brecall\(/,
-  /\[(completed|pending|in_progress)\]/,
-  /reports\//,
-  /aircraft\//,
-  /engine-on/i,
+// The response schema the web client sends on every run (a copy of the web
+// kit's briefJsonSchema; the web package's kit test keeps the two equal).
+const BRIEF_SCHEMA = JSON.parse(
+  readFileSync(new URL("./brief-schema.json", import.meta.url), "utf8"),
+) as Record<string, unknown>
+const LEVELS = ["GO", "CAUTION", "NO-GO"]
+// What a planning answer must never contain outside its Citations: an echoed
+// tool call, the todo list's statuses, a workspace path, or ETE mislabelled as
+// engine time.
+const NEVER_IN_ANSWER: readonly { readonly what: string; readonly pattern: RegExp }[] = [
+  { what: "an echoed recall( call", pattern: /\brecall\(/ },
+  { what: "a todo status", pattern: /\[(completed|pending|in_progress)\]/ },
+  { what: "a reports/ path", pattern: /reports\// },
+  { what: "an aircraft/ path", pattern: /aircraft\// },
+  { what: "engine-on (ETE is takeoff to landing)", pattern: /engine-on/i },
 ]
 
 const DIRECT_INPUT =
@@ -67,6 +72,37 @@ const navlogResult = (run: {
   }
 }
 
+/** One component of a structured answer: `{ "<Name>": { "props": { … } } }`. */
+type BriefNode = Readonly<Record<string, { readonly props: Readonly<Record<string, unknown>> }>>
+
+/** The structured answer's components, or undefined when it is not `{ "ui": [...] }`. */
+const briefOf = (finalMessage: string): readonly BriefNode[] | undefined => {
+  try {
+    const ui = (JSON.parse(finalMessage) as { ui?: unknown } | null)?.ui
+    return Array.isArray(ui) ? (ui as BriefNode[]) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const NOT_STRUCTURED = {
+  score: 0,
+  reason: 'the final message is not a structured answer ({ "ui": [...] })',
+} as const
+
+/** The props of the first component named `name`. */
+const propsOf = (
+  brief: readonly BriefNode[] | undefined,
+  name: string,
+): Readonly<Record<string, unknown>> | undefined =>
+  brief?.find((node) => node[name] !== undefined)?.[name]?.props
+
+/** A props `items` list, as records. */
+const itemsOf = (
+  props: Readonly<Record<string, unknown>> | undefined,
+): Record<string, unknown>[] =>
+  Array.isArray(props?.items) ? (props.items as Record<string, unknown>[]) : []
+
 // FAA airport records (lookupAirport), field elevation in feet, variation signed east.
 const KSTP = {
   id: "KSTP",
@@ -109,6 +145,98 @@ const PLAN_TODOS = {
     { content: "Brief the pilot and file only on request", status: "pending" },
   ],
 }
+
+interface BriefScript {
+  readonly via: readonly string[]
+  readonly departureUtc: string
+  readonly reason: string
+  readonly distanceNm: string
+  readonly ete: string
+  readonly fuelBurnedGal: string
+  readonly fuelAtLandingGal: string
+  readonly reserve: string
+  readonly assumptions: readonly { statement: string; origin: "pilot" | "memory" | "default" }[]
+  readonly closing: string
+}
+
+/**
+ * A planning answer as the model returns it under BRIEF_SCHEMA, shaped after
+ * live gpt-5-mini answers to these prompts but carrying the scripted run's own
+ * numbers (computeNavlog's totals for the scripted winds), so the scripted
+ * brief agrees with the navlog the tools compute in replay.
+ */
+const planBrief = (brief: BriefScript): string =>
+  JSON.stringify({
+    ui: [
+      { BottomLine: { props: { level: "GO", reason: brief.reason, cite: ["c2"] } } },
+      {
+        RouteSummary: {
+          props: {
+            from: "KSTP",
+            to: "KRST",
+            via: brief.via,
+            altitudeFt: 4500,
+            departureUtc: brief.departureUtc,
+          },
+        },
+      },
+      // The brief's only advisory, a convective SIGMET, ends hours before
+      // departure, so the prompt leaves it out: nothing to watch.
+      { WatchFor: { props: { items: [] } } },
+      {
+        KeyNumbers: {
+          props: {
+            items: [
+              { label: "Distance", value: brief.distanceNm, unit: "nm", cite: [] },
+              { label: "ETE (takeoff to landing)", value: brief.ete, unit: null, cite: [] },
+              {
+                label: "Fuel burned (includes 1.1 gal for start, taxi and takeoff)",
+                value: brief.fuelBurnedGal,
+                unit: "gal",
+                cite: ["c1"],
+              },
+              { label: "Fuel at landing", value: brief.fuelAtLandingGal, unit: "gal", cite: [] },
+              { label: "Reserve", value: brief.reserve, unit: null, cite: [] },
+            ],
+          },
+        },
+      },
+      { Assumptions: { props: { items: brief.assumptions } } },
+      {
+        Citations: {
+          props: {
+            items: [
+              { id: "c1", source: "poh/cruise-performance.md", locator: "Figure 5-7" },
+              { id: "c2", source: "METAR KRST", locator: "1353Z" },
+            ],
+          },
+        },
+      },
+      { Prose: { props: { markdown: brief.closing } } },
+    ],
+  })
+
+const DEPARTURE_1400 = {
+  statement: "Departure 2026-10-06 1400Z",
+  origin: "pilot",
+} as const
+const ONE_ON_BOARD = {
+  statement: "1 person on board assumed — tell me if different",
+  origin: "default",
+} as const
+const OFFER = "Want me to file the plan, try another altitude, or re-brief closer to departure?"
+const NOT_FILED =
+  "As asked, I have not filed it; I can try another altitude or re-brief closer to departure."
+const DIRECT = {
+  via: [],
+  departureUtc: "2026-10-06 1400Z",
+  reason: "KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
+  distanceNm: "66",
+  ete: "0:33",
+  fuelBurnedGal: "5.5",
+  fuelAtLandingGal: "44.5",
+  reserve: "6:20",
+} as const
 
 interface PlanScript {
   readonly input: string
@@ -190,13 +318,11 @@ export default defineEval({
         waypoints: [KSTP, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
-        brief: [
-          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
-          "Watch for: none during the flight; a convective SIGMET expires before departure.",
-          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min at 2400 RPM, 7.0 GPH [poh/cruise-performance.md, Figure 5-7].",
-          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
-          "Want me to file the plan, try another altitude, or re-brief closer to departure?",
-        ].join("\n"),
+        brief: planBrief({
+          ...DIRECT,
+          assumptions: [DEPARTURE_1400, ONE_ON_BOARD],
+          closing: OFFER,
+        }),
       }),
     },
     {
@@ -208,13 +334,19 @@ export default defineEval({
         waypoints: [KSTP, KOWA, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KOWA | climb | 190 | 80 | 8 | 6 | 2.3 |\n| KSTP | KOWA | cruise | 198 | 122 | 41 | 20 | 2.3 |\n| KOWA | KRST | cruise | 106 | 127 | 36 | 17 | 2.0 |\n\nTotals: 85 nm, 43 min, 6.6 gal, reserve 371 min.\n",
-        brief: [
-          "Bottom line: GO — KSTP, KOWA and KRST are VFR now and through the 1543Z ETA, with no advisory during the flight.",
-          "Watch for: none during the flight; a convective SIGMET expires before departure.",
-          "Numbers: 85 nm, ETE 43 min, 6.6 gal burned (includes 1.1 gal for start, taxi and takeoff), 43.4 gal at landing, reserve 371 min at 2400 RPM, 7.0 GPH [poh/cruise-performance.md, Figure 5-7].",
-          "Assumptions: departure 1500Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
-          "Want me to file the plan, try another altitude, or re-brief closer to departure?",
-        ].join("\n"),
+        brief: planBrief({
+          via: ["KOWA"],
+          departureUtc: "2026-10-06 1500Z",
+          reason:
+            "KSTP, KOWA and KRST are VFR now and through the 1543Z ETA, with no advisory during the flight.",
+          distanceNm: "85",
+          ete: "0:43",
+          fuelBurnedGal: "6.6",
+          fuelAtLandingGal: "43.4",
+          reserve: "6:11",
+          assumptions: [{ statement: "Departure 2026-10-06 1500Z", origin: "pilot" }, ONE_ON_BOARD],
+          closing: OFFER,
+        }),
       }),
     },
     {
@@ -228,13 +360,11 @@ export default defineEval({
         waypoints: [KSTP, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
-        brief: [
-          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
-          "Watch for: none during the flight.",
-          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min [poh/cruise-performance.md, Figure 5-7].",
-          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different.",
-          "As asked, I have not filed it; I can try another altitude or re-brief closer to departure.",
-        ].join("\n"),
+        brief: planBrief({
+          ...DIRECT,
+          assumptions: [DEPARTURE_1400, ONE_ON_BOARD],
+          closing: NOT_FILED,
+        }),
       }),
     },
     {
@@ -248,13 +378,17 @@ export default defineEval({
         waypoints: [KSTP, KRST],
         navlogTable:
           "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
-        brief: [
-          "Bottom line: GO — KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during the flight.",
-          "Watch for: none during the flight.",
-          "Numbers: 66 nm, ETE 33 min, 5.5 gal burned (includes 1.1 gal for start, taxi and takeoff), 44.5 gal at landing, reserve 380 min [poh/cruise-performance.md, Figure 5-7].",
-          "Assumptions: departure 1400Z 6 Oct 2026; 1 person on board assumed — tell me if different; demo aircraft N734ST, 50 gal usable, 2400 RPM.",
-          "As asked, I have not filed it; I can try another altitude or re-brief closer to departure.",
-        ].join("\n"),
+        brief: planBrief({
+          ...DIRECT,
+          assumptions: [
+            DEPARTURE_1400,
+            ONE_ON_BOARD,
+            { statement: "Tail number N734ST (demo aircraft baseline)", origin: "default" },
+            { statement: "Usable fuel 50 gal (baseline)", origin: "default" },
+            { statement: "Cruise 2400 RPM (baseline)", origin: "default" },
+          ],
+          closing: NOT_FILED,
+        }),
       }),
     },
   ],
@@ -285,22 +419,80 @@ export default defineEval({
       },
       { name: "baseline-aircraft", threshold: 1 },
     ),
-    // At least one [poh/<file>.md citation, and every cited file exists.
     custom(
       (run) => {
-        const cited = [...run.finalMessage.matchAll(CITATION)].map((match) => match[1] ?? "")
-        return cited.length > 0 && cited.every((path) => existsSync(`${WORKSPACE}${path}`)) ? 1 : 0
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const first = brief[0]?.BottomLine?.props
+        if (first === undefined)
+          return { score: 0, reason: "the first component is not a BottomLine" }
+        return typeof first.reason === "string" && LEVELS.includes(String(first.level))
+          ? 1
+          : { score: 0, reason: `the BottomLine has no GO/CAUTION/NO-GO level and reason` }
+      },
+      { name: "opens-with-bottom-line", threshold: 1 },
+    ),
+    custom(
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const labels = itemsOf(propsOf(brief, "KeyNumbers")).map((item) => String(item.label))
+        const missing = [
+          { name: "ETE", pattern: /\bETE\b/i },
+          { name: "fuel burned", pattern: /fuel burned/i },
+          { name: "reserve", pattern: /reserve/i },
+        ].filter(({ pattern }) => !labels.some((text) => pattern.test(text)))
+        return missing.length === 0
+          ? 1
+          : {
+              score: 0,
+              reason: `KeyNumbers has no ${missing.map(({ name }) => name).join(", ")}`,
+            }
+      },
+      { name: "key-numbers", threshold: 1 },
+    ),
+    custom(
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        return itemsOf(propsOf(brief, "Assumptions")).length > 0
+          ? 1
+          : { score: 0, reason: "the answer lists no Assumptions" }
+      },
+      { name: "lists-assumptions", threshold: 1 },
+    ),
+    // At least one poh/<file>.md source, and every cited POH file exists.
+    custom(
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const poh = itemsOf(propsOf(brief, "Citations"))
+          .map((item) => String(item.source).trim())
+          .filter((source) => source.startsWith("poh/"))
+        if (poh.length === 0) return { score: 0, reason: "Citations names no poh/<file>.md source" }
+        const absent = poh.filter((path) => !existsSync(`${WORKSPACE}${path}`))
+        return absent.length === 0
+          ? 1
+          : { score: 0, reason: `cited POH files do not exist: ${absent.join(", ")}` }
       },
       { name: "cites-poh", threshold: 1 },
     ),
-    custom((run) => (BOTTOM_LINE.test(run.finalMessage) ? 1 : 0), {
-      name: "opens-with-bottom-line",
-      threshold: 1,
-    }),
-    custom((run) => (NEVER_IN_ANSWER.some((pattern) => pattern.test(run.finalMessage)) ? 0 : 1), {
-      name: "no-echoes-or-paths",
-      threshold: 1,
-    }),
+    custom(
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        // Unparsed text cannot be checked component by component: it fails.
+        if (brief === undefined) return NOT_STRUCTURED
+        const text = JSON.stringify(brief.filter((node) => node.Citations === undefined))
+        const found = NEVER_IN_ANSWER.filter(({ pattern }) => pattern.test(text))
+        return found.length === 0
+          ? 1
+          : {
+              score: 0,
+              reason: `outside Citations the answer has ${found.map(({ what }) => what).join(", ")}`,
+            }
+      },
+      { name: "no-echoes-or-paths", threshold: 1 },
+    ),
     custom(
       (run, testCase) => {
         const filed = run.toolCalls.some((call) => call.name === "fileFlightPlan")
@@ -312,5 +504,6 @@ export default defineEval({
     // Answered by the scripted judge turn in replay and by the real model under --live.
     llmJudge({ criteria: JUDGE_CRITERIA, model: "gpt-5-mini", threshold: 0.7 }),
   ],
+  responseSchema: BRIEF_SCHEMA,
   gate: gate.all(gate.passRate(1), gate.perScorer()),
 })

@@ -5,8 +5,7 @@ import {
   stripToolEchoes,
   textBlocks,
 } from "../lib/assistant-text"
-import { type EffectiveVerdict, isWorse } from "../lib/verdict"
-import type { VerdictLevel } from "../lib/weather-selectors"
+import { type EffectiveVerdict, isWorse, outrankNote } from "../lib/verdict"
 import { VerdictPill } from "./VerdictCard"
 
 function Inline({ text }: { readonly text: string }) {
@@ -27,19 +26,6 @@ function Inline({ text }: { readonly text: string }) {
   )
 }
 
-/**
- * Why the verdict above outranks the planner's: the floor's reasons, or the
- * weather brief's own call when the floor did not raise it.
- */
-function outrankNote(planner: VerdictLevel, verdict: EffectiveVerdict): string {
-  const reasons = verdict.floorReasons ?? []
-  const why =
-    reasons.length > 0
-      ? `Raised: ${reasons.join(", ")}.`
-      : `The weather brief said ${verdict.level}.`
-  return `The planner said ${planner}. ${why}`
-}
-
 export interface PlanningBriefProps {
   readonly text: string
   /**
@@ -51,8 +37,9 @@ export interface PlanningBriefProps {
 }
 
 /**
- * The planning answer for the navlog on screen. The structured answer
- * ("Bottom line:", "Watch for:", "Numbers:", "Assumptions:") renders as its
+ * A markdown planning answer for the navlog on screen (a thread from before
+ * the brief kit; a structured answer renders with `BriefRenderer`). The
+ * labelled answer ("Bottom line:", "Watch for:", "Numbers:", "Assumptions:") renders as its
  * sections with the bottom line first and loudest; an older free-text answer
  * renders as formatted prose. Tool-call echoes and the plan checklist a model
  * sometimes repeats are stripped either way.

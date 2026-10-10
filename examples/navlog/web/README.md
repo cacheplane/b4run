@@ -65,7 +65,7 @@ scroll (the connect screen scrolls itself on a short viewport).
 - **Chat** (`app/components/NavlogChat.tsx`) — `<CopilotChat>` with B4.run's slots
   (`useB4ChatSlots`): one `TurnActivity` per turn (summary line, the plan, the `weather` /
   `performance` subagents nested, each tool call as a step) and the kit's `ApprovalCard`
-  for the `fileFlightPlan` approval. `StepViews.tsx` gives `computeNavlog` a totals view
+  for the `fileFlightPlan` approval. The answer is structured: the route sends the brief kit's JSON Schema (`app/brief/kit.ts`) as `B4HttpAgent({ responseSchema })`, and `BriefRenderer` (`app/brief/`) renders the streamed `{ ui: [...] }` as BottomLine, RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations and Prose components, in the chat and in the sheet's Brief tab; an older thread's markdown answer falls back to the markdown renderer. `StepViews.tsx` gives `computeNavlog` a totals view
   and `renderChart` its image, through `B4Activity`'s `renderStep`. Before the first
   message the chat shows the starter suggestions (`DemoSuggestions.tsx`). The input waits
   while an approval is open, and takes PNG, JPEG, GIF and WebP attachments up to 4 MB when
@@ -98,7 +98,7 @@ browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new B4HttpAgent(...) }`, with `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
+  `agents: { default: new B4HttpAgent({ ..., responseSchema: briefJsonSchema }) }` (the hashbrown schema from `app/brief/kit.ts`), with `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.

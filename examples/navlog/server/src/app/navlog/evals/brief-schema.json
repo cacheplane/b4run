@@ -1,0 +1,351 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "ui": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "BottomLine": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "enum": ["GO", "CAUTION", "NO-GO"],
+                        "description": "The go/no-go call for the flight as planned."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "One sentence: why that call, in plain words."
+                      },
+                      "cite": {
+                        "$ref": "#/$defs/idsOfTheCitationsEntriesThatBackThisClaimSuchAsC1EmptyWhenNothingNeedsCiting"
+                      }
+                    },
+                    "required": ["level", "reason", "cite"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "BottomLine node"
+              }
+            },
+            "required": ["BottomLine"],
+            "additionalProperties": false,
+            "description": "The go/no-go call and why. First in every planning answer, exactly once."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "RouteSummary": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "description": "Departure airport ICAO id, such as KSTP."
+                      },
+                      "to": {
+                        "type": "string",
+                        "description": "Destination airport ICAO id, such as KRST."
+                      },
+                      "via": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "description": "A waypoint id"
+                        },
+                        "description": "Waypoints between them in flight order, as ICAO or fix ids. Empty when direct."
+                      },
+                      "altitudeFt": {
+                        "type": "number",
+                        "description": "Planned cruise altitude in feet MSL."
+                      },
+                      "departureUtc": {
+                        "type": "string",
+                        "description": "Planned departure time in UTC, such as 2026-10-10 1500Z."
+                      }
+                    },
+                    "required": ["from", "to", "via", "altitudeFt", "departureUtc"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "RouteSummary node"
+              }
+            },
+            "required": ["RouteSummary"],
+            "additionalProperties": false,
+            "description": "The route the plan uses: from, via, to, cruise altitude and departure time. Distance and ETE come from the computed navlog, never repeated here."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "WatchFor": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "what": {
+                              "type": "string",
+                              "description": "The hazard or concern, in one short sentence."
+                            },
+                            "when": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "description": "When it applies, in UTC, such as 2100Z–0300Z."
+                                },
+                                {
+                                  "type": "null",
+                                  "description": ""
+                                }
+                              ]
+                            },
+                            "severity": {
+                              "type": "string",
+                              "enum": ["info", "caution", "danger"],
+                              "description": "How much it matters to this flight."
+                            },
+                            "cite": {
+                              "$ref": "#/$defs/idsOfTheCitationsEntriesThatBackThisClaimSuchAsC1EmptyWhenNothingNeedsCiting"
+                            }
+                          },
+                          "required": ["what", "when", "severity", "cite"],
+                          "additionalProperties": false,
+                          "description": "One thing to watch"
+                        },
+                        "description": "What the pilot should watch during the flight, most serious first. Empty when nothing applies."
+                      }
+                    },
+                    "required": ["items"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "WatchFor node"
+              }
+            },
+            "required": ["WatchFor"],
+            "additionalProperties": false,
+            "description": "Hazards and concerns during the flight, each with a severity and when it applies."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "KeyNumbers": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "What the figure is, in sentence case, such as Fuel burned."
+                            },
+                            "value": {
+                              "type": "string",
+                              "description": "The figure as the pilot reads it: a duration as h:mm, such as 1:12, or a number, such as 9.4."
+                            },
+                            "unit": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "description": "Its unit, such as gal or nm. Null for an h:mm duration."
+                                },
+                                {
+                                  "type": "null",
+                                  "description": ""
+                                }
+                              ]
+                            },
+                            "cite": {
+                              "$ref": "#/$defs/idsOfTheCitationsEntriesThatBackThisClaimSuchAsC1EmptyWhenNothingNeedsCiting"
+                            }
+                          },
+                          "required": ["label", "value", "unit", "cite"],
+                          "additionalProperties": false,
+                          "description": "One figure"
+                        },
+                        "description": "The figures the plan rests on: ETE, fuel burned (including 1.1 gal for start, taxi and runup), reserve, and any other number the pilot needs."
+                      }
+                    },
+                    "required": ["items"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "KeyNumbers node"
+              }
+            },
+            "required": ["KeyNumbers"],
+            "additionalProperties": false,
+            "description": "The figures the plan rests on, each with its unit and its citation."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "Assumptions": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "statement": {
+                              "type": "string",
+                              "description": "The assumption, in one short sentence."
+                            },
+                            "origin": {
+                              "type": "string",
+                              "enum": ["pilot", "memory", "default"],
+                              "description": "Where it came from: the pilot said it, memory recalled it, or it is a default."
+                            }
+                          },
+                          "required": ["statement", "origin"],
+                          "additionalProperties": false,
+                          "description": "One assumption"
+                        },
+                        "description": "What the plan assumed that the pilot did not state outright."
+                      }
+                    },
+                    "required": ["items"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "Assumptions node"
+              }
+            },
+            "required": ["Assumptions"],
+            "additionalProperties": false,
+            "description": "What the plan assumed, each tagged with where it came from, so the pilot can correct it."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "Citations": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "description": "The id claims cite it by: c1, c2, …"
+                            },
+                            "source": {
+                              "type": "string",
+                              "description": "A POH document, such as poh/cruise-performance.md, or a weather product: METAR KRST, TAF KRST, AIRMET <id> or SIGMET <id>. Never a reports/ or aircraft/ file."
+                            },
+                            "locator": {
+                              "type": "string",
+                              "description": "Where in the source: Figure 5-7 for a POH document, the issue time such as 1353Z for a METAR. Empty when the source is the whole thing."
+                            }
+                          },
+                          "required": ["id", "source", "locator"],
+                          "additionalProperties": false,
+                          "description": "One source"
+                        },
+                        "description": "The sources this answer cites, in the order they are first cited."
+                      }
+                    },
+                    "required": ["items"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "Citations node"
+              }
+            },
+            "required": ["Citations"],
+            "additionalProperties": false,
+            "description": "The numbered sources the other components cite by id. Last of the brief components in a planning answer."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "Prose": {
+                "type": "object",
+                "properties": {
+                  "props": {
+                    "type": "object",
+                    "properties": {
+                      "markdown": {
+                        "type": "string",
+                        "description": "Markdown text."
+                      }
+                    },
+                    "required": ["markdown"],
+                    "additionalProperties": false,
+                    "description": "Component Props"
+                  }
+                },
+                "required": ["props"],
+                "additionalProperties": false,
+                "description": "Prose node"
+              }
+            },
+            "required": ["Prose"],
+            "additionalProperties": false,
+            "description": "Plain markdown: a question, a short reply such as Filed., or anything that is not a planning brief. Any non-planning answer is a single Prose."
+          }
+        ]
+      },
+      "description": "List of elements"
+    }
+  },
+  "required": ["ui"],
+  "additionalProperties": false,
+  "description": "Return a JSON object with a single key \"ui\" that matches the schema below. Use only these components.",
+  "$defs": {
+    "idsOfTheCitationsEntriesThatBackThisClaimSuchAsC1EmptyWhenNothingNeedsCiting": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A Citations id"
+      },
+      "description": "Ids of the Citations entries that back this claim, such as c1. Empty when nothing needs citing."
+    }
+  }
+}

@@ -914,6 +914,71 @@ body {
   content: "";
 }
 
+/* The brief kit (`app/brief/components.tsx`). */
+
+/* A WatchFor row's severity dot; the word is beside it for screen readers. */
+.wb-watch-dot {
+  flex-shrink: 0;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--wb-muted);
+}
+
+.wb-watch-dot[data-severity="caution"] {
+  background: var(--wb-caution);
+}
+
+.wb-watch-dot[data-severity="danger"] {
+  background: var(--wb-nogo);
+}
+
+/* The severity as a word beside the dot, so it never rests on colour alone. */
+.wb-watch-severity {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wb-muted);
+}
+
+.wb-watch-severity[data-severity="caution"] {
+  color: var(--wb-caution);
+}
+
+.wb-watch-severity[data-severity="danger"] {
+  color: var(--wb-nogo);
+}
+
+/* A citation marker is a link, so it wears the accent. */
+.wb-cite {
+  margin-left: 1px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-cite a {
+  padding: 0 1px;
+  color: var(--wb-accent);
+  text-decoration: none;
+}
+
+.wb-cite a:hover {
+  text-decoration: underline;
+}
+
+/* The source a marker jumped to. */
+.wb-cite-entry {
+  border-radius: 4px;
+  scroll-margin-top: 16px;
+}
+
+.wb-cite-entry:target {
+  background: var(--wb-rail);
+  color: var(--wb-text);
+}
+
 /* The dock's disabled-input placeholder stays on one line (the textarea can be
    narrow); an overlong one is cut, never wrapped. */
 .wb-dock textarea::placeholder {

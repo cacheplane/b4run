@@ -159,6 +159,36 @@ describe("navlog sheet: strip and tabs", () => {
     )
     expect(html.split('class="wb-verdict"').length - 1).toBe(1)
   })
+  test("a structured answer renders on the Brief tab with the brief kit, under the card", () => {
+    const structured = JSON.stringify({
+      ui: [
+        { BottomLine: { props: { level: "CAUTION", reason: "Gusts at KRST.", cite: ["c1"] } } },
+        {
+          KeyNumbers: {
+            props: { items: [{ label: "Fuel burned", value: "5.5", unit: "gal", cite: [] }] },
+          },
+        },
+        { Citations: { props: { items: [{ id: "c1", source: "METAR KRST", locator: "" }] } } },
+      ],
+    })
+    const html = render({ tab: "brief", brief: structured })
+    const panel = html.slice(html.search(/role="tabpanel"[^>]*id="[^"]*-brief"/))
+    expect(panel.indexOf('class="wb-verdict"')).toBeLessThan(panel.indexOf("Gusts at KRST."))
+    expect(panel).toContain('aria-label="Planning brief"')
+    expect(panel).toContain('aria-label="Key numbers"')
+    expect(panel).not.toContain("{&quot;ui")
+    // Anchors are scoped to this sheet, and the marker links to its source.
+    const anchor = panel.match(/id="([^"]*-cite-c1)"/)?.[1]
+    expect(anchor).toBeDefined()
+    expect(panel).toContain(`href="#${anchor}"`)
+    // The card reads the structured bottom line: the planner's CAUTION.
+    expect(panel).toContain('class="wb-verdict" data-level="CAUTION"')
+  })
+  test("a markdown answer still renders as the planning brief", () => {
+    const html = render({ tab: "brief", brief: "Bottom line: GO — VFR all the way." })
+    expect(html).toContain('aria-label="Planning brief"')
+    expect(html).toContain("VFR all the way.")
+  })
   test("tabs control their panels, with a roving tabIndex", () => {
     const view = mountSheet({ tab: "plan" })
     const tabs = [...view.container.querySelectorAll('[role="tab"]')]

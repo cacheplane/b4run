@@ -1,3 +1,4 @@
+import { isStructuredAnswer, readBottomLine } from "../brief/parse"
 import { parsePlanningAnswer } from "./assistant-text"
 import { formatHhmm } from "./format"
 import type { Navlog } from "./navlog-types"
@@ -191,10 +192,20 @@ export function raiseNote(verdict: EffectiveVerdict): string | null {
   return `${lead}: ${reasons}.`
 }
 
+/**
+ * The planner's call: a structured answer's `BottomLine` (read as soon as its
+ * props close, while the rest still streams), or for a markdown answer (a
+ * thread from before the brief kit) its "Bottom line:" line.
+ */
+function plannerVerdict(answer: string): Verdict | null {
+  if (isStructuredAnswer(answer)) return readBottomLine(answer)
+  return parsePlanningAnswer(answer)?.verdict ?? null
+}
+
 export interface ResolveVerdictInput {
   /** The weather subagent's parsed brief. */
   readonly weather?: WeatherBrief | null | undefined
-  /** The planning answer's text, for its "Bottom line:" verdict. */
+  /** The planning answer's text, for its `BottomLine` (or markdown "Bottom line:") verdict. */
   readonly answer?: string | undefined
   /** The navlog on screen: its reserve, and its altitude as the cruise. */
   readonly navlog?: Pick<Navlog, "totals" | "altitudeFt"> | null | undefined
@@ -217,7 +228,7 @@ export function resolveVerdict({
   cruiseFt,
 }: ResolveVerdictInput): EffectiveVerdict | null {
   const fromWeather = weather?.verdict ?? null
-  const fromPlanner = answer ? (parsePlanningAnswer(answer)?.verdict ?? null) : null
+  const fromPlanner = answer ? plannerVerdict(answer) : null
   const model =
     fromWeather === null
       ? fromPlanner
@@ -229,6 +240,19 @@ export function resolveVerdict({
     navlog,
   })
   return effectiveVerdict(model, floor)
+}
+
+/**
+ * Why the verdict on screen outranks the planner's bottom line: the floor's
+ * reasons, or the weather brief's own call when the floor did not raise it.
+ */
+export function outrankNote(planner: VerdictLevel, verdict: EffectiveVerdict): string {
+  const reasons = verdict.floorReasons ?? []
+  const why =
+    reasons.length > 0
+      ? `Raised: ${reasons.join(", ")}.`
+      : `The weather brief said ${verdict.level}.`
+  return `The planner said ${planner}. ${why}`
 }
 
 /** True when `level` is more severe than `than`. */

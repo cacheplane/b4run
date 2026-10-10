@@ -301,6 +301,59 @@ describe("resolveVerdict", () => {
       }),
     ).toEqual({ level: "GO", reason: "VFR all the way." })
   })
+  test("a structured answer's BottomLine is the planner's call", () => {
+    const structured = (level: string, reason: string) =>
+      JSON.stringify({
+        ui: [
+          { BottomLine: { props: { level, reason, cite: [] } } },
+          { Prose: { props: { markdown: "Bottom line: GO — ignored, this is prose." } } },
+        ],
+      })
+    // The planner's CAUTION raises the weather brief's GO.
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: structured("CAUTION", "I would wait an hour."),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "CAUTION", reason: "I would wait an hour." })
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: structured("GO", "Fine."),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "GO", reason: "VFR all the way." })
+    // Still streaming, the bottom line's props not closed: no call yet.
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: structured("NO-GO", "Ice.").slice(0, 40),
+        navlog: SAMPLE_NAVLOG,
+      })?.level,
+    ).toBe("GO")
+    // Still streaming, but the bottom line (the first component) is complete:
+    // the card already agrees with it.
+    const streaming = structured("NO-GO", "Ice.")
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: streaming.slice(0, streaming.indexOf('{"Prose"') + 12),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "NO-GO", reason: "Ice." })
+    // A structured answer without a BottomLine is no planner call, not a text parse.
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: JSON.stringify({
+          ui: [{ Prose: { props: { markdown: "Bottom line: NO-GO — prose only." } } }],
+        }),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "GO", reason: "VFR all the way." })
+  })
+
   test("the navlog's altitude is the cruise for the freezing-level rule", () => {
     const fz = brief({
       advisories: [

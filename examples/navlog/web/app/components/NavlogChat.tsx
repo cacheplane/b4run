@@ -1,8 +1,33 @@
 "use client"
 import type { Message } from "@ag-ui/client"
-import { useB4ActivityContext, useB4ChatSlots } from "@b4run/ag-ui/react/copilotkit"
-import { CopilotChat, useAgent } from "@copilotkit/react-core/v2"
-import { type ComponentProps, useCallback, useMemo, useState } from "react"
+import {
+  type B4ChatSlots,
+  useB4ActivityContext,
+  useB4ChatSlots,
+} from "@b4run/ag-ui/react/copilotkit"
+import {
+  CopilotChat,
+  CopilotChatAssistantMessage,
+  type CopilotChatAssistantMessageProps,
+  CopilotChatView,
+  type CopilotChatViewProps,
+  useAgent,
+} from "@copilotkit/react-core/v2"
+import {
+  type ComponentProps,
+  createContext,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
+import { BriefRenderer } from "../brief/BriefRenderer"
+import { type BriefActions, BriefActionsContext, BriefMarkdownContext } from "../brief/components"
+import { isStructuredAnswer } from "../brief/parse"
+import { briefPlainText } from "../brief/plain-text"
 import { stripToolEchoes } from "../lib/assistant-text"
 import { isAwaitingApproval } from "../lib/navlog-selectors"
 import { neutralButton } from "./ui"
@@ -35,6 +60,8 @@ export function stripEchoMessages(messages: Message[]): Message[] {
   let changed = false
   const out = messages.map((message) => {
     if (message.role !== "assistant" || typeof message.content !== "string") return message
+    // A structured answer is JSON for the brief kit, not prose: leave it whole.
+    if (isStructuredAnswer(message.content)) return message
     const content = stripToolEchoes(message.content)
     if (content === message.content) return message
     changed = true
@@ -68,6 +95,120 @@ export function attachmentFailureText(failure: AttachmentFailure): string {
   }
 }
 
+/**
+ * CopilotKit's own markdown, the look the chat has always had (Streamdown
+ * inside the message's prose wrapper), for answers and `Prose` blocks.
+ */
+function ChatMarkdown({ content }: { readonly content: string }) {
+  return <CopilotChatAssistantMessage.MarkdownRenderer content={content} />
+}
+
+/** The message whose answer is rendering, so its citation anchors are unique in the chat. */
+const MessageIdContext = createContext("")
+
+/**
+ * The assistant message's `markdownRenderer` slot: the brief kit for a
+ * structured answer, CopilotKit's markdown for anything else.
+ */
+function ChatAnswer({
+  content,
+}: ComponentProps<typeof CopilotChatAssistantMessage.MarkdownRenderer>) {
+  const messageId = useContext(MessageIdContext)
+  return (
+    <BriefMarkdownContext.Provider value={ChatMarkdown}>
+      <BriefRenderer content={content} idPrefix={`${messageId}-`} />
+    </BriefMarkdownContext.Provider>
+  )
+}
+
+type B4AssistantSlot = B4ChatSlots["messageView"]["assistantMessage"]
+
+/**
+ * The activity kit's assistant slot, handed down by `NavlogChat`. The slot is
+ * a module-level constant, so this context never changes and a message never
+ * re-renders through it; calling `useB4ChatSlots()` in every message instead
+ * would subscribe each one to the activity context, re-rendering the whole
+ * transcript on every activity update.
+ */
+const B4AssistantSlotContext = createContext<B4AssistantSlot | null>(null)
+
+/** Copies `text`; true when the clipboard took it (CopilotKit's Copy then shows its check). */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The activity kit's assistant message with the brief kit as its markdown
+ * renderer. Module-level so the slot's identity never changes; the statics
+ * (`MarkdownRenderer`, `Toolbar`, …) are copied on because CopilotKit's slot
+ * type requires them.
+ *
+ * A structured answer's Copy copies the brief as plain text (`briefPlainText`)
+ * rather than the JSON the model wrote; CopilotKit's own Copy copies
+ * `message.content` as is, which is right for a markdown answer.
+ */
+export const NavlogAssistantMessage = Object.assign(function NavlogAssistantMessage(
+  props: CopilotChatAssistantMessageProps,
+) {
+  const B4AssistantMessage = useContext(B4AssistantSlotContext) ?? CopilotChatAssistantMessage
+  const content = props.message.content
+  const plain = useMemo(
+    () => (typeof content === "string" ? briefPlainText(content) : null),
+    [content],
+  )
+  const copyButton = useMemo(
+    () => (plain === null ? undefined : { onClick: () => copyText(plain) }),
+    [plain],
+  )
+  return (
+    <MessageIdContext.Provider value={props.message.id}>
+      <B4AssistantMessage
+        {...props}
+        markdownRenderer={ChatAnswer}
+        {...(copyButton !== undefined ? { copyButton } : {})}
+      />
+    </MessageIdContext.Provider>
+  )
+}, CopilotChatAssistantMessage)
+
+/**
+ * How the brief's controls reach the composer: CopilotChat's own input setter,
+ * the draft it holds, and the input's root.
+ */
+interface Composer {
+  setValue: ((value: string) => void) | undefined
+  value: string
+  root: HTMLElement | null
+}
+
+const ComposerContext = createContext<RefObject<Composer> | null>(null)
+
+/**
+ * CopilotChat's view, unchanged, except that it hands the chat its input
+ * setter (`onInputChange`, the `setState` CopilotChat keeps the composer text
+ * in) and the current draft (`inputValue`), so a brief control can fill the
+ * composer without losing what the pilot had typed.
+ */
+function NavlogChatView(props: CopilotChatViewProps) {
+  const composer = useContext(ComposerContext)
+  const root = useRef<HTMLDivElement>(null)
+  const { onInputChange, inputValue } = props
+  useEffect(() => {
+    if (composer === null) return
+    composer.current = { setValue: onInputChange, value: inputValue ?? "", root: root.current }
+  }, [composer, onInputChange, inputValue])
+  return (
+    <div ref={root} style={{ display: "contents" }}>
+      <CopilotChatView {...props} />
+    </div>
+  )
+}
+
 /** The scroll view's slot: no inputs, so one object for the module's life. */
 const SCROLL_VIEW = { scrollToBottomButton: { "aria-label": "Jump to latest" } }
 
@@ -83,7 +224,9 @@ export interface NavlogChatProps {
  * activity slots (one `TurnActivity` per turn), echo-free prose, named input
  * controls, image attachments when the model takes them (a refused file gets
  * one dismissible line above the conversation), and an input that waits while
- * an approval is open. Render inside `B4Activity`.
+ * an approval is open. Assistant answers render through the brief kit
+ * (`NavlogAssistantMessage`), whose assumption "Change" fills the composer.
+ * Render inside `B4Activity`.
  *
  * The send button's label reads `agent.isRunning`, the same flag `CopilotChat`
  * itself uses to swap the button to stop and to wire its stop handler — so
@@ -100,6 +243,35 @@ export function NavlogChat({ threadId, canAttachImages, className }: NavlogChatP
   const merge = slots.messageView.transformMessages
   // CopilotChat memoizes the message list on this function: keep it stable.
   const transformMessages = useCallback((m: Message[]) => stripEchoMessages(merge(m)), [merge])
+  const messageView = useMemo(
+    () => ({ ...slots.messageView, assistantMessage: NavlogAssistantMessage, transformMessages }),
+    [slots.messageView, transformMessages],
+  )
+  // An assumption's "Change" puts "Actually, <statement>" in the composer, focused,
+  // cursor at the end, for the pilot to finish and send. A draft the pilot had
+  // started is kept: the correction goes on a new line after it, never over it.
+  // While an approval is open the composer is disabled, and so is Change.
+  const composer = useRef<Composer>({ setValue: undefined, value: "", root: null })
+  const briefActions = useMemo<BriefActions>(
+    () => ({
+      changeDisabled: awaiting,
+      changeAssumption: (statement) => {
+        const { setValue, value, root } = composer.current
+        const correction = `Actually, ${statement}`
+        const text = value.trim() === "" ? correction : `${value.trimEnd()}\n${correction}`
+        setValue?.(text)
+        requestAnimationFrame(() => {
+          const textArea = root?.querySelector<HTMLTextAreaElement>(
+            'textarea[aria-label="Message"]',
+          )
+          if (!textArea) return
+          textArea.focus()
+          textArea.setSelectionRange(text.length, text.length)
+        })
+      },
+    }),
+    [awaiting],
+  )
   // The last refused file, until dismissed or replaced by the next refusal.
   const [attachNotice, setAttachNotice] = useState<string | null>(null)
   // Memoized so a streamed token that changes neither flag hands CopilotChat
@@ -148,15 +320,22 @@ export function NavlogChat({ threadId, canAttachImages, className }: NavlogChatP
           </button>
         </div>
       )}
-      <CopilotChat
-        threadId={threadId}
-        messageView={{ ...slots.messageView, transformMessages }}
-        input={input}
-        scrollView={SCROLL_VIEW}
-        attachments={attachments}
-        labels={{ chatDisclaimerText: "" }}
-        className={className ?? "min-h-0 flex-1"}
-      />
+      <ComposerContext.Provider value={composer}>
+        <B4AssistantSlotContext.Provider value={slots.messageView.assistantMessage}>
+          <BriefActionsContext.Provider value={briefActions}>
+            <CopilotChat
+              threadId={threadId}
+              chatView={NavlogChatView}
+              messageView={messageView}
+              input={input}
+              scrollView={SCROLL_VIEW}
+              attachments={attachments}
+              labels={{ chatDisclaimerText: "" }}
+              className={className ?? "min-h-0 flex-1"}
+            />
+          </BriefActionsContext.Provider>
+        </B4AssistantSlotContext.Provider>
+      </ComposerContext.Provider>
     </>
   )
 }
