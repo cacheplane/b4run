@@ -214,8 +214,8 @@ export interface ResolveVerdictInput {
 }
 
 /**
- * The one verdict every surface shows (the weather strip's pill, the sheet's
- * card and pill, the planning brief's bottom line), so they cannot disagree.
+ * The one verdict every surface shows (the sheet's card and pill, the
+ * planning brief's bottom line), so they cannot disagree.
  *
  * The model's call is the worse of the weather brief's "Verdict:" and the
  * planner's "Bottom line:" (the brief's on a tie, since its sentence is the

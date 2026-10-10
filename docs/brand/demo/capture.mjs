@@ -1090,7 +1090,7 @@ export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
 /**
  * Scrolls `locator` to the middle of its nearest scrolling ancestor (the
  * transcript) and nothing else. `scrollIntoView` would also scroll the
- * Workbench's `overflow: hidden` root, pushing the weather strip and the chat
+ * Workbench's `overflow: hidden` root, pushing the route bar and the chat
  * header out of the top of the page, which no reader's scroll can do.
  */
 export async function centerInScroller(locator) {
@@ -1135,16 +1135,12 @@ export async function settleWorkbenchViewport(page) {
 }
 
 /**
- * The weather strip's verdict pill and the navlog sheet's verdict summary both
- * say `verdict`. The summary, not the full "Go/no-go verdict" card: that card
- * is on the sheet's Brief tab, hidden while the sheet shows Legs.
+ * The navlog sheet's verdict summary says `verdict`. The summary, not the full
+ * "Go/no-go verdict" card: that card is on the sheet's Brief tab, hidden while
+ * the sheet shows Legs. (The map no longer carries weather chips; the weather
+ * itself is on the sheet's Weather tab and in the marker panels.)
  */
 export async function assertWeatherVerdict(page, { verdict }) {
-  await page
-    .getByRole("region", { name: "Weather", exact: true })
-    .getByText(verdict, { exact: true })
-    .first()
-    .waitFor(VISIBLE)
   await page
     .getByRole("region", { name: "Verdict summary", exact: true })
     .getByText(verdict, { exact: true })

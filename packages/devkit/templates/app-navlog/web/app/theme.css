@@ -201,7 +201,7 @@
 
 /*
  * The zoom and attribution controls share Leaflet's bottom-right corner (see
- * `RouteMap`). The weather chips own the top of the map panel, so nothing
+ * `RouteMap`). The route bar owns the top of the map panel, so nothing
  * covers the corner; the OpenStreetMap tile policy requires the attribution to
  * stay visible.
  */
@@ -327,6 +327,51 @@
   font-size: 10.5px;
   font-weight: 700;
   color: var(--wb-muted);
+}
+
+/* A route-bar draft that is not the planned route yet: a dashed cobalt line. */
+.wb-map .wb-route-draft {
+  stroke: var(--wb-accent);
+  stroke-dasharray: 6 6;
+  stroke-linecap: round;
+}
+
+/*
+ * A reporting station near the course and a draft waypoint: a smaller dot in
+ * a 10px box. The station's dot is grey (it is off the route); its label
+ * carries the category as text. A draft dot is cobalt, like its line.
+ */
+.wb-map .wb-wp-station .wb-wp-dot,
+.wb-map .wb-wp-draft .wb-wp-dot {
+  border-width: 2px;
+}
+
+.wb-map .wb-wp-draft .wb-wp-dot {
+  background: var(--wb-accent);
+}
+
+.wb-map :is(.wb-wp-station, .wb-wp-draft) .wb-wp-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wb-map .wb-wp-draft .wb-wp-label {
+  color: var(--wb-accent);
+}
+
+/* An airport or station marker opens its weather panel: a focus ring and an open state. */
+.wb-map .wb-wp:focus-visible {
+  outline: none;
+}
+
+.wb-map .wb-wp:focus-visible .wb-wp-label,
+.wb-map .wb-wp[aria-expanded="true"] .wb-wp-label {
+  border-color: var(--wb-text);
+}
+
+.wb-map .wb-wp:focus-visible .wb-wp-label {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 1px;
 }
 
 .wb-map .wb-hdg {
@@ -474,10 +519,6 @@ body {
 .wb-sheet-tab[aria-selected="true"] {
   border-bottom-color: var(--wb-text);
   color: var(--wb-text);
-}
-
-.wb-strip {
-  pointer-events: auto;
 }
 
 /* A section's own heading inside a panel ("Planning brief", "Go / no-go"): sentence case, muted. */
@@ -640,21 +681,6 @@ body {
   background: currentColor;
 }
 
-/* The winds chip: neutral, numbers in tabular figures. */
-.wb-winds {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  border-radius: 999px;
-  background: var(--wb-rail);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--wb-text);
-}
-
 /* Hazard chips: red or amber when they apply during the flight, muted when they do not. */
 .wb-hazard {
   display: inline-flex;
@@ -692,19 +718,13 @@ body {
   font-weight: 400;
 }
 
-/* In the card there is room to wrap; in the strip a chip stays on one line. */
+/* In the card there is room to wrap; elsewhere a chip stays on one line. */
 .wb-verdict .wb-hazard {
   border-radius: 14px;
   white-space: normal;
 }
 
-.wb-hazard.wb-prelim {
-  border-color: var(--wb-caution-border);
-  background: transparent;
-  color: var(--wb-caution);
-}
-
-/* The verdict, as a pill (strip, collapsed sheet) and as the card atop the navlog. */
+/* The verdict, as a pill (the collapsed sheet, the planning brief) and as the card atop the navlog. */
 .wb-verdict-pill {
   display: inline-flex;
   flex-shrink: 0;
@@ -797,10 +817,6 @@ body {
   font-size: 12px;
   line-height: 1.4;
   color: var(--wb-caution);
-}
-
-.wb-strip .wb-horizon {
-  padding: 0 4px 2px;
 }
 
 /* Key totals as stat tiles. */
@@ -1538,6 +1554,25 @@ body {
   .wb-routebar-route {
     flex-basis: 100%;
   }
+}
+
+/*
+ * The weather panel for a clicked marker: a white surface in the map's
+ * lower-left corner (the controls own the lower-right), its reports in mono.
+ */
+.wb-marker-panel {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  width: min(24rem, calc(100% - 32px));
+  max-height: min(50%, 22rem);
+  overflow: auto;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  padding: 12px 14px;
+  color: var(--wb-text);
 }
 
 /* chat dock: start */

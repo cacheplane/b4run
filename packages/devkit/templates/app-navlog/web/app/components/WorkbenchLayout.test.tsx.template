@@ -16,6 +16,10 @@ const map = vi.hoisted(
       categories?: Readonly<Record<string, string>>
       padding?: { readonly left: number; readonly top: number; readonly bottom: number }
       highlightedLeg?: number | null
+      draft?: readonly { readonly id: string }[] | null
+      stations?: readonly { readonly id: string }[]
+      selectedMarker?: string | null
+      onSelectMarker?: (id: string) => void
     },
 )
 /** What the layout last handed the (stubbed) legs grid. */
@@ -30,10 +34,18 @@ vi.mock("next/dynamic", () => ({
       categories: Readonly<Record<string, string>>
       padding: { readonly left: number; readonly top: number; readonly bottom: number }
       highlightedLeg: number | null
+      draft: readonly { readonly id: string }[] | null
+      stations: readonly { readonly id: string }[]
+      selectedMarker: string | null
+      onSelectMarker: (id: string) => void
     }) => {
       map.categories = mapProps.categories
       map.padding = mapProps.padding
       map.highlightedLeg = mapProps.highlightedLeg
+      map.draft = mapProps.draft
+      map.stations = mapProps.stations
+      map.selectedMarker = mapProps.selectedMarker
+      map.onSelectMarker = mapProps.onSelectMarker
       return <div data-testid="map" />
     },
 }))
@@ -56,6 +68,7 @@ vi.mock("../lib/use-sidebar-state", () => ({
 const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutProps => ({
   navlog: SAMPLE_NAVLOG,
   brief: null,
+  stations: [],
   assistantBrief: "ok",
   chat: <p>transcript</p>,
   rail: (
@@ -69,10 +82,36 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
   memoryCount: 0,
   header: "Thread one",
   onNewConversation: () => {},
+  onReplan: () => {},
+  running: false,
   ...overrides,
 })
 
 const count = (html: string, needle: string): number => html.split(needle).length - 1
+
+const BRIEF = {
+  airports: [
+    {
+      id: "KSTP",
+      now: "VFR" as const,
+      atEta: "VFR" as const,
+      line: "",
+      metar: "METAR KSTP 1",
+      taf: "TAF KSTP 2",
+    },
+    {
+      id: "KRST",
+      now: "MVFR" as const,
+      atEta: "VFR" as const,
+      line: "",
+      metar: "METAR KRST 1",
+      taf: "",
+    },
+  ],
+  winds: [],
+  advisories: [],
+  note: "",
+}
 
 describe("WorkbenchLayout on desktop", () => {
   beforeEach(() => {
@@ -106,7 +145,7 @@ describe("WorkbenchLayout on desktop", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ memoryCount: 2 })} />)
     expect(html).toContain(">2<")
   })
-  test("map markers take each airport's worst category, as the chips do", () => {
+  test("map markers take each airport's worst category", () => {
     const brief = {
       airports: [
         { id: "KSTP", now: "VFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
@@ -117,11 +156,32 @@ describe("WorkbenchLayout on desktop", () => {
       advisories: [],
       note: "",
     }
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief })} />)
+    renderToStaticMarkup(<WorkbenchLayout {...props({ brief })} />)
     expect(map.categories).toEqual({ KSTP: "VFR", KRST: "MVFR" })
-    expect(html).toContain("KRST MVFR now, VFR at ETA")
   })
-  test("the map only leaves a margin: nothing floats over it but the chips", () => {
+  test("the route bar floats over the map; the weather strip is gone", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief: BRIEF })} />)
+    expect(count(html, 'aria-label="Route"')).toBe(1)
+    expect(html.indexOf('data-testid="map"')).toBeLessThan(html.indexOf('aria-label="Route"'))
+    expect(html.indexOf('aria-label="Route"')).toBeLessThan(html.indexOf('aria-label="Navlog"'))
+    expect(html).not.toContain('aria-label="Weather"')
+    // The verdict pill lives in the sheet now, not over the map.
+    expect(html.slice(0, html.indexOf('aria-label="Navlog"'))).not.toContain("wb-verdict-pill")
+  })
+  test("the route bar starts from the plan's waypoints", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
+    for (const waypoint of SAMPLE_NAVLOG.waypoints) {
+      expect(html).toContain(`aria-label="Remove ${waypoint.id}"`)
+    }
+  })
+  test("the map gets the stations", () => {
+    const stations = [
+      { id: "KAEL", name: "Albert Lea", lat: 43.68, lon: -93.37, alongNm: 50, offsetNm: 4 },
+    ]
+    renderToStaticMarkup(<WorkbenchLayout {...props({ stations })} />)
+    expect(map.stations).toBe(stations)
+  })
+  test("the map only leaves a margin: nothing floats over it but the route bar", () => {
     renderToStaticMarkup(<WorkbenchLayout {...props()} />)
     expect(map.padding?.left).toBeLessThan(100)
     expect(map.padding?.bottom).toBeLessThan(100)
@@ -150,10 +210,19 @@ describe("WorkbenchLayout on a phone", () => {
     expect(html).toContain(">Navlog<")
     expect(count(html, "<main")).toBe(1)
   })
-  test("Map and Navlog are disabled until there is a navlog", () => {
+  test("Navlog is disabled until there is a navlog; Map, with the route bar, is not", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ navlog: null })} />)
-    expect(html).toMatch(/<button[^>]*id="wb-tab-map"[^>]*disabled=""/)
+    expect(html).not.toMatch(/<button[^>]*id="wb-tab-map"[^>]*disabled=""/)
     expect(html).toMatch(/<button[^>]*id="wb-tab-navlog"[^>]*disabled=""/)
+  })
+  test("the route bar sits in the Map panel; there is no weather strip", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief: BRIEF })} />)
+    const start = html.indexOf('id="wb-panel-map"')
+    const end = html.indexOf('id="wb-panel-navlog"')
+    expect(start).toBeGreaterThan(-1)
+    expect(count(html.slice(start, end), 'aria-label="Route"')).toBe(1)
+    expect(count(html, 'aria-label="Route"')).toBe(1)
+    expect(html).not.toContain('aria-label="Weather"')
   })
   test("the drawer is closed, so the thread list is not rendered", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props()} />)
@@ -201,7 +270,7 @@ describe("WorkbenchLayout sheet control", () => {
     const view = mount()
     const toggle = () =>
       view.container.querySelector('section[aria-label="Navlog"] button[aria-expanded]')
-    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(3)')
+    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(4)')
     expect(sheetTab(view.container)).toBe("Brief")
     view.click('section[aria-label="Navlog"] button[aria-expanded]')
     expect(toggle()?.getAttribute("aria-expanded")).toBe("false")
@@ -215,7 +284,7 @@ describe("WorkbenchLayout sheet control", () => {
     const view = mount()
     const navlogTab = () => view.container.querySelector("#wb-tab-navlog")
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("false")
-    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(2)')
+    view.click('section[aria-label="Navlog"] [role="tab"]:nth-child(3)')
     expect(sheetTab(view.container)).toBe("Totals & plan")
     view.click("[data-open-sheet]")
     expect(navlogTab()?.getAttribute("aria-selected")).toBe("true")
@@ -331,6 +400,16 @@ describe("WorkbenchLayout phone tabs and drawer", () => {
     viewport.desktop = false
     view.render()
     expect(view.container.querySelector('[role="dialog"]')).toBeNull()
+    view.unmount()
+  })
+  test("the Map tab opens before a plan; the Navlog tab falls back to Chat when the plan goes", () => {
+    const view = mount({ navlog: null })
+    view.click("#wb-tab-map")
+    expect(view.container.querySelector("#wb-tab-map")?.getAttribute("aria-selected")).toBe("true")
+    view.render({ navlog: SAMPLE_NAVLOG })
+    view.click("#wb-tab-navlog")
+    view.render({ navlog: null })
+    expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
     view.unmount()
   })
   test("a tab names its panel only when the panel exists", () => {
@@ -477,6 +556,74 @@ describe("WorkbenchLayout Memory mode (phone)", () => {
     view.click('[role="dialog"] [aria-pressed="false"]')
     expect(view.container.querySelector("#wb-tab-chat")?.getAttribute("aria-selected")).toBe("true")
     expect(view.container.querySelector("[data-memory-column]")?.className).toContain("invisible")
+    view.unmount()
+  })
+})
+
+describe("WorkbenchLayout route bar and marker panel", () => {
+  beforeEach(() => {
+    viewport.desktop = true
+  })
+  const panel = (container: HTMLElement) => container.querySelector('[role="dialog"]')
+  test("the route bar hands its draft to the map, and Replan to the shell", () => {
+    const onReplan = vi.fn<(text: string) => void>()
+    const view = mount({ onReplan })
+    expect(map.draft?.map((waypoint) => waypoint.id)).toEqual(
+      SAMPLE_NAVLOG.waypoints.map((waypoint) => waypoint.id),
+    )
+    view.click('form[aria-label="Route"] button[type="submit"]')
+    expect(onReplan).toHaveBeenCalledWith(expect.stringMatching(/^Plan KSTP → KRST at 4500 ft/))
+    view.click(`button[aria-label="Remove ${SAMPLE_NAVLOG.waypoints[0]?.id}"]`)
+    expect(map.draft?.map((waypoint) => waypoint.id)).toEqual(
+      SAMPLE_NAVLOG.waypoints.slice(1).map((waypoint) => waypoint.id),
+    )
+    view.unmount()
+  })
+  test("Replan waits while a run is in flight", () => {
+    const view = mount({ running: true })
+    const replan = [...view.container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Replan",
+    )
+    expect(replan?.disabled).toBe(true)
+    view.unmount()
+  })
+  test("a marker opens its weather panel with the brief's reports; Close closes it", () => {
+    const view = mount({ brief: BRIEF })
+    expect(panel(view.container)).toBeNull()
+    act(() => map.onSelectMarker?.("krst"))
+    expect(map.selectedMarker).toBe("krst")
+    const dialog = panel(view.container)
+    expect(dialog?.getAttribute("aria-label")).toBe("krst weather")
+    expect(dialog?.textContent).toContain("METAR KRST 1")
+    expect(dialog?.textContent).toContain("MVFR now → VFR at ETA")
+    view.click('[role="dialog"] button[aria-label="Close"]')
+    expect(panel(view.container)).toBeNull()
+    expect(map.selectedMarker).toBeNull()
+    view.unmount()
+  })
+  test("a station's panel names it; a marker missing from the brief says so", () => {
+    const stations = [
+      { id: "KAEL", name: "Albert Lea", lat: 43.68, lon: -93.37, alongNm: 50, offsetNm: 4 },
+    ]
+    const view = mount({ brief: BRIEF, stations })
+    act(() => map.onSelectMarker?.("KAEL"))
+    expect(panel(view.container)?.textContent).toContain("Albert Lea")
+    expect(panel(view.container)?.textContent).toContain("No report in the brief")
+    view.unmount()
+  })
+  test("on a phone the panel opens inside the Map panel", () => {
+    viewport.desktop = false
+    const view = mount({ brief: BRIEF })
+    act(() => map.onSelectMarker?.("KSTP"))
+    expect(view.container.querySelector('#wb-panel-map [role="dialog"]')).not.toBeNull()
+    view.unmount()
+  })
+  test("a new navlog closes the panel", () => {
+    const view = mount({ brief: BRIEF })
+    act(() => map.onSelectMarker?.("KSTP"))
+    expect(panel(view.container)).not.toBeNull()
+    view.render({ navlog: { ...SAMPLE_NAVLOG } })
+    expect(panel(view.container)).toBeNull()
     view.unmount()
   })
 })

@@ -13,19 +13,21 @@ import {
   useState,
 } from "react"
 import type { Navlog } from "../lib/navlog-types"
+import type { RouteDraft } from "../lib/route-draft"
 import { pairIndexOf, routeGeometry } from "../lib/route-geometry"
 import { useHydrated } from "../lib/use-hydrated"
 import { useMediaQuery } from "../lib/use-media-query"
 import { useSidebarState } from "../lib/use-sidebar-state"
-import { resolveVerdict } from "../lib/verdict"
+import type { RouteStation } from "../lib/weather-roles"
 import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { Drawer } from "./Drawer"
 import { Icon, type IconName } from "./icons"
+import { MarkerPanel } from "./MarkerPanel"
 import { NavlogSheet, type SheetTab } from "./NavlogSheet"
+import { RouteBar } from "./RouteBar"
 import { SideNav } from "./SideNav"
 import { type SheetControl, SheetControlContext } from "./sheet-control"
-import { WeatherStrip } from "./WeatherStrip"
 import { Wordmark } from "./Wordmark"
 
 const RouteMap = dynamic(() => import("./RouteMap").then((m) => m.RouteMap), { ssr: false })
@@ -39,6 +41,8 @@ export interface MemoryControls {
 export interface WorkbenchLayoutProps {
   readonly navlog: Navlog | null
   readonly brief: WeatherBrief | null
+  /** The reporting stations near the course (`findRouteStations`): map markers and the Weather tab. */
+  readonly stations: readonly RouteStation[]
   /** The planning answer of the turn that produced the navlog, shown in the sheet. */
   readonly assistantBrief: string
   readonly header: string
@@ -56,6 +60,10 @@ export interface WorkbenchLayoutProps {
   /** The conversation (`NavlogChat`): messages and input. */
   readonly chat: ReactNode
   readonly onNewConversation: () => void
+  /** Sends the route bar's Replan message as a chat message. */
+  readonly onReplan: (text: string) => void
+  /** A run is in flight: the route bar's Replan waits. */
+  readonly running: boolean
 }
 
 /** The margin the route fit keeps inside the map panel, in pixels. */
@@ -78,7 +86,7 @@ const PHONE_TABS: readonly {
 ]
 
 /**
- * An element's height, tracked: the weather chips' height tells the route fit
+ * An element's height, tracked: the route bar's height tells the route fit
  * how much room to leave at the top of the map. Re-attached after every
  * render because which element the ref points at changes with the layout; an
  * unchanged height is a no-op.
@@ -105,6 +113,9 @@ function useMeasuredHeight(): [RefObject<HTMLDivElement | null>, number] {
  * Desktop (`lg` and up): a grey canvas with three docked columns and no top
  * bar: the sidenav (expanded, or collapsed to a 64px icon rail, remembered
  * per browser), the chat, and the map stacked over the navlog sheet.
+ * The route bar floats across the top of the map (on a phone, of the Map
+ * tab); clicking an airport or station marker opens its weather panel in the
+ * map's lower-left corner.
  * Phone: a top row (menu, wordmark, New plan), one full-screen panel, and a
  * bottom tab bar (Chat, Map, Navlog); the sidenav opens as a drawer.
  *
@@ -128,6 +139,7 @@ function useMeasuredHeight(): [RefObject<HTMLDivElement | null>, number] {
 export function WorkbenchLayout({
   navlog,
   brief,
+  stations,
   assistantBrief,
   header,
   status,
@@ -138,6 +150,8 @@ export function WorkbenchLayout({
   notices,
   chat: conversation,
   onNewConversation,
+  onReplan,
+  running,
 }: WorkbenchLayoutProps) {
   const isDesktop = useMediaQuery(DESKTOP_QUERY)
   const hydrated = useHydrated()
@@ -159,10 +173,13 @@ export function WorkbenchLayout({
   // lifted so a step's openSheet can land on Legs.
   const [selectedLeg, setSelectedLeg] = useState<number | null>(null)
   const [sheetTab, setSheetTab] = useState<SheetTab>("legs")
-  const [stripRef, stripHeight] = useMeasuredHeight()
-  // No navlog, nothing on the Map and Navlog tabs: a thread switch must not
-  // leave an empty tab selected.
-  const activeTab: PhoneTab = navlog ? tab : "chat"
+  const [barRef, barHeight] = useMeasuredHeight()
+  // The route bar's draft, drawn on the map; the marker whose weather panel is open.
+  const [draft, setDraft] = useState<RouteDraft | null>(null)
+  const [selectedMarker, setSelectedMarker] = useState<string | null>(null)
+  // No navlog, nothing on the Navlog tab: a thread switch must not leave it
+  // selected. The Map tab holds the route bar, so it works before a plan.
+  const activeTab: PhoneTab = tab === "navlog" && navlog === null ? "chat" : tab
   const awaitingApproval = status === "awaiting approval"
 
   /**
@@ -206,8 +223,12 @@ export function WorkbenchLayout({
     previousNavlog.current = navlog
   }, [navlog])
   // A new navlog (a replan) has new legs: the old selection means nothing.
+  // So does an open weather panel: the new brief may not hold its marker.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the navlog is the trigger, not an input
-  useEffect(() => setSelectedLeg(null), [navlog])
+  useEffect(() => {
+    setSelectedLeg(null)
+    setSelectedMarker(null)
+  }, [navlog])
 
   // The drawer is the phone's; a window widened past the breakpoint with it
   // open must not bring it back on the next narrowing.
@@ -262,17 +283,11 @@ export function WorkbenchLayout({
     return out
   }, [brief])
   const padding = useMemo(
-    () => ({ left: MAP_MARGIN, top: stripHeight + MAP_MARGIN, bottom: MAP_MARGIN }),
-    [stripHeight],
+    () => ({ left: MAP_MARGIN, top: barHeight + MAP_MARGIN, bottom: MAP_MARGIN }),
+    [barHeight],
   )
   const highlightedLeg = navlog && selectedLeg !== null ? pairIndexOf(navlog, selectedLeg) : null
-  const cruise = navlog ? { cruiseFt: navlog.altitudeFt } : {}
-  // The same inputs the sheet resolves its verdict from, so the strip's pill
-  // and the sheet's card always show the same level.
-  const verdict = useMemo(
-    () => resolveVerdict({ weather: brief, answer: assistantBrief, navlog }),
-    [brief, assistantBrief, navlog],
-  )
+  const closeMarker = useCallback(() => setSelectedMarker(null), [])
 
   const sheetControl = useMemo<SheetControl>(
     () => ({
@@ -297,8 +312,31 @@ export function WorkbenchLayout({
       categories={categories}
       highlightedLeg={highlightedLeg}
       padding={padding}
+      draft={draft?.waypoints ?? null}
+      stations={stations}
+      selectedMarker={selectedMarker}
+      onSelectMarker={setSelectedMarker}
     />
   )
+  // Over the map, in the slot the route fit measures: the full width of the panel.
+  const routeBar = (
+    <div
+      ref={barRef}
+      className="pointer-events-none absolute inset-x-4 top-4 z-10 *:pointer-events-auto"
+    >
+      <RouteBar navlog={navlog} running={running} onReplan={onReplan} onDraftChange={setDraft} />
+    </div>
+  )
+  const markerKey = selectedMarker?.toUpperCase()
+  const markerPanel =
+    selectedMarker === null ? null : (
+      <MarkerPanel
+        id={selectedMarker}
+        airport={brief?.airports.find((airport) => airport.id.toUpperCase() === markerKey) ?? null}
+        station={stations.find((station) => station.id.toUpperCase() === markerKey)}
+        onClose={closeMarker}
+      />
+    )
 
   if (isDesktop) {
     return (
@@ -338,12 +376,8 @@ export function WorkbenchLayout({
             >
               <div className="wb-panel wb-print-hide relative min-h-0 flex-1 overflow-hidden">
                 {map}
-                <div
-                  ref={stripRef}
-                  className="pointer-events-none absolute inset-x-4 top-4 z-10 flex justify-end *:pointer-events-auto"
-                >
-                  <WeatherStrip brief={brief} verdict={verdict} {...cruise} />
-                </div>
+                {routeBar}
+                {markerPanel}
               </div>
               {navlog ? (
                 <div className="wb-sheet-wrap min-h-0 shrink-0">
@@ -351,6 +385,7 @@ export function WorkbenchLayout({
                     navlog={navlog}
                     brief={assistantBrief}
                     weather={brief}
+                    stations={stations}
                     open={sheetOpen}
                     onToggle={() => setSheetOpen((value) => !value)}
                     tab={sheetTab}
@@ -414,7 +449,7 @@ export function WorkbenchLayout({
           ones are hidden with `invisible` and `inert`, not unmounted and not
           `display: none`: a switch keeps the chat's scroll position, the
           input's draft and any parked approval card; the map keeps its size
-          (so its fit and the strip's measured height stay right) and the
+          (so its fit and the route bar's measured height stay right) and the
           pilot's view; and the navlog panel still prints from any tab (the
           print rules make `.wb-sheet` visible and flatten its wrapper).
         */}
@@ -436,12 +471,8 @@ export function WorkbenchLayout({
             className={`wb-panel ${PANEL_BOX} overflow-hidden print:hidden ${mapVisible ? "" : "invisible"}`}
           >
             {map}
-            <div
-              ref={stripRef}
-              className="pointer-events-none absolute inset-x-4 top-4 z-10 *:pointer-events-auto"
-            >
-              <WeatherStrip brief={brief} layout="row" verdict={verdict} {...cruise} />
-            </div>
+            {routeBar}
+            {markerPanel}
           </div>
           {navlog ? (
             <div
@@ -455,6 +486,7 @@ export function WorkbenchLayout({
                 navlog={navlog}
                 brief={assistantBrief}
                 weather={brief}
+                stations={stations}
                 open={true}
                 onToggle={() => {}}
                 tab={sheetTab}
@@ -492,7 +524,7 @@ export function WorkbenchLayout({
                 {...(item.id === "navlog" && navlog === null
                   ? {}
                   : { "aria-controls": `wb-panel-${item.id}` })}
-                disabled={item.id !== "chat" && navlog === null}
+                disabled={item.id === "navlog" && navlog === null}
                 className="wb-focus wb-tab"
                 onClick={() => selectTab(item.id)}
               >

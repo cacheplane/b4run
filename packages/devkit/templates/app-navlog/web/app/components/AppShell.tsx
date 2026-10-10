@@ -10,6 +10,7 @@ import {
   parseNavlog,
 } from "../lib/navlog-selectors"
 import { titleFor, type WorkbenchThread } from "../lib/thread-source"
+import { latestRouteStations, type RouteStation } from "../lib/weather-roles"
 import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
 import { ConnectScreen } from "./ConnectScreen"
 import { type DropNotice, DropNotices } from "./DropNotices"
@@ -485,10 +486,13 @@ interface ThreadWorkbenchProps {
   readonly onNewConversation: () => void
 }
 
+/** No stations yet: one shared empty list, so the map's input keeps its identity. */
+const NO_STATIONS: readonly RouteStation[] = []
+
 /**
- * The workbench for one thread, inside `B4Activity`: the map, the weather
- * strip and the navlog sheet read the thread's turns through pure selectors,
- * and the dock holds `NavlogChat`.
+ * The workbench for one thread, inside `B4Activity`: the map, the route bar
+ * and the navlog sheet read the thread's turns through pure selectors, and
+ * the dock holds `NavlogChat`.
  *
  * The selectors return STRINGS and the parse is memoized on them. The turns
  * are rebuilt on every streamed event; parsing afresh each time would give the
@@ -509,6 +513,7 @@ function ThreadWorkbench({
 }: ThreadWorkbenchProps) {
   const { turns } = useB4ActivityContext()
   const { agent } = useAgent()
+  const { copilotkit } = useCopilotKit()
   const navlogRef = latestNavlogResult(turns)
   const navlogText = navlogRef?.result
   const navlog = useMemo(
@@ -520,6 +525,13 @@ function ThreadWorkbench({
     () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
     [weatherText],
   )
+  // Keyed on the result text like the navlog, so the map's stations keep
+  // their identity across streamed events and its markers are not redrawn.
+  const stationsKey = JSON.stringify(latestRouteStations(turns))
+  const stations = useMemo((): readonly RouteStation[] => {
+    const list = JSON.parse(stationsKey) as RouteStation[]
+    return list.length === 0 ? NO_STATIONS : list
+  }, [stationsKey])
   // The answer of the turn that produced the navlog on screen, not whatever
   // the latest reply is (a later "Filed." must not replace the brief).
   const assistantBrief =
@@ -559,10 +571,33 @@ function ThreadWorkbench({
         ? "awaiting approval"
         : undefined
 
+  // The route bar's Replan: an ordinary user message, sent the way
+  // `CopilotChat` sends one (`agent.addMessage` with a string content, then
+  // `copilotkit.runAgent`), so it reads the same in the transcript, touches
+  // the rail through `onNewMessage` and shows Running at once. A failed run
+  // does not reject: `runAgent` reports it through `emitError`, which the
+  // shell's `copilotkit.subscribe` seam turns into the RunError banner. The
+  // catch only keeps an unexpected throw from going unhandled, as
+  // `CopilotChat` does.
+  const onReplan = useCallback(
+    (text: string) => {
+      agent.addMessage({ id: crypto.randomUUID(), role: "user", content: text })
+      copilotkit.runAgent({ agent }).catch((error: unknown) => {
+        console.error("AppShell: Replan runAgent failed", error)
+      })
+    },
+    [agent, copilotkit],
+  )
+
   return (
     <WorkbenchLayout
       navlog={navlog}
       brief={brief}
+      stations={stations}
+      // A parked approval blocks a new run too: the next run would throw
+      // ("pending interrupt(s) not addressed by resume"), so Replan waits.
+      running={status !== undefined}
+      onReplan={onReplan}
       assistantBrief={assistantBrief}
       header={header}
       status={status}

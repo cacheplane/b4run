@@ -20,7 +20,7 @@ export interface WeatherTabProps {
 }
 
 /** "VFR", or both ends when they differ: "VFR now → MVFR at ETA". */
-function categoryText({ now, atEta }: AirportWeather): string {
+export function categoryText({ now, atEta }: AirportWeather): string {
   if (now === atEta || atEta === "UNKNOWN") return now
   if (now === "UNKNOWN") return `${atEta} at ETA`
   return `${now} now → ${atEta} at ETA`
