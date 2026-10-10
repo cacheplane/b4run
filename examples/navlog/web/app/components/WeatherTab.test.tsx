@@ -130,7 +130,8 @@ describe("WeatherTab", () => {
       render({
         stations: [
           station("KMSP", 0, "Minneapolis"),
-          station("KDCY", SAMPLE_NAVLOG.totals.distanceNm, "Dodge Center"),
+          // The server's great-circle length runs a mile short of the navlog's total.
+          station("KDCY", SAMPLE_NAVLOG.totals.distanceNm - 1, "Dodge Center"),
         ],
       }),
       "En route",

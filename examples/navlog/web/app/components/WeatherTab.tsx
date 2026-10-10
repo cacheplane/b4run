@@ -27,6 +27,9 @@ export function categoryText({ now, atEta }: AirportWeather): string {
   return `${now} now → ${atEta} at ETA`
 }
 
+/** How far short of the navlog's total a station still counts as at the destination. */
+const END_TOLERANCE_NM = 2
+
 /**
  * Where an en-route station sits: its distance along the route, or "near
  * departure" / "near destination" for one past either end, whose distance
@@ -35,7 +38,10 @@ export function categoryText({ now, atEta }: AirportWeather): string {
 function placeText(alongNm: number, routeNm: number): string {
   const nm = Math.round(alongNm)
   if (nm <= 0) return "near departure"
-  if (nm >= Math.round(routeNm)) return "near destination"
+  // The server measures the route along great circles and the navlog totals
+  // its legs (a climb split, rounding), so the two lengths differ by a mile
+  // or two: a station clamped to the route's end lands just short of the total.
+  if (nm >= Math.round(routeNm) - END_TOLERANCE_NM) return "near destination"
   return `${nm} nm along`
 }
 
