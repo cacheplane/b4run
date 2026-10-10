@@ -337,9 +337,9 @@
       "recordDigest": "d05eea10a2256eb74115cfef73f27550d7427eec0cbf914ffe8e0bc15377d146"
     },
     "/docs/recipes/navlog": {
-      "lastModified": "2026-10-10T15:55:13.000Z",
-      "sourceDigest": "4695d8599dc1806fbbbb5ef5ddaec8521ec234da87ce5104b3c9769bbef5a74a",
-      "recordDigest": "d72d355fe974c4b189e68a8267f624f569f3028d8c8c779ca65fecba347ab208"
+      "lastModified": "2026-10-10T16:03:52.000Z",
+      "sourceDigest": "6c4539264b34333d37b0a6279e8ec3c46762a6b07cce2490eba09a474cf1dabb",
+      "recordDigest": "6891aa68715abb9e10ebda70550264dc3c3247cae66b3bfcce360bcc0c257fb9"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
