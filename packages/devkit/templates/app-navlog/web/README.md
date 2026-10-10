@@ -14,29 +14,44 @@ It is a workbench rather than a chat widget, and it is map-first:
 - **Route map.** A [Leaflet](https://leafletjs.com) map on
   OpenStreetMap tiles, credited in the map's attribution control. It draws the
   planned route, one marker per waypoint colored by flight category with the
-  category as text beside it, and the cruise magnetic heading on each leg.
+  category as text beside it, and the cruise magnetic heading on each leg. The
+  en-route reporting stations draw as small grey markers. Clicking an airport or
+  station marker opens a panel with its category now and at ETA and the raw
+  METAR and TAF.
 - **Chat.** The middle column: the thread title and status, and
   the conversation itself: the plan card, the `weather` and `performance` subagent
   cards, tool cards and the `fileFlightPlan` approval, inline and in order.
-- **Weather strip.** Flight-category chips per airport from the `weather`
-  subagent's brief (the worse of now and at ETA), plus the winds-aloft line. A
-  chip opens the raw METAR and TAF.
+- **Route bar.** Across the top of the map: the route as pills, an
+  autocomplete input over the bundled waypoint snapshot (`GET /api/waypoints?q=`),
+  the cruise altitude, the departure, the draft's distance and **Plan**
+  (**Replan** once a navlog exists). Type `KPAO SNS KSBA` with a space after
+  each identifier to build a route; each waypoint draws on the map at once,
+  dashed until it is planned. Plan sends one ordinary chat message, such as
+  `Plan KPAO → SNS (VORTAC) → KSBA at 5500 ft, departing 1400Z.`, and the next
+  navlog resets the bar to the planned route. The snapshot comes from
+  OurAirports (public domain) and is not for navigation; the server README
+  covers refreshing it.
 - **Navlog sheet.** Under the map, with the totals when collapsed. Open, a
-  verdict strip sits above three tabs: **Legs** leads with the legs grid
+  verdict strip sits above four tabs: **Legs** leads with the legs grid
   (pretable, `NavlogGrid.tsx`; Leg pinned left, selecting a row lights that leg
-  on the map) over a fixed totals strip, **Totals & plan** holds the tiles and
+  on the map) over a fixed totals strip, **Weather** groups the brief by
+  origin, en route and destination (each airport's category and raw METAR and
+  TAF; en-route stations by distance along the route), then the winds aloft,
+  advisories and forecast horizon, **Totals & plan** holds the tiles and
   the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
   brief, rendered from the agent's structured answer. **Print** prints the sheet alone on one landscape page, every leg
   included (from a print-only table), and **Copy FPL** copies the `(FPL-…)`
   message.
 - **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
-  bar (Chat, Map, Navlog, the navlog as one card per leg). The menu opens the
+  bar (Chat, Map with the route bar, Navlog, the navlog as one card per leg). The menu opens the
   sidenav as a drawer.
 
 Every surface reads the thread the client already has through pure, unit-tested
 selectors: `latestNavlog` (the last `computeNavlog` result), `latestWeatherBrief`
-(the last completed `weather` subagent run) and `routeGeometry` (what the map
-draws). Nothing extra is stored.
+(the last completed `weather` subagent run), `latestRouteStations` (the last
+`findRouteStations` result), `groupByRole` (the Weather tab's groups) and
+`routeGeometry` (what the map draws). Only the route bar's unsent draft is
+local state.
 
 No model credentials live in this package. The B4.run server holds them, and this
 app reaches it through a same-origin proxy.
@@ -76,14 +91,15 @@ npm run build --workspace web
 | Part | File | What it does |
 |---|---|---|
 | Connect screen | `app/components/ConnectScreen.tsx` | replaces the shell while the server is unreachable |
-| Layout | `app/components/WorkbenchLayout.tsx` | the docked columns (sidenav, chat, map with the strip and sheet); the phone tabs |
+| Layout | `app/components/WorkbenchLayout.tsx` | the docked columns (sidenav, chat, map with the route bar and sheet); the phone tabs |
 | Route map | `app/components/RouteMap.tsx` | Leaflet, browser-only, draws what `routeGeometry` returns |
 | Sidenav | `app/components/SideNav.tsx` | wordmark, new plan, threads, memory count |
 | Chat | `app/components/ChatDock.tsx` | title, status, memory, the chat |
-| Weather strip | `app/components/WeatherStrip.tsx` | flight-category chips and the raw reports |
-| Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx` | verdict strip, legs grid and tabs, totals, ICAO flight plan, print and copy |
+| Route bar | `app/components/RouteBar.tsx`, `app/lib/route-draft.ts` | the typed route, its draft on the map, and the Plan message |
+| Waypoint search | `app/api/waypoints/route.ts`, `app/lib/waypoint-search.ts`, `data/waypoints.json` | searches the bundled OurAirports snapshot server-side |
+| Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx`, `WeatherTab.tsx` | verdict strip, legs grid and tabs, weather by role, totals, ICAO flight plan, print and copy |
 | Step views | `app/components/StepViews.tsx` | the opened `computeNavlog` and `renderChart` steps, through `B4Activity`'s `renderStep` |
-| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
+| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `weather-roles.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
 | Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
 | Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
 | Brief kit | `app/brief/` | the structured answer: hashbrown schemas, the BottomLine / RouteSummary / WatchFor / KeyNumbers / Assumptions / Citations / Prose components, and `BriefRenderer` (markdown fallback for older threads) |
@@ -201,8 +217,8 @@ runtime routes and the allowlist, the thread source, the thread rail, the chat
 (attachments, echo stripping, approval gating), the step views, drop notices,
 the connect screen, the memory panel, media parts, the shell's thread-switch
 and server-probe behaviour, and the map workbench (selectors, route geometry,
-formatting, the navlog table, sheet, flight plan, the weather strip, and the
-desktop and phone layouts). `RouteMap` needs a real DOM and is not unit-tested.
+formatting, the navlog table, sheet, flight plan, the route bar and its draft,
+the waypoint search, the Weather tab, and the desktop and phone layouts). `RouteMap` needs a real DOM and is not unit-tested.
 `typecheck` and `build` prove the CopilotKit and AG-UI wiring compiles. The
 activity components themselves are tested in `@b4run/ag-ui`.
 

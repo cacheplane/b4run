@@ -31,8 +31,8 @@ local stub instead.
 ## Run the live web client
 
 The current Next.js/CopilotKit client streams the plan, renders tool calls,
-handles the flight-plan approval, offers suggestion prompts, and reviews memory
-candidates. After the root install and build above, run from `examples/navlog`:
+handles the flight-plan approval, offers suggestion prompts, plans a route typed
+into the map's route bar, and reviews memory candidates. After the root install and build above, run from `examples/navlog`:
 
 ```bash
 cp server/.env.example server/.env   # add a real OPENAI_API_KEY
@@ -47,8 +47,9 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Capability | File | What it shows |
 |---|---|---|
 | Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator |
-| Tools + typegen | `src/tools/` | `resolveDeparture`, `lookupAirport`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
-| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser |
+| Tools + typegen | `src/tools/` | `resolveDeparture`, `lookupAirport`, `lookupNavaid`, `findRouteStations`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
+| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser, the route corridor `findRouteStations` filters on |
+| Waypoint snapshot | `data/navaids.json`, `scripts/build-waypoints.mjs` | navaids for `lookupNavaid` and the web route bar's waypoints, built from OurAirports; see below |
 | Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the pilot's own aircraft facts and preferences, which override the `aircraft/c172n.md` baseline |
@@ -58,6 +59,30 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
+
+## The waypoint snapshot
+
+`lookupNavaid` reads `data/navaids.json`, and the web client's route bar
+searches `../web/data/waypoints.json`: US airports and VOR, VOR-DME, VORTAC,
+NDB and NDB-DME navaids. aviationweather.gov's navaid endpoint returns nothing,
+so both files are built from [OurAirports](https://ourairports.com/data/)
+(public domain) and committed with the date they were built. They are
+community data for planning practice, not for navigation.
+
+To refresh them, download `airports.csv` and `navaids.csv` (the URLs are in the
+header of `scripts/build-waypoints.mjs`), then run from this directory:
+
+```bash
+node scripts/build-waypoints.mjs <airports.csv> <navaids.csv>
+```
+
+It writes both files and stamps today's date (UTC), or the date given with
+`--date YYYY-MM-DD`.
+
+`findRouteStations` is the other half of the en-route weather: it asks
+aviationweather.gov for the METAR stations around each leg, keeps up to 6
+within 25 nm of the course (not the route's own airports), and orders them by
+distance along the route for the `weather` subagent.
 
 ## Memory review
 

@@ -7,7 +7,7 @@ required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in
 the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
 `performance` subagents, tool steps and approval appear in the conversation, and the
-map, sheet and weather strip read the same turns from outside the chat.
+map, its route bar and the sheet read the same turns from outside the chat.
 
 The live app uses a real model; there is no aimock/demo mode. Its browser test is
 model-free and proves the page discovers `GET /api/copilotkit/info` instead of sending
@@ -34,31 +34,52 @@ scroll (the connect screen scrolls itself on a short viewport).
   flight-category colors carry the map. It draws the planned route, one marker per
   waypoint colored by flight category and labelled with the category as text, and the
   cruise magnetic heading at each leg's midpoint, then fits the route inside its
-  panel. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
+  panel. The en-route reporting stations from the latest `findRouteStations` result
+  draw as small grey markers with their identifier and category. Airport and station
+  markers are buttons: clicking one opens a panel in the map's corner with the id, the
+  category now and at ETA, and the raw METAR and TAF from the weather brief (Escape
+  or the close button dismisses it); navaid markers are labels only. Leaflet loads
+  only in the browser (`next/dynamic` with `ssr: false`).
 - **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
   status and the chat (`app/components/NavlogChat.tsx`, below).
-- **Weather strip** (along the top of the map, `app/components/WeatherStrip.tsx`) — one chip
-  per airport in the `weather` subagent's brief, colored by the worse of the category
-  now and at ETA (`worstCategory`) and naming both when they differ (`KRST VFR now,
-  MVFR at ETA`), and the first winds-aloft line. A chip opens the raw METAR (or SPECI)
-  and TAF. Each map marker shows the same category as its chip. On phones the chips
-  are one horizontally scrolling row.
+- **Route bar** (across the top of the map, `app/components/RouteBar.tsx`) — the route as
+  pills (airports in ink, navaids in cobalt, each with a remove button), an
+  autocomplete input, the cruise altitude (1000 to 17500 ft), the departure, the
+  draft's great-circle distance and **Plan** (**Replan** once a navlog exists). The
+  input is a combobox over `GET /api/waypoints?q=` (`app/api/waypoints/route.ts`), which
+  searches the bundled `data/waypoints.json` server-side (`app/lib/waypoint-search.ts`:
+  identifier or local-code prefix first, then a name substring, at most 8 results).
+  Enter, Tab or space adds the highlighted match, so `KPAO SNS KSBA` typed with spaces
+  builds the route; Backspace in an empty input removes the last pill. Each waypoint
+  draws on the map at once, dashed while the draft differs from the planned route.
+  Plan sends one ordinary chat message, such as `Plan KPAO → SNS (VORTAC) → KSBA at
+  5500 ft, departing 1400Z.` (`replanMessage` in `app/lib/route-draft.ts`), and a new
+  navlog resets the bar to the planned route, altitude and departure. The open list
+  notes "Waypoints: OurAirports <date>, not for navigation"; the snapshot and how to
+  refresh it are in [`../server/README.md`](../server/README.md#the-waypoint-snapshot).
 - **Navlog sheet** (under the map, `app/components/NavlogSheet.tsx`) — collapsed, one
   line of totals (route, distance, ETE, fuel, reserve, with a warning under 45 minutes).
   Open, a verdict strip (the go/no-go pill and its reason, which opens Brief) sits above
-  three tabs. **Legs** leads with the legs grid (`NavlogGrid.tsx`, on
+  four tabs: Legs · Weather · Totals & plan · Brief. **Legs** leads with the legs grid (`NavlogGrid.tsx`, on
   [pretable](https://www.npmjs.com/package/@pretable/react): TC, variation, MC, wind,
   WCA, MH, TAS, GS, distance, ETE, ETA and fuel per climb and cruise segment, with Leg
   pinned left). The grid scrolls in its own region above a fixed totals strip, and
-  selecting a row lights that leg on the map. **Totals & plan** holds the totals tiles
+  selecting a row lights that leg on the map. **Weather** (`WeatherTab.tsx`) groups the
+  brief's airports as Origin, En route and Destination (`app/lib/weather-roles.ts`), each
+  card with the category now → at ETA and the raw METAR and TAF, or "No report in the
+  brief"; en route lists intermediate airports and stations by distance along the route
+  ("98 nm along"). Below them come the winds aloft per leg, the advisories as hazard
+  chips, and the forecast-horizon note. **Totals & plan** holds the totals tiles
   and the ICAO flight plan items 7 to 19 (`FlightPlanBlock.tsx`); **Brief** holds the
   full verdict card and the assistant's brief. **Print** prints the sheet alone on one
-  landscape page (the `@media print` rules in `app/theme.css`), every leg included: the
-  grid virtualizes rows, so print reads a print-only `NavlogTable.tsx`. **Copy FPL**
+  landscape page (the `@media print` rules in `app/theme.css`), every leg included, with
+  the Weather tab's content after the legs: the grid virtualizes rows, so print reads a
+  print-only `NavlogTable.tsx`. **Copy FPL**
   copies the filing-ready `(FPL-…)` message. The chat's opened `computeNavlog` step
   (`StepViews.tsx`) shows the totals and a link that opens the sheet on Legs.
 - **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
-  and a bottom tab bar: **Chat**, **Map** and **Navlog** (the sheet's strip and tabs, one card per leg on Legs). Map and Navlog
+  and a bottom tab bar: **Chat**, **Map** (with the route bar, open before any plan so a
+  route can be typed first) and **Navlog** (the sheet's strip and tabs, one card per leg on Legs). Map and Navlog
   get a dot when a navlog arrives while you are in the chat, and an approval always
   brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that
   applies is rendered (`app/lib/use-media-query.ts`), so there is always exactly one chat.
@@ -85,9 +106,15 @@ unit tests:
 - `latestWeatherBriefText(turns)` and `parseWeatherBrief` (`app/lib/weather-selectors.ts`)
   — the most recent completed `weather` subagent step, parsed from the brief the
   subagent is prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
-  brief it cannot read leaves the strip empty rather than throwing.
+  brief it cannot read leaves the Weather tab and marker panels empty rather than throwing.
 - `routeGeometry(navlog)` (`app/lib/route-geometry.ts`) — the polyline, markers, heading
   labels and bounds the map draws.
+- `latestRouteStations(turns)` and `groupByRole` (`app/lib/weather-roles.ts`) — the stations
+  from the latest `findRouteStations` result, and the brief's airports grouped as origin,
+  en route (by distance along) and destination.
+
+The route bar's draft (`app/lib/route-draft.ts`) is the one piece of local state: the
+waypoints being typed, until Plan sends them or a new navlog replaces them.
 
 ```
 browser
@@ -220,13 +247,14 @@ those.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs 28 test files: the proxy and
-CopilotKit runtime routes and the allowlist, the thread source, the thread rail, the
+`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites: the proxy,
+waypoint-search and CopilotKit runtime routes and the allowlist, the thread source, the thread rail, the
 chat (attachments, echo stripping, approval gating), the step views, drop notices,
 the connect screen, the memory panel, media parts, the shell's thread-switch and
 server-probe behaviour, and the map workbench: the navlog and weather selectors, route
-geometry, formatting, the navlog table, sheet, flight plan block, the weather strip, and
-the desktop and phone layouts. The navlog fixture (`SAMPLE_NAVLOG`) is the server's own
+geometry, formatting, the navlog table, sheet, flight plan block, the route bar and its
+draft, the waypoint search ranking, the Weather tab and its role grouping, and the
+desktop and phone layouts. The navlog fixture (`SAMPLE_NAVLOG`) is the server's own
 `computeNavlog` output, not hand-written numbers. `RouteMap` itself needs a real DOM and
 is exercised in the browser, not in Vitest. `typecheck` and `build` prove the
 CopilotKit/AG-UI wiring compiles. The activity components themselves are tested in
