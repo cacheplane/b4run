@@ -1,5 +1,32 @@
 # @dawn-ai/devkit
 
+## 0.14.1
+
+### Patch Changes
+
+- 73ee0fd: A readability pass on the navlog template, the example new apps start from.
+  - **READMEs:** they now describe the current layout, request flow, structured answer and tests. AGENTS.md gains a navlog section.
+  - **Memory schema:** its text describes navlog's facts.
+  - **Removed:** the unused `state.ts`.
+  - **Map:** the marker and label helpers move out of `RouteMap`, and the label priorities are named.
+  - **`ThreadWorkbench`:** now has its own file.
+  - **Comments and props:**
+    - Comments describe the code as it is.
+    - Props that both said "brief" now say `weatherBrief` and `planningAnswer`.
+- 6357657: In the navlog template's Weather tab, a reporting station just past the destination now reads "near destination", even when the route's measured length runs a mile or two short of the navlog's total.
+- c97a074: Refinements to the navlog template:
+  - Map labels no longer collide. A label moves left of its marker or hides until hovered, and route waypoints always keep theirs.
+  - The planning brief's components share one rhythm: the bottom line as a tinted card, Watch for as an aligned list, Assumptions as a list with captions and uniform Change buttons, and key numbers with their values aligned.
+  - The route bar's altitude and departure are one labeled field.
+- f610118: Polish for the navlog template:
+  - The route bar's controls share the app's 32px height, and it lays out in two rows in a narrow map panel.
+  - The map refits the route when its panel resizes.
+  - The sheet header no longer wraps.
+  - Weather reports drop the repeated "METAR"/"TAF" word.
+  - The chat composer no longer shows the transcript underneath it.
+  - Key numbers wrap evenly.
+- 53d3bbc: The navlog template gains a route bar on the map, with autocomplete over a bundled OurAirports snapshot of US airports and navaids. Its Plan/Replan button sends the route as one chat message. Two new tools, `lookupNavaid` and `findRouteStations`, resolve navaids and find reporting stations within 25 nm of the course. A new Weather tab groups METARs and TAFs by origin, en route and destination, replacing the weather chips on the map.
+
 ## 0.14.0
 
 ### Patch Changes
