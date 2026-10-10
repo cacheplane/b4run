@@ -67,9 +67,9 @@ vi.mock("../lib/use-sidebar-state", () => ({
 
 const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutProps => ({
   navlog: SAMPLE_NAVLOG,
-  brief: null,
+  weatherBrief: null,
   stations: [],
-  assistantBrief: "ok",
+  planningAnswer: "ok",
   chat: <p>transcript</p>,
   rail: (
     <ul>
@@ -146,7 +146,7 @@ describe("WorkbenchLayout on desktop", () => {
     expect(html).toContain(">2<")
   })
   test("map markers take each airport's worst category", () => {
-    const brief = {
+    const weatherBrief = {
       airports: [
         { id: "KSTP", now: "VFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
         // Improving: MVFR now, VFR at ETA is MVFR on the chip and the marker.
@@ -156,16 +156,16 @@ describe("WorkbenchLayout on desktop", () => {
       advisories: [],
       note: "",
     }
-    renderToStaticMarkup(<WorkbenchLayout {...props({ brief })} />)
+    renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief })} />)
     expect(map.categories).toEqual({ KSTP: "VFR", KRST: "MVFR" })
   })
-  test("the route bar floats over the map; the weather strip is gone", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief: BRIEF })} />)
+  test("the route bar floats over the map, with nothing else over it", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief: BRIEF })} />)
     expect(count(html, 'aria-label="Route"')).toBe(1)
     expect(html.indexOf('data-testid="map"')).toBeLessThan(html.indexOf('aria-label="Route"'))
     expect(html.indexOf('aria-label="Route"')).toBeLessThan(html.indexOf('aria-label="Navlog"'))
     expect(html).not.toContain('aria-label="Weather"')
-    // The verdict pill lives in the sheet now, not over the map.
+    // The verdict pill is in the sheet, not over the map.
     expect(html.slice(0, html.indexOf('aria-label="Navlog"'))).not.toContain("wb-verdict-pill")
   })
   test("the route bar starts from the plan's waypoints", () => {
@@ -215,8 +215,8 @@ describe("WorkbenchLayout on a phone", () => {
     expect(html).not.toMatch(/<button[^>]*id="wb-tab-map"[^>]*disabled=""/)
     expect(html).toMatch(/<button[^>]*id="wb-tab-navlog"[^>]*disabled=""/)
   })
-  test("the route bar sits in the Map panel; there is no weather strip", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ brief: BRIEF })} />)
+  test("the route bar sits in the Map panel, alone", () => {
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief: BRIEF })} />)
     const start = html.indexOf('id="wb-panel-map"')
     const end = html.indexOf('id="wb-panel-navlog"')
     expect(start).toBeGreaterThan(-1)
@@ -588,7 +588,7 @@ describe("WorkbenchLayout route bar and marker panel", () => {
     view.unmount()
   })
   test("a marker opens its weather panel with the brief's reports; Close closes it", () => {
-    const view = mount({ brief: BRIEF })
+    const view = mount({ weatherBrief: BRIEF })
     expect(panel(view.container)).toBeNull()
     act(() => map.onSelectMarker?.("krst"))
     expect(map.selectedMarker).toBe("krst")
@@ -605,7 +605,7 @@ describe("WorkbenchLayout route bar and marker panel", () => {
     const stations = [
       { id: "KAEL", name: "Albert Lea", lat: 43.68, lon: -93.37, alongNm: 50, offsetNm: 4 },
     ]
-    const view = mount({ brief: BRIEF, stations })
+    const view = mount({ weatherBrief: BRIEF, stations })
     act(() => map.onSelectMarker?.("KAEL"))
     expect(panel(view.container)?.textContent).toContain("Albert Lea")
     expect(panel(view.container)?.textContent).toContain("No report in the brief")
@@ -613,13 +613,13 @@ describe("WorkbenchLayout route bar and marker panel", () => {
   })
   test("on a phone the panel opens inside the Map panel", () => {
     viewport.desktop = false
-    const view = mount({ brief: BRIEF })
+    const view = mount({ weatherBrief: BRIEF })
     act(() => map.onSelectMarker?.("KSTP"))
     expect(view.container.querySelector('#wb-panel-map [role="dialog"]')).not.toBeNull()
     view.unmount()
   })
   test("a new navlog closes the panel", () => {
-    const view = mount({ brief: BRIEF })
+    const view = mount({ weatherBrief: BRIEF })
     act(() => map.onSelectMarker?.("KSTP"))
     expect(panel(view.container)).not.toBeNull()
     view.render({ navlog: { ...SAMPLE_NAVLOG } })

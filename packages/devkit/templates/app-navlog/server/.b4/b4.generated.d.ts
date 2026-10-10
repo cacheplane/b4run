@@ -76,12 +76,4 @@ declare module "b4:routes" {
   }
 
   export type RouteTools<P extends B4RoutePath> = B4RouteTools[P];
-
-  export interface B4RouteState {
-    "/navlog": {
-      readonly context: string;
-    };
-  }
-
-  export type RouteState<P extends B4RoutePath> = B4RouteState[P];
 }

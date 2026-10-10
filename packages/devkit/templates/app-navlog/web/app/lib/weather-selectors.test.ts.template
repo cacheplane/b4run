@@ -223,9 +223,9 @@ describe("latestWeatherBriefText", () => {
 })
 
 describe("parseWeatherBrief tolerates the markdown variants a model writes", () => {
-  // A live run on 2026-10-07 drew no weather strip: the brief parsed to no
-  // airports. These are the shapes a model plausibly used instead of the
-  // contract's plain `KFCM: …` under a plain `Airports:` header.
+  // A brief that parses to no airports colors no marker. These are the shapes
+  // a model plausibly writes instead of the contract's plain `KFCM: …` under a
+  // plain `Airports:` header.
   const metar = "METAR KFCM 071453Z 29013G23KT 10SM CLR 18/09 A2981"
   const cases: ReadonlyArray<readonly [string, string]> = [
     ["bold header, colon outside the bold", `**Airports**:\n- KFCM: VFR now, VFR at ETA. ${metar}`],
@@ -252,9 +252,9 @@ describe("parseWeatherBrief tolerates the markdown variants a model writes", () 
 })
 
 describe("parseWeatherBrief without an Airports header", () => {
-  // Verbatim from a local run on 2026-10-07 that drew no weather strip: the
-  // weather subagent left out the "Airports:" header, so its airport lines
-  // followed "Forecast horizon:" and were read as more of the horizon.
+  // Verbatim from a local run: the weather subagent left out the "Airports:"
+  // header, so its airport lines follow "Forecast horizon:" and could be read
+  // as more of the horizon.
   const HEADERLESS = [
     "Verdict: GO — both departure and destination are VFR at the planned time and there are no in‑flight icing AIRMETs or SIGMETs affecting the route.",
     "Forecast horizon: Departure is within TAF and winds-aloft coverage.",

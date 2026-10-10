@@ -47,11 +47,46 @@ It is a workbench rather than a chat widget, and it is map-first:
   sidenav as a drawer.
 
 Every surface reads the thread the client already has through pure, unit-tested
-selectors: `latestNavlog` (the last `computeNavlog` result), `latestWeatherBrief`
-(the last completed `weather` subagent run), `latestRouteStations` (the last
-`findRouteStations` result), `groupByRole` (the Weather tab's groups) and
-`routeGeometry` (what the map draws). Only the route bar's unsent draft is
-local state.
+selectors:
+
+- `latestNavlogResult` and `parseNavlog` (`app/lib/navlog-selectors.ts`) — the
+  last `computeNavlog` result, parsed into a navlog.
+- `latestWeatherBriefText` and `parseWeatherBrief` (`app/lib/weather-selectors.ts`)
+  — the last completed `weather` subagent run, parsed into a weather brief.
+- `latestRouteStations` and `groupByRole` (`app/lib/weather-roles.ts`) — the
+  last `findRouteStations` result, and the Weather tab's groups.
+- `routeGeometry` (`app/lib/route-geometry.ts`) — what the map draws.
+
+Only the route bar's unsent draft is local state.
+
+Map labels never sit on each other: each marker's label goes right of its dot,
+else left of it, else it hides until the marker is hovered or focused
+(`app/lib/map-labels.ts`). The route's own waypoints always keep their labels;
+the reporting stations and draft points around them give way.
+
+## Structured answer
+
+The agent answers a plan with a structured brief rather than markdown. The
+CopilotKit runtime route (`app/api/copilotkit/[...path]/route.ts`) builds its
+`B4HttpAgent({ responseSchema })` with the brief kit's JSON Schema
+(`app/brief/kit.ts`), so every run sends it as `forwardedProps.responseSchema`.
+B4.run binds it on the route's model as structured output, and `BriefRenderer`
+(`app/brief/`) renders the streamed `{ ui: [...] }` as the BottomLine,
+RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations and Prose components,
+in the chat and in the sheet's Brief tab. An older thread's markdown answer
+falls back to the markdown renderer.
+
+The server must allow that key, and `server/b4.config.ts` does, for this route
+only:
+
+```ts
+server: {
+  agui: { clientForwardedProps: { "/navlog": ["responseSchema"] } },
+},
+```
+
+Without it the server refuses every run with a 422
+`forwarded_props_not_allowed`.
 
 No model credentials live in this package. The B4.run server holds them, and this
 app reaches it through a same-origin proxy.
@@ -92,9 +127,9 @@ npm run build --workspace web
 |---|---|---|
 | Connect screen | `app/components/ConnectScreen.tsx` | replaces the shell while the server is unreachable |
 | Layout | `app/components/WorkbenchLayout.tsx` | the docked columns (sidenav, chat, map with the route bar and sheet); the phone tabs |
-| Route map | `app/components/RouteMap.tsx` | Leaflet, browser-only, draws what `routeGeometry` returns |
+| Route map | `app/components/RouteMap.tsx`, `MarkerPanel.tsx`, `app/lib/map-labels.ts` | Leaflet, browser-only, draws what `routeGeometry` returns; the marker panel; label placement |
 | Sidenav | `app/components/SideNav.tsx` | wordmark, new plan, threads, memory count |
-| Chat | `app/components/ChatDock.tsx` | title, status, memory, the chat |
+| Chat column | `app/components/ChatDock.tsx` | the thread title and run status above the chat |
 | Route bar | `app/components/RouteBar.tsx`, `app/lib/route-draft.ts` | the typed route, its draft on the map, and the Plan message |
 | Waypoint search | `app/api/waypoints/route.ts`, `app/lib/waypoint-search.ts`, `data/waypoints.json` | searches the bundled OurAirports snapshot server-side |
 | Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx`, `WeatherTab.tsx` | verdict strip, legs grid and tabs, weather by role, totals, ICAO flight plan, print and copy |
@@ -212,16 +247,31 @@ caller.
 
 ## Tests
 
-`npm test --workspace web` runs the Vitest suites: the proxy and CopilotKit
-runtime routes and the allowlist, the thread source, the thread rail, the chat
-(attachments, echo stripping, approval gating), the step views, drop notices,
-the connect screen, the memory panel, media parts, the shell's thread-switch
-and server-probe behaviour, and the map workbench (selectors, route geometry,
-formatting, the navlog table, sheet, flight plan, the route bar and its draft,
-the waypoint search, the Weather tab, and the desktop and phone layouts). `RouteMap` needs a real DOM and is not unit-tested.
+`npm test --workspace web` runs the Vitest suites:
+
+- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search
+  and admin routes, the allowlist and the proxy guards.
+- **Shell and chat:** the thread source and thread rail, the sidenav and its
+  remembered state, the chat (attachments, echo stripping, approval gating),
+  the step views, drop notices, the connect screen, the memory panel, media
+  parts, the shell's thread-switch and server-probe behaviour, and the desktop
+  and phone layouts.
+- **Brief kit** (`app/brief/*.test.*`): the schema, the components, the
+  parser and `BriefRenderer`, plus the brief contract and the verdict
+  (`app/lib/verdict.test.ts`).
+- **Map and sheet:** the selectors, route geometry, label collision placement
+  (`app/lib/map-labels.test.ts`), `RouteMap` over a fake Leaflet, the marker
+  panel, the route bar and its draft, the waypoint search, formatting, the
+  navlog grid, table and sheet, the Weather tab and its role grouping, the
+  verdict card and the flight plan block.
+- **Design rules** (`app/design-rules.test.ts`): the look's constraints, see
+  Restyling it.
+
 `typecheck` and `build` prove the CopilotKit and AG-UI wiring compiles. The
 activity components themselves are tested in `@b4run/ag-ui`.
 
-There are no browser or live-model tests here. A full planning run — streaming,
-activity steps, the approval gate live and across a reload, memory candidates
-appearing — needs a real `OPENAI_API_KEY` and is covered by unit tests only.
+None of these tests calls a model. To smoke-test a live run, start both
+processes with a real `OPENAI_API_KEY` in `server/.env`, type `KPAO SNS KSBA`
+in the route bar and press **Plan**: the plan and subagent steps stream into
+the chat, the route and its weather draw on the map, the navlog sheet fills in,
+and the brief renders. Then ask it to file the plan to see the approval card.

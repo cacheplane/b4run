@@ -133,6 +133,7 @@ const FOUNDATION_DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Navlog Example App", href: "/docs/recipes/navlog" },
       { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
       { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
       { label: "Blueprints", href: "/docs/blueprints" },
@@ -437,14 +438,14 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(64)
+    expect(expectedPages).toHaveLength(65)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(64)
-    expect(DOCS_PAGES).toHaveLength(64)
-    expect(ALL_DOCS_PAGES).toHaveLength(80)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(65)
+    expect(DOCS_PAGES).toHaveLength(65)
+    expect(ALL_DOCS_PAGES).toHaveLength(81)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)

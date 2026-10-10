@@ -4,8 +4,8 @@
  * marker still names itself on hover and focus, and in its accessible name).
  *
  * Pure: it takes screen rectangles and returns placements, so the rule is
- * testable without Leaflet or a layout engine. `RouteMap` measures the
- * rectangles and applies the result.
+ * testable without Leaflet or a layout engine. `declutterLabels`
+ * (`map-label-dom.ts`) measures the rectangles and applies the result.
  */
 
 export interface Rect {

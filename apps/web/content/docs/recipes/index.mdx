@@ -8,6 +8,10 @@ For route-level agent behavior, start with [Memory](/docs/memory), [Planning](/d
 
 The [code-fixer walkthrough](https://github.com/cacheplane/b4run/blob/main/examples/code-fixer/server/WALKTHROUGH.md) shows a complete agent that reproduces a failure, edits an isolated workspace, runs independent verification, scores the result, and pauses before local export. The example owns the fixture and the verification policy, and B4 supplies the runtime. Its README covers setup and a replay mode that makes no model call.
 
+## Live example app
+
+The [Navlog Example App](/docs/recipes/navlog) is the flagship example: a live VFR flight planner you can [try in your browser](https://navlog-web.vercel.app), run locally, deploy, and use as the starting point for your own app. Its page maps the code and links the two recipes that build it.
+
 ## Build
 
 - [Build a Flight Planner](/docs/recipes/flight-planner): a VFR flight planner with weather and performance subagents, planning, memory and a map Workbench.

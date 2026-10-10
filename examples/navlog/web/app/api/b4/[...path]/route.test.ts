@@ -81,7 +81,7 @@ describe("b4 proxy route", () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  test("no longer proxies thread state", async () => {
+  test("does not proxy thread state", async () => {
     const fetchSpy = vi.spyOn(global, "fetch")
 
     const response = await call(["threads", "t1", "state"])

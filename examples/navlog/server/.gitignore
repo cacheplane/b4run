@@ -6,3 +6,8 @@ dist/
 workspace/reports/
 workspace/tool-outputs/
 workspace/flight-plans/
+
+# `b4 build` (node target) writes a Dockerfile here on every build. This example
+# deploys with Dockerfile.railway, which builds from the monorepo root; the
+# generated one installs from npm and cannot resolve the workspace: packages.
+/Dockerfile

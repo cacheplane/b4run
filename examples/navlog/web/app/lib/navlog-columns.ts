@@ -1,6 +1,7 @@
 import { formatGal, formatHeading, formatHhmm, formatUtcHhmm, formatVariation } from "./format"
 import type { Navlog, NavlogLeg } from "./navlog-types"
 
+/** A leg's name for its row: `KSTP → KRST (climb)`. */
 export const legName = (leg: NavlogLeg): string => `${leg.from} → ${leg.to} (${leg.segment})`
 
 export interface LegColumn {
@@ -81,6 +82,7 @@ export const LEG_COLUMNS: readonly LegColumn[] = [
   },
 ]
 
+/** The totals row's value under a column, by its key; empty where a column has no total. */
 export function totalFor(navlog: Navlog, key: string): string {
   switch (key) {
     case "dist":

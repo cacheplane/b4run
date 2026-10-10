@@ -9,18 +9,26 @@ shipped as an npm workspace with two packages:
   tests, and evals.
   [`server/README.md`](./server/README.md) is the full tour.
 - **`web/`** — the B4.run Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
-  client built on CopilotKit. A full-viewport route map (Leaflet on
-  OpenStreetMap tiles) sits behind a floating chat dock (threads, streaming chat,
-  each turn's plan, tool and subagent steps, the flight-plan approval, memory
-  review), a route bar for typing a route with waypoint autocomplete, airport
-  markers that open their METAR and TAF, and a bottom navlog sheet with the legs
-  table, the weather by origin, en route and destination, the ICAO flight plan,
-  the brief, print and copy. Phones get one tabbed bottom sheet.
-  [`web/README.md`](./web/README.md) covers restyling it and its known limits.
+  client built on CopilotKit. On desktop it is three docked columns:
+  - a collapsible sidenav with **New plan**, the recent threads and **Memory**
+    mode for reviewing the memories the agent proposed;
+  - the chat, with each turn's plan, tool and subagent steps and the
+    flight-plan approval inline, and the agent's answer rendered as a
+    structured brief;
+  - the route map (Leaflet on OpenStreetMap tiles) over the navlog sheet. A
+    route bar across the top of the map takes a typed route with waypoint
+    autocomplete, airport markers open their METAR and TAF, and the sheet holds
+    the legs, a **Weather** tab grouped by origin, en route and destination,
+    the totals and ICAO flight plan, the brief, print and copy.
 
-The B4.run repository's `examples/navlog` runs this same app as a public demo,
-with the server on Railway and the Workbench on Vercel; its READMEs' "Deploy"
-sections cover the production entry, the proxy guards and the configuration.
+  Phones get one full-screen panel at a time and a tab bar: Chat, Map, Navlog.
+  [`web/README.md`](./web/README.md) covers the layout, restyling it and its
+  known limits.
+
+The B4.run repository's `examples/navlog` runs this same app as a public demo at
+<https://navlog-web.vercel.app>, with the server on Railway and the Workbench on
+Vercel; its READMEs' "Deploy" sections cover the production entry, the proxy
+guards and the configuration.
 
 Requires Node.js 24 or later and npm 11.
 

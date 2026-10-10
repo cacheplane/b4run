@@ -21,6 +21,7 @@ const ICON_PATHS: Record<VerdictLevel, string> = {
   "NO-GO": "M7.9 2h8.2L22 7.9v8.2L16.1 22H7.9L2 16.1V7.9L7.9 2Zm7.1 7-6 6m0-6 6 6",
 }
 
+/** The verdict level's shape (check, triangle, octagon), so the level never rides on color alone. */
 export function VerdictIcon({
   level,
   className = "",

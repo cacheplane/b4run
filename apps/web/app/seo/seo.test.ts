@@ -281,14 +281,14 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(91)
+    expect(before).toHaveLength(92)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(93)
+      expect(pages).toHaveLength(94)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -358,11 +358,11 @@ describe("production SEO inventory", () => {
       "/blog/tags/releases",
       "/blog/tags/patterns",
     ])
-    expect(pages).toHaveLength(93)
+    expect(pages).toHaveLength(94)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
-      ...Array.from({ length: 80 }, () => "docs"),
+      ...Array.from({ length: 81 }, () => "docs"),
       ...Array.from({ length: 6 }, () => "blog-post"),
       ...Array.from({ length: 5 }, () => "blog-tag"),
     ])
@@ -377,7 +377,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(93)
+    expect(pages).toHaveLength(94)
     expectNormalizedDescriptions(pages)
   })
 })
@@ -788,11 +788,11 @@ describe("static SEO pages", () => {
     expect(resolveStaticSeoPage("/docs/not-registered")).toBeUndefined()
   })
 
-  it("registers exactly the 80 authored docs routes without the redirect", () => {
+  it("registers exactly the 81 authored docs routes without the redirect", () => {
     const expectedHrefs = ALL_DOCS_PAGES.map(({ href }) => href).sort()
     const registeredHrefs = Object.keys(DOCS_SEO_PAGES).sort()
 
-    expect(expectedHrefs).toHaveLength(80)
+    expect(expectedHrefs).toHaveLength(81)
     expect(registeredHrefs).toEqual(expectedHrefs)
     expect(registeredHrefs).not.toContain("/docs")
   })
@@ -825,7 +825,7 @@ describe("static SEO pages", () => {
   it("uses one unique, normalized, query-answering description per docs route", () => {
     const descriptions = Object.values(DOCS_SEO_PAGES).map((page) => page.description)
 
-    expect(descriptions).toHaveLength(80)
+    expect(descriptions).toHaveLength(81)
     expect(new Set(descriptions).size).toBe(descriptions.length)
     for (const description of descriptions) {
       expect(description).toBe(description.trim())

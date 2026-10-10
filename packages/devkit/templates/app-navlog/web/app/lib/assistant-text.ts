@@ -2,8 +2,14 @@ import { parseVerdictText, type Verdict } from "./weather-selectors"
 
 /**
  * Cleaning and reading the assistant's prose for display outside the
- * transcript (the navlog sheet's brief). Pure string functions, no React, so
- * the chat dock can reuse `stripToolEchoes` for its own bubbles.
+ * transcript (the navlog sheet's brief). Pure string functions, no React.
+ *
+ * Two kinds of reader live here. `stripToolEchoes`, `textBlocks` and
+ * `inlineSegments` serve every answer: the chat dock's bubbles and the brief
+ * kit's prose components use them too. `parsePlanningAnswer` is the FALLBACK
+ * path: it reads a markdown planning answer ("Bottom line:", "Watch for:", …),
+ * which only threads from before the structured brief kit hold; a structured
+ * answer is read by `../brief/parse` instead.
  */
 
 /** `recall({ query: "…" })`, `` `writeFile({…})` ``, `- task({ subagent: "weather" })`. */
@@ -54,12 +60,13 @@ export function stripToolEchoes(text: string): string {
     .trim()
 }
 
+/** One labelled section of a markdown planning answer ("Watch for:" and its bullets). */
 export interface PlanningSection {
   readonly title: string
   readonly items: readonly string[]
 }
 
-/** The final planning answer in its structured shape. */
+/** A markdown planning answer, read into its sections (the fallback path). */
 export interface PlanningAnswer {
   /** Null when "Bottom line:" does not start with GO, CAUTION or NO-GO. */
   readonly verdict: Verdict | null

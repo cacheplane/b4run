@@ -102,6 +102,7 @@ function byMostRecent(threads: readonly WorkbenchThread[]): WorkbenchThread[] {
   return [...threads].sort((left, right) => right.lastActiveAt - left.lastActiveAt)
 }
 
+/** A `ThreadSource` kept in the given storage (the browser's `localStorage`). */
 export function createLocalThreadSource(storage: Storage): ThreadSource {
   return {
     list() {

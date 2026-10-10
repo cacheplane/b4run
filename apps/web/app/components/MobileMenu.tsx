@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
 import { MobileDocsNav } from "./docs/MobileDocsNav"
 import headerStyles from "./homepage/header.module.css"
+import { NAVLOG_DEMO_URL } from "./site-links"
 import { CopyCommand } from "./ui/CopyCommand"
 import { Eyebrow } from "./ui/Eyebrow"
 import { Icon } from "./ui/Icon"
@@ -18,6 +19,7 @@ interface MenuLink {
 const SITE_LINKS: readonly MenuLink[] = [
   { label: "Docs", href: "/docs/getting-started" },
   { label: "Blog", href: "/blog" },
+  { label: "Demo", href: NAVLOG_DEMO_URL },
   { label: "Download brand kit", href: "/brand/b4-run-brand-assets.zip", download: true },
   { label: "GitHub", href: "https://github.com/cacheplane/b4run" },
 ]

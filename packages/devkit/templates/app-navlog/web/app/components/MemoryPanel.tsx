@@ -286,6 +286,7 @@ export interface MemoryPanelProps {
   readonly onClose?: () => void
 }
 
+/** Memory mode's review: the memories the agent proposed, each to approve or reject. */
 export function MemoryPanel({ onCountChange, open = false, onClose }: MemoryPanelProps = {}) {
   const { agent } = useAgent()
   const [candidates, setCandidates] = useState<readonly MemoryCandidate[]>([])
@@ -315,8 +316,7 @@ export function MemoryPanel({ onCountChange, open = false, onClose }: MemoryPane
   // only write is `= false` in the cleanup latches false forever on the second
   // setup. Every `isCurrent()` would then be permanently false and this panel
   // would render NOTHING in dev — candidates fetched, nothing painted, and
-  // `isBusy` stuck on after the first decision. Verified in jsdom against a
-  // non-Strict control.
+  // `isBusy` stuck on after the first decision.
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true

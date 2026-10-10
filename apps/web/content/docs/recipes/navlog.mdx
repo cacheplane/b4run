@@ -1,0 +1,154 @@
+# Navlog Example App
+
+Navlog is the flagship B4.run example: a VFR flight planner for a Cessna 172N, with an agent server and a web client. Try it live, run it on your machine, deploy your own copy, or start a new app from it.
+
+<Callout type="info" title="Try the live demo">
+Open [navlog-web.vercel.app](https://navlog-web.vercel.app) and type a route in the bar over the map, such as `KPAO SNS KSBA`. Set a cruise altitude and a departure time, then press **Plan**.
+</Callout>
+
+The demo is a learning tool, not a flight-planning service. Its weather is live, but its airport and navaid data is a dated snapshot. Never use it for real flight planning.
+
+## What does it show?
+
+A planning run uses most of B4.run's agent features in one route. The table maps what you see to the feature and the file behind it.
+
+| What you see | B4.run feature | Where |
+| --- | --- | --- |
+| A planning answer with a bottom line, hazards and key numbers | Structured output from a client-supplied response schema | `web/app/brief/`, `server/b4.config.ts` |
+| Live METARs, TAFs, winds aloft and advisories | Tools that call aviationweather.gov (no key) | `server/src/tools/get*.ts` |
+| Weather and performance worked out in parallel | [Subagents](/docs/subagents) with their own tool lists | `server/src/app/navlog/subagents/` |
+| A to-do list as the plan runs | [Planning](/docs/planning) | `server/src/app/navlog/plan.md` |
+| Headings, wind correction and fuel, never guessed by the model | A tool that does the math in code from the POH tables | `server/src/tools/computeNavlog.ts`, `server/src/lib/` |
+| Your tail number and fuel remembered next time | [Memory](/docs/memory) with reviewed candidates | `server/src/app/navlog/memory.ts` |
+| "File the plan" asks before it acts | [Permissions](/docs/permissions) with an approval gate | `server/src/app/navlog/index.ts` (`tools.approve`) |
+| Threads you can come back to | Durable threads, owned by each visitor | `server/src/auth.ts`, `server/src/thread-access.ts` |
+| The chat, the steps and the approval card | The [AG-UI](/docs/ag-ui) endpoint with CopilotKit and the B4 activity kit | `web/app/components/NavlogChat.tsx` |
+
+## Run it locally
+
+You need Node.js 24, pnpm, and an OpenAI API key for live runs. The unit tests and evals run without a key.
+
+<Steps>
+<Step title="Get the code">
+
+Clone the repository and install from the root:
+
+```bash
+git clone https://github.com/cacheplane/b4run.git
+cd b4run
+pnpm install
+pnpm build
+```
+
+</Step>
+<Step title="Give the server a key">
+
+The server holds the OpenAI key. The web client never sees it:
+
+```bash
+cd examples/navlog
+cp server/.env.example server/.env
+# edit server/.env and set OPENAI_API_KEY
+```
+
+</Step>
+<Step title="Start both apps">
+
+```bash
+pnpm dev
+```
+
+This starts the B4.run server on port 3002 and the web client on port 3010. Open http://localhost:3010 and plan a route.
+
+</Step>
+</Steps>
+
+To start a new app from the example rather than work in the repository, scaffold it:
+
+```bash
+npm create b4-app@latest my-navlog -- --template navlog
+```
+
+The scaffold is the same code as `examples/navlog`, kept byte for byte in sync by a test. [Build a Flight Planner](/docs/recipes/flight-planner) walks through it from there.
+
+## How is it built?
+
+Navlog has two packages. `server/` is a B4.run app, and `web/` is a Next.js client that talks to it over AG-UI.
+
+### The request path
+
+A plan is one streaming request from the browser to the agent:
+
+```text
+browser
+  → POST /api/copilotkit/…           (web: CopilotKit runtime, the visitor guard)
+  → B4HttpAgent({ responseSchema })   (web: adds the brief kit's JSON Schema)
+  → POST /agui/%2Fnavlog%23agent      (server: the navlog route over AG-UI)
+  → the coordinator, its subagents and tools
+  ← streamed events: text, tool steps, the plan, an approval card
+```
+
+The client's other calls go through small, allowlisted proxies: `/api/b4` for memory review and `/api/waypoints` for route autocomplete.
+
+### The server
+
+| Part | What it does |
+| --- | --- |
+| `src/app/navlog/index.ts` | The coordinator route. Its prompt is the procedure: read the aircraft baseline and recall the pilot's overrides, resolve the departure time, look up the waypoints, send out the subagents, compute the navlog, and answer as a brief. |
+| `src/app/navlog/subagents/weather` | Fetches METARs, TAFs, winds aloft and advisories for every airport and en-route station, and returns a fixed-format brief with a GO, CAUTION or NO-GO verdict. |
+| `src/app/navlog/subagents/performance` | Reads the POH tables for takeoff, climb, cruise and landing figures. |
+| `src/tools/` | One file per tool. `lookupAirport` and `lookupNavaid` resolve waypoints. `findRouteStations` finds reporting stations within 25 nm of the course. `computeNavlog` does all the navigation arithmetic. `fileFlightPlan` writes the ICAO plan behind an approval. |
+| `src/lib/` | Pure code the tools call: great-circle geometry, the wind triangle, POH table interpolation and the ICAO flight-plan format, each with unit tests. |
+| `data/navaids.json` | The US navaid snapshot from OurAirports (public domain), rebuilt by `scripts/build-waypoints.mjs`. |
+| `workspace/` | The read-only reference corpus the agent reads: the aircraft baseline, the 172N POH and the regulations. |
+| `b4.config.ts` | Read-only paths for the corpus, memory writes as reviewed candidates, and `server.agui.clientForwardedProps`, which lets the navlog route accept the client's `responseSchema`. |
+
+### The web client
+
+| Part | What it does |
+| --- | --- |
+| `app/components/AppShell.tsx` | Connects to the server, holds the thread list, and mounts one workbench per thread. |
+| `app/components/WorkbenchLayout.tsx` | The layout: three docked columns on a desktop (sidebar, chat, map over the sheet), and Chat, Map and Navlog tabs on a phone. |
+| `app/components/NavlogChat.tsx` | CopilotKit's chat with the B4 activity kit's step views and approval card. |
+| `app/components/RouteMap.tsx`, `RouteBar.tsx` | The Leaflet map with flight-category markers and non-overlapping labels, and the route bar with waypoint autocomplete. |
+| `app/components/NavlogSheet.tsx` | The navlog sheet: Legs, Weather (origin, en route, destination), Totals and plan, and Brief. |
+| `app/brief/` | The brief kit: the schema the agent answers in and the React components that render it. |
+| `app/lib/` | Pure selectors that read each surface's data from the run's events, with unit tests. |
+| `app/api/` | The CopilotKit runtime route and the guarded proxies. Every route checks origin, visitor and rate limit. |
+
+The map, the sheet and the chat all read from the same run. Each surface finds its data in the tool results with a pure selector. For example, `latestNavlogResult` returns the most recent `computeNavlog` result, so a replan updates everything at once.
+
+## Deploy your own
+
+The live demo runs the server on Railway and the web client on Vercel. Each package's README has the full steps. The shape of the setup:
+
+- **Server** (`server/Dockerfile.railway`, `server/main.mjs`): runs the `b4 build` output with Postgres for threads, checkpoints, permissions and memory. It refuses to boot in production without a shared secret.
+- **Web** (`web/vercel.json`): a Vercel project rooted at `examples/navlog/web`, with an 800-second limit on the CopilotKit route because a plan streams for several minutes.
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | server | The model key. Give the deployment its own key with a monthly spend cap. |
+| `DATABASE_URL` | server | Postgres (with pgvector) for durable threads and memory. |
+| `B4_INTERNAL_TOKEN` | both | The secret the web client sends on every call. At least 32 characters. |
+| `B4_SERVER_URL` | web | The server's public URL. |
+| `B4_DEMO_ORIGINS` | web | The site's own origins, for the origin check. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | web | The rate limiter's store. |
+
+## Use it as a starting point
+
+Most of what makes navlog a flight planner lives in four places. To adapt it, change these:
+
+- **The aircraft and the corpus.** `server/workspace/aircraft/` and `server/workspace/poh/` hold the airplane's data. The agent reads them through `readDoc`.
+- **The procedure.** The coordinator's prompt in `server/src/app/navlog/index.ts` says what to do and in what order. The subagents' prompts say how to brief weather and performance.
+- **The tools.** Each file in `server/src/tools/` is one tool, typed from its input. Keep arithmetic in `src/lib/` and out of the model.
+- **The answer's shape.** `web/app/brief/schema.ts` declares the components the agent may answer with. The server binds that schema as the model's structured output.
+
+The tests are the safety net. `pnpm test` in `examples/navlog` runs the server and web unit tests, and `pnpm --filter ./server eval` replays the recorded evals. Neither needs a key.
+
+## Related
+
+<RelatedCards items={[
+  { href: "/docs/recipes/flight-planner", title: "Build a Flight Planner", subtitle: "the server, step by step" },
+  { href: "/docs/recipes/flight-planner-web-ui", title: "Flight Planner Web UI", subtitle: "the client, step by step" },
+  { href: "/docs/ag-ui", title: "AG-UI and Web Clients", subtitle: "the protocol between them" },
+]} />

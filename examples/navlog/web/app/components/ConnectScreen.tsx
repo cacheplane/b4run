@@ -15,11 +15,10 @@ export interface ConnectScreenProps {
   readonly serverUrl: string
   /**
    * Re-probe now, instead of waiting for `AppShell`'s poll. The probe can
-   * genuinely succeed and clear this screen without a reload — unlike the
-   * predicate this replaced (`useCopilotKit().runtimeConnectionStatus`,
-   * which latches on `"error"` with no way back) — so a button here is a
-   * real shortcut for someone who just started the server, not a decoration
-   * in front of a reload instruction.
+   * genuinely succeed and clear this screen without a reload (unlike
+   * `useCopilotKit().runtimeConnectionStatus`, which latches on `"error"` with
+   * no way back), so a button here is a real shortcut for someone who just
+   * started the server, not a decoration in front of a reload instruction.
    */
   readonly onRetry: () => void
 }
@@ -30,10 +29,10 @@ export const CONNECT_SCREEN_HEADING = "Can’t reach the B4.run server"
 /**
  * Full-viewport first impression for "the B4.run server is not running yet".
  *
- * Without this, the likeliest first run of this example — open the web app
- * before the agent server — showed an empty workbench and, on send, a run
- * error row that names a CopilotKit error code, not "start the server". This
- * is surface 1 — see the error-surface note at the top of `AppShell.tsx` for
+ * The likeliest first run of this example opens the web app before the
+ * agent server; without this screen it would show an empty workbench and, on
+ * send, a run error that names a CopilotKit error code, not "start the
+ * server". This is surface 1 — see the error-surface note at the top of `AppShell.tsx` for
  * why it replaces the whole shell instead of sharing the transcript with the
  * `RunError` row.
  *

@@ -84,8 +84,8 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief=""
-        weather={BRIEF}
+        planningAnswer=""
+        weatherBrief={BRIEF}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -101,7 +101,7 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief={"Bottom line: GO — VFR all the way.\nWatch for:\n- Gusts at KRST"}
+        planningAnswer={"Bottom line: GO — VFR all the way.\nWatch for:\n- Gusts at KRST"}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -116,8 +116,8 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief="KSTP and KRST are VFR."
-        weather={parseWeatherBrief("Airports:\nKSTP: VFR now, VFR at ETA")}
+        planningAnswer="KSTP and KRST are VFR."
+        weatherBrief={parseWeatherBrief("Airports:\nKSTP: VFR now, VFR at ETA")}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -132,7 +132,7 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief={
+        planningAnswer={
           'recall({ query: "aircraft profile and pilot preferences" })\nPlan and todos\n[completed] Recall\nKSTP and KRST are **VFR**.'
         }
         open={true}
@@ -149,7 +149,7 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief=""
+        planningAnswer=""
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -165,8 +165,8 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief=""
-        weather={BRIEF}
+        planningAnswer=""
+        weatherBrief={BRIEF}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -269,8 +269,8 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief={PLANNER_GO}
-        weather={GUSTY_GO}
+        planningAnswer={PLANNER_GO}
+        weatherBrief={GUSTY_GO}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -310,8 +310,8 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief={structured}
-        weather={GUSTY_GO}
+        planningAnswer={structured}
+        weatherBrief={GUSTY_GO}
         open={true}
         onToggle={() => {}}
         tab="brief"
@@ -328,7 +328,7 @@ describe("a verdict the floor raised", () => {
   test("a planner call as severe as the card keeps its own bottom line", () => {
     const html = renderToStaticMarkup(
       <PlanningBrief
-        text={"Bottom line: CAUTION — gusty.\nWatch for:\n- Gusts"}
+        planningAnswer={"Bottom line: CAUTION — gusty.\nWatch for:\n- Gusts"}
         verdict={RAISED}
       />,
     )
@@ -339,8 +339,8 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        brief={PLANNER_GO}
-        weather={GUSTY_GO}
+        planningAnswer={PLANNER_GO}
+        weatherBrief={GUSTY_GO}
         open={false}
         onToggle={() => {}}
         tab="legs"
@@ -357,7 +357,7 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={thirsty}
-        brief={"Bottom line: GO — fine."}
+        planningAnswer={"Bottom line: GO — fine."}
         open={true}
         onToggle={() => {}}
         tab="legs"

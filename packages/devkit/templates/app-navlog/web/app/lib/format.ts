@@ -1,3 +1,4 @@
+/** A heading in degrees as three digits: `7` is `007`. */
 export const formatHeading = (deg: number): string => String(Math.round(deg)).padStart(3, "0")
 
 /** Minutes as h:mm. Rounds to whole minutes first, so 59.6 is 1:00, never 0:60. */
@@ -6,11 +7,13 @@ export const formatHhmm = (minutes: number): string => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
 }
 
+/** An ISO instant as UTC `HHMMZ`. */
 export const formatUtcHhmm = (iso: string): string => {
   const d = new Date(iso)
   return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`
 }
 
+/** Gallons to one decimal. */
 export const formatGal = (gal: number): string => gal.toFixed(1)
 
 /** Signed variation (east positive) as `3E` / `2W`; zero is `0`. */

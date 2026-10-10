@@ -7,6 +7,7 @@ import { DocsSearch, SearchShortcutHint } from "./docs/DocsSearch"
 import { loadDocsSearchIndex, openDocsSearch } from "./docs/docs-search-events"
 import homepageStyles from "./homepage/header.module.css"
 import { MobileMenu } from "./MobileMenu"
+import { NAVLOG_DEMO_URL } from "./site-links"
 import { Button } from "./ui/Button"
 import { CopyCommand } from "./ui/CopyCommand"
 import { Icon } from "./ui/Icon"
@@ -113,6 +114,10 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           >
             Blog
           </Link>
+          {/* The live navlog example, in a new tab (SiteLink opens off-site hrefs there). */}
+          <SiteLink href={NAVLOG_DEMO_URL} className={linkClass(false)}>
+            Demo
+          </SiteLink>
           {docsActive ? null : <HeaderSearchButton />}
           <SiteLink
             href={repoUrl}

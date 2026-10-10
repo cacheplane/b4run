@@ -63,11 +63,9 @@
 /*
  * Tokens: the activity kit (@b4run/ag-ui/react) inherits the workbench palette.
  *
- * A plain `:root` is enough. @b4run/ag-ui wraps all three of its own token
- * blocks in `:where()`, so they sit at specificity (0,0,0) and this block wins
- * in both themes and regardless of stylesheet order. (It used to read
- * `:root:root`: the package's two dark blocks were (0,2,0), so a plain `:root`
- * lost in dark mode and the kit kept the package's colors.)
+ * A plain `:root` is enough. @b4run/ag-ui wraps its own token blocks in
+ * `:where()`, so they sit at specificity (0,0,0) and this block wins
+ * regardless of stylesheet order.
  */
 :root {
   --b4-activity-surface: var(--wb-surface);

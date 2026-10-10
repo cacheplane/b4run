@@ -17,10 +17,12 @@ function scale(size: "sm" | "md"): string {
   return size === "sm" ? "px-3 py-1 text-[12px]" : "min-h-8 px-4 py-1 text-[13px]"
 }
 
+/** The quiet pill button's classes. */
 export function neutralButton(size: "sm" | "md"): string {
   return `wb-focus rounded-full border border-wb-border bg-wb-surface font-medium tracking-tight transition-colors hover:border-wb-muted ${scale(size)}`
 }
 
+/** The ink pill button's classes, for the one action a surface exists for. */
 export function primaryButton(size: "sm" | "md"): string {
   return `wb-focus rounded-full border border-wb-text bg-wb-text font-medium tracking-tight text-wb-surface transition-colors hover:bg-wb-muted hover:border-wb-muted ${scale(size)}`
 }

@@ -148,8 +148,8 @@ describe("sitemap documentation entries", () => {
       .map((entry) => entry.url)
       .filter((url) => new URL(url).pathname.startsWith("/docs"))
 
-    expect(DOCS_PAGES).toHaveLength(64)
-    expect(ALL_DOCS_PAGES).toHaveLength(80)
+    expect(DOCS_PAGES).toHaveLength(65)
+    expect(ALL_DOCS_PAGES).toHaveLength(81)
     expect(docsUrls).toEqual(ALL_DOCS_PAGES.map((page) => `https://b4.run${page.href}`))
     expect(docsUrls).toContain("https://b4.run/docs/thread-access")
     expect(docsUrls).not.toContain("https://b4.run/docs")
@@ -181,7 +181,7 @@ describe("sitemap documentation entries", () => {
     expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
     expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
     expect(entries).toHaveLength(2 + ALL_DOCS_PAGES.length + posts.length + tags.length)
-    expect(entries).toHaveLength(93)
+    expect(entries).toHaveLength(94)
   })
 
   it("keeps production post and tag static params aligned with the frozen sitemap inventory", async () => {

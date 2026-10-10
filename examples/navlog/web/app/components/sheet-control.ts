@@ -11,4 +11,5 @@ export interface SheetControl {
   readonly openSheet: () => void
 }
 
+/** The sheet control `WorkbenchLayout` provides; a no-op outside it. */
 export const SheetControlContext = createContext<SheetControl>({ openSheet: () => {} })

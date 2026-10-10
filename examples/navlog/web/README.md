@@ -9,7 +9,8 @@ the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`,
 `performance` subagents, tool steps and approval appear in the conversation, and the
 map, its route bar and the sheet read the same turns from outside the chat.
 
-The live app uses a real model; there is no aimock/demo mode. Its browser test is
+It runs live at <https://navlog-web.vercel.app>. The live app uses a real model;
+there is no aimock/demo mode. Its browser test is
 model-free and proves the page discovers `GET /api/copilotkit/info` instead of sending
 a legacy base-URL POST.
 
@@ -38,10 +39,26 @@ scroll (the connect screen scrolls itself on a short viewport).
   draw as small grey markers with their identifier and category. Airport and station
   markers are buttons: clicking one opens a panel in the map's corner with the id, the
   category now and at ETA, and the raw METAR and TAF from the weather brief (Escape
-  or the close button dismisses it); navaid markers are labels only. Leaflet loads
-  only in the browser (`next/dynamic` with `ssr: false`).
+  or the close button dismisses it); navaid markers are labels only. Labels never
+  sit on each other or on another marker's dot (`app/lib/map-labels.ts`): each goes
+  right of its dot, else left of it, else it hides until the marker is hovered or
+  focused. The route's own waypoints always keep their labels; stations and draft
+  points give way. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
 - **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
-  status and the chat (`app/components/NavlogChat.tsx`, below).
+  status above the chat (`app/components/NavlogChat.tsx`), which is `<CopilotChat>`
+  with B4.run's slots (`useB4ChatSlots`):
+  - one `TurnActivity` per turn: a summary line, the plan, the `weather` and
+    `performance` subagents nested, and each tool call as a step;
+  - the kit's `ApprovalCard` for the `fileFlightPlan` approval; the input waits
+    while it is open;
+  - the agent's answer as a structured brief (see [Structured answer](#structured-answer));
+  - `StepViews.tsx`, through `B4Activity`'s `renderStep`: a totals view for
+    `computeNavlog` and the image for `renderChart`;
+  - the starter suggestions before the first message (`DemoSuggestions.tsx`);
+  - PNG, JPEG, GIF and WebP attachments up to 4 MB when the route's model takes
+    images; a refused file gets one dismissible line above the chat;
+  - notices for parts the model never saw (`b4.content_parts_dropped`,
+    `DropNotices.tsx`) and a banner for run errors (`RunError.tsx`).
 - **Route bar** (across the top of the map, `app/components/RouteBar.tsx`) — the route as
   pills (airports in ink, navaids in cobalt, each with a remove button), an
   autocomplete input, the cruise altitude (1000 to 17500 ft), the departure, the
@@ -83,16 +100,6 @@ scroll (the connect screen scrolls itself on a short viewport).
   get a dot when a navlog arrives while you are in the chat, and an approval always
   brings you back to Chat. The menu opens the sidenav as a drawer. Only the layout that
   applies is rendered (`app/lib/use-media-query.ts`), so there is always exactly one chat.
-- **Chat** (`app/components/NavlogChat.tsx`) — `<CopilotChat>` with B4.run's slots
-  (`useB4ChatSlots`): one `TurnActivity` per turn (summary line, the plan, the `weather` /
-  `performance` subagents nested, each tool call as a step) and the kit's `ApprovalCard`
-  for the `fileFlightPlan` approval. The answer is structured: the route sends the brief kit's JSON Schema (`app/brief/kit.ts`) as `B4HttpAgent({ responseSchema })`, and `BriefRenderer` (`app/brief/`) renders the streamed `{ ui: [...] }` as BottomLine, RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations and Prose components, in the chat and in the sheet's Brief tab; an older thread's markdown answer falls back to the markdown renderer. `StepViews.tsx` gives `computeNavlog` a totals view
-  and `renderChart` its image, through `B4Activity`'s `renderStep`. Before the first
-  message the chat shows the starter suggestions (`DemoSuggestions.tsx`). The input waits
-  while an approval is open, and takes PNG, JPEG, GIF and WebP attachments up to 4 MB when
-  the route's model takes images; a refused file gets one dismissible line above the chat.
-  Parts the model never saw (`b4.content_parts_dropped`) show as notices in the chat column
-  (`DropNotices.tsx`), and run errors as a banner (`RunError.tsx`).
 
 ### How data reaches the map and the sheet
 
@@ -125,7 +132,10 @@ browser
 ```
 
 - `app/api/copilotkit/[...path]/route.ts` — `CopilotRuntime` with
-  `agents: { default: new B4HttpAgent({ ..., responseSchema: briefJsonSchema }) }` (the hashbrown schema from `app/brief/kit.ts`), with `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
+  `agents: { default: new B4HttpAgent({ ..., responseSchema: briefJsonSchema }) }`
+  (see [Structured answer](#structured-answer)) and
+  `runner: createB4AgentRunner(InMemoryAgentRunner, ...)` from
+  `@b4run/ag-ui/copilotkit-runtime` (CopilotKit's runner class passed in), served through
   `createCopilotRuntimeHandler` from `@copilotkit/runtime/v2` with
   `basePath: "/api/copilotkit"` and shared `GET`/`POST` exports. No LLM credentials
   live here; the B4.run server holds `OPENAI_API_KEY`.
@@ -138,6 +148,29 @@ browser
 Components/hooks that omit `agentId` resolve CopilotKit's default agent id
 (`"default"`), which the runtime route registers as the B4.run `/navlog` agent — same
 pattern as `examples/chat/web`, no per-component wiring needed.
+
+## Structured answer
+
+The agent answers a plan with a structured brief rather than markdown. The
+runtime route builds its agent as `B4HttpAgent({ responseSchema })` with the brief
+kit's JSON Schema (`briefJsonSchema`, built with hashbrown's `createUiJsonSchema` in
+`app/brief/kit.ts`), so every run sends it as `forwardedProps.responseSchema`. B4.run
+binds it on the route's model as structured output, and `BriefRenderer` (`app/brief/`)
+renders the streamed `{ ui: [...] }` as the BottomLine, RouteSummary, WatchFor,
+KeyNumbers, Assumptions, Citations and Prose components, in the chat and in the
+sheet's Brief tab. An older thread's markdown answer falls back to the markdown
+renderer. Tool-calling turns are unaffected.
+
+The server must allow that key, and `../server/b4.config.ts` does, for this route
+only:
+
+```ts
+server: {
+  agui: { clientForwardedProps: { "/navlog": ["responseSchema"] } },
+},
+```
+
+Without it the server refuses every run with a 422 `forwarded_props_not_allowed`.
 
 ## Thread history
 
@@ -210,10 +243,13 @@ demo (see [Deploy](#deploy-vercel)) and stay unset locally.
 
 `pnpm --filter @b4run/ag-ui test` renders the cards on the server and checks their
 schemas and bounds. Here, `typecheck` / `build` verify the CopilotKit/AG-UI wiring
-compiles and the Next.js app builds. The repository's packaged navlog activation
-proves the deterministic wire path. `pnpm --filter @b4-example/navlog-web
-test:e2e` drives the real page in a browser to verify V2 transport selection. None of
-these checks exercises a live model; this client intentionally has no demo/mock mode.
+compiles and the Next.js app builds. The repository's generated-app lane
+(`test/generated/run-generated-navlog-activation.test.ts`) scaffolds this app with
+`create-b4-app --template navlog` through npm and drives it in a browser against
+scripted model turns, which proves the wire path without a key.
+`pnpm --filter @b4-example/navlog-web test:e2e` drives the real page in a browser to
+verify V2 transport selection. None of these checks exercises a live model; this
+client intentionally has no demo/mock mode.
 
 ## Restyling it
 
@@ -247,27 +283,38 @@ those.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites: the proxy,
-waypoint-search and CopilotKit runtime routes and the allowlist, the thread source, the thread rail, the
-chat (attachments, echo stripping, approval gating), the step views, drop notices,
-the connect screen, the memory panel, media parts, the shell's thread-switch and
-server-probe behaviour, and the map workbench: the navlog and weather selectors, route
-geometry, formatting, the navlog table, sheet, flight plan block, the route bar and its
-draft, the waypoint search ranking, the Weather tab and its role grouping, and the
-desktop and phone layouts. The navlog fixture (`SAMPLE_NAVLOG`) is the server's own
-`computeNavlog` output, not hand-written numbers. `RouteMap` itself needs a real DOM and
-is exercised in the browser, not in Vitest. `typecheck` and `build` prove the
-CopilotKit/AG-UI wiring compiles. The activity components themselves are tested in
-`@b4run/ag-ui`.
+`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites:
+
+- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search and
+  admin routes, the allowlist and the proxy guards.
+- **Shell and chat:** the thread source and thread rail, the sidenav and its
+  remembered state, the chat (attachments, echo stripping, approval gating), the
+  step views, drop notices, the connect screen, the memory panel, media parts, the
+  shell's thread-switch and server-probe behaviour, and the desktop and phone layouts.
+- **Brief kit** (`app/brief/*.test.*`): the schema, the components, the parser and
+  `BriefRenderer`, plus the brief contract (`app/lib/brief-contract.test.ts`) and the
+  verdict (`app/lib/verdict.test.ts`).
+- **Map and sheet:** the navlog and weather selectors, route geometry, label
+  collision placement (`app/lib/map-labels.test.ts`), `RouteMap` itself over a fake
+  Leaflet (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
+  marker panel, the route bar and its draft, the waypoint search ranking, formatting,
+  the navlog grid, table and sheet, the Weather tab and its role grouping, the verdict
+  card and the flight plan block.
+- **Design rules** (`app/design-rules.test.ts`): see [Restyling it](#restyling-it).
+
+The navlog fixture (`SAMPLE_NAVLOG`) is the server's own `computeNavlog` output, not
+hand-written numbers. `typecheck` and `build` prove the CopilotKit/AG-UI wiring
+compiles. The activity components themselves are tested in `@b4run/ag-ui`.
 
 The model-free `test:e2e` browser test proves the V2 transport begins with
-`GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`. The connect
-screen, its auto-recovery, the empty chat, thread restore including the new-thread
-case, and every proxy allow/reject case were also verified by hand in a real browser
-against a real server. A full planning run — streaming, activity cards, the approval
-gate live and across a reload, memory candidates appearing and superseding — needs a
-real `OPENAI_API_KEY` and has not been exercised in this repo; those paths are covered
-by unit tests only.
+`GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`.
+
+To smoke-test a live run, start both processes with a real `OPENAI_API_KEY` in
+`server/.env`, type `KPAO SNS KSBA` in the route bar and press **Plan**: the plan and
+subagent steps stream into the chat, the route and its weather draw on the map, the
+navlog sheet fills in, and the brief renders. Ask it to file the plan to see the
+approval card, and reload mid-approval to see it come back. The same run works
+against the [live demo](https://navlog-web.vercel.app).
 
 ## What it does not do yet
 

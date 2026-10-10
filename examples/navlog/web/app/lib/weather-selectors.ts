@@ -43,6 +43,7 @@ export type ReportView =
   | { readonly kind: "none" }
   | { readonly kind: "missing" }
 
+/** How to show a METAR or TAF line from the brief (see `ReportView`). */
 export function reportView(text: string, label: "METAR" | "TAF"): ReportView {
   const trimmed = text.trim()
   if (trimmed === "") return { kind: "missing" }
@@ -55,6 +56,7 @@ export function reportView(text: string, label: "METAR" | "TAF"): ReportView {
   return { kind: "report", body }
 }
 
+/** The first flight category a text names, or `UNKNOWN`. */
 export function categoryOf(text: string): FlightCategory {
   const m = /\b(LIFR|MVFR|IFR|VFR)\b/i.exec(text)
   return m ? ((m[1] as string).toUpperCase() as FlightCategory) : "UNKNOWN"
@@ -286,6 +288,7 @@ function altitudesFt(text: string): number[] {
 
 const PRODUCT = /^(CONVECTIVE SIGMET|G-AIRMET|AIRMET|SIGMET|CWA|PIREP|TFR)\s+(.*)$/i
 
+/** One advisory line from the brief (`G-AIRMET FZLVL | … | valid … | relevance`) into its parts. */
 export function parseAdvisory(line: string): Advisory {
   const raw = line.trim()
   const parts = raw.split("|").map((part) => part.trim())

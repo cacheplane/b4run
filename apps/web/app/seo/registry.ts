@@ -435,6 +435,13 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/recipes/dispatch-from-route.mdx",
   },
   {
+    path: "/docs/recipes/navlog",
+    title: "Navlog Example App",
+    description:
+      "The flagship B4.run example: a live VFR flight planner. Try the demo, run it locally, deploy it, and tour how its agent and web client are built.",
+    sourcePath: "apps/web/content/docs/recipes/navlog.mdx",
+  },
+  {
     path: "/docs/recipes/flight-planner",
     title: "Build a Flight Planner",
     description:

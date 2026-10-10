@@ -1,18 +1,12 @@
 "use client"
-import type {
-  DivIcon,
-  Layer,
-  LeafletKeyboardEvent,
-  Map as LeafletMap,
-  Marker,
-  Polyline,
-} from "leaflet"
+import type { Layer, LeafletKeyboardEvent, Map as LeafletMap, Marker, Polyline } from "leaflet"
 import { type RefObject, useEffect, useRef, useState } from "react"
-import { type LabelCandidate, placeLabels, type Rect } from "../lib/map-labels"
+import { declutterLabels } from "../lib/map-label-dom"
 import type { DraftWaypoint } from "../lib/route-draft"
 import type { RouteGeometry } from "../lib/route-geometry"
 import type { RouteStation } from "../lib/weather-roles"
 import type { FlightCategory } from "../lib/weather-selectors"
+import { headingIcon, interactiveOptions, waypointIcon } from "./map-markers"
 
 export interface RouteMapProps {
   readonly geometry: RouteGeometry | null
@@ -45,53 +39,6 @@ interface LoadedMap {
 
 const cssVar = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-
-const escapeHtml = (text: string): string =>
-  text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
-
-/**
- * One airport, one marker: the dot and its label are a single div icon
- * anchored on the dot's center. (They used to be a circle marker plus a
- * second, label-only div icon — and a div icon keeps Leaflet's default 12×12
- * box, which the label's rounded border drew as a stray little circle beside
- * every airport.) The category rides on `data-cat`, so `theme.css` colors the
- * dot from the theme tokens and a theme switch recolors it without a redraw.
- */
-const WAYPOINT_SIZE = 14
-/** Stations and draft waypoints: a smaller dot, so the planned route's airports lead. */
-const SMALL_SIZE = 10
-
-/**
- * `waypoint`: a planned waypoint, its dot colored by category. `station`: a
- * reporting station near the course, a grey dot (it is not on the route) with
- * the category in its label. `draft`: a route-bar waypoint not yet planned.
- */
-type MarkerVariant = "waypoint" | "station" | "draft"
-
-function waypointIcon(
-  L: LeafletModule,
-  id: string,
-  cat: FlightCategory,
-  variant: MarkerVariant = "waypoint",
-): DivIcon {
-  // Color never stands alone: the label carries the category as text.
-  const text = cat === "UNKNOWN" ? escapeHtml(id) : `${escapeHtml(id)} <b>${cat}</b>`
-  const size = variant === "waypoint" ? WAYPOINT_SIZE : SMALL_SIZE
-  const dot =
-    variant === "waypoint"
-      ? `<span class="wb-wp-dot" data-cat="${cat}"></span>`
-      : `<span class="wb-wp-dot"></span>`
-  return L.divIcon({
-    className: variant === "waypoint" ? "wb-wp" : `wb-wp wb-wp-${variant}`,
-    html: `${dot}<span class="wb-wp-label">${text}</span>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  })
-}
-
-/** Marker options for an airport or station: a keyboard-focusable button named by its id. */
-const interactiveOptions = (id: string) =>
-  ({ interactive: true, keyboard: true, title: id, alt: id, riseOnHover: true }) as const
 
 interface WaypointLayers {
   readonly id: string
@@ -162,85 +109,6 @@ function isLive(
   return current !== null && current.map === liveMap.current
 }
 
-/** A DOM element's box in viewport pixels. */
-function boxOf(element: Element): Rect {
-  const { left, top, right, bottom } = element.getBoundingClientRect()
-  return { left, top, right, bottom }
-}
-
-/**
- * Measure every marker's dot and label, place the labels (`placeLabels`) and
- * write each placement onto its label as `data-placement`, which `theme.css`
- * reads. Labels are measured in their default spot, right of the dot; the
- * left spot is the same box mirrored across the dot.
- */
-function declutterLabels(groups: {
-  readonly waypoints: readonly WaypointLayers[]
-  readonly stations: readonly WaypointLayers[]
-  readonly drafts: readonly Marker[]
-  readonly headings: readonly Layer[]
-}): void {
-  const entries: {
-    readonly id: string
-    readonly priority: number
-    readonly element: HTMLElement
-  }[] = []
-  const add = (id: string, priority: number, marker: Marker): void => {
-    const element = marker.getElement()
-    if (element !== undefined) entries.push({ id, priority, element })
-  }
-  for (const waypoint of groups.waypoints) add(`wp:${waypoint.id}`, 0, waypoint.marker)
-  for (const station of groups.stations) add(`st:${station.id}`, 2, station.marker)
-  for (const [i, marker] of groups.drafts.entries()) add(`draft:${i}`, 3, marker)
-  const labels = new Map<string, HTMLElement>()
-  for (const entry of entries) {
-    const label = entry.element.querySelector<HTMLElement>(".wb-wp-label")
-    if (label === null) continue
-    label.removeAttribute("data-placement")
-    labels.set(entry.id, label)
-  }
-  const candidates: LabelCandidate[] = []
-  for (const entry of entries) {
-    const label = labels.get(entry.id)
-    const dot = entry.element.querySelector(".wb-wp-dot")
-    if (label === undefined || dot === null) continue
-    const dotBox = boxOf(dot)
-    const right = boxOf(label)
-    // Not laid out (a hidden panel): leave it where it is.
-    if (right.right - right.left === 0 || dotBox.right - dotBox.left === 0) continue
-    const gap = right.left - dotBox.right
-    const width = right.right - right.left
-    // A route waypoint always keeps its label (the route is what the map is
-    // for), as does the marker whose panel is open or that has focus; the
-    // stations and draft points around them give way.
-    const pinned =
-      entry.priority === 0 ||
-      entry.element.getAttribute("aria-expanded") === "true" ||
-      entry.element === document.activeElement
-    candidates.push({
-      id: entry.id,
-      priority: entry.priority,
-      dot: dotBox,
-      right,
-      left: {
-        left: dotBox.left - gap - width,
-        right: dotBox.left - gap,
-        top: right.top,
-        bottom: right.bottom,
-      },
-      ...(pinned ? { pinned } : {}),
-    })
-  }
-  const obstacles: Rect[] = []
-  for (const heading of groups.headings) {
-    const pill = (heading as Marker).getElement?.()?.querySelector(".wb-hdg-label")
-    if (pill !== null && pill !== undefined) obstacles.push(boxOf(pill))
-  }
-  for (const [id, placement] of placeLabels(candidates, obstacles)) {
-    if (placement !== "right") labels.get(id)?.setAttribute("data-placement", placement)
-  }
-}
-
 /**
  * Whether Leaflet is mid zoom or pan animation. It has no public flag for
  * this; `_animatingZoom` and `_panAnim._inProgress` are the internal ones its
@@ -261,20 +129,22 @@ const RESIZE_SETTLE_MS = 150
  * The route map: it fills its panel (the right column on desktop, the Map tab
  * on phones). Leaflet is imported once, in the mount effect, so this module
  * never touches `window` on the server; `WorkbenchLayout` also loads it with
- * `next/dynamic` and `ssr: false` for the same reason.
+ * `next/dynamic` and `ssr: false` for the same reason. The icons come from
+ * `map-markers.ts`; label placement from `declutterLabels`.
  *
- * Three effects, in this order, and the order matters: DRAW (a new route),
- * STYLE (new flight categories) and FIT (a new route, or new room around it).
- * Between STYLE and FIT sit three more that never move the map: STATIONS
- * (the reporting stations), SELECTED (which marker's panel is open) and
- * DRAFT (the route bar's unplanned route, a vector drawn before FIT for the
- * reason below). With no plan, FIT fits the draft instead.
+ * After the mount effect (create the map) and RESIZE (re-measure, refit), the
+ * effects run in this order, and the order matters: DRAW (a new route), STYLE
+ * (new flight categories), STATIONS (the reporting stations), SELECTED (which
+ * marker's panel is open), DRAFT (the route bar's unplanned route), FIT (a new
+ * route, or new room around it; with no plan, the draft), the leg highlight,
+ * and LABELS last, so it sees everything the others drew. Only FIT moves the
+ * map.
  * Drawing is synchronous, with the module kept from the mount, so a route's
  * layers always exist before the fit starts its zoom animation; and a new
  * weather brief restyles the markers in place rather than redrawing them.
  * Vector layers added in the middle of a zoom animation are projected at the
  * wrong zoom and stay off-screen, which is what an async draw racing an
- * animated fit produced.
+ * animated fit would do.
  */
 export function RouteMap({
   geometry,
@@ -361,7 +231,7 @@ export function RouteMap({
     }
   }, [])
 
-  // RESIZE: the map fills a panel now, not the viewport. The panel changes
+  // RESIZE: the map fills a panel, not the viewport. The panel changes
   // size when the navlog sheet opens or closes, and goes from zero to full
   // size if the map first lays out hidden; Leaflet must re-measure each time
   // or it draws tiles for the old box. A fit that found no size runs here.
@@ -421,7 +291,7 @@ export function RouteMap({
     if (geometry === null) return
     const points = geometry.polyline.map((p): [number, number] => [p[0], p[1]])
     // A casing under the line keeps it legible over any tile. The colors are
-    // classes, so `theme.css` tokens (and a theme switch) style them.
+    // classes, so the `theme.css` tokens style them.
     const route = [
       L.polyline(points, { className: "wb-route-casing", weight: 7, interactive: false }),
       L.polyline(points, { className: "wb-route-line", weight: 3.5, interactive: false }),
@@ -451,12 +321,7 @@ export function RouteMap({
     })
     const headings = geometry.legLabels.map((label) =>
       L.marker([label.at[0], label.at[1]], {
-        // Zero-size and centered by CSS, so the pill sits on the leg's midpoint.
-        icon: L.divIcon({
-          className: "wb-hdg",
-          html: `<span class="wb-hdg-label">${escapeHtml(label.text)}</span>`,
-          iconSize: [0, 0],
-        }),
+        icon: headingIcon(L, label.text),
         interactive: false,
         keyboard: false,
       }).addTo(map),
@@ -603,6 +468,7 @@ export function RouteMap({
     fitRoute(isNewRoute)
   }, [leaflet, geometry, draftBoundsKey, left, top, bottom])
 
+  // HIGHLIGHT: the leg selected in the navlog grid, lit on its segment.
   useEffect(() => {
     highlightRef.current = highlightedLeg
     applyHighlight(layers.current.segments, highlightedLeg)

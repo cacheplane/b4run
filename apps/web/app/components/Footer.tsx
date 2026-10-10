@@ -1,5 +1,6 @@
 import { BrandLogo } from "./BrandLogo"
 import headerStyles from "./homepage/header.module.css"
+import { NAVLOG_DEMO_URL } from "./site-links"
 import { Eyebrow } from "./ui/Eyebrow"
 import { SiteLink } from "./ui/SiteLink"
 
@@ -21,6 +22,7 @@ const COLUMNS: readonly Column[] = [
     items: [
       { label: "Docs", href: "/docs/getting-started" },
       { label: "Examples", href: "https://github.com/cacheplane/b4run/tree/main/examples" },
+      { label: "Live demo", href: NAVLOG_DEMO_URL },
       { label: "Blog", href: "/blog" },
     ],
   },
