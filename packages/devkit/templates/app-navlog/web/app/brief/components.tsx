@@ -242,15 +242,16 @@ export function WatchFor({ items }: WatchForProps) {
               <span className="wb-watch-severity" data-severity={item.severity}>
                 {SEVERITY_LABEL[item.severity]}
               </span>
+              {/* The window goes under the hazard, so a long one never squeezes it. */}
               <span className="min-w-0 flex-1">
                 {item.what}
                 <CiteMarks ids={item.cite} />
+                {item.when !== null ? (
+                  <span className="block font-mono text-[12px] tabular-nums text-wb-muted">
+                    {item.when}
+                  </span>
+                ) : null}
               </span>
-              {item.when !== null ? (
-                <span className="font-mono text-[12px] tabular-nums text-wb-muted">
-                  {item.when}
-                </span>
-              ) : null}
             </li>
           ))}
         </ul>
