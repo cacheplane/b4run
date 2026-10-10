@@ -322,6 +322,28 @@
   white-space: nowrap;
 }
 
+/*
+ * Label collisions (`lib/map-labels.ts`): a label that would sit on another
+ * goes left of its dot, or hides until its marker is hovered or focused.
+ */
+.wb-map .wb-wp-label[data-placement="left"] {
+  right: calc(100% + 6px);
+  left: auto;
+}
+
+.wb-map .wb-wp-label[data-placement="hidden"] {
+  visibility: hidden;
+}
+
+.wb-map .wb-wp:is(:hover, :focus-visible) .wb-wp-label[data-placement="hidden"] {
+  visibility: visible;
+}
+
+.wb-map .wb-wp:is(:hover, :focus-visible) {
+  /* biome-ignore lint/complexity/noImportantStyles: Leaflet sets each marker's z-index inline */
+  z-index: 1000 !important;
+}
+
 .wb-map .wb-wp-label b {
   margin-left: 2px;
   font-size: 10.5px;
@@ -836,8 +858,13 @@ body {
   /* Three to a row (so five wrap as 3 + 2) ... */
   flex: 1 1 calc((100cqw - 12px) / 3 - 1px);
   min-width: 0;
+  /* The value sits at the bottom, so values line up across a row even when one label wraps. */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
   border: 1px solid var(--wb-border);
-  border-radius: calc(var(--wb-radius) - 3px);
+  border-radius: var(--wb-radius-row);
   background: var(--wb-surface);
   padding: 8px 10px;
 }
@@ -928,13 +955,93 @@ body {
   color: var(--wb-text);
 }
 
-/* The planning brief. */
+/*
+ * The planning brief (`app/brief/`). One container sets the rhythm: room
+ * above, clear of the activity summary the answer follows in the chat, and
+ * one gap between sections. Each section is a heading over its body.
+ */
+.wb-answer {
+  display: grid;
+  gap: 20px;
+  padding-top: 16px;
+}
+
+.wb-section-body {
+  margin-top: 8px;
+}
+
+/* The bottom line: a card tinted by its level, the level's pill in its header. */
 .wb-bottom-line {
-  border-left: 3px solid var(--wb-text);
-  padding-left: 10px;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-row);
+  background: var(--wb-rail);
+  padding: 12px 14px;
+}
+
+.wb-bottom-line[data-level="GO"] {
+  border-color: var(--wb-go-border);
+  background: var(--wb-go-bg);
+}
+
+.wb-bottom-line[data-level="CAUTION"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
+}
+
+.wb-bottom-line[data-level="NO-GO"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+}
+
+.wb-bottom-line-reason {
+  margin-top: 8px;
+  color: var(--wb-text);
   font-size: 14px;
   font-weight: 550;
-  line-height: 1.45;
+  line-height: 1.5;
+}
+
+/* A route stop: the same pill as the route bar's, outlined, in mono. */
+.wb-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A bordered list with dividers: Watch for and Assumptions. */
+.wb-list {
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-row);
+  background: var(--wb-surface);
+}
+
+.wb-list > :where(li + li) {
+  border-top: 1px solid var(--wb-border);
+}
+
+/* A hazard: its severity in a fixed column, so every hazard's text lines up. */
+.wb-watch-row {
+  display: grid;
+  grid-template-columns: 4.75rem minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+/* An assumption: the statement and its origin, Change on the right. */
+.wb-assumption-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 8px 8px 12px;
 }
 
 .wb-brief-item {
@@ -955,37 +1062,29 @@ body {
 
 /* The brief kit (`app/brief/components.tsx`). */
 
-/* A WatchFor row's severity dot; the word is beside it for screen readers. */
-.wb-watch-dot {
-  flex-shrink: 0;
-  align-self: center;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--wb-muted);
-}
-
-.wb-watch-dot[data-severity="caution"] {
-  background: var(--wb-caution);
-}
-
-.wb-watch-dot[data-severity="danger"] {
-  background: var(--wb-nogo);
-}
-
-/* The severity as a word beside the dot, so it never rests on colour alone. */
+/* The severity as a word in a pill tinted by it, so it never rests on colour alone. */
 .wb-watch-severity {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  height: 20px;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-rail);
   color: var(--wb-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .wb-watch-severity[data-severity="caution"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
   color: var(--wb-caution);
 }
 
 .wb-watch-severity[data-severity="danger"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
   color: var(--wb-nogo);
 }
 
@@ -1481,8 +1580,7 @@ body {
   font-size: 13px;
 }
 
-.wb-routebar-input::placeholder,
-.wb-routebar-small::placeholder {
+.wb-routebar-input::placeholder {
   color: var(--wb-muted);
   font-family: var(--font-sans);
 }
@@ -1544,29 +1642,94 @@ body {
   font-size: 12px;
 }
 
-.wb-routebar-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--wb-muted);
-}
-
-.wb-routebar-small {
-  width: 5rem;
+/*
+ * Altitude and departure: one joined pill, each field with its own visible
+ * label, a hairline between them. The pill wears the focus ring for the
+ * field inside it.
+ */
+.wb-routebar-fields {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
   height: var(--wb-routebar-control);
+  margin: 0;
   border: 1px solid var(--wb-border);
   border-radius: 999px;
   background: var(--wb-surface);
-  padding: 0 10px;
+  padding: 0;
+  min-width: 0;
+}
+
+.wb-routebar-fields:focus-within {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+}
+
+.wb-routebar-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  cursor: text;
+}
+
+.wb-routebar-field + .wb-routebar-field {
+  border-left: 1px solid var(--wb-border);
+}
+
+.wb-routebar-field-label,
+.wb-routebar-field-unit {
+  color: var(--wb-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-routebar-field-unit {
+  font-weight: 500;
+}
+
+.wb-routebar-field-input {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0;
   color: var(--wb-text);
   font-family: var(--font-mono);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
+.wb-routebar-field-input::placeholder {
+  color: var(--wb-muted);
+  opacity: 0.6;
+}
+
+.wb-routebar-altitude {
+  width: 3.25rem;
+}
+
 /* Wide enough for "tomorrow 1600Z", the longest form a pilot types. */
 .wb-routebar-departure {
-  width: 8.25rem;
+  width: 7.5rem;
+}
+
+/* Where the browser can, each field is as wide as what is in it. */
+@supports (field-sizing: content) {
+  .wb-routebar-altitude,
+  .wb-routebar-departure {
+    field-sizing: content;
+    width: auto;
+  }
+  .wb-routebar-altitude {
+    min-width: 4ch;
+  }
+  .wb-routebar-departure {
+    min-width: 5ch;
+    max-width: 10rem;
+  }
 }
 
 .wb-routebar-total {
@@ -1616,6 +1779,10 @@ body {
   .wb-routebar-route {
     flex-basis: 100%;
   }
+  /* The second row: the fields, the distance, Plan at the far end. */
+  .wb-routebar-submit {
+    margin-left: auto;
+  }
 }
 
 /*
@@ -1624,10 +1791,15 @@ body {
  * (the sheet shows the distance once there is a plan).
  */
 @container (max-width: 26rem) {
+  .wb-routebar-fields {
+    flex: 1 1 auto;
+  }
+  .wb-routebar-field:last-child {
+    flex: 1 1 auto;
+  }
   .wb-routebar-departure {
-    flex: 1 1 6rem;
+    flex: 1 1 auto;
     width: auto;
-    min-width: 0;
   }
   .wb-routebar-total {
     display: none;

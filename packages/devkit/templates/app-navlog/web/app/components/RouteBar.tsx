@@ -294,26 +294,44 @@ export function RouteBar({
           ) : null}
         </div>
       </div>
-      <label className="wb-routebar-field">
-        <input
-          type="text"
-          className="wb-routebar-small wb-focus"
-          aria-label="Cruise altitude, feet"
-          inputMode="numeric"
-          placeholder="Altitude"
-          value={draft.altitudeFt}
-          onChange={(event) => dispatch({ type: "altitude", value: event.target.value })}
-        />
-        <span aria-hidden="true">ft</span>
-      </label>
-      <input
-        type="text"
-        className="wb-routebar-small wb-routebar-departure wb-focus"
-        aria-label="Departure time"
-        placeholder="Dep 1400Z"
-        value={draft.departure}
-        onChange={(event) => dispatch({ type: "departure", value: event.target.value })}
-      />
+      {/*
+        Altitude and departure as one joined control with visible labels, not
+        two loose placeholder-only boxes: the label says what each field is
+        once a value replaces the placeholder.
+      */}
+      <fieldset className="wb-routebar-fields">
+        <legend className="sr-only">Flight</legend>
+        <label className="wb-routebar-field">
+          <span className="wb-routebar-field-label" aria-hidden="true">
+            Alt
+          </span>
+          <input
+            type="text"
+            className="wb-routebar-field-input wb-routebar-altitude"
+            aria-label="Cruise altitude, feet"
+            inputMode="numeric"
+            value={draft.altitudeFt}
+            onChange={(event) => dispatch({ type: "altitude", value: event.target.value })}
+          />
+          <span className="wb-routebar-field-unit" aria-hidden="true">
+            ft
+          </span>
+        </label>
+        <label className="wb-routebar-field">
+          <span className="wb-routebar-field-label" aria-hidden="true">
+            Dep
+          </span>
+          <input
+            type="text"
+            className="wb-routebar-field-input wb-routebar-departure"
+            aria-label="Departure time"
+            title="1400Z, tomorrow 1400Z, or an ISO time"
+            placeholder="1400Z"
+            value={draft.departure}
+            onChange={(event) => dispatch({ type: "departure", value: event.target.value })}
+          />
+        </label>
+      </fieldset>
       {draft.waypoints.length >= 2 ? (
         <span className="wb-routebar-total">{draftDistanceNm(draft)} nm</span>
       ) : null}

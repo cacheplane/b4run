@@ -69,6 +69,8 @@ vi.mock("leaflet", () => {
       once: (type: string, handler: () => void) => {
         fake.onceHandlers[type] = handler
       },
+      on: () => undefined,
+      off: () => undefined,
       setView: () => undefined,
       getSize: () => ({ x: 800, y: 600 }),
       fitBounds: (bounds: unknown) => fake.fits.push(bounds),

@@ -2,7 +2,6 @@
 import type { s } from "@hashbrownai/core"
 import { type ExposedComponent, exposeComponent } from "@hashbrownai/react"
 import { type ComponentType, createContext, Fragment, type ReactNode, useContext } from "react"
-import { neutralButton } from "../components/ui"
 import { VerdictIcon } from "../components/VerdictCard"
 import { inlineSegments, stripToolEchoes, textBlocks } from "../lib/assistant-text"
 import { type EffectiveVerdict, isWorse, outrankNote } from "../lib/verdict"
@@ -38,8 +37,11 @@ import {
  * wrapper's selectors check), and only `Prose` keeps the prose look.
  */
 
-/** Opts a component out of the chat's `cpk:prose` typography. */
-const ROOT = "not-prose mt-3 first:mt-0"
+/**
+ * Opts a component out of the chat's `cpk:prose` typography. The space
+ * between sections is the answer container's (`.wb-answer`), not each one's.
+ */
+const ROOT = "not-prose"
 
 /**
  * The answer's citation list, provided by whatever renders the answer, so a
@@ -167,14 +169,18 @@ export function BottomLine({ level, reason, cite }: BottomLineProps) {
   const outranked = verdict !== null && isWorse(verdict.level, level) ? verdict : null
   const shown = outranked?.level ?? level
   return (
-    <section aria-label="Bottom line" className={`wb-bottom-line ${ROOT}`}>
-      <span className="wb-eyebrow mr-1.5 inline">Bottom line</span>
-      <span className="wb-verdict-pill mr-1.5 align-middle" data-level={shown}>
-        <VerdictIcon level={shown} className="size-3.5 shrink-0" />
-        <span>{shown}</span>
-      </span>
-      {reason}
-      <CiteMarks ids={cite} />
+    <section aria-label="Bottom line" className={`wb-bottom-line ${ROOT}`} data-level={shown}>
+      <div className="flex items-center justify-between gap-3">
+        <Heading>Bottom line</Heading>
+        <span className="wb-verdict-pill" data-level={shown}>
+          <VerdictIcon level={shown} className="size-3.5 shrink-0" />
+          <span>{shown}</span>
+        </span>
+      </div>
+      <p className="wb-bottom-line-reason">
+        {reason}
+        <CiteMarks ids={cite} />
+      </p>
       {outranked !== null ? (
         <span className="wb-bottom-line-note">{outrankNote(level, outranked)}</span>
       ) : null}
@@ -187,7 +193,7 @@ export function RouteSummary({ from, to, via, altitudeFt, departureUtc }: RouteS
   return (
     <section aria-label="Route" className={ROOT}>
       <Heading>Route</Heading>
-      <ol className="mt-1 flex flex-wrap items-center gap-1.5">
+      <ol className="wb-section-body flex flex-wrap items-center gap-1.5">
         {stops.map((stop, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: a route may pass the same fix twice
           <li key={`${stop}-${i}`} className="flex items-center gap-1.5">
@@ -196,13 +202,11 @@ export function RouteSummary({ from, to, via, altitudeFt, departureUtc }: RouteS
                 →
               </span>
             ) : null}
-            <span className="rounded-full border border-wb-border px-2 py-0.5 font-mono text-[12px]">
-              {stop}
-            </span>
+            <span className="wb-chip">{stop}</span>
           </li>
         ))}
       </ol>
-      <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+      <dl className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px]">
         <div className="flex gap-1.5">
           <dt className="text-wb-muted">Altitude</dt>
           <dd className="font-mono tabular-nums">{`${altitudeFt.toLocaleString("en-US")} ft`}</dd>
@@ -227,27 +231,28 @@ export function WatchFor({ items }: WatchForProps) {
     <section aria-label="Watch for" className={ROOT}>
       <Heading>Watch for</Heading>
       {items.length === 0 ? (
-        <p className="mt-1 text-[13px] text-wb-muted">Nothing during the flight</p>
+        <p className="wb-section-body text-[13px] text-wb-muted">Nothing during the flight</p>
       ) : (
-        <ul className="mt-1 grid gap-1 text-[13px] leading-snug">
+        <ul className="wb-section-body wb-list">
           {items.map((item, i) => (
             <li
               // biome-ignore lint/suspicious/noArrayIndexKey: two items may say the same thing
               key={`${i}-${item.what}`}
-              className="flex items-baseline gap-2"
+              className="wb-watch-row"
               data-severity={item.severity}
             >
-              <span aria-hidden="true" className="wb-watch-dot" data-severity={item.severity} />
-              {/* The word, not only the dot's colour, says how much it matters. */}
+              {/* The word, not only the colour, says how much it matters. */}
               <span className="wb-watch-severity" data-severity={item.severity}>
                 {SEVERITY_LABEL[item.severity]}
               </span>
               {/* The window goes under the hazard, so a long one never squeezes it. */}
-              <span className="min-w-0 flex-1">
-                {item.what}
-                <CiteMarks ids={item.cite} />
+              <span className="min-w-0">
+                <span className="block text-[13px] leading-snug">
+                  {item.what}
+                  <CiteMarks ids={item.cite} />
+                </span>
                 {item.when !== null ? (
-                  <span className="block font-mono text-[12px] tabular-nums text-wb-muted">
+                  <span className="mt-0.5 block text-[12px] leading-snug text-wb-muted">
                     {item.when}
                   </span>
                 ) : null}
@@ -265,7 +270,7 @@ export function KeyNumbers({ items }: KeyNumbersProps) {
   return (
     <section aria-label="Key numbers" className={ROOT}>
       <Heading>Key numbers</Heading>
-      <dl className="wb-stats mt-1">
+      <dl className="wb-stats wb-section-body">
         {items.map((item, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: two figures may share a label
           <div key={`${i}-${item.label}`} className="wb-stat">
@@ -296,21 +301,24 @@ export function Assumptions({ items }: AssumptionsProps) {
   return (
     <section aria-label="Assumptions" className={ROOT}>
       <Heading>Assumptions</Heading>
-      <ul className="mt-1 grid gap-1 text-[13px] leading-snug">
+      <ul className="wb-section-body wb-list">
         {items.map((item, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: two assumptions may read the same
-          <li key={`${i}-${item.statement}`} className="wb-row flex items-center gap-2">
-            <span className="min-w-0 flex-1">{item.statement}</span>
-            <span
-              className="shrink-0 rounded-full border border-wb-border px-2 text-[11px] text-wb-muted"
-              data-origin={item.origin}
-            >
-              {ORIGIN_LABEL[item.origin]}
+          <li key={`${i}-${item.statement}`} className="wb-assumption-row">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] leading-snug">{item.statement}</span>
+              {/* Where the value came from, as a caption: a badge per row was clutter. */}
+              <span
+                className="mt-0.5 block text-[12px] leading-snug text-wb-muted"
+                data-origin={item.origin}
+              >
+                {ORIGIN_LABEL[item.origin]}
+              </span>
             </span>
             {actions !== null ? (
               <button
                 type="button"
-                className={`${neutralButton("sm")} shrink-0 print:hidden`}
+                className="wb-focus wb-button shrink-0 print:hidden"
                 aria-label={`Change: ${item.statement}`}
                 disabled={actions.changeDisabled}
                 onClick={() => actions.changeAssumption(item.statement)}
@@ -330,7 +338,7 @@ export function Citations({ items }: CitationsProps) {
   return (
     <section aria-label="Sources" className={ROOT}>
       <Heading>Sources</Heading>
-      <ol className="mt-1 grid list-decimal gap-0.5 pl-5 text-[12px] leading-snug text-wb-muted">
+      <ol className="wb-section-body grid list-decimal gap-1 pl-5 text-[12px] leading-snug text-wb-muted">
         {items.map((item) => (
           <li key={item.id} id={citeAnchor(idPrefix, item.id)} className="wb-cite-entry">
             <span className="font-mono text-wb-text">{item.source}</span>
@@ -353,7 +361,7 @@ export function Prose({ markdown }: ProseProps) {
   // The brief's body size, not the chat's 16px reply size: the closing line
   // belongs to the brief above it.
   return (
-    <div className="mt-3 text-[14px] leading-[22px] first:mt-0 [&_li]:text-[14px] [&_p]:text-[14px] [&_p]:leading-[22px]">
+    <div className="text-[14px] leading-[22px] [&_li]:text-[14px] [&_p]:text-[14px] [&_p]:leading-[22px]">
       <Markdown content={content} />
     </div>
   )
