@@ -170,13 +170,13 @@
                             },
                             "value": {
                               "type": "string",
-                              "description": "The figure as the pilot reads it, such as 1:12 or 9.4."
+                              "description": "The figure as the pilot reads it: a duration as h:mm, such as 1:12, or a number, such as 9.4."
                             },
                             "unit": {
                               "anyOf": [
                                 {
                                   "type": "string",
-                                  "description": "Its unit, such as gal or kt."
+                                  "description": "Its unit, such as gal or nm. Null for an h:mm duration."
                                 },
                                 {
                                   "type": "null",
@@ -274,11 +274,11 @@
                             },
                             "source": {
                               "type": "string",
-                              "description": "The source, such as poh/cruise-performance.md, METAR KRST 1353Z, TAF KRST or AIRMET/SIGMET <id>."
+                              "description": "A POH document, such as poh/cruise-performance.md, or a weather product: METAR KRST, TAF KRST, AIRMET <id> or SIGMET <id>. Never a reports/ or aircraft/ file."
                             },
                             "locator": {
                               "type": "string",
-                              "description": "Where in the source, such as Figure 5-7. Empty when the source is the whole thing."
+                              "description": "Where in the source: Figure 5-7 for a POH document, the issue time such as 1353Z for a METAR. Empty when the source is the whole thing."
                             }
                           },
                           "required": ["id", "source", "locator"],

@@ -51,8 +51,13 @@ const keyNumbersProps = {
     "The figures the plan rests on: ETE, fuel burned (including 1.1 gal for start, taxi and runup), reserve, and any other number the pilot needs.",
     s.object("One figure", {
       label: s.string("What the figure is, in sentence case, such as Fuel burned."),
-      value: s.string("The figure as the pilot reads it, such as 1:12 or 9.4."),
-      unit: s.anyOf([s.string("Its unit, such as gal or kt."), s.nullish()]),
+      value: s.string(
+        "The figure as the pilot reads it: a duration as h:mm, such as 1:12, or a number, such as 9.4.",
+      ),
+      unit: s.anyOf([
+        s.string("Its unit, such as gal or nm. Null for an h:mm duration."),
+        s.nullish(),
+      ]),
       cite,
     }),
   ),
@@ -77,10 +82,10 @@ const citationsProps = {
     s.object("One source", {
       id: s.string("The id claims cite it by: c1, c2, …"),
       source: s.string(
-        "The source, such as poh/cruise-performance.md, METAR KRST 1353Z, TAF KRST or AIRMET/SIGMET <id>.",
+        "A POH document, such as poh/cruise-performance.md, or a weather product: METAR KRST, TAF KRST, AIRMET <id> or SIGMET <id>. Never a reports/ or aircraft/ file.",
       ),
       locator: s.string(
-        "Where in the source, such as Figure 5-7. Empty when the source is the whole thing.",
+        "Where in the source: Figure 5-7 for a POH document, the issue time such as 1353Z for a METAR. Empty when the source is the whole thing.",
       ),
     }),
   ),

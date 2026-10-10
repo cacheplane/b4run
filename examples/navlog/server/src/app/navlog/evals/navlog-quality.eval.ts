@@ -21,12 +21,12 @@ const LEVELS = ["GO", "CAUTION", "NO-GO"]
 // What a planning answer must never contain outside its Citations: an echoed
 // tool call, the todo list's statuses, a workspace path, or ETE mislabelled as
 // engine time.
-const NEVER_IN_ANSWER = [
-  /\brecall\(/,
-  /\[(completed|pending|in_progress)\]/,
-  /reports\//,
-  /aircraft\//,
-  /engine-on/i,
+const NEVER_IN_ANSWER: readonly { readonly what: string; readonly pattern: RegExp }[] = [
+  { what: "an echoed recall( call", pattern: /\brecall\(/ },
+  { what: "a todo status", pattern: /\[(completed|pending|in_progress)\]/ },
+  { what: "a reports/ path", pattern: /reports\// },
+  { what: "an aircraft/ path", pattern: /aircraft\// },
+  { what: "engine-on (ETE is takeoff to landing)", pattern: /engine-on/i },
 ]
 
 const DIRECT_INPUT =
@@ -84,6 +84,11 @@ const briefOf = (finalMessage: string): readonly BriefNode[] | undefined => {
     return undefined
   }
 }
+
+const NOT_STRUCTURED = {
+  score: 0,
+  reason: 'the final message is not a structured answer ({ "ui": [...] })',
+} as const
 
 /** The props of the first component named `name`. */
 const propsOf = (
@@ -175,26 +180,15 @@ const planBrief = (brief: BriefScript): string =>
           },
         },
       },
-      {
-        WatchFor: {
-          props: {
-            items: [
-              {
-                what: "A convective SIGMET, tops FL290, ends hours before departure",
-                when: "2355Z–0155Z",
-                severity: "info",
-                cite: ["c3"],
-              },
-            ],
-          },
-        },
-      },
+      // The brief's only advisory, a convective SIGMET, ends hours before
+      // departure, so the prompt leaves it out: nothing to watch.
+      { WatchFor: { props: { items: [] } } },
       {
         KeyNumbers: {
           props: {
             items: [
               { label: "Distance", value: brief.distanceNm, unit: "nm", cite: [] },
-              { label: "ETE (takeoff to landing)", value: brief.ete, unit: "h:mm", cite: [] },
+              { label: "ETE (takeoff to landing)", value: brief.ete, unit: null, cite: [] },
               {
                 label: "Fuel burned (includes 1.1 gal for start, taxi and takeoff)",
                 value: brief.fuelBurnedGal,
@@ -202,7 +196,7 @@ const planBrief = (brief: BriefScript): string =>
                 cite: ["c1"],
               },
               { label: "Fuel at landing", value: brief.fuelAtLandingGal, unit: "gal", cite: [] },
-              { label: "Reserve", value: brief.reserve, unit: "h:mm", cite: [] },
+              { label: "Reserve", value: brief.reserve, unit: null, cite: [] },
             ],
           },
         },
@@ -213,8 +207,7 @@ const planBrief = (brief: BriefScript): string =>
           props: {
             items: [
               { id: "c1", source: "poh/cruise-performance.md", locator: "Figure 5-7" },
-              { id: "c2", source: "METAR KRST", locator: "" },
-              { id: "c3", source: "AIRMET/SIGMET CONVECTIVE", locator: "" },
+              { id: "c2", source: "METAR KRST", locator: "1353Z" },
             ],
           },
         },
@@ -428,44 +421,75 @@ export default defineEval({
     ),
     custom(
       (run) => {
-        const first = briefOf(run.finalMessage)?.[0]?.BottomLine?.props
-        return typeof first?.reason === "string" && LEVELS.includes(String(first.level)) ? 1 : 0
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const first = brief[0]?.BottomLine?.props
+        if (first === undefined)
+          return { score: 0, reason: "the first component is not a BottomLine" }
+        return typeof first.reason === "string" && LEVELS.includes(String(first.level))
+          ? 1
+          : { score: 0, reason: `the BottomLine has no GO/CAUTION/NO-GO level and reason` }
       },
       { name: "opens-with-bottom-line", threshold: 1 },
     ),
     custom(
       (run) => {
-        const labels = itemsOf(propsOf(briefOf(run.finalMessage), "KeyNumbers")).map((item) =>
-          String(item.label),
-        )
-        return [/\bETE\b/i, /fuel burned/i, /reserve/i].every((label) =>
-          labels.some((text) => label.test(text)),
-        )
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const labels = itemsOf(propsOf(brief, "KeyNumbers")).map((item) => String(item.label))
+        const missing = [
+          { name: "ETE", pattern: /\bETE\b/i },
+          { name: "fuel burned", pattern: /fuel burned/i },
+          { name: "reserve", pattern: /reserve/i },
+        ].filter(({ pattern }) => !labels.some((text) => pattern.test(text)))
+        return missing.length === 0
           ? 1
-          : 0
+          : {
+              score: 0,
+              reason: `KeyNumbers has no ${missing.map(({ name }) => name).join(", ")}`,
+            }
       },
       { name: "key-numbers", threshold: 1 },
     ),
     custom(
-      (run) => (itemsOf(propsOf(briefOf(run.finalMessage), "Assumptions")).length > 0 ? 1 : 0),
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        return itemsOf(propsOf(brief, "Assumptions")).length > 0
+          ? 1
+          : { score: 0, reason: "the answer lists no Assumptions" }
+      },
       { name: "lists-assumptions", threshold: 1 },
     ),
     // At least one poh/<file>.md source, and every cited POH file exists.
     custom(
       (run) => {
-        const poh = itemsOf(propsOf(briefOf(run.finalMessage), "Citations"))
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const poh = itemsOf(propsOf(brief, "Citations"))
           .map((item) => String(item.source).trim())
           .filter((source) => source.startsWith("poh/"))
-        return poh.length > 0 && poh.every((path) => existsSync(`${WORKSPACE}${path}`)) ? 1 : 0
+        if (poh.length === 0) return { score: 0, reason: "Citations names no poh/<file>.md source" }
+        const absent = poh.filter((path) => !existsSync(`${WORKSPACE}${path}`))
+        return absent.length === 0
+          ? 1
+          : { score: 0, reason: `cited POH files do not exist: ${absent.join(", ")}` }
       },
       { name: "cites-poh", threshold: 1 },
     ),
     custom(
       (run) => {
-        const text = JSON.stringify(
-          (briefOf(run.finalMessage) ?? []).filter((node) => node.Citations === undefined),
-        )
-        return NEVER_IN_ANSWER.some((pattern) => pattern.test(text)) ? 0 : 1
+        const brief = briefOf(run.finalMessage)
+        // Unparsed text cannot be checked component by component: it fails.
+        if (brief === undefined) return NOT_STRUCTURED
+        const text = JSON.stringify(brief.filter((node) => node.Citations === undefined))
+        const found = NEVER_IN_ANSWER.filter(({ pattern }) => pattern.test(text))
+        return found.length === 0
+          ? 1
+          : {
+              score: 0,
+              reason: `outside Citations the answer has ${found.map(({ what }) => what).join(", ")}`,
+            }
       },
       { name: "no-echoes-or-paths", threshold: 1 },
     ),

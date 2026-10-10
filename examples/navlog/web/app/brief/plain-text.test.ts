@@ -38,7 +38,7 @@ const ANSWER = JSON.stringify({
       KeyNumbers: {
         props: {
           items: [
-            { label: "ETE", value: "1:12", unit: "h:mm", cite: [] },
+            { label: "ETE", value: "1:12", unit: null, cite: [] },
             { label: "Fuel burned", value: "9.4", unit: "gal", cite: ["c1"] },
           ],
         },
@@ -76,7 +76,7 @@ describe("briefPlainText", () => {
         "- Info: Haze",
         "",
         "Key numbers:",
-        "- ETE: 1:12 h:mm",
+        "- ETE: 1:12",
         "- Fuel burned: 9.4 gal [1]",
         "",
         "Assumptions:",
