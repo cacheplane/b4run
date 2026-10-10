@@ -115,6 +115,7 @@ export const DOCS_NAV = [
       { label: "Stream Output", href: "/docs/recipes/stream-output" },
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
+      { label: "Navlog Example App", href: "/docs/recipes/navlog" },
       { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
       { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
       { label: "Blueprints", href: "/docs/blueprints" },

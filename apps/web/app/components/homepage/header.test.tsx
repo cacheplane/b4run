@@ -67,6 +67,15 @@ it("labels the main nav and offers docs search on every page", () => {
   expect(docs).not.toContain("data-header-docs-search")
 })
 
+it("links Demo to the deployed navlog example, in a new tab", () => {
+  location.pathname = "/"
+  const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
+  const nav = /<nav[^>]*aria-label="Main"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? ""
+  expect(nav).toMatch(
+    /<a(?=[^>]*href="https:\/\/navlog-web\.vercel\.app")(?=[^>]*target="_blank")(?=[^>]*rel="noopener noreferrer")[^>]*>Demo<\/a>/,
+  )
+})
+
 it("suppresses the ↗ on the desktop GitHub icon link", () => {
   location.pathname = "/"
   const html = renderToString(<HeaderInner repoUrl="https://github.com/cacheplane/b4run" />)
