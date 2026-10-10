@@ -763,6 +763,14 @@ A permission interrupt names the tool call it gates in `toolCallId`, whichever g
 
 Some AG-UI clients render the assistant's reply as UI. [Hashbrown](https://hashbrown.dev) is one. Its client sends `hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema` is the JSON Schema the final assistant message must match.
 
+A CopilotKit runtime route can send the schema itself. Register the route as a `B4HttpAgent` with a `responseSchema`, and every run it makes carries `hashbrown: { ui: true, responseSchema }`:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({ url: `${b4Url}/agui/chat`, responseSchema })
+```
+
 The runtime either applies that schema or rejects the run. It never ignores it, because to the client an ignored schema looks like an honored one until a reply fails to parse.
 
 **Applied.** On an `agent` route whose provider can constrain its final message to a schema while still calling tools, the schema is bound on the root model as that provider's native structured output:
