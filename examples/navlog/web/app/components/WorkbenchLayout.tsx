@@ -40,11 +40,12 @@ export interface MemoryControls {
 
 export interface WorkbenchLayoutProps {
   readonly navlog: Navlog | null
-  readonly brief: WeatherBrief | null
+  /** The weather subagent's parsed brief: marker colors and the weather panels. */
+  readonly weatherBrief: WeatherBrief | null
   /** The reporting stations near the course (`findRouteStations`): map markers and the Weather tab. */
   readonly stations: readonly RouteStation[]
   /** The planning answer of the turn that produced the navlog, shown in the sheet. */
-  readonly assistantBrief: string
+  readonly planningAnswer: string
   readonly header: string
   readonly status?: string | undefined
   /** The thread list (`ThreadRail`), for the sidenav. */
@@ -138,9 +139,9 @@ function useMeasuredHeight(): [RefObject<HTMLDivElement | null>, number] {
  */
 export function WorkbenchLayout({
   navlog,
-  brief,
+  weatherBrief,
   stations,
-  assistantBrief,
+  planningAnswer,
   header,
   status,
   rail,
@@ -223,7 +224,7 @@ export function WorkbenchLayout({
     previousNavlog.current = navlog
   }, [navlog])
   // A new navlog (a replan) has new legs: the old selection means nothing.
-  // So does an open weather panel: the new brief may not hold its marker.
+  // So does an open weather panel: the new weather brief may not hold its marker.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the navlog is the trigger, not an input
   useEffect(() => {
     setSelectedLeg(null)
@@ -279,9 +280,9 @@ export function WorkbenchLayout({
   const geometry = useMemo(() => (navlog ? routeGeometry(navlog) : null), [navlog])
   const categories = useMemo(() => {
     const out: Record<string, FlightCategory> = {}
-    for (const airport of brief?.airports ?? []) out[airport.id] = worstCategory(airport)
+    for (const airport of weatherBrief?.airports ?? []) out[airport.id] = worstCategory(airport)
     return out
-  }, [brief])
+  }, [weatherBrief])
   const padding = useMemo(
     () => ({ left: MAP_MARGIN, top: barHeight + MAP_MARGIN, bottom: MAP_MARGIN }),
     [barHeight],
@@ -332,7 +333,9 @@ export function WorkbenchLayout({
     selectedMarker === null ? null : (
       <MarkerPanel
         id={selectedMarker}
-        airport={brief?.airports.find((airport) => airport.id.toUpperCase() === markerKey) ?? null}
+        airport={
+          weatherBrief?.airports.find((airport) => airport.id.toUpperCase() === markerKey) ?? null
+        }
         station={stations.find((station) => station.id.toUpperCase() === markerKey)}
         onClose={closeMarker}
       />
@@ -383,8 +386,8 @@ export function WorkbenchLayout({
                 <div className="wb-sheet-wrap min-h-0 shrink-0">
                   <NavlogSheet
                     navlog={navlog}
-                    brief={assistantBrief}
-                    weather={brief}
+                    planningAnswer={planningAnswer}
+                    weatherBrief={weatherBrief}
                     stations={stations}
                     open={sheetOpen}
                     onToggle={() => setSheetOpen((value) => !value)}
@@ -484,8 +487,8 @@ export function WorkbenchLayout({
             >
               <NavlogSheet
                 navlog={navlog}
-                brief={assistantBrief}
-                weather={brief}
+                planningAnswer={planningAnswer}
+                weatherBrief={weatherBrief}
                 stations={stations}
                 open={true}
                 onToggle={() => {}}

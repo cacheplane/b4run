@@ -24,6 +24,7 @@ export interface RouteDraft {
   readonly departureFromPlan: string | null
 }
 
+/** No waypoints, no altitude, no departure: the route bar before a plan. */
 export const EMPTY_DRAFT: RouteDraft = {
   waypoints: [],
   altitudeFt: "",
@@ -61,6 +62,7 @@ export function draftFromNavlog(navlog: Navlog): RouteDraft {
   }
 }
 
+/** The route bar's edits, applied to its draft. */
 export function draftReducer(state: RouteDraft, action: DraftAction): RouteDraft {
   switch (action.type) {
     case "add": {

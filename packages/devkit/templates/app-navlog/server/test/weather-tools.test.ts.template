@@ -259,8 +259,9 @@ describe("getWindsAloft", () => {
     expect(out.wind).toEqual({ dirDegTrue: 325, speedKt: 30.5, tempC: null })
   })
   it("picks the product whose FOR USE window contains a 1400Z flight, whenever it is asked", async () => {
-    // The subagent used to work out forecast hours itself and could read a
-    // product whose window does not contain the leg. Each run time below
+    // The tool, not the subagent, picks the product: a model working out the
+    // forecast hours itself can read a product whose window does not contain
+    // the leg. Each run time below
     // serves the products AWC publishes then; the tool must pick the one
     // whose FOR USE window contains 1400Z.
     const cases = [
@@ -438,7 +439,7 @@ describe("getAdvisories", () => {
     // Shapes copied from live AWC responses (2026-10-05): G-AIRMET altitudes are
     // hundreds of feet as strings ("040", "SFC"), absent fields are null, the
     // expiry is epoch seconds while validTime is ISO, and a freezing-level
-    // contour is a LINE that carries `level` instead of base and top (#955).
+    // contour is a LINE that carries `level` instead of base and top.
     const area = [
       { lat: 44.0, lon: -94.0 },
       { lat: 46.0, lon: -94.0 },

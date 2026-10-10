@@ -12,16 +12,31 @@ import {
 } from "./weather-selectors"
 
 /**
- * The verdict floor: the brief's written rules, enforced in code.
+ * The go/no-go verdict: where it comes from, and which call wins.
  *
- * The weather subagent is prompted with the rules (NO-GO for IFR or LIFR at
- * either end at the ETA; CAUTION for MVFR, gusts over 20 kt, a preliminary
- * forecast, a freezing level near the cruise, LLWS or turbulence during the
- * flight), but nothing made the model follow them: a live run said "GO" over
- * a brief that reported gusts to 25 kt and called itself preliminary. The
- * floor reads the same brief and the navlog and returns the least the verdict
- * can be. It only ever raises a call, never lowers one: a model that judged
- * the weather worse than these rules can see keeps its call.
+ * Three sources make a call, and the page shows the WORST of them:
+ *
+ * 1. The weather subagent's brief, its "Verdict:" line (`weather.verdict`),
+ *    judged on the weather alone.
+ * 2. The planning answer's bottom line: the structured brief kit's
+ *    `BottomLine`, or for a thread from before the kit, the markdown "Bottom
+ *    line:" (`plannerVerdict`). The coordinator's prompt tells it to use the
+ *    weather brief's verdict unless performance makes it worse: a reserve
+ *    under 45 minutes is NO-GO.
+ * 3. The verdict floor (`verdictFloor`): the weather rules and the same
+ *    reserve rule, enforced in code against the brief's data and the navlog.
+ *
+ * `resolveVerdict` takes the worse of 1 and 2 (the weather brief's on a tie,
+ * since its sentence is about the weather), and the floor raises that when it
+ * is worse still. Nothing ever lowers a call: a model that judged the weather
+ * worse than these rules can see keeps its call.
+ *
+ * The floor exists because the weather subagent is prompted with the rules
+ * (NO-GO for IFR or LIFR at either end at the ETA; CAUTION for MVFR, gusts
+ * over 20 kt, a preliminary forecast, a freezing level near the cruise, LLWS
+ * or turbulence during the flight) and nothing makes a model follow them: it
+ * can say "GO" over a brief that reports gusts to 25 kt and calls itself
+ * preliminary.
  */
 
 const RANK: Readonly<Record<VerdictLevel, number>> = { GO: 0, CAUTION: 1, "NO-GO": 2 }
@@ -202,6 +217,7 @@ function plannerVerdict(answer: string): Verdict | null {
   return parsePlanningAnswer(answer)?.verdict ?? null
 }
 
+/** What `resolveVerdict` reads: each source, and the cruise altitude for the floor. */
 export interface ResolveVerdictInput {
   /** The weather subagent's parsed brief. */
   readonly weather?: WeatherBrief | null | undefined

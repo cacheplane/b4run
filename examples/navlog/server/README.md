@@ -148,7 +148,7 @@ unguarded server is really what you mean.
 
 **Visitors.** Behind the proxy each browser is its own principal: the proxy
 mints a visitor id into a cookie and forwards it as `X-B4-Visitor`, and
-`src/auth.ts`, `src/middleware.ts` and `src/thread-access.ts` make every thread
+`src/auth.ts` (which resolves the caller) and `src/thread-access.ts` make every thread
 owned by the visitor that created it. Without `B4_INTERNAL_TOKEN` (`b4 dev`, the
 tests, the evals) one local principal owns everything, so none of this changes
 local development. Because the thread-access policy cannot ship to LangSmith,

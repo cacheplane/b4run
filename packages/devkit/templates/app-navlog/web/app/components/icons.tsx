@@ -16,6 +16,7 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS
 
+/** One icon from the set, decorative (`aria-hidden`). */
 export function Icon({
   name,
   className = "size-5",

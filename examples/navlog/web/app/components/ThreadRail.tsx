@@ -36,6 +36,7 @@ const ROW_ACTIVE = "bg-wb-rail font-medium text-wb-accent"
 
 const ROW_IDLE = "text-wb-muted hover:bg-wb-rail hover:text-wb-text"
 
+/** The thread list, most recent first, with the active thread marked. */
 export function ThreadRail({
   threads,
   activeThreadId,

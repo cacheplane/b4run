@@ -10,11 +10,9 @@ export interface RunErrorProps {
 }
 
 /**
- * The shell's failure surface.
- *
- * `<CopilotSidebar>` used to render run errors; deleting it removed the only
- * place a failed run was visible, and a `console.error` is not a user-facing
- * state. Failures from CopilotKit core land here instead.
+ * The shell's failure surface: failures from CopilotKit core (a run, a
+ * resume, a conversation that would not load) render here, because a
+ * `console.error` is not a user-facing state.
  *
  * Deliberately a banner in the chat dock rather than a full-page connect
  * screen: the conversation below it is still real, and a dead backend is a

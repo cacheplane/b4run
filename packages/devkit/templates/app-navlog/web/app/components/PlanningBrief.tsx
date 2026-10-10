@@ -8,6 +8,7 @@ import {
 import { type EffectiveVerdict, isWorse, outrankNote } from "../lib/verdict"
 import { VerdictPill } from "./VerdictCard"
 
+/** One line of answer text, with its `**bold**` runs as `<strong>`. */
 function Inline({ text }: { readonly text: string }) {
   return (
     <>
@@ -27,7 +28,8 @@ function Inline({ text }: { readonly text: string }) {
 }
 
 export interface PlanningBriefProps {
-  readonly text: string
+  /** The planning answer of the turn that produced the navlog, as markdown. */
+  readonly planningAnswer: string
   /**
    * The verdict the card above shows (`resolveVerdict`). When it is worse
    * than the planner's bottom line, the bottom line shows its level instead,
@@ -37,8 +39,9 @@ export interface PlanningBriefProps {
 }
 
 /**
- * A markdown planning answer for the navlog on screen (a thread from before
- * the brief kit; a structured answer renders with `BriefRenderer`). The
+ * The FALLBACK planning brief: a markdown planning answer, which only a
+ * thread from before the structured brief kit holds. A structured answer
+ * renders with `BriefRenderer` instead (see `NavlogSheet`). The
  * labelled answer ("Bottom line:", "Watch for:", "Numbers:", "Assumptions:") renders as its
  * sections with the bottom line first and loudest; an older free-text answer
  * renders as formatted prose. Tool-call echoes and the plan checklist a model
@@ -48,8 +51,8 @@ export interface PlanningBriefProps {
  * sections as a plain line, on screen only: it is the chat's question, so the
  * printed navlog leaves it out.
  */
-export function PlanningBrief({ text, verdict = null }: PlanningBriefProps) {
-  const clean = stripToolEchoes(text)
+export function PlanningBrief({ planningAnswer, verdict = null }: PlanningBriefProps) {
+  const clean = stripToolEchoes(planningAnswer)
   if (clean === "") return null
   const answer = parsePlanningAnswer(clean)
   const planner = answer?.verdict ?? null

@@ -138,6 +138,7 @@ function compare(a: Match, b: Match): number {
   )
 }
 
+/** Up to `limit` waypoints matching `q`, best first (the ranking above). */
 export function searchWaypoints(data: WaypointData, q: string, limit = 8): Waypoint[] {
   const query = q.trim().toLowerCase()
   if (query === "" || limit <= 0) return []

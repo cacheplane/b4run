@@ -5,7 +5,7 @@ import { BriefVerdictContext } from "../brief/components"
 import { isStructuredAnswer } from "../brief/parse"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
-import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
+import { resolveVerdict } from "../lib/verdict"
 import type { RouteStation } from "../lib/weather-roles"
 import { parseAdvisory, type WeatherBrief } from "../lib/weather-selectors"
 import { CopyFplButton, FlightPlanBlock } from "./FlightPlanBlock"
@@ -48,9 +48,9 @@ const SHEET_TABS: readonly { readonly id: SheetTab; readonly label: string }[] =
 export interface NavlogSheetProps {
   readonly navlog: Navlog
   /** The planning answer of the turn that produced this navlog (see `navlogAnswerText`). */
-  readonly brief: string
+  readonly planningAnswer: string
   /** The weather brief, for the verdict, the hazards and the forecast horizon. */
-  readonly weather?: WeatherBrief | null
+  readonly weatherBrief?: WeatherBrief | null
   /** The reporting stations along the route (`findRouteStations`), for the Weather tab's en-route group. */
   readonly stations?: readonly RouteStation[]
   readonly open: boolean
@@ -68,20 +68,6 @@ export interface NavlogSheetProps {
    * still announce itself as expandable.
    */
   readonly collapsible?: boolean
-}
-
-/**
- * The verdict to show: the worse of the weather brief's "Verdict:" and the
- * planning answer's bottom line, raised to the verdict floor (the brief's
- * written rules, checked against its data and this navlog's reserve). None
- * when neither call exists and the floor finds nothing.
- */
-export function sheetVerdict(
-  weather: WeatherBrief | null | undefined,
-  brief: string,
-  navlog?: Navlog | null,
-): EffectiveVerdict | null {
-  return resolveVerdict({ weather, answer: brief, navlog })
 }
 
 /** The Legs tab's fixed footer: the numbers that matter while the grid scrolls. */
@@ -136,8 +122,8 @@ function TotalsStrip({ navlog }: { readonly navlog: Navlog }) {
  */
 export function NavlogSheet({
   navlog,
-  brief,
-  weather = null,
+  planningAnswer,
+  weatherBrief = null,
   stations = NO_STATIONS,
   open,
   onToggle,
@@ -155,8 +141,16 @@ export function NavlogSheet({
     ? `${formatHhmm(totals.reserveMin)} reserve`
     : "Reserve under 45 min"
   const shown = open || !collapsible
-  const verdict = useMemo(() => sheetVerdict(weather, brief, navlog), [weather, brief, navlog])
-  const advisories = useMemo(() => (weather?.advisories ?? []).map(parseAdvisory), [weather])
+  // The one verdict the strip, the pill, the card and the planning brief all
+  // show (see `resolveVerdict`).
+  const verdict = useMemo(
+    () => resolveVerdict({ weather: weatherBrief, answer: planningAnswer, navlog }),
+    [weatherBrief, planningAnswer, navlog],
+  )
+  const advisories = useMemo(
+    () => (weatherBrief?.advisories ?? []).map(parseAdvisory),
+    [weatherBrief],
+  )
   const meta = [
     navlog.aircraft.tailNumber,
     formatFeet(navlog.altitudeFt),
@@ -363,7 +357,7 @@ export function NavlogSheet({
           className="min-h-0 flex-1 overflow-auto px-4 pb-4"
         >
           <WeatherTab
-            weather={weather}
+            weather={weatherBrief}
             navlog={navlog}
             stations={stations}
             cruiseFt={navlog.altitudeFt}
@@ -416,19 +410,19 @@ export function NavlogSheet({
                 verdict={verdict}
                 advisories={advisories}
                 cruiseFt={navlog.altitudeFt}
-                horizon={weather?.horizon}
+                horizon={weatherBrief?.horizon}
               />
             </div>
           ) : null}
-          {!brief ? null : isStructuredAnswer(brief) ? (
+          {!planningAnswer ? null : isStructuredAnswer(planningAnswer) ? (
             <section aria-label="Planning brief" className="wb-brief mt-4">
               <h3 className="wb-eyebrow">Planning brief</h3>
               <BriefVerdictContext.Provider value={verdict}>
-                <BriefRenderer content={brief} idPrefix={`${bodyId}-`} />
+                <BriefRenderer content={planningAnswer} idPrefix={`${bodyId}-`} />
               </BriefVerdictContext.Provider>
             </section>
           ) : (
-            <PlanningBrief text={brief} verdict={verdict} />
+            <PlanningBrief planningAnswer={planningAnswer} verdict={verdict} />
           )}
         </div>
       </div>

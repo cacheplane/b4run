@@ -16,7 +16,7 @@ const { NavlogSheet } = await import("./NavlogSheet")
 
 const props = (overrides: Partial<NavlogSheetProps> = {}): NavlogSheetProps => ({
   navlog: SAMPLE_NAVLOG,
-  brief: "VFR all the way.",
+  planningAnswer: "VFR all the way.",
   open: true,
   onToggle: () => {},
   tab: "legs",
@@ -59,7 +59,7 @@ describe("NavlogSheet", () => {
     expect(html).not.toContain('role="tablist"')
   })
   test("collapsed keeps the body in the DOM, hidden on screen but printed", () => {
-    const html = render({ open: false, brief: "" })
+    const html = render({ open: false, planningAnswer: "" })
     expect(html).toContain("<table")
     expect(html).toMatch(BODY_HIDDEN)
   })
@@ -75,10 +75,12 @@ describe("NavlogSheet", () => {
       ...SAMPLE_NAVLOG,
       totals: { ...SAMPLE_NAVLOG.totals, reserveOk: false, reserveMin: 20 },
     }
-    expect(render({ navlog: thirsty, brief: "", open: false })).toContain("Reserve under 45 min")
+    expect(render({ navlog: thirsty, planningAnswer: "", open: false })).toContain(
+      "Reserve under 45 min",
+    )
   })
   test("is a disclosure with aria-expanded", () => {
-    const html = render({ brief: "" })
+    const html = render({ planningAnswer: "" })
     expect(html).toContain('aria-expanded="true"')
     expect(html).toContain("Hide navlog")
     const controls = /aria-controls="([^"]+)"/.exec(html)?.[1]
@@ -86,7 +88,7 @@ describe("NavlogSheet", () => {
     expect(html).toContain(`id="${controls}"`)
   })
   test("on the phone tab the totals are plain text, not a toggle", () => {
-    const html = render({ brief: "", variant: "cards", collapsible: false })
+    const html = render({ planningAnswer: "", variant: "cards", collapsible: false })
     expect(html).not.toContain("aria-expanded")
     expect(html).toContain("66 nm")
     expect(html).not.toMatch(BODY_HIDDEN)
@@ -95,7 +97,7 @@ describe("NavlogSheet", () => {
 
 describe("navlog sheet: strip and tabs", () => {
   test("a verdict strip region, then Legs · Weather · Totals & plan · Brief with Legs selected", () => {
-    const html = render({ brief: "Bottom line: GO — VFR all the way." })
+    const html = render({ planningAnswer: "Bottom line: GO — VFR all the way." })
     expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
     expect(html).toContain('role="tablist"')
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Legs</)
@@ -103,7 +105,7 @@ describe("navlog sheet: strip and tabs", () => {
     expect(labels).toEqual(["Legs", "Weather", "Totals &amp; plan", "Brief"])
   })
   test("the Weather tab holds the brief by route role, the stations en route", () => {
-    const weather = {
+    const weatherBrief = {
       airports: [
         {
           id: "KRST",
@@ -121,7 +123,7 @@ describe("navlog sheet: strip and tabs", () => {
     const stations = [
       { id: "KOWA", name: "Owatonna", lat: 44.1, lon: -93.3, alongNm: 40, offsetNm: 6 },
     ]
-    const html = render({ tab: "weather", weather, stations })
+    const html = render({ tab: "weather", weatherBrief, stations })
     const panel = html.slice(html.search(/role="tabpanel"[^>]*id="[^"]*-weather"/))
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"(?![^>]*hidden)[^>]*>/)
     expect(panel).toContain(">Origin</h3>")
@@ -137,7 +139,7 @@ describe("navlog sheet: strip and tabs", () => {
   })
   test("the strip's reason selects the Brief tab", () => {
     const onTabChange = vi.fn()
-    const view = mountSheet({ brief: "Bottom line: GO — VFR all the way.", onTabChange })
+    const view = mountSheet({ planningAnswer: "Bottom line: GO — VFR all the way.", onTabChange })
     act(() => {
       view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")?.click()
     })
@@ -145,7 +147,7 @@ describe("navlog sheet: strip and tabs", () => {
     view.unmount()
   })
   test("the strip's reason controls the Brief panel and says it opens it", () => {
-    const view = mountSheet({ brief: "Bottom line: GO — VFR all the way." })
+    const view = mountSheet({ planningAnswer: "Bottom line: GO — VFR all the way." })
     const button = view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")
     const panel = document.getElementById(button?.getAttribute("aria-controls") ?? "")
     expect(panel?.getAttribute("role")).toBe("tabpanel")
@@ -187,7 +189,7 @@ describe("navlog sheet: strip and tabs", () => {
     expect(html).toContain("7 Aircraft ID")
   })
   test("the full verdict card is on the Brief tab only", () => {
-    const html = render({ tab: "brief", brief: "Bottom line: GO — VFR all the way." })
+    const html = render({ tab: "brief", planningAnswer: "Bottom line: GO — VFR all the way." })
     expect(html).toMatch(
       /role="tabpanel"[^>]*id="[^"]*-brief"[^>]*>(?:(?!role="tabpanel").)*class="wb-verdict"/,
     )
@@ -205,7 +207,7 @@ describe("navlog sheet: strip and tabs", () => {
         { Citations: { props: { items: [{ id: "c1", source: "METAR KRST", locator: "" }] } } },
       ],
     })
-    const html = render({ tab: "brief", brief: structured })
+    const html = render({ tab: "brief", planningAnswer: structured })
     const panel = html.slice(html.search(/role="tabpanel"[^>]*id="[^"]*-brief"/))
     expect(panel.indexOf('class="wb-verdict"')).toBeLessThan(panel.indexOf("Gusts at KRST."))
     expect(panel).toContain('aria-label="Planning brief"')
@@ -219,7 +221,7 @@ describe("navlog sheet: strip and tabs", () => {
     expect(panel).toContain('class="wb-verdict" data-level="CAUTION"')
   })
   test("a markdown answer still renders as the planning brief", () => {
-    const html = render({ tab: "brief", brief: "Bottom line: GO — VFR all the way." })
+    const html = render({ tab: "brief", planningAnswer: "Bottom line: GO — VFR all the way." })
     expect(html).toContain('aria-label="Planning brief"')
     expect(html).toContain("VFR all the way.")
   })

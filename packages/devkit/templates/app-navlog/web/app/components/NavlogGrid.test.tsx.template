@@ -114,7 +114,7 @@ describe("NavlogGrid", () => {
     const sheet = (navlog: typeof SAMPLE_NAVLOG) => (
       <NavlogSheet
         navlog={navlog}
-        brief=""
+        planningAnswer=""
         open={true}
         onToggle={() => {}}
         tab="legs"

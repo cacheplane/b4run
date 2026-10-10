@@ -26,7 +26,7 @@ import {
 // - `defaultThrottleMs` coalesces the useAgent re-renders that the chat and panels
 //   get from OnMessagesChanged/OnStateChanged. It defaults to UNTHROTTLED,
 //   and a full planning run streams hundreds of events, which pegs the renderer
-//   (the UI froze outright). 100ms keeps it live-feeling while capping re-renders.
+//   (the UI freezes). 100ms keeps it live-feeling while capping re-renders.
 //
 // Why `CopilotChatConfigurationProvider` is mounted here: `CopilotKit` does not
 // provide one, and `<CopilotChat>` provides one only for its own subtree. The shell's
@@ -60,10 +60,10 @@ export default function Home() {
 
   const handleCreate = useCallback(() => {
     if (source === null) return
-    // Clicking "New conversation" twice used to leave two identical untitled
-    // rows. A thread stays untitled until its first user message lands, so
-    // "the active thread has no title" is exactly "it is already the blank
-    // conversation you are asking for" — make the second click a no-op.
+    // A second "New conversation" click must not add a second identical
+    // untitled row. A thread stays untitled until its first user message
+    // lands, so "the active thread has no title" is exactly "it is already the
+    // blank conversation you are asking for": the click is a no-op.
     const active = threads.find((thread) => thread.id === activeThreadId)
     if (active !== undefined && active.title === undefined) return
     const created = source.create()

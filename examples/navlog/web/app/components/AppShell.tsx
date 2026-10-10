@@ -1,25 +1,15 @@
 "use client"
-import { B4Activity, useB4ActivityContext } from "@b4run/ag-ui/react/copilotkit"
+import { B4Activity } from "@b4run/ag-ui/react/copilotkit"
 import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  isAwaitingApproval,
-  latestNavlogResult,
-  type MessageLike,
-  navlogAnswerText,
-  parseNavlog,
-} from "../lib/navlog-selectors"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { titleFor, type WorkbenchThread } from "../lib/thread-source"
-import { latestRouteStations, type RouteStation } from "../lib/weather-roles"
-import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
 import { ConnectScreen } from "./ConnectScreen"
 import { type DropNotice, DropNotices } from "./DropNotices"
 import { MemoryPanel } from "./MemoryPanel"
-import { NavlogChat } from "./NavlogChat"
 import { RunError } from "./RunError"
 import { NAVLOG_STEP_LABELS, NAVLOG_STEP_RENDERERS } from "./StepViews"
 import { ThreadRail, UNTITLED_THREAD_LABEL } from "./ThreadRail"
-import { type MemoryControls, WorkbenchLayout } from "./WorkbenchLayout"
+import { ThreadWorkbench } from "./ThreadWorkbench"
 
 /**
  * THE ERROR-SURFACE NOTE. Three surfaces can report a failure in this app, and
@@ -65,15 +55,14 @@ const SERVER_PROBE_PATH = "/api/b4/memory/candidates"
  * True if the B4.run server itself answered — not just this Next process.
  *
  * `useCopilotKit().runtimeConnectionStatus` looks like the right predicate
- * and is not, which is what shipped here first and was caught live: the
- * CopilotKit runtime route (`api/copilotkit/[...path]/route.ts`) runs in the SAME Next
- * process as this page, its `/info` handler enumerates the registered
- * agents, and although `B4HttpAgent.getCapabilities` does contact B4.run,
- * the handler catches a failure there and reports the agent without
- * capabilities, so any failure to reach B4.run along that path is
- * swallowed rather than surfaced. Verified live: with B4.run completely down,
- * `runtimeConnectionStatus` stayed `"connected"`, the empty workbench
- * rendered, and no connect screen ever showed.
+ * and is not: the CopilotKit runtime route (`api/copilotkit/[...path]/route.ts`)
+ * runs in the SAME Next process as this page, its `/info` handler enumerates
+ * the registered agents, and although `B4HttpAgent.getCapabilities` does
+ * contact B4.run, the handler catches a failure there and reports the agent
+ * without capabilities, so any failure to reach B4.run along that path is
+ * swallowed rather than surfaced. With B4.run completely down,
+ * `runtimeConnectionStatus` stays `"connected"` and the empty workbench
+ * renders.
  *
  * So this probes through the same-origin proxy (`api/b4/[...path]/route.ts`)
  * instead: `GET /api/b4/memory/candidates` is on the proxy's allowlist
@@ -187,7 +176,8 @@ export interface AppShellProps {
 
 /**
  * The shell: the server probe, the failure banner, drop notices, thread
- * titling, and the keyed `B4Activity` the workbench lives in.
+ * titling, and the keyed `B4Activity` the workbench (`ThreadWorkbench`)
+ * lives in.
  *
  * `useAgent()` is deliberately called with NO arguments. Its props have exactly
  * two legal shapes: unscoped (`useAgent()` / `useAgent({ agentId })`), which
@@ -199,10 +189,9 @@ export interface AppShellProps {
  * `CopilotChatConfigurationProvider` (mounted in `page.tsx`) keeps every hook
  * bound to the same agent and the same thread.
  *
- * `B4Activity` is keyed by the thread (finding 6 of the adopt plan):
- * `useInterrupt` clears its pending card only on a new run, so an activity
- * that outlived a switch would show the previous thread's approval card on
- * the next one. The key also restarts the turns from empty, and the remount
+ * `B4Activity` is keyed by the thread, because `useInterrupt` clears its
+ * pending card only on a new run: an activity that outlived a switch would
+ * show the previous thread's approval card on the next one. The key also restarts the turns from empty, and the remount
  * remounts `CopilotChat`, which connects the new thread — the runtime route
  * replays it from B4.run's storage. `connectNonce` is in the key so Retry on
  * a failed load connects again.
@@ -243,14 +232,12 @@ export function AppShell({
   // probe already in flight at that moment still has to be told not to write
   // into unmounted state.
   //
-  // RE-ARMED on setup, not just cleared on cleanup, and that is a bug fix
-  // rather than symmetry-for-its-own-sake. Next 16's App Router runs
+  // RE-ARMED on setup, not just cleared on cleanup. Next 16's App Router runs
   // StrictMode by default (this app sets no `reactStrictMode` key), and
   // StrictMode's dev double-invoke is setup -> cleanup -> setup. A flag whose
-  // only write is `= false` in the cleanup latches false forever on the second
-  // setup, which pins `serverStatus` at "checking": with B4.run completely down,
-  // the connect screen NEVER appears in dev and the shell sits there looking
-  // fine. Verified in jsdom against a non-Strict control.
+  // only write is `= false` in the cleanup would latch false forever on the
+  // second setup and pin `serverStatus` at "checking": with B4.run completely
+  // down, the connect screen would never appear in dev.
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true
@@ -471,149 +458,5 @@ export function AppShell({
         onNewConversation={onCreateThread}
       />
     </B4Activity>
-  )
-}
-
-interface ThreadWorkbenchProps {
-  readonly threadId: string | undefined
-  readonly canAttachImages: boolean
-  readonly header: string
-  readonly banner: ReactNode
-  readonly notices: ReactNode
-  readonly rail: ReactNode
-  readonly memory: (controls: MemoryControls) => ReactNode
-  readonly memoryCount: number
-  readonly onNewConversation: () => void
-}
-
-/** No stations yet: one shared empty list, so the map's input keeps its identity. */
-const NO_STATIONS: readonly RouteStation[] = []
-
-/**
- * The workbench for one thread, inside `B4Activity`: the map, the route bar
- * and the navlog sheet read the thread's turns through pure selectors, and
- * the dock holds `NavlogChat`.
- *
- * The selectors return STRINGS and the parse is memoized on them. The turns
- * are rebuilt on every streamed event; parsing afresh each time would give the
- * map a new `Navlog` object per token, and the map refits whenever its
- * geometry changes. A tool result's text never changes once it has arrived, so
- * keying on it gives one object per computation.
- */
-function ThreadWorkbench({
-  threadId,
-  canAttachImages,
-  header,
-  banner,
-  notices,
-  rail,
-  memory,
-  memoryCount,
-  onNewConversation,
-}: ThreadWorkbenchProps) {
-  const { turns } = useB4ActivityContext()
-  const { agent } = useAgent()
-  const { copilotkit } = useCopilotKit()
-  const navlogRef = latestNavlogResult(turns)
-  const navlogText = navlogRef?.result
-  const navlog = useMemo(
-    () => (navlogText === undefined ? null : parseNavlog(navlogText)),
-    [navlogText],
-  )
-  const weatherText = latestWeatherBriefText(turns)
-  const brief = useMemo(
-    () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
-    [weatherText],
-  )
-  // Keyed on the result text like the navlog, so the map's stations keep
-  // their identity across streamed events and its markers are not redrawn.
-  const stationsKey = JSON.stringify(latestRouteStations(turns))
-  const stations = useMemo((): readonly RouteStation[] => {
-    const list = JSON.parse(stationsKey) as RouteStation[]
-    return list.length === 0 ? NO_STATIONS : list
-  }, [stationsKey])
-  // The answer of the turn that produced the navlog on screen, not whatever
-  // the latest reply is (a later "Filed." must not replace the brief).
-  const assistantBrief =
-    navlogRef === null
-      ? ""
-      : navlogAnswerText(agent.messages as readonly MessageLike[], navlogRef.id)
-  // The badge says "running" for a run, never for a restore. `agent.isRunning`
-  // cannot tell them apart: `connectAgent` holds it for the whole replay, so
-  // every thread opened would read "running". The turns can: a turn is
-  // `working` from its `RUN_STARTED` until it settles, and a replayed run that
-  // already finished replays its settle too. The one gap is a send's first
-  // beat — `CopilotChat` adds the message and starts the run, but the turn
-  // appears only once `RUN_STARTED` comes back — so a user message added here
-  // (`onNewMessage` fires for a send, never for a replay) counts as running
-  // until that event, or the run's end if it fails before it. The send button
-  // keeps `agent.isRunning` (see `NavlogChat`), because that is what decides
-  // what clicking it does.
-  const [sendPending, setSendPending] = useState(false)
-  useEffect(() => {
-    const settle = () => setSendPending(false)
-    const subscription = agent.subscribe({
-      onNewMessage: ({ message }) => {
-        if (message.role === "user") setSendPending(true)
-      },
-      onRunStartedEvent: settle,
-      onRunFailed: settle,
-      onRunFinalized: settle,
-    })
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [agent])
-  const status =
-    sendPending || turns.turns.at(-1)?.status === "working"
-      ? "running"
-      : isAwaitingApproval(turns)
-        ? "awaiting approval"
-        : undefined
-
-  // The route bar's Replan: an ordinary user message, sent the way
-  // `CopilotChat` sends one (`agent.addMessage` with a string content, then
-  // `copilotkit.runAgent`), so it reads the same in the transcript, touches
-  // the rail through `onNewMessage` and shows Running at once. A failed run
-  // does not reject: `runAgent` reports it through `emitError`, which the
-  // shell's `copilotkit.subscribe` seam turns into the RunError banner. The
-  // catch only keeps an unexpected throw from going unhandled, as
-  // `CopilotChat` does.
-  const onReplan = useCallback(
-    (text: string) => {
-      agent.addMessage({ id: crypto.randomUUID(), role: "user", content: text })
-      copilotkit.runAgent({ agent }).catch((error: unknown) => {
-        console.error("AppShell: Replan runAgent failed", error)
-      })
-    },
-    [agent, copilotkit],
-  )
-
-  return (
-    <WorkbenchLayout
-      navlog={navlog}
-      brief={brief}
-      stations={stations}
-      // A parked approval blocks a new run too: the next run would throw
-      // ("pending interrupt(s) not addressed by resume"), so Replan waits.
-      running={status !== undefined}
-      onReplan={onReplan}
-      assistantBrief={assistantBrief}
-      header={header}
-      status={status}
-      rail={rail}
-      memory={memory}
-      memoryCount={memoryCount}
-      banner={banner}
-      notices={notices}
-      onNewConversation={onNewConversation}
-      // Only once the thread id resolves: without one, `CopilotChat` mints a
-      // random thread and connects to it.
-      chat={
-        threadId === undefined ? null : (
-          <NavlogChat threadId={threadId} canAttachImages={canAttachImages} />
-        )
-      }
-    />
   )
 }

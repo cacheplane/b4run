@@ -110,6 +110,7 @@ export function visitorCookieName(config: GuardConfig): string {
   return config.internalToken ? "__Host-b4_visitor" : "b4_visitor"
 }
 
+/** The demo owner's cookie name; `__Host-` prefixed under the same rule as the visitor's. */
 export function ownerCookieName(config: GuardConfig): string {
   return config.internalToken ? "__Host-b4_demo_owner" : "b4_demo_owner"
 }
@@ -117,14 +118,17 @@ export function ownerCookieName(config: GuardConfig): string {
 /** The pattern the server's `principalOf` accepts (server/src/auth.ts). */
 const VISITOR_ID = /^v-[A-Za-z0-9_-]{8,64}$/
 
+/** Whether a visitor id is one the server accepts. */
 export function isValidVisitorId(value: string | undefined): value is string {
   return value !== undefined && VISITOR_ID.test(value)
 }
 
+/** A fresh random visitor id, in the server's accepted shape. */
 export function mintVisitorId(): string {
   return `v-${randomBytes(12).toString("base64url")}`
 }
 
+/** The headers the proxy adds upstream: the internal token, when set, and the visitor id. */
 export function upstreamHeaders(input: {
   readonly internalToken: string | undefined
   readonly visitorId: string
@@ -145,6 +149,7 @@ export function isOwnerApprovalPath(path: readonly string[]): boolean {
   )
 }
 
+/** The guard's config from `B4_DEMO_ORIGINS` (comma-separated) and `B4_INTERNAL_TOKEN`. */
 export function guardConfigFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): GuardConfig {
