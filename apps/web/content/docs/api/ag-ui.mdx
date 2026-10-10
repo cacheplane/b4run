@@ -117,7 +117,7 @@ The adapter only translates protocol data, so it neither authenticates a caller 
 
 | Export | Responsibility |
 |---|---|
-| `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. With a `responseSchema`, every run body carries `hashbrown: { ui: true, responseSchema }` (see [Response schema](/docs/ag-ui#response-schema)); `clone()` keeps it. |
+| `B4HttpAgent` | An `@ag-ui/client` `HttpAgent` whose `getCapabilities()` reads the route's [capabilities](/docs/ag-ui#capabilities) from `GET` on the same URL. With a `responseSchema`, every run's `forwardedProps` carries `responseSchema` (see [Response schema](/docs/ag-ui#response-schema)); `clone()` keeps it. |
 | `B4HttpAgentConfig` | `HttpAgentConfig` plus an optional `responseSchema`, the JSON Schema the route's final assistant message must match. |
 | `forwardIdentity` | `forwardIdentity({ headers, resolve, fetch? })` returns a `fetch` for a server-side client that talks to B4.run on a browser's behalf: on every call it strips the declared `headers` from whatever the call carried, then sets the values `resolve()` returns for the current request (none when it returns `undefined`). Pass it to both `B4HttpAgent` and `createB4AgentRunner`. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload). |
 | `ForwardIdentityOptions` | `headers`, the names the wrapper owns and always strips; `resolve`, the current caller's values (each key one of `headers`, or it throws); and an optional `fetch` to wrap. |
@@ -503,7 +503,7 @@ export declare class B4HttpAgent extends HttpAgent {
 
 `getCapabilities()` sends `GET` to the agent's `url` with its `headers` and `fetch`, and parses the answer with AG-UI's `AgentCapabilitiesSchema`. It throws on a non-2xx answer.
 
-With a `responseSchema`, every run body also carries `hashbrown: { ui: true, responseSchema }`, which B4.run binds on the route's root model as the provider's structured output or rejects with `422` (see [Response schema](/docs/ag-ui#response-schema)). `clone()` copies the schema, so the per-request clones CopilotKit's runtime makes send it too.
+With a `responseSchema`, every run's `forwardedProps` also carries `responseSchema`, merged with any keys the run already sends, which B4.run binds on the route's root model as the provider's structured output or rejects with `422` (see [Response schema](/docs/ag-ui#response-schema)). `clone()` copies the schema, so the per-request clones CopilotKit's runtime makes send it too.
 
 #### Behavior contract `ag-ui.outbound.errors-as-events`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/ag-ui/test/outbound.test.ts","testNames":["upstream throw is emitted as RUN_ERROR, not thrown to the consumer"]}] */}

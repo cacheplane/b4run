@@ -95,8 +95,8 @@ export interface AgentHarnessOptions {
   /** Upstream base URL for record mode (no /v1 suffix). Default https://api.openai.com. */
   readonly recordUpstream?: string
   /**
-   * A JSON Schema the root model's final message must match — the value a
-   * Hashbrown client sends as `hashbrown.responseSchema` on every AG-UI run.
+   * A JSON Schema the root model's final message must match — the value an
+   * AG-UI client sends as `forwardedProps.responseSchema` on a run.
    * Bound on every turn exactly as the server binds it, so a scripted, live or
    * recorded run sends the model the same request production does. Only an
    * `agent` route on a provider that supports it can take one; any other
@@ -145,7 +145,7 @@ export async function createAgentHarness(options: AgentHarnessOptions): Promise<
   // Read through the server's own parser so the bound format — including the
   // provider-facing schema name — is the one an AG-UI run would carry.
   const responseFormatResult = readResponseFormat(
-    responseSchema !== undefined ? { hashbrown: { responseSchema } } : undefined,
+    responseSchema !== undefined ? { forwardedProps: { responseSchema } } : undefined,
   )
   if (!responseFormatResult.ok) {
     throw new Error(`createAgentHarness: ${responseFormatResult.message}`)

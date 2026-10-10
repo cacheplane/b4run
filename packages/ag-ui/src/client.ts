@@ -26,9 +26,10 @@ const CAPABILITIES_TIMEOUT_MS = 10_000
  * the server had said so. So does a server that has not answered within
  * ten seconds.
  *
- * With a `responseSchema`, every run body also carries
- * `hashbrown: { ui: true, responseSchema }`, the envelope B4.run binds on the
- * route's root model as the provider's structured output.
+ * With a `responseSchema`, every run's `forwardedProps` also carries
+ * `responseSchema`, which B4.run binds on the route's root model as the
+ * provider's structured output. The route must allow that key in
+ * `server.agui.clientForwardedProps`.
  */
 export class B4HttpAgent extends HttpAgent {
   /** The JSON Schema every run asks the route's final answer to match, if any. */
@@ -43,11 +44,12 @@ export class B4HttpAgent extends HttpAgent {
     const init = super.requestInit(input)
     if (this.responseSchema === undefined) return init
     const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    const forwardedProps = isRecord(body.forwardedProps) ? body.forwardedProps : {}
     return {
       ...init,
       body: JSON.stringify({
         ...body,
-        hashbrown: { responseSchema: this.responseSchema, ui: true },
+        forwardedProps: { ...forwardedProps, responseSchema: this.responseSchema },
       }),
     }
   }
@@ -86,11 +88,15 @@ export class B4HttpAgent extends HttpAgent {
 export interface B4HttpAgentConfig extends HttpAgentConfig {
   /**
    * A JSON Schema the route's final assistant message must match. Sent on
-   * every run as `hashbrown: { ui: true, responseSchema }`, which B4.run binds
-   * on the root model as the provider's structured output. Tool-calling turns
-   * are unaffected.
+   * every run as `forwardedProps.responseSchema`, alongside any other
+   * `forwardedProps` the run carries, which B4.run binds on the root model as
+   * the provider's structured output. Tool-calling turns are unaffected.
    */
   readonly responseSchema?: Readonly<Record<string, unknown>>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** Header names are case-insensitive; a caller's `accept` would otherwise be merged with ours. */

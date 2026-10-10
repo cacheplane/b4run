@@ -257,7 +257,7 @@ Unknown explicit providers throw with the supported list. If no provider is expl
 
 `createChatModel({ responseFormat })` and `streamAgent({ responseFormat })` bind a `JsonSchemaResponseFormat` on the root model as the provider's native schema-constrained output (OpenAI `response_format` with `json_schema` and `strict: true`, or Anthropic `output_config.format`). The route's tools stay bound, so tool-calling turns are unaffected and only the final message is constrained.
 
-Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify. Any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, so it never runs unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `hashbrown.responseSchema`. See [AG-UI](/docs/ag-ui#response-schema).
+Only the providers in `JSON_SCHEMA_RESPONSE_FORMAT_PROVIDERS` qualify. Any other provider throws `unsupportedResponseFormatMessage(provider)` before its package is imported, so it never runs unconstrained. A format-bound agent always compiles a fresh graph and never touches the materialized-agent cache. The AG-UI endpoint sources it from the client's `forwardedProps.responseSchema`. See [AG-UI](/docs/ag-ui#response-schema).
 
 #### Behavior contract `langchain.retry.exhaustion`
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/langchain/test/retry.test.ts","testNames":["throws after max attempts exhausted"]}] */}

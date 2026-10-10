@@ -99,6 +99,7 @@ import {
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { AGUI_BODY_MAX_BYTES } from "./request-limits.js"
+import { validateClientForwardedProps } from "./run-envelope.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
 import { errorStackOf, formatErrorChain } from "./runtime-error-report.js"
 import {
@@ -703,6 +704,10 @@ export async function createRuntimeFetchHandler(
   // runs that would need one (`503 client_tool_store_unavailable`) — but it
   // is loud, once, here.
   const aguiConfig = bootConfig?.server?.agui
+  // The `forwardedProps` allow list is read per request; a malformed one would
+  // read as closed there, so it is refused here, once, instead.
+  const forwardedPropsProblem = validateClientForwardedProps(aguiConfig?.clientForwardedProps)
+  if (forwardedPropsProblem !== undefined) throw new Error(`B4: ${forwardedPropsProblem}`)
   const clientToolTtlMs = resolveClientToolTtlMs(aguiConfig?.clientToolTtlMs)
   const clientToolRetentionMs = resolveClientToolRetentionMs(aguiConfig?.clientToolRetentionMs)
   // A config store is validated HERE, before the fallback — which would

@@ -44,7 +44,7 @@ export interface EvalDefinition {
    */
   readonly middlewareContext?: AgentHarnessMiddlewareContext
   /**
-   * The JSON Schema a Hashbrown client sends as `hashbrown.responseSchema`,
+   * The JSON Schema an AG-UI client sends as `forwardedProps.responseSchema`,
    * forwarded to `createAgentHarness({ responseSchema })` by `b4 eval` so the
    * root model's final message is constrained as it is in production.
    */

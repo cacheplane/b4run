@@ -2,11 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { RunAgentInputSchema } from "@ag-ui/core/schemas"
+import type { B4Config } from "@b4run/core"
 import type { MiddlewareHandler, ThreadAccessPolicy } from "@b4run/sdk"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   MAX_ENVELOPE_ID_LENGTH,
   resolveRunEnvelopePolicy,
+  validateClientForwardedProps,
   validateRunEnvelope,
 } from "../src/lib/dev/run-envelope.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -99,7 +101,7 @@ async function rejection(response: Response): Promise<ErrorBody["error"]> {
 // ---------------------------------------------------------------------------
 
 const OPEN = { clientTools: true, forwardedProps: true } as const
-const CLOSED = { clientTools: false, forwardedProps: false } as const
+const CLOSED = { clientTools: false, forwardedProps: [] } as const
 
 function envelope(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { threadId: "t-1", runId: "run-1", state: {}, ...overrides }
@@ -172,6 +174,30 @@ describe("validateRunEnvelope", () => {
     ).toBeUndefined()
   })
 
+  it("accepts only the forwardedProps keys the route allows, naming the rest", () => {
+    const policy = { clientTools: false, forwardedProps: ["responseSchema"] } as const
+    expect(
+      validateRunEnvelope(envelope({ forwardedProps: { responseSchema: {} } }), policy),
+    ).toBeUndefined()
+    const rejected = validateRunEnvelope(
+      envelope({ forwardedProps: { responseSchema: {}, role: "admin" } }),
+      policy,
+    )
+    expect(rejected).toMatchObject({ code: "forwarded_props_not_allowed", status: 422 })
+    expect(rejected?.message).toContain("`role`")
+    expect(rejected?.message).not.toContain("`responseSchema`")
+    expect(rejected?.message).toContain("server.agui.clientForwardedProps")
+  })
+
+  it("bounds the refused key names it echoes back", () => {
+    const forwardedProps = Object.fromEntries(
+      Array.from({ length: 8 }, (_, i) => [`${"k".repeat(200)}${i}`, 1]),
+    )
+    const rejected = validateRunEnvelope(envelope({ forwardedProps }), CLOSED)
+    expect(rejected?.message).toContain("and 3 more")
+    expect(rejected?.message).not.toContain("k".repeat(65))
+  })
+
   it("checks identity before authority, so a malformed id is reported first", () => {
     expect(
       validateRunEnvelope(envelope({ threadId: "", forwardedProps: { a: 1 } }), CLOSED),
@@ -188,7 +214,7 @@ describe("resolveRunEnvelopePolicy", () => {
     const config = { server: { agui: { clientTools: ["/hello"] } } }
     expect(resolveRunEnvelopePolicy(config, "/hello")).toEqual({
       clientTools: true,
-      forwardedProps: false,
+      forwardedProps: [],
     })
     expect(resolveRunEnvelopePolicy(config, "/other")).toEqual(CLOSED)
   })
@@ -199,6 +225,55 @@ describe("resolveRunEnvelopePolicy", () => {
       clientTools: false,
       forwardedProps: true,
     })
+  })
+
+  it("reads the object form as a per-route key allow list", () => {
+    const config: B4Config = {
+      server: { agui: { clientForwardedProps: { "/hello": ["responseSchema"], "/open": true } } },
+    }
+    expect(resolveRunEnvelopePolicy(config, "/hello").forwardedProps).toEqual(["responseSchema"])
+    expect(resolveRunEnvelopePolicy(config, "/open").forwardedProps).toBe(true)
+    expect(resolveRunEnvelopePolicy(config, "/other").forwardedProps).toEqual([])
+  })
+
+  it("adds the wildcard's keys to every route's own", () => {
+    const config: B4Config = {
+      server: {
+        agui: { clientForwardedProps: { "*": ["responseSchema"], "/hello": ["toolChoice"] } },
+      },
+    }
+    expect(resolveRunEnvelopePolicy(config, "/hello").forwardedProps).toEqual([
+      "responseSchema",
+      "toolChoice",
+    ])
+    expect(resolveRunEnvelopePolicy(config, "/other").forwardedProps).toEqual(["responseSchema"])
+    const open: B4Config = {
+      server: { agui: { clientForwardedProps: { "*": true, "/hello": ["a"] } } },
+    }
+    expect(resolveRunEnvelopePolicy(open, "/hello").forwardedProps).toBe(true)
+  })
+})
+
+describe("validateClientForwardedProps", () => {
+  it.each([
+    ["absent", undefined],
+    ["a route list", ["/chat"]],
+    ["an empty route list", []],
+    ["a key map", { "/chat": ["responseSchema"], "*": true }],
+  ])("accepts %s", (_label, value) => {
+    expect(validateClientForwardedProps(value)).toBeUndefined()
+  })
+
+  it.each([
+    ["a bare string", "/chat"],
+    ["true", true],
+    ["a list with a non-string", ["/chat", 1]],
+    ["a list with an empty id", [""]],
+    ["a route mapped to false", { "/chat": false }],
+    ["a route mapped to a string", { "/chat": "responseSchema" }],
+    ["a key list with a non-string", { "/chat": ["responseSchema", 2] }],
+  ])("refuses %s", (_label, value) => {
+    expect(validateClientForwardedProps(value)).toContain("server.agui.clientForwardedProps")
   })
 })
 
@@ -304,6 +379,33 @@ describe("POST /agui/:routeId envelope validation", () => {
     )
     expect(denied.status).toBe(422)
     expect((await rejection(denied)).details?.code).toBe("client_tools_not_allowed")
+  })
+
+  it("honors a per-key allow list from b4.config.ts", async () => {
+    const { handler } = await setup({
+      config:
+        'export default { server: { agui: { clientForwardedProps: { "/hello": ["mode"] } } } }\n',
+    })
+
+    const allowed = await handler.fetch(aguiPost(HELLO_ROUTE, { forwardedProps: { mode: "x" } }))
+    expect(allowed.status).toBe(200)
+    await drain(allowed)
+
+    const refused = await handler.fetch(
+      aguiPost(HELLO_ROUTE, { threadId: "t-2", forwardedProps: { mode: "x", role: "admin" } }),
+    )
+    expect(refused.status).toBe(422)
+    const error = await rejection(refused)
+    expect(error.details?.code).toBe("forwarded_props_not_allowed")
+    expect(error.message).toContain("`role`")
+  })
+
+  it("refuses to boot on a malformed clientForwardedProps", async () => {
+    await expect(
+      setup({
+        config: 'export default { server: { agui: { clientForwardedProps: "/hello" } } }\n',
+      }),
+    ).rejects.toThrow(/server\.agui\.clientForwardedProps/)
   })
 
   it("rejects before route middleware and before the thread-access policy run", async () => {

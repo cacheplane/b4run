@@ -279,8 +279,22 @@ export interface B4Config {
     readonly agui?: {
       /** Route ids whose callers may send a non-empty `tools` array. */
       readonly clientTools?: readonly string[]
-      /** Route ids whose callers may send a non-empty `forwardedProps` object. */
-      readonly clientForwardedProps?: readonly string[]
+      /**
+       * Which `forwardedProps` keys each route's callers may send. Either a
+       * list of route ids that accept any key, or an object mapping a route id
+       * — or `"*"` for every route — to `true` (any key) or the key names it
+       * accepts; a route gets the union of its own entry and `"*"`'s. A key
+       * the route does not accept is refused with a 422 that names it. B4.run
+       * acts on `responseSchema` (bound as the root model's structured
+       * output) and accepts the others without acting on them.
+       *
+       * ```ts
+       * clientForwardedProps: { "/chat": ["responseSchema"] }
+       * ```
+       */
+      readonly clientForwardedProps?:
+        | readonly string[]
+        | Readonly<Record<string, true | readonly string[]>>
       /**
        * How long, in milliseconds, a client tool call waits for the client's
        * result before it is abandoned. Default `600000` (10 minutes). Must be a

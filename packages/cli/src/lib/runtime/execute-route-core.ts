@@ -584,7 +584,7 @@ export async function* streamResolvedRoute(
      */
     /**
      * A JSON schema the root model's final message must match, from the
-     * client's AG-UI envelope (`hashbrown.responseSchema`). Bound on the root
+     * client's AG-UI envelope (`forwardedProps.responseSchema`). Bound on the root
      * model as the provider's native schema-constrained output, alongside the
      * route's tools; subagents never inherit it. Only an `agent` route on a
      * provider that can honor it may carry one — `checkRouteResponseFormatSupport`

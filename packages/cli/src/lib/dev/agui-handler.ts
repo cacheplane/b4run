@@ -483,9 +483,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       )
     }
 
-    // The client's response schema (Hashbrown's `hashbrown.responseSchema`),
-    // read off the ORIGINAL JSON: it is not a RunAgentInput field, and the
-    // handler judges what the client sent, not the parsed projection of it.
+    // The client's response schema (`forwardedProps.responseSchema`, which the
+    // envelope check above admitted only where the route allows the key), read
+    // off the ORIGINAL JSON: the handler judges what the client sent, not the
+    // parsed projection of it.
     // Malformed is judged here, before middleware, from the body alone; whether
     // the ROUTE can honor it is judged below, after middleware has admitted
     // the caller and before any side effect. Never ignored: see response-schema.ts.

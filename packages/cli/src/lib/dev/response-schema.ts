@@ -1,28 +1,32 @@
 /**
  * The client-supplied response schema on an AG-UI run envelope.
  *
- * Hashbrown's AG-UI client sends `hashbrown: { ui: true, responseSchema }` on
- * every run: a JSON Schema the assistant's FINAL message must conform to, so
- * the client can render it as UI. AG-UI's `RunAgentInputSchema` strips the
- * unknown key, so this reads the ORIGINAL parsed JSON — the same body route
- * middleware sees — and turns it into the runtime's provider-neutral
+ * A client sends `forwardedProps: { responseSchema }`: a JSON Schema the
+ * assistant's FINAL message must conform to, so the client can render it as
+ * UI. `forwardedProps` is AG-UI's own field for client additions, so no
+ * library-specific key is involved; whether a route accepts the key at all is
+ * `server.agui.clientForwardedProps`, judged by `validateRunEnvelope` before
+ * this runs. This reads the ORIGINAL parsed JSON — the same body route
+ * middleware sees — and turns the schema into the runtime's provider-neutral
  * `JsonSchemaResponseFormat`.
  *
- * Absent is ordinary (every non-Hashbrown client). Present-but-malformed is a
- * request error, and present-but-unsupported (a provider or route kind that
- * cannot constrain its output) is rejected further down, at
- * `checkRouteResponseFormatSupport`. Nothing here is ever ignored: a client
- * that sent a schema either gets it applied or gets told why not, because
- * from its side an ignored schema and an honored one look identical until a
- * reply fails to parse.
+ * Absent is ordinary. Present-but-malformed is a request error, and
+ * present-but-unsupported (a provider or route kind that cannot constrain its
+ * output) is rejected further down, at `checkRouteResponseFormatSupport`.
+ * Nothing here is ever ignored: a client that sent a schema either gets it
+ * applied or gets told why not, because from its side an ignored schema and
+ * an honored one look identical until a reply fails to parse.
  *
  * Pure: no `node:` imports, so the module is reachable from the edge bundle.
  */
 
 import type { JsonSchemaResponseFormat } from "@b4run/langchain"
 
+/** The `forwardedProps` key a client sends its schema under. */
+export const RESPONSE_SCHEMA_KEY = "responseSchema"
+
 /** The `json_schema.name` the provider sees; OpenAI requires `^[a-zA-Z0-9_-]{1,64}$`. */
-export const RESPONSE_SCHEMA_NAME = "hashbrown_response"
+export const RESPONSE_SCHEMA_NAME = "b4_response"
 
 export type ResponseSchemaRejectionCode =
   | "invalid_response_schema"
@@ -51,29 +55,21 @@ export function rejectResponseSchema(
 }
 
 /**
- * Read `hashbrown.responseSchema` off the raw run body. `undefined` when the
- * envelope carries no `hashbrown` block or no schema (a Hashbrown run without
- * `ui: true` sends none); a rejection when what is there is not a schema.
+ * Read `forwardedProps.responseSchema` off the raw run body. `undefined` when
+ * the envelope carries no `forwardedProps` or no schema; a rejection when what
+ * is there is not a schema.
  */
 export function readResponseFormat(body: unknown): ReadResponseFormatResult {
-  if (!isRecord(body) || body.hashbrown === undefined) {
-    return { ok: true, responseFormat: undefined }
-  }
-  const hashbrown = body.hashbrown
-  if (!isRecord(hashbrown)) {
-    return rejectResponseSchema(
-      "invalid_response_schema",
-      "`hashbrown` must be a JSON object when present",
-    )
-  }
-  const schema = hashbrown.responseSchema
+  const forwardedProps = isRecord(body) ? body.forwardedProps : undefined
+  // A `forwardedProps` that is not an object is the envelope check's to refuse.
+  const schema = isRecord(forwardedProps) ? forwardedProps[RESPONSE_SCHEMA_KEY] : undefined
   if (schema === undefined) {
     return { ok: true, responseFormat: undefined }
   }
   if (!isRecord(schema)) {
     return rejectResponseSchema(
       "invalid_response_schema",
-      "`hashbrown.responseSchema` must be a JSON Schema object when present",
+      "`forwardedProps.responseSchema` must be a JSON Schema object when present",
     )
   }
   return {

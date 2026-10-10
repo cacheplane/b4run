@@ -23,7 +23,7 @@ class FakeModel {
 
 const responseFormat: JsonSchemaResponseFormat = {
   type: "json_schema",
-  name: "hashbrown_response",
+  name: "b4_response",
   schema: {
     type: "object",
     properties: { ui: { type: "array", items: { type: "string" } } },
@@ -48,7 +48,7 @@ describe("createChatModel with a JSON-schema response format", () => {
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "hashbrown_response",
+          name: "b4_response",
           schema: responseFormat.schema,
           strict: true,
         },

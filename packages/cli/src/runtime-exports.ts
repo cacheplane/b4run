@@ -20,7 +20,7 @@ export {
 } from "./lib/dev/pending-interrupts.js"
 // So in-process drivers (@b4run/testing) turn a client response schema into the
 // same bound format, with the same validation and provider-facing name, as an
-// AG-UI run carrying `hashbrown.responseSchema`.
+// AG-UI run carrying `forwardedProps.responseSchema`.
 export { type ReadResponseFormatResult, readResponseFormat } from "./lib/dev/response-schema.js"
 export {
   createRuntimeFetchHandler,

@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { B4Config } from "@b4run/core"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { afterEach, describe, expect, it } from "vitest"
@@ -61,11 +62,14 @@ async function postRun(
   return { events: parseSseEvents(text), json: () => JSON.parse(text), response }
 }
 
+/** The `server.agui` that lets every route's callers send `forwardedProps.responseSchema`. */
+const SCHEMA_ALLOWED = { clientForwardedProps: { "*": ["responseSchema"] } } as const
+
 async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-agui-schema-"))
   cleanup.push(() => rm(appRoot, { force: true, recursive: true }))
   const files: Record<string, string> = {
-    "b4.config.ts": "export default {}\n",
+    "b4.config.ts": `export default ${JSON.stringify({ server: { agui: SCHEMA_ALLOWED } })}\n`,
     "package.json": '{ "name": "agui-schema-fixture", "type": "module" }\n',
     "src/app/chat/index.ts":
       'import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "You are helpful." })\n',
@@ -104,7 +108,10 @@ async function setupRuntime(overrides: Record<string, string> = {}) {
 }
 
 /** The handler alone, with route execution replaced by a capturing stream. */
-async function setupControlledServer(streamRoute: typeof streamResolvedRoute) {
+async function setupControlledServer(
+  streamRoute: typeof streamResolvedRoute,
+  config: NonNullable<NonNullable<B4Config["server"]>["agui"]> = SCHEMA_ALLOWED,
+) {
   const appRoot = await fixtureApp()
   const threads = new Map<string, { metadata: Record<string, unknown>; status: string }>()
   const resumeClaims = createPendingResumeClaims()
@@ -112,6 +119,7 @@ async function setupControlledServer(streamRoute: typeof streamResolvedRoute) {
   const server: Server = createServer((request, response) => {
     void handleAgUiRequest({
       appRoot,
+      config: { server: { agui: config } },
       checkpointer: { getTuple: async () => undefined } as unknown as BaseCheckpointSaver,
       liveTurnHub: createLiveTurnHub(),
       middleware: undefined,
@@ -179,35 +187,38 @@ async function setupControlledServer(streamRoute: typeof streamResolvedRoute) {
 }
 
 describe("readResponseFormat", () => {
-  it("is absent when the envelope carries no hashbrown block or no schema", () => {
+  it("is absent when the envelope carries no forwardedProps or no schema", () => {
     expect(readResponseFormat({ threadId: "t" })).toEqual({ ok: true, responseFormat: undefined })
-    expect(readResponseFormat({ hashbrown: { ui: true } })).toEqual({
+    expect(readResponseFormat({ forwardedProps: { toolChoice: "auto" } })).toEqual({
+      ok: true,
+      responseFormat: undefined,
+    })
+  })
+
+  it("reads no library-specific key", () => {
+    expect(readResponseFormat({ hashbrown: { ui: true, responseSchema: uiSchema } })).toEqual({
       ok: true,
       responseFormat: undefined,
     })
   })
 
   it("names the schema as a strict json_schema response format", () => {
-    expect(readResponseFormat({ hashbrown: { ui: true, responseSchema: uiSchema } })).toEqual({
+    expect(readResponseFormat({ forwardedProps: { responseSchema: uiSchema } })).toEqual({
       ok: true,
-      responseFormat: { type: "json_schema", name: "hashbrown_response", schema: uiSchema },
+      responseFormat: { type: "json_schema", name: "b4_response", schema: uiSchema },
     })
   })
 
-  it("rejects a hashbrown block or schema that is not a JSON object", () => {
-    for (const hashbrown of ["nope", [], 1]) {
-      const result = readResponseFormat({ hashbrown })
-      expect(result).toMatchObject({ ok: false, code: "invalid_response_schema" })
-    }
+  it("rejects a schema that is not a JSON object", () => {
     for (const responseSchema of [null, "object", 1, true, []]) {
-      const result = readResponseFormat({ hashbrown: { responseSchema } })
+      const result = readResponseFormat({ forwardedProps: { responseSchema } })
       expect(result).toMatchObject({ ok: false, code: "invalid_response_schema" })
-      if (!result.ok) expect(result.message).toContain("hashbrown.responseSchema")
+      if (!result.ok) expect(result.message).toContain("forwardedProps.responseSchema")
     }
   })
 })
 
-describe("POST /agui/:route with hashbrown.responseSchema", () => {
+describe("POST /agui/:route with forwardedProps.responseSchema", () => {
   it("forwards the schema to route execution as the root model's response format", async () => {
     const seen: unknown[] = []
     const { port } = await setupControlledServer(async function* (options) {
@@ -218,11 +229,11 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const { response } = await postRun(port, "/chat#agent", {
       threadId: "schema-forwarded",
       runId: "r1",
-      hashbrown: { ui: true, responseSchema: uiSchema },
+      forwardedProps: { responseSchema: uiSchema },
     })
 
     expect(response.status).toBe(200)
-    expect(seen).toEqual([{ type: "json_schema", name: "hashbrown_response", schema: uiSchema }])
+    expect(seen).toEqual([{ type: "json_schema", name: "b4_response", schema: uiSchema }])
   })
 
   it("leaves a run without the field exactly as before", async () => {
@@ -236,7 +247,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const uiOnly = await postRun(port, "/chat#agent", {
       threadId: "ui-only",
       runId: "r2",
-      hashbrown: { ui: true },
+      forwardedProps: {},
     })
 
     expect(plain.response.status).toBe(200)
@@ -254,7 +265,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const { response, json } = await postRun(port, "/chat#agent", {
       threadId: "bad-schema",
       runId: "r1",
-      hashbrown: { ui: true, responseSchema: "not a schema" },
+      forwardedProps: { responseSchema: "not a schema" },
     })
 
     expect(response.status).toBe(422)
@@ -263,11 +274,38 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
         kind: "request_error",
         code: "B4_E5402",
         details: { code: "invalid_response_schema" },
-        message: expect.stringContaining("hashbrown.responseSchema"),
+        message: expect.stringContaining("forwardedProps.responseSchema"),
       },
     })
     expect(executed).toBe(0)
     expect(threads.has("bad-schema")).toBe(false)
+  })
+
+  it("refuses a schema on a route that does not allow the key, naming the setting", async () => {
+    let executed = 0
+    const { port, threads } = await setupControlledServer(
+      async function* () {
+        executed += 1
+        yield { type: "done", data: {} }
+      },
+      { clientForwardedProps: { "/other": ["responseSchema"] } },
+    )
+
+    const { response, json } = await postRun(port, "/chat#agent", {
+      threadId: "not-allowed",
+      runId: "r1",
+      forwardedProps: { responseSchema: uiSchema },
+    })
+
+    expect(response.status).toBe(422)
+    expect(json()).toMatchObject({
+      error: {
+        details: { code: "forwarded_props_not_allowed" },
+        message: expect.stringContaining("server.agui.clientForwardedProps"),
+      },
+    })
+    expect(executed).toBe(0)
+    expect(threads.has("not-allowed")).toBe(false)
   })
 
   it("applies the schema as a strict OpenAI json_schema response_format on the root model", async () => {
@@ -277,7 +315,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const { events, response } = await postRun(port, "/chat#agent", {
       threadId: "openai-applied",
       runId: "r1",
-      hashbrown: { ui: true, responseSchema: uiSchema },
+      forwardedProps: { responseSchema: uiSchema },
     })
 
     expect(response.status).toBe(200)
@@ -288,7 +326,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     expect(requests).toHaveLength(1)
     expect(requests[0]?.body?.response_format).toEqual({
       type: "json_schema",
-      json_schema: { name: "hashbrown_response", schema: uiSchema, strict: true },
+      json_schema: { name: "b4_response", schema: uiSchema, strict: true },
     })
   }, 60_000)
 
@@ -315,7 +353,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const { response, json } = await postRun(port, "/chat#agent", {
       threadId: "google-rejected",
       runId: "r1",
-      hashbrown: { ui: true, responseSchema: uiSchema },
+      forwardedProps: { responseSchema: uiSchema },
     })
 
     expect(response.status).toBe(422)
@@ -340,7 +378,7 @@ describe("POST /agui/:route with hashbrown.responseSchema", () => {
     const { response, json } = await postRun(port, "/echo#graph", {
       threadId: "graph-rejected",
       runId: "r1",
-      hashbrown: { ui: true, responseSchema: uiSchema },
+      forwardedProps: { responseSchema: uiSchema },
     })
 
     expect(response.status).toBe(422)
