@@ -9,7 +9,7 @@ This recipe covers the application wiring. For the endpoint, events, threading, 
 The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js CopilotKit client (`web/`). The client provides:
 
 - **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory, which opens Memory mode with a count of the candidates waiting; the sidebar collapses to an icon rail.
-- **Chat + report:** streamed markdown output and citations in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in.
+- **Chat + report:** the agent's structured answer, rendered as brief components (bottom line, route, watch-for items, key numbers, assumptions, numbered citations) in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in. A thread saved before the brief kit renders its markdown answer as before.
 - **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
 - **Map, sheet and weather strip:** the route, the navlog legs, and the weather chips are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
 - **Suggestions:** three discovery prompts on the empty chat.
@@ -62,6 +62,7 @@ import {
   createCopilotRuntimeHandler,
   InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2"
+import { briefJsonSchema } from "../../../brief/kit"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -71,7 +72,7 @@ const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
-    agents: { default: new B4HttpAgent({ url: agUiUrl }) },
+    agents: { default: new B4HttpAgent({ url: agUiUrl, responseSchema: briefJsonSchema }) },
     // Restores a thread on `connect` from B4.run's storage.
     runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url }),
   }),
@@ -113,6 +114,12 @@ Two pieces of that tree matter most, plus the suggestions:
 - `defaultThrottleMs={100}`: the re-render throttle defaults to *unthrottled*, and a full planning run streams hundreds of events, which pegs the renderer.
 - `CopilotChatConfigurationProvider`: `CopilotKit` does not provide one (`<CopilotChat>` and `<CopilotSidebar>` did). Without it, every thread-aware hook falls back to the agent's own auto-minted thread, and selecting a thread in the sidenav would change nothing.
 - `<DemoSuggestions />` renders nothing. It publishes the starter prompts into CopilotKit's suggestion registry, and `<CopilotChat>` shows them on an empty thread.
+
+## Render the brief as structured UI
+
+The navlog answer is JSON, not markdown. The kit lives in `examples/navlog/web/app/brief/`: `schema.ts` declares each component's props with hashbrown's `s` builder, `components.tsx` exposes the React components (`BottomLine`, `RouteSummary`, `WatchFor`, `KeyNumbers`, `Assumptions`, `Citations`, `Prose`) with `exposeComponent`, and `kit.ts` derives the JSON Schema with `createUiJsonSchema` from `@hashbrownai/core`. The runtime route hands that schema to `B4HttpAgent({ responseSchema })`, which puts `hashbrown: { ui: true, responseSchema }` on every run body. B4.run's server binds it to the model's final answer, so tool-calling turns are unaffected and the last message is `{ "ui": [...] }`.
+
+In the browser, `BriefRenderer` parses the streaming JSON with `useJsonParser` against the kit from `useUiKit` and renders each component as it completes, in the chat and in the sheet's Brief tab. Anything that isn't a brief, such as a thread saved before the kit or a plain reply, falls back to the markdown renderer.
 
 ## The workbench shell
 

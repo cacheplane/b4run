@@ -26,7 +26,7 @@ It is a workbench rather than a chat widget, and it is map-first:
   (pretable, `NavlogGrid.tsx`; Leg pinned left, selecting a row lights that leg
   on the map) over a fixed totals strip, **Totals & plan** holds the tiles and
   the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
-  brief. **Print** prints the sheet alone on one landscape page, every leg
+  brief, rendered from the agent's structured answer. **Print** prints the sheet alone on one landscape page, every leg
   included (from a print-only table), and **Copy FPL** copies the `(FPL-…)`
   message.
 - **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
@@ -86,9 +86,10 @@ npm run build --workspace web
 | Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
 | Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
 | Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
+| Brief kit | `app/brief/` | the structured answer: hashbrown schemas, the BottomLine / RouteSummary / WatchFor / KeyNumbers / Assumptions / Citations / Prose components, and `BriefRenderer` (markdown fallback for older threads) |
 | Chat | `app/components/NavlogChat.tsx` | `<CopilotChat>` with B4.run's slots: turns, approvals, attachments |
 | Notices | `app/components/DropNotices.tsx`, `RunError.tsx` | parts the model never saw, and run errors |
-| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint, and a `createB4AgentRunner(InMemoryAgentRunner, ...)` runner that restores threads |
+| CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint with `responseSchema` set to the brief kit's JSON Schema, and a `createB4AgentRunner(InMemoryAgentRunner, ...)` runner that restores threads |
 | Server proxy | `app/api/b4/[...path]/route.ts` | forwards the three memory routes to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
 | Thread list | `app/lib/thread-source.ts` | the sidenav's ids, titles and recency (restoring a thread is the runner's replay) |
