@@ -86,8 +86,11 @@ const citationsProps = {
   ),
 }
 
+// Streaming, so a long Prose (a filing confirmation, a question) shows as it
+// arrives rather than once its string closes. A streaming string emits the same
+// JSON Schema as a plain one; only the browser's parse differs.
 const proseProps = {
-  markdown: s.string("Markdown text."),
+  markdown: s.streaming.string("Markdown text."),
 }
 
 export const bottomLineDefinition = {

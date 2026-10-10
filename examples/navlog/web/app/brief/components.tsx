@@ -4,7 +4,7 @@ import { type ExposedComponent, exposeComponent } from "@hashbrownai/react"
 import { type ComponentType, createContext, Fragment, type ReactNode, useContext } from "react"
 import { neutralButton } from "../components/ui"
 import { VerdictIcon } from "../components/VerdictCard"
-import { inlineSegments, textBlocks } from "../lib/assistant-text"
+import { inlineSegments, stripToolEchoes, textBlocks } from "../lib/assistant-text"
 import { type EffectiveVerdict, isWorse, outrankNote } from "../lib/verdict"
 import {
   type AssumptionOrigin,
@@ -31,7 +31,15 @@ import {
  * renders as, in the chat and in the sheet's Brief tab. Each takes the props
  * its definition in `schema.ts` describes; `briefComponents` pairs them for
  * hashbrown's `useUiKit`.
+ *
+ * In the chat an answer renders inside CopilotKit's `cpk:prose` wrapper,
+ * whose typography would indent the lists, space the headings and indent the
+ * `dd`s; every structured component's root is `not-prose` (the opt-out the
+ * wrapper's selectors check), and only `Prose` keeps the prose look.
  */
+
+/** Opts a component out of the chat's `cpk:prose` typography. */
+const ROOT = "not-prose mt-3 first:mt-0"
 
 /**
  * The answer's citation list, provided by whatever renders the answer, so a
@@ -49,9 +57,15 @@ export const CitationsContext = createContext<CitationsContextValue>({ items: []
 export interface BriefActions {
   /** An assumption's "Change": the chat fills the composer to correct it. */
   readonly changeAssumption: (statement: string) => void
+  /** True while Change cannot act (an approval is open and the composer waits). */
+  readonly changeDisabled: boolean
 }
 
-export const BriefActionsContext = createContext<BriefActions>({ changeAssumption: () => {} })
+/**
+ * Null where nothing acts on the controls (the sheet's Brief tab), and the
+ * controls are left out there rather than drawn inert.
+ */
+export const BriefActionsContext = createContext<BriefActions | null>(null)
 
 /**
  * The verdict the sheet's card shows (`resolveVerdict`), when the answer
@@ -153,7 +167,7 @@ export function BottomLine({ level, reason, cite }: BottomLineProps) {
   const outranked = verdict !== null && isWorse(verdict.level, level) ? verdict : null
   const shown = outranked?.level ?? level
   return (
-    <section aria-label="Bottom line" className="wb-bottom-line mt-3 first:mt-0">
+    <section aria-label="Bottom line" className={`wb-bottom-line ${ROOT}`}>
       <span className="wb-eyebrow mr-1.5 inline">Bottom line</span>
       <span className="wb-verdict-pill mr-1.5 align-middle" data-level={shown}>
         <VerdictIcon level={shown} className="size-3.5 shrink-0" />
@@ -171,7 +185,7 @@ export function BottomLine({ level, reason, cite }: BottomLineProps) {
 export function RouteSummary({ from, to, via, altitudeFt, departureUtc }: RouteSummaryProps) {
   const stops = [from, ...via, to]
   return (
-    <section aria-label="Route" className="mt-3 first:mt-0">
+    <section aria-label="Route" className={ROOT}>
       <Heading>Route</Heading>
       <ol className="mt-1 flex flex-wrap items-center gap-1.5">
         {stops.map((stop, i) => (
@@ -210,20 +224,24 @@ const SEVERITY_LABEL: Record<WatchSeverity, string> = {
 
 export function WatchFor({ items }: WatchForProps) {
   return (
-    <section aria-label="Watch for" className="mt-3 first:mt-0">
+    <section aria-label="Watch for" className={ROOT}>
       <Heading>Watch for</Heading>
       {items.length === 0 ? (
         <p className="mt-1 text-[13px] text-wb-muted">Nothing during the flight</p>
       ) : (
         <ul className="mt-1 grid gap-1 text-[13px] leading-snug">
-          {items.map((item) => (
-            <li key={item.what} className="flex items-baseline gap-2" data-severity={item.severity}>
-              <span
-                className="wb-watch-dot"
-                data-severity={item.severity}
-                title={SEVERITY_LABEL[item.severity]}
-              />
-              <span className="sr-only">{`${SEVERITY_LABEL[item.severity]}: `}</span>
+          {items.map((item, i) => (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: two items may say the same thing
+              key={`${i}-${item.what}`}
+              className="flex items-baseline gap-2"
+              data-severity={item.severity}
+            >
+              <span aria-hidden="true" className="wb-watch-dot" data-severity={item.severity} />
+              {/* The word, not only the dot's colour, says how much it matters. */}
+              <span className="wb-watch-severity" data-severity={item.severity}>
+                {SEVERITY_LABEL[item.severity]}
+              </span>
               <span className="min-w-0 flex-1">
                 {item.what}
                 <CiteMarks ids={item.cite} />
@@ -242,12 +260,14 @@ export function WatchFor({ items }: WatchForProps) {
 }
 
 export function KeyNumbers({ items }: KeyNumbersProps) {
+  if (items.length === 0) return null
   return (
-    <section aria-label="Key numbers" className="mt-3 first:mt-0">
+    <section aria-label="Key numbers" className={ROOT}>
       <Heading>Key numbers</Heading>
       <dl className="wb-stats mt-1">
-        {items.map((item) => (
-          <div key={item.label} className="wb-stat">
+        {items.map((item, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: two figures may share a label
+          <div key={`${i}-${item.label}`} className="wb-stat">
             <dt>{item.label}</dt>
             <dd>
               <span className="font-mono tabular-nums">{item.value}</span>
@@ -270,13 +290,15 @@ const ORIGIN_LABEL: Record<AssumptionOrigin, string> = {
 }
 
 export function Assumptions({ items }: AssumptionsProps) {
-  const { changeAssumption } = useContext(BriefActionsContext)
+  const actions = useContext(BriefActionsContext)
+  if (items.length === 0) return null
   return (
-    <section aria-label="Assumptions" className="mt-3 first:mt-0">
+    <section aria-label="Assumptions" className={ROOT}>
       <Heading>Assumptions</Heading>
       <ul className="mt-1 grid gap-1 text-[13px] leading-snug">
-        {items.map((item) => (
-          <li key={item.statement} className="wb-row flex items-center gap-2">
+        {items.map((item, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: two assumptions may read the same
+          <li key={`${i}-${item.statement}`} className="wb-row flex items-center gap-2">
             <span className="min-w-0 flex-1">{item.statement}</span>
             <span
               className="shrink-0 rounded-full border border-wb-border px-2 text-[11px] text-wb-muted"
@@ -284,14 +306,17 @@ export function Assumptions({ items }: AssumptionsProps) {
             >
               {ORIGIN_LABEL[item.origin]}
             </span>
-            <button
-              type="button"
-              className={`${neutralButton("sm")} shrink-0 print:hidden`}
-              aria-label={`Change: ${item.statement}`}
-              onClick={() => changeAssumption(item.statement)}
-            >
-              Change
-            </button>
+            {actions !== null ? (
+              <button
+                type="button"
+                className={`${neutralButton("sm")} shrink-0 print:hidden`}
+                aria-label={`Change: ${item.statement}`}
+                disabled={actions.changeDisabled}
+                onClick={() => actions.changeAssumption(item.statement)}
+              >
+                Change
+              </button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -302,7 +327,7 @@ export function Assumptions({ items }: AssumptionsProps) {
 export function Citations({ items }: CitationsProps) {
   const { idPrefix } = useContext(CitationsContext)
   return (
-    <section aria-label="Sources" className="mt-3 first:mt-0">
+    <section aria-label="Sources" className={ROOT}>
       <Heading>Sources</Heading>
       <ol className="mt-1 grid list-decimal gap-0.5 pl-5 text-[12px] leading-snug text-wb-muted">
         {items.map((item) => (
@@ -316,11 +341,17 @@ export function Citations({ items }: CitationsProps) {
   )
 }
 
+/**
+ * Markdown, with the plumbing a model echoes into its prose (tool calls, the
+ * todo list) dropped first, as the chat does for a plain reply.
+ */
 export function Prose({ markdown }: ProseProps) {
   const Markdown = useContext(BriefMarkdownContext)
+  const content = stripToolEchoes(markdown)
+  if (content === "") return null
   return (
     <div className="mt-3 first:mt-0">
-      <Markdown content={markdown} />
+      <Markdown content={content} />
     </div>
   )
 }
