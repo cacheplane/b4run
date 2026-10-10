@@ -12,6 +12,7 @@ export function runTests({ args = process.argv.slice(2), spawnSyncImpl = spawnSy
       ? [
           ["pnpm", ["test:test-runner"]],
           ["pnpm", ["test:brand-demo"]],
+          ["pnpm", ["test:brand-demo-rag"]],
         ]
       : []),
   ]

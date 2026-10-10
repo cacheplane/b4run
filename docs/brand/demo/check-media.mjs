@@ -87,7 +87,7 @@ function duration(probe) {
   return Number.isFinite(value) ? value : Number.NaN
 }
 
-function validateVideoFile({ logicalPath, file, clip, expectedCodec, byteLimit }) {
+export function validateVideoFile({ logicalPath, file, clip, expectedCodec, byteLimit }) {
   const failures = []
   if (file === undefined) {
     failures.push(`${logicalPath} is missing`)
@@ -131,7 +131,7 @@ function captionClaimsScaffolding(caption) {
   return /\bscaffold(?:ed|ing|s)?\b/iu.test(caption)
 }
 
-function validatePoster(logicalPath, file) {
+export function validatePoster(logicalPath, file) {
   if (file === undefined) return [`poster is missing: ${logicalPath}`]
   const failures = []
   const stream = videoStream(file.probe)

@@ -431,15 +431,22 @@ const runtime = (T, beats, presets) => `
  * generated app) to its source. The page starts in the preparation state
  * (frame in place, the Workbench showing) so the capture can load and fill
  * the Workbench first; `director.reset()` then moves to the opening frame
- * without animating, and `director.play(index)` plays `STORYBOARD[index]`.
+ * without animating, and `director.play(index)` plays `storyboard[index]`.
+ * `storyboard` and `focus` (the app camera presets) default to the navlog
+ * take's; another take passes its own.
  */
-export function renderDirector({ files, wordmark = wordmarkSvg() }) {
+export function renderDirector({
+  files,
+  wordmark = wordmarkSvg(),
+  storyboard = STORYBOARD,
+  focus: presets = APP_FOCUS,
+}) {
   if (files === null || typeof files !== "object") throw new TypeError("files must be an object")
   requireString(wordmark, "wordmark")
-  const layers = STORYBOARD.filter((beat) => beat.kind === "code").map((beat) => codeLayer(beat, files))
-  const title = STORYBOARD.find((beat) => beat.kind === "title")
-  const close = STORYBOARD.find((beat) => beat.kind === "close")
-  const beats = STORYBOARD.map(({ id, kind, headline, holdMs, focus }) => ({
+  const layers = storyboard.filter((beat) => beat.kind === "code").map((beat) => codeLayer(beat, files))
+  const title = storyboard.find((beat) => beat.kind === "title")
+  const close = storyboard.find((beat) => beat.kind === "close")
+  const beats = storyboard.map(({ id, kind, headline, holdMs, focus }) => ({
     id,
     kind,
     headline,
@@ -464,7 +471,7 @@ export function renderDirector({ files, wordmark = wordmarkSvg() }) {
   <div class="close">${wordmark}<div class="tagline">${revealWords(close.headline)}</div><div class="command">npm create b4-app@latest my-agent</div></div>
   <div class="sweep"></div>
 </div>
-<script>${runtime(DIRECTOR_TIMING, beats, APP_FOCUS)}</script>
+<script>${runtime(DIRECTOR_TIMING, beats, presets)}</script>
 </body>
 </html>`
 }

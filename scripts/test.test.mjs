@@ -20,6 +20,7 @@ test("full test runs preserve Vitest first and always invoke focused Node safety
       ["pnpm", ["exec", "vitest", "--run", "--config", "vitest.workspace.ts"]],
       ["pnpm", ["test:test-runner"]],
       ["pnpm", ["test:brand-demo"]],
+      ["pnpm", ["test:brand-demo-rag"]],
     ],
   )
   assert.equal(result.status, 3)

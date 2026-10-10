@@ -50,7 +50,10 @@ function requireBeat(scenes, name) {
  * every beat must be there, in storyboard order, with no overlap. The poster
  * is the navlog beat's last moment, the camera on the sheet's numbers.
  */
-export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
+export function createTrimPlan(
+	summary,
+	{ storyboard = STORYBOARD, posterBeat = POSTER_BEAT } = {},
+) {
 	if (summary?.videoTimeline?.unit !== "milliseconds") {
 		throw new Error("capture summary timeline must use milliseconds");
 	}
@@ -70,9 +73,9 @@ export function createTrimPlan(summary, { storyboard = STORYBOARD } = {}) {
 			);
 		}
 	}
-	const posterIndex = storyboard.findIndex((beat) => beat.id === POSTER_BEAT);
+	const posterIndex = storyboard.findIndex((beat) => beat.id === posterBeat);
 	if (posterIndex === -1) {
-		throw new Error(`the storyboard has no ${POSTER_BEAT} beat for the poster`);
+		throw new Error(`the storyboard has no ${posterBeat} beat for the poster`);
 	}
 	const first = beats[0];
 	const last = beats.at(-1);

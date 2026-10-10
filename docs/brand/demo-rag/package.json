@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Marks the RAG take's files as ES modules, as the generated app's server/package.json does, so tsx loads the overlay's TypeScript the way the app runs it.",
+  "type": "module"
+}

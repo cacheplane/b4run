@@ -116,7 +116,7 @@ export function validateRunId(value) {
   return value
 }
 
-function createVideoTimeline(now, wallClock = Date.now) {
+export function createVideoTimeline(now, wallClock = Date.now) {
   if (typeof now !== "function") throw new TypeError("timing.now must be a function")
   const startedAtMonotonicMs = now()
   // The same instant on the wall clock, the clock the screencast stamps its

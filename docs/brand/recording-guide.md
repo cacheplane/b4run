@@ -249,3 +249,38 @@ The B4.run uploader writes the two stable video paths under `b4/demo/` in the
 existing media store. The legacy `demo/` video paths are outside its upload
 allowlist. Upload and verify B4.run media before switching the website; retire
 legacy media during the domain and website cutover.
+
+## The compliance take (RAG)
+
+A second, shorter take uses the same pipeline for a different app: an
+emergency-plan compliance assistant that answers “Are we in compliance with
+FEMA CPG 101?” over FEMA guidance excerpts and two sample county plans, with
+citation chips. Its files live in `docs/brand/demo-rag/`; its walkthrough is
+`docs/brand/demo-rag/transcript.md`.
+
+```bash
+pnpm media:rag:capture          # add -- --record-only to skip encoding
+pnpm media:rag:check            # the latest run, or pass a run id
+pnpm test:brand-demo-rag
+```
+
+- **The app.** Not a `create-b4-app` template. The capture scaffolds the
+  navlog template (its web client is the Workbench) and `overlay.mjs` turns it
+  into the compliance app: it removes the navlog route, tools, libraries,
+  corpus and their tests, copies `app/` over the result, and makes a few
+  counted text edits. The overlay's Workbench layout replaces the map with a
+  source reader, where a citation chip opens its section.
+- **The scenario.** `scenario.mjs` scripts the parent and its checker
+  subagent with aimock; every `searchPlans` and `readSection` call runs for
+  real over the workspace. There is no clock dependency and no weather stub.
+- **Evidence.** The capture fails unless the generated `npm test` passes and
+  names the overlay's search test, the turn's tool steps each carry source
+  chips, the answer's checklist has Met, Partial and Missing rows, and the
+  opened chip shows its section highlighted in the reader.
+- **Output.** `docs/brand/demo-rag/artifacts/runs/<id>/output/rag-loop.mp4`,
+  `rag-loop.webm` and `rag-loop-poster.webp`, held to the flagship's contract
+  (1440×810, 30 fps, 45–75 s, each video at most 12,000,000 bytes).
+  `capture-summary.json` beside them records each beat's start and end in
+  seconds of the encoded video, for cutting clips. Artifacts and raw
+  recordings are ignored by git, like the navlog take's. Nothing is uploaded
+  or published.
