@@ -4,13 +4,17 @@
  * is testable without the route handler.
  *
  * Ranking, best first:
- *   1. exact id or alias;
- *   2. id or alias prefix (shorter matched code first);
- *   3. name word-prefix;
- *   4. name substring.
+ *   1. exact id;
+ *   2. exact alias (an airport's FAA local code);
+ *   3. id or alias prefix (shorter matched code first);
+ *   4. name word-prefix;
+ *   5. name substring.
+ * An exact id beats an exact alias because a route string names an airport by
+ * its ICAO id and a navaid by its own: "SNS" is the Salinas VORTAC first, and
+ * Salinas Municipal (KSNS, local code SNS) second.
  * Within a rank, airports with a K-prefixed 4-letter id come first. For the
- * code ranks (1 and 2) navaids come next, so "SNS" shows both KSNS and the
- * SNS VORTAC; then everything else. Ties break alphabetically by id.
+ * code ranks (1 to 3) navaids come next; then everything else. Ties break
+ * alphabetically by id.
  *
  * Duplicate ids exist in the snapshot (the same code at two fields) and are
  * kept: a result is identified by kind, id AND position, never by id alone.
@@ -95,14 +99,15 @@ function entriesOf(data: WaypointData): readonly Entry[] {
 
 interface Match {
   readonly entry: Entry
-  readonly rank: 1 | 2 | 3 | 4
-  /** The matched code's length (rank 2 only; 0 otherwise). */
+  readonly rank: 1 | 2 | 3 | 4 | 5
+  /** The matched code's length (rank 3 only; 0 otherwise). */
   readonly length: number
 }
 
 function matchOf(entry: Entry, q: string, folded: string): Match | undefined {
   const { id, alias } = entry
-  if (id === q || alias === q) return { entry, rank: 1, length: 0 }
+  if (id === q) return { entry, rank: 1, length: 0 }
+  if (alias === q) return { entry, rank: 2, length: 0 }
   const idPrefix = id.startsWith(q)
   const aliasPrefix = alias?.startsWith(q) === true
   if (idPrefix || aliasPrefix) {
@@ -110,18 +115,18 @@ function matchOf(entry: Entry, q: string, folded: string): Match | undefined {
       idPrefix ? id.length : Number.POSITIVE_INFINITY,
       aliasPrefix && alias !== undefined ? alias.length : Number.POSITIVE_INFINITY,
     )
-    return { entry, rank: 2, length }
+    return { entry, rank: 3, length }
   }
   if (folded === "") return undefined
-  if (entry.name.includes(` ${folded}`)) return { entry, rank: 3, length: 0 }
-  if (entry.name.includes(folded)) return { entry, rank: 4, length: 0 }
+  if (entry.name.includes(` ${folded}`)) return { entry, rank: 4, length: 0 }
+  if (entry.name.includes(folded)) return { entry, rank: 5, length: 0 }
   return undefined
 }
 
 /** Navaids only lead "other" airports in the code ranks; by name they are peers. */
 function groupFor(match: Match): number {
   if (match.entry.group === 0) return 0
-  return match.rank <= 2 ? match.entry.group : 1
+  return match.rank <= 3 ? match.entry.group : 1
 }
 
 function compare(a: Match, b: Match): number {

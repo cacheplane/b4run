@@ -28,12 +28,12 @@ describe("searchWaypoints", () => {
     expect(searchWaypoints(data, "   ")).toEqual([])
   })
 
-  test("SNS finds the airport by alias and the VORTAC by id, airport first", () => {
-    expect(ids("SNS")).toEqual(["airport:KSNS", "navaid:SNS"])
+  test("SNS finds the VORTAC by id first, then the airport by its alias", () => {
+    expect(ids("SNS")).toEqual(["navaid:SNS", "airport:KSNS"])
   })
 
   test("is case-insensitive and trimmed", () => {
-    expect(ids("  sns ")).toEqual(["airport:KSNS", "navaid:SNS"])
+    expect(ids("  sns ")).toEqual(["navaid:SNS", "airport:KSNS"])
   })
 
   test("maps rows to waypoints, keeping a navaid frequency and omitting a null one", () => {
@@ -93,12 +93,12 @@ describe("searchWaypoints over the bundled snapshot", () => {
   // JSON imports widen tuples to arrays, so the shape is asserted, not inferred.
   const real = snapshot as unknown as WaypointData
 
-  test("SNS returns KSNS and the SNS VORTAC near the top", () => {
+  test("SNS returns the SNS VORTAC first and KSNS near the top", () => {
     const top = searchWaypoints(real, "SNS")
       .slice(0, 3)
       .map((w) => `${w.kind}:${w.id}`)
+    expect(top[0]).toBe("navaid:SNS")
     expect(top).toContain("airport:KSNS")
-    expect(top).toContain("navaid:SNS")
   })
 
   test("KPAO is first for its own id", () => {

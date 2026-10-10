@@ -1,6 +1,13 @@
 import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
 import { awc } from "../lib/awc.js"
+import type { LatLon } from "../lib/geo.js"
+import { findNavaid } from "../lib/navaids.js"
 import { legBoxes, placeOnRoute, thin } from "../lib/route-corridor.js"
+
+interface AwcAirportRecord {
+  readonly lat?: number
+  readonly lon?: number
+}
 
 interface AwcMetarStation {
   readonly icaoId?: string
@@ -10,8 +17,12 @@ interface AwcMetarStation {
 }
 
 export interface FindRouteStationsInput {
-  /** The route's waypoints in order, origin first, with coordinates from lookupAirport or lookupNavaid. */
-  readonly waypoints: readonly { readonly id: string; readonly lat: number; readonly lon: number }[]
+  /**
+   * The route's waypoints in order, origin first: each identifier and, when
+   * known, whether it is an airport or a navaid. The tool looks the
+   * coordinates up itself, so none are passed in.
+   */
+  readonly waypoints: readonly { readonly id: string; readonly kind?: "airport" | "navaid" }[]
   /** How far either side of the course a station may be. Default 25 nm. */
   readonly corridorNm?: number
   /** The most stations to return, spread evenly along the route. Default 6. */
@@ -35,20 +46,44 @@ const DEFAULT_MAX = 6
 const coord = (deg: number): string => String(Number(deg.toFixed(3)))
 
 /**
+ * A waypoint's position, from the same sources lookupAirport and lookupNavaid
+ * read: aviationweather.gov for an airport, the bundled snapshot for a navaid.
+ * Looked up here rather than taken from the caller, because a model copying
+ * coordinates between tool calls can shift a whole route and, with it, the
+ * corridor. An identifier with no kind is tried as an airport first.
+ */
+async function positionOf(
+  waypoint: FindRouteStationsInput["waypoints"][number],
+  signal: AbortSignal | undefined,
+): Promise<LatLon> {
+  const id = waypoint.id.trim().toUpperCase()
+  if (waypoint.kind !== "navaid") {
+    const [record] = await awc.getJson<AwcAirportRecord[]>("airport", { ids: id }, signal)
+    if (record?.lat !== undefined && record.lon !== undefined) {
+      return { lat: record.lat, lon: record.lon }
+    }
+    if (waypoint.kind === "airport") throw new Error(`no airport record for ${id}`)
+  }
+  const navaid = findNavaid(id)
+  if (!navaid) throw new Error(`no airport or navaid record for ${id}`)
+  return { lat: navaid.lat, lon: navaid.lon }
+}
+
+/**
  * Find the METAR-reporting stations along a route, for the en-route weather:
  * those within corridorNm of the course, excluding the route's own airports,
- * in order along the route and thinned evenly to max. Pass the waypoints in
- * route order with their coordinates.
+ * in order along the route and thinned evenly to max. Pass the waypoint
+ * identifiers in route order, each with its kind (airport or navaid).
  */
 export default async (
   input: FindRouteStationsInput,
   ctx: B4ToolContext,
 ): Promise<{ stations: RouteStation[] }> => {
-  const { waypoints } = input
-  if (waypoints.length < 2) return { stations: [] }
+  if (input.waypoints.length < 2) return { stations: [] }
+  const waypoints = await Promise.all(input.waypoints.map((wp) => positionOf(wp, ctx.signal)))
   const corridorNm = input.corridorNm ?? DEFAULT_CORRIDOR_NM
   const max = input.max ?? DEFAULT_MAX
-  const routeIds = new Set(waypoints.map((wp) => wp.id.trim().toUpperCase()))
+  const routeIds = new Set(input.waypoints.map((wp) => wp.id.trim().toUpperCase()))
   const answers = await Promise.all(
     legBoxes(waypoints, corridorNm).map((box) =>
       awc.getJson<AwcMetarStation[]>(

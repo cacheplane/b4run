@@ -90,6 +90,8 @@ const AIRPORT_LINE =
   /^([A-Z0-9]{3,4})(?:\*\*)?(?:\s*\([^)]*\))?(?:\s*[:,]|\s*[\u2013\u2014]|\s+-\s)\s*(.*)$/
 /** Where the raw report starts: a routine METAR or a special SPECI. */
 const RAW_REPORT = /\b(METAR|SPECI)\b/
+/** Where the raw TAF starts: `TAF KPAO …`, `TAF AMD KPAO …`, or `TAF none` for a station without one. */
+const RAW_TAF = /\bTAF(?:\s+(?:AMD|COR))?\s+(?:[A-Z0-9]{3,4}\b|none\b)/
 
 /** An airport line by its content, not its section: id, separator, a category, and "now" or a METAR. */
 function looksLikeAirportLine(line: string): boolean {
@@ -104,7 +106,12 @@ function parseAirport(line: string): AirportWeather | null {
   if (!m) return null
   const [, id, rest] = m as unknown as [string, string, string]
   const reportAt = rest.search(RAW_REPORT)
-  const tafAt = rest.search(/\bTAF\b/)
+  // The raw TAF follows the raw METAR. The summary before them can say "TAF"
+  // too ("TAF coverage at ETA"), so the search starts at the report and wants
+  // a report's shape: "TAF", an optional AMD or COR, then a station or "none".
+  const tafFrom = Math.max(reportAt, 0)
+  const tafOffset = rest.slice(tafFrom).search(RAW_TAF)
+  const tafAt = tafOffset >= 0 ? tafFrom + tafOffset : -1
   const head = reportAt >= 0 ? rest.slice(0, reportAt).trim() : rest
   const metar =
     reportAt >= 0 ? rest.slice(reportAt, tafAt > reportAt ? tafAt : undefined).trim() : ""

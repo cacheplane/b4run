@@ -110,6 +110,23 @@ Rochester trends MVFR by 15Z; the 1400Z departure stays ahead of it.`
   })
 })
 
+describe("parseWeatherBrief splits the raw reports by their shape", () => {
+  test("a summary that says TAF does not start the TAF", () => {
+    const brief = parseWeatherBrief(
+      [
+        "Airports:",
+        "KPAO: VFR now, TAF coverage at ETA, ceiling sky clear, visibility 10 mi. METAR KPAO 092347Z 35012KT 10SM SKC 20/15 A2973 TAF none",
+        "KSBA: VFR now, VFR at ETA. METAR KSBA 092353Z 25008KT 10SM CLR 21/12 A2970 TAF AMD KSBA 092330Z 1000/1106 26010KT P6SM SKC",
+      ].join("\n"),
+    )
+    const [paO, sba] = brief.airports
+    expect(paO?.metar).toBe("METAR KPAO 092347Z 35012KT 10SM SKC 20/15 A2973")
+    expect(paO?.taf).toBe("TAF none")
+    expect(sba?.metar).toBe("METAR KSBA 092353Z 25008KT 10SM CLR 21/12 A2970")
+    expect(sba?.taf).toBe("TAF AMD KSBA 092330Z 1000/1106 26010KT P6SM SKC")
+  })
+})
+
 describe("worstCategory", () => {
   test("is the worse of now and at ETA, in either direction", () => {
     expect(worstCategory({ now: "VFR", atEta: "MVFR" })).toBe("MVFR")

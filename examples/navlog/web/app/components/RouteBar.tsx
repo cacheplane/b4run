@@ -300,7 +300,7 @@ export function RouteBar({
           className="wb-routebar-small wb-focus"
           aria-label="Cruise altitude, feet"
           inputMode="numeric"
-          placeholder="5500"
+          placeholder="Altitude"
           value={draft.altitudeFt}
           onChange={(event) => dispatch({ type: "altitude", value: event.target.value })}
         />
@@ -310,7 +310,7 @@ export function RouteBar({
         type="text"
         className="wb-routebar-small wb-focus"
         aria-label="Departure time"
-        placeholder="1400Z"
+        placeholder="Dep 1400Z"
         value={draft.departure}
         onChange={(event) => dispatch({ type: "departure", value: event.target.value })}
       />
@@ -321,9 +321,21 @@ export function RouteBar({
         type="submit"
         className="wb-routebar-submit wb-focus"
         disabled={message === null || running}
+        title={replanHint(draft, running)}
       >
         {navlog !== null ? "Replan" : "Plan"}
       </button>
     </form>
   )
+}
+
+/** Why Plan/Replan is disabled, as its tooltip; empty when it is enabled. */
+function replanHint(draft: RouteDraft, running: boolean): string {
+  if (running) return "Wait for the current run to finish"
+  if (draft.waypoints.length < 2) return "Add at least two waypoints"
+  if (replanMessage(draft) !== null) return ""
+  if (draft.departure.trim() === "" && draft.departureFromPlan === null) {
+    return "Add a cruise altitude (1000–17500 ft) and a departure time"
+  }
+  return "Add a cruise altitude from 1000 to 17500 ft"
 }

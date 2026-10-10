@@ -32,7 +32,7 @@ leaves room for them), named fixes, and dragging waypoints on the map.
 A pill-shaped bar across the top of the map panel (and the phone Map tab)
 replaces `WeatherStrip`:
 
-`[KPAO] → [SNS] → [KSBA] [add waypoint…] · 5500 ft · 1400Z · 231 nm [Replan]`
+`[KPAO] → [SNS] → [KSBA] [add waypoint…] · 5500 ft · 1400Z · 213 nm [Replan]`
 
 - **Pills.** Airports show in ink and navaids in cobalt, in mono type. Each
   pill has a remove button (×). Backspace in an empty input removes the last
