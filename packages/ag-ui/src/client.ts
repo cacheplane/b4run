@@ -1,5 +1,5 @@
-import { HttpAgent } from "@ag-ui/client"
-import type { AgentCapabilities } from "@ag-ui/core"
+import { HttpAgent, type HttpAgentConfig } from "@ag-ui/client"
+import type { AgentCapabilities, RunAgentInput } from "@ag-ui/core"
 import { AgentCapabilitiesSchema } from "@ag-ui/core/schemas"
 
 /**
@@ -25,8 +25,45 @@ const CAPABILITIES_TIMEOUT_MS = 10_000
  * field as unknown, and an empty object would claim "nothing declared" as if
  * the server had said so. So does a server that has not answered within
  * ten seconds.
+ *
+ * With a `responseSchema`, every run body also carries
+ * `hashbrown: { ui: true, responseSchema }`, the envelope B4.run binds on the
+ * route's root model as the provider's structured output.
  */
 export class B4HttpAgent extends HttpAgent {
+  /** The JSON Schema every run asks the route's final answer to match, if any. */
+  readonly responseSchema: Readonly<Record<string, unknown>> | undefined
+
+  constructor(config: B4HttpAgentConfig) {
+    super(config)
+    this.responseSchema = config.responseSchema
+  }
+
+  protected override requestInit(input: RunAgentInput): RequestInit {
+    const init = super.requestInit(input)
+    if (this.responseSchema === undefined) return init
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>
+    return {
+      ...init,
+      body: JSON.stringify({
+        ...body,
+        hashbrown: { responseSchema: this.responseSchema, ui: true },
+      }),
+    }
+  }
+
+  /**
+   * `HttpAgent.clone()` builds the copy with `Object.create` and copies only
+   * the fields it knows, so the schema is copied here. CopilotKit clones the
+   * registered agent for every run.
+   */
+  override clone(): B4HttpAgent {
+    const copy = super.clone() as B4HttpAgent
+    ;(copy as { responseSchema: Readonly<Record<string, unknown>> | undefined }).responseSchema =
+      this.responseSchema
+    return copy
+  }
+
   async getCapabilities(): Promise<AgentCapabilities> {
     const response = await this.fetch(this.url, {
       headers: { ...withoutHeader(this.headers, "accept"), Accept: "application/json" },
@@ -43,6 +80,17 @@ export class B4HttpAgent extends HttpAgent {
     // the two spellings under exactOptionalPropertyTypes.
     return AgentCapabilitiesSchema.parse(await response.json()) as AgentCapabilities
   }
+}
+
+/** `HttpAgent`'s config plus the run's optional response schema. */
+export interface B4HttpAgentConfig extends HttpAgentConfig {
+  /**
+   * A JSON Schema the route's final assistant message must match. Sent on
+   * every run as `hashbrown: { ui: true, responseSchema }`, which B4.run binds
+   * on the root model as the provider's structured output. Tool-calling turns
+   * are unaffected.
+   */
+  readonly responseSchema?: Readonly<Record<string, unknown>>
 }
 
 /** Header names are case-insensitive; a caller's `accept` would otherwise be merged with ours. */

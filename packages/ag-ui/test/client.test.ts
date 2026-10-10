@@ -1,4 +1,5 @@
 import { HttpAgent } from "@ag-ui/client"
+import type { RunAgentInput } from "@ag-ui/core"
 import { describe, expect, it, vi } from "vitest"
 import { B4HttpAgent } from "../src/client.js"
 
@@ -79,5 +80,89 @@ describe("B4HttpAgent.getCapabilities", () => {
     expect(agent).toBeInstanceOf(HttpAgent)
     expect(clone).toBeInstanceOf(B4HttpAgent)
     expect(clone.url).toBe(URL)
+  })
+})
+
+const runInput: RunAgentInput = {
+  context: [],
+  forwardedProps: {},
+  messages: [],
+  runId: "r1",
+  state: {},
+  threadId: "t1",
+  tools: [],
+}
+
+const responseSchema = {
+  additionalProperties: false,
+  properties: { ui: { type: "array" } },
+  required: ["ui"],
+  type: "object",
+}
+
+/** Exposes the protected `requestInit` so a test can read the run body. */
+class RunBodyProbe extends B4HttpAgent {
+  init(): RequestInit {
+    return this.requestInit(runInput)
+  }
+
+  body(): Record<string, unknown> {
+    return JSON.parse(String(this.init().body)) as Record<string, unknown>
+  }
+}
+
+describe("B4HttpAgent responseSchema", () => {
+  it("without one, the run body is the plain AG-UI input", () => {
+    const body = new RunBodyProbe({ url: URL }).body()
+    expect(body).not.toHaveProperty("hashbrown")
+    expect(body.threadId).toBe("t1")
+  })
+
+  it("with one, every run body carries hashbrown: { ui: true, responseSchema }", () => {
+    const agent = new RunBodyProbe({ responseSchema, url: URL })
+    expect(agent.responseSchema).toBe(responseSchema)
+    const body = agent.body()
+    expect(body.hashbrown).toEqual({ responseSchema, ui: true })
+    expect(body.threadId).toBe("t1")
+    expect(body.runId).toBe("r1")
+    // A second run carries it too.
+    expect(agent.body().hashbrown).toEqual({ responseSchema, ui: true })
+  })
+
+  it("keeps the base request's method and headers", () => {
+    const agent = new RunBodyProbe({
+      headers: { authorization: "Bearer t" },
+      responseSchema,
+      url: URL,
+    })
+    const init = agent.init()
+    expect(init.method).toBe("POST")
+    expect(init.headers).toMatchObject({
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+      authorization: "Bearer t",
+    })
+  })
+
+  it("sends the schema on the wire when the agent runs", async () => {
+    const { calls, fetch } = recordingFetch(() => new Response("", { status: 500 }))
+    const agent = new B4HttpAgent({ fetch, responseSchema, url: URL })
+    await agent.runAgent().catch(() => undefined)
+    expect(calls).toHaveLength(1)
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>
+    expect(body.hashbrown).toEqual({ responseSchema, ui: true })
+  })
+
+  it("a clone keeps the schema", () => {
+    const agent = new RunBodyProbe({ responseSchema, url: URL })
+    const clone = agent.clone()
+    expect(clone).toBeInstanceOf(RunBodyProbe)
+    expect((clone as RunBodyProbe).responseSchema).toBe(responseSchema)
+    expect((clone as RunBodyProbe).body().hashbrown).toEqual({ responseSchema, ui: true })
+  })
+
+  it("a clone of an agent without one still sends none", () => {
+    const clone = new RunBodyProbe({ url: URL }).clone() as RunBodyProbe
+    expect(clone.body()).not.toHaveProperty("hashbrown")
   })
 })
