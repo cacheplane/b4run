@@ -56,7 +56,7 @@ Newest first. Each change names the release it landed in, and the two that need 
 
 ### `@b4run/ag-ui` has one folder per framework; the stylesheet is `@b4run/ag-ui/styles.css`
 
-Landed in the first release after **0.13.1**. Action required if you import the activity stylesheet, or the CopilotKit connector from a pre-release build.
+Landed in **0.14.0**. Action required if you import the activity stylesheet, or the CopilotKit connector from a pre-release build.
 
 The activity stylesheet moved from `@b4run/ag-ui/react/styles.css` to `@b4run/ag-ui/styles.css`, one sheet for every kit; `./react/styles.css` is gone. Change the import:
 
@@ -68,7 +68,7 @@ The React CopilotKit connector (`B4Activity`, `useB4ChatSlots`, `useB4Turns`, `u
 
 ### The legacy activity cards are gone; `@b4run/ag-ui/react` is the activity kit
 
-Landed in the first release after **0.13.1**. Action required if you render B4.run activity with the 0.13 cards, renderers or subagent hook.
+Landed in **0.14.0**. Action required if you render B4.run activity with the 0.13 cards, renderers or subagent hook.
 
 Removed from `@b4run/ag-ui/react`: `PlanActivityCard`, `ActivityChecklist`, `SubagentPanel`, the `classNames`/`components` props with `B4ActivityClassNames`, `B4ActivityComponents`, `B4TodoRowProps` and `B4ToolRowProps`, `cx`, `planActivityContentSchema`, and `useSubagentRuns` with `SubagentEventSource`. Removed from `@b4run/ag-ui/view` (and their `./react` re-exports): `reduceSubagentRuns`, `EMPTY_SUBAGENT_RUNS`, `SubagentRun`, `SubagentRunsState` and `SubagentToolCall`. Removed from `@b4run/ag-ui/react/copilotkit`: `b4ActivityRenderers` and `b4PlanActivityRenderer`, so drop `renderActivityMessages={b4ActivityRenderers}` from `<CopilotKit>`. `isSubagentMessage` now comes from `@b4run/ag-ui/view` only.
 
@@ -78,33 +78,79 @@ The stylesheet now sits in `@layer b4-activity` and styles only the kit. The `.b
 
 ### Threads restore their activity from `GET /threads/:thread_id/turns`
 
-Landed in the first release after **0.13.1**. Action required if you read `GET /threads/:thread_id/state` to rebuild a transcript, or parse `values.messages` yourself.
+Landed in **0.14.0**. Action required if you read `GET /threads/:thread_id/state` to rebuild a transcript, or parse `values.messages` yourself.
 
 Every tool call's `ToolMessage` now carries a complete `additional_kwargs.b4_step` (status, start and settle times, the permission decision, and the display's icon, label and sources), the `task` tool returns a `ToolMessage` with `b4_subagent`, and the runtime stamps `b4:turn` on the head checkpoint when a run ends. A call that a permission or argument constraint denied persists and restores as a `denied` step, not a failed one. `GET /threads/:thread_id/turns` rebuilds the same `TurnsView` a live AG-UI client builds, approvals included, so prefer it over parsing `/state`. `/state.created_at` is now the checkpoint's time. Threads written before this release do not restore through `/turns`. See [Agent Protocol](/docs/dev-server/agent-protocol#restoring-a-threads-activity).
 
 ### AG-UI `TOOL_CALL_RESULT.content` is the tool's output
 
-Landed in the first release after **0.13.1**. Action required only if an AG-UI client parsed `TOOL_CALL_RESULT.content` as a serialized LangChain `ToolMessage` (`{ lc, type, id, kwargs: { content } }`).
+Landed in **0.14.0**. Action required only if an AG-UI client parsed `TOOL_CALL_RESULT.content` as a serialized LangChain `ToolMessage` (`{ lc, type, id, kwargs: { content } }`).
 
 `content` is now the text the model received: the tool's return value, or the error text for a tool that threw. Drop any `kwargs.content` unwrapping, and parse JSON only if your tool returns JSON. Permission interrupts also gain `toolCallId`, `subagentRunId` for a child's tool, command or memory gate, and `responseSchema` (`once`/`always`/`deny`); these are additive. See [AG-UI](/docs/ag-ui#inbound-input).
 
 ### Subagents are AG-UI `SUBAGENT_*` events, not a `b4.subagent` activity
 
-Landed in the first release after **0.13.1**. Action required for AG-UI clients that rendered the `b4.subagent` activity.
+Landed in **0.14.0**. Action required for AG-UI clients that rendered the `b4.subagent` activity.
 
 The `b4.subagent` activity is gone, with `B4_SUBAGENT_ACTIVITY_TYPE`, `B4SubagentActivityContent`, `SubagentActivityCard`, `b4SubagentActivityRenderer` and `subagentActivityContentSchema`. A subagent is now `SUBAGENT_STARTED` (its `subagentRunId` is the `task` tool-call id), everything it does arrives as the ordinary AG-UI events tagged `subagentRunId`, and it closes with `SUBAGENT_FINISHED` or `SUBAGENT_ERROR` before the run ends. The `task` tool call is an ordinary tool call again, with its own frames and result. In React, `B4Activity` shows each subagent as a step in its parent's turn, with the child's own steps nested (see [the activity kit entry](#the-legacy-activity-cards-are-gone-b4runag-uireact-is-the-activity-kit)). `GET /agui/{routeId}` advertises `multiAgent`. See [AG-UI › Subagents](/docs/ag-ui#subagents).
 
 ### Subagent stream events carry the root shapes
 
-Landed in the first release after **0.13.1**. Action required only if you read `subagent.*` events off `/runs/stream` or the attach digest.
+Landed in **0.14.0**. Action required only if you read `subagent.*` events off `/runs/stream` or the attach digest.
 
 `subagent.message { call_id, chunk }` is now `subagent.token { call_id, …identity, data, messageId }`, and `subagent.tool_call` / `subagent.tool_result` carry `name` (not `tool`) under the model's tool-call `id` (not the execution run id). New: `subagent.reasoning`, `subagent.message_end`, `subagent.tool_call_args`, and `parent_call_id` / `description` on `subagent.start`. `@b4run/testing`'s `RunResult.subagents` reads the new shapes. See [Streaming output](/docs/recipes/stream-output#sse-event-types).
 
 ### `reasoning` is keyed by provider
 
-Landed in the first release after **0.13.1**. Action required if an `agent()` route sets `reasoning`.
+Landed in **0.14.0**. Action required if an `agent()` route sets `reasoning`.
 
 `agent({ reasoning: { effort } })` is now `agent({ reasoning: { openai: { effort } } })`, and Anthropic routes gain `reasoning: { anthropic: { budgetTokens } }`. The flat `effort` is an unknown key and fails the route when its model is built, as does a block for a provider the route does not resolve to. Before, a misplaced setting was silently ignored (and the OpenAI effort itself never reached the request). Setting `openai.summary` moves the route to the OpenAI Responses API and streams the summary as AG-UI `REASONING_*` events; `GET /agui/{routeId}` advertises `reasoning.supported` accordingly. See [Reasoning](/docs/reasoning-effort).
+
+### `src/auth.ts` resolves the caller; `ThreadAccessRequest.headers` is gone
+
+Landed in **0.14.0**. Action required if a thread-access policy reads identity from request headers.
+
+`ThreadAccessRequest.headers` is removed. Move the header read into `src/auth.ts`, which default-exports `defineAuth({ authenticate })`, and read the caller as `req.principal` in the policy. The same principal reaches middleware as `req.principal` and tools as `ctx.principal`. An auth file that does not default-export `defineAuth` fails the boot with `B4_E3005`. If the policy is "each caller reaches only its own threads", `ownedThreads` from `@b4run/sdk` replaces it. See [Access control](/docs/access-control#authentication) and [Thread access](/docs/thread-access).
+
+### An unresolved memory scope makes memory unavailable
+
+Landed in **0.14.0**. Action required if a route's `memory.ts` declares `user` or `tenant` and `memory.resolveScope` doesn't always set it.
+
+A dimension the route declares and `resolveScope` leaves without a value now makes memory unavailable for that request: `remember` and `recall` answer that memory is unavailable, and nothing is read or written. Before, the request fell back to the shared `workspace+route` namespace. Resolve the dimension (`resolveScope` now receives `principal`), or drop it from `memory.ts`. With a `src/auth.ts`, `GET /memory/candidates` lists only the caller's namespaces; `canReviewMemory(principal)` on `defineAuth` lets a reviewer see all of them. See [Long-term memory](/docs/memory/long-term#scope-is-addressing-not-authentication).
+
+### `POST /agui` answers protobuf to `*/*`; `encodeAgUiSse` is replaced
+
+Landed in **0.14.0**. Action required if a client calls `POST /agui/:routeId` without naming `text/event-stream`, or your code imports `encodeAgUiSse`.
+
+`POST /agui/:routeId` answers with AG-UI's protobuf binding whenever `Accept` admits `application/vnd.ag-ui.event+proto`, including through `*/*`. `curl`, and `fetch` without an `accept` header, both send `*/*`: send `accept: text/event-stream` to keep SSE. `@ag-ui/client` and CopilotKit already name SSE and are unaffected. `@b4run/ag-ui/sse` no longer exports `encodeAgUiSse(event, accept)`; use `encodeAgUiEvent(event, accept)` for the bytes and `agUiContentType(accept)` for the `content-type` header, or `encodeAgUiEvent(event)` without `accept` to always write SSE. See [AG-UI › Transport](/docs/ag-ui#transport).
+
+### Message content can be a list of content parts
+
+Landed in **0.14.0**. Action required if your code narrows message content to `string`.
+
+`B4Message.content` (`@b4run/ag-ui`), `UnwrappedToolResult.content` (`@b4run/langchain`) and `MiddlewareAfterMessage.content` (`@b4run/sdk`) are now `string | readonly B4ContentPart[]`. Chain, graph and workflow routes receive `messages[].content` as that part array whenever the client sent parts, where it used to be flattened to text. Handle the array case. See [AG-UI › Multimodal content](/docs/ag-ui#multimodal-content).
+
+### Custom grant and tool-call stores need new methods and fields
+
+Landed in **0.14.0**. Action required only if you wrote your own `InterruptGrantStore` or `ClientToolCallStore`. The SDK memory stores, `@b4run/sqlite-storage` and `@b4run/postgres-storage` already implement everything below, with their own migrations for the new columns.
+
+- `InterruptGrantStore` needs `prune({ before })`, and must store and return `consumedBy` (`consume()` takes an optional `by`). While grants are on, a store missing a method fails the boot naming it.
+- `ClientToolCallStore` needs `prune({ before })` and `settle`, and its records gain `kind` (`"client" | "server"`), `settledAt` and a required `parentToolCallId` (`null` at the root). `result` widens from `string` to `B4MessageContent`, so a custom store must keep and return content parts. A store set in `server.agui.clientToolStore` that is missing a method fails the boot naming it.
+- A custom `SubagentResolver` in `@b4run/langchain` must return `ResolvedSubagentGraph.routeKey` (`<routeId>#<mode>`).
+
+See [Approval grants](/docs/approval-grants) and [AG-UI › The tool-call record](/docs/ag-ui#the-tool-call-record).
+
+### CopilotKit 1.76.0 or later
+
+Landed in **0.14.0**. Action required if your app uses `@copilotkit/react-core` below 1.76.0.
+
+`@b4run/ag-ui`'s optional `@copilotkit/react-core` peer range is `>=1.76.0`, the first release whose AG-UI client speaks 1.0. npm 7+ rejects an older one with `ERESOLVE`; pnpm warns. Upgrade CopilotKit together with `@b4run/ag-ui`. `@copilotkit/runtime` is no longer a peer of `@b4run/ag-ui`: the runtime route passes its own `InMemoryAgentRunner` class to `createB4AgentRunner`, and the `B4AgentRunner` class export is gone.
+
+### The `research` template is now `navlog`
+
+Landed in **0.14.0**. Action required if you scaffold with `--template research`.
+
+`npm create b4-app -- --template navlog` scaffolds the flight planner that replaces the research template. `--template research` still works in 0.14 and prints a deprecation notice; `@b4run/devkit`'s `resolveTemplateDir` accepts only `basic` and `navlog`. Apps already generated from the research template are unaffected.
 
 ### The app root must declare `"type": "module"`
 
