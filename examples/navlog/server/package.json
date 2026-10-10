@@ -7,7 +7,7 @@
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3002",
     "build": "node node_modules/@b4run/cli/dist/index.js build",
     "start": "node main.mjs",
-    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json b4.config.ts deploy main.mjs src test tsconfig.json vitest.config.ts",
+    "lint": "biome check --config-path ../../../packages/config-biome/biome.json package.json b4.config.ts deploy main.mjs scripts src test tsconfig.json vitest.config.ts",
     "typecheck": "tsc -p . --noEmit",
     "check": "node node_modules/@b4run/cli/dist/index.js check",
     "test": "vitest run",

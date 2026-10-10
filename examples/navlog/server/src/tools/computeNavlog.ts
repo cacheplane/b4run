@@ -4,8 +4,8 @@ import { computeNavlog, type Navlog, type NavlogInput } from "../lib/navlog.js"
 /**
  * Compute the navlog in code: great-circle legs, magnetic courses, the wind
  * triangle, POH climb and cruise figures, time, fuel, reserve and the ICAO
- * flight plan. Pass the waypoints from lookupAirport and the winds from
- * getWindsAloft; never estimate these numbers yourself.
+ * flight plan. Pass the waypoints from lookupAirport and lookupNavaid and the
+ * winds from getWindsAloft; never estimate these numbers yourself.
  */
 export default async (input: NavlogInput, _ctx: B4ToolContext): Promise<Navlog> =>
   computeNavlog(input)

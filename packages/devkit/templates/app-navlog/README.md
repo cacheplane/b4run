@@ -12,8 +12,9 @@ shipped as an npm workspace with two packages:
   client built on CopilotKit. A full-viewport route map (Leaflet on
   OpenStreetMap tiles) sits behind a floating chat dock (threads, streaming chat,
   each turn's plan, tool and subagent steps, the flight-plan approval, memory
-  review), a weather strip with flight-category chips that match the airport
-  markers, and a bottom navlog sheet with the legs table, the ICAO flight plan,
+  review), a route bar for typing a route with waypoint autocomplete, airport
+  markers that open their METAR and TAF, and a bottom navlog sheet with the legs
+  table, the weather by origin, en route and destination, the ICAO flight plan,
   the brief, print and copy. Phones get one tabbed bottom sheet.
   [`web/README.md`](./web/README.md) covers restyling it and its known limits.
 

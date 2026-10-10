@@ -94,13 +94,46 @@ describe("NavlogSheet", () => {
 })
 
 describe("navlog sheet: strip and tabs", () => {
-  test("a verdict strip region, then Legs · Totals & plan · Brief with Legs selected", () => {
+  test("a verdict strip region, then Legs · Weather · Totals & plan · Brief with Legs selected", () => {
     const html = render({ brief: "Bottom line: GO — VFR all the way." })
     expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
     expect(html).toContain('role="tablist"')
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Legs</)
-    expect(html).toContain(">Totals &amp; plan<")
-    expect(html).toContain(">Brief<")
+    const labels = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((match) => match[1])
+    expect(labels).toEqual(["Legs", "Weather", "Totals &amp; plan", "Brief"])
+  })
+  test("the Weather tab holds the brief by route role, the stations en route", () => {
+    const weather = {
+      airports: [
+        {
+          id: "KRST",
+          now: "VFR" as const,
+          atEta: "MVFR" as const,
+          line: "VFR now, MVFR at ETA",
+          metar: "METAR KRST 061354Z 31015KT 10SM BKN045 06/M03 A3010",
+          taf: "TAF KRST 061130Z 0612/0712 31015KT P6SM BKN025",
+        },
+      ],
+      winds: [],
+      advisories: [],
+      note: "",
+    }
+    const stations = [
+      { id: "KOWA", name: "Owatonna", lat: 44.1, lon: -93.3, alongNm: 40, offsetNm: 6 },
+    ]
+    const html = render({ tab: "weather", weather, stations })
+    const panel = html.slice(html.search(/role="tabpanel"[^>]*id="[^"]*-weather"/))
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"(?![^>]*hidden)[^>]*>/)
+    expect(panel).toContain(">Origin</h3>")
+    expect(panel).toContain("40 nm along")
+    expect(panel).toContain("METAR KRST 061354Z")
+  })
+  test("the Weather panel sits after Legs, so it prints after the legs", () => {
+    const html = render()
+    const order = [...html.matchAll(/role="tabpanel"[^>]*id="[^"]*-(\w+)"/g)].map((m) => m[1])
+    expect(order).toEqual(["legs", "weather", "plan", "brief"])
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"[^>]*hidden=""/)
+    expect(html).toContain("No weather brief yet.")
   })
   test("the strip's reason selects the Brief tab", () => {
     const onTabChange = vi.fn()
@@ -148,6 +181,7 @@ describe("navlog sheet: strip and tabs", () => {
   test("inactive panels stay mounted but hidden, and print", () => {
     const html = render({ tab: "brief" })
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-legs"[^>]*hidden=""/)
+    expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"[^>]*hidden=""/)
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-plan"[^>]*hidden=""/)
     expect(html).not.toMatch(/role="tabpanel"[^>]*id="[^"]*-brief"[^>]*hidden=""/)
     expect(html).toContain("7 Aircraft ID")
@@ -192,7 +226,7 @@ describe("navlog sheet: strip and tabs", () => {
   test("tabs control their panels, with a roving tabIndex", () => {
     const view = mountSheet({ tab: "plan" })
     const tabs = [...view.container.querySelectorAll('[role="tab"]')]
-    expect(tabs.map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"])
+    expect(tabs.map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "-1", "0", "-1"])
     for (const t of tabs) {
       const panel = document.getElementById(t.getAttribute("aria-controls") ?? "")
       expect(panel?.getAttribute("aria-labelledby")).toBe(t.id)
@@ -206,11 +240,25 @@ describe("navlog sheet: strip and tabs", () => {
     act(() => {
       selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
     })
-    expect(onTabChange).toHaveBeenLastCalledWith("plan")
+    expect(onTabChange).toHaveBeenLastCalledWith("weather")
     act(() => {
       selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
     })
     expect(onTabChange).toHaveBeenLastCalledWith("brief")
+    view.unmount()
+  })
+  test("arrow keys step through Weather to Totals & plan", () => {
+    const onTabChange = vi.fn()
+    const view = mountSheet({ tab: "weather", onTabChange })
+    const selected = () => view.container.querySelector('[role="tab"][aria-selected="true"]')
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("plan")
+    act(() => {
+      selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }))
+    })
+    expect(onTabChange).toHaveBeenLastCalledWith("legs")
     view.unmount()
   })
   test("Home and End move to the first and last tab, with focus", async () => {
@@ -224,7 +272,7 @@ describe("navlog sheet: strip and tabs", () => {
     })
     expect(onTabChange).toHaveBeenLastCalledWith("brief")
     await act(frame)
-    expect(document.activeElement).toBe(tabs[2])
+    expect(document.activeElement).toBe(tabs[3])
     act(() => {
       selected()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))
     })

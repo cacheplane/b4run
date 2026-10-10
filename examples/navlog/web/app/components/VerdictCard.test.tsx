@@ -1,11 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
 import { parseAdvisory, parseWeatherBrief } from "../lib/weather-selectors"
 import { NavlogSheet } from "./NavlogSheet"
 import { PlanningBrief } from "./PlanningBrief"
 import { partitionAdvisories, VerdictCard, VerdictPill } from "./VerdictCard"
-import { WeatherStrip } from "./WeatherStrip"
+import { WeatherTab } from "./WeatherTab"
 
 const FZLVL = "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight"
 const SIGMET = "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure"
@@ -57,16 +58,23 @@ describe("VerdictCard", () => {
   })
 })
 
-describe("WeatherStrip with the verdict contract", () => {
-  test("a verdict pill, hazard chips, readable winds and the preliminary note", () => {
-    const html = renderToStaticMarkup(<WeatherStrip brief={BRIEF} cruiseFt={5500} />)
-    expect(html).toContain('class="wb-verdict-pill" data-level="CAUTION"')
+/** The pill for a brief alone, resolved as the sheet resolves it. */
+const pillFor = (verdict: EffectiveVerdict | null): string =>
+  verdict === null ? "" : renderToStaticMarkup(<VerdictPill verdict={verdict} />)
+
+describe("the verdict contract outside the card", () => {
+  test("the pill resolves CAUTION from the brief's verdict", () => {
+    expect(pillFor(resolveVerdict({ weather: BRIEF, cruiseFt: 5500 }))).toContain(
+      'class="wb-verdict-pill" data-level="CAUTION"',
+    )
+  })
+  test("the Weather tab shows hazard chips, readable winds and the preliminary note", () => {
+    const html = renderToStaticMarkup(
+      <WeatherTab weather={BRIEF} navlog={SAMPLE_NAVLOG} stations={[]} cruiseFt={5500} />,
+    )
     expect(html).toContain("Freezing level 4,000 ft")
     expect(html).toContain('data-severity="warn"')
-    expect(html).toContain("Winds 5,500 ft: 318° at 26 kt (MSP, 24 h forecast)")
-    expect(html).not.toMatch(/<summary[^>]*>[^<]*temp NA/)
-    // The raw line stays available in the disclosure.
-    expect(html).toContain("temp NA at 5,500 ft")
+    expect(html).toContain("318° at 26 kt (MSP, 24 h forecast)")
     expect(html).toContain("Preliminary.")
   })
 })
@@ -247,14 +255,14 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(<VerdictPill verdict={{ level: "GO", reason: "Fine." }} />)
     expect(html).not.toContain("raised")
   })
-  test("the weather strip raises the live run's GO to CAUTION", () => {
-    const html = renderToStaticMarkup(<WeatherStrip brief={GUSTY_GO} cruiseFt={4500} />)
+  test("the pill raises the live run's GO to CAUTION", () => {
+    const html = pillFor(resolveVerdict({ weather: GUSTY_GO, cruiseFt: 4500 }))
     expect(html).toContain('class="wb-verdict-pill" data-level="CAUTION" data-raised="true"')
     expect(html).not.toContain('data-level="GO"')
   })
-  test("the weather strip shows a pill from the floor alone for an old-format brief", () => {
+  test("the pill comes from the floor alone for an old-format brief", () => {
     const old = parseWeatherBrief("Airports:\nKDLH: VFR now, IFR at ETA. METAR KDLH 1")
-    const html = renderToStaticMarkup(<WeatherStrip brief={old} />)
+    const html = pillFor(resolveVerdict({ weather: old }))
     expect(html).toContain('class="wb-verdict-pill" data-level="NO-GO"')
   })
   test("the sheet's card and the planning brief's bottom line agree on the raised level", () => {

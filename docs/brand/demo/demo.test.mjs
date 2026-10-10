@@ -6611,7 +6611,7 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
   }
 })
 
-test("the scripted briefs render in the weather strip, the verdict card and the planning answer", async () => {
+test("the scripted briefs render in the Weather tab, the verdict card and the planning answer", async () => {
   const { parseWeatherBrief, parseWindsLine } = await importTemplate("web/app/lib/weather-selectors.ts")
   const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
   const { parsePlanningAnswer } = await importTemplate("web/app/lib/assistant-text.ts")

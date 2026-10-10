@@ -74,6 +74,18 @@
         "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo"
       ]
     },
+    "@b4-example/navlog-server#build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/examples/navlog/web/data/waypoints.json"],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        ".b4/build/**",
+        ".b4/b4.generated.d.ts",
+        ".b4/auth.generated.d.ts"
+      ]
+    },
     "@b4-example/software-factory-server#build": {
       "dependsOn": ["^build"],
       "env": ["FACTORY_BUILDER_LANE"],

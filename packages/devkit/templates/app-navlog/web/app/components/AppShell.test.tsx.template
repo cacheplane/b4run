@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   activityMounts: 0,
   activityRenderStep: undefined as unknown,
   chatProps: [] as { threadId: string; canAttachImages: boolean }[],
+  runAgent: undefined as unknown as ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<void>>>,
 }))
 
 vi.mock("@copilotkit/react-core/v2", () => ({
@@ -30,6 +31,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
         mocks.onError = subscriber.onError
         return { unsubscribe: () => {} }
       },
+      runAgent: (...args: unknown[]) => mocks.runAgent(...args),
     },
   }),
 }))
@@ -59,6 +61,8 @@ vi.mock("next/dynamic", () => ({ default: () => () => <div data-testid="map" /> 
 vi.mock("./MemoryPanel", () => ({ MemoryPanel: () => null }))
 vi.mock("../lib/use-media-query", () => ({ useMediaQuery: () => true }))
 
+const { EMPTY_TURNS, reduceTurns } = await import("@b4run/ag-ui/view")
+const { SAMPLE_NAVLOG } = await import("../lib/navlog-types")
 const { AppShell, RUN_ERROR_TITLES } = await import("./AppShell")
 const { CONNECT_SCREEN_HEADING } = await import("./ConnectScreen")
 const { NAVLOG_STEP_RENDERERS } = await import("./StepViews")
@@ -77,6 +81,7 @@ interface FakeAgent {
   isRunning: boolean
   pendingInterrupts: unknown[]
   setMessagesCalls: unknown[][]
+  addMessage: (message: { id: string; role: string; content?: unknown }) => void
   abortCalls: number
   setMessages: (messages: FakeAgent["messages"]) => void
   abortRun: () => void
@@ -91,6 +96,11 @@ function makeAgent(messages: FakeAgent["messages"] = []): FakeAgent {
     pendingInterrupts: [{ id: "interrupt-1" }],
     setMessagesCalls: [],
     abortCalls: 0,
+    // As `@ag-ui/client` does: push the message, then tell the subscribers.
+    addMessage(message) {
+      this.messages = [...this.messages, message]
+      for (const subscriber of this.subscribers) subscriber.onNewMessage?.({ message })
+    },
     setMessages(next) {
       this.setMessagesCalls.push(next)
       this.messages = next
@@ -180,6 +190,7 @@ beforeEach(() => {
   mocks.onError = undefined
   mocks.activityMounts = 0
   mocks.chatProps = []
+  mocks.runAgent = vi.fn(async () => {})
   onUserMessage = vi.fn<(message: string) => void>()
   probeStatus = 200
   vi.stubGlobal(
@@ -522,5 +533,73 @@ describe("app shell drop notices", () => {
     dropped(NOTICE)
     rerender("thread-b")
     expect(text()).not.toContain("could not see")
+  })
+})
+
+describe("app shell route bar", () => {
+  type BaseEvent = Parameters<typeof reduceTurns>[1]
+  const T = (type: string, rest: Record<string, unknown>) =>
+    ({ type, ...rest }) as unknown as BaseEvent
+  const toolCall = (id: string, name: string, result: string): BaseEvent[] => [
+    T("TOOL_CALL_START", { toolCallId: id, toolCallName: name }),
+    T("TOOL_CALL_END", { toolCallId: id }),
+    T("TOOL_CALL_RESULT", { messageId: `r-${id}`, toolCallId: id, content: result }),
+  ]
+  const replan = (): HTMLButtonElement | null =>
+    container.querySelector('form[aria-label="Route"] button[type="submit"]')
+  /** A finished planning run: the route's stations, then the navlog. */
+  const planned = () =>
+    [
+      T("RUN_STARTED", { threadId: "thread-a", runId: "r1" }),
+      ...toolCall(
+        "s1",
+        "findRouteStations",
+        JSON.stringify({
+          stations: [
+            {
+              id: "KOWA",
+              name: "Owatonna Degner",
+              lat: 44.12,
+              lon: -93.26,
+              alongNm: 30,
+              offsetNm: 3,
+            },
+          ],
+        }),
+      ),
+      ...toolCall("n1", "computeNavlog", JSON.stringify(SAMPLE_NAVLOG)),
+      T("RUN_FINISHED", { threadId: "thread-a", runId: "r1" }),
+    ].reduce((view, event) => reduceTurns(view, event, { now: () => 1 }), EMPTY_TURNS)
+
+  test("Replan sends the route as a user message and runs the agent, like a chat send", async () => {
+    mocks.turns = planned()
+    await render("thread-a")
+    act(() => replan()?.click())
+    const sent = mocks.agent.messages.at(-1)
+    expect(sent?.role).toBe("user")
+    expect(sent?.content).toMatch(/^Plan KSTP → KRST at 4500 ft, departing /)
+    expect(typeof sent?.id).toBe("string")
+    expect(mocks.runAgent).toHaveBeenCalledWith({ agent: mocks.agent })
+    // The rail is touched and the badge reads Running, as for a typed send.
+    expect(onUserMessage).toHaveBeenCalledTimes(1)
+    expect(text()).toContain("Running")
+    expect(replan()?.disabled).toBe(true)
+  })
+
+  test("Replan waits while an approval is parked", async () => {
+    const view = planned()
+    mocks.turns = view
+    await render("thread-a")
+    expect(replan()?.disabled).toBe(false)
+    mocks.turns = { ...view, turns: [...view.turns, { status: "awaiting", steps: [] }] }
+    rerender("thread-a")
+    expect(text()).toContain("Awaiting approval")
+    expect(replan()?.disabled).toBe(true)
+  })
+
+  test("the route's stations reach the sheet's Weather tab", async () => {
+    mocks.turns = planned()
+    await render("thread-a")
+    expect(text()).toContain("En routeKOWA")
   })
 })

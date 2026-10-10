@@ -1,6 +1,6 @@
 # Flight Planner Web UI
 
-B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. CopilotKit's stock `<CopilotChat>` sits in the middle column, between a sidenav of threads and the route map, inside B4.run's `<B4Activity>`, so the streamed brief, the turn's plan, subagent and tool steps, and the approval card all appear in message order, while the map, the navlog sheet, and the weather strip read the same turns from outside the chat.
+B4.run's navlog demo, a VFR flight planner, ships with a [CopilotKit](https://docs.copilotkit.ai) web client that talks to the server over [AG-UI](/docs/ag-ui). Let's walk through how it's wired. The client is a workbench, not a chat widget. CopilotKit's stock `<CopilotChat>` sits in the middle column, between a sidenav of threads and the route map, inside B4.run's `<B4Activity>`, so the streamed brief, the turn's plan, subagent and tool steps, and the approval card all appear in message order, while the map, its route bar, and the navlog sheet read the same turns from outside the chat.
 
 This recipe covers the application wiring. For the endpoint, events, threading, and interrupt outcomes, see [AG-UI and Web Clients](/docs/ag-ui).
 
@@ -11,7 +11,8 @@ The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js C
 - **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory, which opens Memory mode with a count of the candidates waiting; the sidebar collapses to an icon rail.
 - **Chat + report:** the agent's structured answer, rendered as brief components (bottom line, route, watch-for items, key numbers, assumptions, numbered citations) in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in. A thread saved before the brief kit renders its markdown answer as before.
 - **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
-- **Map, sheet and weather strip:** the route, the navlog legs, and the weather chips are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
+- **Map and route bar:** the planned route, a dashed draft of the route you are typing, and a marker panel with each airport's METAR and TAF. See [Type a route on the map](#type-a-route-on-the-map).
+- **Navlog sheet:** the legs, the weather by role (origin, en route, destination), the totals and flight plan, and the brief, in four tabs. The map and the sheet are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
 - **Suggestions:** three discovery prompts on the empty chat.
 - **Permissions:** the kit's `ApprovalCard` owns approve and deny, rendered in the chat where the run stopped.
 - **Input:** `<CopilotChat>`'s own input, with an image attachment when the route's model takes one. It waits while an approval is open.
@@ -146,6 +147,41 @@ The map and the sheet sit outside the chat but inside `B4Activity`. `useB4Activi
 `<CopilotChat>` calls `connect` when it mounts, and the runtime route's runner (`createB4AgentRunner`) answers it by replaying `GET /threads/:id/events` from B4.run's checkpoints as AG-UI events, so a restored thread and a live one go through the same path: the chat messages, the turns, and a parked approval all come back, with the media the thread carried. The browser never reads thread state itself, so the proxy has no thread routes. A brand-new thread has nothing to replay and restores as an empty chat. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload) for the runner and the per-request identity it needs.
 
 To restyle the app, edit `examples/navlog/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
+
+## Type a route on the map
+
+A pilot who already knows the route can type it instead of writing a request. The route bar sits across the top of the map (and the phone's Map tab, which opens before any plan exists):
+
+```text
+[KPAO] → [SNS] → [KSBA]  add waypoint…  5500 ft  1400Z  213 nm  [Replan]
+```
+
+Each waypoint is a pill with a remove button: airports in ink, navaids in cobalt. The input is a combobox. Typing searches identifiers and names (an identifier or local-code prefix first, then a name substring), and the list shows up to 8 matches with the kind, such as `VORTAC 117.30`. Enter, Tab or space adds the highlighted match, so typing `KPAO SNS KSBA` with a space after each token builds the route. Backspace in an empty input removes the last pill.
+
+The search reads a bundled snapshot, not a live service. `GET /api/waypoints?q=<text>` (`app/api/waypoints/route.ts`) searches `web/data/waypoints.json` on the server with `searchWaypoints` (`app/lib/waypoint-search.ts`), so the snapshot is never shipped to the browser. It answers `{ results, snapshot }`, where `snapshot` is the data's date. The handler applies the same origin, visitor and rate-limit guard as the other proxy routes and truncates `q` to 32 characters. The data comes from [OurAirports](https://ourairports.com/data/), which is public domain, and the open list says so: "Waypoints: OurAirports `<date>`, not for navigation".
+
+Each waypoint draws on the map as soon as it's added. A draft that differs from the planned route is a dashed line, the planned route stays solid with its markers and heading labels, and the bar shows the draft's great-circle distance. The altitude field takes 1000 to 17500 ft. The departure field is passed through as typed, because the server's `resolveDeparture` accepts `1400Z`, `tomorrow 1400Z` or an ISO instant.
+
+The button reads **Plan** before the first navlog and **Replan** after it. It is enabled with at least 2 waypoints, a valid altitude and no run in progress. It sends one ordinary chat message through the same agent the chat uses, built by `replanMessage` (`app/lib/route-draft.ts`):
+
+```text
+Plan KPAO → SNS (VORTAC) → KSBA at 5500 ft, departing 1400Z.
+```
+
+A navaid carries its type in parentheses, which tells the agent to resolve it with `lookupNavaid` instead of `lookupAirport`. The agent then plans as it would for a typed request. When the new navlog arrives, the bar resets to the planned waypoints, altitude and departure, so the plan wins over an unsent draft. While the departure field is untouched, it shows the plan's departure as `HHMMZ` and Replan sends the plan's ISO instant.
+
+### Weather on the map and in the sheet
+
+The map carries no weather chips. Airport markers keep their flight-category color, and the en-route reporting stations from the latest `findRouteStations` result draw as small grey markers. Airport and station markers are buttons: clicking one opens a panel in the map's corner with the identifier, the category now and at the ETA, and the raw METAR and TAF from the weather brief. Escape or the close button dismisses it. Navaid markers are labels only.
+
+The navlog sheet's tabs are **Legs · Weather · Totals & plan · Brief**. The Weather tab (`app/components/WeatherTab.tsx`) groups the brief's airports by role (`app/lib/weather-roles.ts`):
+
+- **Origin**, **En route** and **Destination**, each airport as a card with its category now and at the ETA and the raw METAR and TAF, or "No report in the brief". En route lists intermediate airports and stations by distance along the route ("98 nm along"), or says "No reporting stations within 25 nm of the course."
+- **Winds aloft**, one line per leg.
+- **Advisories**, the hazard chips, plus one chip for advisories outside the flight window.
+- **Forecast horizon**, when the brief has a note.
+
+Print includes the Weather tab's content after the legs.
 
 ## Attach an image
 

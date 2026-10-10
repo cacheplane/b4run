@@ -45,14 +45,15 @@ export default agent({
 1. Start by calling \`readDoc({ path: "aircraft/c172n.md" })\` and \`recall({ query: "pilot aircraft overrides and preferences" })\` together. The baseline file is the demo aircraft. A recalled fact overrides it, and what the pilot says in the request overrides both. Do not stop to ask for anything the three leave open: use the baseline and list each baseline value you relied on in Assumptions.
 2. Parse the request into departure, destination, optional waypoints, cruise altitude, departure time (UTC) and people on board. Ask only when the departure, the destination or the cruise altitude cannot be determined; ask for the departure time only when none is given. Never ask whether a clock time means the next occurrence: it does. If the pilot did not say how many people are on board, assume 1 and say so in the reply. Departure time: an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z; a UTC clock time such as 1400Z, which means the next occurrence; or, when the pilot names the day, "today 1400Z" or "tomorrow 1400Z". Call \`resolveDeparture({ departure })\` with it exactly as given, keeping any day the pilot named, and use the departureUtc it returns everywhere after: for the weather subagent, for computeNavlog and in Assumptions. Never work out a date or hours ahead yourself.
 3. Record the legs as todos.
-4. Call \`lookupAirport\` for each airport you have not already looked up.
-5. Dispatch \`task({ subagent: "weather", input: "<airports and waypoints with their coordinates, altitude, departureUtc and hoursAhead from resolveDeparture>" })\` and \`task({ subagent: "performance", input: "<airports, altitude, cruise RPM>" })\`. The weather subagent estimates the ETA from the coordinates.
-6. Call \`computeNavlog\` with the waypoints, the altitude, departureUtc as the departure time, the aircraft from step 1 (tail number, cruise RPM, usable fuel), personsOnBoard and one wind entry per leg from the weather brief. Never do navigation arithmetic yourself.
-7. Save the navlog with \`writeFile({ path: "reports/<departure>-<destination>.md", content: "<markdown table of the legs and totals>" })\`.
-8. If a chart would help, \`renderChart({ title, series })\` with fuel remaining by checkpoint.
-9. Reply with the planning answer described under Answer format, and nothing else.
-10. When the pilot states a durable preference or an aircraft fact, call \`remember({ data, content })\`.
-11. File a flight plan only when the pilot asks; see Filing.
+4. Call \`lookupAirport\` for each airport, and \`lookupNavaid\` for each navaid, that you have not already looked up. A navaid is a waypoint written with a navaid type in parentheses, such as \`SNS (VORTAC)\`, or one \`lookupAirport\` has no record for. A navaid enters computeNavlog with kind navaid and its own magnetic variation.
+5. Call \`findRouteStations\` with the waypoint identifiers in route order, each with its kind (airport or navaid), and pass its stations to the weather subagent with their coordinates and alongNm.
+6. Dispatch \`task({ subagent: "weather", input: "<airports and waypoints with their coordinates, the stations from step 5 with their coordinates and alongNm, altitude, departureUtc and hoursAhead from resolveDeparture>" })\` and \`task({ subagent: "performance", input: "<airports, altitude, cruise RPM>" })\`. The weather subagent estimates the ETA from the coordinates.
+7. Call \`computeNavlog\` with the waypoints, the altitude, departureUtc as the departure time, the aircraft from step 1 (tail number, cruise RPM, usable fuel), personsOnBoard and one wind entry per leg from the weather brief. Never do navigation arithmetic yourself.
+8. Save the navlog with \`writeFile({ path: "reports/<departure>-<destination>.md", content: "<markdown table of the legs and totals>" })\`.
+9. If a chart would help, \`renderChart({ title, series })\` with fuel remaining by checkpoint.
+10. Reply with the planning answer described under Answer format, and nothing else.
+11. When the pilot states a durable preference or an aircraft fact, call \`remember({ data, content })\`.
+12. File a flight plan only when the pilot asks; see Filing.
 
 Answer format. Every reply is a list of brief components (the response schema describes each). A planning answer is, in this order: BottomLine, RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations, then one closing Prose. Any other reply (a question, a filing confirmation, a short answer) is a single Prose and nothing else. Keep a planning answer short and scannable, under about 180 words of text in all.
 - BottomLine: level GO, CAUTION or NO-GO and one sentence of reason. Use the weather brief's verdict unless performance makes it worse: a reserve under 45 minutes (reserveOk false) is NO-GO.
@@ -93,8 +94,11 @@ export default agent({
       "getTaf",
       "getWindsAloft",
       "getAdvisories",
+      "lookupNavaid",
+      "findRouteStations",
       "computeNavlog",
       "fileFlightPlan",
+      "resolveDeparture",
       "renderChart",
       "runBash",
       "writeFile",
@@ -136,7 +140,7 @@ export default config({
 ```
 </CodeGroup>
 
-The coordinator plans the flight, sends the `weather` and `performance` subagents out, and calls `computeNavlog` for every number on the navlog. The tools are shared in `server/src/tools/`, and each subagent's `tools` scope keeps it to its own. `fileFlightPlan` asks a person before each call. The config keeps tool output inline up to 12,000 characters and makes new memories wait for review. Threads persist to SQLite by default, so they survive a restart.
+The coordinator plans the flight, looks up each airport and navaid, finds the reporting stations along the route with `findRouteStations`, sends the `weather` and `performance` subagents out, and calls `computeNavlog` for every number on the navlog. The tools are shared in `server/src/tools/`, and each subagent's `tools` scope keeps it to its own. `fileFlightPlan` asks a person before each call. The config keeps tool output inline up to 12,000 characters and makes new memories wait for review. Threads persist to SQLite by default, so they survive a restart.
 
 A few more files shape the agent:
 
@@ -154,11 +158,15 @@ server/src/tools/
   computeNavlog.ts              # the navlog, computed in code
   fileFlightPlan.ts             # records an ICAO flight plan, after approval
   getMetar.ts getTaf.ts getWindsAloft.ts getAdvisories.ts lookupAirport.ts
+  lookupNavaid.ts               # a VOR, VORTAC or NDB from the bundled snapshot
+  findRouteStations.ts          # METAR stations within 25 nm of the course
   resolveDeparture.ts           # turns "tomorrow 1500Z" into one UTC instant
   readDoc.ts                    # reads the aircraft baseline, a POH table or a regulation excerpt
   renderChart.ts                # draws a bar chart the user sees
 server/src/lib/                 # the math, POH tables and parsers the tools call
   read-only-paths.ts            # keeps the reference corpus read-only
+server/data/navaids.json        # navaids with magnetic variation, for lookupNavaid
+server/scripts/build-waypoints.mjs  # rebuilds the waypoint snapshot
 server/workspace/
   AGENTS.md                     # prompt guidance injected every turn
   aircraft/                     # the demo aircraft baseline, N734ST
@@ -171,6 +179,18 @@ server/workspace/
 - `b4.config.ts` wraps the workspace filesystem with `readOnlyPaths`, so `AGENTS.md`, `aircraft/`, `poh/` and `regs/` can't be rewritten by the agent, and `agentsMd: { writable: false }` injects `AGENTS.md` as read-only guidance instead of telling the model to update it. Every visitor's turns share one workspace directory, and B4.run's [path gate](/docs/permissions) covers only paths outside it.
 - `memory.ts` defines typed [memory](/docs/memory) records that the agent reads with `recall` and writes with `remember`.
 - The agent loads [skills](/docs/skills) under `skills/` by name when it needs them.
+
+### The waypoint snapshot
+
+`lookupNavaid` reads `server/data/navaids.json`, and the Workbench's route bar searches `web/data/waypoints.json` (US airports and VOR, VOR-DME, VORTAC, NDB and NDB-DME navaids). aviationweather.gov's navaid endpoint returns nothing, so both files are built ahead of time from [OurAirports](https://ourairports.com/data/), which is public domain, and committed with the date they were built. They are community data for practice, not for navigation.
+
+To refresh them, download `airports.csv` and `navaids.csv` (the URLs are in the script's header comment), then run from `server/`:
+
+```bash
+node scripts/build-waypoints.mjs <airports.csv> <navaids.csv>
+```
+
+The script writes both files and stamps today's date (UTC), or the date you pass with `--date YYYY-MM-DD`.
 
 ## Verify and test
 
@@ -239,7 +259,7 @@ The Workbench is a chat UI over the same agent. Leave the server running and sta
 npm run dev:web
 ```
 
-Open [http://localhost:3010](http://localhost:3010) and choose **Plan a flight**. You'll see the plan card and the `weather` and `performance` subagent cards update as the agent works, tool cards, the flight-plan approval and a panel for reviewing memory. The Workbench talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials. Those stay in `server/.env`.
+Open [http://localhost:3010](http://localhost:3010) and choose **Plan a flight**. You'll see the plan card and the `weather` and `performance` subagent cards update as the agent works, tool cards, the flight-plan approval and a panel for reviewing memory. You can also type a route such as `KPAO SNS KSBA` in the bar across the top of the map and choose **Plan**, which sends the route to the agent as a chat message. The sheet's Weather tab shows the brief by origin, en route and destination. The Workbench talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials. Those stay in `server/.env`.
 
 To build your own client, follow [Flight Planner Web UI](/docs/recipes/flight-planner-web-ui).
 
