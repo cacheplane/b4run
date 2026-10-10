@@ -934,6 +934,22 @@ body {
   background: var(--wb-nogo);
 }
 
+/* The severity as a word beside the dot, so it never rests on colour alone. */
+.wb-watch-severity {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--wb-muted);
+}
+
+.wb-watch-severity[data-severity="caution"] {
+  color: var(--wb-caution);
+}
+
+.wb-watch-severity[data-severity="danger"] {
+  color: var(--wb-nogo);
+}
+
 /* A citation marker is a link, so it wears the accent. */
 .wb-cite {
   margin-left: 1px;

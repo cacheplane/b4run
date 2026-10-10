@@ -1,6 +1,6 @@
 "use client"
 import type { DivIcon, Layer, Map as LeafletMap, Marker, Polyline } from "leaflet"
-import { useEffect, useRef, useState } from "react"
+import { type RefObject, useEffect, useRef, useState } from "react"
 import type { RouteGeometry } from "../lib/route-geometry"
 import type { FlightCategory } from "../lib/weather-selectors"
 
@@ -15,6 +15,11 @@ export interface RouteMapProps {
 }
 
 type LeafletModule = typeof import("leaflet")
+/** Leaflet and the map it made. */
+interface LoadedMap {
+  readonly L: LeafletModule
+  readonly map: LeafletMap
+}
 
 const cssVar = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -68,6 +73,14 @@ const removeAll = (layers: RouteLayers): void => {
   for (const waypoint of layers.waypoints) waypoint.marker.remove()
 }
 
+/** Whether `current` holds the map that is alive now (see `liveMap` in `RouteMap`). */
+function isLive(
+  current: LoadedMap | null,
+  liveMap: RefObject<LeafletMap | null>,
+): current is LoadedMap {
+  return current !== null && current.map === liveMap.current
+}
+
 /**
  * The route map: it fills its panel (the right column on desktop, the Map tab
  * on phones). Leaflet is imported once, in the mount effect, so this module
@@ -93,7 +106,14 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   const pendingFit = useRef<(() => void) | null>(null)
   // State, not a ref: the effects below must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
-  const [leaflet, setLeaflet] = useState<{ L: LeafletModule; map: LeafletMap } | null>(null)
+  const [leaflet, setLeaflet] = useState<LoadedMap | null>(null)
+  // The map that is alive right now: set when it is created, cleared when it
+  // is removed. When React re-runs every effect (Fast Refresh, dev effect
+  // re-runs), the create effect's cleanup removes the map before the other
+  // effects re-run with the state that still holds it; drawing on a removed
+  // map throws inside Leaflet ("reading 'appendChild'"). Each effect bails
+  // unless its map is this one.
+  const liveMap = useRef<LeafletMap | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -122,10 +142,12 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
         className: "wb-tiles",
       }).addTo(instance)
       instance.setView([39.5, -98.35], 4)
+      liveMap.current = instance
       setLeaflet({ L, map: instance })
     })
     return () => {
       cancelled = true
+      if (instance !== null && liveMap.current === instance) liveMap.current = null
       instance?.remove()
       layers.current = NO_LAYERS
       setLeaflet(null)
@@ -137,9 +159,10 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   // size if the map first lays out hidden; Leaflet must re-measure each time
   // or it draws tiles for the old box. A fit that found no size runs here.
   useEffect(() => {
-    if (leaflet === null || container.current === null) return
+    if (!isLive(leaflet, liveMap) || container.current === null) return
     if (typeof ResizeObserver === "undefined") return
     const observer = new ResizeObserver(() => {
+      if (!isLive(leaflet, liveMap)) return
       leaflet.map.invalidateSize()
       const pending = pendingFit.current
       if (pending === null) return
@@ -154,7 +177,7 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
 
   // DRAW: the route, its highlight segments, the waypoints and the heading labels.
   useEffect(() => {
-    if (leaflet === null) return
+    if (!isLive(leaflet, liveMap)) return
     const { L, map } = leaflet
     removeAll(layers.current)
     layers.current = NO_LAYERS
@@ -204,7 +227,7 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   // STYLE: each waypoint's flight category, in place. It runs after DRAW in
   // the same commit when the route changes, so a fresh draw is colored.
   useEffect(() => {
-    if (leaflet === null || geometry === null) return
+    if (!isLive(leaflet, liveMap) || geometry === null) return
     const { L } = leaflet
     for (const waypoint of layers.current.waypoints) {
       waypoint.marker.setIcon(waypointIcon(L, waypoint.id, categories[waypoint.id] ?? "UNKNOWN"))
@@ -215,11 +238,12 @@ export function RouteMap({ geometry, categories, highlightedLeg, padding }: Rout
   // never moves the map under the pilot. No animation under reduced motion.
   const { left, top, bottom } = padding
   useEffect(() => {
-    if (leaflet === null || geometry === null) {
+    if (!isLive(leaflet, liveMap) || geometry === null) {
       pendingFit.current = null
       return
     }
     const fitRoute = (): void => {
+      if (!isLive(leaflet, liveMap)) return
       const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
       leaflet.map.fitBounds(
         [

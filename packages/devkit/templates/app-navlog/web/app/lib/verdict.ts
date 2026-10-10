@@ -1,4 +1,4 @@
-import { isStructuredAnswer, parseBriefAnswer } from "../brief/parse"
+import { isStructuredAnswer, readBottomLine } from "../brief/parse"
 import { parsePlanningAnswer } from "./assistant-text"
 import { formatHhmm } from "./format"
 import type { Navlog } from "./navlog-types"
@@ -193,12 +193,12 @@ export function raiseNote(verdict: EffectiveVerdict): string | null {
 }
 
 /**
- * The planner's call: a structured answer's `BottomLine`, or for a markdown
- * answer (a thread from before the brief kit) its "Bottom line:" line. A
- * structured answer still streaming has no call yet.
+ * The planner's call: a structured answer's `BottomLine` (read as soon as its
+ * props close, while the rest still streams), or for a markdown answer (a
+ * thread from before the brief kit) its "Bottom line:" line.
  */
 function plannerVerdict(answer: string): Verdict | null {
-  if (isStructuredAnswer(answer)) return parseBriefAnswer(answer)?.bottomLine ?? null
+  if (isStructuredAnswer(answer)) return readBottomLine(answer)
   return parsePlanningAnswer(answer)?.verdict ?? null
 }
 

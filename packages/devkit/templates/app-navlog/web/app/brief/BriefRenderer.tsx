@@ -1,6 +1,6 @@
 "use client"
 import { useJsonParser, useUiKit } from "@hashbrownai/react"
-import { type ReactNode, useContext, useMemo } from "react"
+import { memo, type ReactNode, useContext, useMemo } from "react"
 import {
   BriefMarkdownContext,
   briefComponents,
@@ -49,8 +49,18 @@ function Markdown({ content }: { readonly content: string }) {
   return <Renderer content={content} />
 }
 
+/**
+ * One options object for the module's life. `useUiKit` memoizes on its
+ * `components`, so the kit (and its `schema`) keep their identity across
+ * renders. hashbrown's `useJsonParser` still serializes the schema on every
+ * call to key its session (0.7.0's `getSchemaKey` does not cache by
+ * identity), so the renderer is memoized: it runs only when the answer's text
+ * changes, not on every re-render of the chat around it.
+ */
+const KIT_OPTIONS = { components: briefComponents }
+
 function StructuredAnswer({ content, idPrefix }: BriefRendererProps) {
-  const uiKit = useUiKit({ components: briefComponents })
+  const uiKit = useUiKit(KIT_OPTIONS)
   const { value, error } = useJsonParser(content, uiKit.schema)
   const citations = useMemo<CitationsContextValue>(
     () => ({ items: citationsOf(value), idPrefix: idPrefix ?? "" }),
@@ -79,10 +89,13 @@ function StructuredAnswer({ content, idPrefix }: BriefRendererProps) {
  * answer without the schema) renders as markdown through
  * `BriefMarkdownContext`.
  */
-export function BriefRenderer({ content, idPrefix }: BriefRendererProps) {
+export const BriefRenderer = memo(function BriefRenderer({
+  content,
+  idPrefix,
+}: BriefRendererProps) {
   return isStructuredAnswer(content) ? (
     <StructuredAnswer content={content} idPrefix={idPrefix} />
   ) : (
     <Markdown content={content} />
   )
-}
+})

@@ -127,7 +127,10 @@ describe("WatchFor", () => {
     )
     expect(html).toContain('data-severity="danger"')
     expect(html).toContain('data-severity="caution"')
-    expect(html).toContain("Danger")
+    // The word is visible, not only the dot's colour (or a screen-reader-only label).
+    expect(html).toMatch(/class="wb-watch-severity"[^>]*>Danger</)
+    expect(html).toMatch(/class="wb-watch-severity"[^>]*>Caution</)
+    expect(html).not.toContain("sr-only")
     expect(html).toContain("2100Z–0300Z")
     expect(html).toContain("Gusty crosswind at KRST")
     expect(html).toContain('href="#cite-c2"')
@@ -155,17 +158,23 @@ describe("KeyNumbers", () => {
     expect(html).toContain("gal")
     expect(html).toContain('href="#cite-c1"')
   })
+
+  test("an empty list renders nothing", () => {
+    expect(renderToStaticMarkup(<KeyNumbers items={[]} />)).toBe("")
+  })
 })
 
 describe("Assumptions", () => {
-  test("each statement is tagged with its origin and has a Change button", () => {
+  test("each statement is tagged with its origin and, where the host acts on it, has a Change button", () => {
     const html = renderToStaticMarkup(
-      <Assumptions
-        items={[
-          { statement: "Full fuel, 40 gal usable.", origin: "default" },
-          { statement: "Departing KSTP.", origin: "pilot" },
-        ]}
-      />,
+      <BriefActionsContext.Provider value={{ changeAssumption: () => {}, changeDisabled: false }}>
+        <Assumptions
+          items={[
+            { statement: "Full fuel, 40 gal usable.", origin: "default" },
+            { statement: "Departing KSTP.", origin: "pilot" },
+          ]}
+        />
+      </BriefActionsContext.Provider>,
     )
     expect(html).toContain("Full fuel, 40 gal usable.")
     expect(html).toContain('data-origin="default"')
@@ -182,7 +191,7 @@ describe("Assumptions", () => {
     const root = createRoot(host)
     await act(async () => {
       root.render(
-        <BriefActionsContext.Provider value={{ changeAssumption }}>
+        <BriefActionsContext.Provider value={{ changeAssumption, changeDisabled: false }}>
           <Assumptions items={[{ statement: "Full fuel.", origin: "memory" }]} />
         </BriefActionsContext.Provider>,
       )
@@ -191,6 +200,86 @@ describe("Assumptions", () => {
     expect(changeAssumption).toHaveBeenCalledWith("Full fuel.")
     await act(async () => root.unmount())
     host.remove()
+  })
+
+  test("no host actions (the sheet): no Change button, nothing inert", () => {
+    const html = renderToStaticMarkup(
+      <Assumptions items={[{ statement: "Full fuel.", origin: "default" }]} />,
+    )
+    expect(html).toContain("Full fuel.")
+    expect(html).not.toContain("<button")
+  })
+
+  test("Change is disabled while the host says so (an approval is open)", () => {
+    const html = renderToStaticMarkup(
+      <BriefActionsContext.Provider value={{ changeAssumption: () => {}, changeDisabled: true }}>
+        <Assumptions items={[{ statement: "Full fuel.", origin: "default" }]} />
+      </BriefActionsContext.Provider>,
+    )
+    expect(html).toMatch(/<button[^>]*disabled/)
+  })
+
+  test("an empty list renders nothing", () => {
+    expect(renderToStaticMarkup(<Assumptions items={[]} />)).toBe("")
+  })
+})
+
+describe("list keys", () => {
+  test("repeated text in a list does not collide", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {})
+    const host = document.createElement("div")
+    const root = createRoot(host)
+    const same = { what: "Gusts", when: null, severity: "caution" as const, cite: [] }
+    await act(async () => {
+      root.render(
+        <>
+          <WatchFor items={[same, same]} />
+          <KeyNumbers
+            items={[
+              { label: "Fuel", value: "1", unit: null, cite: [] },
+              { label: "Fuel", value: "2", unit: null, cite: [] },
+            ]}
+          />
+          <Assumptions
+            items={[
+              { statement: "Same.", origin: "default" },
+              { statement: "Same.", origin: "default" },
+            ]}
+          />
+        </>,
+      )
+    })
+    const keyWarnings = error.mock.calls.filter((call) => String(call[0]).includes("same key"))
+    expect(keyWarnings).toEqual([])
+    await act(async () => root.unmount())
+    error.mockRestore()
+  })
+})
+
+describe("prose opt-out", () => {
+  // The chat renders answers inside CopilotKit's `cpk:prose` wrapper, whose
+  // typography (list indents, heading margins, dd indents) would reshape the
+  // structured components; `not-prose` opts them out. Prose stays prose.
+  test("every structured component's root is not-prose; Prose is not", () => {
+    const roots = [
+      <BottomLine key="b" level="GO" reason="Clear." cite={[]} />,
+      <RouteSummary
+        key="r"
+        from="KSTP"
+        to="KRST"
+        via={[]}
+        altitudeFt={4500}
+        departureUtc="1500Z"
+      />,
+      <WatchFor key="w" items={[]} />,
+      <KeyNumbers key="k" items={[{ label: "ETE", value: "1:12", unit: null, cite: [] }]} />,
+      <Assumptions key="a" items={[{ statement: "Full fuel.", origin: "default" }]} />,
+      <Citations key="c" items={CITATIONS} />,
+    ]
+    for (const node of roots) {
+      expect(renderToStaticMarkup(node)).toMatch(/^<section[^>]*class="[^"]*\bnot-prose\b/)
+    }
+    expect(renderToStaticMarkup(<Prose markdown="Filed." />)).not.toContain("not-prose")
   })
 })
 
@@ -234,5 +323,20 @@ describe("Prose", () => {
       </BriefMarkdownContext.Provider>,
     )
     expect(html).toContain("<pre>**Filed.**</pre>")
+  })
+
+  test("drops echoed tool calls and the todo list before rendering", () => {
+    const html = renderToStaticMarkup(
+      <BriefMarkdownContext.Provider value={({ content }) => <pre>{content}</pre>}>
+        <Prose
+          markdown={'recall({ query: "pilot" })\nPlan and todos:\n- [completed] Fetch\n\nFiled.'}
+        />
+      </BriefMarkdownContext.Provider>,
+    )
+    expect(html).toBe('<div class="mt-3 first:mt-0"><pre>Filed.</pre></div>')
+  })
+
+  test("nothing left after the echoes: renders nothing", () => {
+    expect(renderToStaticMarkup(<Prose markdown={'recall({ query: "pilot" })'} />)).toBe("")
   })
 })

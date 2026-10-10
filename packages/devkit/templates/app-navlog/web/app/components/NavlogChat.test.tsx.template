@@ -11,11 +11,16 @@ const mocks = vi.hoisted(() => ({
   isRunning: false,
   turns: { turns: [] } as unknown,
   merge: (m: unknown[]) => m,
+  /** How many times a component subscribed to the activity kit's slots. */
+  slotsCalls: 0,
+  /** The props the activity kit's assistant slot last received. */
+  assistantProps: undefined as Record<string, unknown> | undefined,
   /** The activity kit's assistant slot: renders the markdown renderer it is handed. */
   assistantMessage: (props: {
     message: { content: string }
     markdownRenderer?: (p: { content: string }) => unknown
   }) => {
+    mocks.assistantProps = props
     const Renderer = props.markdownRenderer
     return Renderer
       ? (Renderer as (p: { content: string }) => null)({ content: props.message.content })
@@ -24,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   /** What the mocked chat view shows: an assistant message, rendered through the chat's slots. */
   shownMessage: undefined as { id: string; role: string; content: string } | undefined,
   inputChange: undefined as ((value: string) => void) | undefined,
+  inputValue: "",
   renderChatView: false,
 }))
 
@@ -38,7 +44,7 @@ vi.mock("@copilotkit/react-core/v2", () => {
       mocks.chatProps = props
       if (!mocks.renderChatView) return null
       const ChatView = props.chatView as (p: Record<string, unknown>) => null
-      return <ChatView {...props} onInputChange={mocks.inputChange} />
+      return <ChatView {...props} onInputChange={mocks.inputChange} inputValue={mocks.inputValue} />
     },
     CopilotChatView: (props: {
       messageView: { assistantMessage: React.ComponentType<{ message: unknown }> }
@@ -67,7 +73,10 @@ vi.mock("@b4run/ag-ui/react/copilotkit", () => {
     },
   }
   return {
-    useB4ChatSlots: () => slots,
+    useB4ChatSlots: () => {
+      mocks.slotsCalls++
+      return slots
+    },
     useB4ActivityContext: () => ({ turns: mocks.turns }),
   }
 })
@@ -94,7 +103,10 @@ beforeEach(() => {
   mocks.merge = (m) => m
   mocks.shownMessage = undefined
   mocks.inputChange = undefined
+  mocks.inputValue = ""
   mocks.renderChatView = false
+  mocks.slotsCalls = 0
+  mocks.assistantProps = undefined
 })
 
 /** A structured answer with one assumption, in the brief kit's wrapper shape. */
@@ -160,7 +172,59 @@ describe("NavlogChat", () => {
     act(() => change?.click())
     expect(mocks.inputChange).toHaveBeenCalledWith("Actually, full fuel.")
     await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))))
-    expect(document.activeElement).toBe(view.container.querySelector("textarea"))
+    expect(document.activeElement).toBe(
+      view.container.querySelector('textarea[aria-label="Message"]'),
+    )
+    view.unmount()
+  })
+
+  test("Change keeps a draft the pilot had started, adding the correction on a new line", () => {
+    mocks.inputValue = "Also check KOWA"
+    const view = mountChat({ id: "m1", role: "assistant", content: STRUCTURED })
+    act(() =>
+      view.container
+        .querySelector<HTMLButtonElement>('button[aria-label="Change: full fuel."]')
+        ?.click(),
+    )
+    expect(mocks.inputChange).toHaveBeenCalledWith("Also check KOWA\nActually, full fuel.")
+    view.unmount()
+  })
+
+  test("Change is disabled while an approval is open, as the composer is", () => {
+    mocks.turns = awaitingTurns()
+    const view = mountChat({ id: "m1", role: "assistant", content: STRUCTURED })
+    const change = view.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Change: full fuel."]',
+    )
+    expect(change?.disabled).toBe(true)
+    view.unmount()
+  })
+
+  test("a message does not subscribe to the activity kit itself; the chat hands it the slot", () => {
+    const view = mountChat({ id: "m1", role: "assistant", content: STRUCTURED })
+    // NavlogChat's own call only: the messages read the slot from a stable context.
+    expect(mocks.slotsCalls).toBe(1)
+    expect(view.container.textContent).toContain("VFR all the way.")
+    view.unmount()
+  })
+
+  test("Copy on a structured answer copies the brief as plain text, not its JSON", async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    const view = mountChat({ id: "m1", role: "assistant", content: STRUCTURED })
+    const copyButton = mocks.assistantProps?.copyButton as
+      | { onClick: () => Promise<boolean> }
+      | undefined
+    expect(await copyButton?.onClick()).toBe(true)
+    expect(writeText).toHaveBeenCalledWith(
+      "Bottom line: GO. VFR all the way.\n\nAssumptions:\n- full fuel. (Default)",
+    )
+    view.unmount()
+  })
+
+  test("Copy on a markdown answer is CopilotKit's own", () => {
+    const view = mountChat({ id: "m1", role: "assistant", content: "**Filed.**" })
+    expect(mocks.assistantProps?.copyButton).toBeUndefined()
     view.unmount()
   })
 

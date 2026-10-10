@@ -72,6 +72,23 @@ describe("BriefRenderer", () => {
     expect(html).not.toContain("9.4")
   })
 
+  test("a single Prose shows its text while it streams, not only once it closes", () => {
+    const reply = JSON.stringify({
+      ui: [{ Prose: { props: { markdown: "Recorded the flight plan for N738ZU." } } }],
+    })
+    const html = renderToStaticMarkup(
+      <BriefRenderer content={reply.slice(0, reply.indexOf("for N738ZU"))} />,
+    )
+    expect(html).toContain("Recorded the flight plan")
+    expect(html).not.toContain("{&quot;ui")
+  })
+
+  test("is memoized, so a host re-render with the same answer skips the parse", () => {
+    expect((BriefRenderer as unknown as { $$typeof: symbol }).$$typeof).toBe(
+      Symbol.for("react.memo"),
+    )
+  })
+
   test("plain markdown renders through the markdown renderer", () => {
     const html = renderToStaticMarkup(
       <BriefRenderer content={"**Filed.** Recorded the flight plan."} />,
@@ -101,7 +118,7 @@ describe("BriefRenderer", () => {
     const root = createRoot(host)
     await act(async () => {
       root.render(
-        <BriefActionsContext.Provider value={{ changeAssumption }}>
+        <BriefActionsContext.Provider value={{ changeAssumption, changeDisabled: false }}>
           <BriefRenderer content={ANSWER} />
         </BriefActionsContext.Provider>,
       )
