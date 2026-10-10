@@ -324,7 +324,7 @@ describe("resolveVerdict", () => {
         navlog: SAMPLE_NAVLOG,
       }),
     ).toEqual({ level: "GO", reason: "VFR all the way." })
-    // Still streaming: no call yet.
+    // Still streaming, the bottom line's props not closed: no call yet.
     expect(
       resolveVerdict({
         weather: brief(),
@@ -332,6 +332,16 @@ describe("resolveVerdict", () => {
         navlog: SAMPLE_NAVLOG,
       })?.level,
     ).toBe("GO")
+    // Still streaming, but the bottom line (the first component) is complete:
+    // the card already agrees with it.
+    const streaming = structured("NO-GO", "Ice.")
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: streaming.slice(0, streaming.indexOf('{"Prose"') + 12),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "NO-GO", reason: "Ice." })
     // A structured answer without a BottomLine is no planner call, not a text parse.
     expect(
       resolveVerdict({
