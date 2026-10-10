@@ -820,17 +820,40 @@ body {
 }
 
 /* Key totals as stat tiles. */
+/*
+ * A wrapping row whose cards grow to fill it: five numbers sit in one row
+ * where there is room, and otherwise wrap as 3 + 2 with the second row's cards
+ * widened, never a lone card or a label broken mid-word.
+ */
 .wb-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  container-type: inline-size;
 }
 
 .wb-stat {
+  /* Three to a row (so five wrap as 3 + 2) ... */
+  flex: 1 1 calc((100cqw - 12px) / 3 - 1px);
+  min-width: 0;
   border: 1px solid var(--wb-border);
   border-radius: calc(var(--wb-radius) - 3px);
   background: var(--wb-surface);
   padding: 8px 10px;
+}
+
+/* ... five to a row once each card has room for its label ... */
+@container (min-width: 40rem) {
+  .wb-stat {
+    flex-basis: calc((100cqw - 24px) / 5 - 1px);
+  }
+}
+
+/* ... and two to a row on a phone. */
+@container (max-width: 22rem) {
+  .wb-stat {
+    flex-basis: calc((100cqw - 6px) / 2 - 1px);
+  }
 }
 
 .wb-stat dt {
@@ -1143,6 +1166,11 @@ body {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
     height: auto !important;
   }
+  /* The phone's Navlog panel is a card on screen; on paper the sheet stands alone. */
+  .wb-sheet-wrap {
+    /* biome-ignore lint/complexity/noImportantStyles: print must override the layout's screen styles */
+    border: 0 !important;
+  }
   .wb-sheet-body,
   .wb-sheet [role="tabpanel"] {
     /* biome-ignore lint/complexity/noImportantStyles: print must override the sheet's screen styles */
@@ -1353,10 +1381,28 @@ body {
   border: 1px solid var(--wb-border);
   border-radius: 999px;
   background: var(--wb-surface);
-  padding: 5px 5px 5px 8px;
+  padding: 5px 5px 5px 6px;
   color: var(--wb-text);
   font-family: var(--font-sans);
   font-size: 13px;
+}
+
+/*
+ * Every control in the bar is one height, the app's button height
+ * (`.wb-button`), so the pills, the fields and Plan line up as siblings.
+ */
+.wb-routebar {
+  --wb-routebar-control: 32px;
+}
+
+/*
+ * The route input sits flush inside the bar, so the bar itself wears the focus
+ * ring while you type a route: a square ring around a borderless field inside
+ * a pill would draw a second, mismatched shape.
+ */
+.wb-routebar:has(.wb-routebar-input:focus-visible) {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
 }
 
 .wb-routebar-route {
@@ -1385,10 +1431,10 @@ body {
   flex-shrink: 0;
   align-items: center;
   gap: 2px;
-  height: 26px;
+  height: var(--wb-routebar-control);
   border-radius: 999px;
   background: var(--wb-text);
-  padding: 0 4px 0 10px;
+  padding: 0 6px 0 12px;
   color: var(--wb-surface);
 }
 
@@ -1425,10 +1471,11 @@ body {
 .wb-routebar-input {
   flex: 1 1 8rem;
   min-width: 8rem;
-  height: 28px;
+  height: var(--wb-routebar-control);
   border: 0;
+  outline: none;
   background: transparent;
-  padding: 0 4px;
+  padding: 0 6px;
   color: inherit;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -1505,8 +1552,8 @@ body {
 }
 
 .wb-routebar-small {
-  width: 4.5rem;
-  height: 28px;
+  width: 5rem;
+  height: var(--wb-routebar-control);
   border: 1px solid var(--wb-border);
   border-radius: 999px;
   background: var(--wb-surface);
@@ -1515,6 +1562,11 @@ body {
   font-family: var(--font-mono);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Wide enough for "tomorrow 1600Z", the longest form a pilot types. */
+.wb-routebar-departure {
+  width: 8.25rem;
 }
 
 .wb-routebar-total {
@@ -1526,7 +1578,7 @@ body {
 }
 
 .wb-routebar-submit {
-  height: 30px;
+  height: var(--wb-routebar-control);
   border: 1px solid var(--wb-text);
   border-radius: 999px;
   background: var(--wb-text);
@@ -1547,12 +1599,42 @@ body {
   cursor: not-allowed;
 }
 
-@media (max-width: 639px) {
+/*
+ * In a narrow map panel (a phone, or a desktop with a narrow map column) the
+ * bar takes two rows, the route above the fields, and a pill's radius would
+ * round two rows into a blob, so it takes the panels' radius instead. Keyed to
+ * the panel's width (the overlay is the container), not the window's.
+ */
+.wb-routebar-slot {
+  container-type: inline-size;
+}
+
+@container (max-width: 40rem) {
   .wb-routebar {
     border-radius: var(--wb-radius);
   }
   .wb-routebar-route {
     flex-basis: 100%;
+  }
+}
+
+/*
+ * On a phone the second row is the fields and Plan, on one line: the
+ * departure field takes what is left, and the running distance gives way
+ * (the sheet shows the distance once there is a plan).
+ */
+@container (max-width: 26rem) {
+  .wb-routebar-departure {
+    flex: 1 1 6rem;
+    width: auto;
+    min-width: 0;
+  }
+  .wb-routebar-total {
+    display: none;
+  }
+  .wb-routebar-input {
+    flex-basis: 5.5rem;
+    min-width: 5.5rem;
   }
 }
 
@@ -1576,6 +1658,34 @@ body {
 }
 
 /* chat dock: start */
+/*
+ * CopilotKit floats the composer over the bottom of the transcript, leaving a
+ * strip between the composer and the panel's edge where the transcript showed
+ * through as it scrolled. A surface-colored block under the composer fills
+ * that strip, so the transcript passes behind the composer and out of sight.
+ */
+.copilotKitInput {
+  position: relative;
+}
+
+.copilotKitInput::after {
+  content: "";
+  position: absolute;
+  /*
+   * From the composer's middle down to the dock's inner edge (16px gutters,
+   * 24px below), behind the composer so its rounded corners are covered too,
+   * and rounded like the dock's inner corners so its border stays whole.
+   */
+  top: 50%;
+  right: -15px;
+  bottom: -24px;
+  left: -15px;
+  z-index: -1;
+  border-radius: 0 0 calc(var(--wb-radius) - 1px) calc(var(--wb-radius) - 1px);
+  background: var(--wb-surface);
+  pointer-events: none;
+}
+
 /*
  * The chat dock's two signal colors: a warning (an approval waiting, a denied
  * call) and a failure.

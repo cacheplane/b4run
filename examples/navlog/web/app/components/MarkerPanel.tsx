@@ -2,6 +2,7 @@
 import { type KeyboardEvent, useEffect, useRef } from "react"
 import { type AirportWeather, worstCategory } from "../lib/weather-selectors"
 import { Icon } from "./icons"
+import { RawReport } from "./RawReport"
 import { categoryText } from "./WeatherTab"
 
 export interface MarkerPanelProps {
@@ -12,21 +13,6 @@ export interface MarkerPanelProps {
   /** Set when the marker is a reporting station near the course. */
   readonly station?: { readonly name: string } | undefined
   readonly onClose: () => void
-}
-
-function Report({ label, text }: { readonly label: string; readonly text: string }) {
-  return (
-    <div className="mt-2.5">
-      <p className="text-[11px] font-semibold text-wb-muted">{label}</p>
-      {text.trim() === "" ? (
-        <p className="text-[12.5px] text-wb-muted">No {label} in the brief</p>
-      ) : (
-        <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-snug">
-          {text}
-        </pre>
-      )}
-    </div>
-  )
 }
 
 /**
@@ -103,8 +89,8 @@ export function MarkerPanel({ id, airport, station, onClose }: MarkerPanelProps)
         <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
       ) : (
         <>
-          <Report label="METAR" text={airport.metar} />
-          <Report label="TAF" text={airport.taf} />
+          <RawReport label="METAR" text={airport.metar} />
+          <RawReport label="TAF" text={airport.taf} />
         </>
       )}
     </div>

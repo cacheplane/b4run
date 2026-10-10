@@ -25,6 +25,8 @@ interface FakeLayer {
 const fake = vi.hoisted(() => ({
   layers: new Set<FakeLayer>(),
   fits: [] as unknown[],
+  animating: false,
+  onceHandlers: {} as Record<string, () => void>,
 }))
 
 vi.mock("leaflet", () => {
@@ -61,6 +63,12 @@ vi.mock("leaflet", () => {
   const control = () => ({ addTo: () => undefined })
   const L = {
     map: () => ({
+      get _animatingZoom() {
+        return fake.animating
+      },
+      once: (type: string, handler: () => void) => {
+        fake.onceHandlers[type] = handler
+      },
       setView: () => undefined,
       getSize: () => ({ x: 800, y: 600 }),
       fitBounds: (bounds: unknown) => fake.fits.push(bounds),
@@ -119,6 +127,8 @@ beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   fake.layers.clear()
   fake.fits = []
+  fake.animating = false
+  fake.onceHandlers = {}
   onSelect = vi.fn<(id: string) => void>()
   container = document.createElement("div")
   document.body.append(container)
@@ -238,5 +248,76 @@ describe("RouteMap draft", () => {
     const fits = fake.fits.length
     await render({ draft: [...asDraft(SAMPLE_NAVLOG), SNS] })
     expect(fake.fits).toHaveLength(fits)
+  })
+})
+
+describe("RouteMap resize", () => {
+  test("a resize fits the route again, until the pilot touches the map", async () => {
+    const observers: (() => void)[] = []
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    try {
+      await render()
+      const fits = fake.fits.length
+      const resize = async () => {
+        act(() => observers.at(-1)?.())
+        // The refit waits for the resize to settle.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 200)))
+      }
+      // The sheet opening as the plan lands shrinks the map: the route fits again.
+      await resize()
+      expect(fake.fits).toHaveLength(fits + 1)
+      // Once the pilot has pressed on the map, the view is theirs.
+      const map = container.querySelector('[aria-label="Route map"]') as HTMLElement
+      map.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+      await resize()
+      expect(fake.fits).toHaveLength(fits + 1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("a refit waits for a fit still animating, so it is not undone", async () => {
+    const observers: (() => void)[] = []
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback)
+        }
+        observe() {}
+        disconnect() {}
+      },
+    )
+    try {
+      await render()
+      const fits = fake.fits.length
+      fake.animating = true
+      act(() => observers.at(-1)?.())
+      await act(() => new Promise((resolve) => setTimeout(resolve, 200)))
+      expect(fake.fits).toHaveLength(fits)
+      fake.animating = false
+      act(() => fake.onceHandlers.moveend?.())
+      expect(fake.fits).toHaveLength(fits + 1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test("stations draw under the route's own markers", async () => {
+    await render({
+      stations: [
+        { id: "KOWA", name: "Owatonna", lat: 44.12, lon: -93.26, alongNm: 40, offsetNm: 3 },
+      ],
+    })
+    expect(markerFor("KOWA")?.options.zIndexOffset).toBe(-1000)
   })
 })

@@ -333,7 +333,10 @@ describe("Prose", () => {
         />
       </BriefMarkdownContext.Provider>,
     )
-    expect(html).toBe('<div class="mt-3 first:mt-0"><pre>Filed.</pre></div>')
+    expect(html).toContain("<pre>Filed.</pre>")
+    expect(html).not.toContain("recall(")
+    // The brief's body size, not the chat's 16px reply size.
+    expect(html).toContain("text-[14px]")
   })
 
   test("nothing left after the echoes: renders nothing", () => {

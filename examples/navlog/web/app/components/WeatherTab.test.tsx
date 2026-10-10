@@ -92,12 +92,12 @@ describe("WeatherTab", () => {
     expect(destination).toContain('data-cat="MVFR"')
     expect(destination).toContain("VFR now → MVFR at ETA")
     expect(destination).toMatch(
-      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">METAR KRST/,
+      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">KRST/,
     )
-    expect(destination).toMatch(/>TAF<\/p><pre[^>]*>TAF KRST 061130Z/)
+    expect(destination).toMatch(/>TAF<\/p><pre[^>]*>KRST 061130Z/)
     const origin = section(html, "Origin")
     expect(origin).toContain('data-cat="VFR"')
-    expect(origin).toContain("METAR KSTP 061353Z")
+    expect(origin).toContain("KSTP 061353Z")
   })
   test("en route lists stations with their name and distance along, in order", () => {
     const enRoute = section(render(), "En route")
@@ -125,6 +125,21 @@ describe("WeatherTab", () => {
     expect(enRoute).toContain(">KHCD<")
     expect(enRoute).not.toContain("ODI")
   })
+  test("a station past either end reads near departure or near destination", () => {
+    const enRoute = section(
+      render({
+        stations: [
+          station("KMSP", 0, "Minneapolis"),
+          station("KDCY", SAMPLE_NAVLOG.totals.distanceNm, "Dodge Center"),
+        ],
+      }),
+      "En route",
+    )
+    expect(enRoute).toContain("near departure")
+    expect(enRoute).toContain("near destination")
+    expect(enRoute).not.toContain("0 nm along")
+  })
+
   test("an empty en route says no stations are near the course", () => {
     const enRoute = section(render({ stations: [] }), "En route")
     expect(enRoute).toContain("No reporting stations within 25 nm of the course.")

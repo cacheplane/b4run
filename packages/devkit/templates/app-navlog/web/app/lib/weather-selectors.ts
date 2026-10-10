@@ -31,6 +31,30 @@ export interface WeatherBrief {
   readonly horizon?: string
 }
 
+/**
+ * A raw report as a card shows it, under its own "METAR" or "TAF" label: the
+ * report without that same leading word (a "METAR METAR KPAO …" line reads
+ * twice), "none" when the briefer said the station issues none ("TAF none"),
+ * and "missing" when the brief carries nothing for it. A SPECI keeps its word,
+ * because the label alone would hide that it is a special observation.
+ */
+export type ReportView =
+  | { readonly kind: "report"; readonly body: string }
+  | { readonly kind: "none" }
+  | { readonly kind: "missing" }
+
+export function reportView(text: string, label: "METAR" | "TAF"): ReportView {
+  const trimmed = text.trim()
+  if (trimmed === "") return { kind: "missing" }
+  if (new RegExp(`^${label}\\s+none\\.?$`, "i").test(trimmed)) return { kind: "none" }
+  // Every leading copy of the word, with or without a colon: a briefer that
+  // labels its line ("METAR: METAR KPAO …") repeats it.
+  // A trailing period is the briefer's sentence, never part of a report.
+  const body = trimmed.replace(new RegExp(`^(?:${label}:?\\s+)+`), "").replace(/\.$/, "")
+  if (/^none\.?$/i.test(body)) return { kind: "none" }
+  return { kind: "report", body }
+}
+
 export function categoryOf(text: string): FlightCategory {
   const m = /\b(LIFR|MVFR|IFR|VFR)\b/i.exec(text)
   return m ? ((m[1] as string).toUpperCase() as FlightCategory) : "UNKNOWN"

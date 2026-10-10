@@ -126,7 +126,7 @@ describe("navlog sheet: strip and tabs", () => {
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"(?![^>]*hidden)[^>]*>/)
     expect(panel).toContain(">Origin</h3>")
     expect(panel).toContain("40 nm along")
-    expect(panel).toContain("METAR KRST 061354Z")
+    expect(panel).toContain("KRST 061354Z")
   })
   test("the Weather panel sits after Legs, so it prints after the legs", () => {
     const html = render()

@@ -162,6 +162,22 @@ function isLive(
 }
 
 /**
+ * Whether Leaflet is mid zoom or pan animation. It has no public flag for
+ * this; `_animatingZoom` and `_panAnim._inProgress` are the internal ones its
+ * own handlers read.
+ */
+function isAnimating(map: LeafletMap): boolean {
+  const internal = map as unknown as {
+    readonly _animatingZoom?: boolean
+    readonly _panAnim?: { readonly _inProgress?: boolean }
+  }
+  return internal._animatingZoom === true || internal._panAnim?._inProgress === true
+}
+
+/** How long a resize must be quiet before the route refits, in ms. */
+const RESIZE_SETTLE_MS = 150
+
+/**
  * The route map: it fills its panel (the right column on desktop, the Map tab
  * on phones). Leaflet is imported once, in the mount effect, so this module
  * never touches `window` on the server; `WorkbenchLayout` also loads it with
@@ -202,6 +218,16 @@ export function RouteMap({
   // yet laid out): fitting a 0×0 box zooms all the way in, so it waits here
   // and RESIZE runs it once the map has a size.
   const pendingFit = useRef<(() => void) | null>(null)
+  // The last fit, and whether the pilot has touched the map since: until they
+  // do, a resize (the sheet opening as the plan lands, a window narrowed to a
+  // phone and back) fits the route again instead of leaving it off-screen.
+  const lastFit = useRef<((animate: boolean) => void) | null>(null)
+  const userMoved = useRef(false)
+  // The bounds the last fit framed: only a new route animates its fit. A
+  // re-fit of the same route (new room around it as the route bar measures
+  // itself) jumps, because a second animated fit started during the first
+  // leaves Leaflet between zoom levels.
+  const fittedBounds = useRef<string | null>(null)
   // State, not a ref: the effects below must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
   const [leaflet, setLeaflet] = useState<LoadedMap | null>(null)
@@ -262,18 +288,48 @@ export function RouteMap({
   useEffect(() => {
     if (!isLive(leaflet, liveMap) || container.current === null) return
     if (typeof ResizeObserver === "undefined") return
+    // A panel resizes over several frames (the sheet's height settling), and
+    // a fit started mid-resize animates against a size that is about to
+    // change; so the refit waits for the size to settle, then jumps.
+    let settle: ReturnType<typeof setTimeout> | undefined
     const observer = new ResizeObserver(() => {
       if (!isLive(leaflet, liveMap)) return
-      leaflet.map.invalidateSize()
-      const pending = pendingFit.current
-      if (pending === null) return
+      leaflet.map.invalidateSize({ pan: false })
       const size = leaflet.map.getSize()
       if (size.x === 0 || size.y === 0) return
-      pendingFit.current = null
-      pending()
+      const pending = pendingFit.current
+      if (pending !== null) {
+        pendingFit.current = null
+        pending()
+        return
+      }
+      clearTimeout(settle)
+      settle = setTimeout(() => {
+        if (!isLive(leaflet, liveMap) || userMoved.current) return
+        const refit = (): void => lastFit.current?.(false)
+        // A fit still animating (the first fit, started before the sheet
+        // opened) would land after this jump and undo it, so wait it out.
+        if (isAnimating(leaflet.map)) leaflet.map.once("moveend", refit)
+        else refit()
+      }, RESIZE_SETTLE_MS)
     })
     observer.observe(container.current)
-    return () => observer.disconnect()
+    // A pointer, wheel or key on the map is the pilot moving it (or opening a
+    // marker): from then on the view is theirs until the next fit.
+    const element = container.current
+    const moved = (): void => {
+      userMoved.current = true
+    }
+    element.addEventListener("pointerdown", moved)
+    element.addEventListener("wheel", moved, { passive: true })
+    element.addEventListener("keydown", moved)
+    return () => {
+      clearTimeout(settle)
+      observer.disconnect()
+      element.removeEventListener("pointerdown", moved)
+      element.removeEventListener("wheel", moved)
+      element.removeEventListener("keydown", moved)
+    }
   }, [leaflet])
 
   // DRAW: the route, its highlight segments, the waypoints and the heading labels.
@@ -356,6 +412,9 @@ export function RouteMap({
           L.marker([station.lat, station.lon], {
             icon: waypointIcon(L, station.id, categories[station.id] ?? "UNKNOWN", "station"),
             ...interactiveOptions(station.id),
+            // Under the route's own markers: where a station's label meets a
+            // waypoint's, the waypoint reads on top.
+            zIndexOffset: -1000,
           }),
           station.id,
           selectRef,
@@ -431,11 +490,13 @@ export function RouteMap({
           : null
     if (!isLive(leaflet, liveMap) || bounds === null) {
       pendingFit.current = null
+      lastFit.current = null
       return
     }
-    const fitRoute = (): void => {
+    const fitRoute = (animate = true): void => {
       if (!isLive(leaflet, liveMap)) return
-      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+      const reduceMotion =
+        !animate || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
       leaflet.map.fitBounds(
         [
           [bounds[0][0], bounds[0][1]],
@@ -448,13 +509,18 @@ export function RouteMap({
         },
       )
     }
+    lastFit.current = fitRoute
+    userMoved.current = false
+    const boundsKey = JSON.stringify(bounds)
+    const isNewRoute = boundsKey !== fittedBounds.current
+    fittedBounds.current = boundsKey
     const size = leaflet.map.getSize()
     if (size.x === 0 || size.y === 0) {
-      pendingFit.current = fitRoute
+      pendingFit.current = () => fitRoute(false)
       return
     }
     pendingFit.current = null
-    fitRoute()
+    fitRoute(isNewRoute)
   }, [leaflet, geometry, draftBoundsKey, left, top, bottom])
 
   useEffect(() => {

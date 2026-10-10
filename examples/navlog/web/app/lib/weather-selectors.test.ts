@@ -4,6 +4,7 @@ import {
   categoryOf,
   latestWeatherBriefText,
   parseWeatherBrief,
+  reportView,
   worstCategory,
 } from "./weather-selectors"
 
@@ -124,6 +125,34 @@ describe("parseWeatherBrief splits the raw reports by their shape", () => {
     expect(paO?.taf).toBe("TAF none")
     expect(sba?.metar).toBe("METAR KSBA 092353Z 25008KT 10SM CLR 21/12 A2970")
     expect(sba?.taf).toBe("TAF AMD KSBA 092330Z 1000/1106 26010KT P6SM SKC")
+  })
+})
+
+describe("reportView", () => {
+  test("drops the label's own word, keeps a SPECI, and tells none from missing", () => {
+    expect(reportView("METAR KPAO 092347Z 35012KT", "METAR")).toEqual({
+      kind: "report",
+      body: "KPAO 092347Z 35012KT",
+    })
+    expect(reportView("SPECI KPAO 092347Z", "METAR")).toEqual({
+      kind: "report",
+      body: "SPECI KPAO 092347Z",
+    })
+    expect(reportView("TAF AMD KSBA 092330Z", "TAF")).toEqual({
+      kind: "report",
+      body: "AMD KSBA 092330Z",
+    })
+    expect(reportView("TAF none", "TAF")).toEqual({ kind: "none" })
+    expect(reportView("METAR KPAO 092347Z A2973.", "METAR")).toEqual({
+      kind: "report",
+      body: "KPAO 092347Z A2973",
+    })
+    expect(reportView("METAR: METAR KPAO 092347Z", "METAR")).toEqual({
+      kind: "report",
+      body: "KPAO 092347Z",
+    })
+    expect(reportView("TAF TAF none", "TAF")).toEqual({ kind: "none" })
+    expect(reportView("  ", "TAF")).toEqual({ kind: "missing" })
   })
 })
 

@@ -13,7 +13,8 @@
  * genuinely share, and that lives in `app/theme.css`.
  */
 function scale(size: "sm" | "md"): string {
-  return size === "sm" ? "px-3 py-1 text-[12px]" : "px-4 py-1.5 text-[13px]"
+  // md is the app's 32px control height (`.wb-button`, the route bar, the rail's rows).
+  return size === "sm" ? "px-3 py-1 text-[12px]" : "min-h-8 px-4 py-1 text-[13px]"
 }
 
 export function neutralButton(size: "sm" | "md"): string {

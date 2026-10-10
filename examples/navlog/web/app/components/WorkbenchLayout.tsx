@@ -322,7 +322,7 @@ export function WorkbenchLayout({
   const routeBar = (
     <div
       ref={barRef}
-      className="pointer-events-none absolute inset-x-4 top-4 z-10 *:pointer-events-auto"
+      className="wb-routebar-slot pointer-events-none absolute inset-x-4 top-4 z-10 *:pointer-events-auto"
     >
       <RouteBar navlog={navlog} running={running} onReplan={onReplan} onDraftChange={setDraft} />
     </div>
@@ -480,7 +480,7 @@ export function WorkbenchLayout({
               id="wb-panel-navlog"
               aria-labelledby="wb-tab-navlog"
               inert={!navlogVisible}
-              className={`wb-sheet-wrap ${PANEL_BOX} overflow-auto ${navlogVisible ? "" : "invisible"}`}
+              className={`wb-sheet-wrap wb-panel ${PANEL_BOX} overflow-auto ${navlogVisible ? "" : "invisible"}`}
             >
               <NavlogSheet
                 navlog={navlog}
