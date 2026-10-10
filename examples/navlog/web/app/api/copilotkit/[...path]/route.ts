@@ -5,6 +5,7 @@ import {
   createCopilotRuntimeHandler,
   InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2"
+import { briefJsonSchema } from "../../../brief/kit"
 import { guardRequest } from "../../../lib/guarded-request"
 import { guardConfigFromEnv, upstreamHeaders } from "../../../lib/proxy-guard"
 import { visitorContext } from "../../../lib/visitor-context"
@@ -36,7 +37,17 @@ const guardedFetch = forwardIdentity({
   },
 })
 
-const agent = new B4HttpAgent({ url: agUiUrl, fetch: guardedFetch })
+/**
+ * Every run asks for the planning brief kit's JSON Schema (`app/brief/kit.ts`):
+ * B4.run binds it on the route's model as structured output, so the final
+ * answer is `{ "ui": [...] }` that the chat and the Brief tab render as
+ * components. Tool-calling turns are unaffected.
+ */
+const agent = new B4HttpAgent({
+  url: agUiUrl,
+  fetch: guardedFetch,
+  responseSchema: briefJsonSchema,
+})
 
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
