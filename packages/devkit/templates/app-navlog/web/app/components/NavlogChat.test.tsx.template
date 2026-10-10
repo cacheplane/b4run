@@ -152,7 +152,9 @@ describe("NavlogChat", () => {
 
   test("a structured answer renders with the brief kit, citations scoped to the message", () => {
     const view = mountChat({ id: "m1", role: "assistant", content: STRUCTURED })
-    expect(view.container.querySelector('[data-level="GO"]')?.textContent).toBe("GO")
+    expect(view.container.querySelector('.wb-verdict-pill[data-level="GO"]')?.textContent).toBe(
+      "GO",
+    )
     expect(view.container.textContent).toContain("VFR all the way.")
     expect(view.container.querySelector("[data-cpk-markdown]")).toBeNull()
     view.unmount()

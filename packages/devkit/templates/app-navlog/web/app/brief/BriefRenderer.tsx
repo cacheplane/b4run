@@ -78,7 +78,13 @@ function StructuredAnswer({ content, idPrefix }: BriefRendererProps) {
     // hashbrown validates a fully streamed answer; one that fails is shown as text.
     return <Markdown content={content} />
   }
-  return <CitationsContext.Provider value={citations}>{rendered}</CitationsContext.Provider>
+  // One container owns the rhythm: the space above (clear of the activity
+  // summary the answer follows) and the even gap between its sections.
+  return (
+    <CitationsContext.Provider value={citations}>
+      <div className="wb-answer">{rendered}</div>
+    </CitationsContext.Provider>
+  )
 }
 
 /**
