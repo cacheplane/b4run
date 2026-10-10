@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-09-30T15:59:23.000Z",
-      "sourceDigest": "bbf13ae7a04b435908743981897de421865dc79a5b4502616003f83ec5a9e311",
-      "recordDigest": "5f72ea5c9b78f0529d73de62fd7710b59298fd2a09b3fdca900d1615232b738b"
+      "lastModified": "2026-10-10T15:55:13.000Z",
+      "sourceDigest": "d3527f48a1509b884be168757cdda9a0f5baad9ac10f421b53b0571a935df495",
+      "recordDigest": "1e3503c11087d2ad2b3249877728b3a4dac3bf2e233a59eb374a6264e47e58a8"
     },
     "/blog": {
       "lastModified": "2026-10-09T03:18:18.000Z",
@@ -307,9 +307,9 @@
       "recordDigest": "ffa76b45f64f06b72cfce8e1abe77efc43330a3ebf495887425bb536aee01ac1"
     },
     "/docs/recipes": {
-      "lastModified": "2026-10-05T21:54:28.000Z",
-      "sourceDigest": "5d95be0e6a3b56396e9932b6f4ca7c0379d6d195155270981e15f6eb6f895cb2",
-      "recordDigest": "4b5cbe6f5131505a2c7250bc1c85ebf62fbe67e6b4e62546642ee147e0cf8443"
+      "lastModified": "2026-10-10T15:55:13.000Z",
+      "sourceDigest": "602f5b36f7073d989a15f0106c9bd2d3f8769b4b6c2bde63644e65d24016a93e",
+      "recordDigest": "3e80610cd2536f3c852d35354194d5616f270fe878a115c5c70541c5462a6790"
     },
     "/docs/recipes/add-a-tool": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -335,6 +335,11 @@
       "lastModified": "2026-10-10T05:02:08.000Z",
       "sourceDigest": "05b56ca44fdd475dbfd789b777aa8c3db62db3d3cd6ff704c9d994997dfdeac3",
       "recordDigest": "d05eea10a2256eb74115cfef73f27550d7427eec0cbf914ffe8e0bc15377d146"
+    },
+    "/docs/recipes/navlog": {
+      "lastModified": "2026-10-10T15:55:13.000Z",
+      "sourceDigest": "4695d8599dc1806fbbbb5ef5ddaec8521ec234da87ce5104b3c9769bbef5a74a",
+      "recordDigest": "d72d355fe974c4b189e68a8267f624f569f3028d8c8c779ca65fecba347ab208"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
