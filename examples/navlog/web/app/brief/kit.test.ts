@@ -1,5 +1,13 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "vitest"
 import { briefJsonSchema } from "./kit"
+
+// The server's quality eval sends this schema as its `responseSchema`. The
+// server must not import the web app, so it keeps a JSON copy; this pins it.
+const SERVER_COPY = new URL(
+  "../../../server/src/app/navlog/evals/brief-schema.json",
+  import.meta.url,
+)
 
 const NAMES = [
   "BottomLine",
@@ -54,5 +62,9 @@ describe("brief kit", () => {
     // `when` (WatchFor) and `unit` (KeyNumbers): a string or null, never absent.
     expect(text).toMatch(/"when":\{"anyOf":\[\{"type":"string"[^\]]*\{"type":"null"/)
     expect(text).toMatch(/"unit":\{"anyOf":\[\{"type":"string"[^\]]*\{"type":"null"/)
+  })
+
+  test("matches the copy the server's quality eval sends", () => {
+    expect(JSON.parse(readFileSync(SERVER_COPY, "utf8"))).toEqual(briefJsonSchema)
   })
 })
