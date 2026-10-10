@@ -3,7 +3,7 @@ export interface LatLon {
   readonly lon: number
 }
 
-const EARTH_RADIUS_NM = 3440.065
+export const EARTH_RADIUS_NM = 3440.065
 const toRad = (deg: number): number => (deg * Math.PI) / 180
 const toDeg = (rad: number): number => (rad * 180) / Math.PI
 

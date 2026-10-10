@@ -14,6 +14,8 @@ export default agent({
       "getTaf",
       "getWindsAloft",
       "getAdvisories",
+      "lookupNavaid",
+      "findRouteStations",
       "computeNavlog",
       "fileFlightPlan",
       "resolveDeparture",
