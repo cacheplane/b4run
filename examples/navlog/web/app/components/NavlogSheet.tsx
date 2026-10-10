@@ -6,12 +6,14 @@ import { isStructuredAnswer } from "../brief/parse"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
 import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
+import type { RouteStation } from "../lib/weather-roles"
 import { parseAdvisory, type WeatherBrief } from "../lib/weather-selectors"
 import { CopyFplButton, FlightPlanBlock } from "./FlightPlanBlock"
 import { NavlogGrid } from "./NavlogGrid"
 import { NavlogTable } from "./NavlogTable"
 import { PlanningBrief } from "./PlanningBrief"
 import { VerdictCard, VerdictPill } from "./VerdictCard"
+import { WeatherTab } from "./WeatherTab"
 
 /**
  * A number per navlog object, the grid's key. Row ids are leg indexes, so a
@@ -32,11 +34,13 @@ function navlogRevision(navlog: Navlog): number {
 }
 
 const noSelectLeg = (): void => {}
+const NO_STATIONS: readonly RouteStation[] = []
 
-export type SheetTab = "legs" | "plan" | "brief"
+export type SheetTab = "legs" | "weather" | "plan" | "brief"
 
 const SHEET_TABS: readonly { readonly id: SheetTab; readonly label: string }[] = [
   { id: "legs", label: "Legs" },
+  { id: "weather", label: "Weather" },
   { id: "plan", label: "Totals & plan" },
   { id: "brief", label: "Brief" },
 ]
@@ -47,6 +51,8 @@ export interface NavlogSheetProps {
   readonly brief: string
   /** The weather brief, for the verdict, the hazards and the forecast horizon. */
   readonly weather?: WeatherBrief | null
+  /** The reporting stations along the route (`findRouteStations`), for the Weather tab's en-route group. */
+  readonly stations?: readonly RouteStation[]
   readonly open: boolean
   readonly onToggle: () => void
   /** The selected tab (lifted so `openSheet` can pick Legs). */
@@ -116,21 +122,23 @@ function TotalsStrip({ navlog }: { readonly navlog: Navlog }) {
 
 /**
  * The navlog sheet: the route and its totals when collapsed. Open, a verdict
- * strip, then three tabs: Legs (the pretable grid on desktop, cards on phones,
- * with a fixed totals strip), Totals & plan (the tiles and the flight plan)
- * and Brief (the verdict card and the planning brief). A native disclosure,
+ * strip, then four tabs: Legs (the pretable grid on desktop, cards on phones,
+ * with a fixed totals strip), Weather (the brief by route role, the winds,
+ * the advisories), Totals & plan (the tiles and the flight plan) and Brief
+ * (the verdict card and the planning brief). A native disclosure,
  * not a gesture.
  *
  * Everything stays in the DOM: the body is only hidden on screen while
  * collapsed (`hidden print:block`), inactive panels carry `hidden` (which the
  * print rules in `theme.css` undo), and the legs print from a plain
  * `NavlogTable` because the grid virtualizes rows. So Print prints the whole
- * navlog whichever state and tab the sheet is in.
+ * navlog whichever state and tab the sheet is in, the weather after the legs.
  */
 export function NavlogSheet({
   navlog,
   brief,
   weather = null,
+  stations = NO_STATIONS,
   open,
   onToggle,
   tab,
@@ -344,6 +352,20 @@ export function NavlogSheet({
               <NavlogTable navlog={navlog} variant="table" />
             </div>
           ) : null}
+        </div>
+        <div
+          role="tabpanel"
+          id={panelId("weather")}
+          aria-labelledby={tabId("weather")}
+          hidden={tab !== "weather"}
+          className="min-h-0 flex-1 overflow-auto px-4 pb-4"
+        >
+          <WeatherTab
+            weather={weather}
+            navlog={navlog}
+            stations={stations}
+            cruiseFt={navlog.altitudeFt}
+          />
         </div>
         <div
           role="tabpanel"
