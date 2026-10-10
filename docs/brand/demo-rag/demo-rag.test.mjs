@@ -33,10 +33,7 @@ async function tools() {
     },
   }
   const call = async ({ tool, args }) => {
-    // Outside a `"type": "module"` package tsx loads the file as CommonJS, so
-    // the named exports sit on the interop default as well.
-    const loaded = { searchPlans, readSection }[tool]
-    const module = typeof loaded.default === "function" ? loaded : loaded.default
+    const module = { searchPlans, readSection }[tool]
     const output = await module.default(args, ctx)
     return { output, sources: module.display.sources(output) }
   }
