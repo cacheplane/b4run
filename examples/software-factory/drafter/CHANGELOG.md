@@ -1,5 +1,15 @@
 # @b4-example/software-factory-drafter
 
+## 0.0.8
+
+### Patch Changes
+
+- Updated dependencies [3777065]
+  - @b4run/cli@0.14.1
+  - @b4run/sandbox@0.14.1
+  - @b4run/sdk@0.14.1
+  - @b4run/workspace@0.14.1
+
 ## 0.0.7
 
 ### Patch Changes

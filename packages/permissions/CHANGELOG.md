@@ -1,5 +1,11 @@
 # @dawn-ai/permissions
 
+## 0.14.1
+
+### Patch Changes
+
+- @b4run/sdk@0.14.1
+
 ## 0.14.0
 
 ### Patch Changes
