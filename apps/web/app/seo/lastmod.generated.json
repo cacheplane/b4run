@@ -327,14 +327,14 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-10T02:18:31.000Z",
-      "sourceDigest": "f74bcbeb6892eec079a156c640a915795b13a10c0c2d07e16ffdbdf2de49c107",
-      "recordDigest": "6842799640b778615e909517bdd905b051dc8ed611379a52240920c62dbf75bf"
+      "lastModified": "2026-10-10T02:59:17.000Z",
+      "sourceDigest": "f2fd85f06c68b2571d828f791df7ff33eb2be2e08c5031de6b141b43bee73c84",
+      "recordDigest": "735b8ad51f6af866208c3bce725cd084d9080c3a1a8071484096b354b58fe505"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-10T02:18:31.000Z",
-      "sourceDigest": "e0247553e4437cf1870d2dc945c70f7253c91058b54337d607830e8efdbd3dd3",
-      "recordDigest": "763ac417174b8a3882a1105555505beb9b15838d5b03363d6dff68c1c5bd33ef"
+      "lastModified": "2026-10-10T02:59:17.000Z",
+      "sourceDigest": "aae0536e5e35e93c1daad5564b8ad9b85d38d5910fe61ecbf1b540de8cc56cfa",
+      "recordDigest": "d49206d9ba743326bb9cc664f378d70163dfba53980bf7e1eecc72b866464f54"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
