@@ -125,6 +125,21 @@ describe("WeatherTab", () => {
     expect(enRoute).toContain(">KHCD<")
     expect(enRoute).not.toContain("ODI")
   })
+  test("a station past either end reads near departure or near destination", () => {
+    const enRoute = section(
+      render({
+        stations: [
+          station("KMSP", 0, "Minneapolis"),
+          station("KDCY", SAMPLE_NAVLOG.totals.distanceNm, "Dodge Center"),
+        ],
+      }),
+      "En route",
+    )
+    expect(enRoute).toContain("near departure")
+    expect(enRoute).toContain("near destination")
+    expect(enRoute).not.toContain("0 nm along")
+  })
+
   test("an empty en route says no stations are near the course", () => {
     const enRoute = section(render({ stations: [] }), "En route")
     expect(enRoute).toContain("No reporting stations within 25 nm of the course.")

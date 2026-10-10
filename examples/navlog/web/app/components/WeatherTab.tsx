@@ -27,7 +27,25 @@ export function categoryText({ now, atEta }: AirportWeather): string {
   return `${now} now → ${atEta} at ETA`
 }
 
-function AirportCard({ entry }: { readonly entry: RoleEntry }) {
+/**
+ * Where an en-route station sits: its distance along the route, or "near
+ * departure" / "near destination" for one past either end, whose distance
+ * along clamps to 0 or to the route's length.
+ */
+function placeText(alongNm: number, routeNm: number): string {
+  const nm = Math.round(alongNm)
+  if (nm <= 0) return "near departure"
+  if (nm >= Math.round(routeNm)) return "near destination"
+  return `${nm} nm along`
+}
+
+function AirportCard({
+  entry,
+  routeNm,
+}: {
+  readonly entry: RoleEntry
+  readonly routeNm: number
+}) {
   const { id, name, alongNm, airport } = entry
   return (
     <li className="rounded-wb-sm border border-wb-border bg-wb-surface p-3">
@@ -38,7 +56,7 @@ function AirportCard({ entry }: { readonly entry: RoleEntry }) {
         ) : null}
         {alongNm !== null ? (
           <span className="text-[12px] tabular-nums text-wb-muted">
-            {Math.round(alongNm) === 0 ? "near departure" : `${Math.round(alongNm)} nm along`}
+            {placeText(alongNm, routeNm)}
           </span>
         ) : null}
         {airport !== null ? (
@@ -89,6 +107,7 @@ export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabPr
   const baseId = useId()
   const headingId = (name: string): string => `${baseId}-${name}`
   const roles = groupByRole(weather, navlog, stations)
+  const routeNm = navlog.totals.distanceNm
 
   if (weather === null) {
     return (
@@ -120,7 +139,7 @@ export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabPr
     <div className="pb-2">
       <Section id={headingId("origin")} title="Origin">
         <ul className="grid gap-2">
-          <AirportCard entry={roles.origin} />
+          <AirportCard entry={roles.origin} routeNm={routeNm} />
         </ul>
       </Section>
       <Section id={headingId("enroute")} title="En route">
@@ -131,14 +150,14 @@ export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabPr
         ) : (
           <ul className="grid gap-2">
             {roles.enRoute.map((entry) => (
-              <AirportCard key={entry.id} entry={entry} />
+              <AirportCard key={entry.id} entry={entry} routeNm={routeNm} />
             ))}
           </ul>
         )}
       </Section>
       <Section id={headingId("destination")} title="Destination">
         <ul className="grid gap-2">
-          <AirportCard entry={roles.destination} />
+          <AirportCard entry={roles.destination} routeNm={routeNm} />
         </ul>
       </Section>
       <Section id={headingId("winds")} title="Winds aloft">
