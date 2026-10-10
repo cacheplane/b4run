@@ -57,7 +57,7 @@ class RecordingChatModel extends BaseChatModel {
 
 const responseFormat: JsonSchemaResponseFormat = {
   type: "json_schema",
-  name: "hashbrown_response",
+  name: "b4_response",
   schema: {
     type: "object",
     properties: { ui: { type: "array", items: { type: "string" } } },
@@ -116,7 +116,7 @@ describe("root model response format", () => {
     for (const options of seenCallOptions) {
       expect(options.response_format).toEqual({
         type: "json_schema",
-        json_schema: { name: "hashbrown_response", schema: responseFormat.schema, strict: true },
+        json_schema: { name: "b4_response", schema: responseFormat.schema, strict: true },
       })
       const tools = options.tools as ReadonlyArray<{ readonly name?: string }>
       expect(tools.map((tool) => tool.name)).toEqual(["lookup"])

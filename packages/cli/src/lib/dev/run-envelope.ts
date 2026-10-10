@@ -17,7 +17,8 @@
  *    outside, "ignored" and "honored" look identical, so a client cannot tell
  *    whether it just widened the run. They are therefore REJECTED unless the
  *    route named itself in `server.agui` — closed by default, opened on
- *    purpose.
+ *    purpose. `forwardedProps` is opened per KEY: a route can accept
+ *    `responseSchema` without accepting whatever else a client adds.
  *
  * The validator also refuses a recognised foreign protocol major
  * (`protocolVersion`) with a 400 before any side effect; a newer minor of the
@@ -49,8 +50,12 @@ export const MAX_ENVELOPE_ID_LENGTH = 256
 /** What this ROUTE lets a client add to the envelope. Both closed unless configured. */
 export interface RunEnvelopePolicy {
   readonly clientTools: boolean
-  readonly forwardedProps: boolean
+  /** `true` accepts any `forwardedProps` key; a list accepts only those keys (empty: none). */
+  readonly forwardedProps: true | readonly string[]
 }
+
+/** The `server.agui.clientForwardedProps` key that applies to every route. */
+export const ALL_ROUTES = "*"
 
 export type RunEnvelopeRejectionCode =
   | "invalid_envelope"
@@ -78,6 +83,53 @@ function namesRoute(list: unknown, routeId: string): boolean {
 }
 
 /**
+ * The `forwardedProps` keys `server.agui.clientForwardedProps` lets a route
+ * accept. The array form names routes that accept any key; the object form
+ * maps a route id, or {@link ALL_ROUTES}, to `true` or a key list, and a
+ * route gets the union of its own entry and the wildcard's. Anything else
+ * reads as closed here — the boot refuses it first
+ * (`validateClientForwardedProps`).
+ */
+function allowedForwardedProps(setting: unknown, routeId: string): true | readonly string[] {
+  if (Array.isArray(setting)) return namesRoute(setting, routeId) ? true : []
+  if (!isRecord(setting)) return []
+  const keys = new Set<string>()
+  for (const entry of [setting[ALL_ROUTES], setting[routeId]]) {
+    if (entry === true) return true
+    if (Array.isArray(entry)) {
+      for (const key of entry) if (typeof key === "string") keys.add(key)
+    }
+  }
+  return [...keys]
+}
+
+/**
+ * `server.agui.clientForwardedProps`, shape-checked at boot. `B4Config` has no
+ * runtime schema, so a mistyped value fails the boot instead of reading as a
+ * closed route while it looks configured. Returns the problem, or `undefined`.
+ */
+export function validateClientForwardedProps(value: unknown): string | undefined {
+  const name = "server.agui.clientForwardedProps"
+  if (value === undefined) return undefined
+  if (Array.isArray(value)) {
+    return value.every((entry) => typeof entry === "string" && entry !== "")
+      ? undefined
+      : `${name} must list route ids as non-empty strings`
+  }
+  if (!isRecord(value)) {
+    return `${name} must be an array of route ids or an object mapping route ids (or "${ALL_ROUTES}") to true or a list of forwardedProps keys`
+  }
+  for (const [route, entry] of Object.entries(value)) {
+    if (entry === true) continue
+    if (Array.isArray(entry) && entry.every((key) => typeof key === "string" && key !== "")) {
+      continue
+    }
+    return `${name}[${JSON.stringify(route)}] must be true or an array of non-empty forwardedProps key names`
+  }
+  return undefined
+}
+
+/**
  * The route's stance, read off `server.agui`. Absent config, an absent section,
  * or a list that does not name this route all resolve to CLOSED — the default
  * has to be the safe one, because an app that never heard of this setting is
@@ -90,7 +142,7 @@ export function resolveRunEnvelopePolicy(
   const agui = config?.server?.agui
   return {
     clientTools: namesRoute(agui?.clientTools, routeId),
-    forwardedProps: namesRoute(agui?.clientForwardedProps, routeId),
+    forwardedProps: allowedForwardedProps(agui?.clientForwardedProps, routeId),
   }
 }
 
@@ -187,10 +239,19 @@ export function validateRunEnvelope(
         "`forwardedProps` must be a JSON object when present",
       )
     }
-    if (Object.keys(forwardedProps).length > 0 && !policy.forwardedProps) {
+    const allowed = policy.forwardedProps
+    const refused =
+      allowed === true ? [] : Object.keys(forwardedProps).filter((key) => !allowed.includes(key))
+    if (refused.length > 0) {
+      // Client-chosen names, echoed back: bounded, so a request cannot make the reply large.
+      const named = refused
+        .slice(0, 5)
+        .map((key) => `\`${key.slice(0, 64)}\``)
+        .join(", ")
+        .concat(refused.length > 5 ? ` and ${refused.length - 5} more` : "")
       return reject(
         "forwarded_props_not_allowed",
-        "This route does not accept client-supplied `forwardedProps`. Name its route id in `server.agui.clientForwardedProps` in b4.config.ts to accept them.",
+        `This route does not accept the client-supplied \`forwardedProps\` key${refused.length === 1 ? "" : "s"} ${named}. Allow ${refused.length === 1 ? "it" : "them"} for this route in \`server.agui.clientForwardedProps\` in b4.config.ts.`,
       )
     }
   }

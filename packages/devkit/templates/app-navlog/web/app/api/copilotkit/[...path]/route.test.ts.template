@@ -124,7 +124,8 @@ describe("copilotkit proxy route", () => {
     await response.text()
 
     const body = JSON.parse(seen[0]?.body ?? "{}") as Record<string, unknown>
-    expect(body.hashbrown).toEqual({ ui: true, responseSchema: briefJsonSchema })
+    expect(body.forwardedProps).toEqual({ responseSchema: briefJsonSchema })
+    expect(body).not.toHaveProperty("hashbrown")
     expect(body.threadId).toBe("t-1")
   })
 

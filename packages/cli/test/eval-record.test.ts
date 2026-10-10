@@ -276,7 +276,7 @@ describe("b4 eval --record (response schema)", () => {
       for (const body of bodies) {
         expect(body?.response_format).toMatchObject({
           type: "json_schema",
-          json_schema: { name: "hashbrown_response", strict: true },
+          json_schema: { name: "b4_response", strict: true },
         })
       }
     } finally {

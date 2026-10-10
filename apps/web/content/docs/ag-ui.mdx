@@ -41,7 +41,7 @@ route params.
 | `400` | `unsupported_protocol_version` | the request declared an AG-UI protocol major this runtime does not speak |
 | `422` | `invalid_state` | `state` is present and is not a JSON object |
 | `422` | `client_tools_not_allowed` | `tools` is not an array, or is non-empty on a route that did not opt in |
-| `422` | `forwarded_props_not_allowed` | `forwardedProps` is not an object, or is non-empty on a route that did not opt in |
+| `422` | `forwarded_props_not_allowed` | `forwardedProps` is not an object, or carries a key the route does not allow (the message names it) |
 
 ### Client-supplied `tools` and `forwardedProps` are closed by default
 
@@ -57,6 +57,14 @@ in `b4.config.ts`:
 
 ```ts
 server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
+```
+
+`clientForwardedProps` can also open single keys, per route or for every
+route with `"*"`, so a route can accept a [response schema](#response-schema)
+without accepting anything else a client adds:
+
+```ts
+server: { agui: { clientForwardedProps: { "/chat": ["responseSchema"] } } }
 ```
 
 See [`server.agui`](/docs/configuration#serveragui) for the full key. An empty
@@ -404,7 +412,7 @@ For a client that attaches images, renders media parts, and shows the dropped-pa
 |---|---|
 | `tools.clientProvided` | the route is named in `server.agui.clientTools`, is an `agent()` route, and a client tool store is configured — every check `POST` applies to a non-empty `tools` |
 | `tools.supported`, `tools.parallelCalls` | the route is an `agent()` route; its tool calls run in parallel |
-| `output.structuredOutput` | the route's provider can bind a `hashbrown.responseSchema`, the check behind `response_schema_not_supported` |
+| `output.structuredOutput` | the route allows the `responseSchema` key in `clientForwardedProps`, and its provider can bind the schema (the check behind `response_schema_not_supported`) |
 | `humanInTheLoop.interrupts` | the route is an agent route, the only kind that can park |
 | `humanInTheLoop.approvals` | an `agent()` route under an `interactive` permissions mode, on a runtime that can answer the approval: `approvals.grants: "required"` with no grant store refuses every resume, so it reports `false`. It means the route *can* pause for approval; whether a turn does depends on its tools and the grants already recorded |
 | `humanInTheLoop.approveWithEdits` | always `false`: a resume answers `once`, `always` or `deny` |
@@ -761,9 +769,18 @@ A permission interrupt names the tool call it gates in `toolCallId`, whichever g
 
 ## Response schema
 
-Some AG-UI clients render the assistant's reply as UI. [Hashbrown](https://hashbrown.dev) is one. Its client sends `hashbrown: { ui: true, responseSchema }` on every run, where `responseSchema` is the JSON Schema the final assistant message must match.
+Some AG-UI clients render the assistant's reply as UI, and need the final assistant message to match a JSON Schema. The client sends that schema as `forwardedProps.responseSchema`, AG-UI's own field for client additions, so no client library gets its own key.
 
-A CopilotKit runtime route can send the schema itself. Register the route as a `B4HttpAgent` with a `responseSchema`, and every run it makes carries `hashbrown: { ui: true, responseSchema }`:
+The route must allow the key, like any other `forwardedProps` key:
+
+```ts
+// b4.config.ts
+server: { agui: { clientForwardedProps: { "/chat": ["responseSchema"] } } }
+```
+
+On a route that does not allow it, the run is refused with `422` `forwarded_props_not_allowed`, and the message names the key and the setting.
+
+A CopilotKit runtime route can send the schema itself. Register the route as a `B4HttpAgent` with a `responseSchema`, and every run it makes carries `forwardedProps.responseSchema`, next to any other `forwardedProps` the run already has:
 
 ```ts
 import { B4HttpAgent } from "@b4run/ag-ui/client"
@@ -771,27 +788,29 @@ import { B4HttpAgent } from "@b4run/ag-ui/client"
 const agent = new B4HttpAgent({ url: `${b4Url}/agui/chat`, responseSchema })
 ```
 
+A UI kit that builds the schema for you, such as [Hashbrown](https://hashbrown.dev)'s `createUiJsonSchema`, works the same way: hand its schema to `B4HttpAgent`.
+
 The runtime either applies that schema or rejects the run. It never ignores it, because to the client an ignored schema looks like an honored one until a reply fails to parse.
 
 **Applied.** On an `agent` route whose provider can constrain its final message to a schema while still calling tools, the schema is bound on the root model as that provider's native structured output:
 
 | Provider | How the schema is applied |
 | --- | --- |
-| `openai` | `response_format: { type: "json_schema", json_schema: { name: "hashbrown_response", schema, strict: true } }` on every root-model call, on both the Chat Completions and Responses paths. |
+| `openai` | `response_format: { type: "json_schema", json_schema: { name: "b4_response", schema, strict: true } }` on every root-model call, on both the Chat Completions and Responses paths. |
 | `anthropic` | `output_config.format = { type: "json_schema", schema }` on every root-model call. |
 
 Tool-calling turns are unaffected. A turn that calls tools still returns tool calls, and only the answering turn is constrained. The schema is bound on the **root** model only. Subagents, summarization, and memory extraction never see it. Because the binding is per request, a run that carries a schema always compiles a fresh agent graph and skips the process cache.
 
-Strict OpenAI structured outputs need a schema OpenAI accepts in strict mode: every object has `additionalProperties: false` and lists all of its properties in `required`. Hashbrown's schema builder emits that shape. OpenAI rejects a hand-written schema that breaks these rules, and you'll see it as a `RUN_ERROR`.
+Strict OpenAI structured outputs need a schema OpenAI accepts in strict mode: every object has `additionalProperties: false` and lists all of its properties in `required`. Hashbrown's schema builder, for one, emits that shape. OpenAI rejects a hand-written schema that breaks these rules, and you'll see it as a `RUN_ERROR`.
 
 **Rejected.** Anywhere else, the run is refused with `422` and error code `B4_E5402`. This happens before middleware context is built into a run, before the thread is created, and before a run slot is claimed. `error.details.code` says why:
 
 | `details.code` | Meaning |
 | --- | --- |
-| `invalid_response_schema` | `hashbrown` is present but not a JSON object, or `hashbrown.responseSchema` is present but not a JSON Schema object. Judged from the body alone, before middleware runs. |
+| `invalid_response_schema` | `forwardedProps.responseSchema` is present but not a JSON Schema object. Judged from the body alone, before middleware runs. |
 | `response_schema_not_supported` | The route is not an `agent` route, or its provider (`google`, `mistral`, `groq`, `ollama`, `xai`, `openrouter`) has no schema-constrained output mode that coexists with tool calls. Judged after middleware has admitted the caller. |
 
-A run without `hashbrown`, or with `hashbrown: { ui: true }` and no schema, is unchanged.
+A run without `forwardedProps.responseSchema` is unchanged. B4.run reads no library-specific key, such as `hashbrown`, from the body.
 
 ## Threading
 

@@ -44,7 +44,7 @@ it("binds responseSchema on the model request exactly as an AG-UI run does", asy
   for (const body of bodies) {
     expect(body?.response_format).toEqual({
       type: "json_schema",
-      json_schema: { name: "hashbrown_response", schema, strict: true },
+      json_schema: { name: "b4_response", schema, strict: true },
     })
   }
 })

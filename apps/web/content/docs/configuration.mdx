@@ -629,7 +629,9 @@ server?: {
   }
   agui?: {
     clientTools?: readonly string[]
-    clientForwardedProps?: readonly string[]
+    clientForwardedProps?:
+      | readonly string[]
+      | Readonly<Record<string, true | readonly string[]>>
     clientToolTtlMs?: number
     clientToolRetentionMs?: number
     clientToolStore?: ClientToolCallStore
@@ -699,6 +701,20 @@ and a route that is not named stays closed even when a sibling is open.
 An empty `tools: []` or `forwardedProps: {}` — what an AG-UI client sends when
 it has nothing to add — is accepted with or without the opt-in, so the default
 costs an ordinary client nothing.
+
+`clientForwardedProps` also opens single `forwardedProps` keys. In the object
+form, a route id, or `"*"` for every route, maps to `true` (any key) or to the
+key names it accepts. A route gets its own keys plus `"*"`'s, so
+`clientForwardedProps: { "*": ["responseSchema"], "/chat": true }` lets every
+route accept `responseSchema` and `/chat` accept any key.
+
+A key the route does not accept is refused with `422`
+`forwarded_props_not_allowed`, and the message names it. The array form is
+shorthand for `true` on each listed route. B4.run acts on one key,
+`responseSchema`, which it binds as the root model's
+[structured output](/docs/ag-ui#response-schema). It accepts the others
+without acting on them. The setting is checked at boot, so any other shape
+fails on startup.
 
 On a route named in `clientTools`, the model can call the client's tools —
 see [Client-provided tools](/docs/ag-ui#client-provided-tools). Each call the

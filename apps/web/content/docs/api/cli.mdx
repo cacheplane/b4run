@@ -143,7 +143,7 @@ import { createRuntimeFetchHandler } from "@b4run/cli/fetch"
 | `normalizeThreadAccessModule` | Normalize thread-access policy exports. |
 | `normalizeAuthModule` | Bind an `src/auth.ts` export, refusing one that is not `defineAuth`. |
 | `readPendingInterrupts` | Read pending human decisions. |
-| `readResponseFormat` | Parse a run body's `hashbrown.responseSchema` into a bound response format. |
+| `readResponseFormat` | Parse a run body's `forwardedProps.responseSchema` into a bound response format. |
 | `resolveCheckpointer` | Resolve the configured checkpointer. |
 | `resolvePendingResume` | Resolve submitted interrupt decisions. |
 | `resolveSandboxManager` | Resolve the server sandbox manager. |

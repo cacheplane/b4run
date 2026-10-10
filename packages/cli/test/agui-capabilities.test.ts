@@ -94,7 +94,7 @@ async function fixtureApp(
   const files: Record<string, string> = {
     "b4.config.ts":
       options.config ??
-      'export default { server: { agui: { clientTools: ["/open", "/echo"] } } }\n',
+      'export default { server: { agui: { clientTools: ["/open", "/echo"], clientForwardedProps: { "*": ["responseSchema"] } } } }\n',
     "package.json": '{ "name": "agui-capabilities-fixture", "type": "module" }\n',
     "src/app/open/index.ts": DESCRIPTOR_ROUTE,
     "src/app/open/subagents/researcher/index.ts": RESEARCHER_ROUTE,
@@ -233,6 +233,19 @@ describe("GET /agui/:routeId", () => {
     const handler = await createHandler(await fixtureApp())
 
     expect((await capabilities(handler, "/gemini#agent")).output).toEqual({
+      structuredOutput: false,
+    })
+  })
+
+  it("does not advertise structured output on a route that does not allow responseSchema", async () => {
+    const handler = await createHandler(
+      await fixtureApp({
+        config:
+          'export default { server: { agui: { clientForwardedProps: { "/open": ["toolChoice"] } } } }\n',
+      }),
+    )
+
+    expect((await capabilities(handler, "/open#agent")).output).toEqual({
       structuredOutput: false,
     })
   })
@@ -378,6 +391,7 @@ describe("GET /agui/:routeId", () => {
     const response = await handleAgUiCapabilitiesRequest({
       appRoot,
       boot: { bootFallbacks: nodeBootFallbacks },
+      config: { server: { agui: { clientForwardedProps: { "*": ["responseSchema"] } } } },
       middleware: undefined,
       modelImporter: brokenInstall,
       registry: {
@@ -517,7 +531,7 @@ describe("GET /agui/:routeId agrees with what POST enforces", () => {
     expect(tools === undefined).toBe(advertised.tools?.clientProvided)
 
     const schema = await postRejection(handler, routeKey, {
-      hashbrown: { responseSchema: { type: "object" } },
+      forwardedProps: { responseSchema: { type: "object" } },
     })
     expect(schema === undefined).toBe(advertised.output?.structuredOutput)
   })

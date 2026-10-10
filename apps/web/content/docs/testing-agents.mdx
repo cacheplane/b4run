@@ -219,7 +219,7 @@ Every tool the run invokes reads that record as `ctx.middleware`. The same optio
 
 ### Constrain the final message
 
-A Hashbrown client sends a JSON Schema as `hashbrown.responseSchema` on every AG-UI run, and the server binds it on the root model so the final message must match it. The harness drives the route directly, with no AG-UI request, so pass the same schema as `responseSchema`:
+An AG-UI client can send a JSON Schema as `forwardedProps.responseSchema` on a run, and the server binds it on the root model so the final message must match it. The harness drives the route directly, with no AG-UI request, so pass the same schema as `responseSchema`:
 
 ```ts
 const h = await createAgentHarness({

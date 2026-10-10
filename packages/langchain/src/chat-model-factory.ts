@@ -129,7 +129,7 @@ export function missingProviderPackageMessage(
 /**
  * A JSON Schema the model's final text message must conform to, applied as the
  * provider's native schema-constrained output mode. Sent by AG-UI clients that
- * render the assistant's reply — Hashbrown's `hashbrown.responseSchema` — and
+ * render the assistant's reply, as `forwardedProps.responseSchema`, and
  * bound on the ROOT model only: subagents, summarization and the memory
  * extractor construct their own models and never see it.
  */

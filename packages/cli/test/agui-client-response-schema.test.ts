@@ -2,6 +2,7 @@ import type { RunAgentInput } from "@ag-ui/core"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
 import { describe, expect, it } from "vitest"
 import { RESPONSE_SCHEMA_NAME, readResponseFormat } from "../src/lib/dev/response-schema.js"
+import { validateRunEnvelope } from "../src/lib/dev/run-envelope.js"
 
 /**
  * Conformance: the run body `B4HttpAgent({ responseSchema })` sends is the
@@ -39,6 +40,16 @@ describe("B4HttpAgent run body against readResponseFormat", () => {
     expect(readResponseFormat(body)).toEqual({
       ok: true,
       responseFormat: { name: RESPONSE_SCHEMA_NAME, schema, type: "json_schema" },
+    })
+  })
+
+  it("passes the envelope check on a route that allows only responseSchema", () => {
+    const body = new RunBodyProbe({ responseSchema: schema, url: "http://b4.test/agui/x" }).body()
+    expect(
+      validateRunEnvelope(body, { clientTools: false, forwardedProps: ["responseSchema"] }),
+    ).toBeUndefined()
+    expect(validateRunEnvelope(body, { clientTools: false, forwardedProps: [] })).toMatchObject({
+      code: "forwarded_props_not_allowed",
     })
   })
 

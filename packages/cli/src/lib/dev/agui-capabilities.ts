@@ -8,8 +8,10 @@
  *   `tools`: the route opted in (`resolveRunEnvelopePolicy`, else 422), it is
  *   an `agent()` route (`checkRouteClientToolsSupport`, else 422), and a
  *   client tool store resolved at boot (else 503).
- * - `output.structuredOutput` is `checkRouteResponseFormatSupport`, the same
- *   preflight that turns an unsupported `hashbrown.responseSchema` into a 422.
+ * - `output.structuredOutput` is both gates in front of
+ *   `forwardedProps.responseSchema`: the route allows the key
+ *   (`resolveRunEnvelopePolicy`, else 422), and `checkRouteResponseFormatSupport`,
+ *   the preflight that turns an unsupported schema into a 422.
  * - `humanInTheLoop.interrupts` is `route.mode === "agent"`, the `canPark`
  *   every settle site passes; a chain/graph/workflow route is invoked without
  *   a checkpointer and cannot park.
@@ -101,6 +103,7 @@ import { type ApprovalGrantRuntime, grantsRefuseEveryResume } from "./approval-g
 import { requestPrincipal } from "./auth.js"
 import type { ClientToolRuntime } from "./client-tool-runtime.js"
 import { headersToRecord, runMiddleware } from "./middleware.js"
+import { RESPONSE_SCHEMA_KEY } from "./response-schema.js"
 import { resolveRunEnvelopePolicy } from "./run-envelope.js"
 import type { RuntimeRegistry } from "./runtime-registry-core.js"
 import { createRequestErrorBody } from "./server-errors.js"
@@ -251,10 +254,15 @@ async function agentCapabilities(
     isDescriptor &&
     approvalsAnswerable &&
     (await permissionsMode(options.permissionsStore)) === "interactive"
+  const envelopePolicy = resolveRunEnvelopePolicy(
+    options.config ?? options.boot?.config,
+    route.routeId,
+  )
   const clientProvided =
-    isDescriptor &&
-    resolveRunEnvelopePolicy(options.config ?? options.boot?.config, route.routeId).clientTools &&
-    options.clientTools?.store !== undefined
+    isDescriptor && envelopePolicy.clientTools && options.clientTools?.store !== undefined
+  const schemaAllowed =
+    envelopePolicy.forwardedProps === true ||
+    envelopePolicy.forwardedProps.includes(RESPONSE_SCHEMA_KEY)
   return {
     humanInTheLoop: {
       approveWithEdits: false,
@@ -291,7 +299,7 @@ async function agentCapabilities(
           },
         }
       : {}),
-    output: { structuredOutput },
+    output: { structuredOutput: schemaAllowed && structuredOutput },
     reasoning: streamsReasoning ? STREAMED_REASONING : NO_REASONING,
     state: stateCapabilities(isDescriptor ? true : undefined),
     tools: {

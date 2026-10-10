@@ -64,12 +64,21 @@ export default config({
     targets: ["node"],
   },
 
+  // The web client asks for the planning brief as structured UI: its runs send
+  // the brief kit's JSON Schema as `forwardedProps.responseSchema`, which
+  // B4.run binds on the model as structured output. Only that key, and only
+  // on the navlog route; any other `forwardedProps` key is refused.
+  server: {
+    agui: { clientForwardedProps: { "/navlog": ["responseSchema"] } },
+  },
+
   // --- Capability seam (documented, inactive): cross-origin access ---
   // B4.run sends no `Access-Control-*` header unless this block exists, and
   // `web/` deliberately does not need it: its browser client reaches B4.run
   // through a same-origin Next proxy (`web/app/api/b4/[...path]/route.ts`).
   //
   // server: {
+  //   ...,
   //   cors: { origins: ["http://localhost:3010", "http://127.0.0.1:3010"] },
   // },
 
