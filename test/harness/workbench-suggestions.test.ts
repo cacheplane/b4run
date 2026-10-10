@@ -15,10 +15,10 @@ import {
  * never match look proven.
  */
 const PLAN_REPLY =
-  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+  "KSTP and KRST are VFR. Want me to file the plan, try another altitude, or re-brief closer to departure?"
 const APPROVAL_TITLE = "The agent wants to file N738ZU KSTP to KRST"
 const GATED_REPLY =
-  "Recorded the flight plan at flight-plans/261006-KSTP-KRST.txt. It was not transmitted."
+  "Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z 2026-10-06. This demo records it in the workspace; it does not transmit to Flight Service."
 const TEACH_CONTENT = "N738ZU is a Cessna 172N, cruise 2400 RPM, 50 gal usable"
 
 const baseOptions: SuggestionJourneyOptions = {

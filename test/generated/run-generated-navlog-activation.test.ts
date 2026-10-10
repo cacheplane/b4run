@@ -109,16 +109,20 @@ const FLIGHT_PLAN = {
 const FLIGHT_PLAN_PATH = "flight-plans/261006-KSTP-KRST.txt"
 const BUILT_PROMPT = "Built artifact environment smoke."
 const BUILT_REPLY = "built-env-smoke-ok"
-// The plan fixture's closing sentence. Named because W8 matches it on screen
-// with `{ exact: true }` — a dropped citation or changed punctuation there is a
-// 45-second wait on text that is visibly rendered.
+// The plan fixture's closing Prose. Named because W8 matches it on screen
+// with `{ exact: true }` — changed punctuation there is a 45-second wait on
+// text that is visibly rendered. Sources go only in Citations, so the Prose
+// carries none.
 const PLAN_TEXT =
-  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
+  "KSTP and KRST are VFR. Want me to file the plan, try another altitude, or re-brief closer to departure?"
+// The plan reply's POH source, as its Citations item serializes. The direct
+// journeys find it in the reply's JSON and in the restored thread.
+const PLAN_CITATION = { id: "c1", source: "poh/cruise-performance.md", locator: "Figure 5-7" }
+const PLAN_CITATION_JSON = JSON.stringify(PLAN_CITATION)
 // The plan fixture's final reply: a structured answer in the brief kit's shape
 // (`app/brief/schema.ts`), as the model returns it under the response schema
-// the web route sends. W8 renders it with the kit in Chromium; its Prose is
-// PLAN_TEXT, so the on-screen match is unchanged, and the direct journeys'
-// `toContain` on the citation still finds it inside the JSON.
+// the web route sends. W8 renders it with the kit in Chromium and matches its
+// Prose, PLAN_TEXT, on screen.
 const PLAN_REPLY = JSON.stringify({
   ui: [
     {
@@ -133,7 +137,7 @@ const PLAN_REPLY = JSON.stringify({
             { label: "Distance", value: "66", unit: "nm", cite: [] },
             { label: "ETE", value: "0:33", unit: null, cite: [] },
             { label: "Fuel burned", value: "5.5", unit: "gal", cite: ["c1"] },
-            { label: "Reserve", value: "6:20", unit: null, cite: ["c1"] },
+            { label: "Reserve", value: "6:20", unit: null, cite: [] },
           ],
         },
       },
@@ -141,7 +145,7 @@ const PLAN_REPLY = JSON.stringify({
     {
       Citations: {
         props: {
-          items: [{ id: "c1", source: "poh/cruise-performance.md", locator: "Figure 5-7" }],
+          items: [PLAN_CITATION],
         },
       },
     },
@@ -150,7 +154,11 @@ const PLAN_REPLY = JSON.stringify({
 })
 const PERF_REPLY =
   "Cruise 2400 RPM at 4500 ft: 64% BHP, 110 KTAS, 7.1 GPH [poh/cruise-performance.md, Figure 5-7]."
-const FILE_REPLY = `Recorded the flight plan at ${FLIGHT_PLAN_PATH}. It was not transmitted.`
+// The filing reply's visible text, which W8 matches on screen, and the reply
+// itself: under the response schema a filing confirmation is a single Prose.
+const FILE_TEXT =
+  "Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z 2026-10-06. This demo records it in the workspace; it does not transmit to Flight Service."
+const FILE_REPLY = JSON.stringify({ ui: [{ Prose: { props: { markdown: FILE_TEXT } } }] })
 // The web hop's own journeys. Dedicated prompts, not PLAN_PROMPT/FILE_PROMPT:
 // they keep the three direct journeys' aimock accounting untouched and remove
 // any dependence on whether an aimock fixture is consumed or reusable.
@@ -165,9 +173,11 @@ const WEB_GATED_REPLY = "Recorded the flight plan after approval through the web
 // userMessage as a substring and breaks ties by registration order, so a prompt
 // that is a prefix of another is a latent collision.
 const BROWSER_PROMPT = "Workbench gate: compute the navlog for KSTP to KRST."
-// Plain text, not the structured PLAN_REPLY: W7 exercises the chat's markdown
-// fallback (a reply that is not JSON), as FILE_REPLY does in W8.
-const BROWSER_REPLY = PLAN_TEXT
+// Plain text, not a structured answer: W7 exercises the chat's markdown
+// fallback, the path a thread from before the brief kit takes (a pre-kit
+// answer, inline source and all).
+const BROWSER_REPLY =
+  "KSTP and KRST are VFR. 66 nm, 33 minutes, 5.5 gal burned, reserve about 6 hours. [poh/cruise-performance.md, Figure 5-7]"
 // W8's third journey. The Workbench's "Teach it the aircraft" suggestion sends
 // this exact text; memory is in candidate mode in the template, so the
 // remember() call below becomes a row in the memory panel.
@@ -752,7 +762,7 @@ function assertSafeResearchJourney(
   expect(parsedArgsByName.has("writeTodos")).toBe(false)
   expect(parsedArgsByName.get("computeNavlog")).toEqual(NAVLOG_INPUT)
   const assistantText = reconstructAssistantText(events)
-  expect(assistantText).toContain("[poh/cruise-performance.md, Figure 5-7]")
+  expect(assistantText).toContain(PLAN_CITATION_JSON)
   expect(assistantText).not.toContain(PERF_REPLY)
   // The child's prose is on the wire, attributed to it — and only there.
   const childText = events
@@ -1835,9 +1845,7 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
             const restoredStarts = restored.events.filter((event) => event.type === "RUN_STARTED")
             expect(restoredStarts.length).toBeGreaterThan(0)
             for (const started of restoredStarts) expect(started.threadId).toBe(safeThreadId)
-            expect(reconstructAssistantText(restored.events)).toContain(
-              "[poh/cruise-performance.md, Figure 5-7]",
-            )
+            expect(reconstructAssistantText(restored.events)).toContain(PLAN_CITATION_JSON)
             expect(restored.events.filter((event) => event.type === "RUN_ERROR")).toEqual([])
             // An unknown thread replays as an empty stream: the 200 alone is
             // not evidence, the replayed run above is.
@@ -1993,7 +2001,8 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
                 screenshotDir: dirname(browserScreenshotPath),
                 // fileFlightPlan's running label, as the card's infinitive title.
                 approvalTitle: "The agent wants to file N738ZU KSTP to KRST",
-                gatedReply: FILE_REPLY,
+                // What the single-Prose filing reply shows on screen.
+                gatedReply: FILE_TEXT,
                 // What the structured reply shows on screen: its Prose.
                 planReply: PLAN_TEXT,
                 teachContent: TEACH_CONTENT,

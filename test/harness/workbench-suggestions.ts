@@ -42,6 +42,10 @@ export interface SuggestionJourneyOptions {
    * the tool's running label, first letter lower-cased (`B4Activity`).
    */
   readonly approvalTitle: string
+  /**
+   * The filing reply's visible text, matched exactly. Under the response
+   * schema that reply is a single Prose, so this is its markdown, never the JSON.
+   */
   readonly gatedReply: string
   /**
    * The plan reply's visible text, matched exactly. For a structured answer
