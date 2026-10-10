@@ -1322,6 +1322,224 @@ body {
   font-weight: 600;
 }
 
+/*
+ * The route bar: a white pill over the map. Airport pills in ink, navaid
+ * pills in cobalt, ids and numbers in mono, one black Replan pill. It wraps on
+ * narrow widths; on a phone the pill row scrolls inside the bar and the small
+ * inputs keep their widths.
+ */
+.wb-routebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 5px 5px 5px 8px;
+  color: var(--wb-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.wb-routebar-route {
+  position: relative;
+  display: flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wb-routebar-pills {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.wb-routebar-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 0 4px 0 10px;
+  color: var(--wb-surface);
+}
+
+.wb-routebar-pill-navaid {
+  background: var(--wb-accent);
+}
+
+.wb-routebar-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wb-routebar-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.wb-routebar-remove:hover {
+  opacity: 1;
+}
+
+.wb-routebar-input {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  padding: 0 4px;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.wb-routebar-input::placeholder,
+.wb-routebar-small::placeholder {
+  color: var(--wb-muted);
+  font-family: var(--font-sans);
+}
+
+.wb-routebar-popup {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 1100;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  padding: 4px;
+}
+
+.wb-routebar-popup[hidden] {
+  display: none;
+}
+
+.wb-routebar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-routebar-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 36px;
+  border-radius: var(--wb-radius-row);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.wb-routebar-option[aria-selected="true"] {
+  background: var(--wb-rail);
+}
+
+.wb-routebar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-routebar-kind {
+  flex-shrink: 0;
+  color: var(--wb-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.wb-routebar-note {
+  margin: 4px 10px 6px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-routebar-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--wb-muted);
+}
+
+.wb-routebar-small {
+  width: 4.5rem;
+  height: 28px;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 0 10px;
+  color: var(--wb-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-routebar-total {
+  color: var(--wb-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wb-routebar-submit {
+  height: 30px;
+  border: 1px solid var(--wb-text);
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 0 16px;
+  color: var(--wb-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-routebar-submit:not(:disabled):hover {
+  border-color: var(--wb-muted);
+  background: var(--wb-muted);
+}
+
+.wb-routebar-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 639px) {
+  .wb-routebar {
+    border-radius: var(--wb-radius);
+  }
+  .wb-routebar-route {
+    flex-basis: 100%;
+  }
+}
+
 /* chat dock: start */
 /*
  * The chat dock's two signal colors: a warning (an approval waiting, a denied
