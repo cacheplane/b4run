@@ -443,7 +443,7 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
   })
 
   it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(64)
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(65)
     expect(DOCS_PAGES).toHaveLength(65)
     expect(ALL_DOCS_PAGES).toHaveLength(81)
 

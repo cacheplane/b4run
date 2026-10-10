@@ -281,7 +281,7 @@ describe("production SEO inventory", () => {
     expect(before.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/typescript")
     expect(before.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-    expect(before).toHaveLength(91)
+    expect(before).toHaveLength(92)
     expectNormalizedDescriptions(before)
     for (const pages of [publicationDate, after]) {
       expect(pages.map(({ path }) => path)).toContain("/blog/scheduled-inventory-post")
