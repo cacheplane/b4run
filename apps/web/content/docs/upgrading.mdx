@@ -152,6 +152,102 @@ Landed in **0.14.0**. Action required if you scaffold with `--template research`
 
 `npm create b4-app -- --template navlog` scaffolds the flight planner that replaces the research template. `--template research` still works in 0.14 and prints a deprecation notice; `@b4run/devkit`'s `resolveTemplateDir` accepts only `basic` and `navlog`. Apps already generated from the research template are unaffected.
 
+### B4.run speaks AG-UI 1.0
+
+Landed in **0.13.1**. Action required for AG-UI clients.
+
+B4.run serves AG-UI 1.0 (`@ag-ui/core` 1.0.x; `@ag-ui/client` `>=1.0.1 <2.0.0`), so upgrade your client: CopilotKit 1.76.0 is the first release that speaks it. Against 0.13.0, a cancelled or shut-down run now ends with `RUN_FINISHED { outcome: cancelled }` instead of `RUN_ERROR`, a request declaring another protocol major is refused with `400 unsupported_protocol_version`, and a null route result is omitted instead of sent as `result: null`. `RUN_STARTED` declares `protocolVersion: "1.0"`. 0.14.0 adds media parts; see [Multimodal content](/docs/ag-ui#multimodal-content). See [AG-UI](/docs/ag-ui).
+
+### Client `tools` and `forwardedProps` are refused unless the route opts in
+
+Landed in **0.13.1**. Action required if an AG-UI client sends tools or forwarded props, such as CopilotKit's `useFrontendTool` or its generated suggestions.
+
+`POST /agui/:routeId` now refuses a non-empty `tools` or `forwardedProps` with `422` (`client_tools_not_allowed` / `forwarded_props_not_allowed`, under `B4_E5401`) unless the route is named in `server.agui`. Empty `tools: []` and `forwardedProps: {}` are unaffected, and static suggestion lists and render-only hooks send neither. To accept them, opt the route in:
+
+```ts title="b4.config.ts"
+server: { agui: { clientTools: ["/chat"], clientForwardedProps: ["/chat"] } }
+```
+
+On an opted-in route the model can call the client's tools; they need a tool-call store on edge, serverless and multi-instance deployments. The same release validates the envelope (`threadId`, `runId`, `state`) with `422 invalid_envelope` and friends, caps request bodies at 8 MiB (`413 payload_too_large`), and reserves tool names starting with `client_`: a route with an authored or capability tool named `client_*` fails preparation. See [AG-UI › Envelope validation](/docs/ag-ui#envelope-validation) and [Client-provided tools](/docs/ag-ui#client-provided-tools).
+
+### `retry` applies to each model call, not the whole run
+
+Landed in **0.13.1**. Action required if an `agent()` route sets `retry`, or relied on a failed run being restarted.
+
+`maxAttempts` (default 3) now becomes the chat model's `maxRetries` (`maxAttempts - 1`), so each model request is retried, and `maxAttempts: 1` fails fast. Before, LangChain's own 6 retries applied whatever `retry` said, and B4.run restarted the whole run on top of that. The run is never restarted now, so tools never run twice, and a transient error outside the model call fails the turn. An invalid `retry` (a bad `maxAttempts` or `baseDelay`, an unknown key, a non-object) fails the route when it first runs. `b4 memory consolidate` / `reflect` take attempts from the new `memory.distill.retry: { maxAttempts }`, and a malformed `memory.distill` fails with `B4_E1009`. See [Retry](/docs/retry).
+
+### Rebuild `node` apps that have a thread-access policy
+
+Landed in **0.13.0**. Action required: this is a security fix.
+
+A built `node` app looked for `src/thread-access.ts` on disk at boot, and a missing file read as "no policy", so every thread endpoint was served ungated. The policy is now part of the build, and a missing policy or a manifest older than it stops the server from starting. Rebuild and redeploy. The built manifest imports the policy as it loads, including in `b4 check` after `b4 build`, so a policy that reads a required environment variable at import time needs it there too. The `hono` and `vercel` targets already worked this way. See [Thread access › Build targets](/docs/thread-access#build-targets).
+
+### Unknown `sandbox` keys are refused
+
+Landed in **0.13.0**. Action required if your `sandbox` block has a key other than `workspace`, `thread`, `provider`, `network`, `env`, `resources`, `security` or `idleTimeoutMs`.
+
+`b4 check`, `b4 build` and startup now refuse any other key, and `thread` beside `workspace`. A misspelt key used to be ignored silently, which left every thread in a per-app sandbox. Rename or remove it. The same release changes the default `network` to plain `{ mode: "allow" }`; the old default's metadata-endpoint `denylist` was never enforced, so runtime behaviour is unchanged. On a cloud VM, set `network: { mode: "deny" }` or block that endpoint outside B4.run. See [Sandbox › Network policy](/docs/sandbox#network-policy).
+
+### `ThreadAccessRequest.requestedWorkspace` and new thread operations
+
+Landed in **0.13.0**. Action required if you build a `ThreadAccessRequest` by hand or `switch` exhaustively over `ThreadOperation`.
+
+`ThreadAccessRequest` gains the required field `requestedWorkspace` (`undefined` everywhere except the staged-workspace operations), and `ThreadOperation` gains `"workspace.source.put"` and `"thread.workspace"`. Add `requestedWorkspace: undefined` to hand-built requests and cases to exhaustive switches. `POST /threads` now refuses a `workspace` field it won't serve with `400 workspace_not_accepted` instead of ignoring it. See [Thread access › Workspace endpoints](/docs/thread-access#workspace-endpoints).
+
+### Denying `writeFile` also withholds `editFile`
+
+Landed in **0.13.0**. No action required for read-only routes.
+
+Workspace agents gain an `editFile` tool and ranged `readFile`. A route that denies `writeFile` loses `editFile` too, so `deny: ["writeFile"]` routes stay read-only; name `editFile` in `allow` to keep it. An allow-list that names `writeFile` doesn't grant `editFile`. See [Access control › Tool scoping](/docs/access-control#tool-scoping).
+
+### `b4 eval --record` refuses a recording replay would reject
+
+Landed in **0.13.0**. Action required only if a recording run now exits 2.
+
+`getRecordedFixtures()` validates each turn as replay does and throws naming the rejected turn, and `b4 eval --record` reports `Refused to record <eval> › <case>`, exits 2 and doesn't write that case's fixture. The usual cause is an empty closing assistant message; if the run's answer is a tool call, export `returnDirect` from that tool. Re-recording an existing tape also adds a `usage` field to each response. See [Evals › Recording fixtures](/docs/evals#recording-fixtures-with---record).
+
+### Agent routes run on LangChain `createAgent`
+
+Landed in **0.12.0**. Action required if you pin `@langchain/core` below 1.2.12, or a `returnDirect` tool relied on its errors ending the run.
+
+Agent routes moved from LangGraph's deprecated `createReactAgent` to LangChain's `createAgent`. A `returnDirect` tool now ends the run only when it succeeds: a thrown tool or arguments that fail its schema go back to the model, which can retry. `@b4run/langchain` depends on `langchain` ^1.5.12, and its `@langchain/core` peer range rises to ^1.2.12. A route without summarization or a `returnDirect` tool keeps the same number of graph steps, so `recursionLimit` budgets are unchanged. See [Tools › Ending the run from a tool](/docs/tools#ending-the-run-from-a-tool).
+
+### LangChain packages move to their current releases
+
+Landed in **0.11.0**. Action required if your app pins LangChain packages directly.
+
+The peer ranges rise to `@langchain/core` 1.2.12, `@langchain/langgraph` 1.4.17, `@langchain/langgraph-checkpoint` 1.1.5, `@langchain/openai` 1.5.13, `@langchain/anthropic` 1.5.11, `@langchain/google-genai` 2.3.2, `@langchain/xai` 1.4.13 and `@langchain/openrouter` 0.4.13. Upgrade your direct pins to match, and keep a single copy of `@langchain/core` and `@langchain/langgraph` in your lockfile. 0.11.1 was never published; 0.11.2 carries its fixes.
+
+### `basic` is the default template
+
+Landed in **0.11.0**. Action required only if your scripts scaffold without `--template` and expect the research workspace.
+
+`npm create b4-app@latest my-agent` now scaffolds `basic`: one `/hello` agent route with a typed `greet` tool. Pass `--template` to choose another; 0.14.0 renamed the research template to `navlog`.
+
+### Tool-call arguments stream in several deltas
+
+Landed in **0.10.0**. Action required only if an AG-UI client assumed one `TOOL_CALL_ARGS` per call.
+
+When the provider streams argument fragments, a tool call is now one `TOOL_CALL_START`, several `TOOL_CALL_ARGS` deltas and one `TOOL_CALL_END`. Their concatenation equals the single delta sent before. Tool execution still receives the complete, parsed arguments. See [AG-UI › Outbound events](/docs/ag-ui#outbound-events).
+
+### Tool schemas use your `tsconfig.json` and fail on unresolved input types
+
+Landed in **0.9.0**. Action required if `b4 typegen` or `b4 verify` now fails with `UnresolvedToolInputTypeError`.
+
+Tool schema extraction reads the nearest `tsconfig.json` above the app root, honouring `extends`, `paths` and `baseUrl`, so an input type imported through a path alias derives its real schema. A declared input type that still resolves to `any` or `unknown`, or an import that doesn't resolve, now fails with `UnresolvedToolInputTypeError` naming the tool, the type and the tsconfig. Before, the tool silently got `{ properties: {} }`. Fix the import or the type. Tools that take no input keep working.
+
+### `hashbrown.responseSchema` is applied or refused
+
+Landed in **0.9.0**. Action required only if a client sends `hashbrown.responseSchema` to a route or provider that can't honour it.
+
+`POST /agui/:routeId` used to accept the field and ignore it. On an `agent` route the schema now constrains the final message (OpenAI `response_format`, Anthropic `output_config.format`). A malformed schema, a non-agent route or a provider with no schema mode gets `422` under `B4_E5402` before the run starts. See [AG-UI › Response schema](/docs/ag-ui#response-schema).
+
+### A tool that throws emits `TOOL_CALL_RESULT`
+
+Landed in **0.9.0**. No action required unless an AG-UI client relied on a failed call having no result.
+
+A thrown tool used to produce `TOOL_CALL_START`, `TOOL_CALL_ARGS` and `TOOL_CALL_END` with no `TOOL_CALL_RESULT`. It now gets a result keyed by the same tool-call id, carrying the error the model received. `@b4run/testing`'s `run.toolResults` marks it `isError`.
+
 ### The app root must declare `"type": "module"`
 
 Landed in **0.8.35**.

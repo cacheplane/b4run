@@ -387,8 +387,9 @@ Deeper text is part of the H2 section.
   it("stays small enough to fetch on first open", () => {
     // Guard against indexing whole sections by accident: the lazily fetched
     // index was ~100 KB gzipped when body text was added, ~126 KB once the
-    // Angular entries of @b4run/ag-ui added three export surfaces and their aliases.
-    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(130_000)
+    // Angular entries of @b4run/ag-ui added three export surfaces and their aliases,
+    // ~131 KB once the Upgrading page covered 0.9 through 0.14.
+    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(135_000)
   })
 })
 
