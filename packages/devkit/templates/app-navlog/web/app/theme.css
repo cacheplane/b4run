@@ -864,7 +864,7 @@ body {
   justify-content: space-between;
   gap: 4px;
   border: 1px solid var(--wb-border);
-  border-radius: calc(var(--wb-radius) - 2px);
+  border-radius: var(--wb-radius-row);
   background: var(--wb-surface);
   padding: 8px 10px;
 }
@@ -973,7 +973,7 @@ body {
 /* The bottom line: a card tinted by its level, the level's pill in its header. */
 .wb-bottom-line {
   border: 1px solid var(--wb-border);
-  border-radius: calc(var(--wb-radius) - 2px);
+  border-radius: var(--wb-radius-row);
   background: var(--wb-rail);
   padding: 12px 14px;
 }
@@ -1018,7 +1018,7 @@ body {
 /* A bordered list with dividers: Watch for and Assumptions. */
 .wb-list {
   border: 1px solid var(--wb-border);
-  border-radius: calc(var(--wb-radius) - 2px);
+  border-radius: var(--wb-radius-row);
   background: var(--wb-surface);
 }
 
