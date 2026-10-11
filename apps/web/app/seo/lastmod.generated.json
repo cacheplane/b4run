@@ -212,9 +212,9 @@
       "recordDigest": "47a25f99e143c29052b95797a9dbda93d0edc1297e31ae93934ba1c8fbb6be2c"
     },
     "/docs/evals": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "d34f9a8900c438662fc85c70edbcb1eda764738051bc2ba3aad079c2de1d351f",
-      "recordDigest": "54152ce294f7d03260854051240eee014c05c6aaff18061c37978d92c302ee46"
+      "lastModified": "2026-10-11T01:52:14.000Z",
+      "sourceDigest": "f2a2438e716700b91cd338a4d52c20e8158b5ed88edf2c4100dde96a9152343a",
+      "recordDigest": "b07df7e6dc2e2badeaa73f408926564dd0b7383ccb075a32110fa1fbcc4e34e4"
     },
     "/docs/faq": {
       "lastModified": "2026-10-04T23:15:09.000Z",
@@ -327,14 +327,14 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-10T05:02:08.000Z",
-      "sourceDigest": "49265b542caed70c94ca13e2e3ea16aa35e0f06723bd8519d0028c86255bcad4",
-      "recordDigest": "5a1abcbc411e47dbae936986436179c61e18f90dfc8f9c89e173c938d6417393"
+      "lastModified": "2026-10-11T01:52:14.000Z",
+      "sourceDigest": "6ed35442a4ed60a97c41a1eadf0421a5a25d67eff88994e05ff0fd7c258e061c",
+      "recordDigest": "ca255a584cde4870d2e891ba9bd893430778565ba722735bb777289dc37a8868"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-10T05:02:08.000Z",
-      "sourceDigest": "05b56ca44fdd475dbfd789b777aa8c3db62db3d3cd6ff704c9d994997dfdeac3",
-      "recordDigest": "d05eea10a2256eb74115cfef73f27550d7427eec0cbf914ffe8e0bc15377d146"
+      "lastModified": "2026-10-11T01:52:14.000Z",
+      "sourceDigest": "cd74e768a255444bf3224799ce36bf7033f4cd3aab5868346d18ed857459d6f5",
+      "recordDigest": "6c1f0595111fac0fe718eebd042f3671c7a51a8a3fa6d2e099c76ceba55641f6"
     },
     "/docs/recipes/navlog": {
       "lastModified": "2026-10-10T16:03:52.000Z",
