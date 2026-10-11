@@ -37,6 +37,8 @@ export type DraftAction =
   | { type: "add"; waypoint: DraftWaypoint }
   | { type: "remove"; index: number }
   | { type: "removeLast" }
+  /** Moves the waypoint at `from` so it ends up at index `to`. */
+  | { type: "move"; from: number; to: number }
   | { type: "altitude"; value: string }
   | { type: "departure"; value: string }
   | { type: "reset"; draft: RouteDraft }
@@ -54,6 +56,31 @@ export function draftFromNavlog(navlog: Navlog): RouteDraft {
   }
 }
 
+/** How many times a waypoint follows itself: a leg of zero length. */
+const repeats = (waypoints: readonly DraftWaypoint[]): number =>
+  waypoints.filter((waypoint, i) => i > 0 && waypoints[i - 1]?.id === waypoint.id).length
+
+/**
+ * The waypoints with the one at `from` moved to index `to`, or null when the
+ * move changes nothing or is not allowed: an index outside the route, or an
+ * order that puts a waypoint right after itself (the same rule `add` keeps).
+ * The route bar previews a drag with this, so the map never draws an order
+ * the draft would refuse.
+ */
+export function moveWaypoint(
+  waypoints: readonly DraftWaypoint[],
+  from: number,
+  to: number,
+): readonly DraftWaypoint[] | null {
+  const last = waypoints.length - 1
+  if (from === to || from < 0 || from > last || to < 0 || to > last) return null
+  const moved = waypoints[from]
+  if (moved === undefined) return null
+  const rest = waypoints.filter((_, i) => i !== from)
+  const next = [...rest.slice(0, to), moved, ...rest.slice(to)]
+  return repeats(next) > repeats(waypoints) ? null : next
+}
+
 /** The route bar's edits, applied to its draft. */
 export function draftReducer(state: RouteDraft, action: DraftAction): RouteDraft {
   switch (action.type) {
@@ -68,6 +95,10 @@ export function draftReducer(state: RouteDraft, action: DraftAction): RouteDraft
     case "removeLast":
       if (state.waypoints.length === 0) return state
       return { ...state, waypoints: state.waypoints.slice(0, -1) }
+    case "move": {
+      const waypoints = moveWaypoint(state.waypoints, action.from, action.to)
+      return waypoints === null ? state : { ...state, waypoints }
+    }
     case "altitude":
       return { ...state, altitudeFt: action.value }
     case "departure":

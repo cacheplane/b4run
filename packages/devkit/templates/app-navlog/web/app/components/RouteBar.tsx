@@ -1,9 +1,11 @@
 "use client"
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
   useEffect,
   useId,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -15,9 +17,11 @@ import {
   draftFromNavlog,
   draftReducer,
   EMPTY_DRAFT,
+  moveWaypoint,
   type RouteDraft,
   replanMessage,
 } from "../lib/route-draft"
+import { type PillDrag, usePillReorder } from "../lib/use-pill-reorder"
 import type { Waypoint } from "../lib/waypoint-search"
 
 export interface WaypointSearchResult {
@@ -78,6 +82,12 @@ const toDraftWaypoint = (waypoint: Waypoint): DraftWaypoint => ({
  * input removes the last pill. Space adds a waypoint only when the typed text
  * is exactly a result's id (ids never hold spaces; names do, so otherwise the
  * space is typed). Enter on an empty input submits the form.
+ *
+ * The pills reorder the route: drag one along the row (`usePillReorder`; on
+ * a touch screen, hold it first), or focus its id and press ArrowLeft,
+ * ArrowRight, Home or End. The map draws the order a drag would make while it
+ * is under way, the draft changes on drop, and a live region says where the
+ * waypoint went.
  */
 export function RouteBar({
   navlog,
@@ -95,6 +105,12 @@ export function RouteBar({
   const [active, setActive] = useState(0)
   const [closed, setClosed] = useState(false)
   const listId = useId()
+  const reorderHintId = useId()
+  // What the live region last said about a move.
+  const [announcement, setAnnouncement] = useState("")
+  // The grip to focus once a keyboard move has re-rendered the pills.
+  const gripRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const focusAfterMove = useRef<number | null>(null)
 
   // Reset to the plan whenever a new plan arrives. The mount's plan is the
   // initial state already; a null plan never wipes the draft.
@@ -105,11 +121,62 @@ export function RouteBar({
     if (navlog !== null) dispatch({ type: "reset", draft: draftFromNavlog(navlog) })
   }, [navlog])
 
+  const move = (from: number, to: number): void => {
+    const moved = draft.waypoints[from]
+    if (moved === undefined || moveWaypoint(draft.waypoints, from, to) === null) return
+    dispatch({ type: "move", from, to })
+    setAnnouncement(`Moved ${moved.id} to position ${to + 1} of ${draft.waypoints.length}`)
+  }
+  const { listRef, drag, pillHandlers } = usePillReorder({ onMove: move })
+
+  // While a drag is under way the map draws the order it would make; an order
+  // the draft would refuse previews as no change.
+  const dragFrom = drag?.from
+  const dragTo = drag?.to
+  const previewWaypoints = useMemo(
+    () =>
+      dragFrom === undefined || dragTo === undefined
+        ? null
+        : moveWaypoint(draft.waypoints, dragFrom, dragTo),
+    [draft.waypoints, dragFrom, dragTo],
+  )
+  const shownDraft = useMemo(
+    () => (previewWaypoints === null ? draft : { ...draft, waypoints: previewWaypoints }),
+    [draft, previewWaypoints],
+  )
+
   const onDraftChangeRef = useRef(onDraftChange)
   onDraftChangeRef.current = onDraftChange
   useEffect(() => {
-    onDraftChangeRef.current(draft)
-  }, [draft])
+    onDraftChangeRef.current(shownDraft)
+  }, [shownDraft])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the new order is the trigger, not an input
+  useEffect(() => {
+    const index = focusAfterMove.current
+    if (index === null) return
+    focusAfterMove.current = null
+    gripRefs.current[index]?.focus()
+  }, [draft.waypoints])
+
+  const onGripKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    const last = draft.waypoints.length - 1
+    const to =
+      event.key === "ArrowLeft"
+        ? index - 1
+        : event.key === "ArrowRight"
+          ? index + 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? last
+              : null
+    if (to === null) return
+    event.preventDefault()
+    if (to < 0 || to > last || moveWaypoint(draft.waypoints, index, to) === null) return
+    focusAfterMove.current = to
+    move(index, to)
+  }
 
   // Debounced search; the previous request is aborted and a stale answer is
   // dropped, so the list always belongs to the text in the input.
@@ -213,7 +280,7 @@ export function RouteBar({
     <form className="wb-routebar" role="search" aria-label="Route" onSubmit={onSubmit}>
       <div className="wb-routebar-route">
         {draft.waypoints.length > 0 ? (
-          <ol className="wb-routebar-pills" aria-label="Waypoints">
+          <ol ref={listRef} className="wb-routebar-pills" aria-label="Waypoints">
             {draft.waypoints.map((waypoint, index) => (
               <li
                 // Ids repeat in a route (out and back), so the position is part of the key.
@@ -225,10 +292,28 @@ export function RouteBar({
                     : "wb-routebar-pill"
                 }
                 title={waypoint.kind === "navaid" ? waypoint.type : undefined}
+                {...dragAttributes(drag, previewWaypoints !== null, index)}
+                {...pillHandlers(index)}
               >
-                <span className="wb-routebar-id">{waypoint.id}</span>
+                {/*
+                  The id is the pill's grip: the keyboard's way to reorder, and
+                  what a screen reader announces with the waypoint's position.
+                */}
+                <button
+                  ref={(element) => {
+                    gripRefs.current[index] = element
+                  }}
+                  type="button"
+                  className="wb-routebar-grip wb-focus"
+                  aria-label={`${waypoint.id}, waypoint ${index + 1} of ${draft.waypoints.length}`}
+                  aria-describedby={reorderHintId}
+                  onKeyDown={(event) => onGripKeyDown(event, index)}
+                >
+                  <span className="wb-routebar-id">{waypoint.id}</span>
+                </button>
                 <button
                   type="button"
+                  data-no-drag=""
                   className="wb-routebar-remove wb-focus"
                   aria-label={`Remove ${waypoint.id}`}
                   onClick={() => dispatch({ type: "remove", index })}
@@ -239,6 +324,12 @@ export function RouteBar({
             ))}
           </ol>
         ) : null}
+        <span id={reorderHintId} className="sr-only">
+          Drag to reorder, or press the left and right arrow keys
+        </span>
+        <span role="status" className="sr-only">
+          {announcement}
+        </span>
         <input
           type="text"
           className="wb-routebar-input"
@@ -345,6 +436,23 @@ export function RouteBar({
       </button>
     </form>
   )
+}
+
+/**
+ * A pill's drag attributes: `data-dragging` (and its travel, which the pill
+ * follows) on the one being dragged, and `data-drop` on the pill the insertion
+ * line sits beside, when the drop would change the order.
+ */
+function dragAttributes(drag: PillDrag | null, changes: boolean, index: number) {
+  if (drag === null) return {}
+  if (index === drag.from) {
+    return {
+      "data-dragging": "",
+      style: { "--wb-drag-dx": `${drag.dx}px` } as CSSProperties,
+    }
+  }
+  if (!changes || index !== drag.to) return {}
+  return { "data-drop": drag.to < drag.from ? "before" : "after" }
 }
 
 /** Why Plan/Replan is disabled, as its tooltip; empty when it is enabled. */

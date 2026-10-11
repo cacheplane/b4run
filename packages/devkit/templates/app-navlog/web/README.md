@@ -25,7 +25,8 @@ It is a workbench rather than a chat widget, and it is map-first:
   autocomplete input over the bundled waypoint snapshot (`GET /api/waypoints?q=`),
   the cruise altitude, the departure, the draft's distance and **Plan**
   (**Replan** once a navlog exists). Type `KPAO SNS KSBA` with a space after
-  each identifier to build a route; each waypoint draws on the map at once,
+  each identifier to build a route, and drag a pill (hold it first on a touch
+  screen) or use the arrow keys on it to reorder; each waypoint draws on the map at once,
   dashed until it is planned. Plan sends one ordinary chat message, such as
   `Plan KPAO → SNS (VORTAC) → KSBA at 5500 ft, departing 1400Z.`, and the next
   navlog resets the bar to the planned route. The snapshot comes from

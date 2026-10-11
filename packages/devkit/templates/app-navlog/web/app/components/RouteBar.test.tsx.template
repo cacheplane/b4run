@@ -376,3 +376,155 @@ describe("RouteBar draft sync", () => {
     expect(pills()).toEqual(["KPAO"])
   })
 })
+
+describe("RouteBar reorder", () => {
+  const grip = (id: string): HTMLButtonElement =>
+    [...container.querySelectorAll<HTMLButtonElement>(".wb-routebar-grip")].find(
+      (button) => button.textContent === id,
+    ) as HTMLButtonElement
+  const status = (): string => container.querySelector('[role="status"]')?.textContent ?? ""
+  const gripKey = (id: string, name: string): boolean => {
+    const event = new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })
+    act(() => {
+      grip(id).dispatchEvent(event)
+    })
+    return event.defaultPrevented
+  }
+
+  test("each pill's id is a grip that names its position", async () => {
+    render()
+    await addWaypoints("KPAO", "SNS", "KSBA")
+    expect(grip("SNS").getAttribute("aria-label")).toBe("SNS, waypoint 2 of 3")
+    const hint = document.getElementById(grip("SNS").getAttribute("aria-describedby") ?? "")
+    expect(hint?.textContent).toMatch(/arrow keys/)
+  })
+
+  test("arrow keys, Home and End move a waypoint, keep it focused and say where it went", async () => {
+    render()
+    await addWaypoints("KPAO", "SNS", "KSBA")
+    act(() => grip("KSBA").focus())
+    expect(gripKey("KSBA", "ArrowLeft")).toBe(true)
+    expect(pills()).toEqual(["KPAO", "KSBA", "SNS"])
+    expect(document.activeElement).toBe(grip("KSBA"))
+    expect(status()).toBe("Moved KSBA to position 2 of 3")
+    gripKey("KSBA", "Home")
+    expect(pills()).toEqual(["KSBA", "KPAO", "SNS"])
+    gripKey("KSBA", "End")
+    expect(pills()).toEqual(["KPAO", "SNS", "KSBA"])
+    expect(document.activeElement).toBe(grip("KSBA"))
+    expect(drafts.at(-1)?.waypoints.map((w) => w.id)).toEqual(["KPAO", "SNS", "KSBA"])
+  })
+
+  test("a move past either end, or one that repeats a waypoint, changes nothing", async () => {
+    render()
+    await addWaypoints("KPAO", "SNS", "KPAO")
+    expect(gripKey("KPAO", "ArrowLeft")).toBe(true)
+    gripKey("SNS", "ArrowRight")
+    expect(pills()).toEqual(["KPAO", "SNS", "KPAO"])
+    expect(status()).toBe("")
+  })
+
+  test("Replan sends the waypoints in their new order", async () => {
+    render()
+    await addWaypoints("KPAO", "SNS", "KSBA")
+    setValue(field("Cruise altitude, feet"), "5500")
+    setValue(field("Departure time"), "1400Z")
+    gripKey("KSBA", "ArrowLeft")
+    act(() => submit().click())
+    expect(onReplan).toHaveBeenCalledWith(
+      "Plan KPAO → KSBA → SNS (VORTAC) at 5500 ft, departing 1400Z.",
+    )
+  })
+
+  describe("dragging", () => {
+    /** Lays the pills out 100px apart (middles at 50, 150, …) and fakes pointer capture. */
+    function layOut(): HTMLLIElement[] {
+      const items = [
+        ...container.querySelectorAll<HTMLLIElement>('ol[aria-label="Waypoints"] > li'),
+      ]
+      for (const [index, item] of items.entries()) {
+        item.getBoundingClientRect = () => new DOMRect(index * 100, 0, 100, 32)
+        item.setPointerCapture = () => {}
+        item.hasPointerCapture = () => false
+        item.releasePointerCapture = () => {}
+      }
+      return items
+    }
+    function pointer(target: Element, type: string, x: number, pointerType = "mouse"): void {
+      const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, button: 0 })
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        pointerType: { value: pointerType },
+      })
+      act(() => {
+        target.dispatchEvent(event)
+      })
+    }
+
+    test("a mouse drag previews the order on the map and commits it on drop", async () => {
+      render()
+      await addWaypoints("KPAO", "SNS", "KSBA")
+      const [first] = layOut()
+      pointer(first as HTMLLIElement, "pointerdown", 50)
+      pointer(first as HTMLLIElement, "pointermove", 52)
+      expect(container.querySelector("[data-dragging]")).toBeNull()
+      pointer(first as HTMLLIElement, "pointermove", 180)
+      expect(container.querySelector("[data-dragging]")).not.toBeNull()
+      expect(container.querySelector('[data-drop="after"]')?.textContent).toContain("SNS")
+      expect(drafts.at(-1)?.waypoints.map((w) => w.id)).toEqual(["SNS", "KPAO", "KSBA"])
+      expect(pills()).toEqual(["KPAO", "SNS", "KSBA"])
+      pointer(first as HTMLLIElement, "pointerup", 180)
+      expect(pills()).toEqual(["SNS", "KPAO", "KSBA"])
+      expect(status()).toBe("Moved KPAO to position 2 of 3")
+      expect(container.querySelector("[data-dragging]")).toBeNull()
+    })
+
+    test("Escape drops the pill back where it was", async () => {
+      render()
+      await addWaypoints("KPAO", "SNS", "KSBA")
+      const [first] = layOut()
+      pointer(first as HTMLLIElement, "pointerdown", 50)
+      pointer(first as HTMLLIElement, "pointermove", 280)
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+      })
+      pointer(first as HTMLLIElement, "pointerup", 280)
+      expect(pills()).toEqual(["KPAO", "SNS", "KSBA"])
+      expect(drafts.at(-1)?.waypoints.map((w) => w.id)).toEqual(["KPAO", "SNS", "KSBA"])
+    })
+
+    test("a finger drags only after a hold; moving at once scrolls instead", async () => {
+      render()
+      await addWaypoints("KPAO", "SNS", "KSBA")
+      const [first] = layOut()
+      pointer(first as HTMLLIElement, "pointerdown", 50, "touch")
+      pointer(first as HTMLLIElement, "pointermove", 80, "touch")
+      act(() => {
+        vi.advanceTimersByTime(400)
+      })
+      expect(container.querySelector("[data-dragging]")).toBeNull()
+      pointer(first as HTMLLIElement, "pointerup", 80, "touch")
+
+      pointer(first as HTMLLIElement, "pointerdown", 50, "touch")
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      expect(container.querySelector("[data-dragging]")).not.toBeNull()
+      pointer(first as HTMLLIElement, "pointermove", 280, "touch")
+      pointer(first as HTMLLIElement, "pointerup", 280, "touch")
+      expect(pills()).toEqual(["SNS", "KSBA", "KPAO"])
+    })
+
+    test("the × removes its pill without starting a drag", async () => {
+      render()
+      await addWaypoints("KPAO", "SNS")
+      layOut()
+      const remove = container.querySelector('[aria-label="Remove KPAO"]') as HTMLButtonElement
+      pointer(remove, "pointerdown", 80)
+      pointer(remove, "pointermove", 180)
+      expect(container.querySelector("[data-dragging]")).toBeNull()
+      act(() => remove.click())
+      expect(pills()).toEqual(["SNS"])
+    })
+  })
+})

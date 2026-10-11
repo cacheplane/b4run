@@ -67,8 +67,11 @@ scroll (the connect screen scrolls itself on a short viewport).
   searches the bundled `data/waypoints.json` server-side (`app/lib/waypoint-search.ts`:
   identifier or local-code prefix first, then a name substring, at most 8 results).
   Enter, Tab or space adds the highlighted match, so `KPAO SNS KSBA` typed with spaces
-  builds the route; Backspace in an empty input removes the last pill. Each waypoint
-  draws on the map at once, dashed while the draft differs from the planned route.
+  builds the route; Backspace in an empty input removes the last pill. Drag a pill to
+  reorder the route (on a touch screen, hold it first), or focus its identifier and
+  press ArrowLeft, ArrowRight, Home or End (`app/lib/use-pill-reorder.ts`). Each waypoint
+  draws on the map at once, dashed while the draft differs from the planned route, and
+  a drag previews its new order on the map before the drop.
   Plan sends one ordinary chat message, such as `Plan KPAO → SNS (VORTAC) → KSBA at
   5500 ft, departing 1400Z.` (`replanMessage` in `app/lib/route-draft.ts`), and a new
   navlog resets the bar to the planned route, altitude and departure. The open list
