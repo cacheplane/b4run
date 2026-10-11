@@ -257,6 +257,38 @@ Scheduled body.
     })
   })
 
+  it("takes the post's picture from `image`, else its first image, else none", () => {
+    const withImage = samplePost.replace(
+      "author: brian",
+      "author: brian\nimage: /blog/why-we-built-b4/cover.png",
+    )
+    const withBodyImage = samplePost.replace(
+      "# Why we built B4.run",
+      '# Why we built B4.run\n\n![The route tree](/blog/why-we-built-b4/routes.png)\n\n<img src="/blog/x/second.png" alt="" />',
+    )
+    const withImgTag = samplePost.replace(
+      "# Why we built B4.run",
+      '# Why we built B4.run\n\n<img alt="" src="/blog/x/tag.png" />',
+    )
+    withFixture(
+      {
+        "2026-05-12-a.mdx": withImage.replace("title: Why we built B4.run", "title: A"),
+        "2026-05-13-b.mdx": withBodyImage.replace("title: Why we built B4.run", "title: B"),
+        "2026-05-14-c.mdx": withImgTag.replace("title: Why we built B4.run", "title: C"),
+        "2026-05-15-d.mdx": samplePost.replace("title: Why we built B4.run", "title: D"),
+      },
+      (dir) => {
+        const byTitle = Object.fromEntries(
+          loadPostsFromDir(dir, { includeDrafts: true }).map((p) => [p.title, p]),
+        )
+        expect(byTitle.A?.image).toBe("/blog/why-we-built-b4/cover.png")
+        expect(byTitle.B?.image).toBe("/blog/why-we-built-b4/routes.png")
+        expect(byTitle.C?.image).toBe("/blog/x/tag.png")
+        expect(byTitle.D).not.toHaveProperty("image")
+      },
+    )
+  })
+
   it("computes reading time from body word count", () => {
     withFixture({ "2026-05-12-why-we-built-b4.mdx": samplePost }, (dir) => {
       const [p] = loadPostsFromDir(dir, { includeDrafts: false })

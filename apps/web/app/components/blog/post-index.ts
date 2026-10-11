@@ -36,6 +36,9 @@ export interface Post {
   readonly version?: string
   readonly author: AuthorId
   readonly ogImage?: string
+  /** A picture of the work, for feeds and link previews that shouldn't repeat the title:
+   *  frontmatter `image`, else the post's first image. */
+  readonly image?: string
   readonly draft: boolean
   readonly readingTimeMinutes: number
   /** Original MDX filename (e.g. "2026-05-12-why-we-built-b4.mdx").
@@ -59,8 +62,20 @@ interface Frontmatter {
   version?: string
   author?: AuthorId
   ogImage?: string
+  image?: string
   draft?: boolean
   slug?: unknown
+}
+
+const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*<?([^\s)>]+)>?(?:\s+"[^"]*")?\s*\)/
+const IMG_TAG_SRC = /<img\b[^>]*\ssrc=["']([^"']+)["']/i
+
+/** The first image in a post's body, as Markdown `![]()` or an `<img>` tag, whichever comes first. */
+function firstImage(content: string): string | undefined {
+  const md = MARKDOWN_IMAGE.exec(content)
+  const tag = IMG_TAG_SRC.exec(content)
+  if (md && (!tag || md.index < tag.index)) return md[1]
+  return tag?.[1]
 }
 
 function parsePost(filename: string, raw: string): Post {
@@ -99,6 +114,7 @@ function parsePost(filename: string, raw: string): Post {
     fm.date instanceof Date ? fm.date.toISOString().slice(0, 10) : String(fm.date).slice(0, 10)
 
   const stats = readingTime(content)
+  const image = fm.image ?? firstImage(content)
   return {
     slug,
     title: fm.title,
@@ -109,6 +125,7 @@ function parsePost(filename: string, raw: string): Post {
     ...(fm.version !== undefined && { version: fm.version }),
     author: fm.author,
     ...(fm.ogImage !== undefined && { ogImage: fm.ogImage }),
+    ...(image !== undefined && { image }),
     draft: fm.draft === true,
     readingTimeMinutes: Math.max(1, Math.round(stats.minutes)),
     sourceFile: filename,

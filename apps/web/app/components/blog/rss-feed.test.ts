@@ -18,7 +18,9 @@ const samplePost: Post = {
 describe("buildRssFeed", () => {
   it("includes channel metadata", () => {
     const xml = buildRssFeed([samplePost], { siteUrl: "https://b4.run" })
-    expect(xml).toContain('<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">')
+    expect(xml).toContain(
+      '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">',
+    )
     expect(xml).toContain("<title>B4.run</title>")
     expect(xml).toContain("<link>https://b4.run/blog</link>")
   })
@@ -43,5 +45,29 @@ describe("buildRssFeed", () => {
     const post: Post = { ...samplePost, title: "A & B <c>" }
     const xml = buildRssFeed([post], { siteUrl: "https://b4.run" })
     expect(xml).toContain("A &amp; B &lt;c&gt;")
+  })
+
+  it("lists a post's picture as media:content, as an absolute URL", () => {
+    const xml = buildRssFeed([{ ...samplePost, image: "/blog/why-we-built-b4/cover.png" }], {
+      siteUrl: "https://b4.run",
+    })
+    expect(xml).toContain(
+      '<media:content url="https://b4.run/blog/why-we-built-b4/cover.png" medium="image" type="image/png"/>',
+    )
+  })
+
+  it("keeps an absolute picture URL and lists nothing for a post without one", () => {
+    const withAbsolute = buildRssFeed(
+      [{ ...samplePost, image: "https://cdn.example.com/a.webp?x=1&y=2" }],
+      {
+        siteUrl: "https://b4.run",
+      },
+    )
+    expect(withAbsolute).toContain(
+      '<media:content url="https://cdn.example.com/a.webp?x=1&amp;y=2" medium="image" type="image/webp"/>',
+    )
+    expect(buildRssFeed([samplePost], { siteUrl: "https://b4.run" })).not.toContain(
+      "<media:content",
+    )
   })
 })
