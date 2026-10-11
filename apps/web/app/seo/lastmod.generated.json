@@ -7,14 +7,14 @@
       "recordDigest": "1e3503c11087d2ad2b3249877728b3a4dac3bf2e233a59eb374a6264e47e58a8"
     },
     "/blog": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "8cca2b138289d81e7716357e0ea3db7af94be9fdfdcf4ed6fa51d12537f0003f",
-      "recordDigest": "4329a552e6865ef032a02b93505e8eb33c45eee33a90066c0f61d9e8ed5aa4da"
+      "lastModified": "2026-10-11T14:33:02.000Z",
+      "sourceDigest": "36e3799b61eda7af3f956adf30242ed6fe75a18c70a2e5d89887591a9bbab328",
+      "recordDigest": "33c89db73b3b50463e5e7347b3bde697b66b2e931edd887e661d6b2edb6cfc1c"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "2ba9d2462318d1bdb6a93b974c7f37c3bee412de9438baa9128382e5fc7ec311",
-      "recordDigest": "20669aad91a1f9862151a8ed91b15a50bfac0ec347f6a0a6e9fc0526fc108d88"
+      "lastModified": "2026-10-11T14:33:02.000Z",
+      "sourceDigest": "b2f6cf37748089e202053176d1ef1bbcea112dfa47485aa70efaa69578f73800",
+      "recordDigest": "bf738f62635b77eda7a53c4d458ec848005502f971102cbdddd26584c98ae231"
     },
     "/blog/tags/patterns": {
       "lastModified": "2026-10-11T03:22:19.000Z",
@@ -22,19 +22,19 @@
       "recordDigest": "990ba0f229cbe30b65d3a15e97a182d906d324d0e67fa58e99a691f8691e23a2"
     },
     "/blog/tags/philosophy": {
-      "lastModified": "2026-09-25T19:33:48.000Z",
-      "sourceDigest": "950626b39ce109816807ef5cbc59d26e1a3408f33be1ef21d438e501a5dd992c",
-      "recordDigest": "1102b1428a29490c1deb947fdcce8c8011ba4b51d39884ba1acc55566a26d939"
+      "lastModified": "2026-10-11T14:33:02.000Z",
+      "sourceDigest": "e34c8273381d7b96e6de0d69d1efaace086b4612eef469154a19eb048f8a2b7f",
+      "recordDigest": "40116f7b64fdcc13c5bac0130d5c04306e6c63f3449ab13cce61892e25bb005e"
     },
     "/blog/tags/releases": {
-      "lastModified": "2026-10-09T03:18:18.000Z",
-      "sourceDigest": "22b3ed166ef868bcb27dddd49059debc3ee970b86f1a4c22de0c7c78dfbdd862",
-      "recordDigest": "5dc25c9a5120fba554b52aaca138b10bda21635e557a40895d9dbd1c5896e54f"
+      "lastModified": "2026-10-11T04:34:17.000Z",
+      "sourceDigest": "e08fe02300e6459c329184103d6c6751bc5cd2a1026a37d70fc50cdc5c20c544",
+      "recordDigest": "2f951d2a78c4b1b3c4a98542517236724c46e6e4dff2a17a6dcd38d4a9df57f1"
     },
     "/blog/tags/typescript": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "a19aa7f8076c8542e09a0e4257c5dbbc42eec6065db1ab99dba7277c896a1448",
-      "recordDigest": "9894fd3b978b1b9240323a792b6338a5b4711a9351b94436d6a0296805d132b7"
+      "lastModified": "2026-10-11T14:33:02.000Z",
+      "sourceDigest": "fc89a6b1d8d6c45ee630608dc942a09fb05265ac8aec4e8126861e819e5daf83",
+      "recordDigest": "2977a4afee220fae5efbe8c5992270ed0857ae75aa11ddd06b622f7050613fcf"
     },
     "/docs/access-control": {
       "lastModified": "2026-10-08T20:51:05.000Z",
