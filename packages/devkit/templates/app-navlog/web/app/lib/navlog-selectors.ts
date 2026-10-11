@@ -1,5 +1,6 @@
 import type { StepView, TurnsView, TurnView } from "@b4run/ag-ui/view"
 import type { Navlog } from "./navlog-types"
+import { isRecord, parseToolResult } from "./tool-result"
 
 /** The subset of an AG-UI message this selector reads. */
 export interface MessageLike {
@@ -13,20 +14,10 @@ export interface MessageLike {
   }[]
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null
-
 /** Parse a `computeNavlog` tool result (JSON text, or a `{ result }` envelope) into a Navlog, or null. */
 export function parseNavlog(text: string): Navlog | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return null
-  }
-  const candidate =
-    isRecord(parsed) && "result" in parsed && isRecord(parsed.result) ? parsed.result : parsed
-  if (!isRecord(candidate)) return null
+  const candidate = parseToolResult(text)
+  if (candidate === null) return null
   if (
     !Array.isArray(candidate.legs) ||
     !Array.isArray(candidate.waypoints) ||

@@ -77,7 +77,7 @@ const DAY_MS = 24 * HOUR_MS
  * nearest `now`, so a product read on the 1st that was valid on the 30th lands
  * in the previous month.
  */
-export function resolveDayTime(group: string, now: number): number | null {
+function resolveDayTime(group: string, now: number): number | null {
   const match = /^(\d{2})(\d{2})(\d{2})Z$/.exec(group)
   if (!match) return null
   const [day, hours, minutes] = [Number(match[1]), Number(match[2]), Number(match[3])]

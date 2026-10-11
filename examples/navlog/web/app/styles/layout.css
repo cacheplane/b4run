@@ -1,0 +1,254 @@
+/* The shell: the one-pane window, panels, header rows, list rows, the
+ * sidebar, badges, icon buttons, tooltips, tabs, buttons, the phone's tab bar
+ * and drawer. */
+
+/*
+ * One pane: the window never scrolls, only the panels' own regions do (the
+ * transcript, the thread list, the navlog, the memory list). Without this, any
+ * absolutely positioned descendant whose containing block sits outside its
+ * scroller (the activity kit's visually hidden labels, for one) stretches the
+ * document and the whole page scrolls. Print flattens it back (`print.css`).
+ */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* A surface: solid white, a hairline, the workbench radius. No glass, no lift. */
+.wb-panel {
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+}
+
+/* The 56px row every column starts with. */
+.wb-header-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: var(--wb-header-h);
+}
+
+/* A list row: threads, memory candidates. */
+.wb-row {
+  border-radius: var(--wb-radius-row);
+}
+
+/* The sidebar column: 200px, or the 64px rail. */
+.wb-root[data-sidebar] {
+  transition: grid-template-columns var(--wb-motion);
+}
+
+.wb-root[data-sidebar="collapsed"] {
+  --wb-nav-width: 64px;
+}
+
+/* A count on a control: mono, tabular, ink. */
+.wb-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--wb-text);
+  color: var(--wb-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An icon button with no fill until hovered: the rail and panel headers. */
+.wb-icon-button-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--wb-muted);
+}
+
+.wb-icon-button-quiet:not(:disabled):hover {
+  background: var(--wb-rail);
+  color: var(--wb-text);
+}
+
+/* A pressed toggle (Memory) reads as selected, like the current thread. */
+.wb-icon-button[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--wb-rail);
+  color: var(--wb-accent);
+}
+
+/* A label for an icon-only control, on hover and on keyboard focus. */
+.wb-tip {
+  position: relative;
+}
+
+.wb-tip[data-tip]::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  z-index: 50;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 4px 10px;
+  color: var(--wb-surface);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  content: attr(data-tip);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--wb-motion);
+}
+
+.wb-tip[data-tip]:hover::after,
+.wb-tip[data-tip]:focus-visible::after {
+  opacity: 1;
+}
+
+.wb-sheet {
+  background: var(--wb-surface);
+}
+
+.wb-sheet.wb-sheet-flat {
+  background: transparent;
+}
+
+/* The sheet's tabs: 40px targets, ink underline on the selected one. */
+.wb-sheet-tab {
+  min-height: 40px;
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-sheet-tab[aria-selected="true"] {
+  border-bottom-color: var(--wb-text);
+  color: var(--wb-text);
+}
+
+/* A section's own heading inside a panel ("Planning brief", "Go / no-go"): sentence case, muted. */
+.wb-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wb-muted);
+}
+
+.wb-route-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+/* A quiet secondary button; 44px tall on touch screens. */
+.wb-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--wb-text);
+  cursor: pointer;
+  transition:
+    background-color var(--wb-motion),
+    border-color var(--wb-motion);
+}
+
+.wb-button:hover {
+  border-color: var(--wb-muted);
+  background: var(--wb-rail);
+}
+
+@media (pointer: coarse) {
+  .wb-button {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+}
+
+/* The phone's bottom tab bar: icon over label, 52px targets, ink when selected. */
+.wb-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-tab[aria-selected="true"] {
+  font-weight: 650;
+  color: var(--wb-text);
+}
+
+.wb-tab:disabled {
+  opacity: 0.45;
+}
+
+/* A new result on a tab the pilot is not looking at. */
+.wb-tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--wb-surface);
+  border-radius: 999px;
+  background: var(--wb-text);
+}
+
+/* The phone's top-row buttons: 44px round targets. */
+.wb-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  color: var(--wb-text);
+}
+
+.wb-icon-button:disabled {
+  opacity: 0.6;
+}
+
+.wb-icon-button-primary {
+  border-color: var(--wb-text);
+  background: var(--wb-text);
+  color: var(--wb-surface);
+}
+
+/* The phone's navigation drawer and the scrim behind it. */
+.wb-scrim {
+  background: color-mix(in srgb, var(--wb-text) 30%, transparent);
+}
+
+.wb-drawer {
+  animation: wb-drawer-in 200ms ease-out;
+}
+
+@keyframes wb-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

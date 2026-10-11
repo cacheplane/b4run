@@ -1,4 +1,4 @@
-import type { Verdict, VerdictLevel } from "../lib/weather-selectors"
+import type { Verdict, VerdictLevel } from "../lib/verdict"
 
 /**
  * Reading a structured answer outside React, without hashbrown: the finished

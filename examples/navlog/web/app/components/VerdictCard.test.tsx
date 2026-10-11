@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { parseAdvisory } from "../lib/advisories"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
-import { parseAdvisory, parseWeatherBrief } from "../lib/weather-selectors"
+import { parseWeatherBrief } from "../lib/weather-selectors"
 import { NavlogSheet } from "./NavlogSheet"
-import { PlanningBrief } from "./PlanningBrief"
-import { partitionAdvisories, VerdictCard, VerdictPill } from "./VerdictCard"
+import { VerdictCard, VerdictPill } from "./VerdictCard"
 import { WeatherTab } from "./WeatherTab"
 
 const FZLVL = "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight"
@@ -21,6 +21,10 @@ Advisories:
 ${SIGMET}
 ${FZLVL}
 Go/no-go note: Fly lower.`)
+
+/** A structured answer that is only a `BottomLine`: the planner's call. */
+const bottomLine = (level: "GO" | "CAUTION" | "NO-GO", reason: string): string =>
+  JSON.stringify({ ui: [{ BottomLine: { props: { level, reason, cite: [] } } }] })
 
 describe("VerdictCard", () => {
   test("shows the level as a word with an icon, the reason, and hazards loudest first", () => {
@@ -101,18 +105,17 @@ describe("NavlogSheet verdict", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
-        planningAnswer={"Bottom line: GO — VFR all the way.\nWatch for:\n- Gusts at KRST"}
+        planningAnswer={bottomLine("GO", "VFR all the way.")}
         open={true}
         onToggle={() => {}}
         tab="legs"
         onTabChange={() => {}}
       />,
     )
-    expect(html).toContain('data-level="GO"')
-    expect(html).toContain("Watch for")
-    expect(html).toContain("Gusts at KRST")
+    expect(html).toContain('class="wb-verdict" data-level="GO"')
+    expect(html).toContain("VFR all the way.")
   })
-  test("an old brief and an old answer show no verdict card", () => {
+  test("an old brief and a markdown answer show no verdict card and no planning brief", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
@@ -126,24 +129,9 @@ describe("NavlogSheet verdict", () => {
     )
     expect(html).not.toContain("Go/no-go verdict")
     expect(html).not.toContain("Verdict summary")
-    expect(html).toContain("KSTP and KRST are VFR.")
-  })
-  test("the brief drops echoed tool calls and the plan checklist", () => {
-    const html = renderToStaticMarkup(
-      <NavlogSheet
-        navlog={SAMPLE_NAVLOG}
-        planningAnswer={
-          'recall({ query: "aircraft profile and pilot preferences" })\nPlan and todos\n[completed] Recall\nKSTP and KRST are **VFR**.'
-        }
-        open={true}
-        onToggle={() => {}}
-        tab="legs"
-        onTabChange={() => {}}
-      />,
-    )
-    expect(html).not.toContain("recall(")
-    expect(html).not.toContain("[completed]")
-    expect(html).toContain("<strong")
+    // A markdown answer stays in the chat: the sheet shows only a structured one.
+    expect(html).not.toContain('aria-label="Planning brief"')
+    expect(html).not.toContain("KSTP and KRST are VFR.")
   })
   test("stat tiles carry the key totals, and the variation source is footnoted", () => {
     const html = renderToStaticMarkup(
@@ -193,14 +181,7 @@ leg 1: 318/26 -4C at 5,500 ft, MSP, valid 070000Z
 Advisories:
 none
 Go/no-go note: Expect a gusty crosswind on landing.`)
-const PLANNER_GO = `Bottom line: GO — VFR the whole way at 4,500 ft.
-Watch for:
-- Gusty crosswind at KDLH
-Assumptions:
-- 2400 RPM
-- Standard temperature
-
-Would you like me to file the VFR flight plan now, try a different altitude, or re-brief closer to departure?`
+const PLANNER_GO = bottomLine("GO", "VFR the whole way at 4,500 ft.")
 const RAISED = {
   level: "CAUTION" as const,
   reason: "VFR at both ends and light winds aloft.",
@@ -273,7 +254,7 @@ describe("a verdict the floor raised", () => {
         weatherBrief={GUSTY_GO}
         open={true}
         onToggle={() => {}}
-        tab="legs"
+        tab="brief"
         onTabChange={() => {}}
       />,
     )
@@ -282,58 +263,10 @@ describe("a verdict the floor raised", () => {
       "Raised from GO: gusts 25 kt at KFCM, gusts 25 kt at KDLH, forecast preliminary.",
     )
     const brief = html.slice(html.indexOf('aria-label="Planning brief"'))
-    expect(brief).toContain('class="wb-verdict-pill" data-level="CAUTION"')
-    expect(brief).not.toContain('data-level="GO"')
-    expect(brief).toContain("VFR the whole way at 4,500 ft.")
-    expect(brief).not.toContain("GO — VFR the whole way")
-    expect(brief).toContain("The planner said GO. Raised: gusts 25 kt at KFCM")
-    // The closing question is not an assumption: it follows the sections, screen only.
-    expect(brief).toContain("Standard temperature")
-    expect(brief).toMatch(/class="wb-brief-closing[^"]*print:hidden[^"]*"/)
-    const assumptions = brief.slice(
-      brief.indexOf(">Assumptions<"),
-      brief.indexOf("wb-brief-closing"),
-    )
-    expect(assumptions).not.toContain("Would you like me to file")
-    expect(brief).toContain("Would you like me to file the VFR flight plan now")
-  })
-  test("a structured answer's bottom line agrees with the sheet's raised card", () => {
-    const structured = JSON.stringify({
-      ui: [
-        {
-          BottomLine: {
-            props: { level: "GO", reason: "VFR the whole way at 4,500 ft.", cite: [] },
-          },
-        },
-      ],
-    })
-    const html = renderToStaticMarkup(
-      <NavlogSheet
-        navlog={SAMPLE_NAVLOG}
-        planningAnswer={structured}
-        weatherBrief={GUSTY_GO}
-        open={true}
-        onToggle={() => {}}
-        tab="brief"
-        onTabChange={() => {}}
-      />,
-    )
-    expect(html).toContain('class="wb-verdict" data-level="CAUTION"')
-    const brief = html.slice(html.indexOf('aria-label="Planning brief"'))
     expect(brief).toContain('data-level="CAUTION"')
     expect(brief).not.toContain('data-level="GO"')
     expect(brief).toContain("VFR the whole way at 4,500 ft.")
     expect(brief).toContain("The planner said GO. Raised: gusts 25 kt at KFCM")
-  })
-  test("a planner call as severe as the card keeps its own bottom line", () => {
-    const html = renderToStaticMarkup(
-      <PlanningBrief
-        planningAnswer={"Bottom line: CAUTION — gusty.\nWatch for:\n- Gusts"}
-        verdict={RAISED}
-      />,
-    )
-    expect(html).toContain("CAUTION — gusty.")
-    expect(html).not.toContain("The planner said")
   })
   test("the collapsed sheet's pill is the raised one", () => {
     const html = renderToStaticMarkup(
@@ -357,7 +290,7 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={thirsty}
-        planningAnswer={"Bottom line: GO — fine."}
+        planningAnswer={bottomLine("GO", "Fine.")}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -366,27 +299,5 @@ describe("a verdict the floor raised", () => {
     )
     expect(html).toContain('class="wb-verdict" data-level="NO-GO"')
     expect(html).toContain("Raised from GO: reserve 0:38, under 45 min.")
-  })
-})
-
-describe("partitionAdvisories", () => {
-  const line = (text: string) => parseAdvisory(text)
-  test("collapses repeats and moves advisories outside the flight window out of the way", () => {
-    const { relevant, outside } = partitionAdvisories(
-      [
-        line("G-AIRMET ICE | 11,000–17,000 ft | valid 0000Z–0300Z 06 | expires before departure"),
-        line("G-AIRMET ICE | 11,000–17,000 ft | valid 0300Z–0600Z 06 | expires before departure"),
-        line("G-AIRMET FZLVL | freezing level 4,000 ft | valid 1200Z–1800Z 06 | during flight"),
-        line("SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure"),
-      ],
-      5500,
-    )
-    expect(relevant.map((a) => a.hazard)).toEqual(["FZLVL"])
-    expect(outside.map((a) => a.hazard)).toEqual(["ICE", "CONVECTIVE"])
-  })
-  test("keeps an advisory with no relevance (an older brief) on its own chip", () => {
-    const { relevant, outside } = partitionAdvisories([line("Freezing level near 4,000 ft")])
-    expect(relevant).toHaveLength(1)
-    expect(outside).toHaveLength(0)
   })
 })

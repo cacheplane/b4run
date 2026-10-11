@@ -162,6 +162,13 @@ export function climbFromSeaLevel(pressureAltitudeFt: number): {
   }
 }
 
+/*
+ * Takeoff and landing distances. No code reads these two tables: the
+ * performance subagent answers runway questions from the Markdown twins in
+ * workspace/poh, which is what it cites. They stay here as the second
+ * transcription that test/corpus-sync.test.ts holds the Markdown to, so a
+ * typo in the copy the model reads fails a test instead of reaching a brief.
+ */
 export interface FieldCell {
   readonly groundRollFt: number
   readonly over50FtFt: number
@@ -205,49 +212,3 @@ export const LANDING_TABLE: readonly FieldRow[] = [
   row(7000, f(640, 1455), f(660, 1490), f(685, 1535), f(710, 1575), f(730, 1615)),
   row(8000, f(665, 1500), f(690, 1540), f(710, 1580), f(735, 1620), f(760, 1665)),
 ]
-
-function fieldLookup(
-  table: readonly FieldRow[],
-  input: { readonly pressureAltitudeFt: number; readonly temperatureC: number },
-  figure: string,
-): FieldCell {
-  const alt = input.pressureAltitudeFt
-  const first = table[0]
-  const last = table.at(-1)
-  if (!first || !last) throw new Error(`${figure} table is empty`)
-  if (alt < first.pressureAltitudeFt || alt > last.pressureAltitudeFt) {
-    throw new Error(`${figure} covers sea level to ${last.pressureAltitudeFt} ft pressure altitude`)
-  }
-  if (input.temperatureC < 0 || input.temperatureC > 40)
-    throw new Error(`${figure} covers 0 to 40 °C`)
-  const lower = [...table].reverse().find((entry) => entry.pressureAltitudeFt <= alt) ?? first
-  const upper = table.find((entry) => entry.pressureAltitudeFt >= alt) ?? lower
-  const tAlt =
-    lower === upper
-      ? 0
-      : (alt - lower.pressureAltitudeFt) / (upper.pressureAltitudeFt - lower.pressureAltitudeFt)
-  const tempIndex = input.temperatureC / 10
-  const i0 = Math.min(3, Math.floor(tempIndex))
-  const i1 = Math.min(4, i0 + 1)
-  const tTemp = tempIndex - i0
-  const at = (entry: FieldRow, key: keyof FieldCell): number =>
-    lerp(entry.byTemperature[i0]?.[key] ?? 0, entry.byTemperature[i1]?.[key] ?? 0, tTemp)
-  return {
-    groundRollFt: Math.round(lerp(at(lower, "groundRollFt"), at(upper, "groundRollFt"), tAlt)),
-    over50FtFt: Math.round(lerp(at(lower, "over50FtFt"), at(upper, "over50FtFt"), tAlt)),
-  }
-}
-
-export function takeoffDistance(input: {
-  readonly pressureAltitudeFt: number
-  readonly temperatureC: number
-}): FieldCell {
-  return fieldLookup(TAKEOFF_TABLE, input, "Figure 5-4")
-}
-
-export function landingDistance(input: {
-  readonly pressureAltitudeFt: number
-  readonly temperatureC: number
-}): FieldCell {
-  return fieldLookup(LANDING_TABLE, input, "Figure 5-10")
-}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { type Navlog, SAMPLE_NAVLOG } from "./navlog-types"
+import type { Navlog } from "./navlog-types"
 import {
   type DraftWaypoint,
   draftDistanceNm,
@@ -8,8 +8,8 @@ import {
   EMPTY_DRAFT,
   type RouteDraft,
   replanMessage,
-  sameRoute,
 } from "./route-draft"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 
 const KPAO: DraftWaypoint = {
   id: "KPAO",
@@ -227,24 +227,5 @@ describe("draftDistanceNm", () => {
     const a: DraftWaypoint = { ...KPAO, lat: 0, lon: 0 }
     const b: DraftWaypoint = { ...KPAO, lat: 1, lon: 0 }
     expect(draftDistanceNm(draft({ waypoints: [a, b] }))).toBe(60)
-  })
-})
-
-describe("sameRoute", () => {
-  test("is false with no plan", () => {
-    expect(sameRoute(draftFromNavlog(SAMPLE_NAVLOG), null)).toBe(false)
-  })
-
-  test("is true when the ids match in order", () => {
-    expect(sameRoute(draftFromNavlog(SAMPLE_NAVLOG), SAMPLE_NAVLOG)).toBe(true)
-  })
-
-  test("is false when the order, length or ids differ", () => {
-    const [stp, rst] = draftFromNavlog(SAMPLE_NAVLOG).waypoints
-    if (!stp || !rst) throw new Error("sample navlog has two waypoints")
-    expect(sameRoute(draft({ waypoints: [rst, stp] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp, rst, KSBA] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp, KSBA] }), SAMPLE_NAVLOG)).toBe(false)
   })
 })

@@ -105,7 +105,7 @@ Run these in order: `build` writes the configured deployment artifacts, then
 | Workspace | `workspace/` | POH and regulation excerpts, saved navlogs, recorded flight plans, behind a path-jail; `AGENTS.md`, `aircraft/`, `poh/` and `regs/` are read-only via `b4.config.ts` |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
-| Evals | `src/app/navlog/evals/` | `defineEval` + scripted cases + scorers + a gate |
+| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate; the scripted runs it replays are in `navlog-quality.fixtures.ts` |
 
 ## The waypoint snapshot
 

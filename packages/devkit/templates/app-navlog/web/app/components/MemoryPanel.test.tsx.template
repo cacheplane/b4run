@@ -29,15 +29,11 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   useAgent: () => ({ agent: mocks.agent, isReady: true }),
 }))
 
-const {
-  DECISION_FAILURE_NOTICE,
-  LOAD_FAILURE_NOTICE,
-  MemoryPanel,
-  MemoryPanelView,
-  OUTCOME_LIFETIME_MS,
-  describeApprove,
-} = await import("./MemoryPanel")
-type MemoryCandidate = import("./MemoryPanel").MemoryCandidate
+const { MemoryPanel, MemoryPanelView } = await import("./MemoryPanel")
+const { DECISION_FAILURE_NOTICE, LOAD_FAILURE_NOTICE, OUTCOME_LIFETIME_MS } = await import(
+  "../lib/use-memory-candidates"
+)
+type MemoryCandidate = import("../lib/memory-candidates").MemoryCandidate
 type MemoryPanelViewProps = import("./MemoryPanel").MemoryPanelViewProps
 
 const noop = () => {}
@@ -238,27 +234,6 @@ describe("memory panel (Memory mode)", () => {
     expect(view({ candidates: [candidate("a"), candidate("b")] })).toMatch(
       /<h2[^>]*>Memory<span[^>]*>· 2<\/span>/,
     )
-  })
-})
-
-describe("describing an approve", () => {
-  test("counts what was replaced, singular and plural", () => {
-    expect(describeApprove("superseded", 1)).toBe("Replaced 1 earlier memory.")
-    expect(describeApprove("superseded", 3)).toBe("Replaced 3 earlier memories.")
-  })
-
-  test("says nothing for a plain activation — the row disappearing is the feedback", () => {
-    expect(describeApprove("activated", 0)).toBeNull()
-  })
-
-  test("a dedupe is worth a word, because nothing visibly changed", () => {
-    expect(describeApprove("deduped", 0)).toBe("Already remembered — nothing changed.")
-  })
-
-  test("a superseded action with an empty list is treated as a plain activation", () => {
-    // Defensive: the server sends the pre-write snapshot, so this shape should
-    // not occur — but "Replaced 0 earlier memories" is worse than silence.
-    expect(describeApprove("superseded", 0)).toBeNull()
   })
 })
 

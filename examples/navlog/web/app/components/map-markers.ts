@@ -11,7 +11,7 @@ import type { FlightCategory } from "../lib/weather-selectors"
 type LeafletModule = typeof import("leaflet")
 
 /** Escapes text for the icons' HTML strings. */
-export const escapeHtml = (text: string): string =>
+const escapeHtml = (text: string): string =>
   text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 /**

@@ -3,6 +3,7 @@
  * editing before a Replan. Pure, so the bar's behavior is tested without a
  * browser.
  */
+import { formatUtcHhmm } from "./format"
 import type { Navlog } from "./navlog-types"
 
 export interface DraftWaypoint {
@@ -40,15 +41,6 @@ export type DraftAction =
   | { type: "departure"; value: string }
   | { type: "reset"; draft: RouteDraft }
 
-const pad2 = (n: number): string => String(n).padStart(2, "0")
-
-/** `2026-10-11T09:05:00Z` → `0905Z`; an unparseable instant gives "". */
-function hhmmz(iso: string): string {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ""
-  return `${pad2(date.getUTCHours())}${pad2(date.getUTCMinutes())}Z`
-}
-
 /** The draft a plan implies: its waypoints, altitude and departure. */
 export function draftFromNavlog(navlog: Navlog): RouteDraft {
   return {
@@ -57,7 +49,7 @@ export function draftFromNavlog(navlog: Navlog): RouteDraft {
       return { id: waypoint.id, kind, type: kind, lat: waypoint.lat, lon: waypoint.lon }
     }),
     altitudeFt: String(navlog.altitudeFt),
-    departure: hhmmz(navlog.departureTimeUtc),
+    departure: formatUtcHhmm(navlog.departureTimeUtc),
     departureFromPlan: navlog.departureTimeUtc,
   }
 }
@@ -132,11 +124,4 @@ export function draftDistanceNm(draft: RouteDraft): number {
     if (from && to) total += greatCircleNm(from, to)
   }
   return Math.round(total)
-}
-
-/** True when the draft's waypoint ids match the plan's, in order. */
-export function sameRoute(draft: RouteDraft, navlog: Navlog | null): boolean {
-  if (navlog === null) return false
-  if (draft.waypoints.length !== navlog.waypoints.length) return false
-  return draft.waypoints.every((waypoint, i) => waypoint.id === navlog.waypoints[i]?.id)
 }

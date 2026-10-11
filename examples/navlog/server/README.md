@@ -58,7 +58,7 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Workspace | `workspace/` | POH and regulation excerpts, the aircraft baseline, saved navlogs, recorded flight plans; `AGENTS.md`, `aircraft/`, `poh/` and `regs/` are read-only via `b4.config.ts` |
 | Persistence | (default) | threads survive a restart (SQLite) |
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
-| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate |
+| Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate; the scripted runs it replays are in `navlog-quality.fixtures.ts` |
 
 ## The waypoint snapshot
 

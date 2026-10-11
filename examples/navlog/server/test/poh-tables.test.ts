@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  climbFromSeaLevel,
-  cruiseAt,
-  landingDistance,
-  takeoffDistance,
-} from "../src/lib/poh-tables.ts"
+import { climbFromSeaLevel, cruiseAt } from "../src/lib/poh-tables.ts"
 
 describe("cruise performance (Figure 5-7)", () => {
   it("returns the table row at a listed altitude and RPM, standard temperature", () => {
@@ -51,26 +46,5 @@ describe("time, fuel and distance to climb (Figure 5-6)", () => {
   it("is zero at sea level and rejects above the table", () => {
     expect(climbFromSeaLevel(0)).toEqual({ timeMin: 0, fuelGal: 0, distanceNm: 0 })
     expect(() => climbFromSeaLevel(13000)).toThrow(/above 12,000/)
-  })
-})
-
-describe("takeoff and landing (Figures 5-4 and 5-10)", () => {
-  it("reads takeoff distance at 1000 ft and 20 °C", () => {
-    expect(takeoffDistance({ pressureAltitudeFt: 1000, temperatureC: 20 })).toEqual({
-      groundRollFt: 915,
-      over50FtFt: 1630,
-    })
-  })
-  it("interpolates takeoff distance across temperature", () => {
-    expect(takeoffDistance({ pressureAltitudeFt: 0, temperatureC: 5 })).toEqual({
-      groundRollFt: 748,
-      over50FtFt: 1345,
-    })
-  })
-  it("reads landing distance at 2000 ft and 10 °C", () => {
-    expect(landingDistance({ pressureAltitudeFt: 2000, temperatureC: 10 })).toEqual({
-      groundRollFt: 550,
-      over50FtFt: 1300,
-    })
   })
 })

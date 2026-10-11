@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { NavlogTable } from "./NavlogTable"
 
 // SAMPLE_NAVLOG is the server's computeNavlog output: a climb segment (MH 158,

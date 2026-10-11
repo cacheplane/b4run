@@ -62,8 +62,9 @@ vi.mock("./MemoryPanel", () => ({ MemoryPanel: () => null }))
 vi.mock("../lib/use-media-query", () => ({ useMediaQuery: () => true }))
 
 const { EMPTY_TURNS, reduceTurns } = await import("@b4run/ag-ui/view")
-const { SAMPLE_NAVLOG } = await import("../lib/navlog-types")
-const { AppShell, RUN_ERROR_TITLES } = await import("./AppShell")
+const { SAMPLE_NAVLOG } = await import("../lib/test-fixtures")
+const { AppShell } = await import("./AppShell")
+const { RUN_ERROR_TITLES } = await import("../lib/use-run-errors")
 const { CONNECT_SCREEN_HEADING } = await import("./ConnectScreen")
 const { NAVLOG_STEP_RENDERERS } = await import("./StepViews")
 type WorkbenchThread = import("../lib/thread-source").WorkbenchThread

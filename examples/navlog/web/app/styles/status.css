@@ -1,0 +1,251 @@
+/* Status: flight-category chips, hazard chips, the verdict (pill, card and
+ * strip), the forecast-horizon note and the key-totals stat tiles. */
+
+/* Flight-category chips and markers. Color never stands alone: every chip carries its text. */
+.wb-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  min-height: 28px;
+}
+.wb-cat[data-cat="VFR"] {
+  background: var(--wb-cat-vfr-bg);
+  color: var(--wb-cat-vfr);
+}
+.wb-cat[data-cat="MVFR"] {
+  background: var(--wb-cat-mvfr-bg);
+  color: var(--wb-cat-mvfr);
+}
+.wb-cat[data-cat="IFR"] {
+  background: var(--wb-cat-ifr-bg);
+  color: var(--wb-cat-ifr);
+}
+.wb-cat[data-cat="LIFR"] {
+  background: var(--wb-cat-lifr-bg);
+  color: var(--wb-cat-lifr);
+}
+.wb-cat[data-cat="UNKNOWN"] {
+  background: var(--wb-rail);
+  color: var(--wb-text);
+}
+
+.wb-cat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* Hazard chips: red or amber when they apply during the flight, muted when they do not. */
+.wb-hazard {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wb-hazard[data-severity="danger"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-hazard[data-severity="warn"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
+  color: var(--wb-caution);
+}
+
+.wb-hazard[data-severity="muted"] {
+  border-color: var(--wb-border);
+  background: transparent;
+  font-weight: 500;
+  color: var(--wb-muted);
+}
+
+.wb-hazard-when {
+  font-weight: 400;
+}
+
+/* In the card there is room to wrap; elsewhere a chip stays on one line. */
+.wb-verdict .wb-hazard {
+  border-radius: 14px;
+  white-space: normal;
+}
+
+/* The verdict, as a pill (the collapsed sheet, the planning brief) and as the card atop the navlog. */
+.wb-verdict-pill {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wb-verdict {
+  border: 1px solid;
+  border-radius: var(--wb-radius);
+  padding: 12px 14px;
+}
+
+.wb-verdict-badge {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--wb-surface);
+}
+
+.wb-verdict-word {
+  font-size: 20px;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+/* "Raised from GO: …": the floor's reasons, in the text color so they read as the why. */
+.wb-verdict-raised {
+  font-weight: 600;
+  color: var(--wb-text);
+}
+
+/* The pill's "raised" word: smaller and lighter than the level it qualifies. */
+.wb-verdict-pill-raised {
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* The planning brief's bottom line, when the verdict above outranks what the planner wrote. */
+.wb-bottom-line-note {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--wb-muted);
+}
+
+:is(.wb-verdict, .wb-verdict-pill)[data-level="GO"] {
+  border-color: var(--wb-go-border);
+  background: var(--wb-go-bg);
+  color: var(--wb-go);
+}
+:is(.wb-verdict, .wb-verdict-pill)[data-level="CAUTION"] {
+  border-color: var(--wb-caution-border);
+  background: var(--wb-caution-bg);
+  color: var(--wb-caution);
+}
+:is(.wb-verdict, .wb-verdict-pill)[data-level="NO-GO"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-verdict[data-level="GO"] .wb-verdict-badge {
+  background: var(--wb-go);
+}
+.wb-verdict[data-level="CAUTION"] .wb-verdict-badge {
+  background: var(--wb-caution);
+}
+.wb-verdict[data-level="NO-GO"] .wb-verdict-badge {
+  background: var(--wb-nogo);
+}
+
+/* "Preliminary": the forecast horizon, when the departure is beyond the forecasts. */
+.wb-horizon {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--wb-caution);
+}
+
+/* Key totals as stat tiles. */
+/*
+ * A wrapping row whose cards grow to fill it: five numbers sit in one row
+ * where there is room, and otherwise wrap as 3 + 2 with the second row's cards
+ * widened, never a lone card or a label broken mid-word.
+ */
+.wb-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  container-type: inline-size;
+}
+
+.wb-stat {
+  /* Three to a row (so five wrap as 3 + 2) ... */
+  flex: 1 1 calc((100cqw - 12px) / 3 - 1px);
+  min-width: 0;
+  /* The value sits at the bottom, so values line up across a row even when one label wraps. */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius-row);
+  background: var(--wb-surface);
+  padding: 8px 10px;
+}
+
+/* ... five to a row once each card has room for its label ... */
+@container (min-width: 40rem) {
+  .wb-stat {
+    flex-basis: calc((100cqw - 24px) / 5 - 1px);
+  }
+}
+
+/* ... and two to a row on a phone. */
+@container (max-width: 22rem) {
+  .wb-stat {
+    flex-basis: calc((100cqw - 6px) / 2 - 1px);
+  }
+}
+
+.wb-stat dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wb-muted);
+}
+
+.wb-stat dd {
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.wb-stat[data-tone="danger"] {
+  border-color: var(--wb-nogo-border);
+  background: var(--wb-nogo-bg);
+  color: var(--wb-nogo);
+}
+
+.wb-stat-note {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wb-text-danger {
+  color: var(--wb-nogo);
+}

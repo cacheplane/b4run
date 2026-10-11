@@ -166,7 +166,6 @@ export type AssumptionsProps = PropsOf<typeof assumptionsProps>
 export type CitationsProps = PropsOf<typeof citationsProps>
 export type ProseProps = PropsOf<typeof proseProps>
 
-export type BriefLevel = BottomLineProps["level"]
 export type WatchSeverity = WatchForProps["items"][number]["severity"]
 export type AssumptionOrigin = AssumptionsProps["items"][number]["origin"]
 export type Citation = CitationsProps["items"][number]
