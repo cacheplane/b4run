@@ -1,0 +1,864 @@
+---
+title: "20 questions on AI Engineering in 2026 and forward"
+description: "Twenty questions every AI engineer has to answer, from state and approvals to evals and deployment, in LangGraph with Python and B4.run with TypeScript."
+date: 2026-10-11
+tags: [philosophy, typescript, agents]
+type: post
+author: brian
+---
+
+Learn the twenty questions every AI engineer needs to answer before an agent is ready for real users, with answers in LangGraph and Python, and in B4.run and TypeScript.
+
+I've been building agents for a while now. Some for myself, some for clients.
+
+And I kept asking myself the same questions. Not "which model is best this week?" Those questions have a half-life of about a month. I mean the questions that decide whether an agent survives contact with real users: Where does the state live? What happens when the model gets it wrong? Who approved that? How do I know it got better?
+
+This post is my list. Twenty questions, with my answers. Let's get into it.
+
+## How I got here
+
+Let me start with a confession.
+
+My first agents were a mess.
+
+I'd start with a graph, a couple of tools, and a prompt. Then a second agent. Then a client asked for a third. Before long I had about a dozen closely connected files in a single directory: graphs importing tools, tools importing state, prompts in template strings next to everything else.
+
+> It works.
+
+We've all said those words. And it did work. A coding agent could even figure it out, reasonably so. But here's the thing I didn't expect: a coding agent working in that directory would _continue the existing poor patterns_. It doesn't know which of your files are the good example and which are the shortcut you took at 11pm. It copies what it sees.
+
+I needed structure.
+
+So I did what I'd done for years on large Angular applications: I organized around domains and libraries, with pnpm and Nx. You can see where that went in a [flight-planning sample](https://github.com/liveloveapp/hashbrown/pull/451) I started in the Hashbrown repository last January. It's a LangGraph.js agent for a Cirrus SR22 with a router, plus weather, airport, POH and handbook agents.
+
+The server project alone looked like this:
+
+```text
+samples/langchain/server/
+├── ARCHITECTURE.md        ← 668 lines
+├── langgraph.json
+├── scripts/               ← PDF ingest, init, verify
+└── src/
+    ├── agents/            ← airport, finalize, phak, poh, router, weather
+    ├── edges/             ← next.ts
+    ├── graphs/            ← plan-graph.ts
+    ├── models/            ← state.ts
+    ├── nodes/             ← airport, finalize, phak, poh, router, weather
+    └── tools/             ← calc_distance, get_airport, get_metar, ...
+```
+
+Then there were separate Nx projects for a Node server, a Next.js app, its Playwright tests and an Angular app. The pull request touched 165 files.
+
+Now I had structure. But look at what it took to understand _one_ agent, the router:
+
+- `agents/router-agent.ts` has the model, the system prompt and the response format.
+- `nodes/router.ts` invokes that agent and maps its result into graph state.
+- `edges/next.ts` decides where to go after the router runs.
+- `models/state.ts` holds the shared schema every node reads.
+- `graphs/plan-graph.ts` wires it all together with a `PATH_MAP`.
+
+```ts title="graphs/plan-graph.ts (hashbrown #451)"
+function createStateGraph() {
+  return new StateGraph(GraphStateSchema)
+    .addNode('airport', airport)
+    .addNode('phak', phak)
+    .addNode('poh', poh)
+    .addNode('router', router)
+    .addNode('weather', weather)
+    .addEdge(START, 'router')
+    .addEdge('airport', 'router')
+    .addEdge('phak', 'router')
+    .addEdge('poh', 'router')
+    .addEdge('weather', 'router')
+    .addConditionalEdges('router', next, PATH_MAP);
+}
+```
+
+To change one agent, I opened five files in five directories. The structure had ballooned the size and complexity of my codebase. It organized the code by _kind_ (agents here, nodes there, edges over there) when I wanted to think about it by _agent_.
+
+I needed a better solution.
+
+That's what became [B4.run](/blog/why-we-built-b4) on the server: a TypeScript framework on LangGraph where a folder is an agent, its tools sit right beside it, and the types are generated for you. And on the client, [Threadplane](https://threadplane.ai): an open-source Angular library for agent UIs that speaks both LangGraph and AG-UI.
+
+I rebuilt that same flight planner on B4.run as [navlog](/blog/how-we-built-navlog). It's a good before-and-after, and you'll see it throughout this post.
+
+## Goals
+
+Here's what we'll cover:
+
+1. Twenty questions, in five groups: shape, durability, capability and safety, the UI, and shipping.
+2. For each one, a short answer, a LangGraph example in Python, and the B4.run answer in TypeScript.
+3. What I learned the hard way, so you don't have to.
+
+A few things to note before we start:
+
+- You don't have to use B4.run to get value from this list. The questions are the point. B4.run and Threadplane are my answers.
+- The Python examples use LangGraph and LangChain v1. B4.run runs on LangGraph.js, so the concepts map one-to-one.
+- The examples use `gpt-5-mini`. Swap in your model of choice.
+
+This is a long one. Grab a coffee. ☕
+
+## Shape
+
+The first four questions are about the shape of the thing you're building. Get these wrong and nothing downstream will save you.
+
+### 1. Where does each piece of your agent live?
+
+**Short answer:** next to the agent it belongs to.
+
+An agent is a handful of things: a model, a prompt, tools, state, maybe memory and subagents. When those live in directories named by kind, every change is a scavenger hunt. When they live in a folder named by the agent, the folder _is_ the documentation.
+
+In LangGraph, the framework doesn't decide this for you. The registry is `langgraph.json`, and the layout is up to you:
+
+```json title="langgraph.json"
+{
+  "dependencies": ["."],
+  "graphs": {
+    "planner": "./src/planner/graph.py:graph",
+    "support": "./src/support/graph.py:graph"
+  }
+}
+```
+
+My advice for Python projects: pick the "folder per agent" convention on day one, write it down, and enforce it in review. Put `graph.py`, `tools.py`, `state.py` and `prompts.py` together under one package per agent.
+
+In B4.run, the convention is the framework. Here's navlog's route:
+
+```text
+src/app/navlog/
+├── index.ts              ← the agent
+├── memory.ts             ← its long-term memory schema
+├── plan.md               ← its planning guidance
+├── evals/                ← its evals
+├── skills/               ← its skills
+└── subagents/
+    ├── performance/index.ts
+    └── weather/index.ts
+```
+
+The folder `src/app/navlog/` is the endpoint `/navlog`. There's no registry to maintain, because the file tree is the registry.
+
+Remember the coding agent copying my bad patterns? This is the fix. When the structure is a convention, the agent finds one obvious place to put the next thing, and it puts it there.
+
+### 2. Is this an agent, a workflow, or a function?
+
+**Short answer:** use the least autonomy that gets the job done.
+
+Not everything needs a model in a loop. Here's how I decide:
+
+- **A function**: the steps are known, and no language understanding is needed. Write a function. Seriously.
+- **A workflow**: the steps are known, but one or more of them needs a model (classify this, summarize that).
+- **An agent**: the model picks the steps, because the path depends on what it finds.
+
+In LangGraph, a workflow is a `StateGraph` with fixed edges, and an agent is a model-and-tools loop:
+
+```python
+from langchain.agents import create_agent
+from langgraph.graph import END, START, StateGraph
+from typing_extensions import TypedDict
+
+# A workflow: the edges are fixed, the model fills in one step.
+class Ticket(TypedDict):
+    text: str
+    category: str
+
+def classify(state: Ticket) -> dict:
+    category = llm.invoke(f"Classify this ticket: {state['text']}").content
+    return {"category": category}
+
+workflow = (
+    StateGraph(Ticket)
+    .add_node("classify", classify)
+    .add_edge(START, "classify")
+    .add_edge("classify", END)
+    .compile()
+)
+
+# An agent: the model chooses which tools to call, and when to stop.
+agent = create_agent(model="gpt-5-mini", tools=[lookup_order, refund])
+```
+
+B4.run gives each a route kind. A route's `index.ts` exports an `agent`, a `workflow`, a `graph` or a `chain`:
+
+```ts title="src/app/triage/index.ts"
+import type { RuntimeContext } from "@b4run/sdk"
+import type { RouteTools } from "b4:routes"
+import state from "./state.js"
+
+export async function workflow(input: unknown, ctx: RuntimeContext<RouteTools<"/triage">>) {
+  const ticket = state.parse(input)
+  const { category } = await ctx.tools.classify({ text: ticket.text })
+  return { ...ticket, category }
+}
+```
+
+Notice `ctx.tools.classify`. The tool is a file in `tools/`, and its types are generated, so you get full IntelliSense in a workflow without writing a schema.
+
+What I learned: I reached for agents too early. A workflow is easier to test, cheaper to run and easier to explain to a client. Start there and promote to an agent when the path really does depend on what the model finds.
+
+### 3. What does the model decide, and what does code decide?
+
+**Short answer:** the model decides _what to do next_. Code does anything that has to be right.
+
+This is the most important question on the list.
+
+Models are fantastic at reading a messy request and picking the next step. They are not calculators. In navlog, the model never does navigation arithmetic. It gathers the inputs and calls a tool that computes the wind triangle, time, fuel and reserve in plain TypeScript:
+
+```ts title="src/tools/computeNavlog.ts"
+import type { B4ToolContext } from "@b4run/sdk"
+import { computeNavlog, type Navlog, type NavlogInput } from "../lib/navlog.js"
+
+/**
+ * Compute the navlog in code: great-circle legs, magnetic courses, the wind
+ * triangle, POH climb and cruise figures, time, fuel, reserve and the ICAO
+ * flight plan. Never estimate these numbers yourself.
+ */
+export default async (input: NavlogInput, _ctx: B4ToolContext): Promise<Navlog> =>
+  computeNavlog(input)
+```
+
+The second half of this question is the model's _output_. When code is going to consume what the model says, don't parse prose. Ask for structured output:
+
+```python
+from typing import Literal
+
+from langchain.agents import create_agent
+from pydantic import BaseModel
+
+class Brief(BaseModel):
+    verdict: Literal["GO", "CAUTION", "NO-GO"]
+    reason: str
+
+agent = create_agent(model="gpt-5-mini", tools=[get_metar], response_format=Brief)
+result = agent.invoke({"messages": [{"role": "user", "content": "Brief KPAO to KSBA"}]})
+brief: Brief = result["structured_response"]
+```
+
+The router in my old Hashbrown sample did exactly this with a `responseFormat`, and it was the best decision in that codebase.
+
+In B4.run, navlog's brief is structured too, but the _client_ owns the schema. The web app sends a JSON Schema with each run as `forwardedProps.responseSchema`, and B4.run binds it on the model as native structured output. The route has to opt in:
+
+```ts title="b4.config.ts"
+server: {
+  agui: { clientForwardedProps: { "/navlog": ["responseSchema"] } },
+},
+```
+
+Tool-calling turns are unaffected. Only the final answer is constrained.
+
+### 4. What's in your state, and who owns each field?
+
+**Short answer:** as little as possible, and every field has exactly one writer.
+
+State is the agent's working memory for a single thread. The trap is treating it like a global variable bag. In my Hashbrown sample, `GraphStateSchema` had `messages`, a `retrieval` object with four arrays, `completed` and `steps`, and every node could write any of them. Debugging "who set this?" was no fun.
+
+In LangGraph, reducers make the merge rule explicit:
+
+```python
+from typing import Annotated
+import operator
+from langgraph.graph import MessagesState
+
+class PlanState(MessagesState):
+    # Appended by the weather node only.
+    weather: Annotated[list[dict], operator.add]
+    # Replaced by the router only.
+    next_step: str
+```
+
+In B4.run, a route's `state.ts` is a Zod schema with defaults, and custom merge rules live in a sibling `reducers/` folder:
+
+```ts title="src/app/hello/[tenant]/state.ts"
+import { z } from "zod"
+
+export default z.object({
+  tenant: z.string().default(""),
+  /** Accumulated context from tool call results */
+  context: z.string().default(""),
+})
+```
+
+A few things to note:
+
+- Messages are state. Don't duplicate what's already in the transcript.
+- Big blobs (documents, tool results) don't belong in state. Put them in the workspace and keep a path. More on that in question 8.
+- Write down who owns each field. A comment is enough.
+
+## Durability
+
+An agent that forgets everything on restart is a demo. These four questions are what make it a product.
+
+### 5. How does a thread survive a restart?
+
+**Short answer:** a checkpointer, backed by a real database.
+
+A thread is a conversation plus its state. A checkpointer saves that state after every step, so a crash, a deploy or a two-day pause for a human approval doesn't lose anything.
+
+In LangGraph, you pass a checkpointer at compile time and a `thread_id` at invoke time:
+
+```python
+from langgraph.checkpoint.postgres import PostgresSaver
+
+with PostgresSaver.from_conn_string(DATABASE_URL) as checkpointer:
+    checkpointer.setup()
+    graph = builder.compile(checkpointer=checkpointer)
+    config = {"configurable": {"thread_id": "pilot-42"}}
+    graph.invoke({"messages": [("user", "Plan KPAO to KSBA")]}, config)
+```
+
+Forget the `thread_id` and every call is a brand-new conversation. I've lost an afternoon to that one.
+
+In B4.run, persistence is on by default. Local development uses SQLite files in `.b4/`, and `@b4run/postgres-storage` moves the checkpointer, the threads store and the permissions store onto one Postgres pool when you run more than one instance. Threads are created and resumed over the Agent Protocol, so the client holds a thread id and the server does the rest.
+
+### 6. How do you pause for a human?
+
+**Short answer:** interrupt, persist, resume. Never block a process waiting on a person.
+
+Some tool calls need a person: filing a flight plan, sending an email, issuing a refund. The run has to stop, wait for minutes or days, and pick up exactly where it left off. That's why question 5 comes first: an approval is only as durable as the checkpointer under it.
+
+In LangGraph, `interrupt()` pauses the graph and `Command(resume=...)` continues it:
+
+```python
+from langgraph.types import Command, interrupt
+
+def file_flight_plan(state: PlanState) -> dict:
+    decision = interrupt({"action": "file", "plan": state["flight_plan"]})
+    if decision != "approve":
+        return {"messages": [("assistant", "The flight plan was not filed.")]}
+    return {"messages": [("assistant", submit(state["flight_plan"]))]}
+
+# Later, when the pilot clicks Approve:
+graph.invoke(Command(resume="approve"), config)
+```
+
+In B4.run, approval is declared on the route, per tool:
+
+```ts title="src/app/navlog/index.ts"
+export default agent({
+  model: "gpt-5-mini",
+  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+  systemPrompt: "...",
+})
+```
+
+When the model calls `fileFlightPlan`, the runtime parks the run and emits an interrupt. The pilot approves or denies in the UI, and the run resumes. `allowAlways: false` means there's no "always allow" for this one: every filing gets a person.
+
+What I learned: put the approval in the runtime, not the prompt. Navlog's system prompt literally says "never ask for approval yourself." A model asking "shall I proceed?" is not an approval gate. It's a suggestion.
+
+### 7. What's short-term memory, and what's long-term memory?
+
+**Short answer:** short-term is the thread. Long-term is what you know across threads.
+
+The thread's checkpoint is short-term memory. Long-term memory is the pilot's tail number, their preferred cruise RPM, the fact that they never fly below a 1,500-foot ceiling. It belongs to the user, not to one conversation.
+
+In LangGraph, that's the `Store`, namespaced however you like:
+
+```python
+from langgraph.store.postgres import PostgresStore
+
+def remember(state: PlanState, *, store) -> dict:
+    store.put(("pilot", state["pilot_id"]), "aircraft", {"tail": "N738ZU", "rpm": 2400})
+    return {}
+
+def recall(state: PlanState, *, store) -> dict:
+    facts = store.search(("pilot", state["pilot_id"]), query="aircraft preferences")
+    return {"facts": [f.value for f in facts]}
+
+with PostgresStore.from_conn_string(DATABASE_URL) as store:
+    store.setup()
+    graph = builder.compile(checkpointer=checkpointer, store=store)
+```
+
+In B4.run, a route's `memory.ts` declares the schema, and the agent gets typed `remember` and `recall` tools generated from it:
+
+```ts title="src/app/navlog/memory.ts"
+import { defineMemory } from "@b4run/sdk"
+import { z } from "zod"
+
+export default defineMemory({
+  kind: "semantic",
+  scope: ["workspace", "route"],
+  schema: z.object({
+    subject: z.string().describe("'aircraft', 'pilot', or an airport identifier such as 'KSTP'"),
+    predicate: z.string().describe("Attribute, e.g. 'tail_number', 'cruise_rpm', 'prefers'"),
+    value: z.string().describe("The value as stated, without its unit, e.g. 'N52817' or '2300'"),
+  }),
+})
+```
+
+Here's the part people skip: _who reviews what gets written?_ A model that remembers a wrong fact will repeat it confidently forever. Navlog sets `memory: { writes: "candidate" }`, so `remember()` creates candidates that a developer approves before they become durable.
+
+### 8. What goes in the context window, and what gets offloaded?
+
+**Short answer:** the context window is a budget. Spend it on what the model needs to decide the next step.
+
+Long-running agents die by a thousand tool results. A 40KB weather bundle here, a 30-page document there, and the model is reading last hour's data to decide this minute's step.
+
+There are two levers:
+
+1. **Offload** large tool results to storage and leave a short stub in context.
+2. **Summarize** or trim older turns.
+
+In LangGraph, trimming is a few lines before the model call:
+
+```python
+from langchain_core.messages import trim_messages
+
+def call_model(state: MessagesState) -> dict:
+    recent = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=llm,
+        max_tokens=12_000,
+        start_on="human",
+        include_system=True,
+    )
+    return {"messages": [llm.invoke(recent)]}
+```
+
+In B4.run, both levers are configuration. Tool outputs over a threshold are written to the workspace and replaced with a preview and a path the model can read later:
+
+```ts title="b4.config.ts"
+export default config({
+  toolOutput: { offloadThresholdChars: 12000, previewLines: 10 },
+  summarization: { enabled: true, maxTokens: 12000, keepRecentTurns: 6 },
+})
+```
+
+Navlog sets the offload threshold high on purpose: the map in the web app reads `computeNavlog`'s result off the wire, so that one has to stay inline. Tune per agent, not per framework default.
+
+## Capability and safety
+
+Every capability you give an agent is a capability an attacker, or just a confused model, can use. These four questions are about limiting the blast radius.
+
+### 9. Which tools does each agent get?
+
+**Short answer:** only the ones it needs for its job.
+
+Least privilege isn't new. We just forgot it for a couple of years. 😅
+
+In LangGraph, scoping is the tool list you hand each agent:
+
+```python
+weather_agent = create_agent(
+    model="gpt-5-mini",
+    tools=[get_metar, get_taf, get_winds_aloft],  # nothing that writes
+)
+planner = create_agent(
+    model="gpt-5-mini",
+    tools=[lookup_airport, compute_navlog, file_flight_plan],
+)
+```
+
+In B4.run, every tool file in the app is visible by default, so you scope with `allow` and `deny` on the route. Here's navlog's weather subagent:
+
+```ts title="src/app/navlog/subagents/weather/index.ts"
+export default agent({
+  model: "gpt-5-mini",
+  description: "Briefs the weather for a VFR route: METARs, TAFs, winds aloft and advisories.",
+  tools: {
+    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],
+    deny: ["computeNavlog", "fileFlightPlan", "runBash", "writeFile", "editFile" /* ... */],
+  },
+  systemPrompt: "You are a weather briefer for a VFR flight...",
+})
+```
+
+The weather briefer can read weather. It can't file a flight plan, write a file or run a shell command. If its prompt gets hijacked by something nasty in a TAF remark, the damage stops there.
+
+### 10. When do you reach for subagents?
+
+**Short answer:** when a job needs its own context, its own tools, or both.
+
+Subagents aren't about org charts. They're about context isolation. The weather briefer reads a pile of METARs and TAFs and returns a short brief. The parent never sees the pile, only the brief, so its context stays focused on planning.
+
+In LangGraph, the simplest subagent is an agent wrapped as a tool:
+
+```python
+from langchain.tools import tool
+
+@tool
+def brief_weather(route: str, departure_utc: str) -> str:
+    """Brief the weather for a VFR route."""
+    result = weather_agent.invoke(
+        {"messages": [("user", f"Brief {route} departing {departure_utc}")]}
+    )
+    return result["messages"][-1].content
+
+planner = create_agent(model="gpt-5-mini", tools=[brief_weather, compute_navlog])
+```
+
+In B4.run, a subagent is a folder under `subagents/`, discovered by convention. The parent dispatches it with the built-in `task` tool:
+
+```text
+task({ subagent: "weather", input: "<route, stations, altitude, departure>" })
+```
+
+Navlog runs the weather and performance subagents together, then computes the navlog with both results. Compare that to my Hashbrown router, which sent _every_ step back through a central router node. Two subagents with narrow tools turned out to be simpler than one router that knew about everything.
+
+### 11. Where does model-written code run?
+
+**Short answer:** somewhere it can't hurt you. A sandbox, per thread, with no network by default.
+
+If your agent can run shell commands or execute code, and coding agents are the obvious case, then you're running untrusted code. It doesn't matter that the model wrote it with good intentions. One poisoned README and it's `curl | sh`.
+
+LangGraph doesn't ship a sandbox, so in Python you bring your own: a container per session, a hosted sandbox service, or at the very least a subprocess with no network and a timeout. Whatever you pick, decide it before you ship, not after.
+
+In B4.run, it's a provider in `b4.config.ts`. The workspace filesystem and shell tools are redirected into an isolated container:
+
+```ts title="b4.config.ts"
+import { config } from "@b4run/cli"
+import { dockerSandbox } from "@b4run/sandbox"
+
+export default config({
+  sandbox: {
+    provider: dockerSandbox({ scope: "my-app", image: "node:24-slim" }),
+    network: { mode: "deny" },
+    resources: { memoryMb: 512, cpus: 1, timeoutMs: 120_000 },
+  },
+})
+```
+
+There's a Kubernetes provider for production, and a `thread` hook gives each thread its own image, resources and command allow-list. And sometimes the right sandbox is _no shell at all_: navlog doesn't need one, so it denies `runBash` outright.
+
+### 12. Who is the user, and which threads can they see?
+
+**Short answer:** authenticate once, at the edge, and check every thread against its owner.
+
+This one bites teams late. The demo has one user. Production has thousands, and thread ids are just strings. If thread `abc` belongs to Alice, Bob must not be able to read it by guessing the id.
+
+On LangGraph's deployment platform, you register auth handlers:
+
+```python
+from langgraph_sdk import Auth
+
+auth = Auth()
+
+@auth.authenticate
+async def authenticate(authorization: str | None) -> Auth.types.MinimalUserDict:
+    user = await verify_token(authorization)
+    return {"identity": user.id}
+
+@auth.on.threads
+async def owner_only(ctx: Auth.types.AuthContext, value: dict):
+    metadata = value.setdefault("metadata", {})
+    metadata["owner"] = ctx.user.identity
+    return {"owner": ctx.user.identity}
+```
+
+In B4.run, it's two files. `src/auth.ts` turns a request into a principal, and `src/thread-access.ts` decides what that principal can do with each thread:
+
+```ts title="src/auth.ts"
+import { defineAuth, reject } from "@b4run/sdk"
+
+export default defineAuth({
+  authenticate: async ({ headers }) =>
+    (await principalOf(headers)) ?? reject(401, { error: "unauthorized" }),
+})
+```
+
+```ts title="src/thread-access.ts"
+import { ownedThreads } from "@b4run/sdk"
+import type { Principal } from "./auth.js"
+
+export default ownedThreads<Principal>({ adminsRead: (user) => user.isAdmin })
+```
+
+A thread is stamped with its owner on creation, under a key no client can write, and every later request is checked against that stamp. "Not yours" and "never existed" get the same answer, so ids can't be probed.
+
+What I learned: the principal should come from exactly one place. If a tool parses a header on its own, sooner or later it'll disagree with your access policy.
+
+## The UI
+
+An agent nobody can use is a script. These three questions are about the surface people actually touch, and they're why I built Threadplane.
+
+### 13. How do you stream to the UI, and what do you stream?
+
+**Short answer:** stream tokens _and_ progress. A spinner for 40 seconds is a broken product.
+
+A flight plan takes a while. The user should see what's happening: "Briefing the weather", "Computing the navlog for 3 legs". Users forgive latency they can see.
+
+In LangGraph, `stream_mode` picks what you get:
+
+```python
+for chunk, metadata in graph.stream(inputs, config, stream_mode="messages"):
+    print(chunk.content, end="", flush=True)    # tokens as they arrive
+
+for update in graph.stream(inputs, config, stream_mode="updates"):
+    print(update)                                # each node's state change
+```
+
+In B4.run, every tool can export a `display` that turns its calls into human-readable progress, so the UI doesn't have to guess what `computeNavlog` means:
+
+```ts title="src/tools/computeNavlog.ts"
+export const display = {
+  icon: "tool",
+  running: ({ waypoints }) => `Computing the navlog for ${waypoints.length - 1} legs`,
+  done: (_input, log) =>
+    `Computed the navlog: ${log.totals.distanceNm} nm, ${log.totals.eteMin} min, ${log.totals.fuelGal} gal`,
+} satisfies ToolDisplay<NavlogInput, Navlog>
+```
+
+Those labels travel with the stream, so every client renders the same words.
+
+### 14. Which protocol does your UI speak?
+
+**Short answer:** pick a protocol so your UI isn't welded to one server.
+
+There are two you'll meet in 2026:
+
+- **The LangGraph SDK** and its Agent Protocol: threads, runs and streams, as served by LangGraph's platform and by `langgraph dev`.
+- **AG-UI**: an open, event-based protocol for agent-to-UI traffic, with clients like CopilotKit.
+
+B4.run serves both: the Agent Protocol for threads and runs, and `POST /agui/{routeId}` for AG-UI clients.
+
+Threadplane is how I keep the Angular side from caring. The chat components consume a runtime-neutral `Agent` contract, and only the provider changes:
+
+```ts title="app.config.ts"
+// A LangGraph server, or `langgraph dev`
+import { provideAgent } from "@threadplane/langgraph"
+provideAgent({ apiUrl: "http://localhost:2024", assistantId: "agent" })
+
+// Or any AG-UI endpoint, such as a B4.run route under `b4 dev --port 3001`
+import { provideAgent } from "@threadplane/ag-ui"
+provideAgent({ url: "http://localhost:3001/agui/navlog" })
+```
+
+```ts title="planner.component.ts"
+import { Component } from "@angular/core"
+import { ChatComponent } from "@threadplane/chat"
+import { injectAgent } from "@threadplane/langgraph"
+
+@Component({
+  imports: [ChatComponent],
+  template: `<chat [agent]="agent" />`,
+})
+export class PlannerComponent {
+  protected readonly agent = injectAgent()
+}
+```
+
+`agent.messages()`, `agent.status()` and `agent.interrupt()` are Angular Signals. No subscriptions, no `async` pipe. And for tests, `provideFakeAgent()` streams canned tokens, so you can build the UI before the server exists.
+
+### 15. How do you render more than text?
+
+**Short answer:** let the agent pick from components _you_ own, and let the UI offer tools of its own.
+
+A weather brief is better as a card than a paragraph. A route is better on a map. But "let the model generate HTML" is how you end up with a UI your designer has never seen.
+
+Two patterns work:
+
+1. **Generative UI from a registry.** The model emits structured output that names a component and its props, and the client renders only components you've registered. In Threadplane:
+
+   ```ts
+   import { provideViews, views } from "@threadplane/render"
+
+   provideViews(views({ WeatherCard: WeatherCardComponent, NavlogTable: NavlogTableComponent }))
+   ```
+
+   On the Python side, that's question 3 again: a `response_format` whose schema describes the components.
+
+2. **Client-provided tools.** The UI declares a tool (like "pan the map to this airport"), the model calls it, and the browser runs it and returns the result. In B4.run, a route opts in with `server: { agui: { clientTools: ["/chat"] } }`, and the call is recorded on the thread so it survives a reload.
+
+What I learned: the schema is the contract between your agent and your design system. Version it like an API, because it is one.
+
+## Shipping
+
+The last five questions are the difference between "it worked on my machine" and "it's been running for six months."
+
+### 16. How do you test something that isn't deterministic?
+
+**Short answer:** test the code deterministically, and replay the model.
+
+Most of an agent is ordinary code: tools, parsers, math. Test that with ordinary unit tests. Navlog has more tests for `lib/wind.ts` and `lib/navlog.ts` than for anything with a model in it, and that's on purpose.
+
+For the steps with a model in them, replace the model with a script. In Python, that's plain pytest plus one of LangChain's fake chat models:
+
+```python
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+
+def test_compute_navlog_reserve():
+    log = compute_navlog(waypoints=[KSTP, KRST], altitude_ft=4500, winds=[CALM])
+    assert log.totals.reserve_min >= 45
+
+def test_classify_writes_category():
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content="billing")]))
+    node = make_classify(llm)  # build the node with the model injected
+    assert node({"text": "I was charged twice"}) == {"category": "billing"}
+```
+
+The habit that makes this possible is injecting the model instead of importing a global one.
+
+In B4.run, `@b4run/testing` runs the real route against a scripted model:
+
+```ts title="test/agent.test.ts"
+import { createAgentHarness, expectFinalMessage, expectToolCalled, script } from "@b4run/testing"
+
+const h = await createAgentHarness({ appRoot, route: "/chat#agent" })
+
+it("filters open items", async () => {
+  const run = await h.run({
+    input: "Filter open items",
+    fixtures: script()
+      .user("Filter open items")
+      .callsTool("applyFilter", { status: "open" })
+      .replies("Found 2 open items."),
+  })
+  expectToolCalled(run, "applyFilter").withArgs({ status: "open" })
+  expectFinalMessage(run).toContain("Found 2")
+})
+```
+
+Same route, same tools, same middleware. Only the model is scripted, so the test runs in CI in seconds with no API key.
+
+### 17. How do you know it's getting better?
+
+**Short answer:** evals. A dataset, scorers and a gate, run on every change.
+
+Tests tell you it isn't broken. Evals tell you whether it's _good_, and whether the prompt change you made on Tuesday made it better or quietly worse.
+
+In Python, LangSmith's `evaluate` runs your agent over a dataset with your scorers:
+
+```python
+from langsmith import evaluate
+
+def has_verdict(outputs: dict) -> bool:
+    return outputs["brief"]["verdict"] in {"GO", "CAUTION", "NO-GO"}
+
+evaluate(
+    lambda inputs: planner.invoke(inputs),
+    data="navlog-quality",
+    evaluators=[has_verdict],
+)
+```
+
+In B4.run, an eval is a `*.eval.ts` file next to its route, and a gate turns the scores into pass or fail:
+
+```ts title="src/app/navlog/evals/navlog-quality.eval.ts"
+import { defineEval, gate, llmJudge, toolCalled } from "@b4run/evals"
+
+export default defineEval({
+  name: "navlog quality",
+  dataset: [{ name: "stp to rst", input: DIRECT_INPUT, fixtures: planFixtures(/* ... */) }],
+  // scorers: toolCalled("computeNavlog"), an llmJudge on the brief, and custom checks
+  gate: gate.all(gate.mean(0.8), gate.perScorer()),
+})
+```
+
+`b4 eval --record` runs the real model once and writes the responses next to the eval. After that, plain `b4 eval` replays them, so the same eval runs in CI on every pull request, deterministically.
+
+What I learned: start with an informational eval (no gate) and watch the numbers for a week. Then set the bar. A gate you set on day one is a guess.
+
+### 18. What happens when the provider says no?
+
+**Short answer:** retry what's transient, fail fast on what isn't, and know which layer is retrying.
+
+Rate limits, timeouts and the occasional 500 are a fact of life. The trap is retrying in three layers at once (the SDK, your framework and your own wrapper) and turning one slow request into a minute-long stall.
+
+In LangGraph, retries are a per-node policy:
+
+```python
+from langgraph.types import RetryPolicy
+
+builder.add_node(
+    "call_model",
+    call_model,
+    retry_policy=RetryPolicy(max_attempts=5, initial_interval=0.5),
+)
+```
+
+In B4.run, retry is per route:
+
+```ts title="src/app/billing/index.ts"
+// Critical billing route: fail fast on transient errors
+export default agent({
+  model: "gpt-5-mini",
+  retry: { maxAttempts: 1 },
+  systemPrompt: "...",
+})
+```
+
+A research route can be patient with `maxAttempts: 5`. A billing route should fail fast and let a person look. Same framework, different answers, because the right retry policy depends on what the agent does.
+
+### 19. How do you see what it did in production?
+
+**Short answer:** trace every run, and make sure you can find one by thread.
+
+When a user says "it told me to fly into a thunderstorm" (it didn't, I promise), you need the exact run: every model call, every tool input and output, every interrupt. Logs won't cut it.
+
+For both LangGraph and B4.run, the answer I reach for is LangSmith. In Python, two environment variables turn it on:
+
+```bash title=".env"
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_...
+```
+
+In B4.run, the API key alone is enough: when `b4 dev` finds `LANGSMITH_API_KEY` and no tracing flag, it turns tracing on for you. And its live SSE stream shows the run's events locally with no account at all. Either way, tag runs with the thread id and the user. A trace you can't find is a trace you don't have.
+
+### 20. How do you deploy it, and could you move it?
+
+**Short answer:** pick a target today, and keep the door open to tomorrow's.
+
+The agent hosting landscape is moving fast. I'd hate for you to rewrite your app because a pricing page changed.
+
+LangGraph's path is `langgraph.json` and LangSmith deployment, plus a self-hosted option. That's a great default, and B4.run still supports it.
+
+B4.run builds the same app for several targets:
+
+```ts title="b4.config.ts"
+export default config({
+  build: { targets: ["node", "hono"] },
+})
+```
+
+```bash
+b4 check
+b4 build
+b4 verify
+```
+
+There's Node for a container on any host (navlog's API runs this way on Railway), LangSmith, Hono for edge runtimes, Vercel, and Helm charts for Kubernetes. Same routes, same tools.
+
+The same goes for the model. Keep the model a string in one place (`model: "gpt-5-mini"`) and keep provider-specific features at the edges. The best model in October 2026 won't be the best model in October 2027.
+
+## Let's quickly review
+
+Here are the twenty questions in one place:
+
+1. Where does each piece of your agent live?
+2. Is this an agent, a workflow, or a function?
+3. What does the model decide, and what does code decide?
+4. What's in your state, and who owns each field?
+5. How does a thread survive a restart?
+6. How do you pause for a human?
+7. What's short-term memory, and what's long-term memory?
+8. What goes in the context window, and what gets offloaded?
+9. Which tools does each agent get?
+10. When do you reach for subagents?
+11. Where does model-written code run?
+12. Who is the user, and which threads can they see?
+13. How do you stream to the UI, and what do you stream?
+14. Which protocol does your UI speak?
+15. How do you render more than text?
+16. How do you test something that isn't deterministic?
+17. How do you know it's getting better?
+18. What happens when the provider says no?
+19. How do you see what it did in production?
+20. How do you deploy it, and could you move it?
+
+## Conclusion
+
+None of these questions is about which model to use. That's the point.
+
+Models will keep getting better, and faster than any of us can keep up with. The engineering around them is what decides whether an agent is a demo or a product: where the code lives, what the code decides, who approves, what gets remembered, what it can touch, and how you know it's working.
+
+I learned most of these the hard way, one tangled directory and one 165-file pull request at a time. B4.run and Threadplane are what I built so I wouldn't have to answer them from scratch on every project.
+
+If you want to see all twenty answered in one app, [fly navlog](https://navlog-web.vercel.app) and read [its source](https://github.com/cacheplane/b4run/tree/main/examples/navlog). Or start your own:
+
+```bash
+npm create b4-app
+```
+
+And if you've got a twenty-first question, I'd love to hear it. 🙌
