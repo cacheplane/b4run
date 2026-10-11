@@ -4,7 +4,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { ChartStepView, NAVLOG_STEP_RENDERERS, NavlogStepView } from "./StepViews"
 import { SheetControlContext } from "./sheet-control"
 

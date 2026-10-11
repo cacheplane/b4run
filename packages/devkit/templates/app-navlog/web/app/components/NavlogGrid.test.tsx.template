@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { describe, expect, test, vi } from "vitest"
 import { LEG_COLUMNS } from "../lib/navlog-columns"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 
 interface Selection {
   ranges: { startRowId: string; endRowId: string; startColumnId: string; endColumnId: string }[]

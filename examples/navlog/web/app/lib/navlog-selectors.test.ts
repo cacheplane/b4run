@@ -6,7 +6,7 @@ import {
   latestToolResult,
   parseNavlog,
 } from "./navlog-selectors"
-import { SAMPLE_NAVLOG } from "./navlog-types"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 
 type BaseEvent = Parameters<typeof reduceTurns>[1]
 const T = (type: string, rest: Record<string, unknown>) =>

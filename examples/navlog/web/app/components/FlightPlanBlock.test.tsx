@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { FlightPlanBlock, fplMessage } from "./FlightPlanBlock"
 
 describe("FlightPlanBlock", () => {

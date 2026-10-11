@@ -1,0 +1,50 @@
+/* The chat dock: CopilotKit's composer and transcript inside the dock, and
+ * the dock's two signal colors. */
+
+/* chat dock: start */
+/* The dock's disabled-input placeholder stays on one line (the textarea can be
+   narrow); an overlong one is cut, never wrapped. */
+.wb-dock textarea::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * CopilotKit floats the composer over the bottom of the transcript, leaving a
+ * strip between the composer and the panel's edge where the transcript showed
+ * through as it scrolled. A surface-colored block under the composer fills
+ * that strip, so the transcript passes behind the composer and out of sight.
+ */
+.copilotKitInput {
+  position: relative;
+}
+
+.copilotKitInput::after {
+  content: "";
+  position: absolute;
+  /*
+   * From the composer's middle down to the dock's inner edge (16px gutters,
+   * 24px below), behind the composer so its rounded corners are covered too,
+   * and rounded like the dock's inner corners so its border stays whole.
+   */
+  top: 50%;
+  right: -15px;
+  bottom: -24px;
+  left: -15px;
+  z-index: -1;
+  border-radius: 0 0 calc(var(--wb-radius) - 1px) calc(var(--wb-radius) - 1px);
+  background: var(--wb-surface);
+  pointer-events: none;
+}
+
+/*
+ * The chat dock's two signal colors: a warning (an approval waiting, a denied
+ * call) and a failure.
+ */
+:root {
+  --wb-chat-warn: #b45309;
+  --wb-chat-warn-bg: rgb(245 158 11 / 0.1);
+  --wb-chat-danger: #b91c1c;
+}
+/* chat dock: end */

@@ -1,4 +1,5 @@
 import type { StepView, TurnsView, TurnView } from "@b4run/ag-ui/view"
+import type { Verdict, VerdictLevel } from "./verdict"
 
 export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR" | "UNKNOWN"
 
@@ -10,14 +11,6 @@ export interface AirportWeather {
   readonly line: string
   readonly metar: string
   readonly taf: string
-}
-
-export type VerdictLevel = "GO" | "CAUTION" | "NO-GO"
-
-/** A go/no-go call: the level and the one sentence why. */
-export interface Verdict {
-  readonly level: VerdictLevel
-  readonly reason: string
 }
 
 export interface WeatherBrief {
@@ -245,173 +238,6 @@ export function isPreliminary(horizon: string | undefined): boolean {
   return /\bpreliminary\b|\bdo(?:es)? not (?:yet )?(?:reach|cover)|\bbeyond\b|\bnot yet\b/i.test(
     horizon,
   )
-}
-
-export type AdvisoryRelevance =
-  | "during flight"
-  | "expires before departure"
-  | "starts after arrival"
-
-/** One advisory line, parsed from `<PRODUCT> <HAZARD> | <altitudes> | valid … | <RELEVANCE>`. */
-export interface Advisory {
-  /** `G-AIRMET`, `AIRMET`, `SIGMET`, `CWA`…; empty for a free-text line. */
-  readonly product: string
-  /** `FZLVL`, `ICE`, `CONVECTIVE`…; empty for a free-text line. */
-  readonly hazard: string
-  /** `freezing level 4,000 ft`, `tops FL290`; empty when the line does not say. */
-  readonly altitudes: string
-  /** `2100Z–0300Z 07`; empty when the line does not say. */
-  readonly valid: string
-  /** Null when the line does not say (briefs written before the advisory contract). */
-  readonly relevance: AdvisoryRelevance | null
-  /** The lowest altitude the advisory names, in feet, or null. `SFC` is 0. */
-  readonly lowestFt: number | null
-  readonly raw: string
-}
-
-const RELEVANCES: readonly AdvisoryRelevance[] = [
-  "during flight",
-  "expires before departure",
-  "starts after arrival",
-]
-
-/** Every altitude the text names, in feet: `FL290`, `4,000 ft`, `SFC`. */
-function altitudesFt(text: string): number[] {
-  const out: number[] = []
-  for (const m of text.matchAll(/\bFL\s?(\d{2,3})\b/gi)) out.push(Number(m[1]) * 100)
-  for (const m of text.matchAll(/\b(\d{1,2},?\d{3})\s*(?:ft|feet)\b/gi)) {
-    out.push(Number((m[1] as string).replace(",", "")))
-  }
-  if (/\bSFC\b|\bsurface\b/i.test(text)) out.push(0)
-  return out
-}
-
-const PRODUCT = /^(CONVECTIVE SIGMET|G-AIRMET|AIRMET|SIGMET|CWA|PIREP|TFR)\s+(.*)$/i
-
-/** One advisory line from the brief (`G-AIRMET FZLVL | … | valid … | relevance`) into its parts. */
-export function parseAdvisory(line: string): Advisory {
-  const raw = line.trim()
-  const parts = raw.split("|").map((part) => part.trim())
-  const head = PRODUCT.exec(parts[0] ?? "")
-  const product = head ? (head[1] as string).toUpperCase() : ""
-  const hazard = head ? (head[2] as string).trim() : ""
-  const last = (parts.at(-1) ?? "").toLowerCase().replace(/\.$/, "")
-  const relevance =
-    RELEVANCES.find((r) => last === r) ??
-    RELEVANCES.find((r) => raw.toLowerCase().includes(r)) ??
-    null
-  const valid = parts.find((part) => /^valid\b/i.test(part)) ?? ""
-  const altitudes =
-    parts.length >= 3 && !/^valid\b/i.test(parts[1] ?? "") ? (parts[1] as string) : ""
-  const alts = altitudesFt(altitudes !== "" ? altitudes : raw)
-  return {
-    product,
-    hazard,
-    altitudes,
-    valid: valid.replace(/^valid\s*/i, ""),
-    relevance,
-    lowestFt: alts.length > 0 ? Math.min(...alts) : null,
-    raw,
-  }
-}
-
-export type HazardSeverity = "danger" | "warn" | "muted"
-
-/** Hazards that turn a during-flight advisory red when they reach the cruise altitude. */
-const SEVERE = /\b(CONVECTIVE|ICE|ICING|TS|THUNDERSTORMS?)\b/i
-
-/**
- * How loudly an advisory is shown. During the flight: amber, or red for
- * convection or icing at or below the cruise altitude (or at an unknown
- * altitude). Outside the flight, or when the line does not say: muted.
- */
-export function advisorySeverity(advisory: Advisory, cruiseFt?: number): HazardSeverity {
-  if (advisory.relevance !== "during flight") return "muted"
-  if (!SEVERE.test(advisory.hazard !== "" ? advisory.hazard : advisory.raw)) return "warn"
-  if (cruiseFt === undefined || advisory.lowestFt === null) return "danger"
-  return advisory.lowestFt <= cruiseFt ? "danger" : "warn"
-}
-
-const HAZARD_NAMES: Readonly<Record<string, string>> = {
-  FZLVL: "Freezing level",
-  "M-FZLVL": "Freezing level",
-  ICE: "Icing",
-  TURB: "Turbulence",
-  "TURB-LO": "Turbulence",
-  "TURB-HI": "Turbulence",
-  LLWS: "Low-level wind shear",
-  SFC_WND: "Surface wind",
-  MT_OBSC: "Mountain obscuration",
-  IFR: "IFR",
-  CONVECTIVE: "Convective",
-}
-
-/** A hazard chip's short text: `Freezing level 4,000 ft`, `SIGMET Convective tops FL290`. */
-export function advisoryLabel(advisory: Advisory): string {
-  if (advisory.hazard === "") {
-    return advisory.raw.length > 48 ? `${advisory.raw.slice(0, 47)}…` : advisory.raw
-  }
-  const name = HAZARD_NAMES[advisory.hazard.toUpperCase()] ?? advisory.hazard
-  const prefix = /SIGMET|CWA/.test(advisory.product) ? `${advisory.product} ` : ""
-  // "freezing level 4,000 ft" under a "Freezing level" name reads twice.
-  const where = advisory.altitudes.replace(/^freezing level\s*/i, "").trim()
-  return `${prefix}${name}${where !== "" ? ` ${where}` : ""}`
-}
-
-/** One "Winds per leg" line, read for display. */
-export interface WindsAloft {
-  readonly leg: number | null
-  readonly dir: number
-  readonly kt: number
-  readonly tempC: number | null
-  readonly altitudeFt: number | null
-  readonly station: string
-  /** `24` for "24-hour forecast used", or null. */
-  readonly forecastHours: number | null
-  readonly raw: string
-}
-
-/**
- * `leg 1: 320/29 -3C at 4500 ft, MSP, valid 040600Z`, and the older, wordier
- * `leg 1: 318/26, temp NA at 5,500 ft, MSP, based on 060000Z, valid 070000Z
- * (FB chi region, 24-hour forecast used)`. Null when there is no `dir/kt`.
- */
-export function parseWindsLine(line: string): WindsAloft | null {
-  const wind = /\b(\d{1,3})\s*\/\s*(\d{1,3})\b/.exec(line)
-  if (!wind) return null
-  const leg = /^\s*leg\s*(\d+)/i.exec(line)
-  const afterWind = line.slice(wind.index + wind[0].length)
-  const temp = /^[\s,]*(?:temp\s*)?([+-]?\d{1,2})\s*°?\s*C\b/i.exec(afterWind)
-  const alt = /\bat\s+([\d,]{3,6})\s*ft\b/i.exec(line)
-  const afterAlt = alt ? line.slice(alt.index + alt[0].length) : ""
-  const station = /^\s*,\s*([A-Z]{3,4})\b/.exec(afterAlt)
-  const hours = /(\d{1,2})[\s-]*(?:hour|hr|h)\b[^)]*\bforecast/i.exec(line)
-  return {
-    leg: leg ? Number(leg[1]) : null,
-    dir: Number(wind[1]),
-    kt: Number(wind[2]),
-    tempC: temp ? Number(temp[1]) : null,
-    altitudeFt: alt ? Number((alt[1] as string).replace(/,/g, "")) : null,
-    station: station ? (station[1] as string) : "",
-    forecastHours: hours ? Number(hours[1]) : null,
-    raw: line,
-  }
-}
-
-/**
- * `Winds 5,500 ft: 318° at 26 kt (MSP, 24 h forecast)`, with the temperature
- * when the line has one, or the raw line when it does not parse.
- */
-export function windsSummary(line: string): string {
-  const w = parseWindsLine(line)
-  if (w === null) return line
-  const at = w.altitudeFt !== null ? ` ${w.altitudeFt.toLocaleString("en-US")} ft` : ""
-  const dir = String(w.dir).padStart(3, "0")
-  const temp = w.tempC !== null ? `, ${w.tempC < 0 ? "−" : ""}${Math.abs(w.tempC)} °C` : ""
-  const source = [w.station, w.forecastHours !== null ? `${w.forecastHours} h forecast` : ""]
-    .filter((part) => part !== "")
-    .join(", ")
-  return `Winds${at}: ${dir}° at ${w.kt} kt${temp}${source !== "" ? ` (${source})` : ""}`
 }
 
 /** A result that arrived JSON-encoded (`"Verdict: …"`) is unwrapped once. */

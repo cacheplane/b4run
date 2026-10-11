@@ -1,0 +1,25 @@
+/* Motion: the sheet and dock transitions, and every transition and animation
+ * switched off under reduced motion. */
+
+/* Motion: subtle, and none under reduced motion. */
+.wb-sheet,
+.wb-dock {
+  transition:
+    transform var(--wb-motion),
+    opacity var(--wb-motion);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-sheet,
+  .wb-dock,
+  .wb-map .leaflet-tile,
+  .wb-button,
+  .wb-drawer,
+  .wb-navlog-table tbody tr,
+  .wb-root[data-sidebar],
+  .wb-tip[data-tip]::after {
+    transition: none;
+  }
+  .wb-drawer {
+    animation: none;
+  }
+}

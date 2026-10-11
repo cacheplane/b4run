@@ -2,8 +2,9 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { type Navlog, SAMPLE_NAVLOG } from "../lib/navlog-types"
+import type { Navlog } from "../lib/navlog-types"
 import type { RouteDraft } from "../lib/route-draft"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { Waypoint } from "../lib/waypoint-search"
 import { RouteBar, type RouteBarProps, waypointKindLabel } from "./RouteBar"
 

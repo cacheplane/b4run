@@ -1,16 +1,16 @@
 import { type ReactNode, useId } from "react"
+import { parseAdvisory, partitionAdvisories } from "../lib/advisories"
 import type { Navlog } from "../lib/navlog-types"
 import { groupByRole, type RoleEntry, type RouteStation } from "../lib/weather-roles"
 import {
   type AirportWeather,
   isPreliminary,
-  parseAdvisory,
   type WeatherBrief,
-  windsSummary,
   worstCategory,
 } from "../lib/weather-selectors"
+import { windsSummary } from "../lib/winds"
 import { RawReport } from "./RawReport"
-import { HazardChip, HorizonNote, OutsideWindowChip, partitionAdvisories } from "./VerdictCard"
+import { HazardChip, HorizonNote, OutsideWindowChip } from "./VerdictCard"
 
 export interface WeatherTabProps {
   readonly weather: WeatherBrief | null

@@ -1,12 +1,11 @@
-import { type EffectiveVerdict, raiseNote } from "../lib/verdict"
 import {
   type Advisory,
   advisoryLabel,
   advisorySeverity,
-  type HazardSeverity,
-  isPreliminary,
-  type VerdictLevel,
-} from "../lib/weather-selectors"
+  partitionAdvisories,
+} from "../lib/advisories"
+import { type EffectiveVerdict, raiseNote, type VerdictLevel } from "../lib/verdict"
+import { isPreliminary } from "../lib/weather-selectors"
 
 /**
  * The go/no-go surface. Color never stands alone: every verdict carries its
@@ -110,43 +109,6 @@ export function HazardChip({
       </span>
     </span>
   )
-}
-
-const RANK: Record<HazardSeverity, number> = { danger: 0, warn: 1, muted: 2 }
-
-/** Advisories loudest first: red, then amber, then the ones outside the flight. */
-export function sortAdvisories(
-  advisories: readonly Advisory[],
-  cruiseFt?: number,
-): readonly Advisory[] {
-  return [...advisories].sort(
-    (a, b) => RANK[advisorySeverity(a, cruiseFt)] - RANK[advisorySeverity(b, cruiseFt)],
-  )
-}
-
-/**
- * The advisories worth a chip, and the rest. A G-AIRMET repeats per forecast
- * hour and per contour, so identical labels collapse to one. Advisories that
- * expire before departure or start after arrival do not change the flight;
- * they become one quiet "N outside the flight window" chip instead of a row
- * each, so the hazards that matter are not drowned out. An advisory with no
- * relevance (an older brief) cannot be placed, so it keeps its own chip.
- */
-export function partitionAdvisories(
-  advisories: readonly Advisory[],
-  cruiseFt?: number,
-): { readonly relevant: readonly Advisory[]; readonly outside: readonly Advisory[] } {
-  const seen = new Set<string>()
-  const relevant: Advisory[] = []
-  const outside: Advisory[] = []
-  for (const advisory of sortAdvisories(advisories, cruiseFt)) {
-    const key = `${advisoryLabel(advisory)}|${advisory.relevance ?? ""}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    const quiet = advisorySeverity(advisory, cruiseFt) === "muted" && advisory.relevance !== null
-    ;(quiet ? outside : relevant).push(advisory)
-  }
-  return { relevant, outside }
 }
 
 /** One muted chip standing for every advisory outside the flight window. */

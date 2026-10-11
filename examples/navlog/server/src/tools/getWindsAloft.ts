@@ -9,24 +9,15 @@ import {
   type WindsAloftProduct,
 } from "../lib/winds-aloft.js"
 
-export const WINDS_ALOFT_REGIONS = [
-  "bos",
-  "mia",
-  "chi",
-  "dfw",
-  "slc",
-  "sfo",
-  "alaska",
-  "hawaii",
-] as const
+const WINDS_ALOFT_REGIONS = ["bos", "mia", "chi", "dfw", "slc", "sfo", "alaska", "hawaii"] as const
 export type WindsAloftRegion = (typeof WINDS_ALOFT_REGIONS)[number]
 
-export const FORECAST_HOURS = [6, 12, 24] as const
+const FORECAST_HOURS = [6, 12, 24] as const
 export type ForecastHours = (typeof FORECAST_HOURS)[number]
 
 const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/
 
-export interface ProductChoice {
+interface ProductChoice {
   readonly forecastHours: ForecastHours
   readonly window: ForUseWindow
   /** False when no product's FOR USE window contains the time. */
@@ -39,7 +30,7 @@ export interface ProductChoice {
  * longest-reaching product for a time beyond every window, the earliest for a
  * time before them. Products whose header has no FOR USE window are skipped.
  */
-export function chooseProduct(
+function chooseProduct(
   products: ReadonlyMap<ForecastHours, WindsAloftProduct>,
   at: number,
   now: number,

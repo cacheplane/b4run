@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { LEG_COLUMNS, legName, totalFor } from "./navlog-columns"
-import { SAMPLE_NAVLOG } from "./navlog-types"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 
 describe("navlog columns", () => {
   test("the fourteen figures, in paper-navlog order", () => {

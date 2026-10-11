@@ -1,6 +1,7 @@
 import type { TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
-import { type Navlog, type NavlogLeg, type NavlogWaypoint, SAMPLE_NAVLOG } from "./navlog-types"
+import type { Navlog, NavlogLeg, NavlogWaypoint } from "./navlog-types"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 import {
   groupByRole,
   latestRouteStations,
