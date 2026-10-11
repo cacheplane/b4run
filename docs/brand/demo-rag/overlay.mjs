@@ -22,15 +22,27 @@ export const OVERLAY_ROOT = join(import.meta.dirname, "app")
 export const REMOVED = Object.freeze([
   "server/src/app/navlog",
   "server/src/tools",
-  ...["awc", "fpl", "geo-filter", "geo", "navlog", "poh-tables", "wind", "winds-aloft"].map(
-    (name) => `server/src/lib/${name}.ts`,
-  ),
+  ...[
+    "awc",
+    "flight-category",
+    "fpl",
+    "geo-filter",
+    "geo",
+    "navaids",
+    "navlog",
+    "poh-tables",
+    "route-corridor",
+    "wind",
+    "winds-aloft",
+  ].map((name) => `server/src/lib/${name}.ts`),
   "server/workspace",
   ...[
     "awc",
     "corpus-sync",
     "file-flight-plan",
+    "flight-category",
     "fpl",
+    "geo-filter",
     "geo",
     "navlog",
     "poh-tables",
@@ -38,6 +50,7 @@ export const REMOVED = Object.freeze([
     "read-doc",
     "render-chart",
     "resolve-departure",
+    "route-tools",
     "weather-tools",
     "wind",
     "winds-aloft",
@@ -46,6 +59,10 @@ export const REMOVED = Object.freeze([
   // Generated route and scenario types; `b4 dev` writes them again for this app.
   "server/.b4/b4.generated.d.ts",
   "server/.b4/scenarios.generated.d.ts",
+  // The navlog layout's two halves: the overlay's `WorkbenchLayout` is one
+  // component with a source reader, and imports neither.
+  "web/app/components/DesktopWorkbench.tsx",
+  "web/app/components/PhoneWorkbench.tsx",
   // Web tests of what the overlay replaces: the navlog layout (the overlay's
   // layout has its own test), the brief kit's sync with the removed navlog
   // eval, and the CopilotKit route's navlog response schema.
@@ -68,7 +85,7 @@ export const EDITS = Object.freeze([
     count: 1,
   },
   {
-    file: "web/app/components/AppShell.tsx",
+    file: "web/app/lib/use-run-errors.ts",
     from: '"The navlog agent is not registered"',
     to: '"The compliance agent is not registered"',
     count: 1,

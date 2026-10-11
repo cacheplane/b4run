@@ -6612,9 +6612,9 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
 })
 
 test("the scripted briefs render in the Weather tab, the verdict card and the planning answer", async () => {
-  const { parseWeatherBrief, parseWindsLine } = await importTemplate("web/app/lib/weather-selectors.ts")
+  const { parseWeatherBrief } = await importTemplate("web/app/lib/weather-selectors.ts")
+  const { parseWindsLine } = await importTemplate("web/app/lib/winds.ts")
   const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
-  const { parsePlanningAnswer } = await importTemplate("web/app/lib/assistant-text.ts")
   const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
@@ -6642,22 +6642,22 @@ test("the scripted briefs render in the Weather tab, the verdict card and the pl
     assert.equal(verdict.level, "GO")
     assert.equal(verdict.raisedFrom, undefined)
 
-    const answer = parsePlanningAnswer(scenario.planAnswer)
-    assert.equal(answer.verdict?.level, "GO")
-    assert.deepEqual(
-      answer.sections.map((section) => section.title),
-      ["Watch for", "Numbers", "Assumptions"],
+    // The scripted answer is the labelled markdown the chat renders.
+    assert.match(scenario.planAnswer, /Bottom line:\s*\**GO\b/)
+    const labels = [...scenario.planAnswer.matchAll(/^\**(Watch for|Numbers|Assumptions):/gm)].map(
+      (match) => match[1],
     )
-    assert.match(answer.closing ?? "", /file the plan/)
+    assert.deepEqual(labels, ["Watch for", "Numbers", "Assumptions"])
+    assert.match(scenario.planAnswer, /file the plan/)
     assert.ok(scenario.planAnswer.split(/\s+/).length < 180)
     // The eval's guards on a planning answer.
     for (const pattern of [/\brecall\(/, /\[(completed|pending|in_progress)\]/, /reports\//, /engine-on/i]) {
       assert.doesNotMatch(scenario.planAnswer, pattern)
     }
     assert.match(scenario.planAnswer, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
-    const assumptions = answer.sections.find((section) => section.title === "Assumptions")
-    assert.match(assumptions.items.join(" "), new RegExp(scenario.departureLabel))
-    assert.match(assumptions.items.join(" "), /1 person on board assumed/)
+    const assumptions = scenario.planAnswer.slice(scenario.planAnswer.search(/^\**Assumptions:/m))
+    assert.match(assumptions, new RegExp(scenario.departureLabel))
+    assert.match(assumptions, /1 person on board assumed/)
 
     const filed = scenario.filedAnswer.split("\n")
     assert.ok(filed.length >= 2 && filed.length <= 4)
