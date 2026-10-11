@@ -1867,7 +1867,8 @@ test("stopManaged rejects when SIGKILL termination is not confirmed in time", as
   await assert.rejects(stopped, /Managed child PID 9876 did not exit within 100ms after SIGKILL/)
 })
 
-const EXPECTED_ANSWER = DEMO_PLAN_ANSWER
+// What the chat shows of the planning answer: its closing Prose, verbatim.
+const EXPECTED_ANSWER = DEMO_SCENARIO.planAnswerText
 
 /** A fixed capture clock, well clear of 1400Z: the scenario resolves "1400Z" to the same day. */
 const CAPTURE_NOW = Date.UTC(2026, 9, 8, 7, 30)
@@ -2046,7 +2047,7 @@ function orchestrationFixture({ failAt, awcHits, firstFrameEpochMs } = {}) {
             assert.equal(options.prompt, DEMO_PROMPT)
             assert.deepEqual(options.todos, DEMO_SCENARIO.todos)
             assert.deepEqual(options.tools, DEMO_PLAN_TOOLS)
-            assert.equal(options.answer, scenarioFor(awcStub.now).planAnswer)
+            assert.equal(options.answer, scenarioFor(awcStub.now).planAnswerText)
             if (failAt === "scenario") throw new Error("scenario failed")
             return { threadId: "thread-unit-1" }
           },
@@ -2218,7 +2219,7 @@ test("capture drives each app beat's action with the scenario's evidence", async
     prompt: DEMO_PROMPT,
     todos: scenario.todos,
     tools: scenario.planTools,
-    answer: scenario.planAnswer,
+    answer: scenario.planAnswerText,
   })
   assert.deepEqual(byName.showWeather, { verdict: "GO" })
   assert.deepEqual(byName.showNavlog, {
@@ -2227,7 +2228,7 @@ test("capture drives each app beat's action with the scenario's evidence", async
     airports: ["KSTP", "KRST"],
   })
   assert.deepEqual(byName.requestFiling, { prompt: DEMO_FILE_PROMPT })
-  assert.deepEqual(byName.allowOnce, { turns: 2, reply: scenario.filedAnswer })
+  assert.deepEqual(byName.allowOnce, { turns: 2, reply: scenario.filedAnswerText })
   assert.deepEqual(byName.showMemory, { content: "N738ZU has long-range tanks: 50 gal usable." })
   assert.deepEqual(byName.reloadAndRestore, {
     workbenchUrl: "http://127.0.0.1:4101",
@@ -2237,9 +2238,9 @@ test("capture drives each app beat's action with the scenario's evidence", async
       {
         prompt: DEMO_PROMPT,
         tools: ["readDoc", "recall", "resolveDeparture", "computeNavlog", "remember", "writeFile"],
-        answer: scenario.planAnswer,
+        answer: scenario.planAnswerText,
       },
-      { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: scenario.filedAnswer },
+      { prompt: DEMO_FILE_PROMPT, tools: ["fileFlightPlan"], answer: scenario.filedAnswerText },
     ],
     distanceNm: 66,
   })
@@ -3255,7 +3256,7 @@ function foldedSummaries() {
   }
 }
 
-const FILED_ANSWER = CAPTURE_SCENARIO.filedAnswer
+const FILED_ANSWER = CAPTURE_SCENARIO.filedAnswerText
 const TWO_TURN_OPTIONS = {
   workbenchUrl: RESTORE_ORIGIN,
   threadId: "thread-unit-1",
@@ -6396,6 +6397,73 @@ const SCENARIO_NOWS = [
   "2026-12-31T22:45:00.000Z",
 ].map((iso) => Date.parse(iso))
 
+/** The props of the first `name` component in a structured answer. */
+function briefProps(answer, name) {
+  const node = JSON.parse(answer).ui.find((entry) => Object.hasOwn(entry, name))
+  assert.ok(node, `the answer has a ${name}`)
+  return node[name].props
+}
+
+/** The JSON Schema keywords `jsonSchemaErrors` understands. */
+const BRIEF_SCHEMA_KEYWORDS = new Set([
+  "$schema",
+  "$defs",
+  "description",
+  "type",
+  "enum",
+  "properties",
+  "required",
+  "additionalProperties",
+  "items",
+  "anyOf",
+  "$ref",
+])
+
+/**
+ * Where `value` breaks `root`, one `<path>: <rule>` line each; empty when it
+ * matches. It understands only what the brief kit emits for OpenAI strict
+ * structured output (`brief-schema.json`): `type`, `enum`, `properties` with
+ * `required` and `additionalProperties: false`, `items`, `anyOf` and `$ref`
+ * into the root's `$defs`. Any other keyword is reported as an error, so a kit
+ * change this cannot judge fails rather than passing unchecked.
+ */
+function jsonSchemaErrors(root, value) {
+  const typeOf = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v)
+  const check = (schema, v, path) => {
+    const unknown = Object.keys(schema).filter((key) => !BRIEF_SCHEMA_KEYWORDS.has(key))
+    if (unknown.length > 0) return [`${path}: unsupported keywords ${unknown.join(", ")}`]
+    if (schema.$ref !== undefined) {
+      const target = root.$defs?.[schema.$ref.replace(/^#\/\$defs\//, "")]
+      return target === undefined ? [`${path}: unresolved ${schema.$ref}`] : check(target, v, path)
+    }
+    if (schema.anyOf !== undefined) {
+      return schema.anyOf.some((option) => check(option, v, path).length === 0)
+        ? []
+        : [`${path}: matches no anyOf branch`]
+    }
+    if (schema.type !== undefined && typeOf(v) !== schema.type) {
+      return [`${path}: expected ${schema.type}, got ${typeOf(v)}`]
+    }
+    if (schema.enum !== undefined && !schema.enum.includes(v)) {
+      return [`${path}: ${JSON.stringify(v)} is not one of ${schema.enum.join(", ")}`]
+    }
+    if (schema.type === "array") {
+      return v.flatMap((item, index) => check(schema.items ?? {}, item, `${path}[${index}]`))
+    }
+    if (schema.type !== "object") return []
+    const properties = schema.properties ?? {}
+    const errors = (schema.required ?? [])
+      .filter((key) => !Object.hasOwn(v, key))
+      .map((key) => `${path}.${key}: required`)
+    for (const [key, item] of Object.entries(v)) {
+      if (properties[key] !== undefined) errors.push(...check(properties[key], item, `${path}.${key}`))
+      else if (schema.additionalProperties === false) errors.push(`${path}.${key}: not allowed`)
+    }
+    return errors
+  }
+  return check(root, value, "$")
+}
+
 /** The scripted fixtures grouped by the thread (first user message) they answer. */
 function fixtureGroups(fixtures) {
   const groups = new Map()
@@ -6588,15 +6656,25 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
     assert.match(scenario.performanceBrief, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
     // The brief and the report quote the code's numbers, never their own.
     const answer = scenario.planAnswer
-    assert.match(answer, new RegExp(`\\b${navlog.totals.distanceNm} nm\\b`))
-    assert.match(answer, new RegExp(`ETE ${navlog.totals.eteMin} min`))
-    assert.match(answer, new RegExp(`${navlog.totals.fuelGal.toFixed(1)} gal burned`))
-    assert.match(answer, new RegExp(`${navlog.totals.fuelRemainingGal.toFixed(1)} gal at landing`))
-    const reserve = `${Math.floor(navlog.totals.reserveMin / 60)}:${String(navlog.totals.reserveMin % 60).padStart(2, "0")}`
-    assert.match(answer, new RegExp(`reserve ${reserve}\\b`))
-    assert.match(answer, new RegExp(`${navlog.aircraft.gph.toFixed(1)} GPH`))
+    const hMm = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`
+    const numbers = briefProps(answer, "KeyNumbers").items.map((item) => [
+      item.label,
+      item.value,
+      item.unit,
+    ])
+    assert.deepEqual(numbers, [
+      ["Distance", String(navlog.totals.distanceNm), "nm"],
+      ["ETE (takeoff to landing)", hMm(navlog.totals.eteMin), null],
+      [
+        "Fuel burned (includes 1.1 gal for start, taxi and takeoff)",
+        navlog.totals.fuelGal.toFixed(1),
+        "gal",
+      ],
+      ["Fuel at landing", navlog.totals.fuelRemainingGal.toFixed(1), "gal"],
+      [`Reserve at 2400 RPM, ${navlog.aircraft.gph.toFixed(1)} GPH`, hMm(navlog.totals.reserveMin), null],
+    ])
     const eta = navlog.legs.at(-1).etaUtc.slice(11, 16).replace(":", "")
-    assert.match(answer, new RegExp(`${eta}Z ETA`))
+    assert.match(briefProps(answer, "BottomLine").reason, new RegExp(`${eta}Z ETA`))
     for (const leg of navlog.legs) {
       assert.ok(
         scenario.navlogTable.includes(
@@ -6606,16 +6684,23 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
     }
     // The filed reply reads the items the tool records.
     assert.ok(formatFplMessage(navlog.flightPlan).includes(`-${navlog.flightPlan.item15}`))
-    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item15))
-    assert.ok(scenario.filedAnswer.includes(navlog.flightPlan.item16))
+    assert.ok(scenario.filedAnswerText.includes(navlog.flightPlan.item15))
+    assert.ok(scenario.filedAnswerText.includes(navlog.flightPlan.item16))
   }
 })
 
-test("the scripted briefs render in the Weather tab, the verdict card and the planning answer", async () => {
+test("the scripted briefs render in the Weather tab, the verdict card and the planning brief", async () => {
   const { parseWeatherBrief } = await importTemplate("web/app/lib/weather-selectors.ts")
   const { parseWindsLine } = await importTemplate("web/app/lib/winds.ts")
   const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
+  const { isStructuredAnswer, parseBriefAnswer, readBottomLine } = await importTemplate(
+    "web/app/brief/parse.ts",
+  )
+  const { briefPlainText } = await importTemplate("web/app/brief/plain-text.ts")
   const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
+  const briefSchema = JSON.parse(
+    await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/evals/brief-schema.json"), "utf8"),
+  )
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
     const brief = parseWeatherBrief(scenario.weatherBrief)
@@ -6642,28 +6727,89 @@ test("the scripted briefs render in the Weather tab, the verdict card and the pl
     assert.equal(verdict.level, "GO")
     assert.equal(verdict.raisedFrom, undefined)
 
-    // The scripted answer is the labelled markdown the chat renders.
-    assert.match(scenario.planAnswer, /Bottom line:\s*\**GO\b/)
-    const labels = [...scenario.planAnswer.matchAll(/^\**(Watch for|Numbers|Assumptions):/gm)].map(
-      (match) => match[1],
+    // Both answers are structured, as live runs answer under the brief kit's
+    // response schema: each matches the schema the web client sends, and the
+    // app reads it as structured (the sheet's Brief tab renders only those).
+    for (const answer of [scenario.planAnswer, scenario.filedAnswer]) {
+      assert.deepEqual(jsonSchemaErrors(briefSchema, JSON.parse(answer)), [])
+      assert.ok(isStructuredAnswer(answer))
+      assert.notEqual(parseBriefAnswer(answer), null)
+    }
+    // The planning answer is in the route's order of components, and its
+    // bottom line is read the way the verdict card reads it: whole, and while
+    // the rest of the answer still streams.
+    assert.deepEqual(
+      JSON.parse(scenario.planAnswer).ui.map((node) => Object.keys(node)[0]),
+      ["BottomLine", "RouteSummary", "WatchFor", "KeyNumbers", "Assumptions", "Citations", "Prose"],
     )
-    assert.deepEqual(labels, ["Watch for", "Numbers", "Assumptions"])
-    assert.match(scenario.planAnswer, /file the plan/)
-    assert.ok(scenario.planAnswer.split(/\s+/).length < 180)
+    assert.equal(readBottomLine(scenario.planAnswer)?.level, "GO")
+    const streamed = scenario.planAnswer.slice(0, scenario.planAnswer.indexOf('"RouteSummary"'))
+    assert.equal(readBottomLine(streamed)?.level, "GO")
+    const route = briefProps(scenario.planAnswer, "RouteSummary")
+    assert.deepEqual(
+      [route.from, route.to, route.via, route.altitudeFt],
+      ["KSTP", "KRST", [], 4500],
+    )
+    assert.equal(route.departureUtc, `${scenario.departureUtc.slice(0, 10)} 1400Z`)
+    assert.deepEqual(briefProps(scenario.planAnswer, "WatchFor").items, [])
+    // Every claim cites a listed source, every source is cited, and the ids
+    // run in first-cited order, as the route asks.
+    const citations = briefProps(scenario.planAnswer, "Citations").items
+    const cited = JSON.parse(scenario.planAnswer)
+      .ui.flatMap((node) => {
+        const props = Object.values(node)[0].props
+        return [props, ...(Array.isArray(props.items) ? props.items : [])]
+      })
+      .flatMap((props) => props.cite ?? [])
+    assert.deepEqual(
+      [...new Set(cited)],
+      citations.map((item) => item.id),
+    )
+    assert.deepEqual(
+      citations.map((item) => item.id),
+      citations.map((_, index) => `c${index + 1}`),
+    )
+    assert.ok(
+      citations.some(
+        (item) => item.source === "poh/cruise-performance.md" && item.locator === "Figure 5-7",
+      ),
+    )
+    // The METARs are cited by the observation time the stub serves.
+    const observed = new Date(demoAwcData(now).metars.KRST.obsTime * 1000)
+    const metarTime = `${observed.toISOString().slice(11, 16).replace(":", "")}Z`
+    for (const id of ["KSTP", "KRST"]) {
+      assert.ok(citations.some((item) => item.source === `METAR ${id}` && item.locator === metarTime))
+    }
+
+    // What a reader gets: the answer as the chat's Copy turns it into text.
+    const text = briefPlainText(scenario.planAnswer)
+    assert.match(text, /^Bottom line: GO\. /)
+    assert.match(text, /^Watch for: nothing during the flight$/m)
+    assert.ok(text.split(/\s+/).length < 180)
     // The eval's guards on a planning answer.
     for (const pattern of [/\brecall\(/, /\[(completed|pending|in_progress)\]/, /reports\//, /engine-on/i]) {
-      assert.doesNotMatch(scenario.planAnswer, pattern)
+      assert.doesNotMatch(text, pattern)
     }
-    assert.match(scenario.planAnswer, /\[poh\/cruise-performance\.md, Figure 5-7\]/)
-    const assumptions = scenario.planAnswer.slice(scenario.planAnswer.search(/^\**Assumptions:/m))
-    assert.match(assumptions, new RegExp(scenario.departureLabel))
-    assert.match(assumptions, /1 person on board assumed/)
+    const assumptions = briefProps(scenario.planAnswer, "Assumptions").items
+    assert.ok(assumptions.some((item) => item.statement === `Departure ${scenario.departureLabel}`))
+    assert.ok(assumptions.some((item) => /^1 person on board assumed/.test(item.statement)))
+    // Assumptions never name a file: "the aircraft baseline", not its path.
+    for (const item of assumptions) assert.doesNotMatch(item.statement, /\.md\b|\//)
+    // The chat shows the closing Prose verbatim; the capture waits for it.
+    assert.deepEqual(briefProps(scenario.planAnswer, "Prose"), {
+      markdown: scenario.planAnswerText,
+    })
+    assert.match(scenario.planAnswerText, /file the plan/)
 
-    const filed = scenario.filedAnswer.split("\n")
+    // The filing confirmation is a single Prose; its markdown is the chat's text.
+    assert.deepEqual(JSON.parse(scenario.filedAnswer), {
+      ui: [{ Prose: { props: { markdown: scenario.filedAnswerText } } }],
+    })
+    const filed = scenario.filedAnswerText.split("\n")
     assert.ok(filed.length >= 2 && filed.length <= 4)
     assert.match(filed[0], /^Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z /)
-    assert.match(scenario.filedAnswer, /does not transmit to Flight Service/)
-    assert.ok(scenario.filedAnswer.includes(scenario.departureLabel))
+    assert.match(scenario.filedAnswerText, /does not transmit to Flight Service/)
+    assert.ok(scenario.filedAnswerText.includes(scenario.departureLabel))
   }
 })
 
