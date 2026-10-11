@@ -332,9 +332,9 @@
       "recordDigest": "ca255a584cde4870d2e891ba9bd893430778565ba722735bb777289dc37a8868"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-11T02:31:23.000Z",
-      "sourceDigest": "054045e148d829a43871c4ffc846f26a9acb435e27af57a8789976862e1e4ef3",
-      "recordDigest": "6aa7f4f33a4bab42c6dedd6963ace255f906d1e6e08bd2e06971fd3bb1be4a25"
+      "lastModified": "2026-10-11T02:42:29.000Z",
+      "sourceDigest": "57e4f72e1124f0ae48d7228cc69dd608669e986c0656da3215ca52fa67651b63",
+      "recordDigest": "caae6fcf108d6ac45e2286524e5106eb317fab319ddd75c6ee7b3f2afac3dee3"
     },
     "/docs/recipes/navlog": {
       "lastModified": "2026-10-11T02:31:23.000Z",
