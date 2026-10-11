@@ -107,6 +107,10 @@ Run these in order: `build` writes the configured deployment artifacts, then
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate; the scripted runs it replays are in `navlog-quality.fixtures.ts` |
 
+Tests sit in `test/` rather than next to the code, because B4.run loads every
+`.ts` file in `src/tools/` as a tool: a test placed there would load as one.
+The web client, which has no such rule, keeps each test beside its module.
+
 ## The waypoint snapshot
 
 `lookupNavaid` reads `data/navaids.json`, and the web client's route bar

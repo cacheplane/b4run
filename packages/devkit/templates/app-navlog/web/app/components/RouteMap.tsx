@@ -1,12 +1,28 @@
 "use client"
-import type { Layer, LeafletKeyboardEvent, Map as LeafletMap, Marker, Polyline } from "leaflet"
+import type { Map as LeafletMap } from "leaflet"
 import { type RefObject, useEffect, useRef, useState } from "react"
-import { declutterLabels } from "../lib/map-label-dom"
+import { draftBounds, draftMatchesPlan } from "../lib/map/draft"
+import { declutterLabels } from "../lib/map/label-dom"
+import {
+  applyHighlight,
+  type DraftLayers,
+  drawDraft,
+  drawRoute,
+  drawStations,
+  isAnimating,
+  NO_DRAFT,
+  NO_ROUTE,
+  type RouteLayers,
+  removeDraft,
+  removeRoute,
+  removeStations,
+  type WaypointLayers,
+} from "../lib/map/layers"
+import { waypointIcon } from "../lib/map/markers"
 import type { DraftWaypoint } from "../lib/route-draft"
 import type { RouteGeometry } from "../lib/route-geometry"
 import type { RouteStation } from "../lib/weather-roles"
 import type { FlightCategory } from "../lib/weather-selectors"
-import { headingIcon, interactiveOptions, waypointIcon } from "./map-markers"
 
 export interface RouteMapProps {
   readonly geometry: RouteGeometry | null
@@ -37,68 +53,39 @@ interface LoadedMap {
   readonly map: LeafletMap
 }
 
-const cssVar = (name: string): string =>
-  getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-
-interface WaypointLayers {
-  readonly id: string
-  readonly marker: Marker
-  /** An airport: it opens the weather panel. Navaids and fixes are labels only. */
-  readonly interactive: boolean
+/** What each layer has on the map right now. SELECTED and LABELS read all three. */
+interface DrawnLayers {
+  route: RouteLayers
+  stations: readonly WaypointLayers[]
+  draft: DraftLayers
 }
 
-interface RouteLayers {
-  readonly route: readonly Polyline[]
-  readonly segments: readonly Polyline[]
-  readonly waypoints: readonly WaypointLayers[]
-  readonly headings: readonly Layer[]
-}
+/** A fresh, empty `DrawnLayers`: the effects assign its fields, so it is never shared. */
+const nothingDrawn = (): DrawnLayers => ({ route: NO_ROUTE, stations: [], draft: NO_DRAFT })
 
-const NO_LAYERS: RouteLayers = { route: [], segments: [], waypoints: [], headings: [] }
-
-const applyHighlight = (segments: readonly Polyline[], index: number | null): void => {
-  for (const [i, segment] of segments.entries()) {
-    segment.setStyle({ opacity: i === index ? 0.7 : 0 })
-  }
-}
-
-/**
- * Wire a marker to the weather panel: a click, or Enter or Space while it has
- * keyboard focus. Leaflet gives a keyboard marker `tabindex="0"` and
- * `role="button"` but no key activation of its own. The key listener is a
- * Leaflet layer event, not a DOM listener on the icon, because `setIcon`
- * (STYLE) replaces the icon element and a DOM listener would go with it.
- */
-function onActivate(marker: Marker, id: string, select: RefObject<(id: string) => void>): Marker {
-  marker.on("click", () => select.current(id))
-  marker.on("keydown", (event: LeafletKeyboardEvent) => {
-    const key = event.originalEvent
-    if (key.key !== "Enter" && key.key !== " ") return
-    key.preventDefault()
-    select.current(id)
-  })
-  return marker
-}
-
-/** True when the draft's ids are the planned route's, in order. */
-function draftMatchesPlan(
-  draft: readonly DraftWaypoint[],
-  geometry: RouteGeometry | null,
-): boolean {
-  if (geometry === null || draft.length !== geometry.markers.length) return false
-  return draft.every((waypoint, i) => waypoint.id === geometry.markers[i]?.id)
-}
-
-interface DraftLayers {
-  readonly line: readonly Polyline[]
-  readonly markers: readonly Marker[]
-}
-
-const NO_DRAFT: DraftLayers = { line: [], markers: [] }
-
-const removeAll = (layers: RouteLayers): void => {
-  for (const layer of [...layers.route, ...layers.segments, ...layers.headings]) layer.remove()
-  for (const waypoint of layers.waypoints) waypoint.marker.remove()
+/** What FIT leaves for RESIZE, so a resize can finish or repeat the last fit. */
+interface FitState {
+  /**
+   * A fit asked for while the map had no size (a hidden panel, a layout not
+   * yet laid out): fitting a 0×0 box zooms all the way in, so it waits here
+   * and RESIZE runs it once the map has a size.
+   */
+  pending: (() => void) | null
+  /**
+   * The last fit. Until the pilot touches the map, a resize (the sheet
+   * opening as the plan lands, a window narrowed to a phone and back) runs
+   * it again instead of leaving the route off-screen.
+   */
+  last: ((animate: boolean) => void) | null
+  /** Whether the pilot has moved the map since the last fit: from then on the view is theirs. */
+  userMoved: boolean
+  /**
+   * The bounds the last fit framed: only a new route animates its fit. A
+   * re-fit of the same route (new room around it as the route bar measures
+   * itself) jumps, because a second animated fit started during the first
+   * leaves Leaflet between zoom levels.
+   */
+  framed: string | null
 }
 
 /** Whether `current` holds the map that is alive now (see `liveMap` in `RouteMap`). */
@@ -109,37 +96,38 @@ function isLive(
   return current !== null && current.map === liveMap.current
 }
 
-/**
- * Whether Leaflet is mid zoom or pan animation. It has no public flag for
- * this; `_animatingZoom` and `_panAnim._inProgress` are the internal ones its
- * own handlers read.
- */
-function isAnimating(map: LeafletMap): boolean {
-  const internal = map as unknown as {
-    readonly _animatingZoom?: boolean
-    readonly _panAnim?: { readonly _inProgress?: boolean }
-  }
-  return internal._animatingZoom === true || internal._panAnim?._inProgress === true
-}
-
 /** How long a resize must be quiet before the route refits, in ms. */
 const RESIZE_SETTLE_MS = 150
 
 /**
  * The route map: it fills its panel (the right column on desktop, the Map tab
- * on phones). Leaflet is imported once, in the mount effect, so this module
- * never touches `window` on the server; `WorkbenchLayout` also loads it with
- * `next/dynamic` and `ssr: false` for the same reason. The icons come from
- * `map-markers.ts`; label placement from `declutterLabels`.
+ * on phones). Leaflet is imported once, in CREATE, so this module never
+ * touches `window` on the server; `WorkbenchLayout` also loads it with
+ * `next/dynamic` and `ssr: false` for the same reason. What each layer looks
+ * like lives in `lib/map/` (`layers.ts`, `markers.ts`); this component decides
+ * when each is drawn.
  *
- * After the mount effect (create the map) and RESIZE (re-measure, refit), the
- * effects run in this order, and the order matters: DRAW (a new route), STYLE
- * (new flight categories), STATIONS (the reporting stations), SELECTED (which
- * marker's panel is open), DRAFT (the route bar's unplanned route), FIT (a new
- * route, or new room around it; with no plan, the draft), the leg highlight,
- * and LABELS last, so it sees everything the others drew. Only FIT moves the
- * map.
- * Drawing is synchronous, with the module kept from the mount, so a route's
+ * Its effects run in this order, and the order matters:
+ *
+ * 1. CREATE: import Leaflet and make the map, once.
+ * 2. RESIZE: re-measure when the panel changes size, and run a fit that
+ *    found no size, or repeat the last fit until the pilot moves the map.
+ * 3. DRAW: the planned route, for a new route.
+ * 4. STYLE: each waypoint's flight category, in place, for a new brief.
+ * 5. STATIONS: the reporting stations near the course.
+ * 6. SELECTED: which marker's panel is open (after STYLE and STATIONS,
+ *    which replace icon elements).
+ * 7. DRAFT: the route bar's draft, when it is not the planned route.
+ * 8. FIT: frame a new route, or the same route in new room; with no plan,
+ *    the draft. Only FIT moves the map.
+ * 9. HIGHLIGHT: the leg selected in the navlog.
+ * 10. LABELS: place every label, last, so it sees what the others drew.
+ *
+ * They share three refs: `drawn` (what each layer has on the map), `fit`
+ * (what FIT leaves for RESIZE) and `liveMap` (the map alive now; each effect
+ * bails unless its map is this one).
+ *
+ * Drawing is synchronous, with the module kept from CREATE, so a route's
  * layers always exist before the fit starts its zoom animation; and a new
  * weather brief restyles the markers in place rather than redrawing them.
  * Vector layers added in the middle of a zoom animation are projected at the
@@ -157,38 +145,25 @@ export function RouteMap({
   onSelectMarker,
 }: RouteMapProps) {
   const container = useRef<HTMLElement>(null)
-  const layers = useRef<RouteLayers>(NO_LAYERS)
-  const stationLayers = useRef<readonly WaypointLayers[]>([])
-  const draftLayers = useRef<DraftLayers>(NO_DRAFT)
-  // Read through a ref, so a new callback identity never redraws a marker.
+  const drawn = useRef<DrawnLayers>(nothingDrawn())
+  const fit = useRef<FitState>({ pending: null, last: null, userMoved: false, framed: null })
+  // The latest props the markers and DRAW read, through refs, so a new
+  // callback identity or highlight never redraws a marker.
   const selectRef = useRef(onSelectMarker)
   selectRef.current = onSelectMarker
   const highlightRef = useRef<number | null>(highlightedLeg)
-  // A fit asked for while the map had no size (a hidden panel, a layout not
-  // yet laid out): fitting a 0×0 box zooms all the way in, so it waits here
-  // and RESIZE runs it once the map has a size.
-  const pendingFit = useRef<(() => void) | null>(null)
-  // The last fit, and whether the pilot has touched the map since: until they
-  // do, a resize (the sheet opening as the plan lands, a window narrowed to a
-  // phone and back) fits the route again instead of leaving it off-screen.
-  const lastFit = useRef<((animate: boolean) => void) | null>(null)
-  const userMoved = useRef(false)
-  // The bounds the last fit framed: only a new route animates its fit. A
-  // re-fit of the same route (new room around it as the route bar measures
-  // itself) jumps, because a second animated fit started during the first
-  // leaves Leaflet between zoom levels.
-  const fittedBounds = useRef<string | null>(null)
   // State, not a ref: the effects below must re-run once the map exists,
   // because the first geometry can arrive before Leaflet has loaded.
   const [leaflet, setLeaflet] = useState<LoadedMap | null>(null)
   // The map that is alive right now: set when it is created, cleared when it
   // is removed. When React re-runs every effect (Fast Refresh, dev effect
-  // re-runs), the create effect's cleanup removes the map before the other
-  // effects re-run with the state that still holds it; drawing on a removed
-  // map throws inside Leaflet ("reading 'appendChild'"). Each effect bails
+  // re-runs), CREATE's cleanup removes the map before the other effects
+  // re-run with the state that still holds it; drawing on a removed map
+  // throws inside Leaflet ("reading 'appendChild'"). Each effect bails
   // unless its map is this one.
   const liveMap = useRef<LeafletMap | null>(null)
 
+  // CREATE: the map, its controls and its tiles.
   useEffect(() => {
     let cancelled = false
     let instance: LeafletMap | null = null
@@ -223,10 +198,9 @@ export function RouteMap({
     return () => {
       cancelled = true
       if (instance !== null && liveMap.current === instance) liveMap.current = null
+      // Removing the map removes every layer on it.
       instance?.remove()
-      layers.current = NO_LAYERS
-      stationLayers.current = []
-      draftLayers.current = NO_DRAFT
+      drawn.current = nothingDrawn()
       setLeaflet(null)
     }
   }, [])
@@ -247,16 +221,16 @@ export function RouteMap({
       leaflet.map.invalidateSize({ pan: false })
       const size = leaflet.map.getSize()
       if (size.x === 0 || size.y === 0) return
-      const pending = pendingFit.current
+      const pending = fit.current.pending
       if (pending !== null) {
-        pendingFit.current = null
+        fit.current.pending = null
         pending()
         return
       }
       clearTimeout(settle)
       settle = setTimeout(() => {
-        if (!isLive(leaflet, liveMap) || userMoved.current) return
-        const refit = (): void => lastFit.current?.(false)
+        if (!isLive(leaflet, liveMap) || fit.current.userMoved) return
+        const refit = (): void => fit.current.last?.(false)
         // A fit still animating (the first fit, started before the sheet
         // opened) would land after this jump and undo it, so wait it out.
         if (isAnimating(leaflet.map)) leaflet.map.once("moveend", refit)
@@ -268,7 +242,7 @@ export function RouteMap({
     // marker): from then on the view is theirs until the next fit.
     const element = container.current
     const moved = (): void => {
-      userMoved.current = true
+      fit.current.userMoved = true
     }
     element.addEventListener("pointerdown", moved)
     element.addEventListener("wheel", moved, { passive: true })
@@ -282,52 +256,13 @@ export function RouteMap({
     }
   }, [leaflet])
 
-  // DRAW: the route, its highlight segments, the waypoints and the heading labels.
+  // DRAW: the route, its highlight segments, the waypoints and the heading pills.
   useEffect(() => {
     if (!isLive(leaflet, liveMap)) return
     const { L, map } = leaflet
-    removeAll(layers.current)
-    layers.current = NO_LAYERS
-    if (geometry === null) return
-    const points = geometry.polyline.map((p): [number, number] => [p[0], p[1]])
-    // A casing under the line keeps it legible over any tile. The colors are
-    // classes, so the `theme.css` tokens style them.
-    const route = [
-      L.polyline(points, { className: "wb-route-casing", weight: 7, interactive: false }),
-      L.polyline(points, { className: "wb-route-line", weight: 3.5, interactive: false }),
-    ].map((line) => line.addTo(map))
-    // One invisible, wider segment per waypoint pair, shown when its leg is selected in the navlog.
-    const segments = geometry.polyline.slice(1).map((to, i) => {
-      const from = geometry.polyline[i] as readonly [number, number]
-      return L.polyline(
-        [
-          [from[0], from[1]],
-          [to[0], to[1]],
-        ],
-        { color: cssVar("--wb-accent"), weight: 9, opacity: 0, interactive: false },
-      ).addTo(map)
-    })
-    const waypoints = geometry.markers.map((marker): WaypointLayers => {
-      const interactive = marker.kind === "airport"
-      const icon = waypointIcon(L, marker.id, "UNKNOWN")
-      const layer = interactive
-        ? onActivate(
-            L.marker([marker.at[0], marker.at[1]], { icon, ...interactiveOptions(marker.id) }),
-            marker.id,
-            selectRef,
-          )
-        : L.marker([marker.at[0], marker.at[1]], { icon, interactive: false, keyboard: false })
-      return { id: marker.id, marker: layer.addTo(map), interactive }
-    })
-    const headings = geometry.legLabels.map((label) =>
-      L.marker([label.at[0], label.at[1]], {
-        icon: headingIcon(L, label.text),
-        interactive: false,
-        keyboard: false,
-      }).addTo(map),
-    )
-    layers.current = { route, segments, waypoints, headings }
-    applyHighlight(segments, highlightRef.current)
+    removeRoute(drawn.current.route)
+    drawn.current.route = geometry === null ? NO_ROUTE : drawRoute(L, map, geometry, selectRef)
+    applyHighlight(drawn.current.route.segments, highlightRef.current)
   }, [leaflet, geometry])
 
   // STYLE: each waypoint's flight category, in place. It runs after DRAW in
@@ -335,36 +270,18 @@ export function RouteMap({
   useEffect(() => {
     if (!isLive(leaflet, liveMap) || geometry === null) return
     const { L } = leaflet
-    for (const waypoint of layers.current.waypoints) {
+    for (const waypoint of drawn.current.route.waypoints) {
       waypoint.marker.setIcon(waypointIcon(L, waypoint.id, categories[waypoint.id] ?? "UNKNOWN"))
     }
   }, [leaflet, geometry, categories])
 
-  // STATIONS: the reporting stations near the course, grey, labelled with
-  // their category. A station that is also a planned waypoint is the
-  // waypoint's marker already.
+  // STATIONS: the reporting stations near the course, redrawn with their
+  // categories; the route decides which ones its own waypoints already mark.
   useEffect(() => {
     if (!isLive(leaflet, liveMap)) return
     const { L, map } = leaflet
-    for (const station of stationLayers.current) station.marker.remove()
-    const planned = new Set(geometry?.markers.map((marker) => marker.id.toUpperCase()) ?? [])
-    stationLayers.current = stations
-      .filter((station) => !planned.has(station.id.toUpperCase()))
-      .map((station) => ({
-        id: station.id,
-        interactive: true,
-        marker: onActivate(
-          L.marker([station.lat, station.lon], {
-            icon: waypointIcon(L, station.id, categories[station.id] ?? "UNKNOWN", "station"),
-            ...interactiveOptions(station.id),
-            // Under the route's own markers: where a station's label meets a
-            // waypoint's, the waypoint reads on top.
-            zIndexOffset: -1000,
-          }),
-          station.id,
-          selectRef,
-        ).addTo(map),
-      }))
+    removeStations(drawn.current.stations)
+    drawn.current.stations = drawStations(L, map, stations, geometry, categories, selectRef)
   }, [leaflet, geometry, stations, categories])
 
   // SELECTED: the open panel's marker reads as expanded. After STYLE and
@@ -372,7 +289,7 @@ export function RouteMap({
   // biome-ignore lint/correctness/useExhaustiveDependencies: the route, categories and stations redraw the icons this marks
   useEffect(() => {
     if (!isLive(leaflet, liveMap)) return
-    for (const layer of [...layers.current.waypoints, ...stationLayers.current]) {
+    for (const layer of [...drawn.current.route.waypoints, ...drawn.current.stations]) {
       if (!layer.interactive) continue
       layer.marker.getElement()?.setAttribute("aria-expanded", String(layer.id === selectedMarker))
     }
@@ -384,44 +301,15 @@ export function RouteMap({
   useEffect(() => {
     if (!isLive(leaflet, liveMap)) return
     const { L, map } = leaflet
-    for (const layer of [...draftLayers.current.line, ...draftLayers.current.markers]) {
-      layer.remove()
-    }
-    draftLayers.current = NO_DRAFT
-    if (draft === null || !draftDiffers) return
-    const points = draft.map((waypoint): [number, number] => [waypoint.lat, waypoint.lon])
-    const line =
-      points.length > 1
-        ? [
-            L.polyline(points, {
-              className: "wb-route-draft",
-              weight: 2.5,
-              interactive: false,
-            }).addTo(map),
-          ]
-        : []
-    const planned = new Set(geometry?.markers.map((marker) => marker.id) ?? [])
-    const markers = draft
-      .filter((waypoint) => !planned.has(waypoint.id))
-      .map((waypoint) =>
-        L.marker([waypoint.lat, waypoint.lon], {
-          icon: waypointIcon(L, waypoint.id, "UNKNOWN", "draft"),
-          interactive: false,
-          keyboard: false,
-        }).addTo(map),
-      )
-    draftLayers.current = { line, markers }
+    removeDraft(drawn.current.draft)
+    drawn.current.draft =
+      draft !== null && draftDiffers ? drawDraft(L, map, draft, geometry) : NO_DRAFT
   }, [leaflet, geometry, draft, draftDiffers])
 
-  // What FIT frames: the planned route's bounds, or with no plan the draft's
-  // (two waypoints or more). A string, so an unchanged box never refits.
-  const draftBoundsKey =
-    geometry === null && draft !== null && draft.length > 1
-      ? JSON.stringify([
-          [Math.min(...draft.map((w) => w.lat)), Math.min(...draft.map((w) => w.lon))],
-          [Math.max(...draft.map((w) => w.lat)), Math.max(...draft.map((w) => w.lon))],
-        ])
-      : null
+  // What FIT frames with no plan: the draft's box (two waypoints or more). A
+  // string, so an unchanged box never refits.
+  const draftBox = geometry === null && draft !== null ? draftBounds(draft) : null
+  const draftBoundsKey = draftBox === null ? null : JSON.stringify(draftBox)
 
   // FIT: only for a new route or new room around it, so a new weather brief
   // never moves the map under the pilot. No animation under reduced motion.
@@ -434,8 +322,8 @@ export function RouteMap({
           ? (JSON.parse(draftBoundsKey) as RouteGeometry["bounds"])
           : null
     if (!isLive(leaflet, liveMap) || bounds === null) {
-      pendingFit.current = null
-      lastFit.current = null
+      fit.current.pending = null
+      fit.current.last = null
       return
     }
     const fitRoute = (animate = true): void => {
@@ -454,45 +342,45 @@ export function RouteMap({
         },
       )
     }
-    lastFit.current = fitRoute
-    userMoved.current = false
+    fit.current.last = fitRoute
+    fit.current.userMoved = false
     const boundsKey = JSON.stringify(bounds)
-    const isNewRoute = boundsKey !== fittedBounds.current
-    fittedBounds.current = boundsKey
+    const isNewRoute = boundsKey !== fit.current.framed
+    fit.current.framed = boundsKey
     const size = leaflet.map.getSize()
     if (size.x === 0 || size.y === 0) {
-      pendingFit.current = () => fitRoute(false)
+      fit.current.pending = () => fitRoute(false)
       return
     }
-    pendingFit.current = null
+    fit.current.pending = null
     fitRoute(isNewRoute)
   }, [leaflet, geometry, draftBoundsKey, left, top, bottom])
 
   // HIGHLIGHT: the leg selected in the navlog grid, lit on its segment.
   useEffect(() => {
     highlightRef.current = highlightedLeg
-    applyHighlight(layers.current.segments, highlightedLeg)
+    applyHighlight(drawn.current.route.segments, highlightedLeg)
   }, [highlightedLeg])
 
-  // LABELS: after every draw (this effect is last, so it sees what the others
-  // drew) and every zoom, each marker's label goes where it collides with no
-  // other label, dot or heading pill: right, else left, else hidden until the
-  // marker is hovered or focused. One pass per frame.
-  const labelFrame = useRef<number | null>(null)
+  // LABELS: after every render (this effect is last, so it sees what the
+  // others drew) and every zoom, each marker's label goes where it collides
+  // with no other label, dot or heading pill: right, else left, else hidden
+  // until the marker is hovered or focused. One pass per frame.
   useEffect(() => {
     if (!isLive(leaflet, liveMap)) return
+    let frame: number | null = null
     const schedule = (): void => {
-      if (labelFrame.current !== null) return
-      labelFrame.current = requestAnimationFrame(() => {
-        labelFrame.current = null
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
         // Mid-zoom the markers are not where they will land; the zoom's end
         // schedules another pass.
         if (!isLive(leaflet, liveMap) || isAnimating(leaflet.map)) return
         declutterLabels({
-          waypoints: layers.current.waypoints,
-          stations: stationLayers.current,
-          drafts: draftLayers.current.markers,
-          headings: layers.current.headings,
+          waypoints: drawn.current.route.waypoints,
+          stations: drawn.current.stations,
+          drafts: drawn.current.draft.markers,
+          headings: drawn.current.route.headings,
         })
       })
     }
@@ -500,8 +388,7 @@ export function RouteMap({
     leaflet.map.on("zoomend moveend", schedule)
     return () => {
       leaflet.map.off("zoomend moveend", schedule)
-      if (labelFrame.current !== null) cancelAnimationFrame(labelFrame.current)
-      labelFrame.current = null
+      if (frame !== null) cancelAnimationFrame(frame)
     }
   })
 

@@ -60,6 +60,12 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 | Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate; the scripted runs it replays are in `navlog-quality.fixtures.ts` |
 
+The tests live in `test/`, named for what they cover (`src/lib/wind.ts` is tested in
+`test/wind.test.ts`), not beside the code: B4.run loads every `.ts` file in
+`src/tools/` as a tool, so a test file there would be loaded as one, and a
+single `test/` folder keeps the rule the same for `src/lib/`. The web client
+keeps its tests next to its modules instead; see its README.
+
 ## The waypoint snapshot
 
 `lookupNavaid` reads `data/navaids.json`, and the web client's route bar

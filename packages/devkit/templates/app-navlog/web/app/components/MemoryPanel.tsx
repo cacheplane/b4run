@@ -1,9 +1,9 @@
 "use client"
 import { type Ref, useEffect, useRef } from "react"
+import { neutralButton, primaryButton } from "../lib/buttons"
 import type { MemoryCandidate } from "../lib/memory-candidates"
 import { useMemoryCandidates } from "../lib/use-memory-candidates"
 import { Icon } from "./icons"
-import { neutralButton, primaryButton } from "./ui"
 
 /**
  * The memory candidates the agent has proposed, and the two decisions on them.

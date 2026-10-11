@@ -29,8 +29,8 @@ import { type BriefActions, BriefActionsContext, BriefMarkdownContext } from "..
 import { isStructuredAnswer } from "../brief/parse"
 import { briefPlainText } from "../brief/plain-text"
 import { stripToolEchoes } from "../lib/assistant-text"
+import { neutralButton } from "../lib/buttons"
 import { isAwaitingApproval } from "../lib/navlog-selectors"
-import { neutralButton } from "./ui"
 
 /**
  * The image types the chat attaches: the ones OpenAI's vision input takes.

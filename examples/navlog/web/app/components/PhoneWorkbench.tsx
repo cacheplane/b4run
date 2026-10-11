@@ -9,12 +9,12 @@ import {
   useRef,
   useState,
 } from "react"
+import { type SheetControl, SheetControlContext } from "../lib/sheet-control"
 import { useHydrated } from "../lib/use-hydrated"
 import { Drawer } from "./Drawer"
 import { Icon, type IconName } from "./icons"
 import { NavlogSheet } from "./NavlogSheet"
 import { SideNav } from "./SideNav"
-import { type SheetControl, SheetControlContext } from "./sheet-control"
 import { Wordmark } from "./Wordmark"
 import type { WorkbenchViewProps } from "./WorkbenchLayout"
 

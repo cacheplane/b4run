@@ -40,7 +40,7 @@ scroll (the connect screen scrolls itself on a short viewport).
   markers are buttons: clicking one opens a panel in the map's corner with the id, the
   category now and at ETA, and the raw METAR and TAF from the weather brief (Escape
   or the close button dismisses it); navaid markers are labels only. Labels never
-  sit on each other or on another marker's dot (`app/lib/map-labels.ts`): each goes
+  sit on each other or on another marker's dot (`app/lib/map/labels.ts`): each goes
   right of its dot, else left of it, else it hides until the marker is hovered or
   focused. The route's own waypoints always keep their labels; stations and draft
   points give way. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
@@ -329,7 +329,11 @@ those.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites:
+`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites. Each test sits
+next to the module it covers (`route-draft.ts` and `route-draft.test.ts`), and the
+modules split two ways: React components in `app/components/`, everything else
+(selectors, hooks, contexts, class helpers) in `app/lib/`, with the route map's
+Leaflet layers, marker icons and label placement together in `app/lib/map/`.
 
 - **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search, thread
   access and admin routes, the allowlist and the proxy guards.
@@ -341,8 +345,9 @@ those.
   `BriefRenderer`, plus the brief contract (`app/lib/brief-contract.test.ts`) and the
   verdict (`app/lib/verdict.test.ts`).
 - **Map and sheet:** the navlog and weather selectors, route geometry, label
-  collision placement (`app/lib/map-labels.test.ts`), `RouteMap` itself over a fake
-  Leaflet (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
+  collision placement (`app/lib/map/labels.test.ts`), the route map's markers, layers
+  and draft rules (`app/lib/map/`), `RouteMap` itself over a fake Leaflet
+  (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
   marker panel, the route bar and its draft, the waypoint search ranking, formatting,
   the navlog grid, table and sheet, the Weather tab and its role grouping, the verdict
   card and the flight plan block.

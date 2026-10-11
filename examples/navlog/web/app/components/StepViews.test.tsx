@@ -4,9 +4,9 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
+import { SheetControlContext } from "../lib/sheet-control"
 import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { ChartStepView, NAVLOG_STEP_RENDERERS, NavlogStepView } from "./StepViews"
-import { SheetControlContext } from "./sheet-control"
 
 function step(extra: Partial<ToolStep> & Pick<ToolStep, "name">): ToolStep {
   return { kind: "tool", id: "call_1", status: "done", args: "{}", startedAt: 0, ...extra }
