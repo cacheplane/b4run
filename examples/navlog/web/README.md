@@ -193,11 +193,14 @@ one path, and the browser never reads thread state itself. The thread list
 
 The list and the threads' ownership live in different places: the list in this
 browser's storage, ownership in the visitor cookie. Clear the cookie and the list still
-names threads the server now refuses to the new visitor. So before a titled thread
-opens, the page asks `GET /api/threads/:id` (`app/api/threads/[id]/route.ts`, through
-`checkThreadAccess` in `app/lib/thread-access.ts`), which answers 204 or 404 and nothing
-else, and a 404 removes the thread from the list and opens the next one. Only a 404
-counts: a server error or a rate-limit refusal keeps the row.
+names threads the server now refuses to the new visitor. So when a titled thread is
+opened (on load, or picked in the sidebar), the page asks `GET /api/threads/:id`
+(`app/api/threads/[id]/route.ts`, through `useForgetRefusedThread` in
+`app/lib/use-forget-refused-thread.ts`), which answers 204 or 404 and nothing else, and a
+404 removes the thread from the list and opens the next one. Only a 404 counts: a
+server error or a rate-limit refusal keeps the row. A thread that gains its title while
+open is not asked about: its first message titles it before the run has created it on
+the server.
 
 To try it locally, run both packages with the same `B4_INTERNAL_TOKEN` (so each visitor
 is its own principal; without it one local principal owns every thread and nothing is
