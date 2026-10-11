@@ -191,6 +191,21 @@ media, and a parked approval. A restored thread and a live one therefore render 
 one path, and the browser never reads thread state itself. The thread list
 (`app/lib/thread-source.ts`) keeps only ids, titles and recency in `localStorage`.
 
+The list and the threads' ownership live in different places: the list in this
+browser's storage, ownership in the visitor cookie. Clear the cookie and the list still
+names threads the server now refuses to the new visitor. So before a titled thread
+opens, the page asks `GET /api/threads/:id` (`app/api/threads/[id]/route.ts`, through
+`checkThreadAccess` in `app/lib/thread-access.ts`), which answers 204 or 404 and nothing
+else, and a 404 removes the thread from the list and opens the next one. Only a 404
+counts: a server error or a rate-limit refusal keeps the row.
+
+To try it locally, run both packages with the same `B4_INTERNAL_TOKEN` (so each visitor
+is its own principal; without it one local principal owns every thread and nothing is
+ever refused), plan a route, then in the browser's DevTools open Application → Cookies
+and delete `__Host-b4_visitor`. Reload: opening the old thread removes it. To start over
+completely, use Application → Storage → **Clear site data**, which clears the cookie
+and the `b4.workbench.threads` list together.
+
 A thread with no checkpoint yet (a brand-new one) restores as an empty chat, not an
 error. What a restore does not bring back: drop notices (they come from stream-only
 events), and a user image the adapter dropped (it never reached the checkpoint).
@@ -218,7 +233,10 @@ browser may reach — three of them:
 Anything else — a path that is not listed, or a listed path with the wrong method — is
 rejected with **403** and never forwarded. Thread history is not on the list: the
 runner reads it server to server. Running, resuming, and cancelling a thread go through
-CopilotKit's own runtime route.
+CopilotKit's own runtime route. The one thing the page learns about a thread directly
+is whether it may open it, from `app/api/threads/[id]/route.ts`, which reads
+`GET /threads/:id` server to server and passes back only the status (see
+[Thread history](#thread-history)).
 
 ## Memory review
 
@@ -313,9 +331,9 @@ those.
 
 `pnpm --filter @b4-example/navlog-web test` runs the Vitest suites:
 
-- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search and
-  admin routes, the allowlist and the proxy guards.
-- **Shell and chat:** the thread source and thread rail, the sidenav and its
+- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search, thread
+  access and admin routes, the allowlist and the proxy guards.
+- **Shell and chat:** the thread source, the thread access check and the thread rail, the sidenav and its
   remembered state, the chat (attachments, echo stripping, approval gating), the
   step views, drop notices, the connect screen, the memory panel, media parts, the
   shell's thread-switch and server-probe behaviour, and the desktop and phone layouts.
@@ -357,7 +375,8 @@ against the [live demo](https://navlog-web.vercel.app).
   (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer
-  know their ids.
+  know their ids. Clearing only the cookie leaves rows the server refuses; each is
+  removed when opened (see [Thread history](#thread-history)).
 - **Restores replay stored events.** Only what the checkpoint stores comes back:
   messages, the turns (plan, subagents, tool steps), attachments and tool media, and a
   parked approval. Notices for parts the model never saw do not return.

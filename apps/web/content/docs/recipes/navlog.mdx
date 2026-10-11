@@ -88,7 +88,7 @@ browser
   ← streamed events: text, tool steps, the plan, an approval card
 ```
 
-The client's other calls go through small, allowlisted proxies: `/api/b4` for memory review and `/api/waypoints` for route autocomplete.
+The client's other calls go through small, guarded routes: `/api/b4` for memory review, `/api/waypoints` for route autocomplete, and `/api/threads/:id`, which says whether the server will open a remembered thread for this visitor.
 
 ### The server
 

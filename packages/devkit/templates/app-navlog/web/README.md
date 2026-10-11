@@ -147,6 +147,7 @@ npm run build --workspace web
 | Server proxy | `app/api/b4/[...path]/route.ts` | forwards the three memory routes to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
 | Thread list | `app/lib/thread-source.ts` | the sidenav's ids, titles and recency (restoring a thread is the runner's replay) |
+| Thread access | `app/api/threads/[id]/route.ts`, `app/lib/thread-access.ts` | whether the server will open a remembered thread for this visitor; a refused one is forgotten |
 | Theme | `app/theme.css`, `app/styles/` | the palette as CSS variables in `styles/tokens.css`, one stylesheet per part of the app |
 
 ## Restyling it
@@ -243,8 +244,14 @@ caller.
   so the sidenav keeps its own list in `localStorage` (`app/lib/thread-source.ts`).
   The list is not shared across browsers, devices, or profiles, and clearing
   site data clears it — the server still holds the conversations, but this
-  client no longer knows their ids. Two tabs open at once can also clobber each
-  other's list, because the store does read-modify-write with no merge.
+  client no longer knows their ids. Clearing only the visitor cookie leaves
+  rows the server now refuses: before a titled thread opens, the page asks
+  `GET /api/threads/:id` (204 or 404, nothing else) and removes a refused one.
+  To try that locally, run both packages with the same `B4_INTERNAL_TOKEN`,
+  plan a route, delete the `__Host-b4_visitor` cookie in DevTools and reload;
+  Application → Storage → Clear site data starts over completely. Two tabs open
+  at once can also clobber each other's list, because the store does
+  read-modify-write with no merge.
 - **Restores replay stored events.** Switching back to a thread replays what
   the checkpoint stores as the AG-UI events a live run would have sent:
   messages, the turns (plan, subagents, tool steps), attachments and tool media,

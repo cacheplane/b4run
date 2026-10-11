@@ -3,6 +3,7 @@ import { CopilotChatConfigurationProvider, CopilotKit } from "@copilotkit/react-
 import { useCallback, useEffect, useState } from "react"
 import { AppShell } from "./components/AppShell"
 import { DemoSuggestions } from "./components/DemoSuggestions"
+import { checkThreadAccess } from "./lib/thread-access"
 import {
   createLocalThreadSource,
   type ThreadSource,
@@ -70,6 +71,27 @@ export default function Home() {
     setThreads(source.list())
     setActiveThreadId(created.id)
   }, [source, threads, activeThreadId])
+
+  // A thread this browser remembers but the server no longer serves to this
+  // visitor (the visitor cookie was cleared) is forgotten when it is opened,
+  // and the next one opens instead. Only a thread with a title is asked about:
+  // an untitled one has never run, so the server has no record of it yet.
+  // See `lib/thread-access.ts`.
+  const activeTitled = threads.some(
+    (thread) => thread.id === activeThreadId && thread.title !== undefined,
+  )
+  useEffect(() => {
+    if (source === null || activeThreadId === undefined || !activeTitled) return
+    const controller = new AbortController()
+    void checkThreadAccess(activeThreadId, controller.signal).then((access) => {
+      if (access !== "refused" || controller.signal.aborted) return
+      source.remove(activeThreadId)
+      const next = source.list()[0] ?? source.create()
+      setThreads(source.list())
+      setActiveThreadId(next.id)
+    })
+    return () => controller.abort()
+  }, [source, activeThreadId, activeTitled])
 
   const handleSelect = useCallback((threadId: string) => {
     setActiveThreadId(threadId)
