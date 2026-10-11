@@ -1,12 +1,15 @@
 "use client"
 import { type PointerEvent, useCallback, useEffect, useRef, useState } from "react"
-import { dropIndex } from "./drop-index"
+import { dropIndex, edgeScrollSpeed } from "./drag-geometry"
 
 /** A drag under way: the pill being moved, where it would land, how far it has travelled. */
 export interface PillDrag {
   readonly from: number
   readonly to: number
-  /** The pointer's horizontal travel since the press, in px: the pill follows it. */
+  /**
+   * The pill's horizontal travel since the press, in px, counting any scroll
+   * of the row since then: the pill follows it and stays under the pointer.
+   */
   readonly dx: number
 }
 
@@ -30,10 +33,23 @@ interface Session {
   readonly startY: number
   readonly pill: HTMLElement
   timer: ReturnType<typeof setTimeout> | undefined
-  /** The pills' horizontal middles, measured when the drag began. */
+  /** The auto-scroll loop's next frame, while a drag is under way. */
+  frame: number | undefined
+  /**
+   * The pills' horizontal middles when the drag began, in the row's content
+   * coordinates (scroll included), so they hold while the row scrolls.
+   */
   centers: readonly number[] | null
+  /** Where the press was, in the same content coordinates. */
+  startContentX: number
+  /** The pointer's latest clientX: auto-scroll moves the row under a still pointer. */
+  lastX: number
   to: number
 }
+
+/** A client x as an x in the row's scrolled content. */
+const contentX = (list: HTMLElement, clientX: number): number =>
+  clientX - list.getBoundingClientRect().left + list.scrollLeft
 
 /**
  * Drag a pill along a row to a new place: the route bar's waypoint order.
@@ -44,6 +60,10 @@ interface Session {
  * to rest on the pill first ({@link HOLD_MS}): moving straight away scrolls
  * the row, as it always did. Escape, or the browser taking the gesture
  * (`pointercancel`), drops nothing.
+ *
+ * A route longer than the bar scrolls. Held near either end of the row, the
+ * dragged pill scrolls it, faster the closer it is to the edge
+ * (`edgeScrollSpeed`), so it can reach a place that started out of view.
  *
  * The hook only reports: `drag` while one is under way (the caller previews
  * it), and `onMove` once, on drop. Give the row `listRef`, and each pill the
@@ -62,6 +82,7 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
     session.current = null
     if (current === null) return
     clearTimeout(current.timer)
+    if (current.frame !== undefined) cancelAnimationFrame(current.frame)
     if (current.pill.hasPointerCapture(current.pointerId)) {
       current.pill.releasePointerCapture(current.pointerId)
     }
@@ -71,17 +92,52 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
     }
   }, [])
 
-  const begin = useCallback((current: Session): void => {
-    const pills = listRef.current?.querySelectorAll<HTMLElement>(":scope > li") ?? []
-    current.centers = [...pills].map((pill) => {
-      const rect = pill.getBoundingClientRect()
-      return rect.left + rect.width / 2
-    })
-    if (!current.pill.hasPointerCapture(current.pointerId)) {
-      current.pill.setPointerCapture(current.pointerId)
-    }
-    setDrag({ from: current.from, to: current.from, dx: 0 })
+  // Where the pill would land and how far it has travelled, from the
+  // pointer's latest position and the row's current scroll.
+  const update = useCallback((current: Session): void => {
+    const list = listRef.current
+    if (list === null || current.centers === null) return
+    const x = contentX(list, current.lastX)
+    current.to = dropIndex(x, current.centers, current.from)
+    setDrag({ from: current.from, to: current.to, dx: x - current.startContentX })
   }, [])
+
+  // One frame of auto-scroll, then the next, for as long as the drag lasts.
+  const autoScroll = useCallback(
+    (current: Session): void => {
+      const list = listRef.current
+      if (list === null || session.current !== current) return
+      const box = list.getBoundingClientRect()
+      const speed = edgeScrollSpeed(current.lastX, box.left, box.right)
+      if (speed !== 0) {
+        const before = list.scrollLeft
+        list.scrollLeft = before + speed
+        if (list.scrollLeft !== before) update(current)
+      }
+      current.frame = requestAnimationFrame(() => autoScroll(current))
+    },
+    [update],
+  )
+
+  const begin = useCallback(
+    (current: Session): void => {
+      const list = listRef.current
+      if (list === null) return
+      const box = list.getBoundingClientRect()
+      const pills = list.querySelectorAll<HTMLElement>(":scope > li")
+      current.centers = [...pills].map((pill) => {
+        const rect = pill.getBoundingClientRect()
+        return rect.left - box.left + list.scrollLeft + rect.width / 2
+      })
+      current.startContentX = contentX(list, current.startX)
+      if (!current.pill.hasPointerCapture(current.pointerId)) {
+        current.pill.setPointerCapture(current.pointerId)
+      }
+      setDrag({ from: current.from, to: current.from, dx: 0 })
+      current.frame = requestAnimationFrame(() => autoScroll(current))
+    },
+    [autoScroll],
+  )
 
   // A finger held still on a pill, then moved, would scroll the row: once the
   // drag has begun, its touchmove is cancelled. React's touch handlers are
@@ -107,8 +163,15 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [drag, end])
 
-  // A drag cut short by an unmount leaves no timer behind.
-  useEffect(() => () => clearTimeout(session.current?.timer), [])
+  // A drag cut short by an unmount leaves no timer or frame behind.
+  useEffect(
+    () => () => {
+      clearTimeout(session.current?.timer)
+      const frame = session.current?.frame
+      if (frame !== undefined) cancelAnimationFrame(frame)
+    },
+    [],
+  )
 
   const pillHandlers = (index: number) => ({
     onPointerDown: (event: PointerEvent<HTMLElement>): void => {
@@ -122,7 +185,10 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
         startY: event.clientY,
         pill: event.currentTarget,
         timer: undefined,
+        frame: undefined,
         centers: null,
+        startContentX: 0,
+        lastX: event.clientX,
         to: index,
       }
       session.current = current
@@ -136,8 +202,8 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
     onPointerMove: (event: PointerEvent<HTMLElement>): void => {
       const current = session.current
       if (current === null || current.pointerId !== event.pointerId) return
-      const dx = event.clientX - current.startX
-      const travelled = Math.hypot(dx, event.clientY - current.startY)
+      current.lastX = event.clientX
+      const travelled = Math.hypot(event.clientX - current.startX, event.clientY - current.startY)
       if (current.centers === null) {
         if (current.pointerType === "touch") {
           // Moving before the hold is up is a scroll, not a drag.
@@ -147,8 +213,7 @@ export function usePillReorder({ onMove }: PillReorderOptions) {
         if (travelled < MOUSE_SLOP) return
         begin(current)
       }
-      current.to = dropIndex(event.clientX, current.centers ?? [], current.from)
-      setDrag({ from: current.from, to: current.to, dx })
+      update(current)
     },
     onPointerUp: (event: PointerEvent<HTMLElement>): void => {
       if (session.current?.pointerId === event.pointerId) end(true)

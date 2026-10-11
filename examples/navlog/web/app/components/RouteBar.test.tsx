@@ -515,6 +515,41 @@ describe("RouteBar reorder", () => {
       expect(pills()).toEqual(["SNS", "KSBA", "KPAO"])
     })
 
+    test("held near the end of an overflowing row, the pill scrolls it and lands past the fold", async () => {
+      // Frames on the fake clock, so the auto-scroll loop advances with it.
+      vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+        setTimeout(() => callback(performance.now()), 16),
+      )
+      vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id))
+      try {
+        render()
+        await addWaypoints("KPAO", "SNS", "KSBA", "KSNS")
+        const [first] = layOut()
+        // A 250px window onto the 400px row of pills: 150px of it scroll.
+        const list = container.querySelector('ol[aria-label="Waypoints"]') as HTMLOListElement
+        let scrollLeft = 0
+        Object.defineProperty(list, "scrollLeft", {
+          get: () => scrollLeft,
+          set: (value: number) => {
+            scrollLeft = Math.max(0, Math.min(150, value))
+          },
+        })
+        list.getBoundingClientRect = () => new DOMRect(0, 0, 250, 32)
+        pointer(first as HTMLLIElement, "pointerdown", 50)
+        pointer(first as HTMLLIElement, "pointermove", 245)
+        // Without scrolling, x = 245 would land the pill third.
+        await act(async () => {
+          vi.advanceTimersByTime(1000)
+        })
+        expect(scrollLeft).toBe(150)
+        expect(drafts.at(-1)?.waypoints.map((w) => w.id)).toEqual(["SNS", "KSBA", "KSNS", "KPAO"])
+        pointer(first as HTMLLIElement, "pointerup", 245)
+        expect(pills()).toEqual(["SNS", "KSBA", "KSNS", "KPAO"])
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
     test("the × removes its pill without starting a drag", async () => {
       render()
       await addWaypoints("KPAO", "SNS")

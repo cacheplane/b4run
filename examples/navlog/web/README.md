@@ -69,7 +69,8 @@ scroll (the connect screen scrolls itself on a short viewport).
   Enter, Tab or space adds the highlighted match, so `KPAO SNS KSBA` typed with spaces
   builds the route; Backspace in an empty input removes the last pill. Drag a pill to
   reorder the route (on a touch screen, hold it first), or focus its identifier and
-  press ArrowLeft, ArrowRight, Home or End (`app/lib/use-pill-reorder.ts`). Each waypoint
+  press ArrowLeft, ArrowRight, Home or End (`app/lib/use-pill-reorder.ts`); a pill held
+  near either end of a long route scrolls the row. Each waypoint
   draws on the map at once, dashed while the draft differs from the planned route, and
   a drag previews its new order on the map before the drop.
   Plan sends one ordinary chat message, such as `Plan KPAO → SNS (VORTAC) → KSBA at
