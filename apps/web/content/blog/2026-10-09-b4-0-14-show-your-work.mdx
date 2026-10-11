@@ -45,6 +45,8 @@ The runtime evaluates `display` for every call and streams it to AG-UI clients a
 
 ## Render the activity
 
+![navlog's chat during a run: plain-language steps, the weather and performance subagents each collapsed to one line, and an approval card asking to file N734ST from KPAO to KSBA, beside the route map and navlog.](/blog/2026-10-09-b4-0-14-show-your-work/navlog-activity.webp)
+
 On the client, `@b4run/ag-ui/react` is now an activity kit. It renders each turn as one block: a summary line, the steps, the plan, the reasoning, and each subagent with its own steps nested inside. Wrap CopilotKit's stock chat in `B4Activity` and spread the slots onto it:
 
 ```tsx
