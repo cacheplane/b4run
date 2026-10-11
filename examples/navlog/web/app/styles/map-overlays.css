@@ -33,16 +33,29 @@
   flex: 0 1 auto;
   gap: 4px;
   min-width: 0;
-  margin: 0;
-  padding: 0;
+  /*
+   * Room inside the scrolling row for the insertion line beside the first and
+   * last pills and for the dragged pill's ring, which the row would clip;
+   * the negative margin keeps the bar's height and alignment.
+   */
+  margin: -4px 0;
+  padding: 4px 3px;
   overflow-x: auto;
   list-style: none;
   scrollbar-width: none;
 }
 
+/*
+ * A pill drags to a new place in the route (`usePillReorder`): a grab cursor,
+ * and no text selection or long-press callout to fight the hold on a phone.
+ */
 .wb-routebar-pill {
+  position: relative;
   display: inline-flex;
   flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  -webkit-touch-callout: none;
   align-items: center;
   gap: 2px;
   height: var(--wb-routebar-control);
@@ -54,6 +67,59 @@
 
 .wb-routebar-pill-navaid {
   background: var(--wb-accent);
+}
+
+/* The pill being dragged follows the pointer along the row, ringed so it reads as held. */
+.wb-routebar-pill[data-dragging] {
+  z-index: 1;
+  cursor: grabbing;
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+  transform: translateX(var(--wb-drag-dx, 0));
+}
+
+/*
+ * Where the dragged pill would land: a cobalt line in the gap beside this
+ * pill, drawn over the dragged pill when that passes across it, with a white
+ * edge so it still reads over a cobalt navaid pill.
+ */
+.wb-routebar-pill[data-drop]::after {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+  outline: 1px solid var(--wb-surface);
+  background: var(--wb-accent);
+  content: "";
+}
+
+.wb-routebar-pill[data-drop="before"]::after {
+  left: -4px;
+}
+
+.wb-routebar-pill[data-drop="after"]::after {
+  right: -4px;
+}
+
+/* The id is a button (the keyboard's grip), drawn as the pill's plain label. */
+.wb-routebar-grip {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: inherit;
+}
+
+/*
+ * Inside a pill the focus ring is white: the cobalt ring would vanish on a
+ * navaid's cobalt pill.
+ */
+.wb-routebar-pill .wb-focus:focus-visible {
+  outline-color: var(--wb-surface);
+  outline-offset: 1px;
 }
 
 .wb-routebar-id {
