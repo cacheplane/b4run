@@ -31,6 +31,8 @@ Let's dive in.
 
 [Hashbrown](https://hashbrown.dev) renders an assistant's reply as UI. Its client sends a JSON Schema as `hashbrown.responseSchema` on every run, and the final message must match it.
 
+![navlog's final answer rendered from its response schema: a Watch for list with severities, key numbers for distance, time and fuel, and assumptions the pilot can change.](/blog/2026-09-23-b4-0-12-the-answer-the-user-sees/navlog-brief.webp)
+
 Before 0.9, `POST /agui/:routeId` accepted that field and quietly ignored it. The client thought its schema was honored, right up until a reply failed to parse.
 
 Now the runtime either applies the schema or rejects the run. On an `agent` route, the schema is bound on the root model as the provider's native structured output: OpenAI's `response_format` or Anthropic's `output_config.format`. Tool-calling turns are untouched, and only the answering turn is constrained.
