@@ -1,0 +1,139 @@
+/* Blog architecture diagrams: inline SVG drawn on an 8px grid, 664 units wide
+   (the reading column's width, so a diagram renders at 1:1 on a desktop). On
+   a narrow screen the figure scrolls sideways rather than shrinking its text. */
+
+.figure {
+  margin: 32px 0 40px;
+}
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-rule);
+  background: var(--color-surface);
+}
+.svg {
+  display: block;
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+}
+.caption {
+  margin-top: 12px;
+  max-width: var(--prose-max);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--color-ink-muted);
+}
+.caption strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* Zones: a tier or lane of the system. */
+.zone {
+  fill: none;
+  stroke: var(--color-rule-strong);
+  stroke-width: 1;
+}
+.zoneLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  fill: var(--color-ink-muted);
+}
+.zoneDot {
+  fill: var(--color-relay);
+}
+
+/* Boxes: what a part is (see the legend on each diagram). */
+.app {
+  fill: var(--color-page);
+  stroke: var(--color-rule-strong);
+}
+.b4 {
+  fill: var(--color-relay-tint);
+  stroke: var(--color-rule-strong);
+}
+.lib {
+  fill: var(--color-surface-sunk);
+  stroke: var(--color-rule-strong);
+}
+.ext {
+  fill: var(--color-page);
+  stroke: var(--color-ink-muted);
+  stroke-dasharray: 4 4;
+}
+.accent {
+  fill: var(--color-relay);
+}
+.gate {
+  fill: var(--color-warn-tint);
+  stroke: var(--color-warn);
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--color-ink);
+}
+.line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--color-ink-muted);
+}
+.code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  fill: var(--color-ink);
+}
+.note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--color-relay-ink);
+}
+.warnText {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--color-warn);
+}
+
+.arrow {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.5;
+}
+.arrowDashed {
+  fill: none;
+  stroke: var(--color-ink-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+.leader {
+  fill: none;
+  stroke: var(--color-rule-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.head {
+  fill: var(--color-ink-muted);
+}
+.arrowLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--color-ink);
+}
+.arrowLabelBg {
+  fill: var(--color-surface);
+}
+.label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  fill: var(--color-ink);
+}
+.legendText {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  fill: var(--color-ink-muted);
+}

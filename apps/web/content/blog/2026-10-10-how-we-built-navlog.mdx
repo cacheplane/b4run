@@ -1,0 +1,672 @@
+---
+title: "How we built navlog, a flight-planning agent"
+description: "A tour of navlog, our VFR flight planner for a Cessna 172N: the agent, the tools that do the math, the map, and the open source it runs on."
+date: 2026-10-10
+tags: [typescript, agents, patterns]
+type: post
+author: brian
+---
+
+import {
+  NavlogFilesDiagram,
+  NavlogRunDiagram,
+  NavlogStackDiagram,
+  NavlogViewsDiagram,
+} from "../../app/components/blog/diagrams/NavlogDiagrams"
+
+Learn how navlog, a flight-planning agent for a Cessna 172N, is built with B4.run, CopilotKit, hashbrown, Leaflet and live weather from aviationweather.gov.
+
+I love aviation. I love flying, I love the gear, and I love the planning that comes before a flight.
+
+If you've ever planned a VFR cross-country the traditional way, you know the routine. Pull the weather. Pull the winds aloft. Open the Pilot's Operating Handbook to Section 5 and run your finger down the cruise table. Spin the E6B. Fill in a navlog, one leg at a time: true course, wind correction angle, magnetic heading, groundspeed, time, fuel. Then do it again when the winds change. ✈️
+
+I've also spent the last year building B4.run, a TypeScript framework for agents. So I did what any developer with a pilot's checklist and a framework does: I built the tool I wanted.
+
+It's called **navlog**. You type a route, such as `KPAO SNS KSBA`, and it briefs the live weather, looks up performance in the 1978 172N POH, computes the navlog in code, answers with a go/no-go brief, and files a flight plan only when you ask, and only after a person approves.
+
+You can [fly it right now](https://navlog-web.vercel.app). The source is in [`examples/navlog`](https://github.com/cacheplane/b4run/tree/main/examples/navlog), and `npm create b4-app -- --template navlog` gives you your own copy.
+
+<Callout type="warning" title="Not for navigation">
+Navlog is a learning tool, not a flight-planning service. The weather is live, but the airport and navaid data is a dated community snapshot. Never use it to plan a real flight. Your CFI would agree.
+</Callout>
+
+This is a long one. Grab a coffee, or a hundred-dollar hamburger. 🍔
+
+## Goals
+
+This article is for TypeScript developers who want to build agents with B4.run. You don't need to know how to fly. Navlog is the example, and the patterns carry over to any agent that looks things up, computes something that has to be right, and asks before it acts. We'll:
+
+1. Look at the architecture from the browser down to the weather service.
+2. Thank the open-source projects that do the heavy lifting.
+3. Walk through the server: the agent route, its tools, subagents, memory and approvals.
+4. Walk through the web client: the CopilotKit route, the structured brief, and the map and sheet.
+5. Look at how it's tested and deployed.
+6. Share the squawks we found along the way.
+
+If you'd rather skim, the diagrams tell most of the story. If you're an agent reading this to learn the codebase, every file path below is real. Start at `examples/navlog/README.md`.
+
+## The big picture
+
+Navlog is two packages. `server/` is a B4.run app, and `web/` is a Next.js app that talks to it over [AG-UI](https://docs.ag-ui.com).
+
+<NavlogStackDiagram />
+
+A few things to note:
+
+- **The browser never sees a key.** The OpenAI key lives on the server, and the browser only ever talks to the web app's own route handlers.
+- **One run, many views.** The chat, the brief, the map and the navlog sheet all read the same stream of events. There's no second API for "give me the navlog."
+- **The math is code.** The model decides *what* to look up and *when*. Twelve tools and a folder of plain TypeScript decide every number the pilot reads.
+- **Everything is a file.** The route, its subagents, its memory, its plan and its tools are files in `server/src`. We'll see why that matters in a minute.
+
+## Thank you, open source
+
+Before we taxi out, credit where it's due. Navlog is a small amount of our code sitting on top of a lot of other people's excellent work. Here's the crew:
+
+| Project | What it does in navlog |
+| --- | --- |
+| [LangChain](https://js.langchain.com) and [LangGraph](https://langchain-ai.github.io/langgraphjs/) | B4.run's agent routes run on LangChain's `createAgent`, with LangGraph checkpoints under every thread. |
+| [OpenAI](https://platform.openai.com) `gpt-5-mini` | The model behind the coordinator and both subagents. |
+| [AG-UI](https://docs.ag-ui.com) | The event protocol between the agent and the browser. |
+| [CopilotKit](https://www.copilotkit.ai) | The chat, the runtime route, and the React hooks the workbench reads the run through. |
+| [hashbrown](https://hashbrown.dev) | Renders the model's structured answer as React components, while it streams. |
+| [pretable](https://pretable.ai) | The virtualized navlog grid with its pinned Leg column. (Disclosure: this one's ours too.) |
+| [Leaflet](https://leafletjs.com) and [OpenStreetMap](https://www.openstreetmap.org/copyright) | The map, and the tiles under it. © OpenStreetMap contributors. |
+| [aviationweather.gov](https://aviationweather.gov/data/api/) | METARs, TAFs, winds aloft, G-AIRMETs and SIGMETs from NOAA's Aviation Weather Center. No key required. Thank you, NOAA. |
+| [OurAirports](https://ourairports.com/data/) | Public-domain airport and navaid data for the route bar and `lookupNavaid`. |
+
+And one more: the performance tables come from Cessna's 1978 172N Pilot's Operating Handbook, Section 5. We transcribed the figures by hand. Yes, by hand. Yes, there are tests.
+
+## The server: the filesystem is the app
+
+B4.run's core idea is that an agent app has a shape, and the shape is a directory. If you've used the Next.js App Router, this will feel familiar. Here's navlog's server, and what B4.run makes of each file:
+
+<NavlogFilesDiagram />
+
+Let's quickly review the shape:
+
+- `src/app/navlog/index.ts` is a route. It's addressed as `/navlog`, and the agent is its default export.
+- Everything next to `index.ts` adds a capability to that route: `plan.md` turns on planning, `memory.ts` turns on typed long-term memory, `skills/` adds skills, and each folder under `subagents/` becomes a subagent the route can dispatch with `task()`.
+- Every `.ts` file in `src/tools` is a tool. Its default export is the function, and its input type is its schema.
+- `src/lib` is ordinary TypeScript. B4.run doesn't touch it, which is exactly why the math lives there.
+
+Ok, let's dive in. 🏄
+
+## The coordinator route
+
+Here's the route that runs the show, `server/src/app/navlog/index.ts`. I've trimmed the system prompt; the full one is worth a read.
+
+```ts
+// server/src/app/navlog/index.ts
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  // A plan fans out: baseline + recall → plan → two subagents → compute → brief. That
+  // legitimately exceeds LangGraph's default 25 super-steps.
+  recursionLimit: 100,
+  description:
+    "A VFR flight planner for a Cessna 172N: briefs weather, looks up POH performance, computes the navlog in code, and files a flight plan on request.",
+  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+  systemPrompt: `You are a VFR flight-planning assistant for a Cessna 172N. Given a request:
+
+1. Start by calling \`readDoc({ path: "aircraft/c172n.md" })\` and \`recall({ query: "pilot aircraft overrides and preferences" })\` together. …
+2. Parse the request into departure, destination, optional waypoints, cruise altitude, departure time (UTC) and people on board. … Call \`resolveDeparture({ departure })\` with it exactly as given … Never work out a date or hours ahead yourself.
+3. Record the legs as todos.
+4. Call \`lookupAirport\` for each airport, and \`lookupNavaid\` for each navaid …
+5. Call \`findRouteStations\` with the waypoint identifiers in route order …
+6. Dispatch \`task({ subagent: "weather", … })\` and \`task({ subagent: "performance", … })\`. …
+7. Call \`computeNavlog\` with the waypoints, the altitude, departureUtc as the departure time, the aircraft from step 1 … and one wind entry per leg from the weather brief. Never do navigation arithmetic yourself.
+…`,
+})
+```
+
+There's a lot packed in there:
+
+- `model: "gpt-5-mini"` is the whole model configuration. B4.run's LangChain adapter handles the provider, retries and streaming.
+- `recursionLimit: 100` exists because a real plan is long. Two parallel subagents, a dozen tool calls, a structured answer: LangGraph's default of 25 steps runs out somewhere over Iowa.
+- `tools.deny` removes the built-in shell. A flight planner has no business running `rm`.
+- `tools.approve` puts `fileFlightPlan` behind a person. More on `allowAlways: false` shortly.
+- The prompt reads like a checklist, and that's on purpose. Pilots fly checklists because memory fails under load. So do models.
+
+Notice the phrase that shows up three times: *never do it yourself*. Never work out a date. Never do navigation arithmetic. That's the most important design decision in navlog, so let's look at it next.
+
+## Rule number one: the model never does the math
+
+A language model is a wonderful briefer and a terrible calculator. Ask it for a wind correction angle and you'll get a confident number. Sometimes it's even right.
+
+So navlog has one tool that owns every number on the navlog, `computeNavlog`:
+
+```ts
+// server/src/tools/computeNavlog.ts
+import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
+import { computeNavlog, type Navlog, type NavlogInput } from "../lib/navlog.js"
+
+/**
+ * Compute the navlog in code: great-circle legs, magnetic courses, the wind
+ * triangle, POH climb and cruise figures, time, fuel, reserve and the ICAO
+ * flight plan. Pass the waypoints from lookupAirport and lookupNavaid and the
+ * winds from getWindsAloft; never estimate these numbers yourself.
+ */
+export default async (input: NavlogInput, _ctx: B4ToolContext): Promise<Navlog> =>
+  computeNavlog(input)
+
+export const display = {
+  icon: "tool",
+  running: ({ waypoints }) =>
+    `Computing the navlog for ${waypoints.length - 1} leg${waypoints.length === 2 ? "" : "s"}`,
+  done: (_input, log) =>
+    `Computed the navlog: ${log.totals.distanceNm} nm, ${log.totals.eteMin} min, ${log.totals.fuelGal} gal, reserve ${Math.round(log.totals.reserveMin)} min`,
+  sources: (log) => log.sources.map((source) => ({ title: `${source.figure} (${source.path})` })),
+} satisfies ToolDisplay<NavlogInput, Navlog>
+```
+
+Let's break that down:
+
+- The default export is the tool. Its first parameter's type, `NavlogInput`, becomes the JSON schema the model calls it with. B4.run's typegen reads the type, so there's no Zod schema to keep in sync with the function.
+- The doc comment is the tool's description. It's the model's manual, so it says what to pass and what *not* to do.
+- The tool is three lines. The real work is in `src/lib/navlog.ts`, a pure function with no model and no network. That's what makes it testable.
+- `display` says how a call reads to a person. The chat shows "Computed the navlog: 66 nm, 33 min, 5.5 gal, reserve 380 min" instead of a JSON blob, with chips for the POH figures it used.
+
+### What's inside (the short version)
+
+I'll spare you ground school. `src/lib/navlog.ts` turns waypoints, winds and the airplane into legs: great-circle distance and course, the wind triangle, the POH's climb and cruise tables, time, fuel, reserve and the ICAO flight plan. It's a pure function with no model and no network. The POH tables are transcribed into TypeScript in `src/lib/poh-tables.ts`, and a test keeps them equal to the Markdown copies the agent reads and cites.
+
+The part worth stealing isn't the aviation. It's the split. The model chooses what to look up and when, and calls `computeNavlog`. The numbers come from a function with unit tests, not from a prompt with a prayer. If your agent quotes prices, computes tax, or schedules shifts, you have a `computeNavlog` too.
+
+## Talking to the weather
+
+The weather tools call the [Aviation Weather Center's Data API](https://aviationweather.gov/data/api/), which is free and keyless. A tiny client in `src/lib/awc.ts` caches responses for five minutes, so a run that asks for the same report twice makes one request.
+
+Here's a typical tool. `getMetar` fetches the current observation for a list of airports and returns the fields the agent needs, plus the raw report so the brief can quote it:
+
+```ts
+// server/src/tools/getMetar.ts
+/** Current METAR for one or more stations, parsed, with the raw observation. */
+export default async (
+  input: { readonly ids: readonly string[] },
+  ctx: B4ToolContext,
+): Promise<Metar[]> => {
+  const ids = input.ids.map((id) => id.trim().toUpperCase()).join(",")
+  const records = await awc.getJson<AwcMetar[]>("metar", { ids }, ctx.signal)
+  return records.map((record) => ({
+    id: record.icaoId,
+    observedAt: record.reportTime ?? "",
+    flightCategory: record.fltCat ?? "UNKNOWN",
+    windDirDeg: num(record.wdir),
+    windKt: record.wspd ?? null,
+    visibilityMi: num(record.visib),
+    ceilingFt: ceilingOf(record.clouds),
+    // …
+    raw: record.rawOb,
+  }))
+}
+
+export const display = {
+  icon: "web",
+  running: ({ ids }) => `Fetching METARs for ${ids.join(", ").toUpperCase()}`,
+  done: (_input, metars) =>
+    `Fetched METARs: ${metars.map((m) => `${m.id} ${m.flightCategory}`).join(", ")}`,
+} satisfies ToolDisplay<{ readonly ids: readonly string[] }, Metar[]>
+```
+
+Notice `ctx.signal`. B4.run hands every tool the run's `AbortSignal`, so pressing Stop in the chat cancels the HTTP request too.
+
+## Time is hard
+
+Want to know the bug that taught me the most? It was about time.
+
+A pilot types "tomorrow 1500Z". In one run, the coordinator kept "1500Z" and dropped "tomorrow", so the navlog planned for today while the weather subagent briefed tomorrow. Two agents, two different flights. In another, the model worked out that tomorrow at 1500Z was 39 hours away. It wasn't. 🤦
+
+The fix is the same rule again: don't let the model do arithmetic, including arithmetic on dates. So there's a tool whose only job is to turn the pilot's words into an instant:
+
+```ts
+// server/src/tools/resolveDeparture.ts
+/**
+ * Resolve the pilot's departure time once, before anything uses it: an ISO
+ * 8601 UTC instant, a UTC clock time such as 1500Z (its next occurrence), or
+ * "tomorrow 1500Z" / "today 1500Z". Pass departureUtc, never the pilot's words,
+ * to the weather subagent and to computeNavlog, so both plan for the same
+ * instant. Never work out a date or an hours-ahead figure yourself.
+ */
+export default async (
+  input: { readonly departure: string },
+  _ctx: B4ToolContext,
+): Promise<ResolvedDeparture> => {
+  const departure = parseUtcInstant(input.departure)
+  const hoursAhead = Math.round(((departure.getTime() - Date.now()) / 3_600_000) * 10) / 10
+  return { departureUtc: departure.toISOString(), hoursAhead }
+}
+```
+
+Everything downstream gets `departureUtc`, never the pilot's words. The forecast tools follow the same idea: they take an instant and do the date math themselves, so the model never has to.
+
+If there's a single lesson in this article, it's this one. **Every time the model got a number wrong, the fix was to move that number into code.**
+
+## Subagents with their own job
+
+Weather and performance are independent, so the coordinator dispatches them in parallel. Each is a folder under `subagents/`, with its own agent definition:
+
+```ts
+// server/src/app/navlog/subagents/performance/index.ts
+import { agent } from "@b4run/sdk"
+
+export default agent({
+  model: "gpt-5-mini",
+  description:
+    "Looks up Cessna 172N POH performance for the actual fields: takeoff and landing distances, the cruise row to use, and climb figures, with figure citations.",
+  // A subagent sees every authored tool by default; allow only re-adds
+  // withheld capability tools. Deny the weather subagent's tools and the
+  // parent's, so each child does its own job and nothing else.
+  tools: {
+    allow: ["readDoc", "lookupAirport"],
+    deny: [
+      "getMetar",
+      "getTaf",
+      "getWindsAloft",
+      "getAdvisories",
+      // … the parent's tools …
+      "computeNavlog",
+      "fileFlightPlan",
+      "runBash",
+      "writeFile",
+      "editFile",
+    ],
+  },
+  systemPrompt: `You are a performance planner for a Cessna 172N. …
+- Cite every number as [poh/<file>.md, Figure N]. Never invent a number the tables do not support.`,
+})
+```
+
+That comment is a squawk we found the hard way. A subagent sees every tool the app authors unless you deny it, and `allow` only adds back B4.run's withheld built-ins. Our first eval recording showed the "separate" weather and performance subagents could each reach the other's tools. Now each has an explicit deny list, and each does one job.
+
+The weather subagent returns a fixed format (a verdict line, then airports, winds, advisories and a note) because the web client parses it. A subagent's answer is just text to its parent, so if a UI needs to read it, give it a shape.
+
+## Memory that a person reviews
+
+Pilots have preferences. "My airplane is N738ZU, I cruise at 2400 RPM, and I carry 50 gallons." Navlog remembers that with B4.run's typed memory:
+
+```ts
+// server/src/app/navlog/memory.ts
+import { defineMemory } from "@b4run/sdk"
+import { z } from "zod"
+
+export default defineMemory({
+  kind: "semantic",
+  scope: ["workspace", "route"],
+  schema: z.object({
+    subject: z.string().describe("'aircraft', 'pilot', or an airport identifier such as 'KSTP'"),
+    predicate: z.string().describe("Attribute, e.g. 'tail_number', 'cruise_rpm', 'prefers'"),
+    value: z.string().describe("The value as stated, without its unit, e.g. 'N52817' or '2300'"),
+  }),
+})
+```
+
+This file generates two tools, `remember` and `recall`, typed by the Zod schema. The coordinator's first step is to `recall` the pilot's overrides in parallel with reading the aircraft baseline.
+
+Here's the safety bit. In `b4.config.ts`, memory writes are candidates:
+
+```ts
+// server/b4.config.ts (abridged)
+memory: {
+  // Keep durable writes reviewable: remember() creates candidates until a
+  // developer runs `npm run memory:approve -- <id>`.
+  writes: "candidate",
+  ...(embedder ? { vector: { embedder } } : {}),
+  ...(databaseUrl
+    ? { store: pgvectorMemoryStore({ connectionString: databaseUrl, dimensions: 1536 }) }
+    : {}),
+},
+```
+
+On a public demo, you don't want one visitor teaching the agent that every 172 holds 90 gallons. A candidate sits in the workbench's Memory panel until the owner approves it. Locally, it's SQLite with keyword recall and zero setup. On the live demo, it's Postgres with pgvector and vector recall. Same code, one `if`.
+
+## Ask before you file
+
+Filing a flight plan is the one action with consequences, so it's the one action behind a person. In the route:
+
+```ts
+tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
+```
+
+`approve` makes the runtime interrupt the run before every call and wait. The chat shows an approval card that reads like "The agent wants to file N734ST KSTP to KRST." That sentence comes from the tool's own `display.running`, written as an infinitive on purpose.
+
+`allowAlways: false` removes the "Always allow" button. Every filing asks, every time. No standing rule can skip it. Here's the tool:
+
+```ts
+// server/src/tools/fileFlightPlan.ts (abridged)
+/**
+ * Record an ICAO flight plan in the workspace. This writes the FPL message to
+ * flight-plans/; it does not transmit to a filing service. The route approves
+ * every call (tools.approve with allowAlways: false), so a person confirms each
+ * filing before anything is written; no standing "Always allow" can skip it.
+ */
+export default async (
+  input: { readonly flightPlan: FlightPlan },
+  ctx: B4ToolContext,
+): Promise<FiledFlightPlan> => {
+  const plan = input.flightPlan
+  const dof = plan.item18.replace(/^DOF\//, "")
+  const departure = plan.item13.slice(0, 4)
+  const destination = plan.item16.slice(0, 4)
+  // These become a workspace path, so they must be exactly what the FPL items say they are.
+  if (!/^\d{6}$/.test(dof)) throw new Error(`item 18 must carry DOF/YYMMDD, got "${plan.item18}"`)
+  // …
+  const path = `flight-plans/${dof}-${departure}-${destination}.txt`
+  await ctx.fs.writeFile(path, `${formatFplMessage(plan)}\n`)
+  return { status: "recorded", path, transmitted: false }
+}
+
+export const display = {
+  icon: "write",
+  // An infinitive: the approval card reads "The agent wants to <running>".
+  running: ({ flightPlan }) =>
+    `File ${flightPlan.item7} ${flightPlan.item13.slice(0, 4)} to ${flightPlan.item16.slice(0, 4)}`,
+  done: (_input, out) => `Recorded the flight plan at ${out.path} (not transmitted)`,
+} satisfies ToolDisplay<{ readonly flightPlan: FlightPlan }, FiledFlightPlan>
+```
+
+A few things to note:
+
+- The flight plan comes from `computeNavlog`, not the model. The agent passes it through; it doesn't write it.
+- The tool validates anything that becomes a path. Model input is user input.
+- `transmitted: false` is in the return type. It records the plan in the workspace. It doesn't call Flight Service, and the prompt tells the model to say so.
+
+## One run, end to end
+
+Now that we've met every piece, here's how they fly together on a single request:
+
+<NavlogRunDiagram />
+
+Read the right-hand lane top to bottom: `readDoc`, `resolveDeparture`, the lookups, the weather and POH tools, `computeNavlog`, and finally a write behind an approval. Every number the pilot sees comes out of that lane. The coordinator decides the order and writes the words.
+
+## The web: a CopilotKit route with a twist
+
+On the web side, the chat uses [CopilotKit](https://www.copilotkit.ai). The browser talks to a Next.js route handler, and the route handler talks to B4.run over AG-UI with `B4HttpAgent` from `@b4run/ag-ui`:
+
+```ts
+// web/app/api/copilotkit/[...path]/route.ts (abridged)
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import {
+  CopilotRuntime,
+  createCopilotRuntimeHandler,
+  InMemoryAgentRunner,
+} from "@copilotkit/runtime/v2"
+import { briefJsonSchema } from "../../../brief/kit"
+
+const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3002"
+const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
+
+const agent = new B4HttpAgent({
+  url: agUiUrl,
+  responseSchema: briefJsonSchema,
+})
+
+const handler = createCopilotRuntimeHandler({
+  runtime: new CopilotRuntime({
+    agents: { default: agent },
+    runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url }),
+  }),
+  basePath: "/api/copilotkit",
+})
+```
+
+Let's review:
+
+- `createB4AgentRunner` restores a thread on reload by replaying the server's stored events. Close the tab mid-plan, come back, and the steps are still there.
+- `responseSchema: briefJsonSchema` is the twist. Every run asks B4.run to bind a JSON Schema on the model as structured output. The final answer isn't Markdown. It's UI.
+
+On the server, one line allows it, for one key, on one route:
+
+```ts
+// server/b4.config.ts
+server: {
+  agui: { clientForwardedProps: { "/navlog": ["responseSchema"] } },
+},
+```
+
+## The brief: structured UI with hashbrown
+
+A pilot doesn't want an essay. They want the bottom line, what to watch for, the key numbers, and where those numbers came from. So the answer is a list of components, declared with [hashbrown](https://hashbrown.dev)'s schema language:
+
+```ts
+// web/app/brief/schema.ts (abridged)
+import { s } from "@hashbrownai/core"
+
+const cite = s.array(
+  "Ids of the Citations entries that back this claim, such as c1. Empty when nothing needs citing.",
+  s.string("A Citations id"),
+)
+
+const bottomLineProps = {
+  level: s.enumeration("The go/no-go call for the flight as planned.", ["GO", "CAUTION", "NO-GO"]),
+  reason: s.string("One sentence: why that call, in plain words."),
+  cite,
+}
+
+const watchForProps = {
+  items: s.array(
+    "What the pilot should watch during the flight, most serious first. Empty when nothing applies.",
+    s.object("One thing to watch", {
+      what: s.string("The hazard or concern, in one short sentence."),
+      when: s.anyOf([s.string("When it applies, in UTC, such as 2100Z–0300Z."), s.nullish()]),
+      severity: s.enumeration("How much it matters to this flight.", ["info", "caution", "danger"]),
+      cite,
+    }),
+  ),
+}
+```
+
+Every description is written for the model, because the model reads them. There's no React in this file, so the server route can import it too. `kit.ts` turns the definitions into the JSON Schema we just sent:
+
+```ts
+// web/app/brief/kit.ts
+import { createUiJsonSchema } from "@hashbrownai/core"
+import { briefDefinitions } from "./schema"
+
+export const briefJsonSchema: Readonly<Record<string, unknown>> = createUiJsonSchema({
+  components: briefDefinitions,
+})
+```
+
+And the browser pairs each definition with a React component, then renders the answer as it streams in:
+
+```tsx
+// web/app/brief/BriefRenderer.tsx (abridged)
+const KIT_OPTIONS = { components: briefComponents }
+
+function StructuredAnswer({ content, idPrefix }: BriefRendererProps) {
+  const uiKit = useUiKit(KIT_OPTIONS)
+  const { value, error } = useJsonParser(content, uiKit.schema)
+  // …
+  if (value === undefined) return null
+  let rendered: ReactNode
+  try {
+    rendered = uiKit.render(value)
+  } catch {
+    // hashbrown validates a fully streamed answer; one that fails is shown as text.
+    return <Markdown content={content} />
+  }
+  return (
+    <CitationsContext.Provider value={citations}>
+      <div className="wb-answer">{rendered}</div>
+    </CitationsContext.Provider>
+  )
+}
+```
+
+hashbrown's `useJsonParser` parses partial JSON, so the Bottom Line card appears while the Key Numbers are still streaming. Each claim carries `cite: ["c1"]`, which renders as a numbered marker linked to its source: a POH figure, or the METAR it came from. If the answer isn't JSON at all, it falls back to Markdown. Graceful degradation, the aviation way: always have an alternate.
+
+### Trust, but verify
+
+The weather subagent is told the rules: NO-GO for IFR at either end, CAUTION for gusts over 20 knots, and so on. But a prompt is a request, not a guarantee. So the web client enforces a floor in code:
+
+```ts
+// web/app/lib/verdict.ts
+/**
+ * Three sources make a call, and the page shows the WORST of them:
+ *
+ * 1. The weather subagent's brief, its "Verdict:" line, judged on the weather alone.
+ * 2. The planning answer's bottom line.
+ * 3. The verdict floor: the weather rules and the same reserve rule,
+ *    enforced in code against the brief's data and the navlog.
+ *
+ * Nothing ever lowers a call: a model that judged the weather worse than
+ * these rules can see keeps its call.
+ */
+const RANK: Readonly<Record<VerdictLevel, number>> = { GO: 0, CAUTION: 1, "NO-GO": 2 }
+
+export function worseLevel(a: VerdictLevel, b: VerdictLevel): VerdictLevel {
+  return RANK[a] >= RANK[b] ? a : b
+}
+```
+
+The model can make a call more cautious. It can never make one less cautious than the data allows. That's the right asymmetry for anything that says "GO."
+
+## From events to instruments
+
+Here's the part of the web client I'm proudest of. The map, the navlog sheet, the weather tab and the brief never fetch anything. They read the same run the chat is rendering:
+
+<NavlogViewsDiagram />
+
+The `B4Activity` kit from `@b4run/ag-ui/react/copilotkit` reduces the AG-UI stream into turns, with each tool call as a step and each subagent as a nested turn. Pure selectors then find what each instrument needs:
+
+```tsx
+// web/app/components/ThreadWorkbench.tsx (abridged)
+const { turns } = useB4ActivityContext()
+const navlogRef = latestNavlogResult(turns)
+const navlogText = navlogRef?.result
+const navlog = useMemo(
+  () => (navlogText === undefined ? null : parseNavlog(navlogText)),
+  [navlogText],
+)
+const weatherText = latestWeatherBriefText(turns)
+const weatherBrief = useMemo(
+  () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
+  [weatherText],
+)
+```
+
+Notice the selectors return *strings*, and the parse is memoized on the string. The turns are rebuilt on every streamed event, hundreds per plan. If we parsed afresh each time, the map would get a new `Navlog` object per token, and Leaflet would refit the route on every token. Ask me how I know. A tool result's text never changes once it arrives, so keying on it gives exactly one object per computation.
+
+`latestNavlogResult` itself is a plain recursive search through the turns, newest first, descending into subagent turns:
+
+```ts
+// web/app/lib/navlog-selectors.ts
+function findToolResult(
+  turn: TurnView,
+  name: string,
+  accept: (result: string) => boolean,
+): ToolResultRef | null {
+  for (let i = turn.steps.length - 1; i >= 0; i--) {
+    const step: StepView | undefined = turn.steps[i]
+    if (step === undefined) continue
+    if (step.kind === "subagent") {
+      const nested = findToolResult(step.turn, name, accept)
+      if (nested !== null) return nested
+    } else if (
+      step.kind === "tool" &&
+      step.name === name &&
+      step.status === "done" &&
+      step.result !== undefined &&
+      accept(step.result)
+    ) {
+      return { id: step.id, result: step.result }
+    }
+  }
+  return null
+}
+```
+
+No React, no network, easy to test. Replan with a different altitude, and the newest `computeNavlog` wins everywhere at once.
+
+### The map and the sheet
+
+The map is [Leaflet](https://leafletjs.com) over [OpenStreetMap](https://www.openstreetmap.org/copyright) tiles, with airports colored by the weather brief and the route drawn from the navlog's legs.
+
+The navlog sheet is a [pretable](https://pretable.ai) grid with the Leg column pinned. Both are ordinary React components. All they need is the `Navlog` object the selector hands them.
+
+## Testing without a key
+
+The whole test suite runs without an OpenAI key. There are three layers:
+
+1. **Unit tests** for everything in `src/lib` and `app/lib`: the navlog math, the weather-brief parser, the verdict floor and every selector.
+2. **Evals** in `src/app/navlog/evals/` that drive the real route with scripted model turns (`script()` from `@b4run/testing`). The tools really run, and the eval checks that the brief agrees with the navlog the tools computed. `npm run eval -- --live` runs the same cases against the real model.
+3. **Browser journeys** in the repository's harness, which scaffold a fresh copy of the template and click through it in Chromium.
+
+The evals also check the shape of the answer. For example, a planning answer must never contain an echoed `recall(` call, a todo status, or a workspace path:
+
+```ts
+// server/src/app/navlog/evals/navlog-quality.eval.ts
+const NEVER_IN_ANSWER: readonly { readonly what: string; readonly pattern: RegExp }[] = [
+  { what: "an echoed recall( call", pattern: /\brecall\(/ },
+  { what: "a todo status", pattern: /\[(completed|pending|in_progress)\]/ },
+  { what: "a reports/ path", pattern: /reports\// },
+  { what: "an aircraft/ path", pattern: /aircraft\// },
+  { what: "engine-on (ETE is takeoff to landing)", pattern: /engine-on/i },
+]
+```
+
+Each of those patterns is a mistake a real run made once. Now it's a regression test. 😆
+
+## Deploying it
+
+The live demo runs in two places:
+
+- **The server** runs on Railway: `b4 build`, then `main.mjs`, which loads the build and swaps in Postgres for threads and checkpoints when `DATABASE_URL` is set.
+- **The web app** runs on Vercel, with one important setting:
+
+```json
+{
+  "functions": {
+    "app/api/copilotkit/[...path]/route.ts": { "maxDuration": 800 }
+  }
+}
+```
+
+A full plan streams for several minutes: two subagents, a dozen weather calls and a structured answer. Vercel's default function limit cut the stream off partway, and the chat sat on "Working…" forever. The fix was one number in `vercel.json`.
+
+## Squawks from the flight test
+
+Every new airplane has a squawk list. Here's ours, the problems we found building navlog, so you don't have to:
+
+- **The model did the math.** Dates, forecast windows, arithmetic. Each time, the fix was a tool. See "Time is hard."
+- **Subagents saw everything.** Authored tools are visible to every subagent unless denied. Give each subagent an explicit deny list.
+- **Big tool results got offloaded.** B4.run moves large tool outputs to the workspace and leaves a stub, which hid the navlog from the workbench. `toolOutput.offloadThresholdChars: 12000` keeps a navlog inline.
+- **The map refit on every token.** Memoize parsed tool results on their text.
+
+## Fly it yourself
+
+Try the [live demo](https://navlog-web.vercel.app) first. Type `KPAO SNS KSBA` in the route bar, set 5,500 feet and a departure time, and press **Plan**. Then ask it to file and watch the approval card.
+
+To run it locally, you'll need Node.js 24, pnpm and an OpenAI key:
+
+```bash
+git clone https://github.com/cacheplane/b4run.git
+cd b4run
+pnpm install
+pnpm build
+cd examples/navlog
+cp server/.env.example server/.env   # set OPENAI_API_KEY
+pnpm dev                             # server on :3002, web on :3010
+```
+
+Or start your own app from it:
+
+```bash
+npm create b4-app@latest my-navlog -- --template navlog
+```
+
+Want to make it yours? Swap the airplane. The aircraft lives in `server/workspace/aircraft/` and the performance tables in `server/workspace/poh/` and `server/src/lib/poh-tables.ts`. A Piper Archer, a Cirrus, a Bonanza: the agent doesn't care, as long as the tables are right and the tests agree.
+
+The docs go deeper: [the navlog overview](/docs/recipes/navlog), [building the flight planner](/docs/recipes/flight-planner) and [building its web UI](/docs/recipes/flight-planner-web-ui).
+
+## Conclusion
+
+Navlog started as "I want this tool." It turned into the best test of B4.run we've built: a coordinator route, two subagents with their own tools, typed memory with review, a planning checklist, an approval gate, and structured UI.
+
+If I had to boil it down to one idea, it'd be this: **let the model brief, let the code compute, and let a person approve.** That's not just how you build a flight planner. It's how you build most agents worth trusting.
+
+Huge thanks to everyone behind the projects in the crew table. None of this exists without you.
+
+Now go plan a flight. Blue skies and tailwinds. ✈️
