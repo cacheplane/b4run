@@ -1,5 +1,5 @@
 import type { Layer, Marker } from "leaflet"
-import { type LabelCandidate, placeLabels, type Rect } from "./map-labels"
+import { type LabelCandidate, placeLabels, type Rect } from "./labels"
 
 /**
  * The DOM half of label placement: measure the route map's rendered markers,

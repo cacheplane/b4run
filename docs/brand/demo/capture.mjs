@@ -970,7 +970,9 @@ export function isThreadConnectResponse(response, { origin, threadId }) {
  * one-turn thread passes `prompt`, `tools` and `answer`; a longer one passes
  * `turns`, one `{ prompt, tools, answer }` per turn in order, with `prompt`
  * still the first message (the thread's title). `tools` are the root tool
- * steps the turn renders (see `expectedRootToolSteps`).
+ * steps the turn renders (see `expectedRootToolSteps`); `answer` is text the
+ * chat renders verbatim from the turn's structured answer (a Prose), not the
+ * answer's JSON.
  */
 export async function restoreWorkbenchThread(page, options) {
   const { workbenchUrl, threadId, prompt } = options
@@ -1050,10 +1052,11 @@ async function readThreadId(page, title) {
 /**
  * Sends the pre-filled planning prompt and proves turn 1: the plan's first
  * to-do while the run works, then the settled turn's root tool steps and its
- * answer. A settled turn folds its activity, and the scripted run settles in
- * well under a second, so the plan step is opened again (a real click on its
- * line) and scrolled to the middle of the transcript: the beat holds on the
- * plan's to-dos.
+ * answer (`answer`: text the chat renders verbatim from the structured
+ * answer, such as its closing Prose). A settled turn folds its activity, and
+ * the scripted run settles in well under a second, so the plan step is opened
+ * again (a real click on its line) and scrolled to the middle of the
+ * transcript: the beat holds on the plan's to-dos.
  */
 export async function sendPlanTurn(page, { prompt, todos, tools, answer }) {
   if (!Array.isArray(todos) || todos.length === 0) throw new Error("sendPlanTurn needs the to-dos")
@@ -2041,12 +2044,12 @@ export async function captureDemo({
       {
         prompt: scenario.prompt,
         tools: expectedRootToolSteps(scenario.planTools),
-        answer: scenario.planAnswer,
+        answer: scenario.planAnswerText,
       },
       {
         prompt: scenario.filePrompt,
         tools: expectedRootToolSteps(scenario.fileTools),
-        answer: scenario.filedAnswer,
+        answer: scenario.filedAnswerText,
       },
     ]
     let threadId
@@ -2064,7 +2067,7 @@ export async function captureDemo({
             prompt: scenario.prompt,
             todos: scenario.todos,
             tools: scenario.planTools,
-            answer: scenario.planAnswer,
+            answer: scenario.planAnswerText,
             signal,
           }),
         )
@@ -2098,7 +2101,7 @@ export async function captureDemo({
         )
         await hold("approval card", holdDurations.approvalMs)
         await browserPhase("allow once", () =>
-          browserSession.allowOnce({ turns: 2, reply: scenario.filedAnswer, signal }),
+          browserSession.allowOnce({ turns: 2, reply: scenario.filedAnswerText, signal }),
         )
       },
       async "memory-reload"() {

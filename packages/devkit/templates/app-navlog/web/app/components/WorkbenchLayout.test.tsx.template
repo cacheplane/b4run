@@ -4,8 +4,8 @@ import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
 import { pairIndexOf } from "../lib/route-geometry"
+import { SheetControlContext } from "../lib/sheet-control"
 import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
-import { SheetControlContext } from "./sheet-control"
 import { WorkbenchLayout, type WorkbenchLayoutProps } from "./WorkbenchLayout"
 
 const viewport = vi.hoisted(() => ({ desktop: true }))

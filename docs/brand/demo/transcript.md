@@ -37,10 +37,11 @@ capture clicks Send, and the Workbench sends “Plan a VFR flight KSTP to KRST a
 runs and settles: it checks memory, resolves the 1400Z departure, makes a
 four-item plan, looks up both airports, hands the weather and the performance
 to two subagents, computes the navlog, suggests a memory, saves the navlog to
-`reports/KSTP-KRST.md`, and answers. The scripted run finishes in well under a
-second, and a settled turn folds its activity, so the capture opens the turn
-and its plan step and scrolls the checklist into view; the camera then eases
-to the plan's to-dos.
+`reports/KSTP-KRST.md`, and answers with a structured brief: a GO bottom line,
+the route, the key numbers, its assumptions and sources, and an offer to file
+the plan. The scripted run finishes in well under a second, and a settled turn
+folds its activity, so the capture opens the turn and its plan step and scrolls
+the checklist into view; the camera then eases to the plan's to-dos.
 
 ### 3. Subagents brief the weather.
 

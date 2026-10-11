@@ -40,7 +40,7 @@ scroll (the connect screen scrolls itself on a short viewport).
   markers are buttons: clicking one opens a panel in the map's corner with the id, the
   category now and at ETA, and the raw METAR and TAF from the weather brief (Escape
   or the close button dismisses it); navaid markers are labels only. Labels never
-  sit on each other or on another marker's dot (`app/lib/map-labels.ts`): each goes
+  sit on each other or on another marker's dot (`app/lib/map/labels.ts`): each goes
   right of its dot, else left of it, else it hides until the marker is hovered or
   focused. The route's own waypoints always keep their labels; stations and draft
   points give way. Leaflet loads only in the browser (`next/dynamic` with `ssr: false`).
@@ -191,6 +191,24 @@ media, and a parked approval. A restored thread and a live one therefore render 
 one path, and the browser never reads thread state itself. The thread list
 (`app/lib/thread-source.ts`) keeps only ids, titles and recency in `localStorage`.
 
+The list and the threads' ownership live in different places: the list in this
+browser's storage, ownership in the visitor cookie. Clear the cookie and the list still
+names threads the server now refuses to the new visitor. So when a titled thread is
+opened (on load, or picked in the sidebar), the page asks `GET /api/threads/:id`
+(`app/api/threads/[id]/route.ts`, through `useForgetRefusedThread` in
+`app/lib/use-forget-refused-thread.ts`), which answers 204 or 404 and nothing else, and a
+404 removes the thread from the list and opens the next one. Only a 404 counts: a
+server error or a rate-limit refusal keeps the row. A thread that gains its title while
+open is not asked about: its first message titles it before the run has created it on
+the server.
+
+To try it locally, run both packages with the same `B4_INTERNAL_TOKEN` (so each visitor
+is its own principal; without it one local principal owns every thread and nothing is
+ever refused), plan a route, then in the browser's DevTools open Application → Cookies
+and delete `__Host-b4_visitor`. Reload: opening the old thread removes it. To start over
+completely, use Application → Storage → **Clear site data**, which clears the cookie
+and the `b4.workbench.threads` list together.
+
 A thread with no checkpoint yet (a brand-new one) restores as an empty chat, not an
 error. What a restore does not bring back: drop notices (they come from stream-only
 events), and a user image the adapter dropped (it never reached the checkpoint).
@@ -218,7 +236,10 @@ browser may reach — three of them:
 Anything else — a path that is not listed, or a listed path with the wrong method — is
 rejected with **403** and never forwarded. Thread history is not on the list: the
 runner reads it server to server. Running, resuming, and cancelling a thread go through
-CopilotKit's own runtime route.
+CopilotKit's own runtime route. The one thing the page learns about a thread directly
+is whether it may open it, from `app/api/threads/[id]/route.ts`, which reads
+`GET /threads/:id` server to server and passes back only the status (see
+[Thread history](#thread-history)).
 
 ## Memory review
 
@@ -311,11 +332,15 @@ those.
 
 ## Test coverage
 
-`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites:
+`pnpm --filter @b4-example/navlog-web test` runs the Vitest suites. Each test sits
+next to the module it covers (`route-draft.ts` and `route-draft.test.ts`), and the
+modules split two ways: React components in `app/components/`, everything else
+(selectors, hooks, contexts, class helpers) in `app/lib/`, with the route map's
+Leaflet layers, marker icons and label placement together in `app/lib/map/`.
 
-- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search and
-  admin routes, the allowlist and the proxy guards.
-- **Shell and chat:** the thread source and thread rail, the sidenav and its
+- **Routes and proxy:** the CopilotKit runtime, memory proxy, waypoint search, thread
+  access and admin routes, the allowlist and the proxy guards.
+- **Shell and chat:** the thread source, the thread access check and the thread rail, the sidenav and its
   remembered state, the chat (attachments, echo stripping, approval gating), the
   step views, drop notices, the connect screen, the memory panel, media parts, the
   shell's thread-switch and server-probe behaviour, and the desktop and phone layouts.
@@ -323,8 +348,9 @@ those.
   `BriefRenderer`, plus the brief contract (`app/lib/brief-contract.test.ts`) and the
   verdict (`app/lib/verdict.test.ts`).
 - **Map and sheet:** the navlog and weather selectors, route geometry, label
-  collision placement (`app/lib/map-labels.test.ts`), `RouteMap` itself over a fake
-  Leaflet (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
+  collision placement (`app/lib/map/labels.test.ts`), the route map's markers, layers
+  and draft rules (`app/lib/map/`), `RouteMap` itself over a fake Leaflet
+  (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
   marker panel, the route bar and its draft, the waypoint search ranking, formatting,
   the navlog grid, table and sheet, the Weather tab and its role grouping, the verdict
   card and the flight plan block.
@@ -357,7 +383,8 @@ against the [live demo](https://navlog-web.vercel.app).
   (`app/lib/thread-source.ts`) because the B4.run server cannot enumerate threads. The
   list is not shared across browsers, devices, or profiles, and clearing site data
   clears it — the server still holds the conversations, but this client would no longer
-  know their ids.
+  know their ids. Clearing only the cookie leaves rows the server refuses; each is
+  removed when opened (see [Thread history](#thread-history)).
 - **Restores replay stored events.** Only what the checkpoint stores comes back:
   messages, the turns (plan, subagents, tool steps), attachments and tool media, and a
   parked approval. Notices for parts the model never saw do not return.

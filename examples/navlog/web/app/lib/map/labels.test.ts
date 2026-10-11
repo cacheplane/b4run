@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { type LabelCandidate, placeLabels, type Rect } from "./map-labels"
+import { type LabelCandidate, placeLabels, type Rect } from "./labels"
 
 const rect = (left: number, top: number, width: number, height: number): Rect => ({
   left,

@@ -1,6 +1,6 @@
 import type { DivIconOptions } from "leaflet"
 import { describe, expect, test } from "vitest"
-import { headingIcon, waypointIcon } from "./map-markers"
+import { headingIcon, waypointIcon } from "./markers"
 
 /** Stands in for Leaflet: `divIcon` hands back the options it was given. */
 const L = { divIcon: (options: DivIconOptions) => options } as unknown as typeof import("leaflet")
