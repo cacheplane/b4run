@@ -67,8 +67,12 @@ scroll (the connect screen scrolls itself on a short viewport).
   searches the bundled `data/waypoints.json` server-side (`app/lib/waypoint-search.ts`:
   identifier or local-code prefix first, then a name substring, at most 8 results).
   Enter, Tab or space adds the highlighted match, so `KPAO SNS KSBA` typed with spaces
-  builds the route; Backspace in an empty input removes the last pill. Each waypoint
-  draws on the map at once, dashed while the draft differs from the planned route.
+  builds the route; Backspace in an empty input removes the last pill. Drag a pill to
+  reorder the route (on a touch screen, hold it first), or focus its identifier and
+  press ArrowLeft, ArrowRight, Home or End (`app/lib/use-pill-reorder.ts`); a pill held
+  near either end of a long route scrolls the row. Each waypoint
+  draws on the map at once, dashed while the draft differs from the planned route, and
+  a drag previews its new order on the map before the drop.
   Plan sends one ordinary chat message, such as `Plan KPAO → SNS (VORTAC) → KSBA at
   5500 ft, departing 1400Z.` (`replanMessage` in `app/lib/route-draft.ts`), and a new
   navlog resets the bar to the planned route, altitude and departure. The open list
@@ -89,9 +93,10 @@ scroll (the connect screen scrolls itself on a short viewport).
   chips, and the forecast-horizon note. **Totals & plan** holds the totals tiles
   and the ICAO flight plan items 7 to 19 (`FlightPlanBlock.tsx`); **Brief** holds the
   full verdict card and the assistant's brief. **Print** prints the sheet alone on one
-  landscape page (the `@media print` rules in `app/theme.css`), every leg included, with
-  the Weather tab's content after the legs: the grid virtualizes rows, so print reads a
-  print-only `NavlogTable.tsx`. **Copy FPL**
+  landscape page (the `@media print` rules in `app/styles/print.css`), every leg included, with
+  the Weather tab's content after the legs: the grid virtualizes rows, so print reads
+  `NavlogTable.tsx`, a plain table of every leg that shows only in print (the same
+  component draws the phone's leg cards). **Copy FPL**
   copies the filing-ready `(FPL-…)` message. The chat's opened `computeNavlog` step
   (`StepViews.tsx`) shows the totals and a link that opens the sheet on Legs.
 - **Phones** (under 1024 px) — a top row (menu, wordmark, New plan), one full-screen panel,
@@ -114,6 +119,8 @@ unit tests:
   — the most recent completed `weather` subagent step, parsed from the brief the
   subagent is prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
   brief it cannot read leaves the Weather tab and marker panels empty rather than throwing.
+  The brief's "Advisories:" and "Winds per leg:" lines are read for display by
+  `app/lib/advisories.ts` and `app/lib/winds.ts`.
 - `routeGeometry(navlog)` (`app/lib/route-geometry.ts`) — the polyline, markers, heading
   labels and bounds the map draws.
 - `latestRouteStations(turns)` and `groupByRole` (`app/lib/weather-roles.ts`) — the stations
@@ -158,8 +165,10 @@ kit's JSON Schema (`briefJsonSchema`, built with hashbrown's `createUiJsonSchema
 binds it on the route's model as structured output, and `BriefRenderer` (`app/brief/`)
 renders the streamed `{ ui: [...] }` as the BottomLine, RouteSummary, WatchFor,
 KeyNumbers, Assumptions, Citations and Prose components, in the chat and in the
-sheet's Brief tab. An older thread's markdown answer falls back to the markdown
-renderer. Tool-calling turns are unaffected.
+sheet's Brief tab. Tool-calling turns are unaffected. A markdown answer, which only a
+thread from before the kit holds, renders as markdown in the chat; the Brief tab shows
+only a structured answer, since a markdown one has no bottom line for the verdict card
+to agree with.
 
 The server must allow that key, and `../server/b4.config.ts` does, for this route
 only:
@@ -253,12 +262,31 @@ client intentionally has no demo/mock mode.
 
 ## Restyling it
 
-`app/theme.css` is the one file to edit. The whole palette is defined there as CSS
-variables and re-exported as Tailwind tokens via `@theme inline`, which is why the app's
-utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`,
+`app/styles/tokens.css` is the file to edit first. The whole palette is defined there as
+CSS variables and re-exported as Tailwind tokens via `@theme inline`, which is why the
+app's utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`,
 `font-sans`. Change a `--wb-*` value and the activity-card tokens, CopilotChat's tokens
-and every utility move together. The same file holds the single focus ring (`wb-focus`),
-the wordmark (`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
+and every utility move together. The same file holds the single focus ring (`wb-focus`).
+
+The rest of the styles sit beside it in `app/styles/`, one file per part of the app.
+`app/theme.css` is the single entry `app/layout.tsx` imports: it loads Tailwind, then
+those files in cascade order, which is behavior (the motion rules must follow the
+transitions they switch off, the print rules the screen rules they undo), so a new file
+goes where its rules need to sit, not alphabetically.
+
+| File | What it styles |
+|---|---|
+| `tokens.css` | The palette, Tailwind tokens, focus ring, layout and status tokens, and the activity kit's and CopilotChat's tokens mapped onto the palette |
+| `map.css` | Leaflet's tiles and controls, the route line, waypoint and station markers and their labels |
+| `layout.css` | The one-pane window, panels, header and list rows, the sidebar, tooltips, tabs, buttons, the phone's tab bar and drawer |
+| `status.css` | Flight-category and hazard chips, the verdict pill, card and strip, and the totals tiles |
+| `navlog.css` | The legs: the plain table and the pretable grid skin |
+| `brief.css` | The planning brief and the brief kit (`app/brief/`) |
+| `motion.css` | The sheet and dock transitions, and reduced motion |
+| `print.css` | The sheet alone on one landscape page |
+| `typography.css` | The wordmark (`.wb-wordmark`) and the `.wb-prose` rules for rendered markdown |
+| `map-overlays.css` | The route bar and a marker's weather panel |
+| `chat-dock.css` | CopilotKit's composer inside the dock, and the dock's signal colors |
 
 The look follows [LiveLoveApp](https://liveloveapp.com)'s design rules: Hanken Grotesk
 and JetBrains Mono (loaded with `next/font/google` in `app/layout.tsx`), ink `#0d0d0d`
@@ -268,14 +296,14 @@ status colors are the one exception to the single accent: they are data, shown o
 labelled chips and dots. `app/design-rules.test.ts` fails the test suite on uppercase,
 positive letter-spacing, gradients, shadows, glass, a dark scheme, or any Google font other than those two.
 
-It also holds the map workbench's tokens: `--wb-nav-width`, `--wb-sheet-max` and
-`--wb-gutter` for the layout, `--wb-route` for the route line, the `--wb-cat-*`
-flight-category colors the chips and the markers share, the filter that turns the map
-tiles grey, and the print rules.
+`tokens.css` also holds the map workbench's tokens: `--wb-nav-width`, `--wb-sheet-max`
+and `--wb-gutter` for the layout, `--wb-route` for the route line, and the `--wb-cat-*`
+flight-category colors the chips and the markers share. The filter that turns the map
+tiles grey is in `map.css`.
 
 The plan and subagent steps are **not forks**. They are the packaged
 `@b4run/ag-ui/react` components `B4Activity` renders (`TurnActivity` and its steps),
-themed through the `--b4-activity-*` tokens in `app/theme.css` and extended per tool in
+themed through the `--b4-activity-*` tokens in `app/styles/tokens.css` and extended per tool in
 `app/components/StepViews.tsx` — validation, bounds, and layout stay in the package
 where they are tested. The package's CSS is unlayered and Tailwind's utilities are not,
 so a utility cannot override a property the package stylesheet sets; use the tokens for
@@ -302,7 +330,8 @@ those.
   card and the flight plan block.
 - **Design rules** (`app/design-rules.test.ts`): see [Restyling it](#restyling-it).
 
-The navlog fixture (`SAMPLE_NAVLOG`) is the server's own `computeNavlog` output, not
+The navlog fixture (`SAMPLE_NAVLOG` in `app/lib/test-fixtures.ts`, imported only by
+tests) is the server's own `computeNavlog` output, not
 hand-written numbers. `typecheck` and `build` prove the CopilotKit/AG-UI wiring
 compiles. The activity components themselves are tested in `@b4run/ag-ui`.
 

@@ -2,9 +2,10 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { type Navlog, SAMPLE_NAVLOG } from "../lib/navlog-types"
+import type { Navlog } from "../lib/navlog-types"
 import type { DraftWaypoint } from "../lib/route-draft"
 import { routeGeometry } from "../lib/route-geometry"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { RouteStation } from "../lib/weather-roles"
 import { RouteMap, type RouteMapProps } from "./RouteMap"
 

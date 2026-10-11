@@ -110,7 +110,7 @@ The client's other calls go through small, allowlisted proxies: `/api/b4` for me
 | `app/components/AppShell.tsx` | Connects to the server, holds the thread list, and mounts one workbench per thread. |
 | `app/components/WorkbenchLayout.tsx` | The layout: three docked columns on a desktop (sidebar, chat, map over the sheet), and Chat, Map and Navlog tabs on a phone. |
 | `app/components/NavlogChat.tsx` | CopilotKit's chat with the B4 activity kit's step views and approval card. |
-| `app/components/RouteMap.tsx`, `RouteBar.tsx` | The Leaflet map with flight-category markers and non-overlapping labels, and the route bar with waypoint autocomplete. |
+| `app/components/RouteMap.tsx`, `RouteBar.tsx` | The Leaflet map with flight-category markers and non-overlapping labels, and the route bar with waypoint autocomplete and drag-to-reorder pills. |
 | `app/components/NavlogSheet.tsx` | The navlog sheet: Legs, Weather (origin, en route, destination), Totals and plan, and Brief. |
 | `app/brief/` | The brief kit: the schema the agent answers in and the React components that render it. |
 | `app/lib/` | Pure selectors that read each surface's data from the run's events, with unit tests. |

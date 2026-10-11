@@ -1,15 +1,8 @@
-import { isStructuredAnswer, readBottomLine } from "../brief/parse"
-import { parsePlanningAnswer } from "./assistant-text"
+import { readBottomLine } from "../brief/parse"
+import { advisoryLabel, parseAdvisory } from "./advisories"
 import { formatHhmm } from "./format"
 import type { Navlog } from "./navlog-types"
-import {
-  advisoryLabel,
-  isPreliminary,
-  parseAdvisory,
-  type Verdict,
-  type VerdictLevel,
-  type WeatherBrief,
-} from "./weather-selectors"
+import { isPreliminary, type WeatherBrief } from "./weather-selectors"
 
 /**
  * The go/no-go verdict: where it comes from, and which call wins.
@@ -19,10 +12,10 @@ import {
  * 1. The weather subagent's brief, its "Verdict:" line (`weather.verdict`),
  *    judged on the weather alone.
  * 2. The planning answer's bottom line: the structured brief kit's
- *    `BottomLine`, or for a thread from before the kit, the markdown "Bottom
- *    line:" (`plannerVerdict`). The coordinator's prompt tells it to use the
- *    weather brief's verdict unless performance makes it worse: a reserve
- *    under 45 minutes is NO-GO.
+ *    `BottomLine` (`readBottomLine`). The coordinator's prompt tells it to use
+ *    the weather brief's verdict unless performance makes it worse: a reserve
+ *    under 45 minutes is NO-GO. A markdown answer (a thread from before the
+ *    kit) has no bottom line read here, so it makes no call.
  * 3. The verdict floor (`verdictFloor`): the weather rules and the same
  *    reserve rule, enforced in code against the brief's data and the navlog.
  *
@@ -39,12 +32,15 @@ import {
  * preliminary.
  */
 
-const RANK: Readonly<Record<VerdictLevel, number>> = { GO: 0, CAUTION: 1, "NO-GO": 2 }
+export type VerdictLevel = "GO" | "CAUTION" | "NO-GO"
 
-/** The more severe of two levels. */
-export function worseLevel(a: VerdictLevel, b: VerdictLevel): VerdictLevel {
-  return RANK[a] >= RANK[b] ? a : b
+/** A go/no-go call: the level and the one sentence why. */
+export interface Verdict {
+  readonly level: VerdictLevel
+  readonly reason: string
 }
+
+const RANK: Readonly<Record<VerdictLevel, number>> = { GO: 0, CAUTION: 1, "NO-GO": 2 }
 
 /** The least the verdict can be, and why. `GO` with no reasons when nothing applies. */
 export interface VerdictFloor {
@@ -207,21 +203,11 @@ export function raiseNote(verdict: EffectiveVerdict): string | null {
   return `${lead}: ${reasons}.`
 }
 
-/**
- * The planner's call: a structured answer's `BottomLine` (read as soon as its
- * props close, while the rest still streams), or for a markdown answer (a
- * thread from before the brief kit) its "Bottom line:" line.
- */
-function plannerVerdict(answer: string): Verdict | null {
-  if (isStructuredAnswer(answer)) return readBottomLine(answer)
-  return parsePlanningAnswer(answer)?.verdict ?? null
-}
-
 /** What `resolveVerdict` reads: each source, and the cruise altitude for the floor. */
 export interface ResolveVerdictInput {
   /** The weather subagent's parsed brief. */
   readonly weather?: WeatherBrief | null | undefined
-  /** The planning answer's text, for its `BottomLine` (or markdown "Bottom line:") verdict. */
+  /** The planning answer's text, for its `BottomLine` verdict. */
   readonly answer?: string | undefined
   /** The navlog on screen: its reserve, and its altitude as the cruise. */
   readonly navlog?: Pick<Navlog, "totals" | "altitudeFt"> | null | undefined
@@ -234,7 +220,7 @@ export interface ResolveVerdictInput {
  * planning brief's bottom line), so they cannot disagree.
  *
  * The model's call is the worse of the weather brief's "Verdict:" and the
- * planner's "Bottom line:" (the brief's on a tie, since its sentence is the
+ * planner's `BottomLine` (the brief's on a tie, since its sentence is the
  * weather's), then the floor raises it.
  */
 export function resolveVerdict({
@@ -244,7 +230,8 @@ export function resolveVerdict({
   cruiseFt,
 }: ResolveVerdictInput): EffectiveVerdict | null {
   const fromWeather = weather?.verdict ?? null
-  const fromPlanner = answer ? plannerVerdict(answer) : null
+  // Read as soon as the BottomLine's props close, while the rest still streams.
+  const fromPlanner = answer ? readBottomLine(answer) : null
   const model =
     fromWeather === null
       ? fromPlanner

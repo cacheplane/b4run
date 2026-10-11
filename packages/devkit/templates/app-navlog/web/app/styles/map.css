@@ -1,0 +1,238 @@
+/* The map: Leaflet's tiles and controls, the route line, the waypoint and
+ * station markers, their labels and the heading labels. The route bar and the
+ * weather panel that float over the map are in `map-overlays.css`. */
+
+/* The OpenStreetMap tiles in grey, so the ink route and the category colors carry the map. */
+.wb-map .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.92) brightness(1.04);
+}
+
+/*
+ * Leaflet adds `leaflet-container` to the map element itself, which also
+ * carries `wb-map`. Its background is the tiles' own land color (after the
+ * filters above), so the first paint is a calm, map-colored field rather than
+ * a black or white flash while the tiles load; each tile then fades in.
+ */
+.wb-map,
+.wb-map.leaflet-container {
+  background: var(--wb-map-bg);
+  font: inherit;
+}
+
+.wb-map .leaflet-tile {
+  transition: opacity var(--wb-motion);
+}
+
+/*
+ * The zoom and attribution controls share Leaflet's bottom-right corner (see
+ * `RouteMap`). The route bar owns the top of the map panel, so nothing
+ * covers the corner; the OpenStreetMap tile policy requires the attribution to
+ * stay visible.
+ */
+.wb-map .leaflet-bottom.leaflet-right {
+  right: 0;
+  bottom: 0;
+}
+
+/* One corner on the 16px inset, the two controls 8px apart. */
+.wb-map .leaflet-bottom.leaflet-right .leaflet-control {
+  margin: 0 16px 8px 0;
+}
+
+.wb-map .leaflet-bottom.leaflet-right .leaflet-control:last-child {
+  margin-bottom: 16px;
+}
+
+.wb-map.leaflet-container .leaflet-control-zoom {
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--wb-surface);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out) {
+  width: 34px;
+  height: 34px;
+  line-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--wb-text);
+  font-weight: 500;
+}
+
+.wb-map.leaflet-container .leaflet-control-zoom-out {
+  border-top: 1px solid var(--wb-border);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out):hover {
+  background: var(--wb-rail);
+}
+
+.wb-map.leaflet-container :is(.leaflet-control-zoom-in, .leaflet-control-zoom-out):focus-visible {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: -2px;
+}
+
+.wb-map.leaflet-container .leaflet-control-attribution {
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 1px 8px;
+  font-size: 10.5px;
+  color: var(--wb-muted);
+}
+
+.wb-map.leaflet-container .leaflet-control-attribution > :is(a) {
+  color: inherit;
+}
+
+/* Phones pinch to zoom; the buttons would only crowd the small map. */
+@media (max-width: 1023px) {
+  .wb-map.leaflet-container .leaflet-control-zoom {
+    display: none;
+  }
+}
+
+/* The route: a casing under a colored line, both from tokens. */
+.wb-map .wb-route-casing {
+  stroke: var(--wb-route-casing);
+  stroke-opacity: 0.85;
+}
+
+.wb-map .wb-route-line {
+  stroke: var(--wb-route);
+}
+
+/*
+ * A waypoint: one zero-padding div icon, the dot filling its 14px box (the
+ * anchor is the box's center) and the label hanging off its right side.
+ */
+.wb-map .wb-wp {
+  overflow: visible;
+}
+
+.wb-map .wb-wp-dot {
+  position: absolute;
+  inset: 0;
+  border: 2.5px solid var(--wb-surface);
+  border-radius: 999px;
+  background: var(--wb-muted);
+}
+
+.wb-map .wb-wp-dot[data-cat="VFR"] {
+  background: var(--wb-cat-vfr);
+}
+.wb-map .wb-wp-dot[data-cat="MVFR"] {
+  background: var(--wb-cat-mvfr);
+}
+.wb-map .wb-wp-dot[data-cat="IFR"] {
+  background: var(--wb-cat-ifr);
+}
+.wb-map .wb-wp-dot[data-cat="LIFR"] {
+  background: var(--wb-cat-lifr);
+}
+
+.wb-map .wb-wp-label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--wb-text);
+  white-space: nowrap;
+}
+
+/*
+ * Label collisions (`lib/map-labels.ts`): a label that would sit on another
+ * goes left of its dot, or hides until its marker is hovered or focused.
+ */
+.wb-map .wb-wp-label[data-placement="left"] {
+  right: calc(100% + 6px);
+  left: auto;
+}
+
+.wb-map .wb-wp-label[data-placement="hidden"] {
+  visibility: hidden;
+}
+
+.wb-map .wb-wp:is(:hover, :focus-visible) .wb-wp-label[data-placement="hidden"] {
+  visibility: visible;
+}
+
+.wb-map .wb-wp:is(:hover, :focus-visible) {
+  /* biome-ignore lint/complexity/noImportantStyles: Leaflet sets each marker's z-index inline */
+  z-index: 1000 !important;
+}
+
+.wb-map .wb-wp-label b {
+  margin-left: 2px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--wb-muted);
+}
+
+/* A route-bar draft that is not the planned route yet: a dashed cobalt line. */
+.wb-map .wb-route-draft {
+  stroke: var(--wb-accent);
+  stroke-dasharray: 6 6;
+  stroke-linecap: round;
+}
+
+/*
+ * A reporting station near the course and a draft waypoint: a smaller dot in
+ * a 10px box. The station's dot is grey (it is off the route); its label
+ * carries the category as text. A draft dot is cobalt, like its line.
+ */
+.wb-map .wb-wp-station .wb-wp-dot,
+.wb-map .wb-wp-draft .wb-wp-dot {
+  border-width: 2px;
+}
+
+.wb-map .wb-wp-draft .wb-wp-dot {
+  background: var(--wb-accent);
+}
+
+.wb-map :is(.wb-wp-station, .wb-wp-draft) .wb-wp-label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wb-map .wb-wp-draft .wb-wp-label {
+  color: var(--wb-accent);
+}
+
+/* An airport or station marker opens its weather panel: a focus ring and an open state. */
+.wb-map .wb-wp:focus-visible {
+  outline: none;
+}
+
+.wb-map .wb-wp:focus-visible .wb-wp-label,
+.wb-map .wb-wp[aria-expanded="true"] .wb-wp-label {
+  border-color: var(--wb-text);
+}
+
+.wb-map .wb-wp:focus-visible .wb-wp-label {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 1px;
+}
+
+.wb-map .wb-hdg {
+  overflow: visible;
+}
+
+.wb-map .wb-hdg-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--wb-route);
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--wb-surface);
+  white-space: nowrap;
+}

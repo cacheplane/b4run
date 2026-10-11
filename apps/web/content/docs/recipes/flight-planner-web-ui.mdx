@@ -120,7 +120,7 @@ Two pieces of that tree matter most, plus the suggestions:
 
 The navlog answer is JSON, not markdown. The kit lives in `examples/navlog/web/app/brief/`: `schema.ts` declares each component's props with hashbrown's `s` builder, `components.tsx` exposes the React components (`BottomLine`, `RouteSummary`, `WatchFor`, `KeyNumbers`, `Assumptions`, `Citations`, `Prose`) with `exposeComponent`, and `kit.ts` derives the JSON Schema with `createUiJsonSchema` from `@hashbrownai/core`. The runtime route hands that schema to `B4HttpAgent({ responseSchema })`, which puts it in every run's `forwardedProps.responseSchema`. The server's `b4.config.ts` allows that one key on the navlog route (`clientForwardedProps: { "/navlog": ["responseSchema"] }`), and B4.run binds it to the model's final answer, so tool-calling turns are unaffected and the last message is `{ "ui": [...] }`.
 
-In the browser, `BriefRenderer` parses the streaming JSON with `useJsonParser` against the kit from `useUiKit` and renders each component as it completes, in the chat and in the sheet's Brief tab. Live replies are always structured, because the route sends the schema on every run; a question or a filing confirmation is a single `Prose`. Only a thread saved before the kit has a markdown answer, and it falls back to the markdown renderer.
+In the browser, `BriefRenderer` parses the streaming JSON with `useJsonParser` against the kit from `useUiKit` and renders each component as it completes, in the chat and in the sheet's Brief tab. Live replies are always structured, because the route sends the schema on every run; a question or a filing confirmation is a single `Prose`. Only a thread saved before the kit has a markdown answer: the chat falls back to the markdown renderer for it, and the Brief tab shows the verdict card without a brief.
 
 ## The workbench shell
 
@@ -140,13 +140,13 @@ Run failures still need a subscription. `copilotkit.runAgent` does not reject wh
 
 Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the sidenav keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`. The list holds ids, titles and recency only.
 
-The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `weather-selectors.ts`) pick the latest `computeNavlog` result and `weather` brief from them.
+The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `advisories.ts`, `winds.ts`) pick the latest `computeNavlog` result and `weather` brief from them.
 
 ### Restoring a thread
 
 `<CopilotChat>` calls `connect` when it mounts, and the runtime route's runner (`createB4AgentRunner`) answers it by replaying `GET /threads/:id/events` from B4.run's checkpoints as AG-UI events, so a restored thread and a live one go through the same path: the chat messages, the turns, and a parked approval all come back, with the media the thread carried. The browser never reads thread state itself, so the proxy has no thread routes. A brand-new thread has nothing to replay and restores as an empty chat. See [Restoring a conversation after a reload](/docs/ag-ui#restoring-a-conversation-after-a-reload) for the runner and the per-request identity it needs.
 
-To restyle the app, edit `examples/navlog/web/app/theme.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`.
+To restyle the app, start at `examples/navlog/web/app/styles/tokens.css`. It defines the palette as CSS variables and re-exports it as Tailwind tokens through `@theme inline`. That's why the app's utilities read `bg-wb-surface`, `border-wb-border`, and `rounded-wb`. The rest of the styles sit beside it in `app/styles/`, one file per part of the app (the map, the navlog, the brief, print), and `app/theme.css` loads Tailwind and then those files in cascade order.
 
 ## Type a route on the map
 
@@ -157,6 +157,8 @@ A pilot who already knows the route can type it instead of writing a request. Th
 ```
 
 Each waypoint is a pill with a remove button: airports in ink, navaids in cobalt. The input is a combobox. Typing searches identifiers and names (an identifier or local-code prefix first, then a name substring), and the list shows up to 8 matches with the kind, such as `VORTAC 117.30`. Enter, Tab or space adds the highlighted match, so typing `KPAO SNS KSBA` with a space after each token builds the route. Backspace in an empty input removes the last pill.
+
+Drag a pill along the bar to reorder the route. A mouse drags once it moves a few pixels, and on a touch screen you hold the pill first, so a quick swipe still scrolls a long route. While you drag, an insertion line marks where the pill will land and the map draws the new order; Escape puts it back. On a route longer than the bar, holding the pill near either end scrolls the row, faster the closer it is to the edge. Dragging isn't the only way: each pill's identifier is a button, and ArrowLeft, ArrowRight, Home and End move it, with a screen-reader announcement such as "Moved KSBA to position 2 of 3". The order logic is `moveWaypoint` in `app/lib/route-draft.ts`, and the pointer handling is the `usePillReorder` hook (`app/lib/use-pill-reorder.ts`).
 
 The search reads a bundled snapshot, not a live service. `GET /api/waypoints?q=<text>` (`app/api/waypoints/route.ts`) searches `web/data/waypoints.json` on the server with `searchWaypoints` (`app/lib/waypoint-search.ts`), so the snapshot is never shipped to the browser. It answers `{ results, snapshot }`, where `snapshot` is the data's date. The handler applies the same origin, visitor and rate-limit guard as the other proxy routes and truncates `q` to 32 characters. The data comes from [OurAirports](https://ourairports.com/data/), which is public domain, and the open list says so: "Waypoints: OurAirports `<date>`, not for navigation".
 
@@ -217,7 +219,7 @@ A tool result's media arrives on the step as `parts`, live and after a restore, 
 
 ### Parts the model didn't see
 
-When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell` subscribes with `onCustomEvent` and shows each event as a muted line in the chat column above the conversation, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`.
+When the model or its provider can't take a part, B4.run drops it and emits a `CUSTOM` event named [`b4.content_parts_dropped`](/docs/ag-ui#multimodal-content). `AppShell`'s `useDropNotices` hook (`app/lib/use-drop-notices.ts`) subscribes with `onCustomEvent` and shows each event as a muted line in the chat column above the conversation, such as `1 content part was not sent to the model: image (tool_result_media_unsupported)`.
 
 CopilotKit keeps no record of `CUSTOM` events, so the notices live only in the shell's state. Switching threads clears them, and a reload or a restored thread doesn't bring them back.
 
@@ -259,7 +261,7 @@ function Activity() {
 }
 ```
 
-The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/theme.css`.
+The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/styles/tokens.css`.
 
 React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./react/copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
 
@@ -297,9 +299,9 @@ That proxy is **allowlisted**. `app/lib/proxy-allowlist.ts` is a pure function l
   before this leaves your own machine.
 </Callout>
 
-`app/components/MemoryPanel.tsx` renders the candidates in Memory mode, which replaces the map column, with Approve and Delete on each. The sidenav's Memory item opens it and shows how many are waiting. Delete maps to `/reject`, which is a hard delete on the server. The panel loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
+`app/components/MemoryPanel.tsx` renders the candidates in Memory mode, which replaces the map column, with Approve and Delete on each. The sidenav's Memory item opens it and shows how many are waiting. Delete maps to `/reject`, which is a hard delete on the server. Its data comes from the `useMemoryCandidates` hook (`app/lib/use-memory-candidates.ts`), which loads on mount and again at the end of every run. `remember()` lands mid-run, so a memory proposed in the answer you are reading should be reviewable without a reload:
 
-```tsx title="examples/navlog/web/app/components/MemoryPanel.tsx"
+```tsx title="examples/navlog/web/app/lib/use-memory-candidates.ts"
 useEffect(() => {
   const controller = new AbortController()
   void load(controller.signal)

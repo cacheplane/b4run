@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { NavlogSheetProps } from "./NavlogSheet"
 
 // pretable needs layout; the grid is a stand-in here (its own tests cover it,
@@ -13,6 +13,11 @@ vi.mock("./NavlogGrid", () => ({
 }))
 
 const { NavlogSheet } = await import("./NavlogSheet")
+
+/** A structured answer whose `BottomLine` calls GO. */
+const PLANNER_GO = JSON.stringify({
+  ui: [{ BottomLine: { props: { level: "GO", reason: "VFR all the way.", cite: [] } } }],
+})
 
 const props = (overrides: Partial<NavlogSheetProps> = {}): NavlogSheetProps => ({
   navlog: SAMPLE_NAVLOG,
@@ -64,7 +69,7 @@ describe("NavlogSheet", () => {
     expect(html).toMatch(BODY_HIDDEN)
   })
   test("open holds the print table, the flight plan and the brief", () => {
-    const html = render()
+    const html = render({ planningAnswer: PLANNER_GO })
     expect(html).toContain("<table")
     expect(html).toContain("7 Aircraft ID")
     expect(html).toContain("VFR all the way.")
@@ -97,7 +102,7 @@ describe("NavlogSheet", () => {
 
 describe("navlog sheet: strip and tabs", () => {
   test("a verdict strip region, then Legs · Weather · Totals & plan · Brief with Legs selected", () => {
-    const html = render({ planningAnswer: "Bottom line: GO — VFR all the way." })
+    const html = render({ planningAnswer: PLANNER_GO })
     expect(html).toMatch(/<section aria-label="Verdict summary"[^>]*wb-verdict-strip/)
     expect(html).toContain('role="tablist"')
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Legs</)
@@ -139,7 +144,7 @@ describe("navlog sheet: strip and tabs", () => {
   })
   test("the strip's reason selects the Brief tab", () => {
     const onTabChange = vi.fn()
-    const view = mountSheet({ planningAnswer: "Bottom line: GO — VFR all the way.", onTabChange })
+    const view = mountSheet({ planningAnswer: PLANNER_GO, onTabChange })
     act(() => {
       view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")?.click()
     })
@@ -147,7 +152,7 @@ describe("navlog sheet: strip and tabs", () => {
     view.unmount()
   })
   test("the strip's reason controls the Brief panel and says it opens it", () => {
-    const view = mountSheet({ planningAnswer: "Bottom line: GO — VFR all the way." })
+    const view = mountSheet({ planningAnswer: PLANNER_GO })
     const button = view.container.querySelector<HTMLButtonElement>(".wb-verdict-strip button")
     const panel = document.getElementById(button?.getAttribute("aria-controls") ?? "")
     expect(panel?.getAttribute("role")).toBe("tabpanel")
@@ -189,7 +194,7 @@ describe("navlog sheet: strip and tabs", () => {
     expect(html).toContain("7 Aircraft ID")
   })
   test("the full verdict card is on the Brief tab only", () => {
-    const html = render({ tab: "brief", planningAnswer: "Bottom line: GO — VFR all the way." })
+    const html = render({ tab: "brief", planningAnswer: PLANNER_GO })
     expect(html).toMatch(
       /role="tabpanel"[^>]*id="[^"]*-brief"[^>]*>(?:(?!role="tabpanel").)*class="wb-verdict"/,
     )
@@ -220,10 +225,10 @@ describe("navlog sheet: strip and tabs", () => {
     // The card reads the structured bottom line: the planner's CAUTION.
     expect(panel).toContain('class="wb-verdict" data-level="CAUTION"')
   })
-  test("a markdown answer still renders as the planning brief", () => {
+  test("a markdown answer (a thread from before the brief kit) stays in the chat", () => {
     const html = render({ tab: "brief", planningAnswer: "Bottom line: GO — VFR all the way." })
-    expect(html).toContain('aria-label="Planning brief"')
-    expect(html).toContain("VFR all the way.")
+    expect(html).not.toContain('aria-label="Planning brief"')
+    expect(html).not.toContain("VFR all the way.")
   })
   test("tabs control their panels, with a roving tabIndex", () => {
     const view = mountSheet({ tab: "plan" })

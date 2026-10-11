@@ -1,8 +1,9 @@
 "use client"
 import { type PretableColumn, PretableSurface } from "@pretable/react"
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useMemo, useRef } from "react"
 import { LEG_COLUMNS, legName } from "../lib/navlog-columns"
 import type { Navlog, NavlogLeg } from "../lib/navlog-types"
+import { useElementHeight } from "../lib/use-element-height"
 
 interface LegRow {
   readonly id: string
@@ -57,28 +58,6 @@ const TITLES: ReadonlyMap<string, string> = new Map(LEG_COLUMNS.map((c) => [c.ke
 /** The grid's height before the region is measured (and in tests, which have no layout). */
 const FALLBACK_HEIGHT_PX = 320
 
-/**
- * The region's height in pixels. pretable virtualizes rows against a numeric
- * `viewportHeight` rather than its container, so the grid fills its scroll
- * region by measuring it.
- */
-function useRegionHeight() {
-  const ref = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState(FALLBACK_HEIGHT_PX)
-  useLayoutEffect(() => {
-    const element = ref.current
-    if (element === null || typeof ResizeObserver === "undefined") return
-    const measure = () => {
-      if (element.clientHeight > 0) setHeight(element.clientHeight)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
-  return { ref, height }
-}
-
 /** The row a selection sits in (its anchor's), or null when nothing is selected. */
 function selectedRowId(selection: {
   readonly ranges: readonly unknown[]
@@ -112,7 +91,9 @@ export const NavlogGrid = memo(function NavlogGrid({ navlog, onSelectLeg }: Navl
     () => navlog.legs.map((leg, index): LegRow => ({ id: rowId(index), leg })),
     [navlog],
   )
-  const region = useRegionHeight()
+  // pretable virtualizes rows against a numeric `viewportHeight` rather than
+  // its container, so the grid fills its scroll region by measuring it.
+  const region = useElementHeight({ initial: FALLBACK_HEIGHT_PX, round: "down" })
   const reported = useRef<number | null>(null)
   const report = (id: string | null) => {
     const index = id === null ? null : indexOf(id)

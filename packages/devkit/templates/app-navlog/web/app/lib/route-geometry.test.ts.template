@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
-import { type NavlogLeg, SAMPLE_NAVLOG } from "./navlog-types"
+import type { NavlogLeg } from "./navlog-types"
 import { pairIndexOf, routeGeometry } from "./route-geometry"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 
 describe("routeGeometry", () => {
   test("one marker per waypoint and one polyline through them", () => {

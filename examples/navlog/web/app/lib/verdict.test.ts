@@ -1,13 +1,6 @@
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "./navlog-types"
-import {
-  effectiveVerdict,
-  maxGustKt,
-  raiseNote,
-  resolveVerdict,
-  verdictFloor,
-  worseLevel,
-} from "./verdict"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
+import { effectiveVerdict, maxGustKt, raiseNote, resolveVerdict, verdictFloor } from "./verdict"
 import { parseWeatherBrief } from "./weather-selectors"
 
 /**
@@ -264,18 +257,22 @@ describe("effectiveVerdict", () => {
     ).toBe("From the brief's data: KDLH IFR at ETA.")
     expect(raiseNote(go)).toBeNull()
   })
-  test("worseLevel", () => {
-    expect(worseLevel("GO", "CAUTION")).toBe("CAUTION")
-    expect(worseLevel("NO-GO", "CAUTION")).toBe("NO-GO")
-    expect(worseLevel("GO", "GO")).toBe("GO")
-  })
 })
 
 describe("resolveVerdict", () => {
+  /** A structured answer: its `BottomLine`, then prose that must not be read as a call. */
+  const structured = (level: string, reason: string) =>
+    JSON.stringify({
+      ui: [
+        { BottomLine: { props: { level, reason, cite: [] } } },
+        { Prose: { props: { markdown: "Bottom line: GO — ignored, this is prose." } } },
+      ],
+    })
+
   test("the live run: GO from the brief and the planner, raised to CAUTION", () => {
     const verdict = resolveVerdict({
       weather: parseWeatherBrief(GUSTY_GO),
-      answer: "Bottom line: GO — VFR the whole way.\nWatch for:\n- Gusty crosswind at KDLH",
+      answer: structured("GO", "VFR the whole way."),
       navlog: SAMPLE_NAVLOG,
     })
     expect(verdict).toEqual({
@@ -285,30 +282,7 @@ describe("resolveVerdict", () => {
       floorReasons: ["gusts 25 kt at KFCM", "gusts 25 kt at KDLH", "forecast preliminary"],
     })
   })
-  test("the model's call is the worse of the brief's and the planner's", () => {
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: "Bottom line: CAUTION — I would wait an hour.",
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "CAUTION", reason: "I would wait an hour." })
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: "Bottom line: GO — fine.",
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "GO", reason: "VFR all the way." })
-  })
-  test("a structured answer's BottomLine is the planner's call", () => {
-    const structured = (level: string, reason: string) =>
-      JSON.stringify({
-        ui: [
-          { BottomLine: { props: { level, reason, cite: [] } } },
-          { Prose: { props: { markdown: "Bottom line: GO — ignored, this is prose." } } },
-        ],
-      })
+  test("the model's call is the worse of the brief's and the planner's BottomLine", () => {
     // The planner's CAUTION raises the weather brief's GO.
     expect(
       resolveVerdict({
@@ -324,6 +298,8 @@ describe("resolveVerdict", () => {
         navlog: SAMPLE_NAVLOG,
       }),
     ).toEqual({ level: "GO", reason: "VFR all the way." })
+  })
+  test("a BottomLine counts once its props close, and nothing else is a planner call", () => {
     // Still streaming, the bottom line's props not closed: no call yet.
     expect(
       resolveVerdict({
@@ -349,6 +325,14 @@ describe("resolveVerdict", () => {
         answer: JSON.stringify({
           ui: [{ Prose: { props: { markdown: "Bottom line: NO-GO — prose only." } } }],
         }),
+        navlog: SAMPLE_NAVLOG,
+      }),
+    ).toEqual({ level: "GO", reason: "VFR all the way." })
+    // Nor is a markdown answer (a thread from before the brief kit).
+    expect(
+      resolveVerdict({
+        weather: brief(),
+        answer: "Bottom line: NO-GO — markdown.",
         navlog: SAMPLE_NAVLOG,
       }),
     ).toEqual({ level: "GO", reason: "VFR all the way." })

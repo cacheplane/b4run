@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { type Navlog, type NavlogWaypoint, SAMPLE_NAVLOG } from "../lib/navlog-types"
+import type { Navlog, NavlogWaypoint } from "../lib/navlog-types"
+import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { RouteStation } from "../lib/weather-roles"
 import type { WeatherBrief } from "../lib/weather-selectors"
 import { WeatherTab, type WeatherTabProps } from "./WeatherTab"

@@ -7,15 +7,17 @@ import "@copilotkit/react-core/v2/styles.css"
 // Restyle by overriding the `--b4-activity-*` tokens.
 import "@b4run/ag-ui/styles.css"
 import "leaflet/dist/leaflet.css"
-// pretable's house theme and grid skin; `theme.css` maps its tokens onto ours
-// inside `.wb-navlog-grid`.
+// pretable's house theme and grid skin; `styles/navlog.css` maps its tokens onto
+// ours inside `.wb-navlog-grid`.
 import "@pretable/ui/themes/pretable.css"
 import "@pretable/ui/grid.css"
+// The app's own styles, last so they win: `theme.css` loads Tailwind, then the
+// files in `app/styles/` in cascade order.
 import "./theme.css"
 
 export const metadata = { title: "B4.run navlog — a C172N VFR flight planner" }
 
-// LiveLoveApp's two faces. `theme.css` maps these variables onto Tailwind's
+// LiveLoveApp's two faces. `styles/tokens.css` maps these variables onto Tailwind's
 // `font-sans` / `font-mono`, CopilotChat's `--cpk-font-*` and the activity
 // kit's `--b4-activity-font-mono`.
 const sans = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", display: "swap" })

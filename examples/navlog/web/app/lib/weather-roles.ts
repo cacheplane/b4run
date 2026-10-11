@@ -1,6 +1,7 @@
 import type { TurnsView } from "@b4run/ag-ui/view"
 import { latestToolResult } from "./navlog-selectors"
 import type { Navlog } from "./navlog-types"
+import { isRecord, parseToolResult } from "./tool-result"
 import type { AirportWeather, WeatherBrief } from "./weather-selectors"
 
 /**
@@ -36,9 +37,6 @@ export interface WeatherRoles {
   readonly destination: RoleEntry
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null
-
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 
@@ -60,15 +58,8 @@ function toStation(value: unknown): RouteStation | null {
 
 /** The stations array of a `findRouteStations` result, or null when the text is not one. */
 function readRouteStations(text: string): RouteStation[] | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    return null
-  }
-  const candidate =
-    isRecord(parsed) && "result" in parsed && isRecord(parsed.result) ? parsed.result : parsed
-  if (!isRecord(candidate) || !Array.isArray(candidate.stations)) return null
+  const candidate = parseToolResult(text)
+  if (candidate === null || !Array.isArray(candidate.stations)) return null
   return candidate.stations.flatMap((entry) => {
     const station = toStation(entry)
     return station === null ? [] : [station]

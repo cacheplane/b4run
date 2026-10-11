@@ -192,7 +192,7 @@ const COPILOTKIT_RUN_PATH = "/api/copilotkit/agent/default/run"
 // (`createB4AgentRunner`) replays it from B4.run's storage (`GET /threads/:id/events`) as AG-UI events.
 const COPILOTKIT_CONNECT_PATH = "/api/copilotkit/agent/default/connect"
 // The allowlisted read the generated app itself treats as "the B4.run server
-// answered" (`AppShell.tsx`'s SERVER_PROBE_PATH). A 2xx means the route's whole
+// answered" (`lib/use-server-status.ts`'s SERVER_PROBE_PATH). A 2xx means the route's whole
 // module graph compiled AND the proxy reached a B4.run server.
 const WEB_READY_PATH = "/api/b4/memory/candidates"
 const todos = [

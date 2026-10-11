@@ -7,19 +7,19 @@
       "recordDigest": "1e3503c11087d2ad2b3249877728b3a4dac3bf2e233a59eb374a6264e47e58a8"
     },
     "/blog": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "8cca2b138289d81e7716357e0ea3db7af94be9fdfdcf4ed6fa51d12537f0003f",
-      "recordDigest": "4329a552e6865ef032a02b93505e8eb33c45eee33a90066c0f61d9e8ed5aa4da"
+      "lastModified": "2026-10-09T03:18:18.000Z",
+      "sourceDigest": "a549c153d0ad959f7da4a3b3d567d84634cd517ca6d1f75a3578dc25742e8158",
+      "recordDigest": "fa545b42f2acaff46aaa73872c7bf6f422f43fc769d8ae85e1b06915578b8eaa"
     },
     "/blog/tags/agents": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "2ba9d2462318d1bdb6a93b974c7f37c3bee412de9438baa9128382e5fc7ec311",
-      "recordDigest": "20669aad91a1f9862151a8ed91b15a50bfac0ec347f6a0a6e9fc0526fc108d88"
+      "lastModified": "2026-10-09T03:18:18.000Z",
+      "sourceDigest": "351b4edec987c94403005bf977185cc7113d3e2c59677c6197717e1d3dd8e52c",
+      "recordDigest": "b808e0ce6cab6034ea158bbb12845a512d180d69c8f74b623964029e301d31ac"
     },
     "/blog/tags/patterns": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "db3784259f14aa7219e0aa61c1ba248277e31c74e4abda954c89ac9a10cd27c4",
-      "recordDigest": "990ba0f229cbe30b65d3a15e97a182d906d324d0e67fa58e99a691f8691e23a2"
+      "lastModified": "2026-09-23T17:27:43.000Z",
+      "sourceDigest": "0505169748941c53c96b867c1d5346dd2d0a0e88cfa55ee8887c12d47b2ae2b9",
+      "recordDigest": "fe02e543fcfed6d62500a3a3eda921abe60aa7cfbec1d1be6d7c16814afb35cf"
     },
     "/blog/tags/philosophy": {
       "lastModified": "2026-09-25T19:33:48.000Z",
@@ -32,9 +32,9 @@
       "recordDigest": "5dc25c9a5120fba554b52aaca138b10bda21635e557a40895d9dbd1c5896e54f"
     },
     "/blog/tags/typescript": {
-      "lastModified": "2026-10-11T03:22:19.000Z",
-      "sourceDigest": "a19aa7f8076c8542e09a0e4257c5dbbc42eec6065db1ab99dba7277c896a1448",
-      "recordDigest": "9894fd3b978b1b9240323a792b6338a5b4711a9351b94436d6a0296805d132b7"
+      "lastModified": "2026-10-09T03:18:18.000Z",
+      "sourceDigest": "27781d53e33d352daa736ad04138655a667495b23630dcebcd1333e40668ee04",
+      "recordDigest": "05727582b65dac66da111b7e9752a005771235130f775e0d6302c4fedca7ad8b"
     },
     "/docs/access-control": {
       "lastModified": "2026-10-08T20:51:05.000Z",
@@ -212,9 +212,9 @@
       "recordDigest": "47a25f99e143c29052b95797a9dbda93d0edc1297e31ae93934ba1c8fbb6be2c"
     },
     "/docs/evals": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "d34f9a8900c438662fc85c70edbcb1eda764738051bc2ba3aad079c2de1d351f",
-      "recordDigest": "54152ce294f7d03260854051240eee014c05c6aaff18061c37978d92c302ee46"
+      "lastModified": "2026-10-11T01:52:14.000Z",
+      "sourceDigest": "f2a2438e716700b91cd338a4d52c20e8158b5ed88edf2c4100dde96a9152343a",
+      "recordDigest": "b07df7e6dc2e2badeaa73f408926564dd0b7383ccb075a32110fa1fbcc4e34e4"
     },
     "/docs/faq": {
       "lastModified": "2026-10-04T23:15:09.000Z",
@@ -327,19 +327,19 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-10T05:02:08.000Z",
-      "sourceDigest": "49265b542caed70c94ca13e2e3ea16aa35e0f06723bd8519d0028c86255bcad4",
-      "recordDigest": "5a1abcbc411e47dbae936986436179c61e18f90dfc8f9c89e173c938d6417393"
+      "lastModified": "2026-10-11T01:52:14.000Z",
+      "sourceDigest": "6ed35442a4ed60a97c41a1eadf0421a5a25d67eff88994e05ff0fd7c258e061c",
+      "recordDigest": "ca255a584cde4870d2e891ba9bd893430778565ba722735bb777289dc37a8868"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-10T05:02:08.000Z",
-      "sourceDigest": "05b56ca44fdd475dbfd789b777aa8c3db62db3d3cd6ff704c9d994997dfdeac3",
-      "recordDigest": "d05eea10a2256eb74115cfef73f27550d7427eec0cbf914ffe8e0bc15377d146"
+      "lastModified": "2026-10-11T02:42:29.000Z",
+      "sourceDigest": "57e4f72e1124f0ae48d7228cc69dd608669e986c0656da3215ca52fa67651b63",
+      "recordDigest": "caae6fcf108d6ac45e2286524e5106eb317fab319ddd75c6ee7b3f2afac3dee3"
     },
     "/docs/recipes/navlog": {
-      "lastModified": "2026-10-10T16:03:52.000Z",
-      "sourceDigest": "6c4539264b34333d37b0a6279e8ec3c46762a6b07cce2490eba09a474cf1dabb",
-      "recordDigest": "6891aa68715abb9e10ebda70550264dc3c3247cae66b3bfcce360bcc0c257fb9"
+      "lastModified": "2026-10-11T02:31:23.000Z",
+      "sourceDigest": "a85b0a8f807d2d82b81f30981a9a53b1d3112f953c1e1aa0e32d3cd142dc960b",
+      "recordDigest": "6edc6a20b51f04b3b5d28d04a3b7829e41cd6057fae98c54e20ef2a675693c23"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

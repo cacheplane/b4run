@@ -1,17 +1,12 @@
 import { EMPTY_TURNS, reduceTurns, type TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
 import { latestNavlogResult, navlogAnswerText } from "./navlog-selectors"
-import { SAMPLE_NAVLOG } from "./navlog-types"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 import {
-  advisoryLabel,
-  advisorySeverity,
   isPreliminary,
   latestWeatherBriefText,
-  parseAdvisory,
   parseVerdictText,
   parseWeatherBrief,
-  parseWindsLine,
-  windsSummary,
 } from "./weather-selectors"
 
 type BaseEvent = Parameters<typeof reduceTurns>[1]
@@ -95,92 +90,6 @@ describe("the verdict contract", () => {
   test("a horizon inside the forecasts is not preliminary", () => {
     expect(isPreliminary("Departure is within TAF and winds-aloft coverage.")).toBe(false)
     expect(isPreliminary(undefined)).toBe(false)
-  })
-})
-
-describe("advisories", () => {
-  test("parses the field form", () => {
-    expect(
-      parseAdvisory(
-        "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight",
-      ),
-    ).toEqual({
-      product: "G-AIRMET",
-      hazard: "FZLVL",
-      altitudes: "freezing level 4,000 ft",
-      valid: "2100Z–0300Z 07",
-      relevance: "during flight",
-      lowestFt: 4000,
-      raw: "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight",
-    })
-    const sigmet = parseAdvisory(
-      "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure",
-    )
-    expect(sigmet.relevance).toBe("expires before departure")
-    expect(sigmet.lowestFt).toBe(29000)
-  })
-  test("a free-text advisory keeps its text and has no relevance", () => {
-    const free = parseAdvisory("AIRMET Sierra for mountain obscuration north of the route")
-    expect(free.relevance).toBeNull()
-    expect(free.raw).toBe("AIRMET Sierra for mountain obscuration north of the route")
-  })
-  test("severity: during flight is amber, red for icing or convection at or below cruise, else muted", () => {
-    const fz = parseAdvisory(
-      "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight",
-    )
-    expect(advisorySeverity(fz, 5500)).toBe("warn")
-    const ice = parseAdvisory(
-      "G-AIRMET ICE | 3,000 ft to FL180 | valid 2100Z–0300Z 07 | during flight",
-    )
-    expect(advisorySeverity(ice, 5500)).toBe("danger")
-    expect(advisorySeverity(ice, 2500)).toBe("warn")
-    const later = parseAdvisory(
-      "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | starts after arrival",
-    )
-    expect(advisorySeverity(later, 5500)).toBe("muted")
-    expect(advisorySeverity(parseAdvisory("something vague"), 5500)).toBe("muted")
-  })
-  test("labels read as words", () => {
-    expect(
-      advisoryLabel(
-        parseAdvisory(
-          "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight",
-        ),
-      ),
-    ).toBe("Freezing level 4,000 ft")
-    expect(
-      advisoryLabel(
-        parseAdvisory(
-          "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure",
-        ),
-      ),
-    ).toBe("SIGMET Convective tops FL290")
-  })
-})
-
-describe("winds aloft", () => {
-  test("the older, wordy line reads compactly and drops temp NA", () => {
-    const raw =
-      "leg 1: 318/26, temp NA at 5,500 ft, MSP, based on 060000Z, valid 070000Z (FB chi region, 24-hour forecast used)"
-    expect(parseWindsLine(raw)).toMatchObject({
-      leg: 1,
-      dir: 318,
-      kt: 26,
-      tempC: null,
-      altitudeFt: 5500,
-      station: "MSP",
-      forecastHours: 24,
-    })
-    expect(windsSummary(raw)).toBe("Winds 5,500 ft: 318° at 26 kt (MSP, 24 h forecast)")
-  })
-  test("the contract line keeps its temperature", () => {
-    expect(windsSummary("leg 1: 320/29 -3C at 4500 ft, MSP, valid 040600Z")).toBe(
-      "Winds 4,500 ft: 320° at 29 kt, −3 °C (MSP)",
-    )
-    expect(windsSummary("leg 2: 090/05 at 3000 ft")).toBe("Winds 3,000 ft: 090° at 5 kt")
-  })
-  test("an unparseable line passes through", () => {
-    expect(windsSummary("winds unavailable")).toBe("winds unavailable")
   })
 })
 

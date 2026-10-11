@@ -244,7 +244,7 @@ The default `basic` template generates `src/app/hello/evals/smoke.eval.ts`, a on
 npm run eval
 ```
 
-This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The navlog eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has three dataset cases, each with inline `script()` fixtures, and these scorers:
+This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The navlog eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has four dataset cases, each with `script()` fixtures built in its sibling `navlog-quality.fixtures.ts`, and these scorers:
 
 - `toolCalled("computeNavlog", { threshold: 1 })`, and `toolCalled("task", { withArgs: { subagent: "weather" } })` and its `performance` twin, assert the plan used the navlog tool and both subagents.
 - Custom `navlog-shape` and `totals-add-up-and-reserve` scorers parse `computeNavlog`'s result and check its legs, totals and legal reserve.

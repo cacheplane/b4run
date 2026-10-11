@@ -3,15 +3,15 @@ import { useId, useMemo } from "react"
 import { BriefRenderer } from "../brief/BriefRenderer"
 import { BriefVerdictContext } from "../brief/components"
 import { isStructuredAnswer } from "../brief/parse"
+import { parseAdvisory } from "../lib/advisories"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
 import { resolveVerdict } from "../lib/verdict"
 import type { RouteStation } from "../lib/weather-roles"
-import { parseAdvisory, type WeatherBrief } from "../lib/weather-selectors"
+import type { WeatherBrief } from "../lib/weather-selectors"
 import { CopyFplButton, FlightPlanBlock } from "./FlightPlanBlock"
 import { NavlogGrid } from "./NavlogGrid"
 import { NavlogTable } from "./NavlogTable"
-import { PlanningBrief } from "./PlanningBrief"
 import { VerdictCard, VerdictPill } from "./VerdictCard"
 import { WeatherTab } from "./WeatherTab"
 
@@ -414,16 +414,19 @@ export function NavlogSheet({
               />
             </div>
           ) : null}
-          {!planningAnswer ? null : isStructuredAnswer(planningAnswer) ? (
+          {/* Only a structured answer is shown here: its bottom line agrees with
+              the card above (`BriefVerdictContext`). A markdown answer, which only
+              a thread from before the brief kit holds, has no bottom line the
+              verdict reads, so it stays in the chat rather than sit under a card
+              it might contradict. */}
+          {isStructuredAnswer(planningAnswer) ? (
             <section aria-label="Planning brief" className="wb-brief mt-4">
               <h3 className="wb-eyebrow">Planning brief</h3>
               <BriefVerdictContext.Provider value={verdict}>
                 <BriefRenderer content={planningAnswer} idPrefix={`${bodyId}-`} />
               </BriefVerdictContext.Provider>
             </section>
-          ) : (
-            <PlanningBrief planningAnswer={planningAnswer} verdict={verdict} />
-          )}
+          ) : null}
         </div>
       </div>
     </section>

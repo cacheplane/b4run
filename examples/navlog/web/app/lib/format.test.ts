@@ -17,5 +17,6 @@ describe("format", () => {
   })
   test("ISO instants become HHMMZ", () => {
     expect(formatUtcHhmm("2026-10-05T14:07:00.000Z")).toBe("1407Z")
+    expect(formatUtcHhmm("not a time")).toBe("")
   })
 })

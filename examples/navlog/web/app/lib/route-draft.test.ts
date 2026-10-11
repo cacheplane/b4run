@@ -1,15 +1,16 @@
 import { describe, expect, test } from "vitest"
-import { type Navlog, SAMPLE_NAVLOG } from "./navlog-types"
+import type { Navlog } from "./navlog-types"
 import {
   type DraftWaypoint,
   draftDistanceNm,
   draftFromNavlog,
   draftReducer,
   EMPTY_DRAFT,
+  moveWaypoint,
   type RouteDraft,
   replanMessage,
-  sameRoute,
 } from "./route-draft"
+import { SAMPLE_NAVLOG } from "./test-fixtures"
 
 const KPAO: DraftWaypoint = {
   id: "KPAO",
@@ -90,6 +91,34 @@ describe("draftFromNavlog", () => {
   })
 })
 
+const ids = (waypoints: readonly DraftWaypoint[] | null): string[] | null =>
+  waypoints === null ? null : waypoints.map((w) => w.id)
+
+describe("moveWaypoint", () => {
+  test("moves a waypoint earlier or later, to its final index", () => {
+    expect(ids(moveWaypoint([KPAO, SNS, KSBA], 2, 0))).toEqual(["KSBA", "KPAO", "SNS"])
+    expect(ids(moveWaypoint([KPAO, SNS, KSBA], 0, 2))).toEqual(["SNS", "KSBA", "KPAO"])
+    expect(ids(moveWaypoint([KPAO, SNS, KSBA], 1, 2))).toEqual(["KPAO", "KSBA", "SNS"])
+  })
+
+  test("returns null for no move or an index outside the route", () => {
+    expect(moveWaypoint([KPAO, SNS], 1, 1)).toBeNull()
+    expect(moveWaypoint([KPAO, SNS], -1, 0)).toBeNull()
+    expect(moveWaypoint([KPAO, SNS], 0, 2)).toBeNull()
+  })
+
+  test("refuses an order that puts a waypoint right after itself", () => {
+    // Out and back: moving SNS to the end would make KPAO follow KPAO.
+    expect(moveWaypoint([KPAO, SNS, KPAO], 1, 2)).toBeNull()
+    expect(ids(moveWaypoint([KPAO, SNS, KPAO, KSBA], 3, 1))).toEqual([
+      "KPAO",
+      "KSBA",
+      "SNS",
+      "KPAO",
+    ])
+  })
+})
+
 describe("draftReducer", () => {
   test("add appends a waypoint", () => {
     const state = draftReducer(draft({ waypoints: [KPAO] }), { type: "add", waypoint: SNS })
@@ -104,6 +133,18 @@ describe("draftReducer", () => {
   test("add accepts a waypoint seen earlier but not last", () => {
     const state = draftReducer(draft({ waypoints: [KPAO, SNS] }), { type: "add", waypoint: KPAO })
     expect(state.waypoints.map((w) => w.id)).toEqual(["KPAO", "SNS", "KPAO"])
+  })
+
+  test("move reorders the waypoints and keeps everything else", () => {
+    const start = draft({ waypoints: [KPAO, SNS, KSBA], altitudeFt: "5500" })
+    const state = draftReducer(start, { type: "move", from: 1, to: 0 })
+    expect(state.waypoints.map((w) => w.id)).toEqual(["SNS", "KPAO", "KSBA"])
+    expect(state.altitudeFt).toBe("5500")
+  })
+
+  test("a refused move returns the same draft", () => {
+    const start = draft({ waypoints: [KPAO, SNS, KPAO] })
+    expect(draftReducer(start, { type: "move", from: 1, to: 2 })).toBe(start)
   })
 
   test("remove drops the waypoint at an index", () => {
@@ -227,24 +268,5 @@ describe("draftDistanceNm", () => {
     const a: DraftWaypoint = { ...KPAO, lat: 0, lon: 0 }
     const b: DraftWaypoint = { ...KPAO, lat: 1, lon: 0 }
     expect(draftDistanceNm(draft({ waypoints: [a, b] }))).toBe(60)
-  })
-})
-
-describe("sameRoute", () => {
-  test("is false with no plan", () => {
-    expect(sameRoute(draftFromNavlog(SAMPLE_NAVLOG), null)).toBe(false)
-  })
-
-  test("is true when the ids match in order", () => {
-    expect(sameRoute(draftFromNavlog(SAMPLE_NAVLOG), SAMPLE_NAVLOG)).toBe(true)
-  })
-
-  test("is false when the order, length or ids differ", () => {
-    const [stp, rst] = draftFromNavlog(SAMPLE_NAVLOG).waypoints
-    if (!stp || !rst) throw new Error("sample navlog has two waypoints")
-    expect(sameRoute(draft({ waypoints: [rst, stp] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp, rst, KSBA] }), SAMPLE_NAVLOG)).toBe(false)
-    expect(sameRoute(draft({ waypoints: [stp, KSBA] }), SAMPLE_NAVLOG)).toBe(false)
   })
 })

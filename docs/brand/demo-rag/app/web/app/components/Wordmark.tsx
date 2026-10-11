@@ -1,4 +1,4 @@
-/** The app's name, "B4.run / plans", as plain ink type. Styles: `.wb-wordmark` in `app/theme.css`. */
+/** The app's name, "B4.run / plans", as plain ink type. Styles: `.wb-wordmark` in `app/styles/typography.css`. */
 export function Wordmark() {
   return (
     <span className="wb-wordmark">

@@ -25,7 +25,8 @@ It is a workbench rather than a chat widget, and it is map-first:
   autocomplete input over the bundled waypoint snapshot (`GET /api/waypoints?q=`),
   the cruise altitude, the departure, the draft's distance and **Plan**
   (**Replan** once a navlog exists). Type `KPAO SNS KSBA` with a space after
-  each identifier to build a route; each waypoint draws on the map at once,
+  each identifier to build a route, and drag a pill (hold it first on a touch
+  screen) or use the arrow keys on it to reorder; each waypoint draws on the map at once,
   dashed until it is planned. Plan sends one ordinary chat message, such as
   `Plan KPAO → SNS (VORTAC) → KSBA at 5500 ft, departing 1400Z.`, and the next
   navlog resets the bar to the planned route. The snapshot comes from
@@ -40,7 +41,7 @@ It is a workbench rather than a chat widget, and it is map-first:
   advisories and forecast horizon, **Totals & plan** holds the tiles and
   the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
   brief, rendered from the agent's structured answer. **Print** prints the sheet alone on one landscape page, every leg
-  included (from a print-only table), and **Copy FPL** copies the `(FPL-…)`
+  included (from `NavlogTable`, the same table the phone shows as cards), and **Copy FPL** copies the `(FPL-…)`
   message.
 - **Phones.** Under 1024 px: a top row, one full-screen panel and a bottom tab
   bar (Chat, Map with the route bar, Navlog, the navlog as one card per leg). The menu opens the
@@ -74,7 +75,8 @@ B4.run binds it on the route's model as structured output, and `BriefRenderer`
 (`app/brief/`) renders the streamed `{ ui: [...] }` as the BottomLine,
 RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations and Prose components,
 in the chat and in the sheet's Brief tab. An older thread's markdown answer
-falls back to the markdown renderer.
+renders as markdown in the chat; the Brief tab shows only a structured answer,
+since a markdown one has no bottom line for the verdict card to agree with.
 
 The server must allow that key, and `server/b4.config.ts` does, for this route
 only:
@@ -126,7 +128,7 @@ npm run build --workspace web
 | Part | File | What it does |
 |---|---|---|
 | Connect screen | `app/components/ConnectScreen.tsx` | replaces the shell while the server is unreachable |
-| Layout | `app/components/WorkbenchLayout.tsx` | the docked columns (sidenav, chat, map with the route bar and sheet); the phone tabs |
+| Layout | `app/components/WorkbenchLayout.tsx`, `DesktopWorkbench.tsx`, `PhoneWorkbench.tsx` | the state both layouts share, then the docked columns (sidenav, chat, map with the route bar and sheet) or the phone tabs |
 | Route map | `app/components/RouteMap.tsx`, `MarkerPanel.tsx`, `app/lib/map-labels.ts` | Leaflet, browser-only, draws what `routeGeometry` returns; the marker panel; label placement |
 | Sidenav | `app/components/SideNav.tsx` | wordmark, new plan, threads, memory count |
 | Chat column | `app/components/ChatDock.tsx` | the thread title and run status above the chat |
@@ -134,27 +136,46 @@ npm run build --workspace web
 | Waypoint search | `app/api/waypoints/route.ts`, `app/lib/waypoint-search.ts`, `data/waypoints.json` | searches the bundled OurAirports snapshot server-side |
 | Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx`, `WeatherTab.tsx` | verdict strip, legs grid and tabs, weather by role, totals, ICAO flight plan, print and copy |
 | Step views | `app/components/StepViews.tsx` | the opened `computeNavlog` and `renderChart` steps, through `B4Activity`'s `renderStep` |
-| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `weather-roles.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
+| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `advisories.ts`, `winds.ts`, `weather-roles.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
 | Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
-| Memory review | `app/components/MemoryPanel.tsx` | approve or delete the candidates `remember()` proposed |
-| Brief kit | `app/brief/` | the structured answer: hashbrown schemas, the BottomLine / RouteSummary / WatchFor / KeyNumbers / Assumptions / Citations / Prose components, and `BriefRenderer` (markdown fallback for older threads) |
+| Shell hooks | `app/lib/use-server-status.ts`, `use-run-errors.ts`, `use-drop-notices.ts`, `use-thread-switch.ts`, `use-thread-titles.ts` | what `AppShell` composes: the server probe, the failure banner, dropped-part notices, the thread-switch reset, thread titles |
+| Memory review | `app/components/MemoryPanel.tsx`, `app/lib/use-memory-candidates.ts`, `memory-candidates.ts` | approve or delete the candidates `remember()` proposed |
+| Brief kit | `app/brief/` | the structured answer: hashbrown schemas, the BottomLine / RouteSummary / WatchFor / KeyNumbers / Assumptions / Citations / Prose components, and `BriefRenderer` |
 | Chat | `app/components/NavlogChat.tsx` | `<CopilotChat>` with B4.run's slots: turns, approvals, attachments |
 | Notices | `app/components/DropNotices.tsx`, `RunError.tsx` | parts the model never saw, and run errors |
 | CopilotKit runtime | `app/api/copilotkit/[...path]/route.ts` | registers a `B4HttpAgent` on B4.run's AG-UI endpoint with `responseSchema` set to the brief kit's JSON Schema, and a `createB4AgentRunner(InMemoryAgentRunner, ...)` runner that restores threads |
 | Server proxy | `app/api/b4/[...path]/route.ts` | forwards the three memory routes to B4.run |
 | Proxy allowlist | `app/lib/proxy-allowlist.ts` | the pure policy the proxy enforces |
 | Thread list | `app/lib/thread-source.ts` | the sidenav's ids, titles and recency (restoring a thread is the runner's replay) |
-| Theme | `app/theme.css` | the whole palette, as CSS variables |
+| Theme | `app/theme.css`, `app/styles/` | the palette as CSS variables in `styles/tokens.css`, one stylesheet per part of the app |
 
 ## Restyling it
 
-`app/theme.css` is the one file to edit. The palette is defined there as CSS
-variables and re-exported as Tailwind tokens through `@theme inline`, which is
-why the app's utilities read `bg-wb-surface`, `border-wb-border`,
-`text-wb-muted`, `rounded-wb`, `font-sans`. Change a `--wb-*` value and the
-activity-card tokens, CopilotChat's tokens and every utility move together.
-The same file holds the focus ring (`wb-focus`), the wordmark
-(`.wb-wordmark`), and the `.wb-prose` rules for rendered markdown.
+`app/styles/tokens.css` is the file to edit first. The whole palette is defined there as
+CSS variables and re-exported as Tailwind tokens via `@theme inline`, which is why the
+app's utilities read `bg-wb-surface`, `border-wb-border`, `text-wb-muted`, `rounded-wb`,
+`font-sans`. Change a `--wb-*` value and the activity-card tokens, CopilotChat's tokens
+and every utility move together. The same file holds the single focus ring (`wb-focus`).
+
+The rest of the styles sit beside it in `app/styles/`, one file per part of the app.
+`app/theme.css` is the single entry `app/layout.tsx` imports: it loads Tailwind, then
+those files in cascade order, which is behavior (the motion rules must follow the
+transitions they switch off, the print rules the screen rules they undo), so a new file
+goes where its rules need to sit, not alphabetically.
+
+| File | What it styles |
+|---|---|
+| `tokens.css` | The palette, Tailwind tokens, focus ring, layout and status tokens, and the activity kit's and CopilotChat's tokens mapped onto the palette |
+| `map.css` | Leaflet's tiles and controls, the route line, waypoint and station markers and their labels |
+| `layout.css` | The one-pane window, panels, header and list rows, the sidebar, tooltips, tabs, buttons, the phone's tab bar and drawer |
+| `status.css` | Flight-category and hazard chips, the verdict pill, card and strip, and the totals tiles |
+| `navlog.css` | The legs: the plain table and the pretable grid skin |
+| `brief.css` | The planning brief and the brief kit (`app/brief/`) |
+| `motion.css` | The sheet and dock transitions, and reduced motion |
+| `print.css` | The sheet alone on one landscape page |
+| `typography.css` | The wordmark (`.wb-wordmark`) and the `.wb-prose` rules for rendered markdown |
+| `map-overlays.css` | The route bar and a marker's weather panel |
+| `chat-dock.css` | CopilotKit's composer inside the dock, and the dock's signal colors |
 
 The look is light only: Hanken Grotesk and JetBrains Mono (loaded in
 `app/layout.tsx`), ink plus one cobalt accent for links, the focus ring, the selected
@@ -163,14 +184,14 @@ colors are data, shown as labelled chips and dots. `app/design-rules.test.ts`
 fails the test suite on uppercase, positive letter-spacing, gradients, shadows,
 glass, a dark scheme, or any Google font other than those two.
 
-It also holds the map workbench's tokens: `--wb-nav-width`, `--wb-sheet-max`
-and `--wb-gutter` for the layout, `--wb-route` for the route line, the
-`--wb-cat-*` flight-category colors shared by the chips and the markers, the
-filter that turns the map tiles grey, and the print rules.
+`tokens.css` also holds the map workbench's tokens: `--wb-nav-width`,
+`--wb-sheet-max` and `--wb-gutter` for the layout, `--wb-route` for the route
+line, and the `--wb-cat-*` flight-category colors the chips and the markers
+share. The filter that turns the map tiles grey is in `map.css`.
 
 The plan and subagent steps are **not forks**. They are the packaged
 `@b4run/ag-ui/react` components `B4Activity` renders (`TurnActivity` and its
-steps), themed through the `--b4-activity-*` tokens in `app/theme.css` and
+steps), themed through the `--b4-activity-*` tokens in `app/styles/tokens.css` and
 extended per tool in `app/components/StepViews.tsx`. Validation, bounds, and
 layout stay in the package, where they are tested. The package's CSS is
 unlayered and Tailwind's utilities are not, so a utility cannot override a

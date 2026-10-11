@@ -1,10 +1,15 @@
 "use client"
 import { B4Activity } from "@b4run/ag-ui/react/copilotkit"
-import { useAgent, useCapabilities, useCopilotKit } from "@copilotkit/react-core/v2"
-import { useCallback, useEffect, useRef, useState } from "react"
-import { titleFor, type WorkbenchThread } from "../lib/thread-source"
+import { useAgent, useCapabilities } from "@copilotkit/react-core/v2"
+import { useState } from "react"
+import type { WorkbenchThread } from "../lib/thread-source"
+import { useDropNotices } from "../lib/use-drop-notices"
+import { useRunErrors } from "../lib/use-run-errors"
+import { useServerStatus } from "../lib/use-server-status"
+import { useThreadSwitchReset } from "../lib/use-thread-switch"
+import { useThreadTitles } from "../lib/use-thread-titles"
 import { ConnectScreen } from "./ConnectScreen"
-import { type DropNotice, DropNotices } from "./DropNotices"
+import { DropNotices } from "./DropNotices"
 import { MemoryPanel } from "./MemoryPanel"
 import { RunError } from "./RunError"
 import { NAVLOG_STEP_LABELS, NAVLOG_STEP_RENDERERS } from "./StepViews"
@@ -17,15 +22,18 @@ import { ThreadWorkbench } from "./ThreadWorkbench"
  * instead of each re-arguing why they are not the others.
  *
  * 1. `ConnectScreen` — the server is KNOWN to be down: a probe through the
- *    proxy came back 502 (`probeB4Server`). It replaces the entire shell,
- *    because nothing in the shell works without a server.
+ *    proxy came back 502 (`probeB4Server` in `lib/use-server-status.ts`). It
+ *    replaces the entire shell, because nothing in the shell works without a
+ *    server.
  * 2. The `RunError` banner in the chat dock — something failed while the shell
  *    is UP and there is a conversation on screen to attach it to: a run, a
  *    resume, or loading the conversation (`RUN_ERROR_TITLES`, via the
- *    `copilotkit.subscribe` seam below). A failed load offers Retry.
- * 3. The memory panel's quiet muted line — `MemoryPanel`'s own candidate read
- *    failing for a reason that is NOT a 502. A 502 there is surface 1's fact,
- *    so the panel stays silent for it rather than competing.
+ *    `copilotkit.subscribe` seam in `lib/use-run-errors.ts`). A failed load
+ *    offers Retry.
+ * 3. The memory panel's quiet muted line — its own candidate read
+ *    (`lib/use-memory-candidates.ts`) failing for a reason that is NOT a 502.
+ *    A 502 there is surface 1's fact, so the panel stays silent for it rather
+ *    than competing.
  *
  * The rule that generates all three: report a fact once, on the surface that
  * owns it, at the size of the thing that broke.
@@ -44,119 +52,6 @@ import { ThreadWorkbench } from "./ThreadWorkbench"
  * as a default, not asserted as the confirmed target.
  */
 const DEFAULT_SERVER_URL = "http://127.0.0.1:3002"
-
-/** How often the connect screen re-probes B4.run while it is showing. */
-const SERVER_PROBE_INTERVAL_MS = 5000
-
-/** The allowlisted read this app probes B4.run's own liveness through (see `probeB4Server`). */
-const SERVER_PROBE_PATH = "/api/b4/memory/candidates"
-
-/**
- * True if the B4.run server itself answered — not just this Next process.
- *
- * `useCopilotKit().runtimeConnectionStatus` looks like the right predicate
- * and is not: the CopilotKit runtime route (`api/copilotkit/[...path]/route.ts`)
- * runs in the SAME Next process as this page, its `/info` handler enumerates
- * the registered agents, and although `B4HttpAgent.getCapabilities` does
- * contact B4.run, the handler catches a failure there and reports the agent
- * without capabilities, so any failure to reach B4.run along that path is
- * swallowed rather than surfaced. With B4.run completely down,
- * `runtimeConnectionStatus` stays `"connected"` and the empty workbench
- * renders.
- *
- * So this probes through the same-origin proxy (`api/b4/[...path]/route.ts`)
- * instead: `GET /api/b4/memory/candidates` is on the proxy's allowlist
- * (`lib/proxy-allowlist.ts`) and is a cheap read. The proxy's one dedicated
- * "I could not reach B4.run" signal is a 502 with an ECONNREFUSED-shaped body
- * (`route.ts`'s catch branch); any other status — even a B4.run-side error —
- * means the process answered, which is all this needs to know.
- */
-async function probeB4Server(): Promise<boolean> {
-  try {
-    const response = await fetch(SERVER_PROBE_PATH)
-    return response.status !== 502
-  } catch {
-    // The proxy route itself not responding at all is the same "show the
-    // connect screen" situation from the user's point of view.
-    return false
-  }
-}
-
-/**
- * Which CopilotKit core errors are the user's problem, and what to call them.
- *
- * `onError` fires for the whole `CopilotKitCoreErrorCode` enum, not just runs:
- * transcription failures, tool-registration mistakes, and
- * `subscriber_callback_failed` — a bug thrown by one of *our* renderers — all
- * arrive on the same channel. Showing every one of them as "The run failed" is
- * a lie in both directions, so this is an allowlist, and anything absent stays
- * a console line.
- *
- * Keyed by the enum's string values rather than the enum itself: importing
- * `@copilotkit/core` for a comparison would add a direct dependency on a
- * package this app only has transitively, and TypeScript refuses to compare an
- * enum-typed value against a string literal anyway.
- */
-export const RUN_ERROR_TITLES: Readonly<Record<string, string>> = {
-  agent_run_failed: "The run failed",
-  agent_run_failed_event: "The run failed",
-  agent_run_error_event: "The run failed",
-  // `CopilotChat` connects the thread on mount, and the runtime route restores
-  // it from B4.run's storage: a failure here is the conversation not loading.
-  agent_connect_failed: "Couldn't load this conversation",
-  agent_thread_locked: "This conversation is already running",
-  agent_not_found: "The navlog agent is not registered",
-  // NOT "Cannot reach the B4.run server" — this code means `/api/copilotkit`'s
-  // own `/info` sync broke inside the Next process, which is a different
-  // failure from B4.run being down (see `probeB4Server`'s comment for why
-  // that route cannot tell the two apart at all).
-  runtime_info_fetch_failed: "The chat runtime failed to initialize",
-}
-
-/** The codes whose banner offers Retry: loading the conversation again can help. */
-const RETRYABLE_CODES: ReadonlySet<string> = new Set(["agent_connect_failed"])
-
-/** The `CUSTOM` event name `packages/langchain` emits when parts never reached the model. */
-const CONTENT_PARTS_DROPPED_EVENT = "b4.content_parts_dropped"
-
-/**
- * A `b4.content_parts_dropped` value as far as the notices need it: a `parts`
- * list of `{ type, reason }` entries. The event crosses the network, so it is
- * checked rather than cast; a payload that fails is dropped quietly (the
- * notice is a courtesy, not the run's outcome).
- */
-function asDropNotice(value: unknown): DropNotice | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const { parts, toolCallId } = value as { parts?: unknown; toolCallId?: unknown }
-  if (!Array.isArray(parts) || parts.length === 0) return undefined
-  const valid = parts.every(
-    (part) =>
-      typeof part === "object" &&
-      part !== null &&
-      typeof (part as { type?: unknown }).type === "string" &&
-      typeof (part as { reason?: unknown }).reason === "string",
-  )
-  if (!valid) return undefined
-  if (toolCallId !== undefined && typeof toolCallId !== "string") return undefined
-  return value as DropNotice
-}
-
-interface MessageShape {
-  readonly id: string
-  readonly role: string
-  readonly content?: unknown
-}
-
-/** The first user message, which titles the thread. */
-function firstUserMessage(messages: readonly MessageShape[]): MessageShape | undefined {
-  return messages.find((message) => message.role === "user")
-}
-
-interface RunErrorState {
-  readonly title: string
-  readonly message: string
-  readonly retryable: boolean
-}
 
 export interface AppShellProps {
   readonly threads: readonly WorkbenchThread[]
@@ -177,7 +72,8 @@ export interface AppShellProps {
 /**
  * The shell: the server probe, the failure banner, drop notices, thread
  * titling, and the keyed `B4Activity` the workbench (`ThreadWorkbench`)
- * lives in.
+ * lives in. Each of those is a hook in `lib/`; this component composes them,
+ * swaps in the connect screen while the server is down, and renders.
  *
  * `useAgent()` is deliberately called with NO arguments. Its props have exactly
  * two legal shapes: unscoped (`useAgent()` / `useAgent({ agentId })`), which
@@ -187,14 +83,16 @@ export interface AppShellProps {
  * what this app wants: `CopilotChat`, `B4Activity`'s `useInterrupt` and
  * `useSuggestions` all resolve their agent the same way, so one
  * `CopilotChatConfigurationProvider` (mounted in `page.tsx`) keeps every hook
- * bound to the same agent and the same thread.
+ * bound to the same agent and the same thread. The hooks below take this one
+ * agent as an argument rather than each resolving it again.
  *
  * `B4Activity` is keyed by the thread, because `useInterrupt` clears its
  * pending card only on a new run: an activity that outlived a switch would
- * show the previous thread's approval card on the next one. The key also restarts the turns from empty, and the remount
- * remounts `CopilotChat`, which connects the new thread — the runtime route
- * replays it from B4.run's storage. `connectNonce` is in the key so Retry on
- * a failed load connects again.
+ * show the previous thread's approval card on the next one. The key also
+ * restarts the turns from empty, and the remount remounts `CopilotChat`, which
+ * connects the new thread — the runtime route replays it from B4.run's
+ * storage. `connectNonce` is in the key so Retry on a failed load connects
+ * again.
  */
 export function AppShell({
   threads,
@@ -204,7 +102,6 @@ export function AppShell({
   onUserMessage,
 }: AppShellProps) {
   const { agent } = useAgent()
-  const { copilotkit } = useCopilotKit()
   // The route's capability document, as CopilotKit's runtime `/info` sync
   // fetched it from `B4HttpAgent.getCapabilities()` — in the browser the agent
   // is the runtime's proxy, so this hook (not a direct `getCapabilities()`
@@ -212,193 +109,21 @@ export function AppShell({
   // which correctly hides the attach control until then.
   const capabilities = useCapabilities()
   const canAttachImages = capabilities?.multimodal?.input?.image === true
-  // Drop notices for the thread on screen, in arrival order. Not on the
-  // agent: CopilotKit keeps no record of CUSTOM events, so this list is the
-  // only place they live, and it goes with the thread on a switch.
-  const [notices, setNotices] = useState<readonly DropNotice[]>([])
-  const [runError, setRunError] = useState<RunErrorState | null>(null)
-  const [connectNonce, setConnectNonce] = useState(0)
   // Memory candidates waiting, reported by `MemoryPanel`, for the sidenav's count.
   const [memoryCount, setMemoryCount] = useState(0)
-
-  // "checking" first paint, never "down" — see `probeB4Server` and the
-  // effects below for why nothing but an actual probe through the proxy may
-  // set this to "down", and why "checking" (not "up") is the honest starting
-  // value: nothing has answered yet, and defaulting to "up" would flash the
-  // normal shell for a beat on every load even when B4.run is genuinely down.
-  const [serverStatus, setServerStatus] = useState<"checking" | "up" | "down">("checking")
-  // Guards `setServerStatus` calls whose probe resolves after this component
-  // is gone — the interval below already stops new probes on unmount, but a
-  // probe already in flight at that moment still has to be told not to write
-  // into unmounted state.
-  //
-  // RE-ARMED on setup, not just cleared on cleanup. Next 16's App Router runs
-  // StrictMode by default (this app sets no `reactStrictMode` key), and
-  // StrictMode's dev double-invoke is setup -> cleanup -> setup. A flag whose
-  // only write is `= false` in the cleanup would latch false forever on the
-  // second setup and pin `serverStatus` at "checking": with B4.run completely
-  // down, the connect screen would never appear in dev.
-  const isMountedRef = useRef(true)
-  useEffect(() => {
-    isMountedRef.current = true
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [])
-
-  const runProbe = useCallback(() => {
-    void probeB4Server().then((up) => {
-      if (isMountedRef.current) setServerStatus(up ? "up" : "down")
-    })
-  }, [])
-
-  // The one probe every load gets regardless of status: without it, a
-  // freshly mounted shell would sit in "checking" forever.
-  useEffect(() => {
-    runProbe()
-  }, [runProbe])
-
-  // Recovery, not just detection: polls only while "down". A server that dies
-  // mid-session is NOT noticed by this poll; the surface for it is a failed
-  // run (see the error-surface note at the top of this file). Recovery
-  // restores the conversation too: the connect screen unmounted the
-  // workbench, and remounting it connects the thread again.
-  useEffect(() => {
-    if (serverStatus !== "down") return
-    const id = setInterval(runProbe, SERVER_PROBE_INTERVAL_MS)
-    return () => clearInterval(id)
-  }, [serverStatus, runProbe])
-
-  // THE seam for run and load failures. `copilotkit.runAgent` and
-  // `connectAgent` do not reject when they fail: they catch, call
-  // `emitError`, and resolve. Errors surface only here, as
-  // `CopilotKitCoreErrorCode` events.
-  useEffect(() => {
-    const subscription = copilotkit.subscribe({
-      onError: ({ error, code }) => {
-        const title = RUN_ERROR_TITLES[String(code)]
-        if (title === undefined) {
-          console.error(`AppShell: unshown CopilotKit error (${String(code)})`, error)
-          return
-        }
-        setRunError({ title, message: error.message, retryable: RETRYABLE_CODES.has(String(code)) })
-      },
-    })
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [copilotkit])
-
-  // A banner raised while the server was down (a load that failed because
-  // B4.run was gone) is stale once it is back: recovery remounts the
-  // workbench, which connects the thread again on its own.
-  const previousServerStatusRef = useRef(serverStatus)
-  useEffect(() => {
-    if (previousServerStatusRef.current === "down" && serverStatus === "up") setRunError(null)
-    previousServerStatusRef.current = serverStatus
-  }, [serverStatus])
-
-  // A thread switch. The keyed `B4Activity` remounts the chat, which connects
-  // the new thread; what lives on the SHARED agent does not go with it.
-  // Clearing `pendingInterrupts` here is a safety net: CopilotKit's
-  // `connectAgent` already clears them when the thread changes, but a parked
-  // interrupt from the abandoned thread would make the next run throw
-  // ("pending interrupt(s) not addressed by resume"), so the shell does not
-  // depend on that ordering. The messages are cleared too, so the thread's
-  // title and the selectors never read the previous thread's history in the
-  // beat before the replay lands. Child effects run before this one, but the
-  // chat's connect is asynchronous, so the clear lands before its replay.
-  //
-  // The ref keeps an agent swap (the provisional stand-in replaced by the
-  // runtime's agent after `/info`) from counting as a switch.
-  const renderedThreadIdRef = useRef(activeThreadId)
-  useEffect(() => {
-    if (renderedThreadIdRef.current === activeThreadId) return
-    renderedThreadIdRef.current = activeThreadId
-    if (agent.isRunning) agent.abortRun()
-    agent.pendingInterrupts = []
-    agent.setMessages([])
-    setRunError(null)
-    setNotices([])
-  }, [activeThreadId, agent])
-
-  // Rail recency: every message the user sends touches the thread. Read off
-  // the agent rather than caught at a send call, because `CopilotChat` sends
-  // on its own: its submit and its suggestion pills both go through
-  // `agent.addMessage`, which fires `onNewMessage`. A restore does not: the
-  // replayed user messages arrive inside `RUN_STARTED.input`, which
-  // `@ag-ui/client` merges into the messages without `onNewMessage`, so
-  // opening an old conversation never moves it up the rail. `onNewMessage`
-  // also fires for assistant messages (at `TEXT_MESSAGE_END`), hence the role
-  // check, and ids are deduped per subscription so a message reported twice
-  // touches once. The callback is read through a ref so a new `onUserMessage`
-  // (it closes over the active thread id) does not resubscribe.
-  const onUserMessageRef = useRef(onUserMessage)
-  onUserMessageRef.current = onUserMessage
-  const touchedIdsRef = useRef<ReadonlySet<string>>(new Set())
-  useEffect(() => {
-    const touched = new Set<string>()
-    touchedIdsRef.current = touched
-    const subscription = agent.subscribe({
-      onNewMessage: ({ message }) => {
-        if (message.role !== "user" || touched.has(message.id)) return
-        touched.add(message.id)
-        onUserMessageRef.current(titleFor(message.content))
-      },
-    })
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [agent])
-
-  // Titles a RESTORED thread that was never titled (the conversation exists
-  // on B4.run but the rail has no title for it), once the replay lands. A
-  // thread whose first message was sent here was titled by the touch above,
-  // so a first user message that subscription already reported is skipped.
   const activeThread = threads.find((thread) => thread.id === activeThreadId)
-  //
-  // The messages are read when the effect runs, not at render: on a switch the
-  // render still saw the previous thread's messages, and the clear above has
-  // run by now (effects run in order). `firstUserContent` is a dependency
-  // only so the effect runs again when the first user message arrives.
-  const titledRef = useRef<string | undefined>(undefined)
-  const firstUserContent = firstUserMessage(agent.messages)?.content
-  useEffect(() => {
-    void firstUserContent
-    if (activeThreadId === undefined || activeThread === undefined) return
-    if (activeThread.title !== undefined || titledRef.current === activeThreadId) return
-    const first = firstUserMessage(agent.messages)
-    if (first === undefined || touchedIdsRef.current.has(first.id)) return
-    const title = titleFor(first.content)
-    if (title.length === 0) return
-    titledRef.current = activeThreadId
-    onUserMessageRef.current(title)
-  }, [activeThreadId, activeThread, agent, firstUserContent])
 
-  // Parts the model never saw (`b4.content_parts_dropped`, emitted by the
-  // langchain adapter when the provider or model cannot take a part), as
-  // notices in the dock. Same lifecycle as `MemoryPanel`'s
-  // `onRunFinishedEvent` subscription: keyed on the agent instance, so a swap
-  // re-subscribes the new one and unsubscribes the old.
-  useEffect(() => {
-    const subscription = agent.subscribe({
-      onCustomEvent: ({ event }) => {
-        if (event.name !== CONTENT_PARTS_DROPPED_EVENT) return
-        const notice = asDropNotice(event.value)
-        if (notice === undefined) return
-        setNotices((current) => [...current, notice])
-      },
-    })
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [agent])
-
-  const dismissRunError = useCallback(() => setRunError(null), [])
-  const retryConnect = useCallback(() => {
-    setRunError(null)
-    setConnectNonce((n) => n + 1)
-  }, [])
+  const server = useServerStatus()
+  const runErrors = useRunErrors(server.status)
+  const dropNotices = useDropNotices(agent)
+  // The order of the next two calls is load-bearing: effects run in call
+  // order, and the titling effect must see the messages the switch reset
+  // has already cleared (see `useThreadSwitchReset`).
+  useThreadSwitchReset(agent, activeThreadId, () => {
+    runErrors.clear()
+    dropNotices.clear()
+  })
+  useThreadTitles({ agent, activeThreadId, activeThread, onUserMessage })
 
   // Every hook above has run unconditionally on every render — this return
   // has to come after all of them (rules of hooks). Keyed on `"down"` alone:
@@ -408,23 +133,24 @@ export function AppShell({
   // The sidenav disappears with the chat: nothing in the shell works
   // without a server, including thread switching. `ConnectScreen` carries its
   // own wordmark so the app still has an identity on screen.
-  if (serverStatus === "down") {
-    return <ConnectScreen serverUrl={DEFAULT_SERVER_URL} onRetry={runProbe} />
+  if (server.status === "down") {
+    return <ConnectScreen serverUrl={DEFAULT_SERVER_URL} onRetry={server.retry} />
   }
 
+  const { runError } = runErrors
   const banner =
     runError === null ? null : (
       <RunError
         title={runError.title}
         message={runError.message}
-        onDismiss={dismissRunError}
-        onRetry={runError.retryable ? retryConnect : undefined}
+        onDismiss={runErrors.clear}
+        onRetry={runError.retryable ? runErrors.retry : undefined}
       />
     )
 
   return (
     <B4Activity
-      key={`${activeThreadId}:${connectNonce}`}
+      key={`${activeThreadId}:${runErrors.connectNonce}`}
       labels={NAVLOG_STEP_LABELS}
       renderStep={NAVLOG_STEP_RENDERERS}
     >
@@ -433,7 +159,7 @@ export function AppShell({
         canAttachImages={canAttachImages}
         header={activeThread?.title ?? UNTITLED_THREAD_LABEL}
         banner={banner}
-        notices={<DropNotices notices={notices} />}
+        notices={<DropNotices notices={dropNotices.notices} />}
         rail={
           <ThreadRail
             threads={threads}
@@ -445,9 +171,9 @@ export function AppShell({
         }
         /*
           Not rendered while the server is KNOWN to be down — this return is
-          already past the `serverStatus === "down"` branch. It does render
+          already past the `server.status === "down"` branch. It does render
           during "checking", which is why the panel still has a 502 branch of
-          its own (a silent one: see its `load`).
+          its own (a silent one: see `load` in `useMemoryCandidates`).
 
           Deliberately NOT thread-scoped: memory candidates are the agent's,
           not a conversation's, and the endpoint has no thread parameter. It

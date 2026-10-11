@@ -55,10 +55,10 @@ start one process each, and `pnpm test` runs both packages' Vitest suites.
 
 | Path | What is there |
 |---|---|
-| `app/components/` | the shell (`AppShell`, `WorkbenchLayout`, `SideNav`), the chat (`ChatDock`, `NavlogChat`), the map (`RouteMap`, `RouteBar`, `MarkerPanel`) and the sheet (`NavlogSheet`, `WeatherTab`, `FlightPlanBlock`) |
+| `app/components/` | the shell (`AppShell`, `WorkbenchLayout` with `DesktopWorkbench` and `PhoneWorkbench`, `SideNav`), the chat (`ChatDock`, `NavlogChat`), the map (`RouteMap`, `RouteBar`, `MarkerPanel`) and the sheet (`NavlogSheet`, `WeatherTab`, `FlightPlanBlock`) |
 | `app/brief/` | the brief kit: the structured answer's schema, components and renderer |
 | `app/lib/` | pure selectors and helpers that turn the thread into navlog, weather and map data |
-| `app/api/` | the CopilotKit runtime route, the memory proxy and the waypoint search |
+| `app/api/` | the CopilotKit runtime route, the memory proxy, the waypoint search and the demo-owner sign-in (`/api/admin`) |
 
 ## How a request flows
 

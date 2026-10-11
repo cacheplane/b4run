@@ -1,0 +1,411 @@
+/* Over the map: the route bar (route pills, fields, Plan) and the weather
+ * panel a clicked marker opens. */
+
+/*
+ * Every control in the bar is one height, the app's button height
+ * (`.wb-button`), so the pills, the fields and Plan line up as siblings.
+ */
+.wb-routebar {
+  --wb-routebar-control: 32px;
+}
+
+/*
+ * The route input sits flush inside the bar, so the bar itself wears the focus
+ * ring while you type a route: a square ring around a borderless field inside
+ * a pill would draw a second, mismatched shape.
+ */
+.wb-routebar:has(.wb-routebar-input:focus-visible) {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+}
+
+.wb-routebar-route {
+  position: relative;
+  display: flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wb-routebar-pills {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+  /*
+   * Room inside the scrolling row for the insertion line beside the first and
+   * last pills and for the dragged pill's ring, which the row would clip;
+   * the negative margin keeps the bar's height and alignment.
+   */
+  margin: -4px 0;
+  padding: 4px 3px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+/*
+ * A pill drags to a new place in the route (`usePillReorder`): a grab cursor,
+ * and no text selection or long-press callout to fight the hold on a phone.
+ */
+.wb-routebar-pill {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  -webkit-touch-callout: none;
+  align-items: center;
+  gap: 2px;
+  height: var(--wb-routebar-control);
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 0 6px 0 12px;
+  color: var(--wb-surface);
+}
+
+.wb-routebar-pill-navaid {
+  background: var(--wb-accent);
+}
+
+/* The pill being dragged follows the pointer along the row, ringed so it reads as held. */
+.wb-routebar-pill[data-dragging] {
+  z-index: 1;
+  cursor: grabbing;
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+  transform: translateX(var(--wb-drag-dx, 0));
+}
+
+/*
+ * Where the dragged pill would land: a cobalt line in the gap beside this
+ * pill, drawn over the dragged pill when that passes across it, with a white
+ * edge so it still reads over a cobalt navaid pill.
+ */
+.wb-routebar-pill[data-drop]::after {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 2px;
+  outline: 1px solid var(--wb-surface);
+  background: var(--wb-accent);
+  content: "";
+}
+
+.wb-routebar-pill[data-drop="before"]::after {
+  left: -4px;
+}
+
+.wb-routebar-pill[data-drop="after"]::after {
+  right: -4px;
+}
+
+/* The id is a button (the keyboard's grip), drawn as the pill's plain label. */
+.wb-routebar-grip {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: inherit;
+}
+
+/*
+ * Inside a pill the focus ring is white: the cobalt ring would vanish on a
+ * navaid's cobalt pill.
+ */
+.wb-routebar-pill .wb-focus:focus-visible {
+  outline-color: var(--wb-surface);
+  outline-offset: 1px;
+}
+
+.wb-routebar-id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wb-routebar-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.wb-routebar-remove:hover {
+  opacity: 1;
+}
+
+.wb-routebar-input {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  height: var(--wb-routebar-control);
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0 6px;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.wb-routebar-input::placeholder {
+  color: var(--wb-muted);
+  font-family: var(--font-sans);
+}
+
+.wb-routebar-popup {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  z-index: 1100;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  padding: 4px;
+}
+
+.wb-routebar-popup[hidden] {
+  display: none;
+}
+
+.wb-routebar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wb-routebar-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 36px;
+  border-radius: var(--wb-radius-row);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.wb-routebar-option[aria-selected="true"] {
+  background: var(--wb-rail);
+}
+
+.wb-routebar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-routebar-kind {
+  flex-shrink: 0;
+  color: var(--wb-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.wb-routebar-note {
+  margin: 4px 10px 6px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+/*
+ * Altitude and departure: one joined pill, each field with its own visible
+ * label, a hairline between them. The pill wears the focus ring for the
+ * field inside it.
+ */
+.wb-routebar-fields {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  height: var(--wb-routebar-control);
+  margin: 0;
+  border: 1px solid var(--wb-border);
+  border-radius: 999px;
+  background: var(--wb-surface);
+  padding: 0;
+  min-width: 0;
+}
+
+.wb-routebar-fields:focus-within {
+  outline: 2px solid var(--wb-accent);
+  outline-offset: 2px;
+}
+
+.wb-routebar-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  cursor: text;
+}
+
+.wb-routebar-field + .wb-routebar-field {
+  border-left: 1px solid var(--wb-border);
+}
+
+.wb-routebar-field-label,
+.wb-routebar-field-unit {
+  color: var(--wb-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wb-routebar-field-unit {
+  font-weight: 500;
+}
+
+.wb-routebar-field-input {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  color: var(--wb-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-routebar-field-input::placeholder {
+  color: var(--wb-muted);
+  opacity: 0.6;
+}
+
+.wb-routebar-altitude {
+  width: 3.25rem;
+}
+
+/* Wide enough for "tomorrow 1600Z", the longest form a pilot types. */
+.wb-routebar-departure {
+  width: 7.5rem;
+}
+
+/* Where the browser can, each field is as wide as what is in it. */
+@supports (field-sizing: content) {
+  .wb-routebar-altitude,
+  .wb-routebar-departure {
+    field-sizing: content;
+    width: auto;
+  }
+  .wb-routebar-altitude {
+    min-width: 4ch;
+  }
+  .wb-routebar-departure {
+    min-width: 5ch;
+    max-width: 10rem;
+  }
+}
+
+.wb-routebar-total {
+  color: var(--wb-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wb-routebar-submit {
+  height: var(--wb-routebar-control);
+  border: 1px solid var(--wb-text);
+  border-radius: 999px;
+  background: var(--wb-text);
+  padding: 0 16px;
+  color: var(--wb-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-routebar-submit:not(:disabled):hover {
+  border-color: var(--wb-muted);
+  background: var(--wb-muted);
+}
+
+.wb-routebar-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/*
+ * In a narrow map panel (a phone, or a desktop with a narrow map column) the
+ * bar takes two rows, the route above the fields, and a pill's radius would
+ * round two rows into a blob, so it takes the panels' radius instead. Keyed to
+ * the panel's width (the overlay is the container), not the window's.
+ */
+.wb-routebar-slot {
+  container-type: inline-size;
+}
+
+@container (max-width: 40rem) {
+  .wb-routebar {
+    border-radius: var(--wb-radius);
+  }
+  .wb-routebar-route {
+    flex-basis: 100%;
+  }
+  /* The second row: the fields, the distance, Plan at the far end. */
+  .wb-routebar-submit {
+    margin-left: auto;
+  }
+}
+
+/*
+ * On a phone the second row is the fields and Plan, on one line: the
+ * departure field takes what is left, and the running distance gives way
+ * (the sheet shows the distance once there is a plan).
+ */
+@container (max-width: 26rem) {
+  .wb-routebar-fields {
+    flex: 1 1 auto;
+  }
+  .wb-routebar-field:last-child {
+    flex: 1 1 auto;
+  }
+  .wb-routebar-departure {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  .wb-routebar-total {
+    display: none;
+  }
+  .wb-routebar-input {
+    flex-basis: 5.5rem;
+    min-width: 5.5rem;
+  }
+}
+
+/*
+ * The weather panel for a clicked marker: a white surface in the map's
+ * lower-left corner (the controls own the lower-right), its reports in mono.
+ */
+.wb-marker-panel {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  width: min(24rem, calc(100% - 32px));
+  max-height: min(50%, 22rem);
+  overflow: auto;
+  border: 1px solid var(--wb-border);
+  border-radius: var(--wb-radius);
+  background: var(--wb-surface);
+  padding: 12px 14px;
+  color: var(--wb-text);
+}

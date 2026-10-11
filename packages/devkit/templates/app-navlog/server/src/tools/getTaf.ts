@@ -1,5 +1,6 @@
 import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
 import { awc } from "../lib/awc.js"
+import { type FlightCategory, flightCategory } from "../lib/flight-category.js"
 
 interface AwcTafPeriod {
   readonly timeFrom: number
@@ -22,8 +23,6 @@ interface AwcTaf {
   readonly rawTAF: string
   readonly fcsts?: readonly AwcTafPeriod[]
 }
-
-export type FlightCategory = "VFR" | "MVFR" | "IFR" | "LIFR"
 
 /**
  * One TAF group with its validity already decoded to ISO UTC instants, so the
@@ -76,20 +75,6 @@ const ceiling = (clouds: AwcTafPeriod["clouds"]): number | undefined => {
     )
     .map((layer) => layer.base as number)
   return bases.length === 0 ? undefined : Math.min(...bases)
-}
-
-/** The FAA flight category for a ceiling (ft AGL) and visibility (statute miles). */
-export const flightCategory = (
-  ceilingFt: number | undefined,
-  visibilityMi: number | undefined,
-): FlightCategory | undefined => {
-  if (ceilingFt === undefined && visibilityMi === undefined) return undefined
-  const ceil = ceilingFt ?? Number.POSITIVE_INFINITY
-  const vis = visibilityMi ?? Number.POSITIVE_INFINITY
-  if (ceil < 500 || vis < 1) return "LIFR"
-  if (ceil < 1000 || vis < 3) return "IFR"
-  if (ceil <= 3000 || vis <= 5) return "MVFR"
-  return "VFR"
 }
 
 const period = (fcst: AwcTafPeriod): TafPeriod => {

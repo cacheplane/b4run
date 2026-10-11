@@ -40,6 +40,18 @@ describe("design rules", () => {
     expect(files.map(({ file }) => file)).toContain("layout.tsx")
   })
 
+  test("scans every stylesheet `theme.css` imports, and nothing in app/styles/ is left out", () => {
+    // `theme.css` is the entry; the rules live in `app/styles/`. Read it raw:
+    // the imports are what matter here, not the comments.
+    const entry = readFileSync(join(APP, "theme.css"), "utf8")
+    const imported = [...entry.matchAll(/@import\s+"\.\/(styles\/[^"]+\.css)"/g)].map(
+      (match) => match[1],
+    )
+    const styles = files.map(({ file }) => file).filter((file) => file.startsWith("styles/"))
+    expect(imported.length).toBeGreaterThan(0)
+    expect(new Set(imported)).toEqual(new Set(styles))
+  })
+
   test("uses no uppercase text transform", () => {
     expect(offenders(/\buppercase\b|text-transform:\s*uppercase/)).toEqual([])
   })

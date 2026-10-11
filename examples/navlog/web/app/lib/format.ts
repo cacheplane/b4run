@@ -7,9 +7,10 @@ export const formatHhmm = (minutes: number): string => {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
 }
 
-/** An ISO instant as UTC `HHMMZ`. */
+/** An ISO instant as UTC `HHMMZ`: `2026-10-11T09:05:00Z` is `0905Z`. An unparseable instant is "". */
 export const formatUtcHhmm = (iso: string): string => {
   const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
   return `${String(d.getUTCHours()).padStart(2, "0")}${String(d.getUTCMinutes()).padStart(2, "0")}Z`
 }
 
