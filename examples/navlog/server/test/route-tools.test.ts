@@ -182,6 +182,26 @@ describe("findRouteStations", () => {
     expect(narrow.stations).toEqual([])
   })
 
+  it("holds a wider corridor to 40 nm", async () => {
+    // 35 nm and 60 nm west of the leg: a 100 nm ask keeps only the nearer one.
+    stubAwc([
+      station("KNEAR", 44.5, -93 - lonNm(44.5, 35)),
+      station("KFAR", 44.5, -93 - lonNm(44.5, 60)),
+    ])
+    const out = await findRouteStations({ waypoints: [A, B], corridorNm: 100 }, ctx)
+    expect(out.stations.map((s) => s.id)).toEqual(["KNEAR"])
+  })
+
+  it("holds max to 8", async () => {
+    stubAwc(
+      [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((nm, i) =>
+        station(`K${String.fromCharCode(65 + i)}XX`, 44 + nm / 60, -93.05),
+      ),
+    )
+    const out = await findRouteStations({ waypoints: [A, B], max: 50 }, ctx)
+    expect(out.stations).toHaveLength(8)
+  })
+
   it("looks the coordinates up itself: airports from aviationweather.gov, navaids from the snapshot", async () => {
     stubAwc([station("KMID", 36.9, -121.75)])
     const out = await findRouteStations(
