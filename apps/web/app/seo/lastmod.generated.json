@@ -327,19 +327,19 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-11T01:52:14.000Z",
-      "sourceDigest": "6ed35442a4ed60a97c41a1eadf0421a5a25d67eff88994e05ff0fd7c258e061c",
-      "recordDigest": "ca255a584cde4870d2e891ba9bd893430778565ba722735bb777289dc37a8868"
+      "lastModified": "2026-10-12T17:00:27.000Z",
+      "sourceDigest": "18162e9e05644a9e8e347223f01c1d000a0c8f3d5b176dd8987c58270f5e1083",
+      "recordDigest": "a958c8e9a4f249a197bd25c327326de7470a412d90207c515fa7aa5d03bd9f2e"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-11T02:42:29.000Z",
-      "sourceDigest": "57e4f72e1124f0ae48d7228cc69dd608669e986c0656da3215ca52fa67651b63",
-      "recordDigest": "caae6fcf108d6ac45e2286524e5106eb317fab319ddd75c6ee7b3f2afac3dee3"
+      "lastModified": "2026-10-11T05:32:53.000Z",
+      "sourceDigest": "a62533a2c984492235235ac4f6cfeea495d8c19b86c176c4fcb1c740b82889a9",
+      "recordDigest": "3dea4238a678c59cd2310632ddae3086b27d1f2641603e3add1d23b1f0b83adc"
     },
     "/docs/recipes/navlog": {
-      "lastModified": "2026-10-11T02:31:23.000Z",
-      "sourceDigest": "a85b0a8f807d2d82b81f30981a9a53b1d3112f953c1e1aa0e32d3cd142dc960b",
-      "recordDigest": "6edc6a20b51f04b3b5d28d04a3b7829e41cd6057fae98c54e20ef2a675693c23"
+      "lastModified": "2026-10-11T05:32:53.000Z",
+      "sourceDigest": "5520af3be5f25bf0887561b55b6a4cca52658509023e7f982e7e7aff04323e80",
+      "recordDigest": "1c83564b579f905db792dfa97e50f99336f176d064ea7c0ab44cc89adbf499f0"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
