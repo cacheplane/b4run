@@ -8,6 +8,7 @@ import {
   type ThreadSource,
   type WorkbenchThread,
 } from "./lib/thread-source"
+import { useForgetRefusedThread } from "./lib/use-forget-refused-thread"
 
 // Notes (verified against installed @copilotkit/react-core@1.70.0 types — see
 // examples/chat/web/app/page.tsx for the original investigation):
@@ -70,6 +71,18 @@ export default function Home() {
     setThreads(source.list())
     setActiveThreadId(created.id)
   }, [source, threads, activeThreadId])
+
+  // A remembered thread the server now refuses to this visitor is forgotten
+  // when it is opened, and the next one opens instead.
+  useForgetRefusedThread({
+    source,
+    threads,
+    activeThreadId,
+    onForgotten: (next) => {
+      if (source !== null) setThreads(source.list())
+      setActiveThreadId(next.id)
+    },
+  })
 
   const handleSelect = useCallback((threadId: string) => {
     setActiveThreadId(threadId)

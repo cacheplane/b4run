@@ -4,8 +4,8 @@ import type { StepLabelOverrides, ToolStep } from "@b4run/ag-ui/view"
 import { useContext } from "react"
 import { formatGal } from "../lib/format"
 import { parseNavlog } from "../lib/navlog-selectors"
+import { SheetControlContext } from "../lib/sheet-control"
 import { MediaParts } from "./MediaParts"
-import { SheetControlContext } from "./sheet-control"
 
 /**
  * A computeNavlog step, opened: the totals in one line and a way to the sheet,

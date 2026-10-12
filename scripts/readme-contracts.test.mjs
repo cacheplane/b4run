@@ -59,7 +59,7 @@ const rootReadme = `# B4.run
 
 ## Run it live
 
-https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347
+https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f
 
 [Read the demo transcript](docs/brand/demo/transcript.md)
 
@@ -473,7 +473,7 @@ const canonicalHeroCommandBlock = `\`\`\`bash
 npm create b4-app@latest my-agent
 \`\`\``
 const demoInlineVideoUrl =
-  "https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347"
+  "https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f"
 const canonicalInlineVideoLine = `\n\n${demoInlineVideoUrl}\n\n`
 const canonicalQualifiedCredentials = `Credentials are provider-specific: the navlog starter's OpenAI live
 path requires \`OPENAI_API_KEY\`, while a local Ollama route requires no provider
@@ -1843,7 +1843,7 @@ describe("validateRootReadme", () => {
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n```md\nhttps://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
+        "\n\n```md\nhttps://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f\n[Migration](/docs/migrating-from-langgraph)\n[Transcript](docs/brand/demo/transcript.md)\n```",
       )
     const failures = validateRootReadme(hiddenReferences)
     assertFailure(failures, /inline demo video line/)
@@ -1857,7 +1857,7 @@ describe("validateRootReadme", () => {
       .replace("[Migrate from LangGraph](/docs/migrating-from-langgraph)", "")
       .replace("[Read the demo transcript](docs/brand/demo/transcript.md)", "")
       .concat(
-        "\n\n<!-- https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347 [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
+        "\n\n<!-- https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f [Migration](/docs/migrating-from-langgraph) [Transcript](docs/brand/demo/transcript.md) -->",
       )
     const failures = validateRootReadme(hiddenReferences)
     assertFailure(failures, /inline demo video line/)
@@ -1948,11 +1948,11 @@ describe("validateRootReadme", () => {
   for (const [name, decoy] of [
     [
       "a list-nested fence",
-      "- ```md\n  ## Quickstart\n  https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
+      "- ```md\n  ## Quickstart\n  https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f\n  [Migration](/docs/migrating-from-langgraph)\n  [Transcript](docs/brand/demo/transcript.md)\n  ```",
     ],
     [
       "indented code",
-      "    ## Quickstart\n    https://github.com/user-attachments/assets/5ef7304d-e5f7-44a2-bb19-28b7af6e8347\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
+      "    ## Quickstart\n    https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f\n    [Migration](/docs/migrating-from-langgraph)\n    [Transcript](docs/brand/demo/transcript.md)",
     ],
   ]) {
     it(`ignores root contract decoys inside ${name}`, () => {

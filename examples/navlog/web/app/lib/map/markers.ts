@@ -1,5 +1,5 @@
 import type { DivIcon } from "leaflet"
-import type { FlightCategory } from "../lib/weather-selectors"
+import type { FlightCategory } from "../weather-selectors"
 
 /**
  * The route map's Leaflet div icons, built as HTML strings. Every color comes

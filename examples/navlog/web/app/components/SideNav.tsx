@@ -1,8 +1,8 @@
 "use client"
 import type { MouseEvent, ReactNode, Ref } from "react"
+import { primaryButton } from "../lib/buttons"
 import { useHydrated } from "../lib/use-hydrated"
 import { Icon } from "./icons"
-import { primaryButton } from "./ui"
 import { Wordmark } from "./Wordmark"
 
 export interface SideNavCollapse {

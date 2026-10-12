@@ -34,6 +34,8 @@ export interface ThreadSource {
   list(): WorkbenchThread[]
   create(): WorkbenchThread
   touch(id: string, firstUserMessage?: string): void
+  /** Forgets a thread: one the server no longer serves to this visitor. */
+  remove(id: string): void
 }
 
 /**
@@ -131,6 +133,11 @@ export function createLocalThreadSource(storage: Storage): ThreadSource {
         ...(title !== undefined ? { title } : {}),
       }
       write(storage, [updated, ...threads.filter((thread) => thread.id !== id)])
+    },
+    remove(id) {
+      const threads = read(storage)
+      const kept = threads.filter((thread) => thread.id !== id)
+      if (kept.length !== threads.length) write(storage, kept)
     },
   }
 }

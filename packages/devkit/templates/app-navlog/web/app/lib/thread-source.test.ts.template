@@ -76,6 +76,20 @@ describe("local thread source", () => {
     source.touch("nope", "orphan")
     expect(source.list()).toEqual([])
   })
+
+  test("removes a thread and keeps the rest", () => {
+    const source = createLocalThreadSource(storage)
+    const first = source.create()
+    const second = source.create()
+    source.remove(first.id)
+    source.remove("nope")
+    expect(source.list().map((thread) => thread.id)).toEqual([second.id])
+    expect(
+      createLocalThreadSource(storage)
+        .list()
+        .map((thread) => thread.id),
+    ).toEqual([second.id])
+  })
 })
 
 const png = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }

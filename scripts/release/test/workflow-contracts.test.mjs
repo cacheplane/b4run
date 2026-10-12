@@ -137,8 +137,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the shared smoke surface: published-artifact-smoke.mjs reads the AG-UI root
 // lists from the new smoke/published-surface.mjs, which the owning packages' tests also read;
 // recovery/policy.json lists that module in the verifier closure.
+// Repinned for the re-recorded demo: readme-contracts.mjs pins the new GitHub-hosted copy
+// of the inline README video.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "6cfd3b0c0c1ecc464438498ce697134a2fa28e761c12c0c673256e24d4d9e40b"
+  "01f438f96303fdb14da502307ed8bf5d63cf5f933a88f6d1d7985997e146f878"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

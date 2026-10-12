@@ -1,10 +1,10 @@
 "use client"
 import { type KeyboardEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { pairIndexOf } from "../lib/route-geometry"
+import { type SheetControl, SheetControlContext } from "../lib/sheet-control"
 import { useSidebarState } from "../lib/use-sidebar-state"
 import { NavlogSheet } from "./NavlogSheet"
 import { SideNav } from "./SideNav"
-import { type SheetControl, SheetControlContext } from "./sheet-control"
 import type { WorkbenchViewProps } from "./WorkbenchLayout"
 
 /**

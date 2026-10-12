@@ -1,4 +1,4 @@
-import { neutralButton } from "./ui"
+import { neutralButton } from "../lib/buttons"
 
 export interface RunErrorProps {
   /** Headline for the failure, chosen from the error's code by `AppShell`. */

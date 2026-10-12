@@ -1,4 +1,4 @@
-import { primaryButton } from "./ui"
+import { primaryButton } from "../lib/buttons"
 import { Wordmark } from "./Wordmark"
 
 export interface ConnectScreenProps {

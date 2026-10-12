@@ -147,7 +147,7 @@
 }
 
 /*
- * Label collisions (`lib/map-labels.ts`): a label that would sit on another
+ * Label collisions (`lib/map/labels.ts`): a label that would sit on another
  * goes left of its dot, or hides until its marker is hovered or focused.
  */
 .wb-map .wb-wp-label[data-placement="left"] {

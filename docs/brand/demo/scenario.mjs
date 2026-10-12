@@ -196,6 +196,8 @@ const ddhhmm = (ms) => {
 const hhmm = (ms) => ddhhmm(ms).slice(2)
 const ddhh = (ms) => ddhhmm(ms).slice(0, 4)
 const floorTo = (ms, step) => Math.floor(ms / step) * step
+/** A duration in minutes as `h:mm`, the way the brief's KeyNumbers show ETE and reserve. */
+const hMm = (min) => `${Math.floor(min / 60)}:${pad2(min % 60)}`
 
 /** The next 1400Z at or after `now`, as lib/fpl.ts parseUtcInstant resolves "1400Z". */
 function nextDeparture(now) {
@@ -420,15 +422,100 @@ export function demoScenario({ now = Date.now() } = {}) {
   ].join("\n")
 
   const t = NAVLOG.totals
-  const reserve = `${Math.floor(t.reserveMin / 60)}:${pad2(t.reserveMin % 60)}`
-  // The route's planning answer: Bottom line, Watch for, Numbers, Assumptions, closing.
-  const planAnswer = [
-    `Bottom line: GO — KSTP and KRST are VFR now and at the ${hhmm(eta)}Z ETA, with no advisory during the flight.`,
-    "Watch for: none during the flight.",
-    `Numbers: ${t.distanceNm} nm; ETE ${t.eteMin} min; ${t.fuelGal.toFixed(1)} gal burned, which includes 1.1 gal for start, taxi and takeoff; ${t.fuelRemainingGal.toFixed(1)} gal at landing; reserve ${reserve} at 2400 RPM, ${NAVLOG.gph.toFixed(1)} GPH [poh/cruise-performance.md, Figure 5-7].`,
-    `Assumptions: departure ${departureLabel}; 50 gal usable for long-range tanks and cruise 2400 RPM (aircraft baseline); 1 person on board assumed — tell me if different.`,
-    "Want me to file the plan, try another altitude, or re-brief closer to departure?",
-  ].join("\n")
+  const reserve = hMm(t.reserveMin)
+  const cruiseFigure = `${AIRCRAFT.cruiseRpm} RPM, ${NAVLOG.gph.toFixed(1)} GPH`
+  const observed = `${hhmm(awc.metars.KRST.obsTime * 1000)}Z`
+  // The route's planning answer, as the model returns it under the brief
+  // kit's response schema (web/app/brief/schema.ts): BottomLine, RouteSummary,
+  // WatchFor, KeyNumbers, Assumptions, Citations, then one closing Prose. The
+  // citation ids run in the order they are first cited, as the route asks.
+  const planClosing =
+    "Want me to file the plan, try another altitude, or re-brief closer to departure?"
+  const planAnswer = JSON.stringify({
+    ui: [
+      {
+        BottomLine: {
+          props: {
+            level: "GO",
+            reason: `KSTP and KRST are VFR now and at the ${hhmm(eta)}Z ETA, with no advisory during the flight.`,
+            cite: ["c1", "c2", "c3", "c4"],
+          },
+        },
+      },
+      {
+        RouteSummary: {
+          props: {
+            from: "KSTP",
+            to: "KRST",
+            via: [],
+            altitudeFt: ALTITUDE_FT,
+            departureUtc: `${departureUtc.slice(0, 10)} ${hhmm(departure)}Z`,
+          },
+        },
+      },
+      { WatchFor: { props: { items: [] } } },
+      {
+        KeyNumbers: {
+          props: {
+            items: [
+              { label: "Distance", value: String(t.distanceNm), unit: "nm", cite: [] },
+              {
+                label: "ETE (takeoff to landing)",
+                value: hMm(t.eteMin),
+                unit: null,
+                cite: [],
+              },
+              {
+                label: "Fuel burned (includes 1.1 gal for start, taxi and takeoff)",
+                value: t.fuelGal.toFixed(1),
+                unit: "gal",
+                cite: ["c5"],
+              },
+              {
+                label: "Fuel at landing",
+                value: t.fuelRemainingGal.toFixed(1),
+                unit: "gal",
+                cite: [],
+              },
+              { label: `Reserve at ${cruiseFigure}`, value: reserve, unit: null, cite: ["c5"] },
+            ],
+          },
+        },
+      },
+      {
+        Assumptions: {
+          props: {
+            items: [
+              { statement: `Departure ${departureLabel}`, origin: "pilot" },
+              {
+                statement: `${AIRCRAFT.usableFuelGal} gal usable for long-range tanks, from the aircraft baseline`,
+                origin: "default",
+              },
+              {
+                statement: `Cruise ${AIRCRAFT.cruiseRpm} RPM, from the aircraft baseline`,
+                origin: "default",
+              },
+              { statement: "1 person on board assumed — tell me if different", origin: "default" },
+            ],
+          },
+        },
+      },
+      {
+        Citations: {
+          props: {
+            items: [
+              { id: "c1", source: "METAR KSTP", locator: observed },
+              { id: "c2", source: "METAR KRST", locator: observed },
+              { id: "c3", source: "TAF KSTP", locator: "" },
+              { id: "c4", source: "TAF KRST", locator: "" },
+              { id: "c5", source: "poh/cruise-performance.md", locator: "Figure 5-7" },
+            ],
+          },
+        },
+      },
+      { Prose: { props: { markdown: planClosing } } },
+    ],
+  })
 
   const navlogTable = [
     "| From | To | Segment | MH | GS | Dist | ETE | Fuel |",
@@ -442,10 +529,13 @@ export function demoScenario({ now = Date.now() } = {}) {
     "",
   ].join("\n")
 
-  const filedAnswer = [
+  // The filing confirmation: any reply that is not a planning brief is a
+  // single Prose, so the chat shows its markdown and nothing else.
+  const filedText = [
     `Recorded the flight plan for N738ZU KSTP→KRST, departing ${departureLabel}. This demo records it in the workspace; it does not transmit to Flight Service.`,
     `Item 15, ${flightPlan.item15}, is 110 kt true airspeed, VFR, direct; item 16, ${flightPlan.item16}, is KRST in 33 min.`,
   ].join("\n")
+  const filedAnswer = JSON.stringify({ ui: [{ Prose: { props: { markdown: filedText } } }] })
 
   const todos = PLAN_TODOS.map((todo) => ({ ...todo }))
   const memory = { data: { ...MEMORY.data }, content: MEMORY.content }
@@ -514,6 +604,10 @@ export function demoScenario({ now = Date.now() } = {}) {
     performanceBrief: PERFORMANCE_BRIEF,
     planAnswer,
     filedAnswer,
+    // The text of each answer the chat renders verbatim, which the capture
+    // waits for: the planning brief's closing Prose and the filing Prose.
+    planAnswerText: planClosing,
+    filedAnswerText: filedText,
     planTools: [
       "readDoc",
       "recall",
