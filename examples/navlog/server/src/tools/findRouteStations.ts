@@ -23,9 +23,9 @@ export interface FindRouteStationsInput {
    * coordinates up itself, so none are passed in.
    */
   readonly waypoints: readonly { readonly id: string; readonly kind?: "airport" | "navaid" }[]
-  /** How far either side of the course a station may be. Default 25 nm. */
+  /** How far either side of the course a station may be. Default 25 nm, at most 40 nm. */
   readonly corridorNm?: number
-  /** The most stations to return, spread evenly along the route. Default 6. */
+  /** The most stations to return, spread evenly along the route. Default 6, at most 8. */
   readonly max?: number
 }
 
@@ -42,6 +42,18 @@ export interface RouteStation {
 
 const DEFAULT_CORRIDOR_NM = 25
 const DEFAULT_MAX = 6
+/**
+ * The widest corridor and the most stations a caller may ask for. A model
+ * asked for "stations along the route" has been seen to pass a 100 nm
+ * corridor, which brings in airports two valleys over (Tillamook and John Day
+ * for Portland to Bend) and calls them en route. Past 40 nm a station's
+ * weather says little about the course, so a wider ask is held to that.
+ */
+const MAX_CORRIDOR_NM = 40
+const MAX_STATIONS = 8
+
+const clamp = (value: number, low: number, high: number): number =>
+  Math.min(high, Math.max(low, value))
 
 const coord = (deg: number): string => String(Number(deg.toFixed(3)))
 
@@ -73,7 +85,8 @@ async function positionOf(
  * Find the METAR-reporting stations along a route, for the en-route weather:
  * those within corridorNm of the course, excluding the route's own airports,
  * in order along the route and thinned evenly to max. Pass the waypoint
- * identifiers in route order, each with its kind (airport or navaid).
+ * identifiers in route order, each with its kind (airport or navaid), and
+ * leave corridorNm and max at their defaults unless the pilot asked otherwise.
  */
 export default async (
   input: FindRouteStationsInput,
@@ -81,8 +94,8 @@ export default async (
 ): Promise<{ stations: RouteStation[] }> => {
   if (input.waypoints.length < 2) return { stations: [] }
   const waypoints = await Promise.all(input.waypoints.map((wp) => positionOf(wp, ctx.signal)))
-  const corridorNm = input.corridorNm ?? DEFAULT_CORRIDOR_NM
-  const max = input.max ?? DEFAULT_MAX
+  const corridorNm = clamp(input.corridorNm ?? DEFAULT_CORRIDOR_NM, 1, MAX_CORRIDOR_NM)
+  const max = clamp(Math.round(input.max ?? DEFAULT_MAX), 1, MAX_STATIONS)
   const routeIds = new Set(input.waypoints.map((wp) => wp.id.trim().toUpperCase()))
   const answers = await Promise.all(
     legBoxes(waypoints, corridorNm).map((box) =>
