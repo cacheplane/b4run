@@ -75,7 +75,7 @@ The leg times depend on the winds, and the choice of winds product depends on th
 **Station positions.** A committed `server/data/winds-stations.json` maps each FB station id to its position. It is built by `server/scripts/build-winds-stations.mjs`:
 - VORs come from the bundled navaid snapshot (121 of 176 stations).
 - Airports come from AWC airport records, K-prefixed (most of the rest).
-- The offshore Gulf points (H51, H52, H61) come from the FB product documentation.
+- The offshore Gulf points (H51, H52, H61) cannot be placed from either source. They are listed as unresolved and left out of station selection: a VFR 172 plan never needs a Gulf point.
 
 `nearestWindsStation(position)` is a pure function over that table. No region choice remains: `region=all` covers the contiguous US. Alaska and Hawaii stay out of scope, matching the 172N demo's corpus.
 
