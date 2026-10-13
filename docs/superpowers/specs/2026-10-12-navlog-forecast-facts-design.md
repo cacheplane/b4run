@@ -132,7 +132,7 @@ interface AdvisoryFact {
 }
 ```
 
-**Size.** `b4.config.ts` offloads tool results over 12,000 characters, and the web reads the navlog inline. The block stores raw METAR and TAF text once, with no parsed duplicates. The plan measures a worst-case route (eight stations and long TAFs). If the result can exceed the threshold, the plan raises the threshold for this tool or trims the raw TAFs to the periods that overlap the flight window. The spec fixes the outcome, not the method: the navlog is never offloaded.
+**Size.** The web reads `computeNavlog`'s and `findRouteStations`' results inline, so neither may ever be offloaded. `b4.config.ts` lists both in `toolOutput.noOffloadTools`, the runtime's per-tool exemption, which always includes `readFile` and `listDir`. Offloading stays on for every other tool, so the example still demonstrates it. With that exemption, the block's size needs no limit or trimming. A long route's navlog stays in the model's context in full, as it does today.
 
 ### Rules: `server/src/lib/forecast/`
 
@@ -247,7 +247,7 @@ The current `getWindsAloft` product-window selection (`chooseProduct`) moves int
   - the two-pass timing;
   - the one-time refetch when a leg's mid-time changes product;
   - a named error when the winds are unavailable;
-  - the result size under the offload threshold for a worst-case route.
+  - a config test asserting that `computeNavlog` and `findRouteStations` are in `noOffloadTools`.
 - **Web.** Selector and component tests render the Weather tab, the verdict and the coverage notice from a fixture `forecast`. The existing `WeatherTab`, `VerdictCard` and `MarkerPanel` tests are rewritten against it.
 - **Live check, the definition of done.** The same KPDX → KBDN plan, locally and in production:
   - every place says the same thing about coverage;
@@ -272,6 +272,6 @@ The current `getWindsAloft` product-window selection (`chooseProduct`) moves int
 ## Risks
 
 - **Model compliance with the floor.** The model can still write a lower BottomLine. The web enforces the floor on display, and the eval scorer catches it in replay. Prompt wording is no longer load-bearing for correctness.
-- **Tool result size.** Covered by the size test and the threshold decision above.
+- **Tool result size.** The `noOffloadTools` exemption means a large forecast block is never replaced by a stub. The cost is context length on very long routes, unchanged from today.
 - **AWC availability.** `computeNavlog` now depends on aviationweather.gov, as the weather subagent did. One failure surface replaces several, and the error names the product that failed.
 - **Station table drift.** The FB station list changes rarely. The build script reports any station in a live product that is missing from the table, and a test pins the table against a recorded product.
