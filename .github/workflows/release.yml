@@ -115,7 +115,7 @@ jobs:
 
       - name: Preserve production observation
         id: observation
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: production-observation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/production-observation.json
@@ -282,7 +282,7 @@ jobs:
 
       - name: Upload immutable payload
         id: payload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.identity.outputs.artifact_name }}
           path: ${{ runner.temp }}/release-payload
@@ -303,7 +303,7 @@ jobs:
             --output "$GITHUB_WORKSPACE/release-record.json"
       - name: Upload exact release handoff
         id: handoff
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.identity.outputs.handoff_name }}
           path: release-record.json
@@ -423,7 +423,7 @@ jobs:
 
       - name: Upload exact runtime inputs
         id: runtime
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runtime
@@ -502,7 +502,7 @@ jobs:
 
       - name: Upload canonical attestation evidence
         id: evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-attestation-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/attestation-evidence
@@ -660,7 +660,7 @@ jobs:
 
       - name: Upload exact npm evidence
         id: npm
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: npm-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/npm-evidence.json
@@ -790,7 +790,7 @@ jobs:
       - name: Upload raw metadata result
         id: result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: smoke-result-metadata-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/metadata.json
@@ -854,7 +854,7 @@ jobs:
       - name: Upload raw published-harness result
         id: result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: smoke-result-published-harness-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/published-harness.json
@@ -918,7 +918,7 @@ jobs:
       - name: Upload raw runtime-targets result
         id: result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: smoke-result-runtime-targets-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runtime-targets.json
@@ -982,7 +982,7 @@ jobs:
       - name: Upload raw scaffold result
         id: result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: smoke-result-scaffold-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scaffold.json
@@ -1046,7 +1046,7 @@ jobs:
       - name: Upload raw storage result
         id: result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: smoke-result-storage-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/storage.json
@@ -1194,7 +1194,7 @@ jobs:
             --output "$RUNNER_TEMP/audit-dispatch.json"
       - name: Upload direct audit dispatch receipt
         id: receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: audit-dispatch-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/audit-dispatch.json
@@ -1329,7 +1329,7 @@ jobs:
             --audit-result "$RUNNER_TEMP/audit-result.json"
       - name: Upload exact correlated audit result
         id: audit-result
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: correlated-audit-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/audit-result.json
