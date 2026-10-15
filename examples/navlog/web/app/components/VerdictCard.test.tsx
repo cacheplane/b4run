@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { type AdvisoryFact, advisoryLine, type Forecast } from "../lib/forecast"
@@ -36,7 +37,11 @@ const PRELIMINARY: Forecast = {
 }
 
 /** The text a reader sees, tags dropped. */
-const text = (html: string): string => html.replace(/<[^>]+>/g, "")
+const text = (html: string): string => {
+  const host = document.createElement("div")
+  host.innerHTML = html
+  return host.textContent ?? ""
+}
 
 /** A structured answer that is only a `BottomLine`: the planner's call. */
 const bottomLine = (level: "GO" | "CAUTION" | "NO-GO", reason: string): string =>

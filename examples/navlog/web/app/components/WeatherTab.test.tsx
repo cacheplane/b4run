@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { type AdvisoryFact, advisoryLine, type Forecast, windsLine } from "../lib/forecast"
@@ -33,7 +34,11 @@ const section = (html: string, title: string): string => {
 }
 
 /** The text a reader sees, tags dropped. */
-const text = (html: string): string => html.replace(/<[^>]+>/g, "")
+const text = (html: string): string => {
+  const host = document.createElement("div")
+  host.innerHTML = html
+  return host.textContent ?? ""
+}
 
 const withAirports = (airports: Forecast["airports"]): Forecast => ({
   ...SAMPLE_FORECAST,
