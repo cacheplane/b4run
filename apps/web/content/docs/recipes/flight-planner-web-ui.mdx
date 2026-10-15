@@ -176,12 +176,11 @@ A navaid carries its type in parentheses, which tells the agent to resolve it wi
 
 The map carries no weather chips. Airport markers keep their flight-category color, and the en-route reporting stations from the latest `findRouteStations` result draw as small grey markers. Airport and station markers are buttons: clicking one opens a panel in the map's corner with the identifier, the category now and at the airport's time, and the raw METAR and TAF from `computeNavlog`'s forecast. Escape or the close button dismisses it. Navaid markers are labels only.
 
-The navlog sheet's tabs are **Legs · Weather · Totals & plan · Brief**. The Weather tab (`app/components/WeatherTab.tsx`) groups the forecast's airports by role (`app/lib/weather-roles.ts`):
+The navlog sheet's tabs are **Legs · Weather · Totals & plan · Brief**. The Weather tab (`app/components/WeatherTab.tsx`) groups the forecast's airports by role (`app/lib/weather-roles.ts`). When the forecasts do not yet reach the flight, a coverage notice naming each gap heads the tab. Then come:
 
 - **Origin**, **En route** and **Destination**, each airport as a card with its category now and at its time and the raw METAR and TAF, or "Not in the forecast". En route lists intermediate airports and stations by distance along the route ("98 nm along"), or says "No reporting stations within 25 nm of the course."
 - **Winds aloft**, one line per leg, from the forecast for the time that leg is flown.
 - **Advisories**, one line each, the ones during the flight first.
-- **Coverage**, a notice naming each gap when the forecasts do not yet reach the flight.
 
 Print includes the Weather tab's content after the legs.
 

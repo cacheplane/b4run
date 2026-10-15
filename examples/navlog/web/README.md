@@ -85,13 +85,13 @@ scroll (the connect screen scrolls itself on a short viewport).
   [pretable](https://www.npmjs.com/package/@pretable/react): TC, variation, MC, wind,
   WCA, MH, TAS, GS, distance, ETE, ETA and fuel per climb and cruise segment, with Leg
   pinned left). The grid scrolls in its own region above a fixed totals strip, and
-  selecting a row lights that leg on the map. **Weather** (`WeatherTab.tsx`) groups the
+  selecting a row lights that leg on the map. **Weather** (`WeatherTab.tsx`) opens with a
+  coverage notice naming each gap when the forecasts do not yet reach the flight, then groups the
   forecast's airports as Origin, En route and Destination (`app/lib/weather-roles.ts`), each
   card with the category now → at its time and the raw METAR and TAF, or "Not in the
   forecast"; en route lists intermediate airports and stations by distance along the route
-  ("98 nm along"). Below them come the winds aloft, one line per leg, the advisories,
-  the ones during the flight first, and, when the forecasts do not yet reach the
-  flight, a coverage notice naming each gap. **Totals & plan** holds the totals tiles
+  ("98 nm along"). Below them come the winds aloft, one line per leg, and the advisories,
+  the ones during the flight first. **Totals & plan** holds the totals tiles
   and the ICAO flight plan items 7 to 19 (`FlightPlanBlock.tsx`); **Brief** holds the
   full verdict card and the assistant's brief. **Print** prints the sheet alone on one
   landscape page (the `@media print` rules in `app/styles/print.css`), every leg included, with

@@ -35,11 +35,11 @@ It is a workbench rather than a chat widget, and it is map-first:
 - **Navlog sheet.** Under the map, with the totals when collapsed. Open, a
   verdict strip sits above four tabs: **Legs** leads with the legs grid
   (pretable, `NavlogGrid.tsx`; Leg pinned left, selecting a row lights that leg
-  on the map) over a fixed totals strip, **Weather** groups `computeNavlog`'s
+  on the map) over a fixed totals strip. **Weather** groups `computeNavlog`'s
   forecast by origin, en route and destination (each airport's category and raw
   METAR and TAF; en-route stations by distance along the route), then the winds
-  aloft per leg, the advisories and, when the forecasts fall short of the flight,
-  a coverage notice, **Totals & plan** holds the tiles and
+  aloft per leg and the advisories; when the forecasts fall short of the flight,
+  a coverage notice heads the tab. **Totals & plan** holds the tiles and
   the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
   brief, rendered from the agent's structured answer. **Print** prints the sheet alone on one landscape page, every leg
   included (from `NavlogTable`, the same table the phone shows as cards), and **Copy FPL** copies the `(FPL-…)`
