@@ -120,6 +120,27 @@ describe("verdictFloor", () => {
     })
   })
 
+  it("is CAUTION for IFR or LIFR now at an end when the forecast at the time is not IFR", () => {
+    expect(
+      verdictFloor({
+        ...clean,
+        airports: [
+          clean.airports[0] as AirportWeather,
+          airport({ id: "KBDN", role: "destination", categoryNow: "IFR", categoryAtTime: null }),
+        ],
+      }),
+    ).toEqual({ level: "CAUTION", reasons: ["KBDN IFR now"] })
+    expect(
+      verdictFloor({
+        ...clean,
+        airports: [
+          clean.airports[0] as AirportWeather,
+          airport({ id: "KBDN", role: "destination", categoryNow: "LIFR", categoryAtTime: "VFR" }),
+        ],
+      }),
+    ).toEqual({ level: "CAUTION", reasons: ["KBDN LIFR now"] })
+  })
+
   it("ignores advisories outside the flight window", () => {
     expect(
       verdictFloor({

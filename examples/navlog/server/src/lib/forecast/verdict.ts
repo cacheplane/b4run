@@ -40,6 +40,12 @@ export function verdictFloor(input: {
       caution.push(`${a.id} MVFR now and ${when}`)
     else if (a.categoryNow === "MVFR") caution.push(`${a.id} MVFR now`)
     else if (atTime === "MVFR") caution.push(`${a.id} MVFR ${when}`)
+    if (
+      (a.categoryNow === "IFR" || a.categoryNow === "LIFR") &&
+      atTime !== "IFR" &&
+      atTime !== "LIFR"
+    )
+      caution.push(`${a.id} ${a.categoryNow} now`)
     if (a.gustKt !== null && a.gustKt > GUST_LIMIT_KT)
       caution.push(`gusts ${a.gustKt} kt at ${a.id}`)
   }
