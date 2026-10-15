@@ -10,9 +10,9 @@ The demo lives in `examples/navlog`: a B4.run server (`server/`) and a Next.js C
 
 - **Sidenav:** "New plan", the list of threads (each titled from its first user message), and Memory, which opens Memory mode with a count of the candidates waiting; the sidebar collapses to an icon rail.
 - **Chat + report:** the agent's structured answer, rendered as brief components (bottom line, route, watch-for items, key numbers, assumptions, numbered citations) in `<CopilotChat>`, with B4.run's chat slots (`useB4ChatSlots`) swapped in. A thread saved before the brief kit renders its markdown answer as before.
-- **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `weather` and `performance` subagents (nested, with their own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
+- **Activity:** one `TurnActivity` per turn: a summary line, then the plan, the `performance` subagent (nested, with its own plan and tool steps), and each tool call as a step. `computeNavlog` and `renderChart` get their own opened views.
 - **Map and route bar:** the planned route, a dashed draft of the route you are typing, and a marker panel with each airport's METAR and TAF. See [Type a route on the map](#type-a-route-on-the-map).
-- **Navlog sheet:** the legs, the weather by role (origin, en route, destination), the totals and flight plan, and the brief, in four tabs. The map and the sheet are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
+- **Navlog sheet:** the legs, the computed forecast by role (origin, en route, destination), the totals and flight plan, and the brief, in four tabs. The map and the sheet are derived from the activity turns (`useB4ActivityContext`), not from a second subscription.
 - **Suggestions:** three discovery prompts on the empty chat.
 - **Permissions:** the kit's `ApprovalCard` owns approve and deny, rendered in the chat where the run stopped.
 - **Input:** `<CopilotChat>`'s own input, with an image attachment when the route's model takes one. It waits while an approval is open.
@@ -140,7 +140,7 @@ Run failures still need a subscription. `copilotkit.runAgent` does not reject wh
 
 Threads are local to the browser. B4.run's server can create and fetch a thread by id, but it has no endpoint to list threads. So the sidenav keeps its own list in `localStorage` behind a `ThreadSource` interface (`examples/navlog/web/app/lib/thread-source.ts`), and the app skips CopilotKit's `useThreads`. The list holds ids, titles and recency only, and it can outlive the visitor cookie that owns those threads. So before a titled thread opens, the page asks `GET /api/threads/:id`, a guarded route that answers 204 or 404 and nothing else, and forgets a thread the server refuses (`app/lib/thread-access.ts`).
 
-The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `advisories.ts`, `winds.ts`) pick the latest `computeNavlog` result and `weather` brief from them.
+The map and the sheet sit outside the chat but inside `B4Activity`. `useB4ActivityContext()` returns the same turns the chat renders, and pure selectors (`app/lib/navlog-selectors.ts`, `forecast.ts`) pick the latest `computeNavlog` result and its `forecast` block from them. The server computes the weather facts; the web renders them and never parses prose.
 
 ### Restoring a thread
 
@@ -174,14 +174,13 @@ A navaid carries its type in parentheses, which tells the agent to resolve it wi
 
 ### Weather on the map and in the sheet
 
-The map carries no weather chips. Airport markers keep their flight-category color, and the en-route reporting stations from the latest `findRouteStations` result draw as small grey markers. Airport and station markers are buttons: clicking one opens a panel in the map's corner with the identifier, the category now and at the ETA, and the raw METAR and TAF from the weather brief. Escape or the close button dismisses it. Navaid markers are labels only.
+The map carries no weather chips. Airport markers keep their flight-category color, and the en-route reporting stations from the latest `findRouteStations` result draw as small grey markers. Airport and station markers are buttons: clicking one opens a panel in the map's corner with the identifier, the category now and at the airport's time, and the raw METAR and TAF from `computeNavlog`'s forecast. Escape or the close button dismisses it. Navaid markers are labels only.
 
-The navlog sheet's tabs are **Legs · Weather · Totals & plan · Brief**. The Weather tab (`app/components/WeatherTab.tsx`) groups the brief's airports by role (`app/lib/weather-roles.ts`):
+The navlog sheet's tabs are **Legs · Weather · Totals & plan · Brief**. The Weather tab (`app/components/WeatherTab.tsx`) groups the forecast's airports by role (`app/lib/weather-roles.ts`). When the forecasts do not yet reach the flight, a coverage notice naming each gap heads the tab. Then come:
 
-- **Origin**, **En route** and **Destination**, each airport as a card with its category now and at the ETA and the raw METAR and TAF, or "No report in the brief". En route lists intermediate airports and stations by distance along the route ("98 nm along"), or says "No reporting stations within 25 nm of the course."
-- **Winds aloft**, one line per leg.
-- **Advisories**, the hazard chips, plus one chip for advisories outside the flight window.
-- **Forecast horizon**, when the brief has a note.
+- **Origin**, **En route** and **Destination**, each airport as a card with its category now and at its time and the raw METAR and TAF, or "Not in the forecast". En route lists intermediate airports and stations by distance along the route ("98 nm along"), or says "No reporting stations within 25 nm of the course."
+- **Winds aloft**, one line per leg, from the forecast for the time that leg is flown.
+- **Advisories**, one line each, the ones during the flight first.
 
 Print includes the Weather tab's content after the legs.
 
@@ -244,7 +243,7 @@ The user sees the chart in the opened `renderChart` step. The model, `gpt-5-mini
 
 ## Render plan and subagent activities
 
-The navlog example gets the plan and the subagents from `B4Activity`: each turn's `TurnActivity` shows the plan as a step and nests the `weather` and `performance` subagents with their own plan and tool steps, from the same AG-UI events. Choose **Plan a flight** on the empty chat to watch them update before the brief.
+The navlog example gets the plan and the subagents from `B4Activity`: each turn's `TurnActivity` shows the plan as a step and nests the `performance` subagent with its own plan and tool steps, from the same AG-UI events. Choose **Plan a flight** on the empty chat to watch them update before the brief.
 
 A client that doesn't use `B4Activity` gets the same view from the same events. `useB4Turns(agent)` from `@b4run/ag-ui/react/copilotkit` (or `reduceTurns` from `@b4run/ag-ui/view`, with no React) folds the agent's event stream into turns, and `TurnActivity` from `@b4run/ag-ui/react` renders one:
 
@@ -261,7 +260,7 @@ function Activity() {
 }
 ```
 
-The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked weather" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/styles/tokens.css`.
+The plan is a step in its turn, "Made a plan · 2 of 4 done", with the checklist inside. A subagent is a step too, "Asked performance" over the subagent's description, with the child's own plan and tool steps nested under it. The stylesheet carries no inline styles, so without that import the kit renders as bare markup. To restyle it, override the `--b4-activity-*` custom properties in your own CSS, as the navlog example does in `app/styles/tokens.css`.
 
 React and `@copilotkit/react-core` are optional peer dependencies of `@b4run/ag-ui`, and only the `./react` and `./react/copilotkit` subpaths need them. A server that uses the root or `./sse` entry installs nothing extra.
 

@@ -2,6 +2,7 @@
  * Test fixtures, imported only by `*.test.ts(x)` files. Nothing in the app
  * imports this module, so it never reaches a page bundle.
  */
+import type { Forecast } from "./forecast"
 import type { Navlog } from "./navlog-types"
 
 /**
@@ -104,4 +105,97 @@ export const SAMPLE_NAVLOG: Navlog = {
     { figure: "Figure 5-6", path: "poh/time-fuel-distance-to-climb.md" },
     { figure: "Figure 5-7", path: "poh/cruise-performance.md" },
   ],
+}
+
+/**
+ * The forecast block the tests share: KPDX to KBDN past Madras (KS33) at
+ * 9,500 ft, departing 2026-10-12 1800Z. VFR at all three; one leg's winds
+ * aloft; a G-AIRMET freezing level below the cruise during the flight, so the
+ * floor is CAUTION. Every TAF reaches its time, so the forecast is not
+ * preliminary.
+ */
+export const SAMPLE_FORECAST: Forecast = {
+  winds: [
+    {
+      leg: 1,
+      station: "PDX",
+      altitudeFt: 9500,
+      dirDegTrue: 28,
+      speedKt: 17,
+      tempC: -4,
+      forUseFromUtc: "2026-10-12T14:00:00.000Z",
+      forUseToUtc: "2026-10-12T21:00:00.000Z",
+      covered: true,
+    },
+  ],
+  airports: [
+    {
+      id: "KPDX",
+      role: "origin",
+      alongNm: 0,
+      atUtc: "2026-10-12T18:00:00.000Z",
+      metar: {
+        raw: "KPDX 121753Z 33008KT 10SM FEW045 14/06 A3012",
+        category: "VFR",
+        observedAt: "2026-10-12T17:53:00.000Z",
+      },
+      taf: {
+        raw: "TAF KPDX 121720Z 1218/1324 33010KT P6SM FEW050",
+        validToUtc: "2026-10-14T00:00:00.000Z",
+      },
+      categoryNow: "VFR",
+      categoryAtTime: "VFR",
+      gustKt: null,
+    },
+    {
+      id: "KS33",
+      role: "en-route",
+      alongNm: 80,
+      atUtc: "2026-10-12T18:47:00.000Z",
+      metar: {
+        raw: "KS33 121755Z AUTO 32006KT 10SM CLR 16/M02 A3010",
+        category: "VFR",
+        observedAt: "2026-10-12T17:55:00.000Z",
+      },
+      taf: null,
+      categoryNow: "VFR",
+      categoryAtTime: null,
+      gustKt: null,
+    },
+    {
+      id: "KBDN",
+      role: "destination",
+      alongNm: 104,
+      atUtc: "2026-10-12T19:05:00.000Z",
+      metar: {
+        raw: "KBDN 121756Z 31009KT 10SM SCT060 15/M01 A3008",
+        category: "VFR",
+        observedAt: "2026-10-12T17:56:00.000Z",
+      },
+      taf: {
+        raw: "TAF KBDN 121720Z 1218/1318 30010KT P6SM SCT060",
+        validToUtc: "2026-10-13T18:00:00.000Z",
+      },
+      categoryNow: "VFR",
+      categoryAtTime: "VFR",
+      gustKt: null,
+    },
+  ],
+  advisories: [
+    {
+      product: "G-AIRMET",
+      hazard: "FZLVL",
+      lowestFt: 8000,
+      highestFt: 8000,
+      validFromUtc: "2026-10-12T18:00:00.000Z",
+      validToUtc: "2026-10-13T00:00:00.000Z",
+      relevance: "during-flight",
+    },
+  ],
+  coverage: { preliminary: false, reasons: [] },
+  verdictFloor: {
+    level: "CAUTION",
+    reasons: ["freezing level 8,000 ft during the flight, below the 9,500 ft cruise"],
+  },
+  notes: ["No TAF issued for KS33"],
 }

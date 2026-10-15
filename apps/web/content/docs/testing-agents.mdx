@@ -263,7 +263,7 @@ The default `basic` template generates `test/agent.test.ts`, which imports `@b4r
 npm test
 ```
 
-To test the route itself, add a harness test that scripts the model and lets the tools run, for example (`computeNavlog` is pure, so this one needs no network):
+To test the route itself, add a harness test that scripts the model and lets the tools run. `computeNavlog` fetches its forecast from aviationweather.gov, which needs no key; set `B4_AWC_BASE_URL` to a local stub to run it offline. For example:
 
 ```ts title="server/test/plan.test.ts"
 import { fileURLToPath } from "node:url"
@@ -284,7 +284,7 @@ const navlogInput = {
     { id: "KSTP", lat: 44.9346, lon: -93.0603, elevationFt: 705, magneticVariationDeg: 0, kind: "airport" },
     { id: "KRST", lat: 43.9083, lon: -92.49, elevationFt: 1317, magneticVariationDeg: 0, kind: "airport" },
   ],
-  winds: [{ dirDegTrue: 320, speedKt: 20 }],
+  stations: [],
 }
 
 it("computes the navlog and cites the POH", async () => {

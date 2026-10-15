@@ -5,9 +5,9 @@ import resolveDeparture from "../src/tools/resolveDeparture.ts"
 const ctx = {} as unknown as B4ToolContext
 
 describe("resolveDeparture", () => {
-  it("resolves the pilot's words once, so the weather brief and the navlog agree", async () => {
-    // The live demo at 0005Z on 8 Oct: the weather subagent did this sum itself
-    // and called "tomorrow 1500Z" 39 hours out. It is the 8th, 15 hours out.
+  it("resolves the pilot's words once, so every step plans for the same instant", async () => {
+    // The live demo at 0005Z on 8 Oct: a model that did this sum itself called
+    // "tomorrow 1500Z" 39 hours out. It is the 8th, 15 hours out.
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-10-08T00:05:00Z"))
     try {

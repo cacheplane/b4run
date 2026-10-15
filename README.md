@@ -124,9 +124,9 @@ covers that incremental path.
 ## What are you building?
 
 Start with the [flight planner](https://b4.run/docs/recipes/flight-planner), a
-VFR flight planner for a Cessna 172N: live weather tools, a navlog computed in
-code from the POH, weather and performance subagents, memory, planning, and
-flight-plan filing behind approval. Scaffold it with
+VFR flight planner for a Cessna 172N: a navlog and its live weather facts
+computed in code from the POH and aviationweather.gov, a performance subagent,
+memory, planning, and flight-plan filing behind approval. Scaffold it with
 `npm create b4-app@latest my-navlog -- --template navlog`.
 
 - [Developer agent](./examples/code-fixer/server/README.md): reproduces a

@@ -51,8 +51,18 @@ describe("coverage", () => {
     }
     expect(coverage(short)).toEqual({
       preliminary: true,
-      reasons: ["the KBDN TAF ends 2101Z, before the 2102Z ETA"],
+      reasons: ["the KBDN TAF ends at 2101Z and does not cover the 2102Z ETA"],
     })
+  })
+
+  it("words a TAF ending at the very minute of the ETA without contradiction", () => {
+    const edge = {
+      ...base,
+      destination: { id: "KBDN", taf: taf("2026-10-12T12:00:00Z", "2026-10-12T21:02:00Z") },
+    }
+    expect(coverage(edge).reasons).toEqual([
+      "the KBDN TAF ends at 2102Z and does not cover the 2102Z ETA",
+    ])
   })
 
   it("names an origin TAF that has not started by the departure", () => {

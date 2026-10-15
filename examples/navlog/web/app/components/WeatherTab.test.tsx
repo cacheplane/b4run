@@ -1,54 +1,16 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import type { Navlog, NavlogWaypoint } from "../lib/navlog-types"
-import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
+import { type AdvisoryFact, advisoryLine, type Forecast, windsLine } from "../lib/forecast"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { RouteStation } from "../lib/weather-roles"
-import type { WeatherBrief } from "../lib/weather-selectors"
 import { WeatherTab, type WeatherTabProps } from "./WeatherTab"
-
-const FZLVL = "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight"
-const SIGMET = "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure"
-const WINDS = "leg 1: 320/29 -3C at 4500 ft, MSP, valid 040600Z"
-
-const brief: WeatherBrief = {
-  airports: [
-    {
-      id: "KSTP",
-      now: "VFR",
-      atEta: "VFR",
-      line: "VFR now, VFR at ETA",
-      metar: "METAR KSTP 061353Z 32012KT 10SM CLR 08/M02 A3012",
-      taf: "TAF KSTP 061130Z 0612/0712 32012KT P6SM SKC",
-    },
-    {
-      id: "KRST",
-      now: "VFR",
-      atEta: "MVFR",
-      line: "VFR now, MVFR at ETA",
-      metar: "METAR KRST 061354Z 31015G22KT 10SM BKN045 06/M03 A3010",
-      taf: "TAF KRST 061130Z 0612/0712 31015KT P6SM BKN025",
-    },
-    {
-      id: "KHCD",
-      now: "VFR",
-      atEta: "VFR",
-      line: "VFR now, VFR at ETA",
-      metar: "METAR KHCD 061355Z AUTO 32010KT 10SM CLR 07/M02 A3011",
-      taf: "",
-    },
-  ],
-  winds: [WINDS],
-  advisories: [FZLVL, SIGMET],
-  note: "",
-  horizon:
-    "Departure is 37 hours out; TAFs and winds aloft do not reach it yet, so this brief is preliminary.",
-}
 
 const station = (id: string, alongNm: number, name: string): RouteStation => ({
   id,
   name,
-  lat: 44.5,
-  lon: -92.9,
+  lat: 44.6,
+  lon: -121.2,
   alongNm,
   offsetNm: 4,
 })
@@ -56,10 +18,9 @@ const station = (id: string, alongNm: number, name: string): RouteStation => ({
 const render = (overrides: Partial<WeatherTabProps> = {}): string =>
   renderToStaticMarkup(
     <WeatherTab
-      weather={brief}
+      forecast={SAMPLE_FORECAST}
       navlog={SAMPLE_NAVLOG}
-      stations={[station("KHCD", 24, "Hutchinson Municipal"), station("KOWA", 40, "Owatonna")]}
-      cruiseFt={4500}
+      stations={[station("KS33", 80, "Madras Municipal")]}
       {...overrides}
     />,
   )
@@ -72,8 +33,25 @@ const section = (html: string, title: string): string => {
   return html.slice(heading, end < 0 ? undefined : end)
 }
 
+/** The text a reader sees, tags dropped. */
+const text = (html: string): string => {
+  const host = document.createElement("div")
+  host.innerHTML = html
+  return host.textContent ?? ""
+}
+
+const withAirports = (airports: Forecast["airports"]): Forecast => ({
+  ...SAMPLE_FORECAST,
+  airports,
+})
+const [ORIGIN, EN_ROUTE, DESTINATION] = SAMPLE_FORECAST.airports as [
+  Forecast["airports"][number],
+  Forecast["airports"][number],
+  Forecast["airports"][number],
+]
+
 describe("WeatherTab", () => {
-  test("labelled sections in order: origin, en route, destination, winds, advisories, horizon", () => {
+  test("labelled sections in order: origin, en route, destination, winds, advisories", () => {
     const html = render()
     const titles = [...html.matchAll(/<h3 id="([^"]+)"[^>]*>([^<]+)<\/h3>/g)]
     expect(titles.map((match) => match[2])).toEqual([
@@ -82,58 +60,67 @@ describe("WeatherTab", () => {
       "Destination",
       "Winds aloft",
       "Advisories",
-      "Forecast horizon",
     ])
     for (const match of titles) expect(html).toContain(`aria-labelledby="${match[1]}"`)
   })
-  test("each card has its id, its category now → at ETA, and its METAR and TAF", () => {
+  test("each role's card has its id, its category pill and its raw METAR and TAF", () => {
     const html = render()
-    const destination = section(html, "Destination")
-    expect(destination).toContain(">KRST<")
-    expect(destination).toContain('data-cat="MVFR"')
-    expect(destination).toContain("VFR now → MVFR at ETA")
-    expect(destination).toMatch(
-      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">KRST/,
-    )
-    expect(destination).toMatch(/>TAF<\/p><pre[^>]*>KRST 061130Z/)
     const origin = section(html, "Origin")
+    expect(origin).toContain(">KPDX<")
     expect(origin).toContain('data-cat="VFR"')
-    expect(origin).toContain("KSTP 061353Z")
+    expect(origin).toMatch(
+      />METAR<\/p><pre class="whitespace-pre-wrap[^"]*font-mono[^"]*">KPDX 121753Z/,
+    )
+    // Under its own label, the TAF drops the label's word: "TAF KPDX …" reads "KPDX …".
+    expect(origin).toMatch(/>TAF<\/p><pre[^>]*>KPDX 121720Z 1218\/1324/)
+    const enRoute = section(html, "En route")
+    expect(enRoute).toContain(">KS33<")
+    expect(enRoute).toContain("Madras Municipal")
+    expect(enRoute).toContain("80 nm along")
+    expect(enRoute).toContain("KS33 121755Z AUTO")
+    expect(enRoute).toContain("No TAF issued")
+    const destination = section(html, "Destination")
+    expect(destination).toContain(">KBDN<")
+    expect(destination).toContain("KBDN 121756Z")
+    expect(destination).toContain("KBDN 121720Z 1218/1318")
   })
-  test("en route lists stations with their name and distance along, in order", () => {
-    const enRoute = section(render(), "En route")
-    expect(enRoute).toContain("Hutchinson Municipal")
-    expect(enRoute).toContain("24 nm along")
-    expect(enRoute).toContain("40 nm along")
-    expect(enRoute.indexOf("KHCD")).toBeLessThan(enRoute.indexOf("KOWA"))
+  test("the pill is the category at the airport's time, and says so when it changes", () => {
+    const html = render({
+      forecast: withAirports([
+        ORIGIN,
+        EN_ROUTE,
+        { ...DESTINATION, categoryNow: "VFR", categoryAtTime: "MVFR" },
+      ]),
+    })
+    const destination = section(html, "Destination")
+    expect(destination).toContain('data-cat="MVFR"')
+    expect(destination).toContain("VFR now → MVFR at 1905Z")
+    // No TAF at KS33: the pill falls back to the category now.
+    expect(section(html, "En route")).toContain('data-cat="VFR"')
   })
-  test("a station the brief does not cover says so", () => {
-    const enRoute = section(render(), "En route")
-    const owatonna = enRoute.slice(enRoute.indexOf("KOWA"))
-    expect(owatonna).toContain("No report in the brief")
+  test("cards come in the forecast's order, grouped by role", () => {
+    const html = render({
+      forecast: withAirports([
+        ORIGIN,
+        { ...EN_ROUTE, id: "KRDM", alongNm: 30 },
+        EN_ROUTE,
+        DESTINATION,
+      ]),
+    })
+    const enRoute = section(html, "En route")
+    expect(enRoute.indexOf("KRDM")).toBeLessThan(enRoute.indexOf("KS33"))
+    expect(enRoute).toContain("30 nm along")
   })
-  test("intermediate airport waypoints are en route; navaids are not", () => {
-    const via: Navlog = {
-      ...SAMPLE_NAVLOG,
-      waypoints: [
-        SAMPLE_NAVLOG.waypoints[0] as NavlogWaypoint,
-        { ...(SAMPLE_NAVLOG.waypoints[0] as NavlogWaypoint), id: "KHCD" },
-        { ...(SAMPLE_NAVLOG.waypoints[0] as NavlogWaypoint), id: "ODI", kind: "navaid" },
-        SAMPLE_NAVLOG.waypoints[1] as NavlogWaypoint,
-      ],
-    }
-    const enRoute = section(render({ navlog: via, stations: [] }), "En route")
-    expect(enRoute).toContain(">KHCD<")
-    expect(enRoute).not.toContain("ODI")
-  })
-  test("a station past either end reads near departure or near destination", () => {
+  test("an en-route airport past either end reads near departure or near destination", () => {
     const enRoute = section(
       render({
-        stations: [
-          station("KMSP", 0, "Minneapolis"),
-          // The server's great-circle length runs a mile short of the navlog's total.
-          station("KDCY", SAMPLE_NAVLOG.totals.distanceNm - 1, "Dodge Center"),
-        ],
+        forecast: withAirports([
+          ORIGIN,
+          { ...EN_ROUTE, id: "KHIO", alongNm: 0 },
+          // A station clamped to the route's end lands a mile short of the destination.
+          { ...EN_ROUTE, id: "KRDM", alongNm: DESTINATION.alongNm - 1 },
+          DESTINATION,
+        ]),
       }),
       "En route",
     )
@@ -141,33 +128,67 @@ describe("WeatherTab", () => {
     expect(enRoute).toContain("near destination")
     expect(enRoute).not.toContain("0 nm along")
   })
-
+  test("an airport with no METAR says so", () => {
+    const html = render({ forecast: withAirports([ORIGIN, { ...EN_ROUTE, metar: null }]) })
+    expect(section(html, "En route")).toContain("No METAR")
+  })
   test("an empty en route says no stations are near the course", () => {
-    const enRoute = section(render({ stations: [] }), "En route")
+    const enRoute = section(render({ forecast: withAirports([ORIGIN, DESTINATION]) }), "En route")
     expect(enRoute).toContain("No reporting stations within 25 nm of the course.")
   })
-  test("winds aloft lists each leg's line", () => {
+  test("a role airport the forecast does not cover says it is not in the forecast", () => {
+    const destination = section(render({ forecast: withAirports([ORIGIN]) }), "Destination")
+    expect(text(destination)).toContain("Not in the forecast")
+  })
+  test("a forecast with no winds or advisories says so", () => {
+    const html = render({ forecast: { ...SAMPLE_FORECAST, winds: [], advisories: [] } })
+    expect(text(section(html, "Winds aloft"))).toContain("No winds in the forecast")
+    expect(text(section(html, "Advisories"))).toContain("No advisories near the route")
+  })
+  test("winds aloft shows exactly the forecast's one line", () => {
     const winds = section(render(), "Winds aloft")
-    expect(winds).toContain(WINDS)
-    expect(section(render({ weather: { ...brief, winds: [] } }), "Winds aloft")).toContain(
-      "No winds in the brief",
+    const line = windsLine(SAMPLE_FORECAST.winds[0] as Forecast["winds"][number])
+    expect(winds).toContain(line)
+    expect(winds.match(/<li/g)).toHaveLength(1)
+  })
+  test("advisories read as lines, the ones during the flight first", () => {
+    const fzlvl = SAMPLE_FORECAST.advisories[0] as AdvisoryFact
+    const sigmet: AdvisoryFact = {
+      product: "SIGMET",
+      hazard: "CONVECTIVE",
+      lowestFt: null,
+      highestFt: 29000,
+      validFromUtc: "2026-10-12T12:00:00.000Z",
+      validToUtc: "2026-10-12T14:00:00.000Z",
+      relevance: "before-departure",
+    }
+    expect(section(render(), "Advisories")).toContain(advisoryLine(fzlvl))
+    const both = section(
+      render({ forecast: { ...SAMPLE_FORECAST, advisories: [sigmet, fzlvl] } }),
+      "Advisories",
     )
+    expect(both.indexOf(advisoryLine(fzlvl))).toBeLessThan(both.indexOf(advisoryLine(sigmet)))
   })
-  test("advisories render as hazard chips, the outside-window ones as one chip", () => {
-    const advisories = section(render(), "Advisories")
-    expect(advisories).toContain('class="wb-hazard"')
-    expect(advisories).toContain("Freezing level 4,000 ft")
-    expect(advisories).toContain("1 outside the flight window")
-    expect(advisories).not.toContain("<span>SIGMET Convective")
+  test("a preliminary forecast names each gap", () => {
+    const html = render({
+      forecast: {
+        ...SAMPLE_FORECAST,
+        coverage: {
+          preliminary: true,
+          reasons: ["the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA"],
+        },
+      },
+    })
+    expect(text(html)).toContain(
+      "Preliminary: the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA",
+    )
+    expect(text(render())).not.toContain("Preliminary")
   })
-  test("the forecast horizon shows when the brief has one", () => {
-    expect(section(render(), "Forecast horizon")).toContain('class="wb-horizon ')
-    const { horizon: _horizon, ...noHorizon } = brief
-    expect(render({ weather: noHorizon })).not.toContain(">Forecast horizon<")
-  })
-  test("with no brief: one message and the role headings with their ids", () => {
-    const html = render({ weather: null, stations: [] })
-    expect(html).toContain("No weather brief yet.")
+  test("with no forecast: one message and the role headings with their ids", () => {
+    const html = render({ forecast: null, stations: [] })
+    // A navlog without a forecast block was planned before computeNavlog computed one.
+    expect(text(html)).toContain("This plan has no computed forecast; replan to see it.")
+    expect(html).not.toContain("No weather brief yet.")
     expect(section(html, "Origin")).toContain("KSTP")
     expect(section(html, "En route")).toContain("No reporting stations within 25 nm")
     expect(section(html, "Destination")).toContain("KRST")

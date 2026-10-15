@@ -15,8 +15,8 @@ A planning run uses most of B4.run's agent features in one route. The table maps
 | What you see | B4.run feature | Where |
 | --- | --- | --- |
 | A planning answer with a bottom line, hazards and key numbers | Structured output from a client-supplied response schema | `web/app/brief/`, `server/b4.config.ts` |
-| Live METARs, TAFs, winds aloft and advisories | Tools that call aviationweather.gov (no key) | `server/src/tools/get*.ts` |
-| Weather and performance worked out in parallel | [Subagents](/docs/subagents) with their own tool lists | `server/src/app/navlog/subagents/` |
+| Live METARs, TAFs, winds aloft and advisories, at the times each leg is flown | `computeNavlog` computes the weather facts in code from aviationweather.gov (no key) | `server/src/tools/computeNavlog.ts`, `server/src/lib/forecast/` |
+| POH performance worked out by a specialist | A [subagent](/docs/subagents) with its own tool list | `server/src/app/navlog/subagents/performance/` |
 | A to-do list as the plan runs | [Planning](/docs/planning) | `server/src/app/navlog/plan.md` |
 | Headings, wind correction and fuel, never guessed by the model | A tool that does the math in code from the POH tables | `server/src/tools/computeNavlog.ts`, `server/src/lib/` |
 | Your tail number and fuel remembered next time | [Memory](/docs/memory) with reviewed candidates | `server/src/app/navlog/memory.ts` |
@@ -84,7 +84,7 @@ browser
   → POST /api/copilotkit/…           (web: CopilotKit runtime, the visitor guard)
   → B4HttpAgent({ responseSchema })   (web: adds the brief kit's JSON Schema)
   → POST /agui/%2Fnavlog%23agent      (server: the navlog route over AG-UI)
-  → the coordinator, its subagents and tools
+  → the coordinator, its performance subagent and tools
   ← streamed events: text, tool steps, the plan, an approval card
 ```
 
@@ -94,12 +94,12 @@ The client's other calls go through small, guarded routes: `/api/b4` for memory 
 
 | Part | What it does |
 | --- | --- |
-| `src/app/navlog/index.ts` | The coordinator route. Its prompt is the procedure: read the aircraft baseline and recall the pilot's overrides, resolve the departure time, look up the waypoints, send out the subagents, compute the navlog, and answer as a brief. |
-| `src/app/navlog/subagents/weather` | Fetches METARs, TAFs, winds aloft and advisories for every airport and en-route station, and returns a fixed-format brief with a GO, CAUTION or NO-GO verdict. |
+| `src/app/navlog/index.ts` | The coordinator route. Its prompt is the procedure: read the aircraft baseline and recall the pilot's overrides, resolve the departure time, look up the waypoints, send out the performance subagent, compute the navlog and its weather facts, and answer as a brief that narrates them. |
 | `src/app/navlog/subagents/performance` | Reads the POH tables for takeoff, climb, cruise and landing figures. |
-| `src/tools/` | One file per tool. `lookupAirport` and `lookupNavaid` resolve waypoints. `findRouteStations` finds reporting stations within 25 nm of the course. `computeNavlog` does all the navigation arithmetic. `fileFlightPlan` writes the ICAO plan behind an approval. |
-| `src/lib/` | Pure code the tools call: great-circle geometry, the wind triangle, POH table interpolation and the ICAO flight-plan format, each with unit tests. |
+| `src/tools/` | One file per tool. `lookupAirport` and `lookupNavaid` resolve waypoints. `findRouteStations` finds reporting stations within 25 nm of the course. `computeNavlog` does all the navigation arithmetic and returns a `forecast` block: each airport's category now and when you are there, the winds per leg at the time it is flown, the advisories and their relevance, whether the forecasts reach the flight, and the GO, CAUTION or NO-GO verdict floor. `fileFlightPlan` writes the ICAO plan behind an approval. |
+| `src/lib/` | Pure code the tools call: great-circle geometry, the wind triangle, POH table interpolation, the forecast rules (`forecast/`) and the ICAO flight-plan format, each with unit tests. |
 | `data/navaids.json` | The US navaid snapshot from OurAirports (public domain), rebuilt by `scripts/build-waypoints.mjs`. |
+| `data/winds-stations.json` | The winds-aloft station positions `computeNavlog` picks each leg's winds from, rebuilt by `scripts/build-winds-stations.mjs`. |
 | `workspace/` | The read-only reference corpus the agent reads: the aircraft baseline, the 172N POH and the regulations. |
 | `b4.config.ts` | Read-only paths for the corpus, memory writes as reviewed candidates, and `server.agui.clientForwardedProps`, which lets the navlog route accept the client's `responseSchema`. |
 
@@ -116,7 +116,7 @@ The client's other calls go through small, guarded routes: `/api/b4` for memory 
 | `app/lib/` | Pure selectors that read each surface's data from the run's events, with unit tests. |
 | `app/api/` | The CopilotKit runtime route and the guarded proxies. Every route checks origin, visitor and rate limit. |
 
-The map, the sheet and the chat all read from the same run. Each surface finds its data in the tool results with a pure selector. For example, `latestNavlogResult` returns the most recent `computeNavlog` result, so a replan updates everything at once.
+The map, the sheet and the chat all read from the same run. Each surface finds its data in the tool results with a pure selector. For example, `latestNavlogResult` returns the most recent `computeNavlog` result, and the Weather tab, the map's categories and the verdict read its `forecast` block, so a replan updates everything at once.
 
 ## Deploy your own
 
@@ -139,7 +139,7 @@ The live demo runs the server on Railway and the web client on Vercel. Each pack
 Most of what makes navlog a flight planner lives in four places. To adapt it, change these:
 
 - **The aircraft and the corpus.** `server/workspace/aircraft/` and `server/workspace/poh/` hold the airplane's data. The agent reads them through `readDoc`.
-- **The procedure.** The coordinator's prompt in `server/src/app/navlog/index.ts` says what to do and in what order. The subagents' prompts say how to brief weather and performance.
+- **The procedure.** The coordinator's prompt in `server/src/app/navlog/index.ts` says what to do and in what order. The performance subagent's prompt says how to read the POH, and the `brief-weather` skill says how to narrate the computed forecast.
 - **The tools.** Each file in `server/src/tools/` is one tool, typed from its input. Keep arithmetic in `src/lib/` and out of the model.
 - **The answer's shape.** `web/app/brief/schema.ts` declares the components the agent may answer with. The server binds that schema as the model's structured output.
 

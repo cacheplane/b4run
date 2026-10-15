@@ -19,8 +19,8 @@ It is a workbench rather than a chat widget, and it is map-first:
   station marker opens a panel with its category now and at ETA and the raw
   METAR and TAF.
 - **Chat.** The middle column: the thread title and status, and
-  the conversation itself: the plan card, the `weather` and `performance` subagent
-  cards, tool cards and the `fileFlightPlan` approval, inline and in order.
+  the conversation itself: the plan card, the `performance` subagent card, tool
+  cards and the `fileFlightPlan` approval, inline and in order.
 - **Route bar.** Across the top of the map: the route as pills, an
   autocomplete input over the bundled waypoint snapshot (`GET /api/waypoints?q=`),
   the cruise altitude, the departure, the draft's distance and **Plan**
@@ -35,10 +35,11 @@ It is a workbench rather than a chat widget, and it is map-first:
 - **Navlog sheet.** Under the map, with the totals when collapsed. Open, a
   verdict strip sits above four tabs: **Legs** leads with the legs grid
   (pretable, `NavlogGrid.tsx`; Leg pinned left, selecting a row lights that leg
-  on the map) over a fixed totals strip, **Weather** groups the brief by
-  origin, en route and destination (each airport's category and raw METAR and
-  TAF; en-route stations by distance along the route), then the winds aloft,
-  advisories and forecast horizon, **Totals & plan** holds the tiles and
+  on the map) over a fixed totals strip. **Weather** groups `computeNavlog`'s
+  forecast by origin, en route and destination (each airport's category and raw
+  METAR and TAF; en-route stations by distance along the route), then the winds
+  aloft per leg and the advisories; when the forecasts fall short of the flight,
+  a coverage notice heads the tab. **Totals & plan** holds the tiles and
   the ICAO flight plan items 7 to 19, and **Brief** the verdict card and the
   brief, rendered from the agent's structured answer. **Print** prints the sheet alone on one landscape page, every leg
   included (from `NavlogTable`, the same table the phone shows as cards), and **Copy FPL** copies the `(FPL-…)`
@@ -52,8 +53,8 @@ selectors:
 
 - `latestNavlogResult` and `parseNavlog` (`app/lib/navlog-selectors.ts`) — the
   last `computeNavlog` result, parsed into a navlog.
-- `latestWeatherBriefText` and `parseWeatherBrief` (`app/lib/weather-selectors.ts`)
-  — the last completed `weather` subagent run, parsed into a weather brief.
+- `readForecast` (`app/lib/forecast.ts`) — the `forecast` block of that same
+  result: the weather facts the server computed, rendered as they are.
 - `latestRouteStations` and `groupByRole` (`app/lib/weather-roles.ts`) — the
   last `findRouteStations` result, and the Weather tab's groups.
 - `routeGeometry` (`app/lib/route-geometry.ts`) — what the map draws.
@@ -136,7 +137,7 @@ npm run build --workspace web
 | Waypoint search | `app/api/waypoints/route.ts`, `app/lib/waypoint-search.ts`, `data/waypoints.json` | searches the bundled OurAirports snapshot server-side |
 | Navlog sheet | `app/components/NavlogSheet.tsx`, `NavlogGrid.tsx`, `NavlogTable.tsx`, `FlightPlanBlock.tsx`, `WeatherTab.tsx` | verdict strip, legs grid and tabs, weather by role, totals, ICAO flight plan, print and copy |
 | Step views | `app/components/StepViews.tsx` | the opened `computeNavlog` and `renderChart` steps, through `B4Activity`'s `renderStep` |
-| Selectors | `app/lib/navlog-selectors.ts`, `weather-selectors.ts`, `advisories.ts`, `winds.ts`, `weather-roles.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
+| Selectors | `app/lib/navlog-selectors.ts`, `forecast.ts`, `weather-roles.ts`, `route-geometry.ts` | turn the thread into navlog, weather and map data |
 | Thread list | `app/components/ThreadRail.tsx` | the thread list inside the sidenav |
 | Shell hooks | `app/lib/use-server-status.ts`, `use-run-errors.ts`, `use-drop-notices.ts`, `use-thread-switch.ts`, `use-thread-titles.ts` | what `AppShell` composes: the server probe, the failure banner, dropped-part notices, the thread-switch reset, thread titles |
 | Memory review | `app/components/MemoryPanel.tsx`, `app/lib/use-memory-candidates.ts`, `memory-candidates.ts` | approve or delete the candidates `remember()` proposed |
@@ -304,6 +305,6 @@ activity components themselves are tested in `@b4run/ag-ui`.
 
 None of these tests calls a model. To smoke-test a live run, start both
 processes with a real `OPENAI_API_KEY` in `server/.env`, type `KPAO SNS KSBA`
-in the route bar and press **Plan**: the plan and subagent steps stream into
+in the route bar and press **Plan**: the plan, subagent and tool steps stream into
 the chat, the route and its weather draw on the map, the navlog sheet fills in,
 and the brief renders. Then ask it to file the plan to see the approval card.

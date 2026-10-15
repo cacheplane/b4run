@@ -13,7 +13,8 @@ import { demoAwcData } from "./scenario.mjs"
  * - `airport`, `metar`, `taf`: `ids=<comma-separated ids>&format=json`, a JSON
  *   array of the known stations in the order asked, or 204 when none is known.
  * - `gairmet`, `airsigmet`: `format=json`, an empty JSON array (no advisory).
- * - `windtemp`: `region=chi&level=low&fcst=06|12|24`, the FB text product.
+ * - `windtemp`: `region=all&level=low&fcst=06|12|24`, the FB text product
+ *   (computeNavlog asks for the contiguous-US product, region all).
  *
  * Anything else is a 404 (an unknown product) or a 400 (a parameter the tools
  * never send), each with a plain-text body saying which. `hits` counts the
@@ -65,8 +66,9 @@ function answer(data, product, params) {
  * chooses the port; without it the OS assigns one.
  *
  * `now` is required and must be the `now` the capture built
- * `demoScenario({ now })` with: the scripted briefs quote the METAR, TAF and
- * FB times this stub serves, so a stub on its own clock would contradict them.
+ * `demoScenario({ now })` with: the scripted brief cites the METAR times this
+ * stub serves and the scenario expects its TAF and FB windows, so a stub on its
+ * own clock would contradict them.
  */
 export async function startAwcStub({ getPort, now } = {}) {
   if (typeof now !== "number" || !Number.isFinite(now)) {

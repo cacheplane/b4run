@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveStations, serializeTable, stationIds } from "../scripts/build-winds-stations.mjs"
-import { nearestWindsStation, windsStationTable } from "../src/lib/forecast/winds.ts"
+import { awc } from "../src/lib/awc.ts"
+import {
+  fetchWindsProducts,
+  nearestWindsStation,
+  windsStationTable,
+} from "../src/lib/forecast/winds.ts"
 
 // Points neither the navaid snapshot nor an airport record places: the Gulf
 // points, offshore platforms, and two coastal VORs the snapshot lacks.
@@ -80,5 +85,46 @@ describe("nearestWindsStation", () => {
   })
   it("is null when no station in the table is in the product", () => {
     expect(nearestWindsStation({ lat: 44.8, lon: -121.9 }, new Set(["XXX"]), TABLE)).toBeNull()
+  })
+})
+
+describe("fetchWindsProducts", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    awc.clearCache()
+  })
+  it("leaves out a product AWC answers with an empty body", async () => {
+    const fb = "VALID 121800Z   FOR USE 1400-2100Z. TEMPS NEG ABV 24000\n\nFT  3000\nPDX 9900\n"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        new URL(url).searchParams.get("fcst") === "06"
+          ? new Response(fb)
+          : new Response(null, { status: 204 }),
+      ),
+    )
+    const products = await fetchWindsProducts("all")
+    expect([...products.keys()]).toEqual([6])
+    expect(products.get(6)?.stations.PDX).toBeDefined()
+  })
+  it("leaves out a product whose fetch fails, and throws only when every one fails", async () => {
+    const fb = "VALID 121800Z   FOR USE 1400-2100Z. TEMPS NEG ABV 24000\n\nFT  3000\nPDX 9900\n"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const fcst = new URL(url).searchParams.get("fcst")
+        if (fcst === "12") throw new TypeError("fetch failed")
+        return fcst === "06" ? new Response(fb) : new Response("busy", { status: 503 })
+      }),
+    )
+    expect([...(await fetchWindsProducts("all")).keys()]).toEqual([6])
+    awc.clearCache()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("busy", { status: 503 })),
+    )
+    await expect(fetchWindsProducts("all")).rejects.toThrow(
+      /^no winds-aloft product could be fetched \(6-hour: aviationweather.gov windtemp returned 503; 12-hour/,
+    )
   })
 })

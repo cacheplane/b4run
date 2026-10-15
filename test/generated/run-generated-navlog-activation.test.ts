@@ -4,6 +4,8 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, test } from "vitest"
+import { startAwcStub } from "../../docs/brand/demo/awc-stub.mjs"
+import { assertScenarioCurrent, demoScenario } from "../../docs/brand/demo/scenario.mjs"
 import { createArtifactRoot } from "../../packages/devkit/src/testing/index.ts"
 import { createAimock, script } from "../../packages/testing/dist/index.js"
 import { getTestRegistryUrl } from "../harness/local-registry.ts"
@@ -67,12 +69,24 @@ const FILE_PROMPT =
   "Plan KSTP to KRST at 4500 feet, departing 1400Z, in N738ZU (172N, 2400 RPM, 50 gal usable), then file the flight plan."
 const PERF_INPUT =
   "KSTP and KRST, 4500 ft, 2400 RPM: takeoff, landing, cruise row and climb figures"
-// Hermetic: the waypoints and the wind are inline, so no journey reaches
-// aviationweather.gov. Elevations are feet (the FAA records give meters).
+// One clock reading for the whole lane: the departure and the weather the
+// loopback AWC stub serves (docs/brand/demo's scenario) are both built from
+// it. computeNavlog fetches its forecast for the time each leg is flown, and
+// the server child reads the real clock, so the departure must be the next
+// 1400Z rather than a fixed date the stub's forecasts could not reach.
+const SCENARIO = demoScenario({ now: Date.now() })
+const DEPARTURE = new Date(SCENARIO.departureUtc)
+const pad2 = (n: number): string => String(n).padStart(2, "0")
+// `YYMMDD`, item 18's DOF and the recorded flight plan's file name.
+const DOF = `${String(DEPARTURE.getUTCFullYear()).slice(-2)}${pad2(DEPARTURE.getUTCMonth() + 1)}${pad2(DEPARTURE.getUTCDate())}`
+// Hermetic: the waypoints are inline and computeNavlog's weather comes from
+// the loopback AWC stub (`B4_AWC_BASE_URL` on every server child), so no
+// journey reaches aviationweather.gov; the stub's hits are asserted after the
+// dev session. Elevations are feet (the FAA records give meters).
 const NAVLOG_INPUT = {
   aircraft: { tailNumber: "N738ZU", cruiseRpm: 2400, usableFuelGal: 50 },
   altitudeFt: 4500,
-  departureTimeUtc: "2026-10-06T14:00:00Z",
+  departureTimeUtc: SCENARIO.departureUtc,
   waypoints: [
     {
       id: "KSTP",
@@ -91,22 +105,23 @@ const NAVLOG_INPUT = {
       kind: "airport",
     },
   ],
-  winds: [{ dirDegTrue: 320, speedKt: 20, tempC: 5 }],
+  // No en-route stations: the forecast briefs the two airports.
+  stations: [],
 } as const
-// computeNavlog's own flight plan for NAVLOG_INPUT (33 min en route, 50 gal at
-// 7.025 GPH is 7 h 07 min of endurance).
+// computeNavlog's own flight plan for NAVLOG_INPUT on the stub's MSP 320/20
+// winds (33 min en route, 50 gal at 7.025 GPH is 7 h 07 min of endurance).
 const FLIGHT_PLAN = {
   item7: "N738ZU",
   item8: "VG",
   item9: "C172/L",
   item10: "SG/C",
-  item13: "KSTP1400",
+  item13: `KSTP${pad2(DEPARTURE.getUTCHours())}${pad2(DEPARTURE.getUTCMinutes())}`,
   item15: "N0110VFR DCT",
   item16: "KRST0033",
-  item18: "DOF/261006",
+  item18: `DOF/${DOF}`,
   item19: "E/0707 P/1",
 } as const
-const FLIGHT_PLAN_PATH = "flight-plans/261006-KSTP-KRST.txt"
+const FLIGHT_PLAN_PATH = `flight-plans/${DOF}-KSTP-KRST.txt`
 const BUILT_PROMPT = "Built artifact environment smoke."
 const BUILT_REPLY = "built-env-smoke-ok"
 // The plan fixture's closing Prose. Named because W8 matches it on screen
@@ -156,8 +171,7 @@ const PERF_REPLY =
   "Cruise 2400 RPM at 4500 ft: 64% BHP, 110 KTAS, 7.1 GPH [poh/cruise-performance.md, Figure 5-7]."
 // The filing reply's visible text, which W8 matches on screen, and the reply
 // itself: under the response schema a filing confirmation is a single Prose.
-const FILE_TEXT =
-  "Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z 2026-10-06. This demo records it in the workspace; it does not transmit to Flight Service."
+const FILE_TEXT = `Recorded the flight plan for N738ZU KSTP→KRST, departing 1400Z ${SCENARIO.departureUtc.slice(0, 10)}. This demo records it in the workspace; it does not transmit to Flight Service.`
 const FILE_REPLY = JSON.stringify({ ui: [{ Prose: { props: { markdown: FILE_TEXT } } }] })
 // The web hop's own journeys. Dedicated prompts, not PLAN_PROMPT/FILE_PROMPT:
 // they keep the three direct journeys' aimock accounting untouched and remove
@@ -201,8 +215,14 @@ const todos = [
       "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
     status: "completed",
   },
-  { content: "Brief the weather and look up POH performance", status: "in_progress" },
-  { content: "Compute the navlog and save it to the workspace", status: "pending" },
+  {
+    content: "Find the weather stations along the route and look up POH performance",
+    status: "in_progress",
+  },
+  {
+    content: "Compute the navlog and its forecast and save it to the workspace",
+    status: "pending",
+  },
   { content: "Brief the pilot and file only on request", status: "pending" },
 ]
 // computeNavlog's legs for NAVLOG_INPUT, as the saved navlog table.
@@ -922,13 +942,14 @@ function assertSafeResearchJourney(
       toolCallId: rootCallId("computeNavlog"),
       status: "running",
       icon: "tool",
-      label: "Computing the navlog for 1 leg",
+      label: "Computing the navlog and forecast for 1 leg",
     },
     {
       toolCallId: rootCallId("computeNavlog"),
       status: "completed",
       icon: "tool",
-      label: "Computed the navlog: 66 nm, 33 min, 5.5 gal, reserve 380 min",
+      // The stub's MSP 320/20 winds; the brand demo pins the same totals.
+      label: "Computed the navlog and forecast: 66 nm, 33 min, 5.5 gal, reserve 380 min, GO floor",
       sources: [
         { title: "Figure 5-6 (poh/time-fuel-distance-to-climb.md)" },
         { title: "Figure 5-7 (poh/cruise-performance.md)" },
@@ -1434,6 +1455,7 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
     active: undefined as { stop(): Promise<void> } | undefined,
   }
   let aimock: Awaited<ReturnType<typeof createAimock>> | undefined
+  let awcStub: Awaited<ReturnType<typeof startAwcStub>> | undefined
   let scenarioError: unknown
   let scenarioFailed = false
   let cleanupError: unknown
@@ -1471,6 +1493,13 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
     await mkdir(dirname(commandsTranscriptPath), { recursive: true })
     await writeFile(agUiTranscriptPath, "", "utf8")
 
+    // The scenario was built at module load. Its departure is an ISO instant,
+    // so nothing re-resolves "1400Z" later, but a lane that loaded before a
+    // 1400Z and starts after it would script yesterday's flight: refuse, as
+    // the README capture does.
+    assertScenarioCurrent(SCENARIO)
+    awcStub = await startAwcStub({ now: SCENARIO.now })
+    const activeAwcStub = awcStub
     aimock = await createAimock({ fixtures: [] })
     const registeredFixtures = [
       ...createPlanFixtures(),
@@ -1614,9 +1643,12 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
+    // The eval's tools run for real, and computeNavlog fetches its forecast:
+    // on the loopback stub, as for the servers below, never aviationweather.gov.
     await runGeneratedAppNpmCommand({
       args: ["run", "eval"],
       cwd: appRoot,
+      env: { B4_AWC_BASE_URL: activeAwcStub.baseUrl },
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
@@ -1714,6 +1746,8 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
         env: {
           OPENAI_BASE_URL: activeAimock.baseUrl,
           OPENAI_API_KEY: "test-not-used",
+          // computeNavlog's weather, on loopback (template `server/src/lib/awc.ts`).
+          B4_AWC_BASE_URL: activeAwcStub.baseUrl,
         },
         transcriptPath: commandsTranscriptPath,
       },
@@ -2020,6 +2054,14 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
     )
     if (devServerUrl === undefined) throw new Error("Generated dev server did not start")
     if (webClientUrl === undefined) throw new Error("Generated web client did not start")
+    // computeNavlog's weather came from the loopback stub: the winds-aloft
+    // products (06, 12 and 24 h, cached in-process after the first run), the
+    // METARs and TAFs at both ends, and both advisory feeds. Its `airport`
+    // product goes unasked: the scripted runs call no lookupAirport.
+    expect(activeAwcStub.hits.windtemp).toBeGreaterThanOrEqual(3)
+    for (const product of ["metar", "taf", "gairmet", "airsigmet"] as const) {
+      expect(activeAwcStub.hits[product], product).toBeGreaterThanOrEqual(1)
+    }
 
     const transcriptAfterDev = await readFile(commandsTranscriptPath, "utf8")
     assertRecordedServerExit(transcriptAfterDev, { appRoot, script: "dev" })
@@ -2043,7 +2085,7 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
         appRoot,
         script: "start",
         signal: lifecycleSignal,
-        env: { HOST: "127.0.0.1" },
+        env: { HOST: "127.0.0.1", B4_AWC_BASE_URL: activeAwcStub.baseUrl },
         unsetEnv: ["OPENAI_BASE_URL", "OPENAI_API_KEY"],
         transcriptPath: commandsTranscriptPath,
       },
@@ -2147,6 +2189,11 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
     }
     try {
       await aimock?.close()
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+    try {
+      await awcStub?.close()
     } catch (error) {
       cleanupErrors.push(error)
     }

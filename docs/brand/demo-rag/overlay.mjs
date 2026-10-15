@@ -35,12 +35,28 @@ export const REMOVED = Object.freeze([
     "wind",
     "winds-aloft",
   ].map((name) => `server/src/lib/${name}.ts`),
+  // The forecast rules computeNavlog builds its weather facts with, and the
+  // winds-aloft station table and its build script.
+  "server/src/lib/forecast",
+  "server/data/winds-stations.json",
+  "server/scripts/build-winds-stations.mjs",
+  "server/scripts/build-winds-stations.d.mts",
   "server/workspace",
   ...[
     "awc",
+    "compute-navlog-tool",
+    // b4.config's noOffloadTools for computeNavlog and findRouteStations;
+    // the overlay's config has neither.
+    "config",
     "corpus-sync",
     "file-flight-plan",
     "flight-category",
+    "forecast-advisories",
+    "forecast-build",
+    "forecast-category",
+    "forecast-coverage",
+    "forecast-verdict",
+    "forecast-winds",
     "fpl",
     "geo-filter",
     "geo",

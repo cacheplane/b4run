@@ -176,7 +176,7 @@ export function assertLoopbackModelBaseUrl(value) {
   return assertLoopbackHttpUrl(value, "model base URL")
 }
 
-/** The AWC stub's base: the server's weather tools must never leave the machine. */
+/** The AWC stub's base: the server's weather calls must never leave the machine. */
 export function assertLoopbackAwcBaseUrl(value) {
   return assertLoopbackHttpUrl(value, "AWC base URL")
 }
@@ -206,7 +206,7 @@ function assertLoopbackHttpUrl(value, label) {
 
 /**
  * The B4.run server's environment: the operational allowlist, the model at
- * aimock, and, when given, the weather tools at the loopback AWC stub
+ * aimock, and, when given, its weather calls at the loopback AWC stub
  * (`B4_AWC_BASE_URL`, read by the template's `lib/awc.ts`).
  */
 export function buildChildEnvironment(parentEnvironment, modelBaseUrl, { awcBaseUrl } = {}) {
@@ -1204,7 +1204,7 @@ export function assertAwcStubServed(hits) {
   const missed = AWC_ENDPOINTS.filter((endpoint) => !(hits?.[endpoint] >= 1))
   if (missed.length > 0) {
     throw new Error(
-      `The AWC stub never served /${missed.join(", /")}: the weather tools did not reach it`,
+      `The AWC stub never served /${missed.join(", /")}: computeNavlog and the tools did not reach it`,
     )
   }
 }
@@ -1923,7 +1923,7 @@ export async function captureDemo({
     }
 
     // One clock reading builds the scenario, and the same reading drives the
-    // AWC stub: the scripted briefs quote the times the stub serves.
+    // AWC stub: the scripted brief cites the times the stub serves.
     const scenario = demoScenario({ now: wallClock() })
     aimock = await adapters.processes.startAimock(scenario.fixtures)
     assertLoopbackModelBaseUrl(aimock.baseUrl)

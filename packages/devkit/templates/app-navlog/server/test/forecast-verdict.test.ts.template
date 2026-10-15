@@ -107,7 +107,10 @@ describe("verdictFloor", () => {
         airport({ id: "KS33", role: "en-route", categoryAtTime: null, categoryNow: "IFR" }),
         airport({ id: "KBDN", role: "destination", gustKt: 25 }),
       ],
-      coverage: { preliminary: true, reasons: ["the KBDN TAF ends 1200Z, before the 1315Z ETA"] },
+      coverage: {
+        preliminary: true,
+        reasons: ["the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA"],
+      },
     })
     expect(out).toEqual({
       level: "CAUTION",

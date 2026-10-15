@@ -1,30 +1,15 @@
 import type { TurnsView } from "@b4run/ag-ui/view"
 import { describe, expect, test } from "vitest"
+import type { Forecast } from "./forecast"
 import type { Navlog, NavlogLeg, NavlogWaypoint } from "./navlog-types"
-import { SAMPLE_NAVLOG } from "./test-fixtures"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "./test-fixtures"
 import {
   groupByRole,
   latestRouteStations,
   parseRouteStations,
+  placeText,
   type RouteStation,
 } from "./weather-roles"
-import type { AirportWeather, WeatherBrief } from "./weather-selectors"
-
-const airport = (id: string): AirportWeather => ({
-  id,
-  now: "VFR",
-  atEta: "VFR",
-  line: "VFR now, VFR at ETA",
-  metar: `METAR ${id} 061353Z 32012KT 10SM CLR 08/M02 A3012`,
-  taf: `TAF ${id} 061130Z 0612/0712 32012KT P6SM SKC`,
-})
-
-const brief = (...ids: string[]): WeatherBrief => ({
-  airports: ids.map(airport),
-  winds: [],
-  advisories: [],
-  note: "",
-})
 
 const waypoint = (id: string, kind: NavlogWaypoint["kind"] = "airport"): NavlogWaypoint => ({
   id,
@@ -62,50 +47,73 @@ const station = (id: string, alongNm: number, name = `${id} Airport`): RouteStat
   offsetNm: 5,
 })
 
-describe("groupByRole", () => {
-  test("origin is the first waypoint, destination the last, each with its brief airport", () => {
-    const roles = groupByRole(brief("KSTP", "KRST"), SAMPLE_NAVLOG, [])
-    expect(roles.origin.id).toBe("KSTP")
-    expect(roles.origin.airport?.id).toBe("KSTP")
-    expect(roles.destination.id).toBe("KRST")
-    expect(roles.destination.airport?.id).toBe("KRST")
+describe("groupByRole with a forecast", () => {
+  test("the forecast's airports by role, in its order, the stations naming them", () => {
+    const roles = groupByRole(SAMPLE_NAVLOG, SAMPLE_FORECAST, [station("KS33", 79, "Madras")])
+    expect(roles.origin).toMatchObject({ id: "KPDX", alongNm: null })
+    expect(roles.origin.airport?.metar?.raw).toMatch(/^KPDX /)
+    expect(roles.enRoute.map((entry) => [entry.id, entry.alongNm, entry.name])).toEqual([
+      ["KS33", 80, "Madras"],
+    ])
+    expect(roles.destination).toMatchObject({ id: "KBDN", alongNm: null })
+    expect(roles.destination.airport?.id).toBe("KBDN")
+    expect(roles.routeNm).toBe(104)
+  })
+  test("a corridor station the forecast does not hold is not added", () => {
+    const roles = groupByRole(multiLeg, SAMPLE_FORECAST, [station("KHCD", 12)])
+    expect(roles.enRoute.map((entry) => entry.id)).toEqual(["KS33"])
+  })
+  test("a forecast with no origin or destination falls back to the navlog's ends, unreported", () => {
+    const enRouteOnly: Forecast = {
+      ...SAMPLE_FORECAST,
+      airports: SAMPLE_FORECAST.airports.filter((a) => a.role === "en-route"),
+    }
+    const roles = groupByRole(SAMPLE_NAVLOG, enRouteOnly, [])
+    expect(roles.origin).toMatchObject({ id: "KSTP", airport: null })
+    expect(roles.destination).toMatchObject({ id: "KRST", airport: null })
+    expect(roles.routeNm).toBe(SAMPLE_NAVLOG.totals.distanceNm)
+  })
+})
+
+describe("groupByRole without a forecast", () => {
+  test("origin is the first waypoint, destination the last, none reported", () => {
+    const roles = groupByRole(SAMPLE_NAVLOG, null, [])
+    expect(roles.origin).toMatchObject({ id: "KSTP", airport: null, alongNm: null })
+    expect(roles.destination).toMatchObject({ id: "KRST", airport: null, alongNm: null })
     expect(roles.enRoute).toEqual([])
+    expect(roles.routeNm).toBe(SAMPLE_NAVLOG.totals.distanceNm)
   })
   test("en route: intermediate airports at their cumulative leg distance, navaids excluded", () => {
-    const roles = groupByRole(brief("KSTP", "KRGK", "KRST"), multiLeg, [])
+    const roles = groupByRole(multiLeg, null, [])
     expect(roles.enRoute.map((entry) => [entry.id, entry.alongNm])).toEqual([["KRGK", 30]])
     expect(roles.enRoute.map((entry) => entry.id)).not.toContain("ODI")
   })
   test("stations join en route, sorted by distance along", () => {
-    const roles = groupByRole(brief("KSTP", "KRST"), multiLeg, [
-      station("KFBL", 55),
-      station("KHCD", 12),
-    ])
+    const roles = groupByRole(multiLeg, null, [station("KFBL", 55), station("KHCD", 12)])
     expect(roles.enRoute.map((entry) => [entry.id, entry.alongNm])).toEqual([
       ["KHCD", 12],
       ["KRGK", 30],
       ["KFBL", 55],
     ])
     expect(roles.enRoute[0]?.name).toBe("KHCD Airport")
+    expect(roles.enRoute.every((entry) => entry.airport === null)).toBe(true)
   })
   test("a station repeating a waypoint is deduplicated, the waypoint winning", () => {
-    const roles = groupByRole(brief(), multiLeg, [
+    const roles = groupByRole(multiLeg, null, [
       station("krgk", 31, "Red Wing"),
       station("KRST", 100),
     ])
     expect(roles.enRoute).toHaveLength(1)
     expect(roles.enRoute[0]).toMatchObject({ id: "KRGK", alongNm: 30, name: "Red Wing" })
   })
-  test("an airport missing from the brief has no weather; ids match case-insensitively", () => {
-    const roles = groupByRole(brief("kstp"), multiLeg, [station("KHCD", 12)])
-    expect(roles.origin.airport?.id).toBe("kstp")
-    expect(roles.destination.airport).toBeNull()
-    expect(roles.enRoute.every((entry) => entry.airport === null)).toBe(true)
-  })
-  test("with no brief every entry is unreported", () => {
-    const roles = groupByRole(null, SAMPLE_NAVLOG, [])
-    expect(roles.origin).toMatchObject({ id: "KSTP", airport: null, alongNm: null })
-    expect(roles.destination).toMatchObject({ id: "KRST", airport: null, alongNm: null })
+})
+
+describe("placeText", () => {
+  test("nm along, or near either end within the tolerance", () => {
+    expect(placeText(80, 104)).toBe("80 nm along")
+    expect(placeText(0, 104)).toBe("near departure")
+    expect(placeText(102, 104)).toBe("near destination")
+    expect(placeText(101, 104)).toBe("101 nm along")
   })
 })
 

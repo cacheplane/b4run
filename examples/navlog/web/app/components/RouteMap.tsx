@@ -1,6 +1,7 @@
 "use client"
 import type { Map as LeafletMap } from "leaflet"
 import { type RefObject, useEffect, useRef, useState } from "react"
+import type { Category } from "../lib/forecast"
 import { draftBounds, draftMatchesPlan } from "../lib/map/draft"
 import { declutterLabels } from "../lib/map/label-dom"
 import {
@@ -22,12 +23,11 @@ import { waypointIcon } from "../lib/map/markers"
 import type { DraftWaypoint } from "../lib/route-draft"
 import type { RouteGeometry } from "../lib/route-geometry"
 import type { RouteStation } from "../lib/weather-roles"
-import type { FlightCategory } from "../lib/weather-selectors"
 
 export interface RouteMapProps {
   readonly geometry: RouteGeometry | null
   /** Flight category per airport id, for marker color. */
-  readonly categories: Readonly<Record<string, FlightCategory>>
+  readonly categories: Readonly<Record<string, Category>>
   /** The waypoint-pair index to highlight (see `pairIndexOf`), or null. */
   readonly highlightedLeg: number | null
   /** Room to leave around the route when fitting it: the route bar along the top, in pixels. */
@@ -113,7 +113,7 @@ const RESIZE_SETTLE_MS = 150
  * 2. RESIZE: re-measure when the panel changes size, and run a fit that
  *    found no size, or repeat the last fit until the pilot moves the map.
  * 3. DRAW: the planned route, for a new route.
- * 4. STYLE: each waypoint's flight category, in place, for a new brief.
+ * 4. STYLE: each waypoint's flight category, in place, for a new forecast.
  * 5. STATIONS: the reporting stations near the course.
  * 6. SELECTED: which marker's panel is open (after STYLE and STATIONS,
  *    which replace icon elements).
@@ -129,7 +129,7 @@ const RESIZE_SETTLE_MS = 150
  *
  * Drawing is synchronous, with the module kept from CREATE, so a route's
  * layers always exist before the fit starts its zoom animation; and a new
- * weather brief restyles the markers in place rather than redrawing them.
+ * forecast restyles the markers in place rather than redrawing them.
  * Vector layers added in the middle of a zoom animation are projected at the
  * wrong zoom and stay off-screen, which is what an async draw racing an
  * animated fit would do.
@@ -311,7 +311,7 @@ export function RouteMap({
   const draftBox = geometry === null && draft !== null ? draftBounds(draft) : null
   const draftBoundsKey = draftBox === null ? null : JSON.stringify(draftBox)
 
-  // FIT: only for a new route or new room around it, so a new weather brief
+  // FIT: only for a new route or new room around it, so a new forecast
   // never moves the map under the pilot. No animation under reduced motion.
   const { left, top, bottom } = padding
   useEffect(() => {

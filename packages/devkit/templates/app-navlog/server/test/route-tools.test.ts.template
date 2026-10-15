@@ -2,8 +2,9 @@ import { existsSync } from "node:fs"
 import type { B4ToolContext } from "@b4run/sdk"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { awc } from "../src/lib/awc.ts"
+import { distanceNm, type LatLon } from "../src/lib/geo.ts"
 import { createNavaidIndex, type NavaidRow } from "../src/lib/navaids.ts"
-import { legBoxes, placeOnRoute, thin } from "../src/lib/route-corridor.ts"
+import { legBoxes, placeOnRoute, routeSamplePoints, thin } from "../src/lib/route-corridor.ts"
 import findRouteStations from "../src/tools/findRouteStations.ts"
 import lookupNavaid from "../src/tools/lookupNavaid.ts"
 
@@ -86,6 +87,18 @@ const C = { id: "KCCC", kind: "airport" } as const
 const lonNm = (lat: number, nm: number): number => nm / (60 * Math.cos((lat * Math.PI) / 180))
 
 describe("route corridor", () => {
+  it("samples the waypoints and points along each leg no more than the step apart", () => {
+    const points = routeSamplePoints([PA, PB, PC], 25)
+    expect(points[0]).toEqual({ lat: PA.lat, lon: PA.lon })
+    expect(points).toContainEqual({ lat: PB.lat, lon: PB.lon })
+    expect(points.at(-1)).toEqual({ lat: PC.lat, lon: PC.lon })
+    for (let i = 1; i < points.length; i++) {
+      expect(distanceNm(points[i - 1] as LatLon, points[i] as LatLon)).toBeLessThanOrEqual(25.001)
+    }
+    const total = distanceNm(PA, PB) + distanceNm(PB, PC)
+    expect(points.length).toBeGreaterThanOrEqual(Math.ceil(total / 25) + 1)
+  })
+
   it("expands each leg's box by the corridor, longitude at the box's highest latitude", () => {
     const [box] = legBoxes([PA, PB], 30)
     const [minLat, minLon, maxLat, maxLon] = box as readonly number[]

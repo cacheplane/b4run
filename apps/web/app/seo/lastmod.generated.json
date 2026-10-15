@@ -212,9 +212,9 @@
       "recordDigest": "47a25f99e143c29052b95797a9dbda93d0edc1297e31ae93934ba1c8fbb6be2c"
     },
     "/docs/evals": {
-      "lastModified": "2026-10-11T01:52:14.000Z",
-      "sourceDigest": "f2a2438e716700b91cd338a4d52c20e8158b5ed88edf2c4100dde96a9152343a",
-      "recordDigest": "b07df7e6dc2e2badeaa73f408926564dd0b7383ccb075a32110fa1fbcc4e34e4"
+      "lastModified": "2026-10-15T21:27:49.000Z",
+      "sourceDigest": "7c7db0f5d78b35cc90f930ba18ec1299ffc6b0bb1631361a1852e7d43236a367",
+      "recordDigest": "3abf33778ad8e818ec6ff91acbc282f520f982370136c072243170d0f025c5e8"
     },
     "/docs/faq": {
       "lastModified": "2026-10-04T23:15:09.000Z",
@@ -222,9 +222,9 @@
       "recordDigest": "5544d6502da9720064281820c49bccf161356db0553e737ccfaf3d79064356ba"
     },
     "/docs/getting-started": {
-      "lastModified": "2026-10-05T21:54:28.000Z",
-      "sourceDigest": "d7da04b8c67c6f2e15431ac29bbf29af3af33659079dcb061836de99f7a44c40",
-      "recordDigest": "b2fa4a9e2551fa193079d6cd2835e553238e50fa39b92a371e5705e0c1775b35"
+      "lastModified": "2026-10-15T21:27:49.000Z",
+      "sourceDigest": "14c2de1ad054eb213f05c0dbb323152b1bea7087b4bf63934027e74e8e0395da",
+      "recordDigest": "5ce602abea068cc9540b3fe99fec17c8b129fe2f15e8b02cb47a2c75efaf8c77"
     },
     "/docs/inspector": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -307,9 +307,9 @@
       "recordDigest": "ffa76b45f64f06b72cfce8e1abe77efc43330a3ebf495887425bb536aee01ac1"
     },
     "/docs/recipes": {
-      "lastModified": "2026-10-10T15:55:13.000Z",
-      "sourceDigest": "602f5b36f7073d989a15f0106c9bd2d3f8769b4b6c2bde63644e65d24016a93e",
-      "recordDigest": "3e80610cd2536f3c852d35354194d5616f270fe878a115c5c70541c5462a6790"
+      "lastModified": "2026-10-15T21:27:49.000Z",
+      "sourceDigest": "e1d16b52d4850cd30ca7800bd12dea9c98b4f2583376adf9d60736b6dd4c9330",
+      "recordDigest": "394a3502e6ddb95bf11bd53f32dc7190144c6977c5e4b1728d744cf86a580355"
     },
     "/docs/recipes/add-a-tool": {
       "lastModified": "2026-09-23T06:30:00.000Z",
@@ -327,19 +327,19 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-12T17:00:27.000Z",
-      "sourceDigest": "18162e9e05644a9e8e347223f01c1d000a0c8f3d5b176dd8987c58270f5e1083",
-      "recordDigest": "a958c8e9a4f249a197bd25c327326de7470a412d90207c515fa7aa5d03bd9f2e"
+      "lastModified": "2026-10-15T21:35:55.000Z",
+      "sourceDigest": "825c003c3de89df1ce96e61b92c1bece1b4a6fa2a80959e08991e5a03930c167",
+      "recordDigest": "abc562b3c5c3daa4935af6462325af331ee91d99c97117a2f801beba64035d9d"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-11T05:32:53.000Z",
-      "sourceDigest": "a62533a2c984492235235ac4f6cfeea495d8c19b86c176c4fcb1c740b82889a9",
-      "recordDigest": "3dea4238a678c59cd2310632ddae3086b27d1f2641603e3add1d23b1f0b83adc"
+      "lastModified": "2026-10-15T21:35:55.000Z",
+      "sourceDigest": "29d95a2797a2ca3ef58263e0e3805c2e1e17daca09c3f9d43e316930767e256b",
+      "recordDigest": "c361e1059eb082f0f2dcea2ce996c1769142736258291fdb4b6134670c36d2c8"
     },
     "/docs/recipes/navlog": {
-      "lastModified": "2026-10-11T05:32:53.000Z",
-      "sourceDigest": "5520af3be5f25bf0887561b55b6a4cca52658509023e7f982e7e7aff04323e80",
-      "recordDigest": "1c83564b579f905db792dfa97e50f99336f176d064ea7c0ab44cc89adbf499f0"
+      "lastModified": "2026-10-15T21:27:49.000Z",
+      "sourceDigest": "61e1b839e3973fb6376d635832afae65946174b89a8b14901ebf265a51a862a8",
+      "recordDigest": "c31e292278cc6b3d3fe08c83e130239b805c7f3587310ea9676af549b5f289f4"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",
@@ -402,9 +402,9 @@
       "recordDigest": "c4f573584627baa3ebfcb7d59d1a260a1e063950ece4cdecc18cacc1058b72c4"
     },
     "/docs/testing-agents": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "47bf4f7cb5b9b690c851fb73eafafa1a00766bd58036c929d683520368568afd",
-      "recordDigest": "2ea8d5225a4340945e88536938fac272a46aa43c2b597786e2b64a112d55aed1"
+      "lastModified": "2026-10-15T21:27:49.000Z",
+      "sourceDigest": "3a6bd5ef082ab68e30ec6ee4475c8ffe0c193118e7bf3743ed624840153fb6b9",
+      "recordDigest": "bc60e39b235bce794482f9d15f21cea49ec8a7f8aa0c4a9efa4ee01b88af5500"
     },
     "/docs/testing-agents/fixtures": {
       "lastModified": "2026-10-08T04:29:11.000Z",

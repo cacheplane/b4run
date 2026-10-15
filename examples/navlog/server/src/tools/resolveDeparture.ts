@@ -12,7 +12,7 @@ export interface ResolvedDeparture {
  * Resolve the pilot's departure time once, before anything uses it: an ISO
  * 8601 UTC instant, a UTC clock time such as 1500Z (its next occurrence), or
  * "tomorrow 1500Z" / "today 1500Z". Pass departureUtc, never the pilot's words,
- * to the weather subagent and to computeNavlog, so both plan for the same
+ * to computeNavlog, which times the legs and their forecast from that one
  * instant. Never work out a date or an hours-ahead figure yourself.
  */
 export default async (

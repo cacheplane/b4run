@@ -103,6 +103,7 @@ describe("getMetar", () => {
         flightCategory: "VFR",
         windDirDeg: 260,
         windKt: 11,
+        gustKt: null,
         visibilityMi: 9,
         ceilingFt: 8500,
         tempC: 15.6,

@@ -1,3 +1,5 @@
+import type { Forecast } from "./forecast"
+
 /**
  * The navlog as the server's `computeNavlog` tool returns it. Kept as a plain
  * type (not imported from the server package) because the Workbench reads
@@ -48,6 +50,7 @@ export interface FlightPlan {
 }
 
 export interface Navlog {
+  readonly forecast?: Forecast
   readonly aircraft: {
     readonly tailNumber: string
     readonly type: "C172"

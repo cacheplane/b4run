@@ -246,12 +246,13 @@ npm run eval
 
 This wraps `b4 eval` and runs the agent cases in **replay mode** by default. The navlog eval (`server/src/app/navlog/evals/navlog-quality.eval.ts`) has four dataset cases, each with `script()` fixtures built in its sibling `navlog-quality.fixtures.ts`, and these scorers:
 
-- `toolCalled("computeNavlog", { threshold: 1 })`, and `toolCalled("task", { withArgs: { subagent: "weather" } })` and its `performance` twin, assert the plan used the navlog tool and both subagents.
+- `toolCalled("computeNavlog", { threshold: 1 })` and `toolCalled("task", { withArgs: { subagent: "performance" } })` assert the plan used the navlog tool and the performance subagent.
 - Custom `navlog-shape` and `totals-add-up-and-reserve` scorers parse `computeNavlog`'s result and check its legs, totals and legal reserve.
+- Custom `bottom-line-respects-floor` and `no-coverage-assumption` scorers check the answer against `computeNavlog`'s `forecast`: its BottomLine level is at least the computed verdict floor, and its Assumptions never restate the forecast's coverage.
 - A custom `cites-poh` scorer asserts the brief cites a POH file that exists in the workspace, and `files-only-when-asked` that no flight plan was filed unasked.
-- `llmJudge({ criteria: "The brief names the flight category at every airport, …", model: "gpt-5-mini", threshold: 0.7 })`.
+- `llmJudge({ criteria: "The answer is a structured brief that opens with a GO, CAUTION or NO-GO BottomLine, …", model: "gpt-5-mini", threshold: 0.7 })`.
 
-The gate is `gate.all(gate.passRate(1), gate.perScorer())`, so every case must pass and every scorer must meet its threshold. The scripted fixtures include the judge turn used by `llmJudge`, so the default `npm run eval` needs no key; the tools still run, so the weather tools reach aviationweather.gov.
+The gate is `gate.all(gate.passRate(1), gate.perScorer())`, so every case must pass and every scorer must meet its threshold. The scripted fixtures include the judge turn used by `llmJudge`, so the default `npm run eval` needs no key; the tools still run, so `computeNavlog` reaches aviationweather.gov for its forecast.
 
 To run the agent cases against the real model locally:
 

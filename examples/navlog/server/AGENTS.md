@@ -22,9 +22,14 @@ This file is for whoever edits the code. The agent's own runtime guidance is
 
 - **Route:** `src/app/navlog/index.ts` is the planning agent. `runBash` is
   denied, and `fileFlightPlan` asks a person before every call.
-- **Subagents:** `src/app/navlog/subagents/weather` (METAR, TAF, winds aloft,
-  advisories) and `subagents/performance` (POH lookups), each allowed only its
-  own tools and dispatched with `task({ subagent, input })`.
+- **Subagent:** `src/app/navlog/subagents/performance` (POH lookups), allowed
+  only its own tools and dispatched with `task({ subagent, input })`.
+- **Weather:** `computeNavlog` computes the weather facts in code: it times
+  each leg, takes the winds-aloft forecast for the time that leg is flown, and
+  returns a `forecast` block (categories now and at the airport's time,
+  advisories and their relevance, coverage, the verdict floor) built by the
+  rules in `src/lib/forecast/`. The coordinator narrates it and never
+  recomputes it; the web Workbench renders it.
 - **Tools** (`src/tools/`): `resolveDeparture`, `lookupAirport`,
   `lookupNavaid`, `findRouteStations`, `getMetar`, `getTaf`, `getWindsAloft`,
   `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`,
