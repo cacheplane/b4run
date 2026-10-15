@@ -47,7 +47,10 @@ export interface AirportWeather {
   readonly categoryNow: Category | null
   /** Null when there is no TAF, or the TAF does not reach atUtc. */
   readonly categoryAtTime: Category | null
-  /** The highest gust in the METAR or in a TAF period overlapping the flight window. */
+  /**
+   * The highest gust in the METAR or in a TAF period overlapping the flight
+   * window. The verdict floor counts it only at the origin and the destination.
+   */
   readonly gustKt: number | null
 }
 

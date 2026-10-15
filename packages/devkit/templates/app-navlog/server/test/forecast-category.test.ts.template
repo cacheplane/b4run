@@ -101,6 +101,34 @@ describe("categoryAt", () => {
   })
 })
 
+describe("categoryAt with BECMG", () => {
+  const becmg = (fromUtc: string, toUtc: string): Taf => ({
+    ...TAF,
+    periods: [
+      TAF.periods[0] as Taf["periods"][number],
+      { change: "BECMG", fromUtc, toUtc, flightCategory: "IFR" },
+    ],
+  })
+  it("is made worse by a BECMG to IFR overlapping the flight window", () => {
+    expect(
+      categoryAt(
+        becmg("2026-10-12T14:00:00Z", "2026-10-12T16:00:00Z"),
+        ms("2026-10-12T15:00:00Z"),
+        window("2026-10-12T14:30:00Z", "2026-10-12T15:00:00Z"),
+      ),
+    ).toBe("IFR")
+  })
+  it("is not affected by a BECMG that ended before the window opened", () => {
+    expect(
+      categoryAt(
+        becmg("2026-10-12T12:00:00Z", "2026-10-12T13:00:00Z"),
+        ms("2026-10-12T15:00:00Z"),
+        window("2026-10-12T14:30:00Z", "2026-10-12T15:00:00Z"),
+      ),
+    ).toBe("VFR")
+  })
+})
+
 describe("worstCategory", () => {
   it("ranks LIFR worst and ignores null", () => {
     expect(worstCategory("VFR", "MVFR")).toBe("MVFR")

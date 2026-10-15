@@ -40,6 +40,15 @@ function merge(windows: readonly TimeWindow[]): TimeWindow[] {
   return out
 }
 
+/** Whether [startMs, endMs] lies inside one merged span of the windows. */
+export function intervalCovered(
+  startMs: number,
+  endMs: number,
+  windows: readonly TimeWindow[],
+): boolean {
+  return merge(windows).some((s) => s.fromMs <= startMs && endMs <= s.toMs)
+}
+
 /**
  * Whether the forecasts reach the flight, by the one definition the navlog
  * uses: the origin TAF covers the departure, the destination TAF covers the
@@ -57,6 +66,8 @@ export function coverage(input: CoverageInput): Coverage {
     if (end.taf === null) return
     const from = Date.parse(end.taf.validFromUtc)
     const to = Date.parse(end.taf.validToUtc)
+    // A TAF whose validity cannot be read is no TAF at all.
+    if (Number.isNaN(from) || Number.isNaN(to)) return
     if (atMs < from) {
       reasons.push(`the ${end.id} TAF starts ${hhmmZ(from)}, after the ${hhmmZ(atMs)} ${what}`)
     } else if (atMs >= to) {
@@ -71,7 +82,7 @@ export function coverage(input: CoverageInput): Coverage {
       reasons.push(`no winds-aloft forecast is published for leg ${leg.leg}`)
       continue
     }
-    if (spans.some((s) => s.fromMs <= leg.startMs && leg.endMs <= s.toMs)) continue
+    if (intervalCovered(leg.startMs, leg.endMs, input.windWindows)) continue
     const before = spans.find((s) => s.fromMs > leg.startMs && s.fromMs <= leg.endMs) ?? spans[0]
     const containing = spans.find((s) => s.fromMs <= leg.startMs && leg.startMs < s.toMs)
     if (containing === undefined && before !== undefined && before.fromMs > leg.startMs) {

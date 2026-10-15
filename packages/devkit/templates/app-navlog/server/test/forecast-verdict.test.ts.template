@@ -141,6 +141,74 @@ describe("verdictFloor", () => {
     ).toEqual({ level: "CAUTION", reasons: ["KBDN LIFR now"] })
   })
 
+  it("is NO-GO for an origin that is IFR now with no forecast for it, CAUTION for the destination", () => {
+    expect(
+      verdictFloor({
+        ...clean,
+        airports: [
+          airport({ id: "KPDX", role: "origin", categoryNow: "IFR", categoryAtTime: null }),
+          clean.airports[1] as AirportWeather,
+        ],
+      }),
+    ).toEqual({
+      level: "NO-GO",
+      reasons: ["KPDX IFR now at departure, with no forecast for it"],
+    })
+    expect(
+      verdictFloor({
+        ...clean,
+        airports: [
+          airport({ id: "KPDX", role: "origin", categoryNow: "LIFR", categoryAtTime: "VFR" }),
+          clean.airports[1] as AirportWeather,
+        ],
+      }),
+    ).toEqual({ level: "CAUTION", reasons: ["KPDX LIFR now"] })
+  })
+
+  it("is NO-GO for icing from the freezing level up to a known top above the cruise", () => {
+    expect(
+      verdictFloor({
+        ...clean,
+        advisories: [advisory({ hazard: "ICE", lowestFt: null, highestFt: 16000 })],
+      }),
+    ).toEqual({
+      level: "NO-GO",
+      reasons: ["icing freezing level to 16,000 ft during the flight, at the 9,500 ft cruise"],
+    })
+    expect(
+      verdictFloor({
+        ...clean,
+        advisories: [advisory({ hazard: "ICE", lowestFt: null, highestFt: 8000 })],
+      }),
+    ).toEqual({
+      level: "CAUTION",
+      reasons: ["icing freezing level to 8,000 ft during the flight"],
+    })
+  })
+
+  it("accepts M_FZLVL and M-FZLVL alike", () => {
+    for (const hazard of ["M_FZLVL", "M-FZLVL"]) {
+      expect(
+        verdictFloor({
+          ...clean,
+          advisories: [advisory({ hazard, lowestFt: 8000, highestFt: 8000 })],
+        }).reasons,
+      ).toEqual(["freezing level 8,000 ft during the flight, below the 9,500 ft cruise"])
+    }
+  })
+
+  it("states hazards in plain English, not by code", () => {
+    const reasonFor = (over: Partial<AdvisoryFact>) =>
+      verdictFloor({ ...clean, advisories: [advisory(over)] }).reasons
+    expect(reasonFor({ hazard: "TURB-LO" })).toEqual(["turbulence during the flight"])
+    expect(reasonFor({ hazard: "TURB-HI" })).toEqual(["turbulence during the flight"])
+    expect(reasonFor({ hazard: "TURB" })).toEqual(["turbulence during the flight"])
+    expect(reasonFor({ hazard: "LLWS" })).toEqual(["low-level wind shear during the flight"])
+    expect(reasonFor({ hazard: "CONVECTIVE", product: "AIRMET" })).toEqual([
+      "convection during the flight",
+    ])
+  })
+
   it("ignores advisories outside the flight window", () => {
     expect(
       verdictFloor({

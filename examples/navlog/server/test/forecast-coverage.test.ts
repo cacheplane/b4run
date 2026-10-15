@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { coverage } from "../src/lib/forecast/coverage.ts"
+import { coverage, intervalCovered } from "../src/lib/forecast/coverage.ts"
 
 const ms = (iso: string): number => Date.parse(iso)
 const taf = (from: string, to: string) => ({ validFromUtc: from, validToUtc: to })
@@ -74,5 +74,35 @@ describe("coverage", () => {
     expect(coverage({ ...base, windWindows: [] }).reasons).toEqual([
       "no winds-aloft forecast is published for leg 1",
     ])
+  })
+})
+
+describe("intervalCovered", () => {
+  it("is true across abutting windows and false across a gap", () => {
+    expect(intervalCovered(ms("2026-10-12T20:00:00Z"), ms("2026-10-12T22:00:00Z"), WINDS)).toBe(
+      true,
+    )
+    const gap = [
+      { fromMs: ms("2026-10-12T14:00:00Z"), toMs: ms("2026-10-12T20:00:00Z") },
+      { fromMs: ms("2026-10-12T21:00:00Z"), toMs: ms("2026-10-13T06:00:00Z") },
+    ]
+    expect(intervalCovered(ms("2026-10-12T19:30:00Z"), ms("2026-10-12T21:30:00Z"), gap)).toBe(false)
+    expect(intervalCovered(ms("2026-10-12T15:00:00Z"), ms("2026-10-12T19:00:00Z"), gap)).toBe(true)
+    expect(intervalCovered(ms("2026-10-12T15:00:00Z"), ms("2026-10-12T19:00:00Z"), [])).toBe(false)
+  })
+})
+
+describe("coverage with an unreadable TAF", () => {
+  it("counts a TAF with an empty or unparseable validity as no TAF", () => {
+    expect(coverage({ ...base, origin: { id: "KPDX", taf: taf("", "") } })).toEqual({
+      preliminary: false,
+      reasons: [],
+    })
+    expect(
+      coverage({
+        ...base,
+        destination: { id: "KBDN", taf: taf("garbage", "2026-10-13T18:00:00Z") },
+      }),
+    ).toEqual({ preliminary: false, reasons: [] })
   })
 })

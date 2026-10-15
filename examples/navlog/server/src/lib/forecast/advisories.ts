@@ -47,6 +47,11 @@ export interface Advisory {
   readonly top?: string
   /** The altitude of a freezing-level contour. */
   readonly freezingLevel?: string
+  /**
+   * Where the freezing level sits within the area, when `base` is "freezing
+   * level" and AWC also sent the number (fzlbase).
+   */
+  readonly freezingBase?: string
   /** What the G-AIRMET is for, e.g. "CIG BLW 010 VIS BLW 3SM BR FG". */
   readonly cause?: string
   readonly raw?: string
@@ -104,7 +109,7 @@ function present<T extends Record<string, string | undefined>>(
   ) as { [K in keyof T]?: string }
 }
 
-function fromGairmet(advisory: AwcAdvisory): Advisory {
+export function fromGairmet(advisory: AwcAdvisory): Advisory {
   return {
     product: "G-AIRMET",
     hazard: text(advisory.hazard) ?? "",
@@ -115,6 +120,7 @@ function fromGairmet(advisory: AwcAdvisory): Advisory {
       base: gairmetAltitude(advisory.base ?? advisory.fzlbase),
       top: gairmetAltitude(advisory.top ?? advisory.fzltop),
       freezingLevel: gairmetAltitude(advisory.level),
+      freezingBase: gairmetAltitude(advisory.fzlbase),
       cause: text(advisory.due_to),
     }),
   }
@@ -154,7 +160,14 @@ export async function fetchAdvisoriesNear(
   for (const advisory of gairmets) {
     if (!near(advisory)) continue
     const row = fromGairmet(advisory)
-    const key = [row.hazard, row.validFrom, row.base, row.top, row.freezingLevel].join("|")
+    const key = [
+      row.hazard,
+      row.validFrom,
+      row.base,
+      row.top,
+      row.freezingLevel,
+      row.freezingBase,
+    ].join("|")
     if (seen.has(key)) continue
     seen.add(key)
     rows.push(row)
@@ -197,7 +210,7 @@ export function toAdvisoryFact(
   return {
     product: advisory.product,
     hazard: advisory.hazard,
-    lowestFt: contour ?? altitudeFt(advisory.base),
+    lowestFt: contour ?? altitudeFt(advisory.base) ?? altitudeFt(advisory.freezingBase),
     highestFt: contour ?? altitudeFt(advisory.top),
     validFromUtc: advisory.validFrom ?? null,
     validToUtc: advisory.validTo ?? null,

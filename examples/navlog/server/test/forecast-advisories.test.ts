@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { advisoryRelevance, altitudeFt, toAdvisoryFact } from "../src/lib/forecast/advisories.ts"
+import {
+  advisoryRelevance,
+  altitudeFt,
+  fromGairmet,
+  toAdvisoryFact,
+} from "../src/lib/forecast/advisories.ts"
 
 const ms = (iso: string): number => Date.parse(iso)
 const DEP = ms("2026-10-12T20:00:00Z")
@@ -29,6 +34,33 @@ describe("altitudeFt", () => {
     expect(altitudeFt("FL290")).toBe(29000)
     expect(altitudeFt("freezing level")).toBeNull()
     expect(altitudeFt(undefined)).toBeNull()
+  })
+})
+
+describe("G-AIRMET icing based at the freezing level", () => {
+  // The live record shape: base "FZL", with the numeric freezing-level base in fzlbase.
+  const live = {
+    hazard: "ICE",
+    severity: "MOD",
+    base: "FZL",
+    top: "250",
+    fzlbase: "070",
+    fzltop: "120",
+    validTime: "2026-10-12T18:00:00.000Z",
+    expireTime: "2026-10-13T00:00:00Z",
+  }
+  it("takes the fzlbase number as the lowest altitude", () => {
+    const row = fromGairmet(live)
+    expect(row.base).toBe("freezing level")
+    const fact = toAdvisoryFact(row, DEP, ETA)
+    expect(fact.lowestFt).toBe(7000)
+    expect(fact.highestFt).toBe(25000)
+  })
+  it("leaves the lowest altitude unknown when AWC sent no fzlbase", () => {
+    const { fzlbase: _omit, ...bare } = live
+    const fact = toAdvisoryFact(fromGairmet(bare), DEP, ETA)
+    expect(fact.lowestFt).toBeNull()
+    expect(fact.highestFt).toBe(25000)
   })
 })
 

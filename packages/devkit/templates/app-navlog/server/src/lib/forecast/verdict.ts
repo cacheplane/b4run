@@ -8,7 +8,11 @@ const ft = (n: number): string => `${n.toLocaleString("en-US")} ft`
 
 /** "8,000–14,000 ft", "8,000 ft", or how to say the advisory gives no altitude. */
 function band(a: AdvisoryFact): string {
-  if (a.lowestFt === null) return "at an altitude it does not give"
+  if (a.lowestFt === null) {
+    return a.highestFt === null
+      ? "at an altitude it does not give"
+      : `freezing level to ${ft(a.highestFt)}`
+  }
   if (a.highestFt === null || a.highestFt === a.lowestFt) return ft(a.lowestFt)
   return `${a.lowestFt.toLocaleString("en-US")}–${ft(a.highestFt)}`
 }
@@ -35,16 +39,17 @@ export function verdictFloor(input: {
       continue
     }
     const when = a.role === "origin" ? "at departure" : "at ETA"
+    // No forecast to say it clears: an origin that is IFR now stays NO-GO.
+    const ifrNow = a.categoryNow === "IFR" || a.categoryNow === "LIFR"
+    const unforecastOrigin = a.role === "origin" && ifrNow && atTime === null
+    if (unforecastOrigin)
+      noGo.push(`${a.id} ${a.categoryNow} now at departure, with no forecast for it`)
     if (atTime === "IFR" || atTime === "LIFR") noGo.push(`${a.id} ${atTime} ${when}`)
     else if (a.categoryNow === "MVFR" && atTime === "MVFR")
       caution.push(`${a.id} MVFR now and ${when}`)
     else if (a.categoryNow === "MVFR") caution.push(`${a.id} MVFR now`)
     else if (atTime === "MVFR") caution.push(`${a.id} MVFR ${when}`)
-    if (
-      (a.categoryNow === "IFR" || a.categoryNow === "LIFR") &&
-      atTime !== "IFR" &&
-      atTime !== "LIFR"
-    )
+    if (ifrNow && !unforecastOrigin && atTime !== "IFR" && atTime !== "LIFR")
       caution.push(`${a.id} ${a.categoryNow} now`)
     if (a.gustKt !== null && a.gustKt > GUST_LIMIT_KT)
       caution.push(`gusts ${a.gustKt} kt at ${a.id}`)
@@ -62,9 +67,12 @@ export function verdictFloor(input: {
         a.lowestFt !== null &&
         a.lowestFt <= cruise &&
         (a.highestFt === null || cruise <= a.highestFt)
-      if (atCruise) noGo.push(`icing ${band(a)} during the flight, at the ${ft(cruise)} cruise`)
+      // Icing from the freezing level up to a known top reaches the cruise beneath it.
+      const fromFreezingLevel = a.lowestFt === null && a.highestFt !== null && cruise <= a.highestFt
+      if (atCruise || fromFreezingLevel)
+        noGo.push(`icing ${band(a)} during the flight, at the ${ft(cruise)} cruise`)
       else caution.push(`icing ${band(a)} during the flight`)
-    } else if (hazard === "FZLVL" || hazard === "M_FZLVL") {
+    } else if (hazard === "FZLVL" || hazard === "M_FZLVL" || hazard === "M-FZLVL") {
       if (a.lowestFt === null)
         caution.push("a freezing level during the flight at an altitude it does not give")
       else if (a.lowestFt <= cruise + FREEZING_MARGIN_FT) {
@@ -73,8 +81,12 @@ export function verdictFloor(input: {
           `freezing level ${ft(a.lowestFt)} during the flight, ${where} the ${ft(cruise)} cruise`,
         )
       }
-    } else if (hazard === "LLWS" || hazard.startsWith("TURB") || hazard === "CONVECTIVE") {
-      caution.push(`${hazard.toLowerCase()} during the flight`)
+    } else if (hazard === "LLWS") {
+      caution.push("low-level wind shear during the flight")
+    } else if (hazard.startsWith("TURB")) {
+      caution.push("turbulence during the flight")
+    } else if (hazard === "CONVECTIVE") {
+      caution.push("convection during the flight")
     }
   }
   const reasons = [...new Set([...noGo, ...caution])]
