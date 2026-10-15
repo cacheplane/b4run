@@ -11,19 +11,23 @@ const asCategory = (value: string | undefined): Category | null =>
   value !== undefined && CATEGORIES.has(value) ? (value as Category) : null
 
 /**
- * Each route leg's flying interval, from the navlog rows. A leg is one or two
- * consecutive rows (a climb and a cruise) with the same from and to; rows of
- * the next leg start where the last one ended, so an out-and-back that
- * repeats a waypoint still maps cleanly.
+ * Each route leg's flying interval, from the navlog rows, and the distance
+ * along the route at its end. A leg is one or two consecutive rows (a climb
+ * and a cruise) with the same from and to; rows of the next leg start where
+ * the last one ended, so an out-and-back that repeats a waypoint still maps
+ * cleanly.
  */
 export function legIntervals(navlog: Navlog): {
   readonly leg: number
   readonly startMs: number
   readonly endMs: number
   readonly midMs: number
+  /** Distance along the route from the origin to the leg's end. */
+  readonly endNm: number
 }[] {
-  const out: { leg: number; startMs: number; endMs: number; midMs: number }[] = []
+  const out: { leg: number; startMs: number; endMs: number; midMs: number; endNm: number }[] = []
   let startMs = Date.parse(navlog.departureTimeUtc)
+  let endNm = 0
   let rowIndex = 0
   for (let leg = 1; leg < navlog.waypoints.length; leg++) {
     const from = navlog.waypoints[leg - 1]?.id
@@ -33,9 +37,10 @@ export function legIntervals(navlog: Navlog): {
       const row = navlog.legs[rowIndex]
       if (row === undefined || row.from !== from || row.to !== to) break
       endMs = Date.parse(row.etaUtc)
+      endNm += row.distanceNm
       rowIndex++
     }
-    out.push({ leg, startMs, endMs, midMs: (startMs + endMs) / 2 })
+    out.push({ leg, startMs, endMs, midMs: (startMs + endMs) / 2, endNm })
     startMs = endMs
   }
   return out
@@ -65,8 +70,16 @@ export interface BuildForecastInput {
   readonly metars: readonly Metar[]
   readonly tafs: readonly Taf[]
   readonly advisories: readonly Advisory[]
-  /** En-route stations, with their distance along the route. */
-  readonly stations: readonly { readonly id: string; readonly alongNm: number }[]
+  /**
+   * En-route airports: the corridor stations and any via airport, with their
+   * distance along the route. A via airport also carries `atMs`, the end of
+   * the leg arriving there; a station's time is interpolated from `alongNm`.
+   */
+  readonly stations: readonly {
+    readonly id: string
+    readonly alongNm: number
+    readonly atMs?: number
+  }[]
   /** Notes the caller already has (e.g. a leg's winds that never settled on one forecast). */
   readonly notes?: readonly string[]
 }
@@ -125,7 +138,12 @@ export function buildForecast(input: BuildForecastInput): Forecast {
   if (origin) airports.push(weatherAt(origin.id, "origin", 0, departureMs))
   for (const station of [...input.stations].sort((a, b) => a.alongNm - b.alongNm)) {
     airports.push(
-      weatherAt(station.id, "en-route", station.alongNm, timeAtAlong(navlog, station.alongNm)),
+      weatherAt(
+        station.id,
+        "en-route",
+        station.alongNm,
+        station.atMs ?? timeAtAlong(navlog, station.alongNm),
+      ),
     )
   }
   if (destination)

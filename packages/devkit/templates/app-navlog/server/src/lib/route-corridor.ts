@@ -1,4 +1,10 @@
-import { distanceNm, EARTH_RADIUS_NM, initialTrueCourse, type LatLon } from "./geo.js"
+import {
+  distanceNm,
+  EARTH_RADIUS_NM,
+  initialTrueCourse,
+  intermediatePoint,
+  type LatLon,
+} from "./geo.js"
 
 /** `[minLat, minLon, maxLat, maxLon]`, the order aviationweather.gov's `bbox` takes. */
 export type Box = readonly [minLat: number, minLon: number, maxLat: number, maxLon: number]
@@ -109,4 +115,23 @@ export function thin<T extends { readonly alongNm: number }>(
     picked.add(bestIndex)
   }
   return [...picked].sort((a, b) => a - b).map((i) => items[i] as T)
+}
+
+/**
+ * The waypoints, and between each pair points along the great circle no more
+ * than `stepNm` apart, in route order: what a check against areas (an
+ * advisory's polygon) samples so the middle of a long leg is not missed.
+ */
+export function routeSamplePoints(waypoints: readonly LatLon[], stepNm: number): LatLon[] {
+  const first = waypoints[0]
+  if (first === undefined) return []
+  const points: LatLon[] = [{ lat: first.lat, lon: first.lon }]
+  for (let i = 1; i < waypoints.length; i++) {
+    const from = waypoints[i - 1] as LatLon
+    const to = waypoints[i] as LatLon
+    const steps = Math.max(1, Math.ceil(distanceNm(from, to) / stepNm))
+    for (let k = 1; k < steps; k++) points.push(intermediatePoint(from, to, k / steps))
+    points.push({ lat: to.lat, lon: to.lon })
+  }
+  return points
 }

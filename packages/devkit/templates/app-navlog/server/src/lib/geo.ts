@@ -41,3 +41,16 @@ export function initialTrueCourse(from: LatLon, to: LatLon): number {
 export function magneticFromTrue(trueDeg: number, variationDeg: number): number {
   return normalizeDeg(trueDeg - variationDeg)
 }
+
+/** The point a fraction of the way along the great circle from one point to another. */
+export function intermediatePoint(from: LatLon, to: LatLon, fraction: number): LatLon {
+  const angular = distanceNm(from, to) / EARTH_RADIUS_NM
+  if (angular === 0) return { lat: from.lat, lon: from.lon }
+  const a = Math.sin((1 - fraction) * angular) / Math.sin(angular)
+  const b = Math.sin(fraction * angular) / Math.sin(angular)
+  const [lat1, lon1, lat2, lon2] = [toRad(from.lat), toRad(from.lon), toRad(to.lat), toRad(to.lon)]
+  const x = a * Math.cos(lat1) * Math.cos(lon1) + b * Math.cos(lat2) * Math.cos(lon2)
+  const y = a * Math.cos(lat1) * Math.sin(lon1) + b * Math.cos(lat2) * Math.sin(lon2)
+  const z = a * Math.sin(lat1) + b * Math.sin(lat2)
+  return { lat: toDeg(Math.atan2(z, Math.hypot(x, y))), lon: toDeg(Math.atan2(y, x)) }
+}

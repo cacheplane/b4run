@@ -48,6 +48,15 @@ const KBDN = {
   elevationFt: 3458,
   magneticVariationDeg: 14,
 }
+// Salem, on the way from Portland to Bend.
+const KSLE = {
+  id: "KSLE",
+  kind: "airport" as const,
+  lat: 44.9095,
+  lon: -123.0026,
+  elevationFt: 214,
+  magneticVariationDeg: 16,
+}
 const input: ComputeNavlogInput = {
   aircraft: { tailNumber: "N734ST", cruiseRpm: 2400, usableFuelGal: 50 },
   altitudeFt: 9500,
@@ -59,24 +68,49 @@ const input: ComputeNavlogInput = {
 const DEPART_NEAR_2100 = "2026-10-12T20:15:00Z"
 const epoch = (iso: string): number => Date.parse(iso) / 1000
 
-function stub(windtemp: Record<string, string>) {
+interface StubWeather {
+  /** Extra METARs by id, with their flight category; KPDX, KS33 and KBDN are VFR. */
+  readonly metars?: Readonly<Record<string, string>>
+  /** Extra TAFs by id, one period covering the flight in that category. */
+  readonly tafs?: Readonly<Record<string, "VFR" | "MVFR">>
+  /** The airsigmet product's records. */
+  readonly airsigmet?: readonly unknown[]
+  /** Winds products (by fcst) answered with this HTTP status instead of a body. */
+  readonly failing?: Readonly<Record<string, number>>
+}
+
+const TAF_VISIB = { VFR: { visib: "6+", clouds: [] }, MVFR: { visib: "4", clouds: [] } }
+
+function stub(windtemp: Record<string, string>, weather: StubWeather = {}) {
   const fetchMock = vi.fn(async (url: string) => {
     const u = new URL(url)
     const p = u.pathname.split("/").at(-1)
-    if (p === "windtemp") return new Response(windtemp[u.searchParams.get("fcst") ?? ""] ?? "")
+    if (p === "windtemp") {
+      const fcst = u.searchParams.get("fcst") ?? ""
+      const status = weather.failing?.[fcst]
+      if (status !== undefined) return new Response("unavailable", { status })
+      return new Response(windtemp[fcst] ?? "")
+    }
     if (p === "metar") {
+      const cats: Record<string, string> = {
+        KPDX: "VFR",
+        KS33: "VFR",
+        KBDN: "VFR",
+        ...weather.metars,
+      }
       return json(
-        ["KPDX", "KS33", "KBDN"].map((id) => ({
+        Object.entries(cats).map(([id, fltCat]) => ({
           icaoId: id,
           rawOb: `METAR ${id} 121815Z 33006KT 10SM CLR`,
-          fltCat: "VFR",
+          fltCat,
           reportTime: "2026-10-12T18:15:00.000Z",
         })),
       )
     }
     if (p === "taf") {
+      const cats: Record<string, "VFR" | "MVFR"> = { KPDX: "VFR", KBDN: "VFR", ...weather.tafs }
       return json(
-        ["KPDX", "KBDN"].map((id) => ({
+        Object.entries(cats).map(([id, cat]) => ({
           icaoId: id,
           rawTAF: `TAF ${id}`,
           validTimeFrom: epoch("2026-10-12T18:00:00Z"),
@@ -85,13 +119,13 @@ function stub(windtemp: Record<string, string>) {
             {
               timeFrom: epoch("2026-10-12T18:00:00Z"),
               timeTo: epoch("2026-10-13T18:00:00Z"),
-              visib: "6+",
-              clouds: [],
+              ...TAF_VISIB[cat],
             },
           ],
         })),
       )
     }
+    if (p === "airsigmet") return json(weather.airsigmet ?? [])
     return json([])
   })
   vi.stubGlobal("fetch", fetchMock)
@@ -199,6 +233,123 @@ describe("computeNavlog tool", () => {
         /^Winds for leg 1 are from the 12-hour forecast \(for use 2100Z–0600Z\), but flown on those winds the leg's mid-time, \d{4}Z, falls in the 6-hour forecast \(for use 1400Z–2100Z\); one re-timing did not settle it\.$/,
       ),
     )
+  })
+
+  it("fetches and places a via airport en route, timed at the end of the leg arriving there", async () => {
+    const fetchMock = stub(PRODUCTS, { metars: { KSLE: "MVFR" }, tafs: { KSLE: "MVFR" } })
+    const out = await computeNavlog(
+      {
+        ...input,
+        waypoints: [KPDX, KSLE, KBDN],
+        // findRouteStations drops route ids, so the via airport is not among them.
+        stations: [{ id: "KS33", alongNm: 80 }],
+      },
+      ctx,
+    )
+    const metarIds = fetchMock.mock.calls
+      .map(([url]) => new URL(url as string))
+      .find((u) => u.pathname.endsWith("/metar"))
+      ?.searchParams.get("ids")
+    expect(metarIds?.split(",")).toContain("KSLE")
+    expect(out.forecast.winds.map((w) => w.leg)).toEqual([1, 2])
+    expect(out.forecast.airports.map((a) => [a.id, a.role])).toEqual([
+      ["KPDX", "origin"],
+      ["KSLE", "en-route"],
+      ["KS33", "en-route"],
+      ["KBDN", "destination"],
+    ])
+    const toSalem = out.legs.filter((row) => row.to === "KSLE")
+    const salem = out.forecast.airports[1]
+    expect(salem).toMatchObject({
+      metar: { raw: "METAR KSLE 121815Z 33006KT 10SM CLR", category: "MVFR" },
+      taf: { raw: "TAF KSLE" },
+      categoryAtTime: "MVFR",
+      alongNm: Math.round(toSalem.reduce((nm, row) => nm + row.distanceNm, 0)),
+      atUtc: new Date(Date.parse(toSalem.at(-1)?.etaUtc ?? "")).toISOString(),
+    })
+    expect(out.forecast.verdictFloor.level).toBe("CAUTION")
+    expect(out.forecast.verdictFloor.reasons).toContain("KSLE MVFR en route")
+  })
+
+  it("lists a via airport once when findRouteStations also returned it", async () => {
+    stub(PRODUCTS, { metars: { KSLE: "VFR" } })
+    const out = await computeNavlog(
+      {
+        ...input,
+        waypoints: [KPDX, KSLE, KBDN],
+        stations: [
+          { id: "KSLE", alongNm: 40 },
+          { id: "KS33", alongNm: 80 },
+        ],
+      },
+      ctx,
+    )
+    const salem = out.forecast.airports.filter((a) => a.id === "KSLE")
+    expect(salem).toHaveLength(1)
+    // The waypoint's own distance, not the corridor station's.
+    const toSalem = out.legs.filter((row) => row.to === "KSLE")
+    expect(salem[0]?.alongNm).toBe(Math.round(toSalem.reduce((nm, row) => nm + row.distanceNm, 0)))
+  })
+
+  it("plans a cruise below every forecast level on the lowest level, and notes it", async () => {
+    stub(PRODUCTS)
+    const out = await computeNavlog({ ...input, altitudeFt: 2500 }, ctx)
+    // RDM (nearest) has no 3,000 ft group; PDX does, light and variable.
+    expect(out.forecast.winds[0]).toMatchObject({
+      station: "PDX",
+      altitudeFt: 3000,
+      dirDegTrue: 0,
+      speedKt: 0,
+    })
+    expect(out.forecast.notes).toContain(
+      "Winds below 3,000 ft are not forecast; leg 1 uses the 3,000 ft wind at PDX",
+    )
+  })
+
+  it("falls back to the next-nearest station whose levels bracket the cruise", async () => {
+    stub(PRODUCTS)
+    // 4,500 ft: RDM, nearer the leg, starts at 6,000 ft; PDX has 3,000 and 6,000.
+    const out = await computeNavlog({ ...input, altitudeFt: 4500 }, ctx)
+    expect(out.forecast.winds[0]).toMatchObject({ station: "PDX", altitudeFt: 4500 })
+    expect(out.forecast.notes.some((n) => n.startsWith("Winds below"))).toBe(false)
+  })
+
+  it("plans without a winds product AWC failed to serve, and reports the gap", async () => {
+    stub(PRODUCTS, { failing: { "12": 503 } })
+    // The leg is flown after 2100Z, when only the failed 12-hour product covers it.
+    const out = await computeNavlog({ ...input, departureTimeUtc: "2026-10-12T22:00:00Z" }, ctx)
+    expect(out.forecast.winds[0]).toMatchObject({ covered: false })
+    expect(out.forecast.coverage.preliminary).toBe(true)
+  })
+
+  it("throws a named error when every winds product fails to fetch", async () => {
+    stub(PRODUCTS, { failing: { "06": 503, "12": 503, "24": 503 } })
+    await expect(computeNavlog(input, ctx)).rejects.toThrow(
+      /no winds-aloft product could be fetched/i,
+    )
+  })
+
+  it("finds an advisory whose area touches only the middle of a leg", async () => {
+    // A small SIGMET around the KPDX–KBDN midpoint, more than half a degree from either end.
+    const box = [
+      { lat: 44.74, lon: -122.0 },
+      { lat: 44.94, lon: -122.0 },
+      { lat: 44.94, lon: -121.8 },
+      { lat: 44.74, lon: -121.8 },
+    ]
+    stub(PRODUCTS, {
+      airsigmet: [
+        {
+          airSigmetType: "SIGMET",
+          hazard: "TURB",
+          validTimeFrom: epoch("2026-10-12T18:00:00Z"),
+          validTimeTo: epoch("2026-10-13T00:00:00Z"),
+          coords: box,
+        },
+      ],
+    })
+    const out = await computeNavlog(input, ctx)
+    expect(out.forecast.advisories.map((a) => [a.product, a.hazard])).toEqual([["SIGMET", "TURB"]])
   })
 
   it("throws a named error when no winds product is published", async () => {

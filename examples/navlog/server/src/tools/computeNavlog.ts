@@ -7,9 +7,10 @@ import { fetchTafs } from "../lib/forecast/taf.js"
 import type { Forecast, LegWind } from "../lib/forecast/types.js"
 import {
   chooseProduct,
+  cruiseWind,
+  cruiseWindNote,
   FORECAST_HOURS,
   fetchWindsProducts,
-  nearestWindsStation,
   windWindows,
 } from "../lib/forecast/winds.js"
 import { parseUtcInstant } from "../lib/fpl.js"
@@ -19,7 +20,8 @@ import {
   type NavlogWaypoint,
   computeNavlog as navlogOf,
 } from "../lib/navlog.js"
-import { forUseWindow, interpolateWind, type StationWinds } from "../lib/winds-aloft.js"
+import { routeSamplePoints } from "../lib/route-corridor.js"
+import { forUseWindow } from "../lib/winds-aloft.js"
 
 export type ComputeNavlogInput = Omit<NavlogInput, "winds"> & {
   /** The en-route stations findRouteStations returned, with their alongNm. */
@@ -27,6 +29,9 @@ export type ComputeNavlogInput = Omit<NavlogInput, "winds"> & {
 }
 
 export type ComputeNavlogOutput = Navlog & { readonly forecast: Forecast }
+
+/** How far apart the points along the route that advisories are matched against are. */
+const ADVISORY_SAMPLE_NM = 25
 
 const midpoint = (a: NavlogWaypoint, b: NavlogWaypoint) => ({
   lat: (a.lat + b.lat) / 2,
@@ -56,25 +61,30 @@ export default async (
   const products = await fetchWindsProducts("all", ctx.signal)
   const windows = windWindows(products, now)
 
+  // Each leg flown on another level's wind (a cruise below 3,000 ft), from
+  // the last pick; the returned winds are always the last pick.
+  const levelNotes = new Map<number, string>()
   const windsFor = (navlog: Navlog): LegWind[] =>
     legIntervals(navlog).map(({ leg, startMs, endMs, midMs }) => {
       const from = input.waypoints[leg - 1] as NavlogWaypoint
       const to = input.waypoints[leg] as NavlogWaypoint
       const choice = chooseProduct(products, midMs, now)
       const product = choice ? products.get(choice.forecastHours) : undefined
-      const station = product
-        ? nearestWindsStation(midpoint(from, to), new Set(Object.keys(product.stations)))
-        : null
-      if (!choice || !product || !station) {
+      const at = product ? cruiseWind(product, midpoint(from, to), input.altitudeFt) : null
+      if (!choice || !at) {
         throw new Error(
           `no winds-aloft station in the published products for leg ${leg} (${from.id}–${to.id})`,
         )
       }
-      const wind = interpolateWind(product.stations[station.id] as StationWinds, input.altitudeFt)
+      const { wind } = at
+      const levelNote = cruiseWindNote(leg, input.altitudeFt, at)
+      if (levelNote === null) levelNotes.delete(leg)
+      else levelNotes.set(leg, levelNote)
       return {
         leg,
-        station: station.id,
-        altitudeFt: input.altitudeFt,
+        station: at.station,
+        // The level the wind is for: the cruise, or the nearest forecast level.
+        altitudeFt: at.levelFt,
         dirDegTrue: wind.dirDegTrue,
         speedKt: wind.speedKt,
         tempC: wind.tempC,
@@ -103,7 +113,7 @@ export default async (
   })
   // One re-pick only. If a leg's final mid-time still falls under another
   // forecast than the one its winds came from, keep these winds and say so.
-  const notes = winds.flatMap((w, i) => {
+  const unsettled = winds.flatMap((w, i) => {
     const interval = flown[i]
     const final = interval ? chooseProduct(products, interval.midMs, now) : null
     if (!interval || !final || final.window.fromUtc === w.forUseFromUtc) return []
@@ -120,15 +130,34 @@ export default async (
     ]
   })
 
-  const stations = input.stations ?? []
-  const ends = [input.waypoints[0], input.waypoints.at(-1)]
+  const notes = [...winds.flatMap((w) => levelNotes.get(w.leg) ?? []), ...unsettled]
+
+  // En route: each intermediate airport waypoint, at the end of the leg
+  // arriving there, then the corridor stations it does not repeat.
+  const origin = input.waypoints[0]
+  const destination = input.waypoints.at(-1)
+  const endIds = new Set([origin?.id.toUpperCase(), destination?.id.toUpperCase()])
+  const vias = input.waypoints.slice(1, -1).flatMap((w, i) => {
+    const arriving = flown[i]
+    if (w.kind !== "airport" || !arriving || endIds.has(w.id.toUpperCase())) return []
+    return [{ id: w.id, alongNm: arriving.endNm, atMs: arriving.endMs }]
+  })
+  const seen = new Set(endIds)
+  const stations = [...vias, ...(input.stations ?? [])].filter((s) => {
+    const key = s.id.toUpperCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  const ends = [origin, destination]
     .filter((w): w is NavlogWaypoint => w?.kind === "airport")
     .map((w) => w.id)
   const ids = [...new Set([...ends, ...stations.map((s) => s.id)])]
   const [metars, tafs, advisories] = await Promise.all([
     fetchMetars(ids, ctx.signal),
     fetchTafs(ids, ctx.signal),
-    fetchAdvisoriesNear(input.waypoints, ctx.signal),
+    // Along each leg too, so an advisory across the middle of a long leg is found.
+    fetchAdvisoriesNear(routeSamplePoints(input.waypoints, ADVISORY_SAMPLE_NM), ctx.signal),
   ])
   const forecast = buildForecast({
     navlog,
