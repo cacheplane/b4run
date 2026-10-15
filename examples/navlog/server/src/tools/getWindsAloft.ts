@@ -1,63 +1,12 @@
 import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
-import { awc } from "../lib/awc.js"
-import {
-  type ForUseWindow,
-  forUseWindow,
-  interpolateWind,
-  parseWindsAloft,
-  type WindAtLevel,
-  type WindsAloftProduct,
-} from "../lib/winds-aloft.js"
+import { chooseProduct, type ForecastHours, fetchWindsProducts } from "../lib/forecast/winds.js"
+import { interpolateWind, type WindAtLevel, type WindsAloftProduct } from "../lib/winds-aloft.js"
 
 const WINDS_ALOFT_REGIONS = ["bos", "mia", "chi", "dfw", "slc", "sfo", "alaska", "hawaii"] as const
 export type WindsAloftRegion = (typeof WINDS_ALOFT_REGIONS)[number]
-
-const FORECAST_HOURS = [6, 12, 24] as const
-export type ForecastHours = (typeof FORECAST_HOURS)[number]
+export type { ForecastHours }
 
 const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/
-
-interface ProductChoice {
-  readonly forecastHours: ForecastHours
-  readonly window: ForUseWindow
-  /** False when no product's FOR USE window contains the time. */
-  readonly covered: boolean
-}
-
-/**
- * The published product whose FOR USE window contains `at`, the shortest when
- * two windows share a boundary. When none does, the nearest one, uncovered: the
- * longest-reaching product for a time beyond every window, the earliest for a
- * time before them. Products whose header has no FOR USE window are skipped.
- */
-function chooseProduct(
-  products: ReadonlyMap<ForecastHours, WindsAloftProduct>,
-  at: number,
-  now: number,
-): ProductChoice | null {
-  const windows = FORECAST_HOURS.flatMap((forecastHours) => {
-    const product = products.get(forecastHours)
-    const window = product ? forUseWindow(product, now) : null
-    return window ? [{ forecastHours, window }] : []
-  })
-  const covering = windows.find(
-    ({ window }) => Date.parse(window.fromUtc) <= at && at < Date.parse(window.toUtc),
-  )
-  if (covering) return { ...covering, covered: true }
-  const latest = windows.reduce<(typeof windows)[number] | null>(
-    (best, entry) =>
-      best === null || Date.parse(entry.window.toUtc) > Date.parse(best.window.toUtc)
-        ? entry
-        : best,
-    null,
-  )
-  if (latest === null) return null
-  if (at >= Date.parse(latest.window.toUtc)) return { ...latest, covered: false }
-  const earliest = windows.reduce((best, entry) =>
-    Date.parse(entry.window.fromUtc) < Date.parse(best.window.fromUtc) ? entry : best,
-  )
-  return { ...earliest, covered: false }
-}
 
 export interface WindsAloft {
   readonly region: string
@@ -110,21 +59,7 @@ export default async (input: WindsAloftInput, ctx: B4ToolContext): Promise<Winds
     )
   }
   const now = Date.now()
-  const texts = await Promise.all(
-    FORECAST_HOURS.map((forecastHours) =>
-      awc.getText(
-        "windtemp",
-        { region: input.region, level: "low", fcst: String(forecastHours).padStart(2, "0") },
-        ctx.signal,
-      ),
-    ),
-  )
-  const products = new Map(
-    FORECAST_HOURS.map((forecastHours, index) => [
-      forecastHours,
-      parseWindsAloft(texts[index] as string),
-    ]),
-  )
+  const products = await fetchWindsProducts(input.region, ctx.signal)
   const choice = chooseProduct(products, at, now)
   if (choice === null) {
     throw new Error(
