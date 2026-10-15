@@ -131,6 +131,15 @@ describe("WeatherTab", () => {
     const enRoute = section(render({ forecast: withAirports([ORIGIN, DESTINATION]) }), "En route")
     expect(enRoute).toContain("No reporting stations within 25 nm of the course.")
   })
+  test("a role airport the forecast does not cover says it is not in the forecast", () => {
+    const destination = section(render({ forecast: withAirports([ORIGIN]) }), "Destination")
+    expect(text(destination)).toContain("Not in the forecast")
+  })
+  test("a forecast with no winds or advisories says so", () => {
+    const html = render({ forecast: { ...SAMPLE_FORECAST, winds: [], advisories: [] } })
+    expect(text(section(html, "Winds aloft"))).toContain("No winds in the forecast")
+    expect(text(section(html, "Advisories"))).toContain("No advisories near the route")
+  })
   test("winds aloft shows exactly the forecast's one line", () => {
     const winds = section(render(), "Winds aloft")
     const line = windsLine(SAMPLE_FORECAST.winds[0] as Forecast["winds"][number])

@@ -14,6 +14,7 @@ import { MarkerPanel } from "./MarkerPanel"
 import type { SheetTab } from "./NavlogSheet"
 import { PhoneWorkbench } from "./PhoneWorkbench"
 import { RouteBar } from "./RouteBar"
+import { shownCategory } from "./WeatherTab"
 
 const RouteMap = dynamic(() => import("./RouteMap").then((m) => m.RouteMap), { ssr: false })
 
@@ -172,7 +173,7 @@ export function WorkbenchLayout({
   const categories = useMemo(() => {
     const out: Record<string, Category> = {}
     for (const a of forecast?.airports ?? []) {
-      const c = a.categoryAtTime ?? a.categoryNow
+      const c = shownCategory(a)
       if (c !== null) out[a.id] = c
     }
     return out

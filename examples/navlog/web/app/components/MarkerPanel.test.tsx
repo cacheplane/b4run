@@ -55,7 +55,7 @@ describe("MarkerPanel", () => {
   })
   test("a marker missing from the forecast", () => {
     const html = renderToStaticMarkup(<MarkerPanel {...props({ airport: null })} />)
-    expect(html).toContain("No report in the brief")
+    expect(html).toContain("Not in the forecast")
     expect(html).not.toContain("<pre")
     expect(html).not.toContain("wb-cat")
   })

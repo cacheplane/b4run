@@ -600,7 +600,7 @@ describe("WorkbenchLayout route bar and marker panel", () => {
     const view = mount({ forecast: FORECAST, stations })
     act(() => map.onSelectMarker?.("KAEL"))
     expect(panel(view.container)?.textContent).toContain("Albert Lea")
-    expect(panel(view.container)?.textContent).toContain("No report in the brief")
+    expect(panel(view.container)?.textContent).toContain("Not in the forecast")
     view.unmount()
   })
   test("on a phone the panel opens inside the Map panel", () => {

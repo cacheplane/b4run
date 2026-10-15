@@ -87,7 +87,7 @@ export function MarkerPanel({ id, airport, station, onClose }: MarkerPanelProps)
         </span>
       </div>
       {airport === null ? (
-        <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
+        <p className="mt-2 text-[12.5px] text-wb-muted">Not in the forecast</p>
       ) : (
         <>
           <RawReport label="METAR" raw={airport.metar?.raw ?? null} />

@@ -207,7 +207,7 @@ describe("a verdict the floor raised", () => {
     expect(html).not.toContain("The agent said")
     expect(html).toContain("Icing in the clouds.")
   })
-  test("a card from the floor alone says the brief's data set it", () => {
+  test("a card from the floor alone says the computed forecast set it", () => {
     const html = renderToStaticMarkup(
       <VerdictCard
         verdict={{
@@ -219,7 +219,7 @@ describe("a verdict the floor raised", () => {
       />,
     )
     expect(html).toContain(">NO-GO<")
-    expect(html).toContain("From the brief&#x27;s data: KDLH IFR at ETA.")
+    expect(html).toContain("From the computed forecast: KDLH IFR at ETA.")
     expect(html).not.toContain("The agent said")
   })
   test("the pill shows the raised level as word and icon, says raised, and explains in its title", () => {

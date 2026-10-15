@@ -57,14 +57,14 @@ export function effectiveVerdict(
 
 /**
  * The honest note for a raised verdict: `Raised from GO: gusts 25 kt at KDLH,
- * forecast preliminary.`, or `From the brief's data: KDLH IFR at ETA.` when
+ * forecast preliminary.`, or `From the computed forecast: KDLH IFR at ETA.` when
  * there was no model call. Null when the model's call stands.
  */
 export function raiseNote(verdict: EffectiveVerdict): string | null {
   if (verdict.raisedFrom === undefined) return null
   const reasons = (verdict.floorReasons ?? []).join(", ")
   const lead =
-    verdict.raisedFrom === null ? "From the brief's data" : `Raised from ${verdict.raisedFrom}`
+    verdict.raisedFrom === null ? "From the computed forecast" : `Raised from ${verdict.raisedFrom}`
   return `${lead}: ${reasons}.`
 }
 

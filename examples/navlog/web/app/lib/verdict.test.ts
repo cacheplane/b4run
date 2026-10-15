@@ -62,7 +62,7 @@ describe("effectiveVerdict", () => {
     })
     expect(effectiveVerdict(null, { level: "GO", reasons: [] })).toBeNull()
   })
-  test("the note says what was raised and why, or that the brief's data set it", () => {
+  test("the note says what was raised and why, or that the computed forecast set it", () => {
     expect(
       raiseNote({
         level: "CAUTION",
@@ -78,7 +78,7 @@ describe("effectiveVerdict", () => {
         raisedFrom: null,
         floorReasons: ["KDLH IFR at ETA"],
       }),
-    ).toBe("From the brief's data: KDLH IFR at ETA.")
+    ).toBe("From the computed forecast: KDLH IFR at ETA.")
     expect(raiseNote(go)).toBeNull()
   })
 })

@@ -60,7 +60,7 @@ function AirportCard({ entry, routeNm }: { readonly entry: RoleEntry; readonly r
         ) : null}
       </div>
       {airport === null ? (
-        <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
+        <p className="mt-2 text-[12.5px] text-wb-muted">Not in the forecast</p>
       ) : (
         <>
           <RawReport label="METAR" raw={airport.metar?.raw ?? null} />
@@ -159,7 +159,7 @@ export function WeatherTab({ forecast, navlog, stations }: WeatherTabProps) {
       </Section>
       <Section id={headingId("winds")} title="Winds aloft">
         {forecast.winds.length === 0 ? (
-          <p className="text-[12.5px] text-wb-muted">No winds in the brief</p>
+          <p className="text-[12.5px] text-wb-muted">No winds in the forecast</p>
         ) : (
           <ul className="grid gap-1.5">
             {forecast.winds.map((wind) => (
@@ -172,7 +172,7 @@ export function WeatherTab({ forecast, navlog, stations }: WeatherTabProps) {
       </Section>
       <Section id={headingId("advisories")} title="Advisories">
         {advisories.length === 0 ? (
-          <p className="text-[12.5px] text-wb-muted">No advisories in the brief</p>
+          <p className="text-[12.5px] text-wb-muted">No advisories near the route</p>
         ) : (
           <ul className="grid gap-1.5">
             {advisories.map((advisory, i) => (
