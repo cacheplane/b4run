@@ -3,12 +3,11 @@ import { useId, useMemo } from "react"
 import { BriefRenderer } from "../brief/BriefRenderer"
 import { BriefVerdictContext } from "../brief/components"
 import { isStructuredAnswer } from "../brief/parse"
-import { parseAdvisory } from "../lib/advisories"
+import type { Forecast } from "../lib/forecast"
 import { formatFeet, formatGal, formatHhmm, formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
 import { resolveVerdict } from "../lib/verdict"
 import type { RouteStation } from "../lib/weather-roles"
-import type { WeatherBrief } from "../lib/weather-selectors"
 import { CopyFplButton, FlightPlanBlock } from "./FlightPlanBlock"
 import { NavlogGrid } from "./NavlogGrid"
 import { NavlogTable } from "./NavlogTable"
@@ -49,8 +48,8 @@ export interface NavlogSheetProps {
   readonly navlog: Navlog
   /** The planning answer of the turn that produced this navlog (see `navlogAnswerText`). */
   readonly planningAnswer: string
-  /** The weather brief, for the verdict, the hazards and the forecast horizon. */
-  readonly weatherBrief?: WeatherBrief | null
+  /** computeNavlog's forecast, for the verdict floor, the hazards, the coverage and the Weather tab. */
+  readonly forecast?: Forecast | null
   /** The reporting stations along the route (`findRouteStations`), for the Weather tab's en-route group. */
   readonly stations?: readonly RouteStation[]
   readonly open: boolean
@@ -109,8 +108,8 @@ function TotalsStrip({ navlog }: { readonly navlog: Navlog }) {
 /**
  * The navlog sheet: the route and its totals when collapsed. Open, a verdict
  * strip, then four tabs: Legs (the pretable grid on desktop, cards on phones,
- * with a fixed totals strip), Weather (the brief by route role, the winds,
- * the advisories), Totals & plan (the tiles and the flight plan) and Brief
+ * with a fixed totals strip), Weather (the forecast by route role, the
+ * winds, the advisories), Totals & plan (the tiles and the flight plan) and Brief
  * (the verdict card and the planning brief). A native disclosure,
  * not a gesture.
  *
@@ -123,7 +122,7 @@ function TotalsStrip({ navlog }: { readonly navlog: Navlog }) {
 export function NavlogSheet({
   navlog,
   planningAnswer,
-  weatherBrief = null,
+  forecast = null,
   stations = NO_STATIONS,
   open,
   onToggle,
@@ -144,12 +143,8 @@ export function NavlogSheet({
   // The one verdict the strip, the pill, the card and the planning brief all
   // show (see `resolveVerdict`).
   const verdict = useMemo(
-    () => resolveVerdict({ weather: weatherBrief, answer: planningAnswer, navlog }),
-    [weatherBrief, planningAnswer, navlog],
-  )
-  const advisories = useMemo(
-    () => (weatherBrief?.advisories ?? []).map(parseAdvisory),
-    [weatherBrief],
+    () => resolveVerdict({ forecast, answer: planningAnswer }),
+    [forecast, planningAnswer],
   )
   const meta = [
     navlog.aircraft.tailNumber,
@@ -356,12 +351,7 @@ export function NavlogSheet({
           hidden={tab !== "weather"}
           className="min-h-0 flex-1 overflow-auto px-4 pb-4"
         >
-          <WeatherTab
-            weather={weatherBrief}
-            navlog={navlog}
-            stations={stations}
-            cruiseFt={navlog.altitudeFt}
-          />
+          <WeatherTab forecast={forecast} navlog={navlog} stations={stations} />
         </div>
         <div
           role="tabpanel"
@@ -408,9 +398,9 @@ export function NavlogSheet({
             <div className="pt-3">
               <VerdictCard
                 verdict={verdict}
-                advisories={advisories}
+                advisories={forecast?.advisories ?? []}
                 cruiseFt={navlog.altitudeFt}
-                horizon={weatherBrief?.horizon}
+                coverage={forecast?.coverage}
               />
             </div>
           ) : null}

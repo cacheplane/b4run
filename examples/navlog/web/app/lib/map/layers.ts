@@ -1,9 +1,9 @@
 import type { Layer, LeafletKeyboardEvent, Map as LeafletMap, Marker, Polyline } from "leaflet"
 import type { RefObject } from "react"
+import type { Category } from "../forecast"
 import type { DraftWaypoint } from "../route-draft"
 import type { RouteGeometry } from "../route-geometry"
 import type { RouteStation } from "../weather-roles"
-import type { FlightCategory } from "../weather-selectors"
 import { headingIcon, interactiveOptions, waypointIcon } from "./markers"
 
 /**
@@ -79,7 +79,7 @@ function onActivate(marker: Marker, id: string, select: SelectRef): Marker {
 /**
  * Draw the planned route: the line, its highlight segments, the waypoints and
  * the heading pills. Waypoints start uncategorized; `RouteMap` colors them
- * with `waypointIcon` once the weather brief is known.
+ * with `waypointIcon` once the forecast is known.
  */
 export function drawRoute(
   L: LeafletModule,
@@ -137,7 +137,7 @@ export function drawStations(
   map: LeafletMap,
   stations: readonly RouteStation[],
   geometry: RouteGeometry | null,
-  categories: Readonly<Record<string, FlightCategory>>,
+  categories: Readonly<Record<string, Category>>,
   select: SelectRef,
 ): readonly WaypointLayers[] {
   const planned = new Set(geometry?.markers.map((marker) => marker.id.toUpperCase()) ?? [])

@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
-import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import type { NavlogSheetProps } from "./NavlogSheet"
 
 // pretable needs layout; the grid is a stand-in here (its own tests cover it,
@@ -109,31 +109,17 @@ describe("navlog sheet: strip and tabs", () => {
     const labels = [...html.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((match) => match[1])
     expect(labels).toEqual(["Legs", "Weather", "Totals &amp; plan", "Brief"])
   })
-  test("the Weather tab holds the brief by route role, the stations en route", () => {
-    const weatherBrief = {
-      airports: [
-        {
-          id: "KRST",
-          now: "VFR" as const,
-          atEta: "MVFR" as const,
-          line: "VFR now, MVFR at ETA",
-          metar: "METAR KRST 061354Z 31015KT 10SM BKN045 06/M03 A3010",
-          taf: "TAF KRST 061130Z 0612/0712 31015KT P6SM BKN025",
-        },
-      ],
-      winds: [],
-      advisories: [],
-      note: "",
-    }
+  test("the Weather tab holds the forecast by route role, the stations naming them", () => {
     const stations = [
-      { id: "KOWA", name: "Owatonna", lat: 44.1, lon: -93.3, alongNm: 40, offsetNm: 6 },
+      { id: "KS33", name: "Madras Municipal", lat: 44.6, lon: -121.2, alongNm: 80, offsetNm: 2 },
     ]
-    const html = render({ tab: "weather", weatherBrief, stations })
+    const html = render({ tab: "weather", forecast: SAMPLE_FORECAST, stations })
     const panel = html.slice(html.search(/role="tabpanel"[^>]*id="[^"]*-weather"/))
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"(?![^>]*hidden)[^>]*>/)
     expect(panel).toContain(">Origin</h3>")
-    expect(panel).toContain("40 nm along")
-    expect(panel).toContain("KRST 061354Z")
+    expect(panel).toContain("Madras Municipal")
+    expect(panel).toContain("80 nm along")
+    expect(panel).toContain("KBDN 121756Z")
   })
   test("the Weather panel sits after Legs, so it prints after the legs", () => {
     const html = render()

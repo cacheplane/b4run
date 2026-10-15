@@ -132,7 +132,7 @@ export function DesktopWorkbench({
                 <NavlogSheet
                   navlog={navlog}
                   planningAnswer={sheet.planningAnswer}
-                  weatherBrief={sheet.weatherBrief}
+                  forecast={sheet.forecast}
                   stations={sheet.stations}
                   open={sheetOpen}
                   onToggle={() => setSheetOpen((value) => !value)}

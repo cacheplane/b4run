@@ -1,52 +1,45 @@
 import { type ReactNode, useId } from "react"
-import { parseAdvisory, partitionAdvisories } from "../lib/advisories"
+import { type AirportWeather, advisoryLine, type Forecast, windsLine } from "../lib/forecast"
+import { formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
-import { groupByRole, type RoleEntry, type RouteStation } from "../lib/weather-roles"
-import {
-  type AirportWeather,
-  isPreliminary,
-  type WeatherBrief,
-  worstCategory,
-} from "../lib/weather-selectors"
-import { windsSummary } from "../lib/winds"
+import { groupByRole, placeText, type RoleEntry, type RouteStation } from "../lib/weather-roles"
 import { RawReport } from "./RawReport"
-import { HazardChip, HorizonNote, OutsideWindowChip } from "./VerdictCard"
+import { HorizonNote } from "./VerdictCard"
 
 export interface WeatherTabProps {
-  readonly weather: WeatherBrief | null
+  /** computeNavlog's forecast block for the navlog on screen, or null when it has none. */
+  readonly forecast: Forecast | null
   readonly navlog: Navlog
   readonly stations: readonly RouteStation[]
-  /** The planned cruise altitude, in feet: icing or convection at or below it is shown red. */
-  readonly cruiseFt?: number | undefined
 }
 
-/** "VFR", or both ends when they differ: "VFR now → MVFR at ETA". */
-export function categoryText({ now, atEta }: AirportWeather): string {
-  if (now === atEta || atEta === "UNKNOWN") return now
-  if (now === "UNKNOWN") return `${atEta} at ETA`
-  return `${now} now → ${atEta} at ETA`
+/** The category an airport is shown in, on its pill and its map marker: at its time, else now. */
+export function shownCategory(airport: AirportWeather): AirportWeather["categoryNow"] {
+  return airport.categoryAtTime ?? airport.categoryNow
 }
-
-/** How far short of the navlog's total a station still counts as at the destination. */
-const END_TOLERANCE_NM = 2
 
 /**
- * Where an en-route station sits: its distance along the route, or "near
- * departure" / "near destination" for one past either end, whose distance
- * along clamps to 0 or to the route's length.
+ * "VFR", or both when they differ: "VFR now → MVFR at 1905Z", the time being
+ * the airport's (the departure, the pass time or the ETA). Null when neither
+ * is known.
  */
-function placeText(alongNm: number, routeNm: number): string {
-  const nm = Math.round(alongNm)
-  if (nm <= 0) return "near departure"
-  // The server measures the route along great circles and the navlog totals
-  // its legs (a climb split, rounding), so the two lengths differ by a mile
-  // or two: a station clamped to the route's end lands just short of the total.
-  if (nm >= Math.round(routeNm) - END_TOLERANCE_NM) return "near destination"
-  return `${nm} nm along`
+export function categoryText(airport: AirportWeather): string | null {
+  const { categoryNow: now, categoryAtTime: at } = airport
+  if (at === null || at === now) return now
+  const when = formatUtcHhmm(airport.atUtc)
+  const atText = when === "" ? at : `${at} at ${when}`
+  return now === null ? atText : `${now} now → ${atText}`
 }
+
+/** Advisories during the flight first; the rest keep the forecast's order. */
+const duringFlightFirst = (advisories: Forecast["advisories"]): Forecast["advisories"] => [
+  ...advisories.filter((a) => a.relevance === "during-flight"),
+  ...advisories.filter((a) => a.relevance !== "during-flight"),
+]
 
 function AirportCard({ entry, routeNm }: { readonly entry: RoleEntry; readonly routeNm: number }) {
   const { id, name, alongNm, airport } = entry
+  const category = airport === null ? null : shownCategory(airport)
   return (
     <li className="rounded-wb-sm border border-wb-border bg-wb-surface p-3">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
@@ -59,8 +52,8 @@ function AirportCard({ entry, routeNm }: { readonly entry: RoleEntry; readonly r
             {placeText(alongNm, routeNm)}
           </span>
         ) : null}
-        {airport !== null ? (
-          <span className="wb-cat ml-auto" data-cat={worstCategory(airport)}>
+        {airport !== null && category !== null ? (
+          <span className="wb-cat ml-auto" data-cat={category}>
             <span className="wb-cat-dot" aria-hidden="true" />
             {categoryText(airport)}
           </span>
@@ -70,8 +63,8 @@ function AirportCard({ entry, routeNm }: { readonly entry: RoleEntry; readonly r
         <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
       ) : (
         <>
-          <RawReport label="METAR" text={airport.metar} />
-          <RawReport label="TAF" text={airport.taf} />
+          <RawReport label="METAR" raw={airport.metar?.raw ?? null} />
+          <RawReport label="TAF" raw={airport.taf?.raw ?? null} />
         </>
       )}
     </li>
@@ -98,18 +91,19 @@ function Section({
 }
 
 /**
- * The sheet's Weather tab: the brief by route role (origin, the airports and
- * reporting stations en route by distance along, destination), each with its
- * category now and at ETA and its raw METAR and TAF; then the winds aloft per
- * leg, the advisories as hazard chips and the forecast-horizon note.
+ * The sheet's Weather tab, from computeNavlog's forecast: a preliminary
+ * notice naming each gap in the coverage, then the airports by route role
+ * (origin, en route by distance along, destination), each with its category
+ * and its raw METAR and TAF; then the winds aloft per leg and the advisories,
+ * those during the flight first.
  */
-export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabProps) {
+export function WeatherTab({ forecast, navlog, stations }: WeatherTabProps) {
   const baseId = useId()
   const headingId = (name: string): string => `${baseId}-${name}`
-  const roles = groupByRole(weather, navlog, stations)
-  const routeNm = navlog.totals.distanceNm
+  const roles = groupByRole(navlog, forecast, stations)
+  const { routeNm } = roles
 
-  if (weather === null) {
+  if (forecast === null) {
     return (
       <div className="pb-2">
         <p className="mt-3 text-[13px] text-wb-muted">No weather brief yet.</p>
@@ -134,9 +128,12 @@ export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabPr
     )
   }
 
-  const { relevant, outside } = partitionAdvisories(weather.advisories.map(parseAdvisory), cruiseFt)
+  const advisories = duringFlightFirst(forecast.advisories)
   return (
     <div className="pb-2">
+      {forecast.coverage.preliminary ? (
+        <HorizonNote text={forecast.coverage.reasons.join("; ")} className="mt-3" />
+      ) : null}
       <Section id={headingId("origin")} title="Origin">
         <ul className="grid gap-2">
           <AirportCard entry={roles.origin} routeNm={routeNm} />
@@ -161,48 +158,33 @@ export function WeatherTab({ weather, navlog, stations, cruiseFt }: WeatherTabPr
         </ul>
       </Section>
       <Section id={headingId("winds")} title="Winds aloft">
-        {weather.winds.length === 0 ? (
+        {forecast.winds.length === 0 ? (
           <p className="text-[12.5px] text-wb-muted">No winds in the brief</p>
         ) : (
           <ul className="grid gap-1.5">
-            {weather.winds.map((line) => (
-              <li key={line}>
-                <span className="text-[13px] tabular-nums">{windsSummary(line)}</span>
-                <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-wb-muted">
-                  {line}
-                </pre>
+            {forecast.winds.map((wind) => (
+              <li key={wind.leg} className="text-[13px] tabular-nums">
+                {windsLine(wind)}
               </li>
             ))}
           </ul>
         )}
       </Section>
       <Section id={headingId("advisories")} title="Advisories">
-        {relevant.length + outside.length === 0 ? (
+        {advisories.length === 0 ? (
           <p className="text-[12.5px] text-wb-muted">No advisories in the brief</p>
         ) : (
-          <ul className="flex flex-wrap gap-1.5">
-            {relevant.map((advisory) => (
-              <li key={advisory.raw}>
-                <HazardChip advisory={advisory} cruiseFt={cruiseFt} />
+          <ul className="grid gap-1.5">
+            {advisories.map((advisory, i) => (
+              // Two G-AIRMET contours can read alike; the index keeps the keys apart.
+              // biome-ignore lint/suspicious/noArrayIndexKey: the list is fixed per forecast
+              <li key={`${advisoryLine(advisory)}-${i}`} className="text-[13px] tabular-nums">
+                {advisoryLine(advisory)}
               </li>
             ))}
-            {outside.length > 0 ? (
-              <li>
-                <OutsideWindowChip advisories={outside} />
-              </li>
-            ) : null}
           </ul>
         )}
       </Section>
-      {weather.horizon !== undefined && weather.horizon !== "" ? (
-        <Section id={headingId("horizon")} title="Forecast horizon">
-          {isPreliminary(weather.horizon) ? (
-            <HorizonNote text={weather.horizon} />
-          ) : (
-            <p className="text-[12.5px] text-wb-muted">{weather.horizon}</p>
-          )}
-        </Section>
-      ) : null}
     </div>
   )
 }

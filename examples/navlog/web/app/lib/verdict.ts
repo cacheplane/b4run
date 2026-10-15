@@ -1,5 +1,7 @@
 import { readBottomLine } from "../brief/parse"
-import type { Forecast, VerdictFloor } from "./forecast"
+import type { Forecast, VerdictFloor, VerdictLevel } from "./forecast"
+
+export type { VerdictLevel }
 
 /**
  * The go/no-go verdict: the planner's `BottomLine` (`readBottomLine`), raised
@@ -7,8 +9,6 @@ import type { Forecast, VerdictFloor } from "./forecast"
  * worse. The client never re-derives the floor; a markdown answer (a thread
  * from before the brief kit) makes no planner call. Nothing ever lowers a call.
  */
-
-export type VerdictLevel = "GO" | "CAUTION" | "NO-GO"
 
 /** A go/no-go call: the level and the one sentence why. */
 export interface Verdict {
@@ -89,14 +89,14 @@ export function resolveVerdict({ forecast, answer }: ResolveVerdictInput): Effec
 
 /**
  * Why the verdict on screen outranks the planner's bottom line: the floor's
- * reasons, or the weather brief's own call when the floor did not raise it.
+ * reasons when the floor raised it, else the computed floor's level alone.
  */
 export function outrankNote(planner: VerdictLevel, verdict: EffectiveVerdict): string {
   const reasons = verdict.floorReasons ?? []
   const why =
     reasons.length > 0
       ? `Raised: ${reasons.join(", ")}.`
-      : `The weather brief said ${verdict.level}.`
+      : `The computed floor is ${verdict.level}.`
   return `The planner said ${planner}. ${why}`
 }
 

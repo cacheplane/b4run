@@ -1,5 +1,5 @@
 import type { DivIcon } from "leaflet"
-import type { FlightCategory } from "../weather-selectors"
+import type { Category } from "../forecast"
 
 /**
  * The route map's Leaflet div icons, built as HTML strings. Every color comes
@@ -9,6 +9,9 @@ import type { FlightCategory } from "../weather-selectors"
  */
 
 type LeafletModule = typeof import("leaflet")
+
+/** A marker's category: the forecast's, or `UNKNOWN` before there is one (the id alone). */
+export type MarkerCategory = Category | "UNKNOWN"
 
 /** Escapes text for the icons' HTML strings. */
 const escapeHtml = (text: string): string =>
@@ -38,7 +41,7 @@ export type MarkerVariant = "waypoint" | "station" | "draft"
 export function waypointIcon(
   L: LeafletModule,
   id: string,
-  cat: FlightCategory,
+  cat: MarkerCategory,
   variant: MarkerVariant = "waypoint",
 ): DivIcon {
   // Color never stands alone: the label carries the category as text.

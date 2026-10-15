@@ -131,7 +131,7 @@ describe("resolveVerdict", () => {
 })
 
 describe("outrankNote and isWorse", () => {
-  test("outrankNote names the floor's reasons, or the verdict's own level", () => {
+  test("outrankNote names the floor's reasons, or the computed floor's level", () => {
     expect(
       outrankNote("GO", {
         level: "CAUTION",
@@ -141,7 +141,7 @@ describe("outrankNote and isWorse", () => {
       }),
     ).toBe("The planner said GO. Raised: forecast preliminary.")
     expect(outrankNote("GO", { level: "CAUTION", reason: "" })).toBe(
-      "The planner said GO. The weather brief said CAUTION.",
+      "The planner said GO. The computed floor is CAUTION.",
     )
   })
   test("isWorse ranks GO < CAUTION < NO-GO", () => {
