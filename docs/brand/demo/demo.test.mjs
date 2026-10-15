@@ -639,7 +639,7 @@ test("beat scenes are named beat-NN-id in storyboard order", () => {
     "beat-00-title",
     "beat-01-agent",
     "beat-02-ask",
-    "beat-03-subagents",
+    "beat-03-forecast",
     "beat-04-weather",
     "beat-05-tools",
     "beat-06-navlog",
@@ -724,7 +724,7 @@ test("trim plan rejects a missing, overlapping or out-of-order beat", () => {
           scenes: { ...BEAT_SCENES, "beat-04-weather": { startMs: 5_500, endMs: 6_500 } },
         },
       }),
-    /beat-04-weather beat starts before beat-03-subagents ends/,
+    /beat-04-weather beat starts before beat-03-forecast ends/,
   )
   // Take 1's four scenes are not a take-2 timeline.
   assert.throws(
@@ -1221,10 +1221,10 @@ function syntheticFiles() {
       const focal = {
         "server/src/app/navlog/index.ts":
           '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
-        "server/src/app/navlog/subagents/weather/index.ts":
-          '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
-        "server/src/tools/getMetar.ts": '    flightCategory: record.fltCat ?? "UNKNOWN",',
-        "server/src/tools/computeNavlog.ts": "  computeNavlog(input)",
+        "server/src/tools/computeNavlog.ts":
+          "      const choice = chooseProduct(products, midMs, now)\n  let navlog = navlogOf({ ...base, winds: first }, clock)",
+        "server/src/lib/forecast/verdict.ts":
+          '    if (atTime === "IFR" || atTime === "LIFR") noGo.push(`${a.id} ${atTime} ${when}`)',
         "server/src/lib/navlog.ts": "      const tri = solveWindTriangle({",
         "server/src/app/navlog/memory.ts": '  scope: ["workspace", "route"],',
       }[pane.path]
@@ -1241,8 +1241,8 @@ test("storyboard follows the spec's twelve beats, frozen", () => {
       ["title", "title", "navlog"],
       ["agent", "code", "One file is the agent."],
       ["ask", "app", "Ask for a flight."],
-      ["subagents", "code", "Subagents brief the weather."],
-      ["weather", "app", "Weather, briefed and judged."],
+      ["forecast", "code", "Code computes the weather."],
+      ["weather", "app", "Weather, computed and judged."],
       ["tools", "code", "Tools do the math."],
       ["navlog", "app", "A real navlog."],
       ["gate", "code", "Filing needs a yes."],
@@ -1285,9 +1285,8 @@ test("storyboard follows the spec's twelve beats, frozen", () => {
   )
   assert.deepEqual(storyboardPaths(), [
     "server/src/app/navlog/index.ts",
-    "server/src/app/navlog/subagents/weather/index.ts",
-    "server/src/tools/getMetar.ts",
     "server/src/tools/computeNavlog.ts",
+    "server/src/lib/forecast/verdict.ts",
     "server/src/lib/navlog.ts",
     "server/src/app/navlog/memory.ts",
   ])
@@ -1327,11 +1326,14 @@ test("every storyboard focal pattern matches exactly its intended line of the re
     agent: [
       '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
     ],
-    subagents: [
-      '    allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],',
-      '    flightCategory: record.fltCat ?? "UNKNOWN",',
+    forecast: [
+      "      const choice = chooseProduct(products, midMs, now)",
+      '    if (atTime === "IFR" || atTime === "LIFR") noGo.push(`${a.id} ${atTime} ${when}`)',
     ],
-    tools: ["  computeNavlog(input)", "      const tri = solveWindTriangle({"],
+    tools: [
+      "  let navlog = navlogOf({ ...base, winds: first }, clock)",
+      "      const tri = solveWindTriangle({",
+    ],
     gate: [
       '  tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },',
     ],
@@ -1426,9 +1428,9 @@ test("director renders a layer per code beat from the real template, escaped and
     html.match(/class="focus"/g)?.length,
     codeBeats.reduce((sum, beat) => sum + beat.panes.length, 0),
   )
-  // Escaped, never raw: computeNavlog.ts has generics, the route has template literals.
-  assert.ok(html.includes("Promise&lt;Navlog&gt;"))
-  assert.equal(html.includes("Promise<Navlog>"), false)
+  // Escaped, never raw: computeNavlog.ts has arrow types, the route has template literals.
+  assert.ok(html.includes("(navlog: Navlog): LegWind[] =&gt;"))
+  assert.equal(html.includes("LegWind[] =>"), false)
   assert.ok(html.includes('<span class="hit part">approve: [{ tool: &quot;fileFlightPlan&quot;, allowAlways: false }]</span>'))
   assert.ok(html.includes('<span class="hit">const tri = solveWindTriangle({</span>'))
   // A long file shows a window: navlog.ts is far longer than one pane.
@@ -1437,11 +1439,13 @@ test("director renders a layer per code beat from the real template, escaped and
   assert.match(navlogPane, /const tri = solveWindTriangle/)
   assert.doesNotMatch(navlogPane, /^import /m)
   // Windows open on a block boundary, never mid-function: navlog.ts on the
-  // cruise branch, getMetar.ts on its \`num\` helper.
+  // cruise branch, verdict.ts on the line after its floor's lists open.
   assert.match(navlogPane, /^ {4}if \(cruiseDistance &gt; 0\) \{\n/)
-  const metarPane = html.match(/<div class="strip">server\/src\/tools\/getMetar\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
-  assert.match(metarPane, /^const num = /)
-  assert.match(metarPane, /flightCategory: record\.fltCat/)
+  const verdictPane = html.match(
+    /<div class="strip">server\/src\/lib\/forecast\/verdict\.ts<\/div><pre>([\s\S]*?)<\/pre>/,
+  )[1]
+  assert.match(verdictPane, /^ {2}const caution: string\[\] = \[\]\n/)
+  assert.match(verdictPane, /if \(atTime === &quot;IFR&quot; \|\| atTime === &quot;LIFR&quot;\) noGo\.push/)
   // A short file shows whole.
   const memoryPane = html.match(/<div class="strip">server\/src\/app\/navlog\/memory\.ts<\/div><pre>([\s\S]*?)<\/pre>/)[1]
   assert.match(memoryPane, /^import \{ defineMemory \}/)
@@ -1571,7 +1575,11 @@ test("director refuses a missing file, a missing focal line and an ambiguous one
       renderDirector({
         files: {
           ...files,
-          "server/src/tools/computeNavlog.ts": "  computeNavlog(input)\n  computeNavlog(input)",
+          "server/src/tools/computeNavlog.ts": [
+            "      const choice = chooseProduct(products, midMs, now)",
+            "  let navlog = navlogOf({ ...base, winds: first }, clock)",
+            "  let navlog = navlogOf({ ...base, winds: first }, clock)",
+          ].join("\n"),
         },
         wordmark: DIRECTOR_WORDMARK,
       }),
@@ -2021,7 +2029,10 @@ function orchestrationFixture({ failAt, awcHits, firstFrameEpochMs } = {}) {
             for (const path of storyboardPaths()) {
               assert.ok(html.includes(`<div class="strip">${path}</div>`), path)
             }
-            assert.match(html, /<span class="hit">computeNavlog\(input\)<\/span>/)
+            assert.match(
+              html,
+              /<span class="hit">let navlog = navlogOf\(\{ \.\.\.base, winds: first \}, clock\)<\/span>/,
+            )
             assert.doesNotMatch(html, /b4-demo-unit-abc123/)
             assert.equal(html.includes("\u001B"), false)
             assert.deepEqual(Object.keys(fonts), [
@@ -6514,14 +6525,12 @@ test("demoScenario resolves 1400Z exactly as the template's resolveDeparture doe
   assert.equal(live.departureUtc, demoScenario({ now: before }).departureUtc)
 })
 
-test("the parent's turn 1 follows the route's order and hands each child its own thread", () => {
+test("the parent's turn 1 follows the route's order and hands the performance child its own thread", () => {
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
     const groups = fixtureGroups(scenario.fixtures)
-    assert.deepEqual(
-      [...groups.keys()],
-      [DEMO_PROMPT, DEMO_FILE_PROMPT, scenario.weatherInput, scenario.performanceInput],
-    )
+    // No weather thread: computeNavlog computes the weather facts.
+    assert.deepEqual([...groups.keys()], [DEMO_PROMPT, DEMO_FILE_PROMPT, scenario.performanceInput])
     const { calls, reply } = assertScriptedThread(groups.get(DEMO_PROMPT), [
       "readDoc",
       "recall",
@@ -6529,7 +6538,6 @@ test("the parent's turn 1 follows the route's order and hands each child its own
       "writeTodos",
       "lookupAirport",
       "lookupAirport",
-      "task",
       "task",
       "computeNavlog",
       "remember",
@@ -6551,15 +6559,15 @@ test("the parent's turn 1 follows the route's order and hands each child its own
     assert.deepEqual(args[4], { id: "KSTP" })
     assert.deepEqual(args[5], { id: "KRST" })
     // aimock matches a child's turns by its first user message, which is the task input verbatim.
-    assert.deepEqual(args[6], { subagent: "weather", input: scenario.weatherInput })
-    assert.deepEqual(args[7], { subagent: "performance", input: scenario.performanceInput })
-    assert.ok(scenario.weatherInput.includes(scenario.departureUtc))
-    assert.ok(scenario.weatherInput.includes(`hoursAhead ${scenario.hoursAhead}`))
-    assert.ok(scenario.weatherInput.includes("KSTP (44.9346, -93.0603)"))
-    assert.deepEqual(args[8], scenario.navlogInput)
-    assert.equal(args[8].departureTimeUtc, scenario.departureUtc)
-    assert.deepEqual(args[9], scenario.memory)
-    assert.deepEqual(args[10], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
+    assert.deepEqual(args[6], { subagent: "performance", input: scenario.performanceInput })
+    // computeNavlog takes the route, the departure and the en-route stations,
+    // never winds: it takes the forecast for the time each leg is flown.
+    assert.deepEqual(args[7], scenario.navlogInput)
+    assert.equal(args[7].departureTimeUtc, scenario.departureUtc)
+    assert.equal(Object.hasOwn(args[7], "winds"), false)
+    assert.deepEqual(args[7].stations, [])
+    assert.deepEqual(args[8], scenario.memory)
+    assert.deepEqual(args[9], { path: "reports/KSTP-KRST.md", content: scenario.navlogTable })
   }
 })
 
@@ -6593,29 +6601,11 @@ test("the remember call matches the route's memory schema and states a fact the 
   assert.match(DEMO_PROMPT, /N738ZU has long-range tanks/)
 })
 
-test("the children brief from their own tools and turn 2 files the computed plan", () => {
+test("the performance child briefs from its own tool and turn 2 files the computed plan", () => {
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
     const groups = fixtureGroups(scenario.fixtures)
-    const weather = assertScriptedThread(groups.get(scenario.weatherInput), [
-      "getMetar",
-      "getTaf",
-      "getWindsAloft",
-      "getAdvisories",
-      "getAdvisories",
-    ])
-    assert.deepEqual(weather.calls[0].arguments, { ids: ["KSTP", "KRST"] })
-    assert.deepEqual(weather.calls[1].arguments, { ids: ["KSTP", "KRST"] })
-    assert.deepEqual(weather.calls[2].arguments, {
-      region: "chi",
-      station: "MSP",
-      altitudeFt: 4500,
-      validAtUtc: scenario.departureUtc,
-    })
     assert.ok(scenario.windsForecastHours >= 6 && scenario.windsForecastHours <= 24)
-    assert.deepEqual(weather.calls[3].arguments, { lat: 44.9346, lon: -93.0603 })
-    assert.deepEqual(weather.calls[4].arguments, { lat: 43.9083, lon: -92.49 })
-    assert.equal(weather.reply, scenario.weatherBrief)
 
     const performance = assertScriptedThread(groups.get(scenario.performanceInput), ["readDoc"])
     assert.deepEqual(performance.calls[0].arguments, { path: "poh/cruise-performance.md" })
@@ -6633,7 +6623,11 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
   const { formatFplMessage } = await importTemplate("server/src/lib/fpl.ts")
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
-    const navlog = computeNavlog(scenario.navlogInput, () => now)
+    // The navlog core on the forecast's winds, as the tool's last pass flies
+    // it (the real tool against the stub is checked below).
+    const { stations: _stations, ...route } = scenario.navlogInput
+    const legWinds = scenario.forecast.winds.map(({ dirDegTrue, speedKt }) => ({ dirDegTrue, speedKt }))
+    const navlog = computeNavlog({ ...route, winds: legWinds }, () => now)
     assert.deepEqual(scenario.flightPlan, navlog.flightPlan)
     assert.equal(navlog.departureTimeUtc, scenario.departureUtc)
     assert.deepEqual(scenario.navlog.totals, navlog.totals)
@@ -6689,41 +6683,19 @@ test("the navlog numbers and flight plan are what the template's computeNavlog r
   }
 })
 
-test("the scripted briefs render in the Weather tab, the verdict card and the planning brief", async () => {
-  const { parseWeatherBrief } = await importTemplate("web/app/lib/weather-selectors.ts")
-  const { parseWindsLine } = await importTemplate("web/app/lib/winds.ts")
+test("the scripted planning brief renders in the verdict card and the chat", async () => {
   const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
   const { isStructuredAnswer, parseBriefAnswer, readBottomLine } = await importTemplate(
     "web/app/brief/parse.ts",
   )
   const { briefPlainText } = await importTemplate("web/app/brief/plain-text.ts")
-  const { computeNavlog } = await importTemplate("server/src/lib/navlog.ts")
   const briefSchema = JSON.parse(
     await readFile(join(TEMPLATE_ROOT, "server/src/app/navlog/evals/brief-schema.json"), "utf8"),
   )
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
-    const brief = parseWeatherBrief(scenario.weatherBrief)
-    assert.deepEqual(
-      brief.airports.map((airport) => [airport.id, airport.now, airport.atEta]),
-      [
-        ["KSTP", "VFR", "VFR"],
-        ["KRST", "VFR", "VFR"],
-      ],
-    )
-    for (const airport of brief.airports) {
-      assert.match(airport.metar, new RegExp(`^METAR ${airport.id} `))
-      assert.match(airport.taf, new RegExp(`^TAF ${airport.id} `))
-    }
-    assert.equal(brief.verdict?.level, "GO")
-    assert.deepEqual(brief.advisories, [])
-    assert.equal(brief.winds.length, 1)
-    const wind = parseWindsLine(brief.winds[0])
-    assert.deepEqual([wind.leg, wind.dir, wind.kt, wind.altitudeFt, wind.station], [1, 320, 20, 4500, "MSP"])
-    assert.notEqual(brief.note, "")
-
-    const navlog = computeNavlog(scenario.navlogInput, () => now)
-    const verdict = resolveVerdict({ weather: brief, answer: scenario.planAnswer, navlog })
+    // The planner's GO stands on the computed GO floor: nothing is raised.
+    const verdict = resolveVerdict({ forecast: scenario.forecast, answer: scenario.planAnswer })
     assert.equal(verdict.level, "GO")
     assert.equal(verdict.raisedFrom, undefined)
 
@@ -6869,7 +6841,7 @@ test("the AWC stub answers every endpoint over loopback, counts hits and frees i
     assert.equal(taf.status, 200)
     assert.deepEqual(JSON.parse(taf.body).map((record) => record.icaoId), ["KRST"])
 
-    const windtemp = await getStub(stub.baseUrl, "windtemp?region=chi&level=low&fcst=06")
+    const windtemp = await getStub(stub.baseUrl, "windtemp?region=all&level=low&fcst=06")
     assert.equal(windtemp.status, 200)
     assert.match(windtemp.type, /^text\/plain/)
     assert.match(windtemp.body, /^FT {2}3000 {4}6000/m)
@@ -6970,44 +6942,23 @@ test("the template's real tools parse the stub and agree with every scripted cal
         magneticVariationDeg,
       })),
     )
+    // computeNavlog computes the navlog and its weather facts from the stub:
+    // the scenario's numbers, and the forecast the scripted brief narrates.
     const navlog = await run(byName("computeNavlog")[0])
     assert.deepEqual(navlog.flightPlan, scenario.flightPlan)
-
-    // The weather child: every claim in its brief is what its tools returned.
-    const [metarCall, tafCall, windsCall, ...advisoryCalls] = callsOf(scenario.weatherInput)
-    const metars = await run(metarCall)
-    assert.deepEqual(
-      metars.map((m) => [m.id, m.flightCategory, m.windDirDeg, m.windKt, m.visibilityMi, m.ceilingFt]),
-      [
-        ["KSTP", "VFR", 320, 8, 10, null],
-        ["KRST", "VFR", 320, 8, 10, null],
-      ],
-    )
-    const tafs = await run(tafCall)
-    const eta = Date.parse(scenario.etaUtc)
-    const departure = Date.parse(scenario.departureUtc)
-    for (const taf of tafs) {
-      const covering = taf.periods.filter(
-        (period) => Date.parse(period.fromUtc) <= departure && Date.parse(period.toUtc) >= eta,
-      )
-      assert.equal(covering.length, 1, `${taf.id}'s TAF covers the flight`)
-      assert.equal(covering[0].flightCategory, "VFR")
-      assert.equal(covering[0].windDirDeg, 320)
-      assert.equal(covering[0].windKt, 8)
-      assert.equal(taf.periods.length, 1)
+    assert.deepEqual(navlog.totals, scenario.navlog.totals)
+    assert.deepEqual(forecastFacts(navlog.forecast), scenario.forecast)
+    const data = demoAwcData(now)
+    for (const airport of navlog.forecast.airports) {
+      assert.equal(airport.metar.raw, data.metars[airport.id].rawOb)
+      assert.equal(airport.taf.raw, data.tafs[airport.id].rawTAF)
     }
-    const winds = await run(windsCall)
-    assert.equal(winds.covered, true)
-    assert.equal(winds.forecastHours, scenario.windsForecastHours)
-    assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
-    assert.deepEqual(scenario.navlogInput.winds, [{ dirDegTrue: 320, speedKt: 20 }])
-    for (const call of advisoryCalls) assert.deepEqual(await run(call), [])
-    for (const metar of metars) assert.ok(scenario.weatherBrief.includes(metar.raw))
-    for (const taf of tafs) assert.ok(scenario.weatherBrief.includes(taf.raw))
-    assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
-    assert.doesNotMatch(scenario.weatherBrief, /preliminary/)
-    assert.match(scenario.weatherBrief, /^Advisories: none$/m)
-    assert.match(scenario.weatherBrief, /^Forecast horizon: Departure is within TAF and winds-aloft coverage\.$/m)
+    // Every weather product the brief cites is one the forecast names.
+    const citations = briefProps(scenario.planAnswer, "Citations").items
+    const named = navlog.forecast.airports.flatMap((airport) => [`METAR ${airport.id}`, `TAF ${airport.id}`])
+    for (const item of citations.filter((citation) => /^(METAR|TAF) /.test(citation.source))) {
+      assert.ok(named.includes(item.source), item.source)
+    }
 
     // The performance child reads the real POH table it cites.
     const [readCall] = callsOf(scenario.performanceInput)
@@ -7033,17 +6984,26 @@ test("the template's real tools parse the stub and agree with every scripted cal
   }
 })
 
-test("demoAwcData keeps the stub's weather consistent with the scripted brief for any clock", () => {
+test("demoAwcData serves the weather the scenario's forecast expects for any clock", () => {
   for (const now of SCENARIO_NOWS) {
     const scenario = demoScenario({ now })
     const data = demoAwcData(now)
     for (const id of ["KSTP", "KRST"]) {
-      assert.ok(scenario.weatherBrief.includes(data.metars[id].rawOb))
-      assert.ok(scenario.weatherBrief.includes(data.tafs[id].rawTAF))
+      assert.equal(data.metars[id].fltCat, "VFR")
+      assert.match(data.tafs[id].rawTAF, / P6SM SKC$/)
       assert.ok(Date.parse(data.metars[id].reportTime) <= now + 60 * 60_000)
     }
-    const product = data.windtemp(String(scenario.windsForecastHours <= 6 ? 6 : scenario.windsForecastHours <= 12 ? 12 : 24).padStart(2, "0"))
+    assert.equal(data.windsRegion, "all")
+    const product = data.windtemp(String(scenario.windsForecastHours).padStart(2, "0"))
     assert.match(product, /^MSP 3220 3220\+05 /m)
+    const [wind] = scenario.forecast.winds
+    const forUse = /FOR USE (\d{4}-\d{4}Z)/.exec(product)[1]
+    const validAt = resolveDayGroup(/VALID (\d{6}Z)/.exec(product)[1], Date.parse(scenario.departureUtc))
+    const window = forUseWindow(forUse, validAt)
+    assert.deepEqual(
+      [wind.forUseFromUtc, wind.forUseToUtc],
+      [new Date(window.from).toISOString(), new Date(window.to).toISOString()],
+    )
   }
 })
 
@@ -7079,55 +7039,97 @@ function forUseWindow(forUse, validAt) {
   return { from, to }
 }
 
-test("the real tool picks the scenario's FB product, covering the whole flight, at every capture hour", async () => {
+/** The forecast fields the scenario scripts: what the capture and the brief rely on. */
+function forecastFacts(forecast) {
+  return {
+    winds: forecast.winds.map(
+      ({ leg, station, altitudeFt, dirDegTrue, speedKt, forUseFromUtc, forUseToUtc, covered }) => ({
+        leg,
+        station,
+        altitudeFt,
+        dirDegTrue,
+        speedKt,
+        forUseFromUtc,
+        forUseToUtc,
+        covered,
+      }),
+    ),
+    airports: forecast.airports.map(({ id, role, categoryNow, categoryAtTime }) => ({
+      id,
+      role,
+      categoryNow,
+      categoryAtTime,
+    })),
+    advisories: forecast.advisories,
+    coverage: forecast.coverage,
+    verdictFloor: forecast.verdictFloor,
+  }
+}
+
+test("the real computeNavlog picks the scenario's FB product and computes its forecast at every capture hour", async () => {
+  const { readForecast } = await importTemplate("web/app/lib/forecast.ts")
+  const { resolveVerdict } = await importTemplate("web/app/lib/verdict.ts")
   const awcBaseUrlVariable = "B4_AWC_BASE_URL"
   const previous = process.env[awcBaseUrlVariable]
   try {
     for (const now of SCENARIO_NOWS) {
       const scenario = demoScenario({ now })
-      const windsCall = fixtureGroups(scenario.fixtures)
-        .get(scenario.weatherInput)
+      const navlogCall = fixtureGroups(scenario.fixtures)
+        .get(DEMO_PROMPT)
         .map((fixture) => fixture.response.toolCalls?.[0])
-        .find((call) => call?.name === "getWindsAloft")
+        .find((call) => call?.name === "computeNavlog")
       const stub = await startAwcStub({ now })
       try {
         process.env[awcBaseUrlVariable] = stub.baseUrl
-        // Each tsImport is a fresh module namespace, so the tools' shared AWC
+        // Each tsImport is a fresh module namespace, so the tool's shared AWC
         // client is rebuilt and reads this stub's base URL.
-        const { default: getWindsAloft } = await importTemplate("server/src/tools/getWindsAloft.ts")
+        const { default: computeNavlog } = await importTemplate("server/src/tools/computeNavlog.ts")
         // The tool places the FB headers' day groups around its own clock,
         // which in a capture is the clock the scenario was built from.
         const realNow = Date.now
         Date.now = () => now
-        let winds
+        let navlog
         try {
-          winds = await getWindsAloft(windsCall.arguments, { signal: new AbortController().signal })
+          navlog = await computeNavlog(navlogCall.arguments, { signal: new AbortController().signal })
         } finally {
           Date.now = realNow
         }
+        const label = new Date(now).toISOString()
         const departure = Date.parse(scenario.departureUtc)
         const eta = Date.parse(scenario.etaUtc)
-        const label = new Date(now).toISOString()
-        const basedOn = resolveDayGroup(winds.basedOn, now)
-        assert.ok(basedOn <= now, `${label}: FB data time ${winds.basedOn} is not in the future`)
-        assert.ok(now - basedOn <= 8 * 3_600_000, `${label}: FB data time ${winds.basedOn} is current`)
-        const validAt = resolveDayGroup(winds.validAt, departure)
-        const window = forUseWindow(winds.forUse, validAt)
+        assert.equal(navlog.departureTimeUtc, scenario.departureUtc, label)
+        assert.equal(navlog.legs.at(-1).etaUtc, scenario.etaUtc, label)
+        assert.deepEqual(navlog.totals, scenario.navlog.totals, label)
+        // The one leg's winds: MSP's 320/20 from the product whose FOR USE
+        // window spans the whole flight, so the forecast is not preliminary.
+        const [wind] = navlog.forecast.winds
         assert.ok(
-          window.from <= departure && eta <= window.to,
-          `${label}: FOR USE ${winds.forUse} (valid ${winds.validAt}) spans ${scenario.departureUtc}..${scenario.etaUtc}`,
+          Date.parse(wind.forUseFromUtc) <= departure && eta <= Date.parse(wind.forUseToUtc),
+          `${label}: the winds' window ${wind.forUseFromUtc}..${wind.forUseToUtc} spans the flight`,
         )
-        // The tool's own choice and window agree with the scenario's.
-        assert.equal(winds.validAtUtc, scenario.departureUtc)
-        assert.equal(winds.covered, true, `${label}: the departure is covered`)
-        assert.equal(winds.note, undefined)
-        assert.equal(winds.forecastHours, scenario.windsForecastHours)
-        assert.ok(
-          Date.parse(winds.forUseFromUtc) <= departure && eta <= Date.parse(winds.forUseToUtc),
-          `${label}: the tool's window ${winds.forUseFromUtc}..${winds.forUseToUtc} spans the flight`,
+        assert.deepEqual(forecastFacts(navlog.forecast), scenario.forecast, label)
+        assert.deepEqual(navlog.forecast.notes, [], label)
+        // The web reads that block as it is: VFR at both ends, one winds
+        // entry, no advisory, and the planner's GO stands on the GO floor.
+        const forecast = readForecast(navlog)
+        assert.notEqual(forecast, null, label)
+        assert.deepEqual(
+          forecast.airports.map((airport) => [airport.id, airport.categoryNow, airport.categoryAtTime]),
+          [
+            ["KSTP", "VFR", "VFR"],
+            ["KRST", "VFR", "VFR"],
+          ],
         )
-        assert.ok(scenario.weatherBrief.includes(`, valid ${winds.forUse}`))
-        assert.deepEqual(winds.wind, { dirDegTrue: 320, speedKt: 20, tempC: null })
+        for (const airport of forecast.airports) {
+          assert.match(airport.metar.raw, new RegExp(`^METAR ${airport.id} `))
+          assert.match(airport.taf.raw, new RegExp(`^TAF ${airport.id} `))
+        }
+        assert.equal(forecast.winds.length, 1)
+        assert.deepEqual(forecast.advisories, [])
+        assert.equal(forecast.verdictFloor.level, "GO")
+        const verdict = resolveVerdict({ forecast, answer: scenario.planAnswer })
+        assert.equal(verdict.level, "GO")
+        assert.equal(verdict.raisedFrom, undefined)
       } finally {
         await stub.close()
       }

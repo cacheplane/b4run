@@ -9,11 +9,11 @@ import {
   useRef,
   useState,
 } from "react"
+import type { Forecast } from "../lib/forecast"
 import type { Navlog } from "../lib/navlog-types"
 import { useHydrated } from "../lib/use-hydrated"
 import { useMediaQuery } from "../lib/use-media-query"
 import { useSidebarState } from "../lib/use-sidebar-state"
-import type { WeatherBrief } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { Drawer } from "./Drawer"
 import { Icon } from "./icons"
@@ -29,11 +29,11 @@ export interface MemoryControls {
 /**
  * The compliance Workbench's layout. The props are the navlog shell's, so
  * `AppShell` is unchanged; this app has no navlog or weather, so it ignores
- * `navlog`, `brief` and `assistantBrief`.
+ * `navlog`, `forecast` and `assistantBrief`.
  */
 export interface WorkbenchLayoutProps {
   readonly navlog: Navlog | null
-  readonly brief: WeatherBrief | null
+  readonly forecast: Forecast | null
   readonly assistantBrief: string
   readonly header: string
   readonly status?: string | undefined

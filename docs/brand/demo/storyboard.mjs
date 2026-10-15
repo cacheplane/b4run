@@ -48,22 +48,27 @@ export const STORYBOARD = Object.freeze(
       holdMs: 2000,
     },
     {
-      id: "subagents",
+      // The weather facts are code: each leg's winds come from the forecast
+      // for the time it is flown, and the verdict floor is a rule.
+      id: "forecast",
       kind: "code",
-      headline: "Subagents brief the weather.",
+      headline: "Code computes the weather.",
       panes: [
         {
-          path: "server/src/app/navlog/subagents/weather/index.ts",
-          focal: /allow: \["getMetar", "getTaf", "getWindsAloft", "getAdvisories"\],/u,
+          path: "server/src/tools/computeNavlog.ts",
+          focal: /const choice = chooseProduct\(products, midMs, now\)/u,
         },
-        { path: "server/src/tools/getMetar.ts", focal: /flightCategory: record\.fltCat \?\? "UNKNOWN",/u },
+        {
+          path: "server/src/lib/forecast/verdict.ts",
+          focal: /if \(atTime === "IFR" \|\| atTime === "LIFR"\) noGo\.push/u,
+        },
       ],
       holdMs: 3000,
     },
     {
       id: "weather",
       kind: "app",
-      headline: "Weather, briefed and judged.",
+      headline: "Weather, computed and judged.",
       focus: "weather",
       action: "weather",
       holdMs: 2500,
@@ -73,7 +78,10 @@ export const STORYBOARD = Object.freeze(
       kind: "code",
       headline: "Tools do the math.",
       panes: [
-        { path: "server/src/tools/computeNavlog.ts", focal: /^\s+computeNavlog\(input\)$/u },
+        {
+          path: "server/src/tools/computeNavlog.ts",
+          focal: /let navlog = navlogOf\(\{ \.\.\.base, winds: first \}, clock\)/u,
+        },
         { path: "server/src/lib/navlog.ts", focal: /const tri = solveWindTriangle\(\{/u },
       ],
       holdMs: 3000,

@@ -7,8 +7,8 @@ import { script } from "../../../packages/testing/dist/index.js"
  *
  * Why a clock: the prompt says "1400Z", which the route's `resolveDeparture`
  * tool resolves to its next occurrence from the wall clock. Every later value
- * that carries the date (the weather subagent's input, computeNavlog's
- * departure, the flight plan's DOF, the briefs) must agree with what that tool
+ * that carries the date (computeNavlog's departure and the forecast it
+ * computes, the flight plan's DOF, the brief) must agree with what that tool
  * returns during the capture, so the scenario is built from `now`, not frozen.
  * Only the date moves: the departure is always 1400Z, so the navlog's numbers
  * never change.
@@ -22,8 +22,9 @@ import { script } from "../../../packages/testing/dist/index.js"
  *
  * One clock, built once. The capture must call `demoScenario({ now })` once and
  * pass that same `now` to `startAwcStub({ now })` and the scenario's
- * `fixtures` to aimock: the stub's METAR, TAF and FB times and the scripted
- * briefs that quote them are all derived from it.
+ * `fixtures` to aimock: the stub's METAR, TAF and FB times, the forecast
+ * computeNavlog builds from them and the scripted brief that cites them are
+ * all derived from it.
  *
  * Two ways the scenario goes stale while a capture runs:
  *
@@ -33,10 +34,10 @@ import { script } from "../../../packages/testing/dist/index.js"
  *   scripted date is a day early. `assertScenarioCurrent(scenario)` throws in
  *   that case; the capture calls it right before it sends the prompt, and a
  *   capture should not start in the minutes before 1400Z.
- * - hoursAhead drift. The weather subagent's input quotes `hoursAhead` to a
- *   tenth of an hour as of build time, while the live tool computes it when it
- *   runs, so a run that starts minutes after the build can show a value 0.1 h
- *   lower in the resolveDeparture step than in the weather input. It changes
+ * - hoursAhead drift. `hoursAhead` is the resolveDeparture result to a tenth
+ *   of an hour as of build time, while the live tool computes it when it runs,
+ *   so a run that starts minutes after the build can show a value 0.1 h lower
+ *   in the resolveDeparture step. No scripted input quotes it, and it changes
  *   no verdict, coverage or number; it is the one value that is allowed to lag.
  */
 
@@ -112,7 +113,11 @@ const WAYPOINTS = Object.freeze(
   }),
 )
 
-/** The FB winds at MSP, the station nearest the leg's midpoint: 320/20 at 3,000 and 6,000 ft. */
+/**
+ * The FB winds at MSP, the station computeNavlog picks for the leg (the
+ * nearest to its midpoint in data/winds-stations.json that the product
+ * carries): 320/20 at 3,000 and 6,000 ft.
+ */
 const WINDS_STATION = "MSP"
 const WINDS = Object.freeze([Object.freeze({ dirDegTrue: 320, speedKt: 20 })])
 
@@ -170,8 +175,11 @@ const PLAN_TODOS = Object.freeze([
       "Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time",
     status: "completed",
   },
-  { content: "Brief the weather and look up POH performance", status: "in_progress" },
-  { content: "Compute the navlog and save it to the workspace", status: "pending" },
+  {
+    content: "Find the weather stations along the route and look up POH performance",
+    status: "in_progress",
+  },
+  { content: "Compute the navlog and its forecast and save it to the workspace", status: "pending" },
   { content: "Brief the pilot and file only on request", status: "pending" },
 ])
 
@@ -253,11 +261,11 @@ function windsHeader(basedOn, fcst) {
 }
 
 /**
- * The FB product (6, 12 or 24) of the cycle published by `now` that
- * getWindsAloft picks for the departure (the first whose FOR USE window holds
- * it, `from <= departure < to`), or null when none does or its window ends
- * before the ETA, so a brief that calls the leg covered is true for the whole
- * flight. For a 1400Z departure one always qualifies (the cycle is at most 26
+ * The FB product (6, 12 or 24) of the cycle published by `now` whose FOR USE
+ * window holds the departure (`from <= departure < to`), or null when none
+ * does or its window ends before the ETA. When it reaches the ETA it also
+ * holds the leg's mid-time, so it is the product computeNavlog picks for the
+ * leg, and the forecast calls the leg covered for the whole flight. For a 1400Z departure one always qualifies (the cycle is at most 26
  * hours before the departure, its products cover 2 to 30 hours after it with
  * no gaps, and every window edge is on the hour); demo.test.mjs sweeps a full
  * day to hold that.
@@ -275,7 +283,7 @@ export function demoWindsProduct(now, departure, eta) {
 
 /**
  * The weather the AWC stub serves for a clock reading, in the shapes AWC sends
- * and the template tools parse (see the template's weather-tools and
+ * and the template's computeNavlog parses (see the template's forecast and
  * winds-aloft tests): both fields VFR, clear, 10 SM, wind 320 at 8; a TAF that
  * covers the next 30 hours, so it always reaches the 1400Z flight; FB winds
  * 320/20 at 3,000 and 6,000 ft at MSP; no AIRMET, SIGMET or G-AIRMET.
@@ -331,7 +339,8 @@ export function demoAwcData(now) {
   }
   const windtemp = (fcst) => {
     const header = windsHeader(windsCycle(now), Number(fcst))
-    // The template test's FBUS31 excerpt for region "chi", with MSP's 3000 and
+    // An excerpt of the low-level FB product computeNavlog asks for with
+    // region "all" (the template test's FBUS31 rows), with MSP's 3000 and
     // 6000 ft groups set to 320/20 (FB omits the temperature at 3000 ft).
     return [
       `(Extracted from FBUS31 KWNO ${ddhhmm(windsCycle(now) + WINDS_PUBLISH_DELAY_MS)})`,
@@ -352,26 +361,25 @@ export function demoAwcData(now) {
     metars,
     tafs,
     windtemp,
-    windsRegion: "chi",
+    windsRegion: "all",
     gairmet: [],
     airsigmet: [],
   }
 }
 
-/** One aimock script for both turns and both subagents, plus everything the capture asserts. */
+/** One aimock script for both turns and the performance subagent, plus everything the capture asserts. */
 export function demoScenario({ now = Date.now() } = {}) {
   const departure = nextDeparture(now)
   const departureUtc = new Date(departure).toISOString()
   // resolveDeparture: hours ahead to one decimal.
   const hoursAhead = Math.round(((departure - now) / HOUR_MS) * 10) / 10
   const eta = departure + NAVLOG.totals.eteMin * 60_000
-  // The FB product getWindsAloft picks for validAtUtc (the departure), whose
-  // FOR USE window also reaches the ETA, so the brief's "valid <forUse>" and
-  // its coverage claim are true.
+  // The FB product computeNavlog picks for the leg, whose FOR USE window holds
+  // the whole flight, so the forecast's winds are covered.
   const winds = demoWindsProduct(now, departure, eta)
   if (winds === null) {
     // Unreachable for a 1400Z departure (see demoWindsProduct); refuse rather
-    // than script a brief that claims coverage the stub does not serve.
+    // than script a GO brief the computed forecast would not support.
     throw new Error(
       `No FB product published by ${new Date(now).toISOString()} covers the ${new Date(departure).toISOString()} flight`,
     )
@@ -388,7 +396,9 @@ export function demoScenario({ now = Date.now() } = {}) {
     altitudeFt: ALTITUDE_FT,
     departureTimeUtc: departureUtc,
     waypoints: WAYPOINTS.map((waypoint) => ({ ...waypoint })),
-    winds: WINDS.map((wind) => ({ ...wind })),
+    // The route has no en-route reporting station: the demo skips
+    // findRouteStations, and computeNavlog briefs the two airports.
+    stations: [],
   }
   const flightPlan = {
     item7: FLIGHT_PLAN_ITEMS.item7,
@@ -402,24 +412,35 @@ export function demoScenario({ now = Date.now() } = {}) {
     item19: FLIGHT_PLAN_ITEMS.item19,
   }
 
-  const coordinates = WAYPOINTS.map((wp) => `${wp.id} (${wp.lat}, ${wp.lon})`).join(", ")
-  const weatherInput = `Weather brief for ${coordinates} at ${ALTITUDE_FT} ft, departureUtc ${departureUtc}, hoursAhead ${hoursAhead}.`
   const performanceInput = `Performance for ${ROUTE.join(", ")} at ${ALTITUDE_FT} ft, cruise ${AIRCRAFT.cruiseRpm} RPM.`
 
-  // The weather subagent's sections, as web/app/lib/weather-selectors.ts parses them.
-  const weatherBrief = [
-    "Verdict: GO — KSTP and KRST are VFR now and at the ETA, with no advisory during the flight.",
-    "Forecast horizon: Departure is within TAF and winds-aloft coverage.",
-    "Airports:",
-    ...ROUTE.map(
-      (id) =>
-        `${id}: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 320 at 8. ${awc.metars[id].rawOb} ${awc.tafs[id].rawTAF}`,
-    ),
-    "Winds per leg:",
-    `leg 1: 320/20 at ${ALTITUDE_FT} ft, ${WINDS_STATION}, valid ${winds.forUse}`,
-    "Advisories: none",
-    "Go/no-go note: VFR at both ends with a light northwest wind, and no AIRMET or SIGMET touches the route.",
-  ].join("\n")
+  // What computeNavlog's forecast block says for this flight (the fields the
+  // capture and the tests read): each airport VFR now and at its time from
+  // the stub's METAR and TAF, the one leg's winds from MSP and covered, no
+  // advisory, nothing preliminary, and a GO floor with no reason.
+  const forecast = {
+    winds: [
+      {
+        leg: 1,
+        station: WINDS_STATION,
+        altitudeFt: ALTITUDE_FT,
+        dirDegTrue: WINDS[0].dirDegTrue,
+        speedKt: WINDS[0].speedKt,
+        forUseFromUtc: new Date(winds.forUseFrom).toISOString(),
+        forUseToUtc: new Date(winds.forUseTo).toISOString(),
+        covered: true,
+      },
+    ],
+    airports: ROUTE.map((id, index) => ({
+      id,
+      role: index === 0 ? "origin" : "destination",
+      categoryNow: "VFR",
+      categoryAtTime: "VFR",
+    })),
+    advisories: [],
+    coverage: { preliminary: false, reasons: [] },
+    verdictFloor: { level: "GO", reasons: [] },
+  }
 
   const t = NAVLOG.totals
   const reserve = hMm(t.reserveMin)
@@ -549,7 +570,6 @@ export function demoScenario({ now = Date.now() } = {}) {
     .callsTool("writeTodos", { todos })
     .callsTool("lookupAirport", { id: "KSTP" })
     .callsTool("lookupAirport", { id: "KRST" })
-    .callsTool("task", { subagent: "weather", input: weatherInput })
     .callsTool("task", { subagent: "performance", input: performanceInput })
     .callsTool("computeNavlog", navlogInput)
     .callsTool("remember", memory)
@@ -559,19 +579,6 @@ export function demoScenario({ now = Date.now() } = {}) {
     .user(DEMO_FILE_PROMPT)
     .callsTool("fileFlightPlan", { flightPlan })
     .replies(filedAnswer)
-    // The weather subagent, in its own thread.
-    .user(weatherInput)
-    .callsTool("getMetar", { ids: [...ROUTE] })
-    .callsTool("getTaf", { ids: [...ROUTE] })
-    .callsTool("getWindsAloft", {
-      region: awc.windsRegion,
-      station: WINDS_STATION,
-      altitudeFt: ALTITUDE_FT,
-      validAtUtc: departureUtc,
-    })
-    .callsTool("getAdvisories", { lat: WAYPOINTS[0].lat, lon: WAYPOINTS[0].lon })
-    .callsTool("getAdvisories", { lat: WAYPOINTS[1].lat, lon: WAYPOINTS[1].lon })
-    .replies(weatherBrief)
     // The performance subagent, in its own thread.
     .user(performanceInput)
     .callsTool("readDoc", { path: "poh/cruise-performance.md" })
@@ -588,6 +595,7 @@ export function demoScenario({ now = Date.now() } = {}) {
     etaUtc,
     windsForecastHours,
     navlogInput,
+    forecast,
     navlog: {
       tasKt: NAVLOG.tasKt,
       gph: NAVLOG.gph,
@@ -598,9 +606,7 @@ export function demoScenario({ now = Date.now() } = {}) {
     flightPlan,
     todos,
     memory,
-    weatherInput,
     performanceInput,
-    weatherBrief,
     performanceBrief: PERFORMANCE_BRIEF,
     planAnswer,
     filedAnswer,
@@ -615,7 +621,6 @@ export function demoScenario({ now = Date.now() } = {}) {
       "writeTodos",
       "lookupAirport",
       "lookupAirport",
-      "task",
       "task",
       "computeNavlog",
       "remember",
