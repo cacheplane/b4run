@@ -6,6 +6,33 @@ import quality from "../src/app/navlog/evals/navlog-quality.eval.ts"
 const run = (finalMessage: string) =>
   ({ finalMessage, toolCalls: [], toolResults: [] }) as unknown as AgentRunResult
 
+/** A run whose computeNavlog returned a verdict floor, answered with a BottomLine of `answer`. */
+const floorRun = (floor: string, answer: string) =>
+  ({
+    finalMessage: JSON.stringify({
+      ui: [{ BottomLine: { props: { level: answer, reason: "r", cite: [] } } }],
+    }),
+    toolCalls: [],
+    toolResults: [
+      {
+        name: "computeNavlog",
+        content: JSON.stringify({ forecast: { verdictFloor: { level: floor, reasons: [] } } }),
+      },
+    ],
+  }) as unknown as AgentRunResult
+
+/** A structured answer whose Assumptions are these statements. */
+const assumptionsAnswer = (statements: readonly string[]) =>
+  JSON.stringify({
+    ui: [
+      {
+        Assumptions: {
+          props: { items: statements.map((statement) => ({ statement, origin: "default" })) },
+        },
+      },
+    ],
+  })
+
 const scorer = (name: string) => {
   const found = quality.scorers.find((s) => s.name === name)
   if (found === undefined) throw new Error(`no scorer ${name}`)
@@ -16,6 +43,7 @@ const STRUCTURED_SCORERS = [
   "opens-with-bottom-line",
   "key-numbers",
   "lists-assumptions",
+  "no-coverage-assumption",
   "cites-poh",
   "no-echoes-or-paths",
 ]
@@ -69,5 +97,40 @@ describe("navlog quality scorers", () => {
       score: 0,
       reason: "cited POH files do not exist: poh/missing.md",
     })
+  })
+
+  test("bottom-line-respects-floor fails an answer below the floor, naming both levels", async () => {
+    expect(
+      await scorer("bottom-line-respects-floor").score(floorRun("CAUTION", "GO"), testCase),
+    ).toEqual({ score: 0, reason: "the BottomLine says GO under a CAUTION floor" })
+  })
+
+  test("bottom-line-respects-floor passes an answer at or above the floor", async () => {
+    const respects = scorer("bottom-line-respects-floor")
+    expect(await respects.score(floorRun("CAUTION", "CAUTION"), testCase)).toBe(1)
+    expect(await respects.score(floorRun("GO", "NO-GO"), testCase)).toBe(1)
+  })
+
+  test("bottom-line-respects-floor fails a run with no computeNavlog result", async () => {
+    const answer = JSON.stringify({
+      ui: [{ BottomLine: { props: { level: "NO-GO", reason: "r", cite: [] } } }],
+    })
+    expect(await scorer("bottom-line-respects-floor").score(run(answer), testCase)).toEqual({
+      score: 0,
+      reason: "computeNavlog returned no verdict floor",
+    })
+  })
+
+  test("no-coverage-assumption fails an assumption that states the coverage", async () => {
+    const coverage = scorer("no-coverage-assumption")
+    expect(
+      await coverage.score(run(assumptionsAnswer(["Forecast preliminary"])), testCase),
+    ).toEqual({ score: 0, reason: "Assumptions state the coverage: Forecast preliminary" })
+    expect(
+      await coverage.score(
+        run(assumptionsAnswer(["Departure 2026-10-16 1400Z", "1 person on board assumed"])),
+        testCase,
+      ),
+    ).toBe(1)
   })
 })

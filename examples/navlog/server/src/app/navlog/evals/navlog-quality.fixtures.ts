@@ -85,10 +85,11 @@ interface BriefScript {
 
 /**
  * A planning answer as the model returns it under the brief schema
- * (`brief-schema.json`), shaped after
- * live gpt-5-mini answers to these prompts but carrying the scripted run's own
- * numbers (computeNavlog's totals), so the scripted brief agrees with the
- * navlog the tools compute in replay.
+ * (`brief-schema.json`), shaped after live gpt-5-mini answers to these
+ * prompts. Its KeyNumbers are illustrative: computeNavlog flies the legs on
+ * the live winds aloft, so the ETE, fuel and reserve it computes in replay
+ * change with the day's forecast, and fixed text cannot match them. No scorer
+ * reads these values; they check the labels and the navlog the tool returned.
  *
  * The level is NO-GO. computeNavlog's verdict floor is computed in replay from
  * the live forecast, which can be GO, CAUTION or NO-GO on any day, while this
@@ -144,6 +145,27 @@ export const planBrief = (brief: BriefScript): string =>
     ],
   })
 
+/**
+ * The navlog table the scripted run saves with writeFile. It carries only what
+ * the winds do not change, each leg's great-circle distance; the headings,
+ * groundspeeds, times and fuel are computeNavlog's, flown on the live winds,
+ * and the Workbench shows them from the tool's result.
+ */
+const legTable = (legs: readonly (readonly [from: string, to: string, distNm: number])[]) =>
+  [
+    "| From | To | Dist |",
+    "|---|---|---|",
+    ...legs.map(([from, to, distNm]) => `| ${from} | ${to} | ${distNm} |`),
+    "",
+    `Total distance: ${legs.reduce((total, [, , distNm]) => total + distNm, 0)} nm. Times, fuel and reserve are the computed navlog's, on the forecast winds.`,
+    "",
+  ].join("\n")
+export const DIRECT_TABLE = legTable([["KSTP", "KRST", 66]])
+export const VIA_OWA_TABLE = legTable([
+  ["KSTP", "KOWA", 49],
+  ["KOWA", "KRST", 36],
+])
+
 export const DEPARTURE_1400 = {
   statement: `Departure ${DEPARTURE_1400Z.brief}`,
   origin: "pilot",
@@ -161,6 +183,7 @@ export const DIRECT = {
   departureUtc: DEPARTURE_1400Z.brief,
   reason: "Hold the flight until a re-brief closer to departure confirms KSTP and KRST VFR.",
   distanceNm: "66",
+  // Illustrative (see planBrief): computeNavlog flies these on the live winds.
   ete: "0:33",
   fuelBurnedGal: "5.5",
   fuelAtLandingGal: "44.5",

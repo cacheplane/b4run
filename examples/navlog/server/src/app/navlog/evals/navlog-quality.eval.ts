@@ -7,6 +7,7 @@ import {
   DEPARTURE_1400,
   DEPARTURE_1500Z,
   DIRECT,
+  DIRECT_TABLE,
   KOWA,
   KRST,
   KSTP,
@@ -15,6 +16,7 @@ import {
   ONE_ON_BOARD,
   planBrief,
   planFixtures,
+  VIA_OWA_TABLE,
 } from "./navlog-quality.fixtures.js"
 
 const JUDGE_CRITERIA =
@@ -138,8 +140,7 @@ export default defineEval({
           input: DIRECT_INPUT,
           departure: "1400Z",
           waypoints: [KSTP, KRST],
-          navlogTable:
-            "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
+          navlogTable: DIRECT_TABLE,
           brief: planBrief({
             ...DIRECT,
             assumptions: [DEPARTURE_1400, ONE_ON_BOARD],
@@ -157,14 +158,14 @@ export default defineEval({
           input: VIA_OWA_INPUT,
           departure: "1500Z",
           waypoints: [KSTP, KOWA, KRST],
-          navlogTable:
-            "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KOWA | climb | 190 | 80 | 8 | 6 | 2.3 |\n| KSTP | KOWA | cruise | 198 | 122 | 41 | 20 | 2.3 |\n| KOWA | KRST | cruise | 106 | 127 | 36 | 17 | 2.0 |\n\nTotals: 85 nm, 43 min, 6.6 gal, reserve 371 min.\n",
+          navlogTable: VIA_OWA_TABLE,
           brief: planBrief({
             via: ["KOWA"],
             departureUtc: DEPARTURE_1500Z.brief,
             reason:
               "Hold the flight until a re-brief closer to departure confirms KSTP, KOWA and KRST VFR.",
             distanceNm: "85",
+            // Illustrative, as in DIRECT: computeNavlog flies these on the live winds.
             ete: "0:43",
             fuelBurnedGal: "6.6",
             fuelAtLandingGal: "43.4",
@@ -189,8 +190,7 @@ export default defineEval({
           input: NO_FILING_INPUT,
           departure: "1400Z",
           waypoints: [KSTP, KRST],
-          navlogTable:
-            "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
+          navlogTable: DIRECT_TABLE,
           brief: planBrief({
             ...DIRECT,
             assumptions: [DEPARTURE_1400, ONE_ON_BOARD],
@@ -210,8 +210,7 @@ export default defineEval({
           aircraft: BASELINE_AIRCRAFT,
           departure: "1400Z",
           waypoints: [KSTP, KRST],
-          navlogTable:
-            "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
+          navlogTable: DIRECT_TABLE,
           brief: planBrief({
             ...DIRECT,
             assumptions: [
