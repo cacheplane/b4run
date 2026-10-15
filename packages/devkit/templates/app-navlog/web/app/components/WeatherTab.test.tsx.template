@@ -179,7 +179,9 @@ describe("WeatherTab", () => {
   })
   test("with no forecast: one message and the role headings with their ids", () => {
     const html = render({ forecast: null, stations: [] })
-    expect(html).toContain("No weather brief yet.")
+    // A navlog without a forecast block was planned before computeNavlog computed one.
+    expect(text(html)).toContain("This plan has no computed forecast; replan to see it.")
+    expect(html).not.toContain("No weather brief yet.")
     expect(section(html, "Origin")).toContain("KSTP")
     expect(section(html, "En route")).toContain("No reporting stations within 25 nm")
     expect(section(html, "Destination")).toContain("KRST")

@@ -126,7 +126,7 @@ describe("navlog sheet: strip and tabs", () => {
     const order = [...html.matchAll(/role="tabpanel"[^>]*id="[^"]*-(\w+)"/g)].map((m) => m[1])
     expect(order).toEqual(["legs", "weather", "plan", "brief"])
     expect(html).toMatch(/role="tabpanel"[^>]*id="[^"]*-weather"[^>]*hidden=""/)
-    expect(html).toContain("No weather brief yet.")
+    expect(html).toContain("This plan has no computed forecast; replan to see it.")
   })
   test("the strip's reason selects the Brief tab", () => {
     const onTabChange = vi.fn()

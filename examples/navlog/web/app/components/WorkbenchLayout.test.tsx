@@ -285,6 +285,25 @@ describe("WorkbenchLayout sheet control", () => {
   })
 })
 
+describe("WorkbenchLayout out-and-back marker", () => {
+  test("the marker and its panel both show the worse of the shared id's two entries", () => {
+    viewport.desktop = true
+    const forecast: Forecast = {
+      ...FORECAST,
+      airports: [
+        { ...(KPDX as AirportWeather), id: "KSTP", categoryNow: "VFR", categoryAtTime: "VFR" },
+        { ...(KBDN as AirportWeather), id: "KSTP", categoryNow: "VFR", categoryAtTime: "IFR" },
+      ],
+    }
+    const view = mount({ forecast })
+    expect(map.categories).toEqual({ KSTP: "IFR" })
+    act(() => map.onSelectMarker?.("KSTP"))
+    const chip = view.container.querySelector('[role="dialog"][aria-label="KSTP weather"] .wb-cat')
+    expect(chip?.getAttribute("data-cat")).toBe("IFR")
+    view.unmount()
+  })
+})
+
 describe("WorkbenchLayout map highlight", () => {
   beforeEach(() => {
     viewport.desktop = true

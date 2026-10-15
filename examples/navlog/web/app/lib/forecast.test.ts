@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { advisoryLine, readForecast, windsLine } from "./forecast"
-import { SAMPLE_NAVLOG } from "./test-fixtures"
+import {
+  type AirportWeather,
+  advisoryLine,
+  airportWeatherFor,
+  categoriesById,
+  readForecast,
+  windsLine,
+} from "./forecast"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "./test-fixtures"
 
 const FORECAST = {
   winds: [
@@ -44,6 +51,49 @@ describe("readForecast", () => {
   })
   it("rejects a malformed block rather than rendering half of it", () => {
     expect(readForecast({ ...SAMPLE_NAVLOG, forecast: { winds: "no" } } as never)).toBeNull()
+  })
+  it("rejects a verdict floor whose level is not GO, CAUTION or NO-GO, or without reasons", () => {
+    const withFloor = (verdictFloor: unknown) =>
+      readForecast({ ...SAMPLE_NAVLOG, forecast: { ...FORECAST, verdictFloor } } as never)
+    expect(withFloor({ level: "NO-GO", reasons: ["x"] })).not.toBeNull()
+    expect(withFloor({ level: "MAYBE", reasons: [] })).toBeNull()
+    expect(withFloor({ level: "go", reasons: [] })).toBeNull()
+    expect(withFloor({ reasons: [] })).toBeNull()
+    expect(withFloor({ level: "GO" })).toBeNull()
+    expect(withFloor({ level: "GO", reasons: "none" })).toBeNull()
+  })
+})
+
+describe("an out-and-back's shared id", () => {
+  const [origin, , destination] = SAMPLE_FORECAST.airports as readonly AirportWeather[]
+  const outAndBack = (departure: AirportWeather["categoryAtTime"], arrival: typeof departure) => ({
+    ...SAMPLE_FORECAST,
+    airports: [
+      { ...(origin as AirportWeather), id: "KPDX", categoryAtTime: departure },
+      { ...(destination as AirportWeather), id: "KPDX", categoryAtTime: arrival },
+    ],
+  })
+  it("shows the worse of the two entries, whichever end it is", () => {
+    const later = outAndBack("VFR", "IFR")
+    expect(airportWeatherFor(later, "kpdx")).toBe(later.airports[1])
+    expect(categoriesById(later)).toEqual({ KPDX: "IFR" })
+    const earlier = outAndBack("MVFR", "VFR")
+    expect(airportWeatherFor(earlier, "KPDX")).toBe(earlier.airports[0])
+    expect(categoriesById(earlier)).toEqual({ KPDX: "MVFR" })
+  })
+  it("keeps the first entry when they tie, and a known category over an unknown one", () => {
+    const tie = outAndBack("VFR", "VFR")
+    expect(airportWeatherFor(tie, "KPDX")).toBe(tie.airports[0])
+    const unknown = {
+      ...SAMPLE_FORECAST,
+      airports: [
+        { ...(origin as AirportWeather), id: "KPDX", categoryNow: null, categoryAtTime: null },
+        { ...(destination as AirportWeather), id: "KPDX", categoryAtTime: "VFR" as const },
+      ],
+    }
+    expect(airportWeatherFor(unknown, "KPDX")).toBe(unknown.airports[1])
+    expect(airportWeatherFor(null, "KPDX")).toBeNull()
+    expect(airportWeatherFor(unknown, "KBDN")).toBeNull()
   })
 })
 

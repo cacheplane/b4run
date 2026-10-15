@@ -101,7 +101,48 @@ export function readForecast(navlog: Navlog | null): Forecast | null {
   )
     return null
   if (!isRecord(coverage) || !isRecord(verdictFloor)) return null
+  if (!VERDICT_LEVELS.has(verdictFloor.level) || !Array.isArray(verdictFloor.reasons)) return null
   return block as unknown as Forecast
+}
+
+const VERDICT_LEVELS: ReadonlySet<unknown> = new Set<VerdictLevel>(["GO", "CAUTION", "NO-GO"])
+
+/** The category an airport is shown in, on its pill and its map marker: at its time, else now. */
+export function shownCategory(airport: AirportWeather): Category | null {
+  return airport.categoryAtTime ?? airport.categoryNow
+}
+
+/** Worse is higher; an unknown category is below every known one. */
+const SEVERITY: Readonly<Record<Category, number>> = { VFR: 1, MVFR: 2, IFR: 3, LIFR: 4 }
+const severity = (airport: AirportWeather): number => {
+  const category = shownCategory(airport)
+  return category === null ? 0 : SEVERITY[category]
+}
+
+/**
+ * The forecast's entry for an airport id, as its map marker and its panel
+ * show it. An out-and-back lists its shared id twice (origin and
+ * destination); the worse of the two is shown, the first on a tie.
+ */
+export function airportWeatherFor(forecast: Forecast | null, id: string): AirportWeather | null {
+  const key = id.toUpperCase()
+  let shown: AirportWeather | null = null
+  for (const airport of forecast?.airports ?? []) {
+    if (airport.id.toUpperCase() !== key) continue
+    if (shown === null || severity(airport) > severity(shown)) shown = airport
+  }
+  return shown
+}
+
+/** Each airport's shown category by id, for the map markers; an airport with none is left out. */
+export function categoriesById(forecast: Forecast | null): Record<string, Category> {
+  const out: Record<string, Category> = {}
+  for (const { id } of forecast?.airports ?? []) {
+    const airport = airportWeatherFor(forecast, id)
+    const category = airport === null ? null : shownCategory(airport)
+    if (category !== null) out[id] = category
+  }
+  return out
 }
 
 const ft = (n: number): string => `${n.toLocaleString("en-US")} ft`

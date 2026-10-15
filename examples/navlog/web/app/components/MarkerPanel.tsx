@@ -1,9 +1,9 @@
 "use client"
 import { type KeyboardEvent, useEffect, useRef } from "react"
-import type { AirportWeather } from "../lib/forecast"
+import { type AirportWeather, shownCategory } from "../lib/forecast"
 import { Icon } from "./icons"
 import { RawReport } from "./RawReport"
-import { categoryText, shownCategory } from "./WeatherTab"
+import { categoryText } from "./WeatherTab"
 
 export interface MarkerPanelProps {
   /** The marker's id, as the map labels it. */

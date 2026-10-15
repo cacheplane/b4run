@@ -1,5 +1,11 @@
 import { type ReactNode, useId } from "react"
-import { type AirportWeather, advisoryLine, type Forecast, windsLine } from "../lib/forecast"
+import {
+  type AirportWeather,
+  advisoryLine,
+  type Forecast,
+  shownCategory,
+  windsLine,
+} from "../lib/forecast"
 import { formatUtcHhmm } from "../lib/format"
 import type { Navlog } from "../lib/navlog-types"
 import { groupByRole, placeText, type RoleEntry, type RouteStation } from "../lib/weather-roles"
@@ -11,11 +17,6 @@ export interface WeatherTabProps {
   readonly forecast: Forecast | null
   readonly navlog: Navlog
   readonly stations: readonly RouteStation[]
-}
-
-/** The category an airport is shown in, on its pill and its map marker: at its time, else now. */
-export function shownCategory(airport: AirportWeather): AirportWeather["categoryNow"] {
-  return airport.categoryAtTime ?? airport.categoryNow
 }
 
 /**
@@ -106,7 +107,10 @@ export function WeatherTab({ forecast, navlog, stations }: WeatherTabProps) {
   if (forecast === null) {
     return (
       <div className="pb-2">
-        <p className="mt-3 text-[13px] text-wb-muted">No weather brief yet.</p>
+        {/* A navlog without a forecast block was planned before computeNavlog computed one. */}
+        <p className="mt-3 text-[13px] text-wb-muted">
+          This plan has no computed forecast; replan to see it.
+        </p>
         <Section id={headingId("origin")} title="Origin">
           <p className="font-mono text-[13px] font-bold">{roles.origin.id}</p>
         </Section>
