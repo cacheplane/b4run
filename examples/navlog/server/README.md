@@ -1,10 +1,10 @@
 # Navlog demo — server
 
 The flagship [B4.run](https://github.com/cacheplane/b4run) example: a VFR flight
-planner for a Cessna 172N. It briefs the weather from live aviationweather.gov
-data (no key), looks up performance in the 1978 172N POH tables, computes the
-navlog in code, and files an ICAO flight plan only when the pilot asks and a
-person approves. Live planning uses a real model and API key; the unit tests
+planner for a Cessna 172N. It looks up performance in the 1978 172N POH tables,
+computes the navlog in code together with its weather facts from live
+aviationweather.gov data (no key), narrates those facts, and files an ICAO
+flight plan only when the pilot asks and a person approves. Live planning uses a real model and API key; the unit tests
 and evals are keyless.
 
 ## Run it
@@ -22,10 +22,11 @@ pnpm --filter @b4-example/navlog-server memory:list
 To run against a real model, set `OPENAI_API_KEY` and add `--live`
 (e.g. `pnpm --filter @b4-example/navlog-server eval -- --live`). The keyless
 path replays scripted model turns, so evals are deterministic and need no API
-key; the tools still run, so the weather tools reach aviationweather.gov.
+key; the tools still run, so `computeNavlog` and the weather tools reach
+aviationweather.gov.
 
-The weather tools call the aviationweather.gov Data API, which needs no key and
-is cached in-process for five minutes. Set `B4_AWC_BASE_URL` to point them at a
+`computeNavlog` and the weather tools call the aviationweather.gov Data API,
+which needs no key and is cached in-process for five minutes. Set `B4_AWC_BASE_URL` to point them at a
 local stub instead.
 
 ## Run the live web client
@@ -46,18 +47,19 @@ Open `http://localhost:3010`. The key stays on the B4.run server; see
 
 | Capability | File | What it shows |
 |---|---|---|
-| Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator |
-| Tools + typegen | `src/tools/` | `resolveDeparture`, `lookupAirport`, `lookupNavaid`, `findRouteStations`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `b4 typegen` writes their generated types |
-| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the ICAO flight plan, the winds-aloft parser, the route corridor `findRouteStations` filters on |
+| Agent route | `src/app/navlog/index.ts` | the flight-planning coordinator, which narrates the computed weather facts |
+| Tools + typegen | `src/tools/` | `resolveDeparture`, `lookupAirport`, `lookupNavaid`, `findRouteStations`, `getMetar`, `getTaf`, `getWindsAloft`, `getAdvisories`, `computeNavlog`, `fileFlightPlan`, `readDoc`, `renderChart`; `computeNavlog` times each leg, takes the winds-aloft forecast for the time it is flown and returns a `forecast` block (each airport's category now and when you are there, the advisories and their relevance, coverage and the verdict floor); `b4 typegen` writes their generated types |
+| Pure logic | `src/lib/` | great-circle and wind math, POH tables, the navlog core, the forecast rules (`src/lib/forecast/`: flight category, TAF at a time, advisory relevance, coverage, winds per leg, the verdict floor), the ICAO flight plan, the winds-aloft parser, the route corridor `findRouteStations` filters on |
 | Waypoint snapshot | `data/navaids.json`, `scripts/build-waypoints.mjs` | navaids for `lookupNavaid` and the web route bar's waypoints, built from OurAirports; see below |
-| Subagents | `src/app/navlog/subagents/` | `weather` and `performance`, each scoped to its own tools, dispatched via `task({ subagent, input })` |
+| Winds-aloft stations | `data/winds-stations.json`, `scripts/build-winds-stations.mjs` | the FB station positions `computeNavlog` picks each leg's winds from |
+| Subagents | `src/app/navlog/subagents/` | `performance`, scoped to its own tools, dispatched via `task({ subagent, input })` |
 | Planning | `src/app/navlog/plan.md` | seeded checklist becomes the thread's todos |
 | Memory | `workspace/AGENTS.md`, `memory.md`, `memory.ts` | prompt memory plus typed `recall`/`remember` for the pilot's own aircraft facts and preferences, which override the `aircraft/c172n.md` baseline |
-| Skills | `src/app/navlog/skills/` | `brief-weather`, `poh-lookup` |
+| Skills | `src/app/navlog/skills/` | `brief-weather` (how to narrate the computed forecast), `poh-lookup` |
 | HITL approval | `src/app/navlog/index.ts` (`tools.approve`) | `fileFlightPlan` asks a person before every call (`allowAlways: false`: no "Always allow") |
 | Workspace | `workspace/` | POH and regulation excerpts, the aircraft baseline, saved navlogs, recorded flight plans; `AGENTS.md`, `aircraft/`, `poh/` and `regs/` are read-only via `b4.config.ts` |
 | Persistence | (default) | threads survive a restart (SQLite) |
-| Tests | `test/` | keyless unit tests of `computeNavlog`, the tables, the parsers and the tools |
+| Tests | `test/` | keyless unit tests of `computeNavlog`, the forecast rules, the tables, the parsers and the tools |
 | Evals | `src/app/navlog/evals/` | `defineEval` + scorers + a gate; the scripted runs it replays are in `navlog-quality.fixtures.ts` |
 
 The tests live in `test/`, named for what they cover (`src/lib/wind.ts` is tested in
@@ -88,7 +90,8 @@ It writes both files and stamps today's date (UTC), or the date given with
 `findRouteStations` is the other half of the en-route weather: it asks
 aviationweather.gov for the METAR stations around each leg, keeps up to 6
 within 25 nm of the course (not the route's own airports), and orders them by
-distance along the route for the `weather` subagent.
+distance along the route. The coordinator passes their ids to `computeNavlog`,
+which adds each station's METAR and TAF to the `forecast` block.
 
 ## Memory review
 

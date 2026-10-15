@@ -5,8 +5,8 @@ A [CopilotKit](https://docs.copilotkit.ai) v2 app (`@copilotkit/react-core/v2` +
 required catch-all route (`app/api/copilotkit/[...path]/route.ts`) registers an
 `B4HttpAgent` (`@b4run/ag-ui/client`) pointed at B4.run's encoded `/navlog#agent` endpoint. It is a
 workbench rather than a chat widget: CopilotKit's stock `<CopilotChat>` sits in
-the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the `weather` and
-`performance` subagents, tool steps and approval appear in the conversation, and the
+the middle column, beside a sidenav and the map, inside B4.run's `<B4Activity>`, so each turn's plan, the
+`performance` subagent, tool steps and approval appear in the conversation, and the
 map, its route bar and the sheet read the same turns from outside the chat.
 
 It runs live at <https://navlog-web.vercel.app>. The live app uses a real model;
@@ -38,7 +38,7 @@ scroll (the connect screen scrolls itself on a short viewport).
   panel. The en-route reporting stations from the latest `findRouteStations` result
   draw as small grey markers with their identifier and category. Airport and station
   markers are buttons: clicking one opens a panel in the map's corner with the id, the
-  category now and at ETA, and the raw METAR and TAF from the weather brief (Escape
+  category now and at ETA, and the raw METAR and TAF from computeNavlog's forecast (Escape
   or the close button dismisses it); navaid markers are labels only. Labels never
   sit on each other or on another marker's dot (`app/lib/map/labels.ts`): each goes
   right of its dot, else left of it, else it hides until the marker is hovered or
@@ -47,8 +47,8 @@ scroll (the connect screen scrolls itself on a short viewport).
 - **Chat** (middle column, `app/components/ChatDock.tsx`) — the thread title and run
   status above the chat (`app/components/NavlogChat.tsx`), which is `<CopilotChat>`
   with B4.run's slots (`useB4ChatSlots`):
-  - one `TurnActivity` per turn: a summary line, the plan, the `weather` and
-    `performance` subagents nested, and each tool call as a step;
+  - one `TurnActivity` per turn: a summary line, the plan, the `performance`
+    subagent nested, and each tool call as a step;
   - the kit's `ApprovalCard` for the `fileFlightPlan` approval; the input waits
     while it is open;
   - the agent's answer as a structured brief (see [Structured answer](#structured-answer));
@@ -86,11 +86,12 @@ scroll (the connect screen scrolls itself on a short viewport).
   WCA, MH, TAS, GS, distance, ETE, ETA and fuel per climb and cruise segment, with Leg
   pinned left). The grid scrolls in its own region above a fixed totals strip, and
   selecting a row lights that leg on the map. **Weather** (`WeatherTab.tsx`) groups the
-  brief's airports as Origin, En route and Destination (`app/lib/weather-roles.ts`), each
-  card with the category now → at ETA and the raw METAR and TAF, or "No report in the
-  brief"; en route lists intermediate airports and stations by distance along the route
-  ("98 nm along"). Below them come the winds aloft per leg, the advisories as hazard
-  chips, and the forecast-horizon note. **Totals & plan** holds the totals tiles
+  forecast's airports as Origin, En route and Destination (`app/lib/weather-roles.ts`), each
+  card with the category now → at its time and the raw METAR and TAF, or "Not in the
+  forecast"; en route lists intermediate airports and stations by distance along the route
+  ("98 nm along"). Below them come the winds aloft, one line per leg, the advisories,
+  the ones during the flight first, and, when the forecasts do not yet reach the
+  flight, a coverage notice naming each gap. **Totals & plan** holds the totals tiles
   and the ICAO flight plan items 7 to 19 (`FlightPlanBlock.tsx`); **Brief** holds the
   full verdict card and the assistant's brief. **Print** prints the sheet alone on one
   landscape page (the `@media print` rules in `app/styles/print.css`), every leg included, with
@@ -115,16 +116,15 @@ unit tests:
 - `latestNavlogResult(turns)` and `parseNavlog` (`app/lib/navlog-selectors.ts`) — the most
   recent `computeNavlog` tool result, parsed into the `Navlog` shape
   (`app/lib/navlog-types.ts` mirrors the server's type field for field).
-- `latestWeatherBriefText(turns)` and `parseWeatherBrief` (`app/lib/weather-selectors.ts`)
-  — the most recent completed `weather` subagent step, parsed from the brief the
-  subagent is prompted to write. The parser tolerates bullets, bold headers and SPECI reports, and a
-  brief it cannot read leaves the Weather tab and marker panels empty rather than throwing.
-  The brief's "Advisories:" and "Winds per leg:" lines are read for display by
-  `app/lib/advisories.ts` and `app/lib/winds.ts`.
+- `readForecast(navlog)` (`app/lib/forecast.ts`) — the `forecast` block of that same
+  `computeNavlog` result: each airport's METAR, TAF and category now and at its time, the
+  winds per leg, the advisories with their relevance, coverage and the verdict floor.
+  The server computes it; the web only renders it, so there is no prose to parse. A
+  result without one leaves the Weather tab and marker panels empty rather than throwing.
 - `routeGeometry(navlog)` (`app/lib/route-geometry.ts`) — the polyline, markers, heading
   labels and bounds the map draws.
 - `latestRouteStations(turns)` and `groupByRole` (`app/lib/weather-roles.ts`) — the stations
-  from the latest `findRouteStations` result, and the brief's airports grouped as origin,
+  from the latest `findRouteStations` result, and the forecast's airports grouped as origin,
   en route (by distance along) and destination.
 
 The route bar's draft (`app/lib/route-draft.ts`) is the one piece of local state: the
@@ -347,7 +347,7 @@ Leaflet layers, marker icons and label placement together in `app/lib/map/`.
 - **Brief kit** (`app/brief/*.test.*`): the schema, the components, the parser and
   `BriefRenderer`, plus the brief contract (`app/lib/brief-contract.test.ts`) and the
   verdict (`app/lib/verdict.test.ts`).
-- **Map and sheet:** the navlog and weather selectors, route geometry, label
+- **Map and sheet:** the navlog selectors, the forecast reader, route geometry, label
   collision placement (`app/lib/map/labels.test.ts`), the route map's markers, layers
   and draft rules (`app/lib/map/`), `RouteMap` itself over a fake Leaflet
   (`RouteMap.test.tsx`: which layers it adds and how its markers answer), the
@@ -365,8 +365,8 @@ The model-free `test:e2e` browser test proves the V2 transport begins with
 `GET /api/copilotkit/info` rather than the legacy single-endpoint `POST`.
 
 To smoke-test a live run, start both processes with a real `OPENAI_API_KEY` in
-`server/.env`, type `KPAO SNS KSBA` in the route bar and press **Plan**: the plan and
-subagent steps stream into the chat, the route and its weather draw on the map, the
+`server/.env`, type `KPAO SNS KSBA` in the route bar and press **Plan**: the plan, the
+performance subagent and the tool steps stream into the chat, the route and its weather draw on the map, the
 navlog sheet fills in, and the brief renders. Ask it to file the plan to see the
 approval card, and reload mid-approval to see it come back. The same run works
 against the [live demo](https://navlog-web.vercel.app).

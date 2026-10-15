@@ -2,10 +2,11 @@
 
 The flagship B4.run example: a flight-planning agent for a Cessna 172N and the
 web workbench that drives it. Type a route such as `KPAO SNS KSBA`, and the agent
-briefs the live weather from aviationweather.gov (no key), looks up performance in
-the 1978 172N POH tables, computes the navlog in code rather than in the model,
-answers with a structured go/no-go brief, and files an ICAO flight plan only when
-you ask and a person approves.
+looks up performance in the 1978 172N POH tables, computes the navlog in code
+rather than in the model, together with the live weather from aviationweather.gov
+(no key) at the times each leg is flown, answers with a structured go/no-go brief
+that narrates those facts, and files an ICAO flight plan only when you ask and a
+person approves.
 
 **Live demo:** <https://navlog-web.vercel.app> (the web client on Vercel, the
 B4.run server on Railway).
@@ -43,11 +44,11 @@ start one process each, and `pnpm test` runs both packages' Vitest suites.
 | Path | What is there |
 |---|---|
 | `src/app/navlog/` | the `/navlog` agent route, its `plan.md`, memory, skills and evals |
-| `src/app/navlog/subagents/` | `weather` (METAR, TAF, winds aloft, advisories) and `performance` (POH lookups) |
-| `src/tools/` | the app's tools, one per file: `computeNavlog`, the weather tools, `fileFlightPlan` and the rest |
-| `src/lib/` | pure logic: wind and great-circle math, the POH tables, the navlog core, the ICAO flight plan |
+| `src/app/navlog/subagents/` | `performance` (POH lookups) |
+| `src/tools/` | the app's tools, one per file: `computeNavlog` (the navlog and its `forecast` block), the weather tools, `fileFlightPlan` and the rest |
+| `src/lib/` | pure logic: wind and great-circle math, the POH tables, the navlog core, the forecast rules (`forecast/`), the ICAO flight plan |
 | `src/auth.ts`, `src/thread-access.ts` | who the caller is, and which threads they may reach |
-| `data/`, `scripts/` | the navaid snapshot and the script that rebuilds it from OurAirports |
+| `data/`, `scripts/` | the navaid and winds-aloft station snapshots and the scripts that rebuild them |
 | `workspace/` | the agent's read-only corpus (POH and regulation excerpts, the aircraft baseline, `AGENTS.md`) plus its writable reports and flight plans |
 | `test/` | keyless unit tests |
 
@@ -57,7 +58,7 @@ start one process each, and `pnpm test` runs both packages' Vitest suites.
 |---|---|
 | `app/components/` | the shell (`AppShell`, `WorkbenchLayout` with `DesktopWorkbench` and `PhoneWorkbench`, `SideNav`), the chat (`ChatDock`, `NavlogChat`), the map (`RouteMap`, `RouteBar`, `MarkerPanel`) and the sheet (`NavlogSheet`, `WeatherTab`, `FlightPlanBlock`) |
 | `app/brief/` | the brief kit: the structured answer's schema, components and renderer |
-| `app/lib/` | pure selectors and helpers that turn the thread into navlog, weather and map data |
+| `app/lib/` | pure selectors and helpers that turn the thread into navlog, weather and map data; the weather is computeNavlog's `forecast` block (`forecast.ts`) |
 | `app/api/` | the CopilotKit runtime route, the memory proxy, the waypoint search, the thread access check (`/api/threads/:id`) and the demo-owner sign-in (`/api/admin`) |
 
 ## How a request flows
@@ -66,7 +67,7 @@ start one process each, and `pnpm test` runs both packages' Vitest suites.
 browser
   → /api/copilotkit/*                 (web: CopilotKit runtime route, no API key)
     → B4HttpAgent → POST /agui/%2Fnavlog%23agent   (B4.run server, holds OPENAI_API_KEY)
-      → the /navlog agent and its subagents
+      → the /navlog agent and its performance subagent
         → AG-UI event stream back to the browser
 ```
 
