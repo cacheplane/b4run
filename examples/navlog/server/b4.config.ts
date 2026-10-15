@@ -35,13 +35,13 @@ export default config({
   // denied and fileFlightPlan asks a person before each call.
 
   // Tool-output offloading. Results above the threshold are spilled to
-  // workspace/tool-outputs/ and replaced in-context with a short stub.
-  // High enough that a navlog is never offloaded: the Workbench reads
-  // computeNavlog's result off the wire. POH tables and weather bundles stay
-  // inline too.
+  // workspace/tool-outputs/ and replaced in-context with a short stub. The
+  // Workbench reads computeNavlog's and findRouteStations' results off the
+  // wire, so those two are never offloaded, however long the route.
   toolOutput: {
     offloadThresholdChars: 12000,
     previewLines: 10,
+    noOffloadTools: ["computeNavlog", "findRouteStations"],
   },
 
   memory: {
