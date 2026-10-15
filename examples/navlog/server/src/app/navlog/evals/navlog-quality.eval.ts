@@ -5,6 +5,7 @@ import { z } from "zod"
 import {
   BASELINE_AIRCRAFT,
   DEPARTURE_1400,
+  DEPARTURE_1500Z,
   DIRECT,
   KOWA,
   KRST,
@@ -17,7 +18,7 @@ import {
 } from "./navlog-quality.fixtures.js"
 
 const JUDGE_CRITERIA =
-  "The answer is a structured brief that opens with a GO, CAUTION or NO-GO BottomLine, gives the ETE, fuel burned and the reserve at destination in KeyNumbers, lists its assumptions, and cites at least one POH figure in Citations."
+  "The answer is a structured brief that opens with a GO, CAUTION or NO-GO BottomLine, gives the ETE, fuel burned and the reserve at destination in KeyNumbers, lists its assumptions, and cites at least one POH figure in Citations. The answer's level is at least the computed verdict floor and its reason matches the forecast."
 // The scripted judge turn is matched by a substring of the judge's prompt, so
 // derive it from the criteria rather than restating it.
 const JUDGE_MATCH = JUDGE_CRITERIA.slice(0, 32)
@@ -29,7 +30,9 @@ const WORKSPACE = fileURLToPath(new URL("../../../../workspace/", import.meta.ur
 const BRIEF_SCHEMA = JSON.parse(
   readFileSync(new URL("./brief-schema.json", import.meta.url), "utf8"),
 ) as Record<string, unknown>
-const LEVELS = ["GO", "CAUTION", "NO-GO"]
+const LEVELS = ["GO", "CAUTION", "NO-GO"] as const
+/** A verdict level's order, GO lowest; -1 for anything else. */
+const rank = (level: string): number => LEVELS.indexOf(level as (typeof LEVELS)[number])
 // What a planning answer must never contain outside its Citations: an echoed
 // tool call, the todo list's statuses, a workspace path, or ETE mislabelled as
 // engine time.
@@ -116,6 +119,14 @@ const itemsOf = (
 ): Record<string, unknown>[] =>
   Array.isArray(props?.items) ? (props.items as Record<string, unknown>[]) : []
 
+/** The props of the answer's opening BottomLine, or undefined when it does not open with one. */
+const bottomLineOf = (brief: readonly BriefNode[]): Readonly<Record<string, unknown>> | undefined =>
+  brief[0]?.BottomLine?.props
+
+/** The answer's Assumptions items. */
+const assumptionsOf = (brief: readonly BriefNode[]): Record<string, unknown>[] =>
+  itemsOf(propsOf(brief, "Assumptions"))
+
 export default defineEval({
   name: "navlog quality",
   dataset: [
@@ -125,7 +136,7 @@ export default defineEval({
       fixtures: planFixtures(
         {
           input: DIRECT_INPUT,
-          departureTimeUtc: "2026-10-06T14:00:00Z",
+          departure: "1400Z",
           waypoints: [KSTP, KRST],
           navlogTable:
             "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
@@ -144,22 +155,22 @@ export default defineEval({
       fixtures: planFixtures(
         {
           input: VIA_OWA_INPUT,
-          departureTimeUtc: "2026-10-06T15:00:00Z",
+          departure: "1500Z",
           waypoints: [KSTP, KOWA, KRST],
           navlogTable:
             "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KOWA | climb | 190 | 80 | 8 | 6 | 2.3 |\n| KSTP | KOWA | cruise | 198 | 122 | 41 | 20 | 2.3 |\n| KOWA | KRST | cruise | 106 | 127 | 36 | 17 | 2.0 |\n\nTotals: 85 nm, 43 min, 6.6 gal, reserve 371 min.\n",
           brief: planBrief({
             via: ["KOWA"],
-            departureUtc: "2026-10-06 1500Z",
+            departureUtc: DEPARTURE_1500Z.brief,
             reason:
-              "KSTP, KOWA and KRST are VFR now and through the 1543Z ETA, with no advisory during the flight.",
+              "Hold the flight until a re-brief closer to departure confirms KSTP, KOWA and KRST VFR.",
             distanceNm: "85",
             ete: "0:43",
             fuelBurnedGal: "6.6",
             fuelAtLandingGal: "43.4",
             reserve: "6:11",
             assumptions: [
-              { statement: "Departure 2026-10-06 1500Z", origin: "pilot" },
+              { statement: `Departure ${DEPARTURE_1500Z.brief}`, origin: "pilot" },
               ONE_ON_BOARD,
             ],
             closing: OFFER,
@@ -176,7 +187,7 @@ export default defineEval({
       fixtures: planFixtures(
         {
           input: NO_FILING_INPUT,
-          departureTimeUtc: "2026-10-06T14:00:00Z",
+          departure: "1400Z",
           waypoints: [KSTP, KRST],
           navlogTable:
             "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
@@ -197,7 +208,7 @@ export default defineEval({
         {
           input: BASELINE_INPUT,
           aircraft: BASELINE_AIRCRAFT,
-          departureTimeUtc: "2026-10-06T14:00:00Z",
+          departure: "1400Z",
           waypoints: [KSTP, KRST],
           navlogTable:
             "| From | To | Segment | MH | GS | Dist | ETE | Fuel |\n|---|---|---|---|---|---|---|---|\n| KSTP | KRST | climb | 158 | 80 | 8 | 6 | 2.3 |\n| KSTP | KRST | cruise | 161 | 129 | 58 | 27 | 3.2 |\n\nTotals: 66 nm, 33 min, 5.5 gal, reserve 380 min.\n",
@@ -219,7 +230,6 @@ export default defineEval({
   ],
   scorers: [
     toolCalled("computeNavlog", { threshold: 1 }),
-    toolCalled("task", { withArgs: { subagent: "weather" }, threshold: 1 }),
     toolCalled("task", { withArgs: { subagent: "performance" }, threshold: 1 }),
     custom((run) => (navlogSchema.safeParse(navlogResult(run)).success ? 1 : 0), {
       name: "navlog-shape",
@@ -248,10 +258,10 @@ export default defineEval({
       (run) => {
         const brief = briefOf(run.finalMessage)
         if (brief === undefined) return NOT_STRUCTURED
-        const first = brief[0]?.BottomLine?.props
+        const first = bottomLineOf(brief)
         if (first === undefined)
           return { score: 0, reason: "the first component is not a BottomLine" }
-        return typeof first.reason === "string" && LEVELS.includes(String(first.level))
+        return typeof first.reason === "string" && rank(String(first.level)) >= 0
           ? 1
           : { score: 0, reason: `the BottomLine has no GO/CAUTION/NO-GO level and reason` }
       },
@@ -280,11 +290,44 @@ export default defineEval({
       (run) => {
         const brief = briefOf(run.finalMessage)
         if (brief === undefined) return NOT_STRUCTURED
-        return itemsOf(propsOf(brief, "Assumptions")).length > 0
+        return assumptionsOf(brief).length > 0
           ? 1
           : { score: 0, reason: "the answer lists no Assumptions" }
       },
       { name: "lists-assumptions", threshold: 1 },
+    ),
+    // The answer may raise computeNavlog's verdict floor, never lower it.
+    custom(
+      (run) => {
+        const navlog = navlogResult(run) as {
+          forecast?: { verdictFloor?: { level?: string } }
+        } | null
+        const floor = navlog?.forecast?.verdictFloor?.level
+        if (floor === undefined || rank(floor) < 0)
+          return { score: 0, reason: "computeNavlog returned no verdict floor" }
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const answer = String(bottomLineOf(brief)?.level)
+        if (rank(answer) < 0) return { score: 0, reason: "the BottomLine has no level" }
+        return rank(answer) >= rank(floor)
+          ? 1
+          : { score: 0, reason: `the BottomLine says ${answer} under a ${floor} floor` }
+      },
+      { name: "bottom-line-respects-floor", threshold: 1 },
+    ),
+    // The Workbench shows the forecast's coverage; the answer never states it.
+    custom(
+      (run) => {
+        const brief = briefOf(run.finalMessage)
+        if (brief === undefined) return NOT_STRUCTURED
+        const found = assumptionsOf(brief)
+          .map((item) => String(item.statement))
+          .filter((statement) => /prelim|coverage/i.test(statement))
+        return found.length === 0
+          ? 1
+          : { score: 0, reason: `Assumptions state the coverage: ${found.join("; ")}` }
+      },
+      { name: "no-coverage-assumption", threshold: 1 },
     ),
     // At least one poh/<file>.md source, and every cited POH file exists.
     custom(
