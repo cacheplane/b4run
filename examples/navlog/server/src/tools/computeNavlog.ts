@@ -1,12 +1,13 @@
 import type { B4ToolContext, ToolDisplay } from "@b4run/sdk"
 import { fetchAdvisoriesNear } from "../lib/forecast/advisories.js"
 import { buildForecast, legIntervals } from "../lib/forecast/build.js"
-import { intervalCovered } from "../lib/forecast/coverage.js"
+import { hhmmZ, intervalCovered } from "../lib/forecast/coverage.js"
 import { fetchMetars } from "../lib/forecast/metar.js"
 import { fetchTafs } from "../lib/forecast/taf.js"
 import type { Forecast, LegWind } from "../lib/forecast/types.js"
 import {
   chooseProduct,
+  FORECAST_HOURS,
   fetchWindsProducts,
   nearestWindsStation,
   windWindows,
@@ -18,7 +19,7 @@ import {
   type NavlogWaypoint,
   computeNavlog as navlogOf,
 } from "../lib/navlog.js"
-import { interpolateWind, type StationWinds } from "../lib/winds-aloft.js"
+import { forUseWindow, interpolateWind, type StationWinds } from "../lib/winds-aloft.js"
 
 export type ComputeNavlogInput = Omit<NavlogInput, "winds"> & {
   /** The en-route stations findRouteStations returned, with their alongNm. */
@@ -100,6 +101,24 @@ export default async (
       ? { ...w, covered: intervalCovered(interval.startMs, interval.endMs, windows) }
       : w
   })
+  // One re-pick only. If a leg's final mid-time still falls under another
+  // forecast than the one its winds came from, keep these winds and say so.
+  const notes = winds.flatMap((w, i) => {
+    const interval = flown[i]
+    const final = interval ? chooseProduct(products, interval.midMs, now) : null
+    if (!interval || !final || final.window.fromUtc === w.forUseFromUtc) return []
+    const used = FORECAST_HOURS.find((h) => {
+      const product = products.get(h)
+      return product !== undefined && forUseWindow(product, now)?.fromUtc === w.forUseFromUtc
+    })
+    const span = (from: string, to: string) => `${hhmmZ(Date.parse(from))}–${hhmmZ(Date.parse(to))}`
+    const where = final.covered
+      ? `falls in the ${final.forecastHours}-hour forecast (for use ${span(final.window.fromUtc, final.window.toUtc)})`
+      : "falls outside every published forecast's window"
+    return [
+      `Winds for leg ${w.leg} are from ${used === undefined ? "the forecast" : `the ${used}-hour forecast`} (for use ${span(w.forUseFromUtc, w.forUseToUtc)}), but flown on those winds the leg's mid-time, ${hhmmZ(interval.midMs)}, ${where}; one re-timing did not settle it.`,
+    ]
+  })
 
   const stations = input.stations ?? []
   const ends = [input.waypoints[0], input.waypoints.at(-1)]
@@ -119,6 +138,7 @@ export default async (
     tafs,
     advisories,
     stations,
+    ...(notes.length > 0 ? { notes } : {}),
   })
   return { ...navlog, forecast }
 }

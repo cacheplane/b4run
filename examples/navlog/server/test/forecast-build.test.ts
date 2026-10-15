@@ -131,6 +131,20 @@ describe("buildForecast", () => {
     expect(forecast.notes).toEqual(["No TAF issued for KS33"])
   })
 
+  it("carries the caller's notes first, de-duplicated with its own", () => {
+    const forecast = buildForecast({
+      navlog: navlog([KPDX, KBDN]),
+      winds: [],
+      windWindows: [],
+      metars: [metarFor("KPDX"), metarFor("KS33"), metarFor("KBDN")],
+      tafs: [tafFor("KPDX"), tafFor("KBDN")],
+      advisories: [],
+      stations: [{ id: "KS33", alongNm: 80 }],
+      notes: ["Winds for leg 1 did not settle", "No TAF issued for KS33"],
+    })
+    expect(forecast.notes).toEqual(["Winds for leg 1 did not settle", "No TAF issued for KS33"])
+  })
+
   it("builds for a navaid destination with no METAR or TAF", () => {
     const SNS: NavlogWaypoint = {
       id: "SNS",

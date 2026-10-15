@@ -67,6 +67,8 @@ export interface BuildForecastInput {
   readonly advisories: readonly Advisory[]
   /** En-route stations, with their distance along the route. */
   readonly stations: readonly { readonly id: string; readonly alongNm: number }[]
+  /** Notes the caller already has (e.g. a leg's winds that never settled on one forecast). */
+  readonly notes?: readonly string[]
 }
 
 /** Every weather fact for one planned flight, from data already fetched. Pure. */
@@ -77,7 +79,7 @@ export function buildForecast(input: BuildForecastInput): Forecast {
   const flight: TimeWindow = { fromMs: departureMs, toMs: etaMs }
   const metarById = new Map(input.metars.map((m) => [m.id.toUpperCase(), m]))
   const tafById = new Map(input.tafs.map((t) => [t.id.toUpperCase(), t]))
-  const notes: string[] = []
+  const notes: string[] = [...(input.notes ?? [])]
 
   const weatherAt = (
     id: string,
