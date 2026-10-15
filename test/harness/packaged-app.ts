@@ -389,6 +389,8 @@ export async function runPackagedNpmCommand(options: {
 export async function runGeneratedAppNpmCommand(options: {
   readonly args: readonly string[]
   readonly cwd: string
+  /** Added on top of the inherited environment; `GENERATED_APP_UNSET_ENV` is still unset. */
+  readonly env?: Readonly<Record<string, string>>
   readonly signal?: AbortSignal
   readonly timeoutMs?: number
   readonly transcriptPath?: string
@@ -398,6 +400,7 @@ export async function runGeneratedAppNpmCommand(options: {
     args: [...candidateRegistryNpmArgs(getTestRegistryUrl()), ...displayArgs],
     cwd: options.cwd,
     displayArgs,
+    ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.transcriptPath ? { transcriptPath: options.transcriptPath } : {}),

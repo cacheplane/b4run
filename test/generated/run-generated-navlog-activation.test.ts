@@ -1643,9 +1643,12 @@ test("activates the navlog scaffold (--template navlog) through the complete npm
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
+    // The eval's tools run for real, and computeNavlog fetches its forecast:
+    // on the loopback stub, as for the servers below, never aviationweather.gov.
     await runGeneratedAppNpmCommand({
       args: ["run", "eval"],
       cwd: appRoot,
+      env: { B4_AWC_BASE_URL: activeAwcStub.baseUrl },
       signal: lifecycleSignal,
       transcriptPath: commandsTranscriptPath,
     })
