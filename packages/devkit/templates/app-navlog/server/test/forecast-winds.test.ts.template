@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveStations, stationIds } from "../scripts/build-winds-stations.mjs"
+import { resolveStations, serializeTable, stationIds } from "../scripts/build-winds-stations.mjs"
 import { nearestWindsStation, windsStationTable } from "../src/lib/forecast/winds.ts"
 
 // Points neither the navaid snapshot nor an airport record places: the Gulf
@@ -41,6 +41,24 @@ describe("winds stations table", () => {
       ],
       unresolved: ["H51"],
     })
+  })
+})
+
+describe("serializeTable", () => {
+  it("writes two-space JSON with one station row per line", () => {
+    const table = {
+      snapshot: "2026-10-15",
+      unresolved: ["H51"],
+      stations: [
+        ["ABI", 32.4813, -99.8635],
+        ["ACK", 41.2818, -70.0267],
+      ] as [string, number, number][],
+    }
+    const text = serializeTable(table)
+    expect(text).toBe(
+      '{\n  "snapshot": "2026-10-15",\n  "unresolved": ["H51"],\n  "stations": [\n    ["ABI", 32.4813, -99.8635],\n    ["ACK", 41.2818, -70.0267]\n  ]\n}\n',
+    )
+    expect(JSON.parse(text)).toEqual(table)
   })
 })
 

@@ -6,9 +6,9 @@
 //
 // Positions come from the bundled navaid snapshot (data/navaids.json, VOR
 // family) first, then from aviationweather.gov's airport record for K<id>.
-// Stations neither resolves (the Gulf points H51, H52, H61) are listed as
-// unresolved and left out: a VFR 172 plan never needs them. Writes
-// ../data/winds-stations.json.
+// Stations neither resolves (the Gulf points H51, H52, H61, offshore ids such
+// as T01 and 2XG, and the land stations HAT and MQT, which the navaid snapshot
+// lacks) are listed as unresolved and left out. Writes ../data/winds-stations.json.
 
 import { readFileSync, writeFileSync } from "node:fs"
 import { pathToFileURL } from "node:url"
@@ -56,6 +56,20 @@ export async function resolveStations(ids, navaidRows, lookupAirport) {
   return { stations, unresolved }
 }
 
+/** The table as Biome-formatted JSON: two-space indent, one station row per line. */
+export function serializeTable(table) {
+  const list = (items) => `[${items.map((item) => JSON.stringify(item)).join(", ")}]`
+  const rows = table.stations.map((row) => `    ${list(row)}`).join(",\n")
+  return [
+    "{",
+    `  "snapshot": ${JSON.stringify(table.snapshot)},`,
+    `  "unresolved": ${list(table.unresolved)},`,
+    `  "stations": [\n${rows}\n  ]`,
+    "}",
+    "",
+  ].join("\n")
+}
+
 async function main() {
   const dateArg = process.argv.indexOf("--date")
   const snapshot = dateArg > 0 ? process.argv[dateArg + 1] : new Date().toISOString().slice(0, 10)
@@ -71,7 +85,7 @@ async function main() {
   const { stations, unresolved } = await resolveStations(stationIds(text), navaids, lookupAirport)
   writeFileSync(
     new URL("../data/winds-stations.json", import.meta.url),
-    `${JSON.stringify({ snapshot, unresolved, stations })}\n`,
+    serializeTable({ snapshot, unresolved, stations }),
   )
   console.log(
     `winds-stations: ${stations.length} stations, unresolved: ${unresolved.join(", ") || "none"}`,
