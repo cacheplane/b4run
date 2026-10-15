@@ -5,7 +5,7 @@ export default agent({
   description:
     "Looks up Cessna 172N POH performance for the actual fields: takeoff and landing distances, the cruise row to use, and climb figures, with figure citations.",
   // A subagent sees every authored tool by default; allow only re-adds
-  // withheld capability tools. Deny the weather subagent's tools and the
+  // withheld capability tools. Deny the weather tools and the
   // parent's, so each child does its own job and nothing else.
   tools: {
     allow: ["readDoc", "lookupAirport"],
