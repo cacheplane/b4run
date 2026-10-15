@@ -1,212 +1,36 @@
 import { describe, expect, test } from "vitest"
-import { SAMPLE_NAVLOG } from "./test-fixtures"
-import { effectiveVerdict, maxGustKt, raiseNote, resolveVerdict, verdictFloor } from "./verdict"
-import { parseWeatherBrief } from "./weather-selectors"
+import type { Forecast } from "./forecast"
+import {
+  type EffectiveVerdict,
+  effectiveVerdict,
+  isWorse,
+  outrankNote,
+  raiseNote,
+  resolveVerdict,
+  type VerdictLevel,
+} from "./verdict"
 
-/**
- * The brief from the live run that said GO: gusts to 25 kt at both airports,
- * and a departure 21 hours out, beyond the TAFs.
- */
-const GUSTY_GO = `Verdict: GO — VFR at both ends and light winds aloft.
-Forecast horizon: Departure is 21 hours out; the TAFs do not reach it yet, so this brief is preliminary.
-Airports:
-KFCM: VFR now, VFR at ETA, ceiling none, visibility 10 mi, wind 300 at 15 gusting 25. METAR KFCM 061553Z 30015G25KT 10SM CLR 08/M02 A3012 TAF KFCM 061120Z 0612/0712 30014G24KT P6SM SKC
-KDLH: VFR now, VFR at ETA, ceiling 6000 ft, visibility 10 mi, wind 310 at 14 gusting 25. METAR KDLH 061555Z 31014G25KT 10SM BKN060 04/M03 A3009 TAF KDLH 061120Z 0612/0712 31012G22KT P6SM BKN060
-Winds per leg:
-leg 1: 318/26 -4C at 5,500 ft, MSP, valid 070000Z
-Advisories:
-none
-Go/no-go note: Expect a gusty crosswind on landing.`
-
-/** A brief in the contract's shape, with the parts each test varies. */
-function brief({
-  verdict = "Verdict: GO — VFR all the way.",
-  horizon = "Forecast horizon: Departure is 3 hours out, within TAF coverage.",
-  kfcm = "VFR now, VFR at ETA. METAR KFCM 061553Z 30008KT 10SM CLR 08/M02 A3012 TAF KFCM 061120Z 0612/0712 30008KT P6SM SKC",
-  kdlh = "VFR now, VFR at ETA. METAR KDLH 061555Z 31012KT 10SM BKN060 04/M03 A3009 TAF KDLH 061120Z 0612/0712 31010KT P6SM BKN060",
-  advisories = ["none"],
-}: {
-  verdict?: string
-  horizon?: string
-  kfcm?: string
-  kdlh?: string
-  advisories?: readonly string[]
-} = {}) {
-  return parseWeatherBrief(
-    [
-      verdict,
-      horizon,
-      "Airports:",
-      `KFCM: ${kfcm}`,
-      `KDLH: ${kdlh}`,
-      "Winds per leg:",
-      "leg 1: 318/26 -4C at 5,500 ft, MSP, valid 070000Z",
-      "Advisories:",
-      ...advisories,
-      "Go/no-go note: Fly it.",
-    ]
-      .filter((line) => line !== "")
-      .join("\n"),
-  )
+/** A minimal `Forecast` whose floor is `level` for `reasons`. */
+function forecast(level: VerdictLevel, reasons: readonly string[]): Forecast {
+  return {
+    winds: [],
+    airports: [],
+    advisories: [],
+    coverage: { preliminary: false, reasons: [] },
+    verdictFloor: { level, reasons },
+    notes: [],
+  } as unknown as Forecast
 }
 
-describe("maxGustKt", () => {
-  test("reads the highest gust group, VRB included", () => {
-    expect(maxGustKt("METAR KDLH 061555Z 31014G25KT 10SM")).toBe(25)
-    expect(maxGustKt("TAF KDLH 0612/0712 31012G22KT FM061800 VRB05G28KT")).toBe(28)
-    expect(maxGustKt("METAR KDLH 061555Z 240110G125KT")).toBe(125)
-    expect(maxGustKt("METAR KDLH 061555Z 31014KT 10SM")).toBeNull()
-    // A time group or a TAF validity period is not a wind.
-    expect(maxGustKt("TAF KDLH 061120Z 0612/0712")).toBeNull()
+/** A structured answer: one `BottomLine`, then prose that must not be read as a call. */
+function bottomLine(level: string, reason = "Because."): string {
+  return JSON.stringify({
+    ui: [
+      { BottomLine: { props: { level, reason, cite: [] } } },
+      { Prose: { props: { markdown: "Bottom line: GO — ignored, this is prose." } } },
+    ],
   })
-})
-
-describe("verdictFloor", () => {
-  test("a clean brief and a navlog with reserve: GO, no reasons", () => {
-    expect(verdictFloor(brief(), { cruiseFt: 5500, navlog: SAMPLE_NAVLOG })).toEqual({
-      level: "GO",
-      reasons: [],
-    })
-  })
-  test("no brief and no navlog: GO", () => {
-    expect(verdictFloor(null)).toEqual({ level: "GO", reasons: [] })
-  })
-  test("IFR or LIFR at the ETA is NO-GO", () => {
-    expect(verdictFloor(brief({ kdlh: "VFR now, IFR at ETA" }))).toEqual({
-      level: "NO-GO",
-      reasons: ["KDLH IFR at ETA"],
-    })
-    expect(verdictFloor(brief({ kfcm: "MVFR now, LIFR at ETA" })).reasons).toEqual([
-      "KFCM LIFR at ETA",
-    ])
-  })
-  test("IFR now but VFR at the ETA is not a NO-GO", () => {
-    expect(verdictFloor(brief({ kdlh: "IFR now, VFR at ETA" })).level).toBe("GO")
-  })
-  test("MVFR now or at the ETA is CAUTION", () => {
-    expect(verdictFloor(brief({ kdlh: "MVFR now, VFR at ETA" }))).toEqual({
-      level: "CAUTION",
-      reasons: ["KDLH MVFR now"],
-    })
-    expect(verdictFloor(brief({ kdlh: "VFR now, MVFR at ETA" })).reasons).toEqual([
-      "KDLH MVFR at ETA",
-    ])
-    expect(verdictFloor(brief({ kdlh: "MVFR now, MVFR at ETA" })).reasons).toEqual([
-      "KDLH MVFR now and at ETA",
-    ])
-  })
-  test("gusts over 20 kt in the METAR or the TAF are CAUTION; 20 kt is not", () => {
-    expect(
-      verdictFloor(brief({ kdlh: "VFR now, VFR at ETA. METAR KDLH 061555Z 31014G25KT 10SM" })),
-    ).toEqual({ level: "CAUTION", reasons: ["gusts 25 kt at KDLH"] })
-    expect(
-      verdictFloor(
-        brief({
-          kdlh: "VFR now, VFR at ETA. METAR KDLH 061555Z 31010KT TAF KDLH 0612/0712 VRB08G23KT",
-        }),
-      ).reasons,
-    ).toEqual(["gusts 23 kt at KDLH in the TAF"])
-    expect(
-      verdictFloor(
-        brief({
-          kdlh: "VFR now, VFR at ETA. METAR KDLH 061555Z 31014G22KT TAF KDLH 0612/0712 31015G30KT",
-        }),
-      ).reasons,
-    ).toEqual(["gusts 22 kt at KDLH (30 kt in the TAF)"])
-    expect(
-      verdictFloor(brief({ kdlh: "VFR now, VFR at ETA. METAR KDLH 061555Z 31012G20KT" })).level,
-    ).toBe("GO")
-  })
-  test("a preliminary horizon is CAUTION", () => {
-    expect(
-      verdictFloor(
-        brief({
-          horizon: "Forecast horizon: Departure is 37 hours out; this brief is preliminary.",
-        }),
-      ),
-    ).toEqual({ level: "CAUTION", reasons: ["forecast preliminary"] })
-  })
-  test("a freezing level within 2,000 ft of the cruise during the flight is CAUTION", () => {
-    const fzlvl = (ft: string, relevance = "during flight") =>
-      brief({
-        advisories: [
-          `G-AIRMET FZLVL | freezing level ${ft} ft | valid 2100Z–0300Z 07 | ${relevance}`,
-        ],
-      })
-    expect(verdictFloor(fzlvl("4,000"), { cruiseFt: 5500 })).toEqual({
-      level: "CAUTION",
-      reasons: ["freezing level 4,000 ft during flight"],
-    })
-    expect(verdictFloor(fzlvl("7,000"), { cruiseFt: 5500 }).level).toBe("CAUTION")
-    expect(verdictFloor(fzlvl("8,000"), { cruiseFt: 5500 }).level).toBe("GO")
-    expect(verdictFloor(fzlvl("4,000", "expires before departure"), { cruiseFt: 5500 }).level).toBe(
-      "GO",
-    )
-    // No cruise to compare with: the advisory counts.
-    expect(verdictFloor(fzlvl("8,000")).level).toBe("CAUTION")
-  })
-  test("LLWS, turbulence and convection during the flight are CAUTION; repeats count once", () => {
-    const floor = verdictFloor(
-      brief({
-        advisories: [
-          "G-AIRMET LLWS | SFC–2,000 ft | valid 1200Z–1500Z 07 | during flight",
-          "G-AIRMET TURB-LO | SFC–FL180 | valid 1200Z–1500Z 07 | during flight",
-          "G-AIRMET TURB-LO | SFC–FL180 | valid 1500Z–1800Z 07 | during flight",
-          "SIGMET CONVECTIVE | tops FL290 | valid 1200Z–1400Z 07 | during flight",
-          "SIGMET CONVECTIVE | tops FL350 | valid 0000Z–0200Z 07 | expires before departure",
-          "G-AIRMET MT_OBSC | valid 1200Z–1500Z 07 | during flight",
-        ],
-      }),
-      { cruiseFt: 5500 },
-    )
-    expect(floor).toEqual({
-      level: "CAUTION",
-      reasons: [
-        "low-level wind shear SFC–2,000 ft during flight",
-        "turbulence SFC–FL180 during flight",
-        "SIGMET Convective tops FL290 during flight",
-      ],
-    })
-  })
-  test("a reserve under 45 min is NO-GO", () => {
-    const thirsty = {
-      ...SAMPLE_NAVLOG,
-      totals: { ...SAMPLE_NAVLOG.totals, reserveMin: 38, reserveOk: false },
-    }
-    expect(verdictFloor(null, { navlog: thirsty })).toEqual({
-      level: "NO-GO",
-      reasons: ["reserve 0:38, under 45 min"],
-    })
-  })
-  test("every rule at once: NO-GO, with the NO-GO reasons first", () => {
-    const floor = verdictFloor(
-      brief({
-        horizon: "Forecast horizon: Departure is 30 hours out; this brief is preliminary.",
-        kfcm: "MVFR now, VFR at ETA. METAR KFCM 061553Z 30015G25KT",
-        kdlh: "VFR now, IFR at ETA",
-      }),
-      { cruiseFt: 5500 },
-    )
-    expect(floor.level).toBe("NO-GO")
-    expect(floor.reasons).toEqual([
-      "KDLH IFR at ETA",
-      "KFCM MVFR now",
-      "gusts 25 kt at KFCM",
-      "forecast preliminary",
-    ])
-  })
-  test("the live run's GO brief floors at CAUTION", () => {
-    expect(verdictFloor(parseWeatherBrief(GUSTY_GO), { cruiseFt: 5500 })).toEqual({
-      level: "CAUTION",
-      reasons: ["gusts 25 kt at KFCM", "gusts 25 kt at KDLH", "forecast preliminary"],
-    })
-  })
-  test("an old-format brief (no verdict, no horizon) is still checked", () => {
-    const old = parseWeatherBrief("Airports:\nKDLH: VFR now, IFR at ETA. METAR KDLH 1")
-    expect(old.verdict).toBeUndefined()
-    expect(verdictFloor(old).level).toBe("NO-GO")
-  })
-})
+}
 
 describe("effectiveVerdict", () => {
   const go = { level: "GO" as const, reason: "VFR all the way." }
@@ -260,117 +84,68 @@ describe("effectiveVerdict", () => {
 })
 
 describe("resolveVerdict", () => {
-  /** A structured answer: its `BottomLine`, then prose that must not be read as a call. */
-  const structured = (level: string, reason: string) =>
-    JSON.stringify({
-      ui: [
-        { BottomLine: { props: { level, reason, cite: [] } } },
-        { Prose: { props: { markdown: "Bottom line: GO — ignored, this is prose." } } },
-      ],
+  test("shows the floor when the planner's BottomLine is lower, with a raised note", () => {
+    const v = resolveVerdict({
+      forecast: forecast("CAUTION", ["forecast preliminary"]),
+      answer: bottomLine("GO"),
     })
-
-  test("the live run: GO from the brief and the planner, raised to CAUTION", () => {
-    const verdict = resolveVerdict({
-      weather: parseWeatherBrief(GUSTY_GO),
-      answer: structured("GO", "VFR the whole way."),
-      navlog: SAMPLE_NAVLOG,
-    })
-    expect(verdict).toEqual({
+    expect(v).toMatchObject({
       level: "CAUTION",
-      reason: "VFR at both ends and light winds aloft.",
       raisedFrom: "GO",
-      floorReasons: ["gusts 25 kt at KFCM", "gusts 25 kt at KDLH", "forecast preliminary"],
+      floorReasons: ["forecast preliminary"],
     })
-  })
-  test("the model's call is the worse of the brief's and the planner's BottomLine", () => {
-    // The planner's CAUTION raises the weather brief's GO.
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: structured("CAUTION", "I would wait an hour."),
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "CAUTION", reason: "I would wait an hour." })
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: structured("GO", "Fine."),
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "GO", reason: "VFR all the way." })
-  })
-  test("a BottomLine counts once its props close, and nothing else is a planner call", () => {
-    // Still streaming, the bottom line's props not closed: no call yet.
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: structured("NO-GO", "Ice.").slice(0, 40),
-        navlog: SAMPLE_NAVLOG,
-      })?.level,
-    ).toBe("GO")
-    // Still streaming, but the bottom line (the first component) is complete:
-    // the card already agrees with it.
-    const streaming = structured("NO-GO", "Ice.")
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: streaming.slice(0, streaming.indexOf('{"Prose"') + 12),
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "NO-GO", reason: "Ice." })
-    // A structured answer without a BottomLine is no planner call, not a text parse.
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: JSON.stringify({
-          ui: [{ Prose: { props: { markdown: "Bottom line: NO-GO — prose only." } } }],
-        }),
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "GO", reason: "VFR all the way." })
-    // Nor is a markdown answer (a thread from before the brief kit).
-    expect(
-      resolveVerdict({
-        weather: brief(),
-        answer: "Bottom line: NO-GO — markdown.",
-        navlog: SAMPLE_NAVLOG,
-      }),
-    ).toEqual({ level: "GO", reason: "VFR all the way." })
+    expect(raiseNote(v as EffectiveVerdict)).toBe("Raised from GO: forecast preliminary.")
   })
 
-  test("the navlog's altitude is the cruise for the freezing-level rule", () => {
-    const fz = brief({
-      advisories: [
-        "G-AIRMET FZLVL | freezing level 9,000 ft | valid 2100Z–0300Z 07 | during flight",
-      ],
+  test("keeps a planner's level above the floor, with no raised note", () => {
+    const v = resolveVerdict({
+      forecast: forecast("CAUTION", [
+        "freezing level 8,000 ft during the flight, below the 9,500 ft cruise",
+      ]),
+      answer: bottomLine("NO-GO"),
     })
-    // SAMPLE_NAVLOG cruises at 4,500 ft: 9,000 ft is more than 2,000 ft above it.
-    expect(resolveVerdict({ weather: fz, navlog: SAMPLE_NAVLOG })?.level).toBe("GO")
-    expect(resolveVerdict({ weather: fz, cruiseFt: 8000 })?.level).toBe("CAUTION")
+    expect(v?.level).toBe("NO-GO")
+    expect(raiseNote(v as EffectiveVerdict)).toBeNull()
+  })
+
+  test("is the floor alone while the answer is still streaming", () => {
+    expect(resolveVerdict({ forecast: forecast("GO", []) })).toBeNull()
+    expect(resolveVerdict({ forecast: forecast("NO-GO", ["KBDN IFR at ETA"]) })?.level).toBe(
+      "NO-GO",
+    )
+  })
+
+  test("is the planner's call when there is no forecast block", () => {
+    expect(resolveVerdict({ forecast: null, answer: bottomLine("CAUTION") })?.level).toBe("CAUTION")
+  })
+
+  test("a BottomLine counts once its props close; prose and markdown make no call", () => {
+    const f = forecast("GO", [])
+    const full = bottomLine("NO-GO", "Ice.")
+    expect(resolveVerdict({ forecast: f, answer: full.slice(0, 40) })).toBeNull()
+    expect(
+      resolveVerdict({ forecast: f, answer: full.slice(0, full.indexOf('{"Prose"') + 12) }),
+    ).toEqual({ level: "NO-GO", reason: "Ice." })
+    expect(resolveVerdict({ forecast: f, answer: "Bottom line: NO-GO — markdown." })).toBeNull()
   })
 })
 
-describe("a headerless brief from a live run", () => {
-  // The brief behind the 2026-10-07 run that showed GO with no strip: once the
-  // airports parse, its own gusts raise the verdict.
-  const brief = parseWeatherBrief(
-    [
-      "Verdict: GO — both departure and destination are VFR at the planned time.",
-      "Forecast horizon: Departure is within TAF and winds-aloft coverage.",
-      "KFCM: VFR now, unknown at ETA (TAF unavailable), wind 290 at 11G21 kt. METAR KFCM 072153Z 29011G21KT 10SM CLR 22/03 A2991",
-      "KDLH: VFR now, VFR at ETA, wind 320 at 15G25 kt. METAR KDLH 072155Z 32015G25KT 10SM FEW070 16/00 A2984. TAF KDLH 071720Z 0718/0818 29016G27KT P6SM FEW060",
-      "Advisories:",
-      "none",
-    ].join("\n"),
-  )
-
-  test("raises GO to CAUTION on the gusts it reports", () => {
-    const floor = verdictFloor(brief, { cruiseFt: 5500 })
-    expect(floor.level).toBe("CAUTION")
-    expect(floor.reasons.join("; ")).toMatch(/gusts 21 kt at KFCM/)
-    expect(floor.reasons.join("; ")).toMatch(/gusts 25 kt at KDLH/)
-    const shown = effectiveVerdict(brief.verdict, floor)
-    expect(shown?.level).toBe("CAUTION")
-    expect(shown?.raisedFrom).toBe("GO")
+describe("outrankNote and isWorse", () => {
+  test("outrankNote names the floor's reasons, or the verdict's own level", () => {
+    expect(
+      outrankNote("GO", {
+        level: "CAUTION",
+        reason: "",
+        raisedFrom: "GO",
+        floorReasons: ["forecast preliminary"],
+      }),
+    ).toBe("The planner said GO. Raised: forecast preliminary.")
+    expect(outrankNote("GO", { level: "CAUTION", reason: "" })).toBe(
+      "The planner said GO. The weather brief said CAUTION.",
+    )
+  })
+  test("isWorse ranks GO < CAUTION < NO-GO", () => {
+    expect(isWorse("NO-GO", "CAUTION")).toBe(true)
+    expect(isWorse("GO", "GO")).toBe(false)
   })
 })

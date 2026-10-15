@@ -1,35 +1,11 @@
 import { readBottomLine } from "../brief/parse"
-import { advisoryLabel, parseAdvisory } from "./advisories"
-import { formatHhmm } from "./format"
-import type { Navlog } from "./navlog-types"
-import { isPreliminary, type WeatherBrief } from "./weather-selectors"
+import type { Forecast, VerdictFloor } from "./forecast"
 
 /**
- * The go/no-go verdict: where it comes from, and which call wins.
- *
- * Three sources make a call, and the page shows the WORST of them:
- *
- * 1. The weather subagent's brief, its "Verdict:" line (`weather.verdict`),
- *    judged on the weather alone.
- * 2. The planning answer's bottom line: the structured brief kit's
- *    `BottomLine` (`readBottomLine`). The coordinator's prompt tells it to use
- *    the weather brief's verdict unless performance makes it worse: a reserve
- *    under 45 minutes is NO-GO. A markdown answer (a thread from before the
- *    kit) has no bottom line read here, so it makes no call.
- * 3. The verdict floor (`verdictFloor`): the weather rules and the same
- *    reserve rule, enforced in code against the brief's data and the navlog.
- *
- * `resolveVerdict` takes the worse of 1 and 2 (the weather brief's on a tie,
- * since its sentence is about the weather), and the floor raises that when it
- * is worse still. Nothing ever lowers a call: a model that judged the weather
- * worse than these rules can see keeps its call.
- *
- * The floor exists because the weather subagent is prompted with the rules
- * (NO-GO for IFR or LIFR at either end at the ETA; CAUTION for MVFR, gusts
- * over 20 kt, a preliminary forecast, a freezing level near the cruise, LLWS
- * or turbulence during the flight) and nothing makes a model follow them: it
- * can say "GO" over a brief that reports gusts to 25 kt and calls itself
- * preliminary.
+ * The go/no-go verdict: the planner's `BottomLine` (`readBottomLine`), raised
+ * to the floor computeNavlog computed (`forecast.verdictFloor`) when that is
+ * worse. The client never re-derives the floor; a markdown answer (a thread
+ * from before the brief kit) makes no planner call. Nothing ever lowers a call.
  */
 
 export type VerdictLevel = "GO" | "CAUTION" | "NO-GO"
@@ -41,117 +17,6 @@ export interface Verdict {
 }
 
 const RANK: Readonly<Record<VerdictLevel, number>> = { GO: 0, CAUTION: 1, "NO-GO": 2 }
-
-/** The least the verdict can be, and why. `GO` with no reasons when nothing applies. */
-export interface VerdictFloor {
-  readonly level: VerdictLevel
-  /** Short phrases, NO-GO reasons first: `KDLH IFR at ETA`, `gusts 25 kt at KDLH`. */
-  readonly reasons: readonly string[]
-}
-
-export interface VerdictFloorOptions {
-  /** The planned cruise altitude, in feet, for the freezing-level rule. */
-  readonly cruiseFt?: number | undefined
-  /** The navlog on screen, for the reserve rule. */
-  readonly navlog?: Pick<Navlog, "totals"> | null | undefined
-}
-
-/** `31015G25KT`, `VRB05G22KT`, `240110G125KT`: the gust, in knots. */
-const GUST = /\b(?:\d{3}|VRB)\d{2,3}G(\d{2,3})KT\b/g
-
-/** The highest gust a raw report names, or null. */
-export function maxGustKt(raw: string): number | null {
-  let max: number | null = null
-  for (const m of raw.matchAll(GUST)) {
-    const kt = Number(m[1])
-    if (max === null || kt > max) max = kt
-  }
-  return max
-}
-
-/** Over this, a gust is a CAUTION (the brief's rule: "gusts over 20 kt"). */
-const GUST_LIMIT_KT = 20
-/** A freezing level or icing within this of the cruise is a CAUTION. */
-const FREEZING_MARGIN_FT = 2000
-/** The VFR day reserve the navlog is checked against. */
-const RESERVE_MIN = 45
-
-const ICING = /\b(FZLVL|M-FZLVL|ICE|ICING|FREEZING)\b/i
-const ALWAYS = /\b(LLWS|TURB(?:-LO|-HI)?|TURBULENCE|CONVECTIVE|TS|THUNDERSTORMS?)\b/i
-
-/** `Freezing level 4,000 ft` reads mid-sentence as `freezing level 4,000 ft`; `SIGMET …` stays. */
-const midSentence = (label: string): string =>
-  /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label
-
-/**
- * The floor under the verdict, from data the client already has: the brief's
- * airports (categories and raw METAR/TAF), its forecast horizon and
- * advisories, and the navlog's reserve.
- *
- * - IFR or LIFR at the ETA at any airport: NO-GO.
- * - Reserve under 45 min: NO-GO.
- * - MVFR now or at the ETA: CAUTION.
- * - A gust over 20 kt in a METAR or a TAF: CAUTION. A TAF group cannot be
- *   placed in the flight window exactly from the raw text, so any gust in the
- *   TAF counts, and the reason says "in the TAF".
- * - A preliminary forecast horizon: CAUTION.
- * - An advisory during the flight for LLWS, turbulence or convection, or for
- *   icing or a freezing level within 2,000 ft of (or below) the cruise, or at
- *   an altitude the line does not give: CAUTION.
- */
-export function verdictFloor(
-  brief: WeatherBrief | null | undefined,
-  { cruiseFt, navlog }: VerdictFloorOptions = {},
-): VerdictFloor {
-  const noGo: string[] = []
-  const caution: string[] = []
-  for (const airport of brief?.airports ?? []) {
-    const ifrAtEta = airport.atEta === "IFR" || airport.atEta === "LIFR"
-    if (ifrAtEta) noGo.push(`${airport.id} ${airport.atEta} at ETA`)
-    const mvfrNow = airport.now === "MVFR"
-    const mvfrEta = airport.atEta === "MVFR"
-    if (mvfrNow && mvfrEta) caution.push(`${airport.id} MVFR now and at ETA`)
-    else if (mvfrNow && !ifrAtEta) caution.push(`${airport.id} MVFR now`)
-    else if (mvfrEta) caution.push(`${airport.id} MVFR at ETA`)
-    const metarGust = maxGustKt(airport.metar)
-    const tafGust = maxGustKt(airport.taf)
-    const metarOver = metarGust !== null && metarGust > GUST_LIMIT_KT
-    const tafOver = tafGust !== null && tafGust > GUST_LIMIT_KT
-    if (metarOver && tafOver && (tafGust as number) > (metarGust as number)) {
-      caution.push(`gusts ${metarGust} kt at ${airport.id} (${tafGust} kt in the TAF)`)
-    } else if (metarOver) {
-      caution.push(`gusts ${metarGust} kt at ${airport.id}`)
-    } else if (tafOver) {
-      caution.push(`gusts ${tafGust} kt at ${airport.id} in the TAF`)
-    }
-  }
-  if (brief && isPreliminary(brief.horizon)) caution.push("forecast preliminary")
-  const seen = new Set<string>()
-  for (const line of brief?.advisories ?? []) {
-    const advisory = parseAdvisory(line)
-    if (advisory.relevance !== "during flight") continue
-    const hazard = advisory.hazard !== "" ? advisory.hazard : advisory.raw
-    const icing = ICING.test(hazard)
-    if (!icing && !ALWAYS.test(hazard)) continue
-    if (
-      icing &&
-      cruiseFt !== undefined &&
-      advisory.lowestFt !== null &&
-      advisory.lowestFt > cruiseFt + FREEZING_MARGIN_FT
-    ) {
-      continue
-    }
-    const reason = `${midSentence(advisoryLabel(advisory))} during flight`
-    if (seen.has(reason)) continue
-    seen.add(reason)
-    caution.push(reason)
-  }
-  if (navlog && !navlog.totals.reserveOk) {
-    noGo.push(`reserve ${formatHhmm(navlog.totals.reserveMin)}, under ${RESERVE_MIN} min`)
-  }
-  const level: VerdictLevel = noGo.length > 0 ? "NO-GO" : caution.length > 0 ? "CAUTION" : "GO"
-  return { level, reasons: [...noGo, ...caution] }
-}
 
 /**
  * The verdict the page shows: the model's call, raised to the floor when the
@@ -203,45 +68,22 @@ export function raiseNote(verdict: EffectiveVerdict): string | null {
   return `${lead}: ${reasons}.`
 }
 
-/** What `resolveVerdict` reads: each source, and the cruise altitude for the floor. */
+/** What `resolveVerdict` reads: the computed facts and the planning answer. */
 export interface ResolveVerdictInput {
-  /** The weather subagent's parsed brief. */
-  readonly weather?: WeatherBrief | null | undefined
-  /** The planning answer's text, for its `BottomLine` verdict. */
+  /** computeNavlog's forecast block for the navlog on screen. */
+  readonly forecast: Forecast | null
+  /** The planning answer's text, for its BottomLine. */
   readonly answer?: string | undefined
-  /** The navlog on screen: its reserve, and its altitude as the cruise. */
-  readonly navlog?: Pick<Navlog, "totals" | "altitudeFt"> | null | undefined
-  /** The cruise altitude, when there is no navlog to read it from. */
-  readonly cruiseFt?: number | undefined
 }
 
 /**
- * The one verdict every surface shows (the sheet's card and pill, the
- * planning brief's bottom line), so they cannot disagree.
- *
- * The model's call is the worse of the weather brief's "Verdict:" and the
- * planner's `BottomLine` (the brief's on a tie, since its sentence is the
- * weather's), then the floor raises it.
+ * The one verdict every surface shows. The planner's BottomLine, raised to
+ * the floor computeNavlog computed when it is lower (the "Raised from" note
+ * says why); a planner's call above the floor stands, with its own reason.
  */
-export function resolveVerdict({
-  weather,
-  answer,
-  navlog,
-  cruiseFt,
-}: ResolveVerdictInput): EffectiveVerdict | null {
-  const fromWeather = weather?.verdict ?? null
-  // Read as soon as the BottomLine's props close, while the rest still streams.
-  const fromPlanner = answer ? readBottomLine(answer) : null
-  const model =
-    fromWeather === null
-      ? fromPlanner
-      : fromPlanner !== null && RANK[fromPlanner.level] > RANK[fromWeather.level]
-        ? fromPlanner
-        : fromWeather
-  const floor = verdictFloor(weather, {
-    cruiseFt: cruiseFt ?? navlog?.altitudeFt,
-    navlog,
-  })
+export function resolveVerdict({ forecast, answer }: ResolveVerdictInput): EffectiveVerdict | null {
+  const model = answer ? readBottomLine(answer) : null
+  const floor: VerdictFloor = forecast?.verdictFloor ?? { level: "GO", reasons: [] }
   return effectiveVerdict(model, floor)
 }
 
