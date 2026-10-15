@@ -3,9 +3,10 @@ import { act, useContext } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, test, vi } from "vitest"
+import type { AirportWeather, Forecast } from "../lib/forecast"
 import { pairIndexOf } from "../lib/route-geometry"
 import { SheetControlContext } from "../lib/sheet-control"
-import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { WorkbenchLayout, type WorkbenchLayoutProps } from "./WorkbenchLayout"
 
 const viewport = vi.hoisted(() => ({ desktop: true }))
@@ -67,7 +68,7 @@ vi.mock("../lib/use-sidebar-state", () => ({
 
 const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutProps => ({
   navlog: SAMPLE_NAVLOG,
-  weatherBrief: null,
+  forecast: null,
   stations: [],
   planningAnswer: "ok",
   chat: <p>transcript</p>,
@@ -89,28 +90,20 @@ const props = (overrides: Partial<WorkbenchLayoutProps> = {}): WorkbenchLayoutPr
 
 const count = (html: string, needle: string): number => html.split(needle).length - 1
 
-const BRIEF = {
+const [KPDX, , KBDN] = SAMPLE_FORECAST.airports as readonly AirportWeather[]
+/** The shared forecast, its ids those of the navlog the layout draws: KSTP and KRST. */
+const FORECAST: Forecast = {
+  ...SAMPLE_FORECAST,
   airports: [
+    { ...(KPDX as AirportWeather), id: "KSTP", metar: null },
     {
-      id: "KSTP",
-      now: "VFR" as const,
-      atEta: "VFR" as const,
-      line: "",
-      metar: "METAR KSTP 1",
-      taf: "TAF KSTP 2",
-    },
-    {
+      ...(KBDN as AirportWeather),
       id: "KRST",
-      now: "MVFR" as const,
-      atEta: "VFR" as const,
-      line: "",
-      metar: "METAR KRST 1",
-      taf: "",
+      categoryNow: "MVFR",
+      categoryAtTime: "VFR",
+      metar: { raw: "KRST 1", category: "MVFR", observedAt: "2026-10-12T17:56:00.000Z" },
     },
   ],
-  winds: [],
-  advisories: [],
-  note: "",
 }
 
 describe("WorkbenchLayout on desktop", () => {
@@ -145,22 +138,21 @@ describe("WorkbenchLayout on desktop", () => {
     const html = renderToStaticMarkup(<WorkbenchLayout {...props({ memoryCount: 2 })} />)
     expect(html).toContain(">2<")
   })
-  test("map markers take each airport's worst category", () => {
-    const weatherBrief = {
+  test("map markers take each airport's category at its time, else now", () => {
+    const forecast: Forecast = {
+      ...FORECAST,
       airports: [
-        { id: "KSTP", now: "VFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
-        // Improving: MVFR now, VFR at ETA is MVFR on the chip and the marker.
-        { id: "KRST", now: "MVFR" as const, atEta: "VFR" as const, line: "", metar: "", taf: "" },
+        ...FORECAST.airports,
+        // No TAF reaching its time: the category now. Neither known: no color.
+        { ...(KPDX as AirportWeather), id: "KOWA", categoryNow: "IFR", categoryAtTime: null },
+        { ...(KPDX as AirportWeather), id: "KAEL", categoryNow: null, categoryAtTime: null },
       ],
-      winds: [],
-      advisories: [],
-      note: "",
     }
-    renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief })} />)
-    expect(map.categories).toEqual({ KSTP: "VFR", KRST: "MVFR" })
+    renderToStaticMarkup(<WorkbenchLayout {...props({ forecast })} />)
+    expect(map.categories).toEqual({ KSTP: "VFR", KRST: "VFR", KOWA: "IFR" })
   })
   test("the route bar floats over the map, with nothing else over it", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief: BRIEF })} />)
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ forecast: FORECAST })} />)
     expect(count(html, 'aria-label="Route"')).toBe(1)
     expect(html.indexOf('data-testid="map"')).toBeLessThan(html.indexOf('aria-label="Route"'))
     expect(html.indexOf('aria-label="Route"')).toBeLessThan(html.indexOf('aria-label="Navlog"'))
@@ -216,7 +208,7 @@ describe("WorkbenchLayout on a phone", () => {
     expect(html).toMatch(/<button[^>]*id="wb-tab-navlog"[^>]*disabled=""/)
   })
   test("the route bar sits in the Map panel, alone", () => {
-    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ weatherBrief: BRIEF })} />)
+    const html = renderToStaticMarkup(<WorkbenchLayout {...props({ forecast: FORECAST })} />)
     const start = html.indexOf('id="wb-panel-map"')
     const end = html.indexOf('id="wb-panel-navlog"')
     expect(start).toBeGreaterThan(-1)
@@ -587,39 +579,39 @@ describe("WorkbenchLayout route bar and marker panel", () => {
     expect(replan?.disabled).toBe(true)
     view.unmount()
   })
-  test("a marker opens its weather panel with the brief's reports; Close closes it", () => {
-    const view = mount({ weatherBrief: BRIEF })
+  test("a marker opens its weather panel with the forecast's reports; Close closes it", () => {
+    const view = mount({ forecast: FORECAST })
     expect(panel(view.container)).toBeNull()
     act(() => map.onSelectMarker?.("krst"))
     expect(map.selectedMarker).toBe("krst")
     const dialog = panel(view.container)
     expect(dialog?.getAttribute("aria-label")).toBe("krst weather")
     expect(dialog?.textContent).toContain("METARKRST 1")
-    expect(dialog?.textContent).toContain("MVFR now → VFR at ETA")
+    expect(dialog?.textContent).toContain("MVFR now → VFR at 1905Z")
     view.click('[role="dialog"] button[aria-label="Close"]')
     expect(panel(view.container)).toBeNull()
     expect(map.selectedMarker).toBeNull()
     view.unmount()
   })
-  test("a station's panel names it; a marker missing from the brief says so", () => {
+  test("a station's panel names it; a marker missing from the forecast says so", () => {
     const stations = [
       { id: "KAEL", name: "Albert Lea", lat: 43.68, lon: -93.37, alongNm: 50, offsetNm: 4 },
     ]
-    const view = mount({ weatherBrief: BRIEF, stations })
+    const view = mount({ forecast: FORECAST, stations })
     act(() => map.onSelectMarker?.("KAEL"))
     expect(panel(view.container)?.textContent).toContain("Albert Lea")
-    expect(panel(view.container)?.textContent).toContain("No report in the brief")
+    expect(panel(view.container)?.textContent).toContain("Not in the forecast")
     view.unmount()
   })
   test("on a phone the panel opens inside the Map panel", () => {
     viewport.desktop = false
-    const view = mount({ weatherBrief: BRIEF })
+    const view = mount({ forecast: FORECAST })
     act(() => map.onSelectMarker?.("KSTP"))
     expect(view.container.querySelector('#wb-panel-map [role="dialog"]')).not.toBeNull()
     view.unmount()
   })
   test("a new navlog closes the panel", () => {
-    const view = mount({ weatherBrief: BRIEF })
+    const view = mount({ forecast: FORECAST })
     act(() => map.onSelectMarker?.("KSTP"))
     expect(panel(view.container)).not.toBeNull()
     view.render({ navlog: { ...SAMPLE_NAVLOG } })

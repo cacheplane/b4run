@@ -69,7 +69,7 @@ describe("latestNavlogResult", () => {
     const view = fold([
       runStart,
       ...toolCall("c1", "computeNavlog", GOOD),
-      ...toolCall("c2", "computeNavlog", "Error: computeNavlog needs one wind entry per leg (1)"),
+      ...toolCall("c2", "computeNavlog", "Error: computeNavlog needs at least two waypoints"),
     ])
     expect(latestNavlogResult(view)).toEqual({ id: "c1", result: GOOD })
   })

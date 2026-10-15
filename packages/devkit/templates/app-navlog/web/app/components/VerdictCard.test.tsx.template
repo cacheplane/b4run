@@ -1,95 +1,105 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { parseAdvisory } from "../lib/advisories"
-import { SAMPLE_NAVLOG } from "../lib/test-fixtures"
+import { type AdvisoryFact, advisoryLine, type Forecast } from "../lib/forecast"
+import { SAMPLE_FORECAST, SAMPLE_NAVLOG } from "../lib/test-fixtures"
 import { type EffectiveVerdict, resolveVerdict } from "../lib/verdict"
-import { parseWeatherBrief } from "../lib/weather-selectors"
 import { NavlogSheet } from "./NavlogSheet"
 import { VerdictCard, VerdictPill } from "./VerdictCard"
 import { WeatherTab } from "./WeatherTab"
 
-const FZLVL = "G-AIRMET FZLVL | freezing level 4,000 ft | valid 2100Z–0300Z 07 | during flight"
-const SIGMET = "SIGMET CONVECTIVE | tops FL290 | valid 2355Z–0155Z 06 | expires before departure"
-const BRIEF = parseWeatherBrief(`Verdict: CAUTION — the freezing level is below the cruise.
-Forecast horizon: Departure is 37 hours out; TAFs and winds aloft do not reach it yet, so this brief is preliminary.
-Airports:
-KSTP: VFR now, VFR at ETA, ceiling none. METAR KSTP 1 TAF KSTP 2
-KRST: VFR now, VFR at ETA, ceiling none. METAR KRST 1 TAF KRST 2
-Winds per leg:
-leg 1: 318/26, temp NA at 5,500 ft, MSP, based on 060000Z, valid 070000Z (FB chi region, 24-hour forecast used)
-Advisories:
-${SIGMET}
-${FZLVL}
-Go/no-go note: Fly lower.`)
+const FZLVL = SAMPLE_FORECAST.advisories[0] as AdvisoryFact
+const ICE: AdvisoryFact = {
+  product: "AIRMET",
+  hazard: "ICE",
+  lowestFt: 6000,
+  highestFt: 14000,
+  validFromUtc: "2026-10-12T18:00:00.000Z",
+  validToUtc: "2026-10-13T00:00:00.000Z",
+  relevance: "during-flight",
+}
+const SIGMET: AdvisoryFact = {
+  product: "SIGMET",
+  hazard: "CONVECTIVE",
+  lowestFt: null,
+  highestFt: 29000,
+  validFromUtc: "2026-10-12T12:00:00.000Z",
+  validToUtc: "2026-10-12T14:00:00.000Z",
+  relevance: "before-departure",
+}
+const FLOOR_REASON = "freezing level 8,000 ft during the flight, below the 9,500 ft cruise"
+const PRELIMINARY: Forecast = {
+  ...SAMPLE_FORECAST,
+  coverage: { preliminary: true, reasons: ["the KBDN TAF ends 1200Z, before the 1315Z ETA"] },
+}
+
+/** The text a reader sees, tags dropped. */
+const text = (html: string): string => html.replace(/<[^>]+>/g, "")
 
 /** A structured answer that is only a `BottomLine`: the planner's call. */
 const bottomLine = (level: "GO" | "CAUTION" | "NO-GO", reason: string): string =>
   JSON.stringify({ ui: [{ BottomLine: { props: { level, reason, cite: [] } } }] })
 
 describe("VerdictCard", () => {
-  test("shows the level as a word with an icon, the reason, and hazards loudest first", () => {
+  test("shows the level as a word with an icon, the reason, and the during-flight hazards", () => {
     const html = renderToStaticMarkup(
       <VerdictCard
         verdict={{ level: "NO-GO", reason: "Icing in the clouds." }}
-        advisories={[parseAdvisory(SIGMET), parseAdvisory(FZLVL)]}
-        cruiseFt={5500}
+        advisories={[SIGMET, FZLVL, ICE]}
+        cruiseFt={9500}
       />,
     )
     expect(html).toContain('data-level="NO-GO"')
     expect(html).toContain(">NO-GO<")
     expect(html).toContain("<svg")
     expect(html).toContain("Icing in the clouds.")
-    expect(html.indexOf("Freezing level 4,000 ft")).toBeLessThan(html.indexOf("SIGMET Convective"))
+    expect(html).toContain(advisoryLine(FZLVL))
+    expect(html).toContain(advisoryLine(ICE))
+    // Icing at or below the cruise is red; a freezing level is amber.
+    expect(html).toContain('data-severity="danger"')
     expect(html).toContain('data-severity="warn"')
-    expect(html).toContain('data-severity="muted"')
-    expect(html).toContain("· expires before departure")
+    expect(html.indexOf(advisoryLine(ICE))).toBeLessThan(html.indexOf(advisoryLine(FZLVL)))
+    // An advisory outside the flight earns no chip on the card.
+    expect(html).not.toContain(advisoryLine(SIGMET))
+    expect(html).not.toContain('data-severity="muted"')
   })
-  test("shows the horizon only when it says the brief is preliminary", () => {
+  test("shows the preliminary note only when the forecast's coverage says so", () => {
     const verdict = { level: "GO" as const, reason: "" }
     expect(
-      renderToStaticMarkup(
-        <VerdictCard
-          verdict={verdict}
-          horizon="Departure is 37 hours out; this brief is preliminary."
-        />,
-      ),
-    ).toContain("Preliminary.")
+      text(renderToStaticMarkup(<VerdictCard verdict={verdict} coverage={PRELIMINARY.coverage} />)),
+    ).toContain("Preliminary: the KBDN TAF ends 1200Z, before the 1315Z ETA")
     expect(
-      renderToStaticMarkup(
-        <VerdictCard verdict={verdict} horizon="Departure is within TAF coverage." />,
-      ),
-    ).not.toContain("Preliminary.")
+      renderToStaticMarkup(<VerdictCard verdict={verdict} coverage={SAMPLE_FORECAST.coverage} />),
+    ).not.toContain("Preliminary")
   })
 })
 
-/** The pill for a brief alone, resolved as the sheet resolves it. */
+/** The pill for a forecast alone, resolved as the sheet resolves it. */
 const pillFor = (verdict: EffectiveVerdict | null): string =>
   verdict === null ? "" : renderToStaticMarkup(<VerdictPill verdict={verdict} />)
 
 describe("the verdict contract outside the card", () => {
-  test("the pill resolves CAUTION from the brief's verdict", () => {
-    expect(pillFor(resolveVerdict({ weather: BRIEF, cruiseFt: 5500 }))).toContain(
+  test("the pill resolves CAUTION from the forecast's floor", () => {
+    expect(pillFor(resolveVerdict({ forecast: SAMPLE_FORECAST }))).toContain(
       'class="wb-verdict-pill" data-level="CAUTION"',
     )
   })
-  test("the Weather tab shows hazard chips, readable winds and the preliminary note", () => {
+  test("the Weather tab shows the advisory line, the winds and the preliminary note", () => {
     const html = renderToStaticMarkup(
-      <WeatherTab weather={BRIEF} navlog={SAMPLE_NAVLOG} stations={[]} cruiseFt={5500} />,
+      <WeatherTab forecast={PRELIMINARY} navlog={SAMPLE_NAVLOG} stations={[]} />,
     )
-    expect(html).toContain("Freezing level 4,000 ft")
-    expect(html).toContain('data-severity="warn"')
-    expect(html).toContain("318° at 26 kt (MSP, 24 h forecast)")
-    expect(html).toContain("Preliminary.")
+    expect(html).toContain(advisoryLine(FZLVL))
+    expect(html).toContain("028° at 17 kt")
+    expect(text(html)).toContain("Preliminary: the KBDN TAF ends 1200Z")
   })
 })
 
 describe("NavlogSheet verdict", () => {
-  test("the weather brief's verdict tops the sheet, before the totals", () => {
+  test("the forecast's floor tops the sheet, before the totals", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
         planningAnswer=""
-        weatherBrief={BRIEF}
+        forecast={SAMPLE_FORECAST}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -99,7 +109,7 @@ describe("NavlogSheet verdict", () => {
     expect(html).toContain('aria-label="Verdict summary"')
     expect(html.indexOf("Verdict summary")).toBeLessThan(html.indexOf('aria-label="Totals"'))
     expect(html).toContain('aria-label="Go/no-go verdict"')
-    expect(html).toContain("Freezing level 4,000 ft")
+    expect(html).toContain(advisoryLine(FZLVL))
   })
   test("falls back to the planning answer's bottom line", () => {
     const html = renderToStaticMarkup(
@@ -115,12 +125,12 @@ describe("NavlogSheet verdict", () => {
     expect(html).toContain('class="wb-verdict" data-level="GO"')
     expect(html).toContain("VFR all the way.")
   })
-  test("an old brief and a markdown answer show no verdict card and no planning brief", () => {
+  test("no forecast and a markdown answer show no verdict card and no planning brief", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
         planningAnswer="KSTP and KRST are VFR."
-        weatherBrief={parseWeatherBrief("Airports:\nKSTP: VFR now, VFR at ETA")}
+        forecast={null}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -154,7 +164,7 @@ describe("NavlogSheet verdict", () => {
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
         planningAnswer=""
-        weatherBrief={BRIEF}
+        forecast={SAMPLE_FORECAST}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -170,18 +180,7 @@ describe("NavlogSheet verdict", () => {
   })
 })
 
-/** The live run's brief: the agent said GO over gusts to 25 kt and a preliminary forecast. */
-const GUSTY_GO = parseWeatherBrief(`Verdict: GO — VFR at both ends and light winds aloft.
-Forecast horizon: Departure is 21 hours out; the TAFs do not reach it yet, so this brief is preliminary.
-Airports:
-KFCM: VFR now, VFR at ETA, wind 300 at 15 gusting 25. METAR KFCM 061553Z 30015G25KT 10SM CLR 08/M02 A3012 TAF KFCM 061120Z 0612/0712 30014G24KT P6SM SKC
-KDLH: VFR now, VFR at ETA, wind 310 at 14 gusting 25. METAR KDLH 061555Z 31014G25KT 10SM BKN060 04/M03 A3009 TAF KDLH 061120Z 0612/0712 31012G22KT P6SM BKN060
-Winds per leg:
-leg 1: 318/26 -4C at 5,500 ft, MSP, valid 070000Z
-Advisories:
-none
-Go/no-go note: Expect a gusty crosswind on landing.`)
-const PLANNER_GO = bottomLine("GO", "VFR the whole way at 4,500 ft.")
+const PLANNER_GO = bottomLine("GO", "VFR the whole way at 9,500 ft.")
 const RAISED = {
   level: "CAUTION" as const,
   reason: "VFR at both ends and light winds aloft.",
@@ -208,7 +207,7 @@ describe("a verdict the floor raised", () => {
     expect(html).not.toContain("The agent said")
     expect(html).toContain("Icing in the clouds.")
   })
-  test("a card from the floor alone says the brief's data set it", () => {
+  test("a card from the floor alone says the computed forecast set it", () => {
     const html = renderToStaticMarkup(
       <VerdictCard
         verdict={{
@@ -220,7 +219,7 @@ describe("a verdict the floor raised", () => {
       />,
     )
     expect(html).toContain(">NO-GO<")
-    expect(html).toContain("From the brief&#x27;s data: KDLH IFR at ETA.")
+    expect(html).toContain("From the computed forecast: KDLH IFR at ETA.")
     expect(html).not.toContain("The agent said")
   })
   test("the pill shows the raised level as word and icon, says raised, and explains in its title", () => {
@@ -236,14 +235,17 @@ describe("a verdict the floor raised", () => {
     const html = renderToStaticMarkup(<VerdictPill verdict={{ level: "GO", reason: "Fine." }} />)
     expect(html).not.toContain("raised")
   })
-  test("the pill raises the live run's GO to CAUTION", () => {
-    const html = pillFor(resolveVerdict({ weather: GUSTY_GO, cruiseFt: 4500 }))
+  test("the pill raises the planner's GO to the floor's CAUTION", () => {
+    const html = pillFor(resolveVerdict({ forecast: SAMPLE_FORECAST, answer: PLANNER_GO }))
     expect(html).toContain('class="wb-verdict-pill" data-level="CAUTION" data-raised="true"')
     expect(html).not.toContain('data-level="GO"')
   })
-  test("the pill comes from the floor alone for an old-format brief", () => {
-    const old = parseWeatherBrief("Airports:\nKDLH: VFR now, IFR at ETA. METAR KDLH 1")
-    const html = pillFor(resolveVerdict({ weather: old }))
+  test("the pill comes from the floor alone when there is no planner call", () => {
+    const ifr: Forecast = {
+      ...SAMPLE_FORECAST,
+      verdictFloor: { level: "NO-GO", reasons: ["KBDN IFR at the 1905Z ETA"] },
+    }
+    const html = pillFor(resolveVerdict({ forecast: ifr }))
     expect(html).toContain('class="wb-verdict-pill" data-level="NO-GO"')
   })
   test("the sheet's card and the planning brief's bottom line agree on the raised level", () => {
@@ -251,7 +253,7 @@ describe("a verdict the floor raised", () => {
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
         planningAnswer={PLANNER_GO}
-        weatherBrief={GUSTY_GO}
+        forecast={SAMPLE_FORECAST}
         open={true}
         onToggle={() => {}}
         tab="brief"
@@ -259,21 +261,19 @@ describe("a verdict the floor raised", () => {
       />,
     )
     expect(html).toContain('class="wb-verdict" data-level="CAUTION"')
-    expect(html).toContain(
-      "Raised from GO: gusts 25 kt at KFCM, gusts 25 kt at KDLH, forecast preliminary.",
-    )
+    expect(html).toContain(`Raised from GO: ${FLOOR_REASON}.`)
     const brief = html.slice(html.indexOf('aria-label="Planning brief"'))
     expect(brief).toContain('data-level="CAUTION"')
     expect(brief).not.toContain('data-level="GO"')
-    expect(brief).toContain("VFR the whole way at 4,500 ft.")
-    expect(brief).toContain("The planner said GO. Raised: gusts 25 kt at KFCM")
+    expect(brief).toContain("VFR the whole way at 9,500 ft.")
+    expect(brief).toContain(`The planner said GO. Raised: ${FLOOR_REASON}.`)
   })
   test("the collapsed sheet's pill is the raised one", () => {
     const html = renderToStaticMarkup(
       <NavlogSheet
         navlog={SAMPLE_NAVLOG}
         planningAnswer={PLANNER_GO}
-        weatherBrief={GUSTY_GO}
+        forecast={SAMPLE_FORECAST}
         open={false}
         onToggle={() => {}}
         tab="legs"
@@ -282,15 +282,16 @@ describe("a verdict the floor raised", () => {
     )
     expect(html).toContain('class="wb-verdict-pill" data-level="CAUTION" data-raised="true"')
   })
-  test("a short reserve makes the sheet NO-GO over a GO call", () => {
-    const thirsty = {
-      ...SAMPLE_NAVLOG,
-      totals: { ...SAMPLE_NAVLOG.totals, reserveMin: 38, reserveOk: false },
+  test("a NO-GO floor (a short reserve) makes the sheet NO-GO over a GO call", () => {
+    const thirsty: Forecast = {
+      ...SAMPLE_FORECAST,
+      verdictFloor: { level: "NO-GO", reasons: ["reserve 38 min, under 45"] },
     }
     const html = renderToStaticMarkup(
       <NavlogSheet
-        navlog={thirsty}
+        navlog={SAMPLE_NAVLOG}
         planningAnswer={bottomLine("GO", "Fine.")}
+        forecast={thirsty}
         open={true}
         onToggle={() => {}}
         tab="legs"
@@ -298,6 +299,6 @@ describe("a verdict the floor raised", () => {
       />,
     )
     expect(html).toContain('class="wb-verdict" data-level="NO-GO"')
-    expect(html).toContain("Raised from GO: reserve 0:38, under 45 min.")
+    expect(html).toContain("Raised from GO: reserve 38 min, under 45.")
   })
 })

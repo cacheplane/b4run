@@ -1,19 +1,20 @@
 "use client"
 import dynamic from "next/dynamic"
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
+import type { Category, Forecast } from "../lib/forecast"
 import type { Navlog } from "../lib/navlog-types"
 import type { RouteDraft } from "../lib/route-draft"
 import { routeGeometry } from "../lib/route-geometry"
 import { useElementHeight } from "../lib/use-element-height"
 import { useMediaQuery } from "../lib/use-media-query"
 import type { RouteStation } from "../lib/weather-roles"
-import { type FlightCategory, type WeatherBrief, worstCategory } from "../lib/weather-selectors"
 import { ChatDock } from "./ChatDock"
 import { DesktopWorkbench } from "./DesktopWorkbench"
 import { MarkerPanel } from "./MarkerPanel"
 import type { SheetTab } from "./NavlogSheet"
 import { PhoneWorkbench } from "./PhoneWorkbench"
 import { RouteBar } from "./RouteBar"
+import { shownCategory } from "./WeatherTab"
 
 const RouteMap = dynamic(() => import("./RouteMap").then((m) => m.RouteMap), { ssr: false })
 
@@ -25,8 +26,8 @@ export interface MemoryControls {
 
 export interface WorkbenchLayoutProps {
   readonly navlog: Navlog | null
-  /** The weather subagent's parsed brief: marker colors and the weather panels. */
-  readonly weatherBrief: WeatherBrief | null
+  /** computeNavlog's forecast for the navlog on screen: marker colors and the weather panels. */
+  readonly forecast: Forecast | null
   /** The reporting stations near the course (`findRouteStations`): map markers and the Weather tab. */
   readonly stations: readonly RouteStation[]
   /** The planning answer of the turn that produced the navlog, shown in the sheet. */
@@ -55,7 +56,7 @@ export interface WorkbenchLayoutProps {
 /** What the navlog sheet shows, the same in both layouts. */
 export interface WorkbenchSheet {
   readonly planningAnswer: string
-  readonly weatherBrief: WeatherBrief | null
+  readonly forecast: Forecast | null
   readonly stations: readonly RouteStation[]
   /** The sheet's tab, lifted here so either layout's `openSheet` can land on Legs. */
   readonly tab: SheetTab
@@ -128,7 +129,7 @@ const DESKTOP_QUERY = "(min-width: 1024px)"
  */
 export function WorkbenchLayout({
   navlog,
-  weatherBrief,
+  forecast,
   stations,
   planningAnswer,
   header,
@@ -154,7 +155,7 @@ export function WorkbenchLayout({
   const [draft, setDraft] = useState<RouteDraft | null>(null)
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null)
 
-  // A new navlog (a replan) comes with a new weather brief, which may not hold
+  // A new navlog (a replan) comes with a new forecast, which may not hold
   // the open panel's marker.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the navlog is the trigger, not an input
   useEffect(() => {
@@ -170,10 +171,13 @@ export function WorkbenchLayout({
 
   const geometry = useMemo(() => (navlog ? routeGeometry(navlog) : null), [navlog])
   const categories = useMemo(() => {
-    const out: Record<string, FlightCategory> = {}
-    for (const airport of weatherBrief?.airports ?? []) out[airport.id] = worstCategory(airport)
+    const out: Record<string, Category> = {}
+    for (const a of forecast?.airports ?? []) {
+      const c = shownCategory(a)
+      if (c !== null) out[a.id] = c
+    }
     return out
-  }, [weatherBrief])
+  }, [forecast])
   const padding = useMemo(
     () => ({ left: MAP_MARGIN, top: bar.height + MAP_MARGIN, bottom: MAP_MARGIN }),
     [bar.height],
@@ -211,9 +215,7 @@ export function WorkbenchLayout({
     selectedMarker === null ? null : (
       <MarkerPanel
         id={selectedMarker}
-        airport={
-          weatherBrief?.airports.find((airport) => airport.id.toUpperCase() === markerKey) ?? null
-        }
+        airport={forecast?.airports.find((a) => a.id.toUpperCase() === markerKey) ?? null}
         station={stations.find((station) => station.id.toUpperCase() === markerKey)}
         onClose={closeMarker}
       />
@@ -221,7 +223,7 @@ export function WorkbenchLayout({
 
   const view: WorkbenchViewProps = {
     navlog,
-    sheet: { planningAnswer, weatherBrief, stations, tab: sheetTab, onTabChange: setSheetTab },
+    sheet: { planningAnswer, forecast, stations, tab: sheetTab, onTabChange: setSheetTab },
     rail,
     memoryCount,
     memory,

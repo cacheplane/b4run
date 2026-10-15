@@ -2,6 +2,7 @@
 import { useB4ActivityContext } from "@b4run/ag-ui/react/copilotkit"
 import { useAgent, useCopilotKit } from "@copilotkit/react-core/v2"
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react"
+import { readForecast } from "../lib/forecast"
 import {
   isAwaitingApproval,
   latestNavlogResult,
@@ -10,7 +11,6 @@ import {
   parseNavlog,
 } from "../lib/navlog-selectors"
 import { latestRouteStations, type RouteStation } from "../lib/weather-roles"
-import { latestWeatherBriefText, parseWeatherBrief } from "../lib/weather-selectors"
 import { NavlogChat } from "./NavlogChat"
 import { type MemoryControls, WorkbenchLayout } from "./WorkbenchLayout"
 
@@ -38,8 +38,8 @@ const NO_STATIONS: readonly RouteStation[] = []
 
 /**
  * The workbench for one thread, rendered inside `AppShell`'s keyed
- * `B4Activity`: it reads the thread's turns into the navlog, the weather
- * brief, the stations and the planning answer, and hands them with the chat
+ * `B4Activity`: it reads the thread's turns into the navlog (with its
+ * forecast block), the stations and the planning answer, and hands them with the chat
  * (`NavlogChat`) to `WorkbenchLayout`.
  *
  * The selectors return STRINGS and the parse is memoized on them. The turns
@@ -68,11 +68,8 @@ export function ThreadWorkbench({
     () => (navlogText === undefined ? null : parseNavlog(navlogText)),
     [navlogText],
   )
-  const weatherText = latestWeatherBriefText(turns)
-  const weatherBrief = useMemo(
-    () => (weatherText === null ? null : parseWeatherBrief(weatherText)),
-    [weatherText],
-  )
+  // The weather facts computeNavlog computed with it: one object per navlog.
+  const forecast = useMemo(() => readForecast(navlog), [navlog])
   // Keyed on the result text like the navlog, so the map's stations keep
   // their identity across streamed events and its markers are not redrawn.
   const stationsKey = JSON.stringify(latestRouteStations(turns))
@@ -140,7 +137,7 @@ export function ThreadWorkbench({
   return (
     <WorkbenchLayout
       navlog={navlog}
-      weatherBrief={weatherBrief}
+      forecast={forecast}
       stations={stations}
       // A parked approval blocks a new run too: the next run would throw
       // ("pending interrupt(s) not addressed by resume"), so Replan waits.

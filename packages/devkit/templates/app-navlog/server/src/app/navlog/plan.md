@@ -4,6 +4,6 @@ The seeded checklist items below become the thread's initial `todos`.
 -->
 
 - [ ] Read the aircraft baseline, recall the pilot's overrides, and parse the route, altitude and departure time
-- [ ] Brief the weather and look up POH performance
-- [ ] Compute the navlog and save it to the workspace
+- [ ] Find the weather stations along the route and look up POH performance
+- [ ] Compute the navlog and its forecast and save it to the workspace
 - [ ] Brief the pilot and file only on request

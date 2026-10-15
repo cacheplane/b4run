@@ -3,10 +3,10 @@
 A VFR flight planner for a Cessna 172N, built with [B4.run](https://github.com/cacheplane/b4run),
 shipped as an npm workspace with two packages:
 
-- **`server/`** — the B4.run app: the planning route, live aviationweather.gov
-  tools (no key), a POH-grounded `computeNavlog`, `weather` and `performance`
-  subagents, memory, planning, `fileFlightPlan` behind approval, keyless unit
-  tests, and evals.
+- **`server/`** — the B4.run app: the planning route, a POH-grounded
+  `computeNavlog` that also computes the flight's weather facts from live
+  aviationweather.gov data (no key), a `performance` subagent, memory,
+  planning, `fileFlightPlan` behind approval, keyless unit tests, and evals.
   [`server/README.md`](./server/README.md) is the full tour.
 - **`web/`** — the B4.run Workbench: an [AG-UI](https://github.com/ag-ui-protocol/ag-ui)
   client built on CopilotKit. On desktop it is three docked columns:

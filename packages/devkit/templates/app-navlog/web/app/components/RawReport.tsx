@@ -1,28 +1,28 @@
-import { reportView } from "../lib/weather-selectors"
-
 /**
  * One raw report under its label, as the Weather tab's cards and the map's
  * marker panel both show it: the report in mono, or a muted line when the
- * station issues none or the brief has none.
+ * airport has none ("No METAR", "No TAF issued"). A report that repeats its
+ * label's word ("TAF KBDN …" under "TAF") drops it; a SPECI keeps its word,
+ * because the label alone would hide that it is a special observation.
  */
 export function RawReport({
   label,
-  text,
+  raw,
 }: {
   readonly label: "METAR" | "TAF"
-  readonly text: string
+  readonly raw: string | null
 }) {
-  const view = reportView(text, label)
+  const body = raw?.trim().replace(new RegExp(`^${label}\\s+`), "") ?? ""
   return (
     <div className="mt-2">
       <p className="text-[11px] font-semibold text-wb-muted">{label}</p>
-      {view.kind === "report" ? (
+      {body !== "" ? (
         <pre className="whitespace-pre-wrap break-words font-mono text-[11.5px] leading-snug text-wb-text">
-          {view.body}
+          {body}
         </pre>
       ) : (
         <p className="text-[12.5px] text-wb-muted">
-          {view.kind === "none" ? `No ${label} issued` : `No ${label} in the brief`}
+          {label === "METAR" ? "No METAR" : "No TAF issued"}
         </p>
       )}
     </div>

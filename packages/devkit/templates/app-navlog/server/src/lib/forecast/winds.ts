@@ -54,7 +54,11 @@ export function chooseProduct(
   return { ...earliest, covered: false }
 }
 
-/** The 6-, 12- and 24-hour low-level products for a region ("all" for the contiguous US). */
+/**
+ * The 6-, 12- and 24-hour low-level products for a region ("all" for the
+ * contiguous US). A product AWC answers with an empty body (204, nothing
+ * published) is left out of the map rather than parsed.
+ */
 export async function fetchWindsProducts(
   region: string,
   signal?: AbortSignal,
@@ -68,7 +72,12 @@ export async function fetchWindsProducts(
       ),
     ),
   )
-  return new Map(FORECAST_HOURS.map((hours, i) => [hours, parseWindsAloft(texts[i] as string)]))
+  return new Map(
+    FORECAST_HOURS.flatMap((hours, i) => {
+      const text = texts[i] as string
+      return text.trim() === "" ? [] : [[hours, parseWindsAloft(text)] as const]
+    }),
+  )
 }
 
 /** Every published product's FOR USE window. */

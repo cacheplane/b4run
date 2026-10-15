@@ -11,7 +11,7 @@ import { useConfigureSuggestions } from "@copilotkit/react-core/v2"
 // away once the conversation starts.
 //
 // Each prompt carries the aircraft, so it works on a fresh thread with empty memory:
-// - "Plan a flight" drives recall → plan → the weather and performance subagents → computeNavlog → a saved report
+// - "Plan a flight" drives recall → plan → the performance subagent → computeNavlog and its forecast → a saved report
 // - "File the plan" plans, then drives fileFlightPlan, which the route approves per call, so the approve/deny flow is on screen
 // - "Teach it the aircraft" drives remember() → a memory candidate in the rail's memory panel
 //   (`MemoryPanel.tsx`) for approval. Nothing the agent proposes becomes a real

@@ -3,58 +3,59 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test, vi } from "vitest"
-import type { AirportWeather } from "../lib/weather-selectors"
+import type { AirportWeather } from "../lib/forecast"
+import { SAMPLE_FORECAST } from "../lib/test-fixtures"
 import { MarkerPanel, type MarkerPanelProps } from "./MarkerPanel"
 
-const KRST: AirportWeather = {
-  id: "KRST",
-  now: "MVFR",
-  atEta: "VFR",
-  line: "",
-  metar: "METAR KRST 061853Z 31012KT 10SM BKN025",
-  taf: "TAF KRST 061720Z 0618/0718 31010KT P6SM BKN030",
-}
+const KBDN = SAMPLE_FORECAST.airports.find((a) => a.id === "KBDN") as AirportWeather
 
 const props = (overrides: Partial<MarkerPanelProps> = {}): MarkerPanelProps => ({
-  id: "KRST",
-  airport: KRST,
+  id: "KBDN",
+  airport: KBDN,
   onClose: () => {},
   ...overrides,
 })
 
 describe("MarkerPanel", () => {
-  test("a dialog named for the marker, with the category now → ETA and both reports", () => {
+  test("a dialog named for the marker, with its category and the forecast's raw reports", () => {
     const html = renderToStaticMarkup(<MarkerPanel {...props()} />)
     expect(html).toContain('role="dialog"')
-    expect(html).toContain('aria-label="KRST weather"')
-    expect(html).toContain('data-cat="MVFR"')
-    expect(html).toContain("MVFR now → VFR at ETA")
-    // Under its own label, each report drops the label's word: "METAR KRST …" reads "KRST …".
+    expect(html).toContain('aria-label="KBDN weather"')
+    expect(html).toContain('data-cat="VFR"')
     expect(html).toMatch(
-      new RegExp(
-        `>METAR</p><pre class="[^"]*font-mono[^"]*">${KRST.metar.replace(/^METAR /, "")}</pre>`,
-      ),
+      new RegExp(`>METAR</p><pre class="[^"]*font-mono[^"]*">${KBDN.metar?.raw}</pre>`),
     )
-    expect(html).not.toContain("METAR METAR")
-    expect(html).toContain(KRST.taf.replace(/^TAF /, ""))
+    // Under its own label, the TAF drops the label's word: "TAF KBDN …" reads "KBDN …".
+    expect(html).toContain(`>${(KBDN.taf?.raw ?? "").replace(/^TAF /, "")}</pre>`)
+    expect(html).not.toContain("TAF TAF")
     expect(html).toMatch(/<button[^>]*aria-label="Close"/)
   })
-  test("a station shows its name; a report the brief lacks says so", () => {
+  test("the category now and at the airport's time, when they differ", () => {
+    const html = renderToStaticMarkup(
+      <MarkerPanel
+        {...props({ airport: { ...KBDN, categoryNow: "MVFR", categoryAtTime: "VFR" } })}
+      />,
+    )
+    expect(html).toContain('data-cat="VFR"')
+    expect(html).toContain("MVFR now → VFR at 1905Z")
+  })
+  test("a station shows its name; a report the forecast lacks says so", () => {
     const html = renderToStaticMarkup(
       <MarkerPanel
         {...props({
-          id: "KAEL",
-          airport: { ...KRST, id: "KAEL", taf: "" },
-          station: { name: "Albert Lea" },
+          id: "KS33",
+          airport: { ...KBDN, id: "KS33", taf: null, metar: null },
+          station: { name: "Madras Municipal" },
         })}
       />,
     )
-    expect(html).toContain("Albert Lea")
-    expect(html).toContain("No TAF in the brief")
+    expect(html).toContain("Madras Municipal")
+    expect(html).toContain("No METAR")
+    expect(html).toContain("No TAF issued")
   })
-  test("a marker missing from the brief", () => {
+  test("a marker missing from the forecast", () => {
     const html = renderToStaticMarkup(<MarkerPanel {...props({ airport: null })} />)
-    expect(html).toContain("No report in the brief")
+    expect(html).toContain("Not in the forecast")
     expect(html).not.toContain("<pre")
     expect(html).not.toContain("wb-cat")
   })

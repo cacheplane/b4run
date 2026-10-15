@@ -1,14 +1,14 @@
 "use client"
 import { type KeyboardEvent, useEffect, useRef } from "react"
-import { type AirportWeather, worstCategory } from "../lib/weather-selectors"
+import type { AirportWeather } from "../lib/forecast"
 import { Icon } from "./icons"
 import { RawReport } from "./RawReport"
-import { categoryText } from "./WeatherTab"
+import { categoryText, shownCategory } from "./WeatherTab"
 
 export interface MarkerPanelProps {
   /** The marker's id, as the map labels it. */
   readonly id: string
-  /** The weather brief's entry for it, or null when the brief has none. */
+  /** The forecast's entry for it, or null when the forecast has none. */
   readonly airport: AirportWeather | null
   /** Set when the marker is a reporting station near the course. */
   readonly station?: { readonly name: string } | undefined
@@ -17,8 +17,8 @@ export interface MarkerPanelProps {
 
 /**
  * The weather for one map marker (an airport on the route or a reporting
- * station near it), from the brief: the category now and at ETA, the raw
- * METAR and the raw TAF. It sits in the map panel's lower-left corner; the
+ * station near it), from computeNavlog's forecast: the category now and at
+ * the airport's time, the raw METAR and the raw TAF. It sits in the map panel's lower-left corner; the
  * map's controls own the lower-right.
  *
  * Focus moves to its close button whenever it opens on a marker (clicking a
@@ -54,6 +54,7 @@ export function MarkerPanel({ id, airport, station, onClose }: MarkerPanelProps)
   }
 
   const name = station?.name
+  const category = airport === null ? null : shownCategory(airport)
   return (
     <div
       ref={dialog}
@@ -68,8 +69,8 @@ export function MarkerPanel({ id, airport, station, onClose }: MarkerPanelProps)
           <span className="min-w-0 truncate text-[12.5px] text-wb-muted">{name}</span>
         ) : null}
         <span className="ml-auto flex items-center gap-1.5">
-          {airport !== null ? (
-            <span className="wb-cat" data-cat={worstCategory(airport)}>
+          {airport !== null && category !== null ? (
+            <span className="wb-cat" data-cat={category}>
               <span className="wb-cat-dot" aria-hidden="true" />
               {categoryText(airport)}
             </span>
@@ -86,11 +87,11 @@ export function MarkerPanel({ id, airport, station, onClose }: MarkerPanelProps)
         </span>
       </div>
       {airport === null ? (
-        <p className="mt-2 text-[12.5px] text-wb-muted">No report in the brief</p>
+        <p className="mt-2 text-[12.5px] text-wb-muted">Not in the forecast</p>
       ) : (
         <>
-          <RawReport label="METAR" text={airport.metar} />
-          <RawReport label="TAF" text={airport.taf} />
+          <RawReport label="METAR" raw={airport.metar?.raw ?? null} />
+          <RawReport label="TAF" raw={airport.taf?.raw ?? null} />
         </>
       )}
     </div>
