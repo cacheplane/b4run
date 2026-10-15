@@ -445,7 +445,7 @@ export const DOCS_SEO_ENTRIES = [
     path: "/docs/recipes/flight-planner",
     title: "Build a Flight Planner",
     description:
-      "Build a B4.run VFR flight planner for a Cessna 172N: weather and performance subagents, a POH-grounded navlog tool, memory, keyless tests and a Workbench.",
+      "Build a B4.run VFR flight planner for a Cessna 172N: weather facts and a POH-grounded navlog in code, a subagent, memory, keyless tests and a Workbench.",
     sourcePath: "apps/web/content/docs/recipes/flight-planner.mdx",
   },
   {

@@ -6,7 +6,7 @@ This recipe starts from the navlog template. It picks up where [Getting Started]
 
 ## What will we build?
 
-The template is a VFR flight planner for a Cessna 172N at `/navlog`. It briefs the weather from live aviationweather.gov data (no key), sends a `weather` and a `performance` subagent out, computes the navlog in code from the 1978 172N POH tables, and files an ICAO flight plan only when the pilot asks and a person approves. A browser client, the B4.run Workbench, sits in front of it.
+The template is a VFR flight planner for a Cessna 172N at `/navlog`. It sends a `performance` subagent out, computes the navlog in code from the 1978 172N POH tables together with its weather facts from live aviationweather.gov data (no key), narrates those facts, and files an ICAO flight plan only when the pilot asks and a person approves. A browser client, the B4.run Workbench, sits in front of it.
 
 The unit tests and evals need no API key. Live runs need a real model and an OpenAI API key.
 
@@ -26,7 +26,7 @@ The `--template navlog` flag picks the flight-planner template instead of the de
 
 The app is an npm workspace with two packages. `server/` is the B4.run app, and `web/` is the Workbench. The root `npm install` installs both.
 
-The planning route lives in `server/src/app/navlog/`. Let's look at the coordinator, one of its subagents and the app config:
+The planning route lives in `server/src/app/navlog/`. Let's look at the coordinator, its subagent and the app config:
 
 <CodeGroup>
 ```ts title="server/src/app/navlog/index.ts"
@@ -34,21 +34,21 @@ import { agent } from "@b4run/sdk"
 
 export default agent({
   model: "gpt-5-mini",
-  // A plan fans out: baseline + recall → plan → two subagents → compute → brief. That
-  // legitimately exceeds LangGraph's default 25 super-steps.
+  // A plan fans out: baseline + recall → plan → the performance subagent → compute →
+  // brief. That legitimately exceeds LangGraph's default 25 super-steps.
   recursionLimit: 100,
   description:
-    "A VFR flight planner for a Cessna 172N: briefs weather, looks up POH performance, computes the navlog in code, and files a flight plan on request.",
+    "A VFR flight planner for a Cessna 172N: looks up POH performance, computes the navlog and its weather facts in code, narrates them, and files a flight plan on request.",
   tools: { deny: ["runBash"], approve: [{ tool: "fileFlightPlan", allowAlways: false }] },
   systemPrompt: `You are a VFR flight-planning assistant for a Cessna 172N. Given a request:
 
 1. Start by calling \`readDoc({ path: "aircraft/c172n.md" })\` and \`recall({ query: "pilot aircraft overrides and preferences" })\` together. The baseline file is the demo aircraft. A recalled fact overrides it, and what the pilot says in the request overrides both. Do not stop to ask for anything the three leave open: use the baseline and list each baseline value you relied on in Assumptions.
-2. Parse the request into departure, destination, optional waypoints, cruise altitude, departure time (UTC) and people on board. Ask only when the departure, the destination or the cruise altitude cannot be determined; ask for the departure time only when none is given. Never ask whether a clock time means the next occurrence: it does. If the pilot did not say how many people are on board, assume 1 and say so in the reply. Departure time: an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z; a UTC clock time such as 1400Z, which means the next occurrence; or, when the pilot names the day, "today 1400Z" or "tomorrow 1400Z". Call \`resolveDeparture({ departure })\` with it exactly as given, keeping any day the pilot named, and use the departureUtc it returns everywhere after: for the weather subagent, for computeNavlog and in Assumptions. Never work out a date or hours ahead yourself.
+2. Parse the request into departure, destination, optional waypoints, cruise altitude, departure time (UTC) and people on board. Ask only when the departure, the destination or the cruise altitude cannot be determined; ask for the departure time only when none is given. Never ask whether a clock time means the next occurrence: it does. If the pilot did not say how many people are on board, assume 1 and say so in the reply. Departure time: an ISO 8601 UTC instant such as 2026-10-06T14:00:00Z; a UTC clock time such as 1400Z, which means the next occurrence; or, when the pilot names the day, "today 1400Z" or "tomorrow 1400Z". Call \`resolveDeparture({ departure })\` with it exactly as given, keeping any day the pilot named, and use the departureUtc it returns everywhere after: for computeNavlog and in Assumptions. Never work out a date or hours ahead yourself.
 3. Record the legs as todos.
 4. Call \`lookupAirport\` for each airport, and \`lookupNavaid\` for each navaid, that you have not already looked up. A navaid is a waypoint written with a navaid type in parentheses, such as \`SNS (VORTAC)\`, or one \`lookupAirport\` has no record for. A navaid enters computeNavlog with kind navaid and its own magnetic variation.
 5. Call \`findRouteStations\` with the waypoint identifiers in route order, each with its kind (airport or navaid). Leave corridorNm and max at their defaults unless the pilot asked for a wider or narrower search.
-6. Dispatch \`task({ subagent: "weather", input: "Route (<N> legs): <ID> (<lat>, <lon>) → <ID> (<lat>, <lon>) → …. En-route stations (weather only, not waypoints): <ID> (<lat>, <lon>) alongNm <n>, …. Cruise <altitude> ft. departureUtc <instant>, hoursAhead <hours>." })\`, with the route waypoints from step 4, the stations from step 5 and departureUtc and hoursAhead from resolveDeparture, and \`task({ subagent: "performance", input: "<airports, altitude, cruise RPM>" })\`. The weather subagent estimates the ETA from the coordinates.
-7. Call \`computeNavlog\` with the waypoints, the altitude, departureUtc as the departure time, the aircraft from step 1 (tail number, cruise RPM, usable fuel), personsOnBoard and one wind entry per leg from the weather brief. Never do navigation arithmetic yourself.
+6. Dispatch \`task({ subagent: "performance", input: "<airports, altitude, cruise RPM>" })\`.
+7. Call \`computeNavlog\` with the waypoints, the altitude, departureUtc as the departure time, the aircraft from step 1 (tail number, cruise RPM, usable fuel), personsOnBoard and the stations from step 5 (id and alongNm). Never pass winds: the tool takes the forecast for the time each leg is flown. Its \`forecast\` block is authoritative: the winds, each airport's category now and when you are there, the advisories and their relevance, whether the forecasts reach the flight (coverage) and the verdict floor. Narrate it; never recompute it. Mention forecast.notes where they matter to the flight.
 8. Save the navlog with \`writeFile({ path: "reports/<departure>-<destination>.md", content: "<markdown table of the legs and totals>" })\`.
 9. If a chart would help, \`renderChart({ title, series })\` with fuel remaining by checkpoint.
 10. Reply with the planning answer described under Answer format, and nothing else.
@@ -56,12 +56,12 @@ export default agent({
 12. File a flight plan only when the pilot asks; see Filing.
 
 Answer format. Every reply is a list of brief components (the response schema describes each). A planning answer is, in this order: BottomLine, RouteSummary, WatchFor, KeyNumbers, Assumptions, Citations, then one closing Prose. Any other reply (a question, a filing confirmation, a short answer) is a single Prose and nothing else. Keep a planning answer short and scannable, under about 180 words of text in all.
-- BottomLine: level GO, CAUTION or NO-GO and one sentence of reason. Use the weather brief's verdict unless performance makes it worse: a reserve under 45 minutes (reserveOk false) is NO-GO.
+- BottomLine: level at least forecast.verdictFloor.level. Raise it only for a reason the facts do not already state (terrain, a lower altitude that avoids icing is not legal), and say that reason; never lower it. The sentence states the floor's most important reason, or your raise.
 - RouteSummary: from, via (empty when direct), to, the cruise altitude in feet and the departure time in UTC. Never distance or ETE here.
-- WatchFor: up to 3 items, each a hazard with its altitude in what, its valid window relative to the flight in when, and a severity; an empty list when nothing applies during the flight. Leave out advisories that expire before departure or start after arrival. If the navlog's departure or final ETA moves an advisory into or out of the flight, judge it by the navlog's times. A freezing level below the cruise altitude means cruising in below-freezing air; say so plainly.
+- WatchFor: up to 3 items from forecast.advisories with relevance during-flight and from forecast.verdictFloor.reasons, each with its altitude in what, its valid window in when and a severity. Skip the coverage reason (forecast preliminary): the Workbench shows coverage. An empty list when nothing applies.
 - KeyNumbers: one item each for distance; ETE, which is takeoff to landing, the navlog's total time; fuel burned, which already includes 1.1 gal for start, taxi and takeoff (say so once, and never tell the pilot to add it again); fuel at landing; and reserve. Durations (ETE, reserve) are h:mm, such as 0:33 or 4:24, with unit null; every other value is a plain number with its unit in unit. Never use tool field names such as reserveOk.
-- Assumptions: the departure instant in UTC with its date; people on board ("1 assumed — tell me if different" when the pilot did not say); any baseline value you used (tail number, usable fuel, cruise RPM); and, when the weather brief says so, that the forecast is preliminary. Origin is pilot for what the pilot said, memory for a recalled fact and default for a baseline value or anything else assumed.
-- Citations: one item per source, with ids c1, c2, … in the order first cited. Every POH figure, weather fact and hazard you state puts the id of its source in its cite, and every item is cited. Sources are POH documents (source poh/<file>.md, locator Figure N) and weather products (source METAR <ICAO> with locator <time>Z; TAF <ICAO>, AIRMET <id> or SIGMET <id> with an empty locator), never a reports/ or aircraft/ file. Distance and ETE come from the computed navlog and cite nothing. Fuel burned cites the POH cruise figure.
+- Assumptions: the departure instant in UTC with its date; people on board ("1 assumed — tell me if different" when the pilot did not say); any baseline value you used. Never state whether the forecast is preliminary: the Workbench shows forecast.coverage.
+- Citations: one item per source, with ids c1, c2, … in the order first cited. Every POH figure, weather fact and hazard you state puts the id of its source in its cite, and every item is cited. Sources are POH documents (source poh/<file>.md, locator Figure N) and weather products named in forecast (source METAR <ICAO> with locator <time>Z; TAF <ICAO>, AIRMET <hazard> or SIGMET <hazard> with an empty locator), never a reports/ or aircraft/ file. Distance and ETE come from the computed navlog and cite nothing. Fuel burned cites the POH cruise figure.
 - Prose: one closing line offering to file the plan, try another altitude, or re-brief closer to departure.
 Assumptions and Prose never name a file or path: say "the aircraft baseline" rather than its file, and never mention where the navlog was saved (the navlog sheet shows it).
 The Workbench shows the navlog table and the weather, so never repeat the leg table.
@@ -85,7 +85,7 @@ export default agent({
   description:
     "Looks up Cessna 172N POH performance for the actual fields: takeoff and landing distances, the cruise row to use, and climb figures, with figure citations.",
   // A subagent sees every authored tool by default; allow only re-adds
-  // withheld capability tools. Deny the weather subagent's tools and the
+  // withheld capability tools. Deny the weather tools and the
   // parent's, so each child does its own job and nothing else.
   tools: {
     allow: ["readDoc", "lookupAirport"],
@@ -140,7 +140,7 @@ export default config({
 ```
 </CodeGroup>
 
-The coordinator plans the flight, looks up each airport and navaid, finds the reporting stations along the route with `findRouteStations`, sends the `weather` and `performance` subagents out, and calls `computeNavlog` for every number on the navlog. The tools are shared in `server/src/tools/`, and each subagent's `tools` scope keeps it to its own. `fileFlightPlan` asks a person before each call. The config keeps tool output inline up to 12,000 characters and makes new memories wait for review. Threads persist to SQLite by default, so they survive a restart.
+The coordinator plans the flight, looks up each airport and navaid, finds the reporting stations along the route with `findRouteStations`, sends the `performance` subagent out, and calls `computeNavlog` for every number on the navlog. `computeNavlog` also times each leg, takes the winds-aloft forecast for the time that leg is flown, and returns a `forecast` block: each airport's category now and when you are there, the advisories and their relevance, whether the forecasts reach the flight, and the verdict floor. The coordinator narrates those facts and never recomputes them. The tools are shared in `server/src/tools/`, and the subagent's `tools` scope keeps it to its own. `fileFlightPlan` asks a person before each call. The config keeps tool output inline up to 12,000 characters and makes new memories wait for review. Threads persist to SQLite by default, so they survive a restart.
 
 A few more files shape the agent:
 
@@ -149,14 +149,13 @@ server/src/app/navlog/
   plan.md                       # seeds each thread's todo list
   memory.md                     # route-specific prompt guidance
   memory.ts                     # typed cross-session memory
-  subagents/weather/            # METARs, TAFs, winds aloft, advisories
   subagents/performance/        # POH tables for the actual fields
-  skills/brief-weather/         # loaded on demand: go/no-go brief
+  skills/brief-weather/         # loaded on demand: narrating the computed forecast
   skills/poh-lookup/            # loaded on demand: reading and citing the POH
   evals/navlog-quality.eval.ts  # the dataset and scorers
   evals/navlog-quality.fixtures.ts  # its scripted model runs
 server/src/tools/
-  computeNavlog.ts              # the navlog, computed in code
+  computeNavlog.ts              # the navlog and its forecast, computed in code
   fileFlightPlan.ts             # records an ICAO flight plan, after approval
   getMetar.ts getTaf.ts getWindsAloft.ts getAdvisories.ts lookupAirport.ts
   lookupNavaid.ts               # a VOR, VORTAC or NDB from the bundled snapshot
@@ -206,10 +205,9 @@ npm run typecheck
 `typegen` writes `server/.b4/b4.generated.d.ts`. `check` validates routes, tools and configuration without writing files:
 
 ```
-B4.run app is valid: 3 routes discovered.
+B4.run app is valid: 2 routes discovered.
 - /navlog (agent)
 - /navlog/subagents/performance (agent)
-- /navlog/subagents/weather (agent)
 ```
 
 Next, run both packages' tests:
@@ -218,7 +216,7 @@ Next, run both packages' tests:
 npm test
 ```
 
-The server tests are unit tests of the navlog math, the POH tables, the weather parsers and the tools, with `fetch` stubbed. The web tests cover the Workbench. Neither needs an API key.
+The server tests are unit tests of the navlog math, the forecast rules, the POH tables, the weather parsers and the tools, with `fetch` stubbed. The web tests cover the Workbench. Neither needs an API key.
 
 Then run the quality eval:
 
@@ -226,7 +224,7 @@ Then run the quality eval:
 npm run eval
 ```
 
-The eval plans three flights. Its scorers require both subagents, a well-formed navlog whose totals add up with a legal reserve, a POH citation, no filing unless asked, and a passing quality grade from a model judge. Scripted fixtures cover the agent and the judge, so the eval runs without an API key; the weather tools still reach aviationweather.gov.
+The eval plans three flights. Its scorers require the performance subagent, a well-formed navlog whose totals add up with a legal reserve, a bottom line no better than the computed verdict floor, a POH citation, no filing unless asked, and a passing quality grade from a model judge. Scripted fixtures cover the agent and the judge, so the eval runs without an API key; `computeNavlog` still reaches aviationweather.gov for its forecast.
 
 ## Run it live
 
@@ -260,7 +258,7 @@ The Workbench is a chat UI over the same agent. Leave the server running and sta
 npm run dev:web
 ```
 
-Open [http://localhost:3010](http://localhost:3010) and choose **Plan a flight**. You'll see the plan card and the `weather` and `performance` subagent cards update as the agent works, tool cards, the flight-plan approval and a panel for reviewing memory. You can also type a route such as `KPAO SNS KSBA` in the bar across the top of the map and choose **Plan**, which sends the route to the agent as a chat message. The sheet's Weather tab shows the brief by origin, en route and destination. The Workbench talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials. Those stay in `server/.env`.
+Open [http://localhost:3010](http://localhost:3010) and choose **Plan a flight**. You'll see the plan card and the `performance` subagent card update as the agent works, tool cards, the flight-plan approval and a panel for reviewing memory. You can also type a route such as `KPAO SNS KSBA` in the bar across the top of the map and choose **Plan**, which sends the route to the agent as a chat message. The sheet's Weather tab shows `computeNavlog`'s forecast by origin, en route and destination. The Workbench talks to B4.run over [AG-UI](/docs/ag-ui) and holds no model credentials. Those stay in `server/.env`.
 
 To build your own client, follow [Flight Planner Web UI](/docs/recipes/flight-planner-web-ui).
 
