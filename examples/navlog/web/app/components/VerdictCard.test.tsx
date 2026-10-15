@@ -29,7 +29,10 @@ const SIGMET: AdvisoryFact = {
 const FLOOR_REASON = "freezing level 8,000 ft during the flight, below the 9,500 ft cruise"
 const PRELIMINARY: Forecast = {
   ...SAMPLE_FORECAST,
-  coverage: { preliminary: true, reasons: ["the KBDN TAF ends 1200Z, before the 1315Z ETA"] },
+  coverage: {
+    preliminary: true,
+    reasons: ["the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA"],
+  },
 }
 
 /** The text a reader sees, tags dropped. */
@@ -66,7 +69,7 @@ describe("VerdictCard", () => {
     const verdict = { level: "GO" as const, reason: "" }
     expect(
       text(renderToStaticMarkup(<VerdictCard verdict={verdict} coverage={PRELIMINARY.coverage} />)),
-    ).toContain("Preliminary: the KBDN TAF ends 1200Z, before the 1315Z ETA")
+    ).toContain("Preliminary: the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA")
     expect(
       renderToStaticMarkup(<VerdictCard verdict={verdict} coverage={SAMPLE_FORECAST.coverage} />),
     ).not.toContain("Preliminary")
@@ -89,7 +92,7 @@ describe("the verdict contract outside the card", () => {
     )
     expect(html).toContain(advisoryLine(FZLVL))
     expect(html).toContain("028° at 17 kt")
-    expect(text(html)).toContain("Preliminary: the KBDN TAF ends 1200Z")
+    expect(text(html)).toContain("Preliminary: the KBDN TAF ends at 1200Z")
   })
 })
 

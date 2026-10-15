@@ -171,7 +171,9 @@ describe("computeNavlog tool", () => {
     const wind = out.forecast.winds[0]
     // RDM: 9,000 ft 0315-05, 12,000 ft 2821-06; 9,500 ft is one sixth of the way.
     expect(wind?.speedKt).toBeCloseTo(16, 5)
-    expect(wind?.tempC).toBeCloseTo(-5 - 1 / 6, 5)
+    // -5 1/6 °C, shown as a whole degree.
+    expect(wind?.tempC).toBe(-5)
+    expect(Number.isInteger(wind?.tempC)).toBe(true)
   })
 
   it("resolves a bare clock-time departure once, so both passes use the same instant", async () => {

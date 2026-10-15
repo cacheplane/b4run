@@ -67,7 +67,7 @@ export interface AdvisoryFact {
 
 export interface Coverage {
   readonly preliminary: boolean
-  /** Each gap, named: "the KBDN TAF ends 1200Z, before the 1315Z ETA". */
+  /** Each gap, named: "the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA". */
   readonly reasons: readonly string[]
 }
 

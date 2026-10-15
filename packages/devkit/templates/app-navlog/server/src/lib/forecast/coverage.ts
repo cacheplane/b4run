@@ -71,7 +71,9 @@ export function coverage(input: CoverageInput): Coverage {
     if (atMs < from) {
       reasons.push(`the ${end.id} TAF starts ${hhmmZ(from)}, after the ${hhmmZ(atMs)} ${what}`)
     } else if (atMs >= to) {
-      reasons.push(`the ${end.id} TAF ends ${hhmmZ(to)}, before the ${hhmmZ(atMs)} ${what}`)
+      reasons.push(
+        `the ${end.id} TAF ends at ${hhmmZ(to)} and does not cover the ${hhmmZ(atMs)} ${what}`,
+      )
     }
   }
   tafGap(input.origin, input.departureMs, "departure")

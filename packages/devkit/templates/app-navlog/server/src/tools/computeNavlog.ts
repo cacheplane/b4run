@@ -87,7 +87,8 @@ export default async (
         altitudeFt: at.levelFt,
         dirDegTrue: wind.dirDegTrue,
         speedKt: wind.speedKt,
-        tempC: wind.tempC,
+        // Interpolated between levels; a whole degree is the forecast's precision.
+        tempC: wind.tempC === null ? null : Math.round(wind.tempC),
         forUseFromUtc: choice.window.fromUtc,
         forUseToUtc: choice.window.toUtc,
         covered: intervalCovered(startMs, endMs, windows),

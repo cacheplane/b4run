@@ -61,7 +61,7 @@ export interface AdvisoryFact {
 
 export interface Coverage {
   readonly preliminary: boolean
-  /** Each gap, named: "the KBDN TAF ends 1200Z, before the 1315Z ETA". */
+  /** Each gap, named: "the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA". */
   readonly reasons: readonly string[]
 }
 
@@ -151,7 +151,9 @@ const hhmm = (iso: string | null): string =>
 
 /** "leg 1: 028° at 17 kt, −4 °C, 9,500 ft (PDX), for use 1400Z–2100Z" */
 export function windsLine(w: LegWind): string {
-  const temp = w.tempC === null ? "" : `, ${w.tempC < 0 ? "−" : ""}${Math.abs(w.tempC)} °C`
+  // Whole degrees, also for threads saved before the server rounded it.
+  const tempC = w.tempC === null ? null : Math.round(w.tempC)
+  const temp = tempC === null ? "" : `, ${tempC < 0 ? "−" : ""}${Math.abs(tempC)} °C`
   return `leg ${w.leg}: ${String(w.dirDegTrue).padStart(3, "0")}° at ${Math.round(w.speedKt)} kt${temp}, ${ft(w.altitudeFt)} (${w.station}), for use ${hhmm(w.forUseFromUtc)}–${hhmm(w.forUseToUtc)}`
 }
 

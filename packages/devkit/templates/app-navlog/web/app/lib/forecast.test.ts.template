@@ -103,6 +103,9 @@ describe("display lines", () => {
       "leg 1: 028° at 17 kt, −4 °C, 9,500 ft (PDX), for use 1400Z–2100Z",
     )
   })
+  it("rounds an unrounded temperature to a whole degree", () => {
+    expect(windsLine({ ...FORECAST.winds[0], tempC: 8.1666 })).toContain(", 8 °C,")
+  })
   it("reads one advisory", () => {
     expect(advisoryLine(FORECAST.advisories[0])).toBe(
       "G-AIRMET FZLVL · 8,000 ft · 1800Z–0000Z · during flight",

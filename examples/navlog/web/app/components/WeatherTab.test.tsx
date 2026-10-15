@@ -170,11 +170,13 @@ describe("WeatherTab", () => {
         ...SAMPLE_FORECAST,
         coverage: {
           preliminary: true,
-          reasons: ["the KBDN TAF ends 1200Z, before the 1315Z ETA"],
+          reasons: ["the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA"],
         },
       },
     })
-    expect(text(html)).toContain("Preliminary: the KBDN TAF ends 1200Z, before the 1315Z ETA")
+    expect(text(html)).toContain(
+      "Preliminary: the KBDN TAF ends at 1200Z and does not cover the 1315Z ETA",
+    )
     expect(text(render())).not.toContain("Preliminary")
   })
   test("with no forecast: one message and the role headings with their ids", () => {
