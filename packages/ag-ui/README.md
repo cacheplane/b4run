@@ -94,6 +94,36 @@ import { B4HttpAgent } from "@b4run/ag-ui/client"
 const agent = new B4HttpAgent({ url: "http://127.0.0.1:3001/agui/%2Fchat%23agent" })
 ```
 
+`responseSchema` is a JSON Schema the route's final answer must match: the agent
+sends it on every run as `forwardedProps.responseSchema`, and B4.run binds it on
+the route's model as the provider's structured output. Tool-calling turns are
+unaffected. The route must allow the key in `server.agui.clientForwardedProps`.
+
+`forwardIdentity({ headers, resolve, fetch? })` returns a `fetch` for a
+server-side client that talks to B4.run on a browser's behalf, such as a
+CopilotKit runtime route. On every call it deletes the declared `headers` from
+whatever the call carried (CopilotKit copies the browser's `authorization` and
+`x-*` headers onto a run, so a browser could send them itself), then sets the
+values `resolve()` returns for the current request, or none when it returns
+`undefined`. `resolve` runs per call, because the agent and runner are shared
+across requests: read the caller from request-scoped state such as an
+`AsyncLocalStorage`. Pass the same `fetch` to `B4HttpAgent` and to
+`createB4AgentRunner`, so runs and thread replay both carry it. It is exported
+from `./client` and `./copilotkit-runtime`.
+
+```ts
+import { B4HttpAgent, forwardIdentity } from "@b4run/ag-ui/client"
+
+const fetch = forwardIdentity({
+  headers: ["x-b4-visitor"],
+  resolve: () => {
+    const visitorId = visitorContext.getStore()?.visitorId
+    return visitorId === undefined ? undefined : { "x-b4-visitor": visitorId }
+  },
+})
+const agent = new B4HttpAgent({ url, fetch, responseSchema })
+```
+
 ## Activity components
 
 `@b4run/ag-ui/react` is the React activity kit: `TurnActivity` renders one turn in plain language (the summary line and the step list, nested for subagents), `ApprovalCard` renders a parked interrupt, and the step rows (`Step`, `StepGroup`, `PlanStep`, `ReasoningStep`, `SubagentStep`) and building blocks (`Disclosure`, `StepIcon`, `StatusText`, `Checklist`) are exported for custom steps. Components take plain props built by `@b4run/ag-ui/view` (`reduceTurns`), and the entry has no CopilotKit dependency. In a CopilotKit chat, the connector below wires it up:
@@ -123,8 +153,17 @@ export default function Page() {
 `@b4run/ag-ui/react/copilotkit` is the only entry that imports `@copilotkit/react-core`; it needs a bundler (CopilotKit's bundle imports its own CSS), so import it from a bundled React app, not from Node or an edge runtime.
 
 - `B4Activity` wraps your chat: it hides CopilotKit's generic tool rows, renders one `ApprovalCard` per parked interrupt, and keeps the thread's turns current from the agent's events; `labels`, `hiddenTools` and `renderStep` reword, hide or re-render steps per tool.
-- `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one row per turn rendered as `TurnActivity` (the turn's first assistant message with tool calls, holding every call of the turn, after its text when it has some), no toolbar under tool-only rows.
+- `renderInChat` (default `true`) lets CopilotKit place the approval cards inside `<CopilotChat>`, after the messages; `renderInChat={false}` renders them after `B4Activity`'s children instead, for a host with its own transcript.
+- `useB4ActivityContext()` returns the turns, `labels`, `renderStep` and clock `B4Activity` provides, for host UI outside the chat such as a map or a side sheet; it throws outside `B4Activity`.
+- `useB4ChatSlots()` returns the props to spread onto `<CopilotChat>`: one row per turn rendered as `TurnActivity` (the turn's first assistant message with tool calls, holding every call of the turn, after its text when it has some), no toolbar under tool-only rows, and no separate reasoning row for a turn whose `TurnActivity` already shows that reasoning.
+- `mergeTurnMessages` is the `transformMessages` function `useB4ChatSlots()` installs: it keeps the turn's first assistant message that carries tool calls, text or not, as the activity row and moves every later call of the turn onto it. A later calling message keeps its text without its calls, a later tool-only message is dropped, and subagent messages are dropped (their text lives in the nested turn).
 - `useB4Turns()` is the agent's thread as turns (`reduceTurns`) plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed, for a host with its own transcript.
+
+`B4Activity` owns parts of CopilotKit that have one slot each:
+
+- CopilotKit has one interrupt slot. Another `useInterrupt` with the default `renderInChat` anywhere in the same app replaces B4.run's approval cards.
+- Wildcard `useRenderTool({ name: "*" })` registrations are last-wins and never removed, so do not also call `useDefaultRenderTool()`.
+- Approvals support `approvals.grants: "off"` only. CopilotKit's `resolve(payload)` carries only the decision, so the interrupt's grant is never echoed on resume; with `"optional"` or `"required"` the server answers the resume with 409.
 
 `react` and `@copilotkit/react-core` (`>=1.76.0`) are optional peer dependencies used only by the `./react` and `./react/copilotkit` subpaths; only `./react/copilotkit` imports CopilotKit. Importing the root or `./sse` entry never loads them, so a server-only consumer installs nothing extra. The floor tracks the wire protocol: 1.76.0 is the first `@copilotkit/react-core` whose bundled AG-UI client speaks 1.0, the protocol B4.run serves, and earlier releases resolve a pre-1.0 `@ag-ui/*` (0.0.59 on 1.70–1.75). pnpm warns on an unmet optional peer; npm 7+ rejects it with `ERESOLVE`.
 

@@ -139,8 +139,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // recovery/policy.json lists that module in the verifier closure.
 // Repinned for the re-recorded demo: readme-contracts.mjs pins the new GitHub-hosted copy
 // of the inline README video.
+// Repinned for the forecast-facts demo: readme-contracts.mjs pins its GitHub-hosted copy.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "01f438f96303fdb14da502307ed8bf5d63cf5f933a88f6d1d7985997e146f878"
+  "9b71de12a4af8baebe7ca9e3350419268271cd67ea3a6cbb72b075d485e49a90"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

@@ -315,7 +315,7 @@
             {
               "classification": "safe",
               "descriptor": {
-                "name": "Verify research transport",
+                "name": "Verify navlog transport",
                 "run": "pnpm --filter @b4-example/navlog-web test:e2e"
               }
             }

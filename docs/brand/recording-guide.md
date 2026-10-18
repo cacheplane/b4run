@@ -70,11 +70,11 @@ capture then plays the twelve beats of the **storyboard**
 (`beat-00-title` … `beat-11-close`):
 
 - a title card, then code beats that show real files from the generated
-  workspace (the route, the weather subagent and `getMetar`, `computeNavlog`
-  and the wind triangle, the approval line, the memory declaration), each with
-  its focal line marked;
+  workspace (the route, `computeNavlog` choosing each leg's forecast and the
+  verdict floor rule, `computeNavlog` and the wind triangle, the approval line,
+  the memory declaration), each with its focal line marked;
 - app beats in the real Workbench, each with evidence assertions: the plan's
-  to-dos after Send; the weather strip's and verdict card's “GO”; the route on
+  to-dos after Send; the navlog sheet's verdict summary “GO”; the route on
   the map and 66 nm on the navlog sheet; the filing request, whose approval
   card must offer Allow once and Deny and no Always allow, and the capture's
   click on **Allow once**; the suggested memory; and a frame reload that

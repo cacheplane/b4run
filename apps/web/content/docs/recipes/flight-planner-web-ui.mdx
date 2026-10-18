@@ -57,13 +57,16 @@ The Next.js runtime route registers a `B4HttpAgent`, an AG-UI `HttpAgent` that a
 
 ```ts title="examples/navlog/web/app/api/copilotkit/[...path]/route.ts"
 import { B4HttpAgent } from "@b4run/ag-ui/client"
-import { createB4AgentRunner } from "@b4run/ag-ui/copilotkit-runtime"
+import { createB4AgentRunner, forwardIdentity } from "@b4run/ag-ui/copilotkit-runtime"
 import {
   CopilotRuntime,
   createCopilotRuntimeHandler,
   InMemoryAgentRunner,
 } from "@copilotkit/runtime/v2"
 import { briefJsonSchema } from "../../../brief/kit"
+import { guardRequest } from "../../../lib/guarded-request"
+import { guardConfigFromEnv, upstreamHeaders } from "../../../lib/proxy-guard"
+import { visitorContext } from "../../../lib/visitor-context"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -71,17 +74,41 @@ export const dynamic = "force-dynamic"
 const b4Url = process.env.B4_SERVER_URL ?? "http://127.0.0.1:3002"
 const agUiUrl = `${b4Url}/agui/${encodeURIComponent("/navlog#agent")}`
 
+// Strips any browser-sent copy of these headers, then sets this request's visitor id
+// (and, when deployed, the internal token) on every upstream call.
+const guardedFetch = forwardIdentity({
+  headers: ["x-b4-visitor", "x-internal-token"],
+  resolve: () => {
+    const visitorId = visitorContext.getStore()?.visitorId
+    if (visitorId === undefined) return undefined
+    return upstreamHeaders({ internalToken: guardConfigFromEnv().internalToken, visitorId })
+  },
+})
+
+const agent = new B4HttpAgent({
+  url: agUiUrl,
+  fetch: guardedFetch,
+  responseSchema: briefJsonSchema,
+})
+
 const handler = createCopilotRuntimeHandler({
   runtime: new CopilotRuntime({
-    agents: { default: new B4HttpAgent({ url: agUiUrl, responseSchema: briefJsonSchema }) },
-    // Restores a thread on `connect` from B4.run's storage.
-    runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url }),
+    agents: { default: agent },
+    // Restores a thread on `connect` by replaying the server's stored events.
+    runner: createB4AgentRunner(InMemoryAgentRunner, { url: b4Url, fetch: guardedFetch }),
   }),
   basePath: "/api/copilotkit",
 })
 
-export const GET = handler
-export const POST = handler
+async function guarded(request: Request): Promise<Response> {
+  const guard = await guardRequest(request, "copilotkit")
+  if (guard.rejection !== undefined) return guard.rejection
+  const response = await visitorContext.run({ visitorId: guard.visitorId }, () => handler(request))
+  return guard.finish(response)
+}
+
+export const GET = guarded
+export const POST = guarded
 ```
 
 ```tsx title="examples/navlog/web/app/page.tsx"
@@ -103,7 +130,7 @@ export const POST = handler
 
 </CodeGroup>
 
-The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths under `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` makes the browser start with `GET /api/copilotkit/info` rather than send the legacy method envelope to the base URL. Only the B4.run server has `OPENAI_API_KEY`. The web runtime holds no model credential.
+The catch-all route is required. It exposes CopilotKit's V2 REST and SSE paths under `/api/copilotkit/*`. Setting `useSingleEndpoint={false}` pins that REST transport, so the browser starts with `GET /api/copilotkit/info`; left unset, CopilotKit probes `/info` first and falls back to the legacy single-endpoint envelope. Every upstream call (the run, the `/info` capabilities read and the runner's replay) goes through `guardedFetch`, so it carries this request's visitor and never a header the browser sent in its place. Only the B4.run server has `OPENAI_API_KEY`. The web runtime holds no model credential.
 
 <Callout type="warn" title="Register the agent as default">
   CopilotKit hooks that omit an `agentId` resolve the id `default`. Register the
@@ -134,7 +161,7 @@ const slots = useB4ChatSlots()
 <CopilotChat threadId={threadId} messageView={slots.messageView} input={input} attachments={attachments} />
 ```
 
-`useB4ChatSlots` renders each turn as a `TurnActivity` and a parked interrupt as an `ApprovalCard`. The example's `NavlogChat` adds echo-free prose, named input controls, and the image attachment below. `renderStep` on `B4Activity` (`app/components/StepViews.tsx`) gives `computeNavlog` a one-line totals view with a link to the sheet, and `renderChart` its image.
+`useB4ChatSlots` renders each turn as a `TurnActivity`; `B4Activity` renders each parked interrupt as an `ApprovalCard` inside the chat. The example's `NavlogChat` adds echo-free prose, named input controls, and the image attachment below. `renderStep` on `B4Activity` (`app/components/StepViews.tsx`) gives `computeNavlog` a one-line totals view with a link to the sheet, and `renderChart` its image.
 
 Run failures still need a subscription. `copilotkit.runAgent` does not reject when a run fails. It catches, emits an error, and resolves normally. Failures surface through `copilotkit.subscribe({ onError })`, which the shell turns into a banner above the chat.
 
