@@ -4,11 +4,12 @@ import { CopilotKit, CopilotSidebar } from "@copilotkit/react-core/v2"
 import { useEffect, useState } from "react"
 import { DemoSuggestions } from "./components/DemoSuggestions"
 
-// Notes (verified against installed @copilotkit/react-core@1.76.0 types):
+// Notes (verified against installed @copilotkit/react-core@1.77.1 types):
 // - Use the `CopilotKit` wrapper (not bare `CopilotKitProvider`) per CopilotKit's own v2
 //   guidance: it adds the error boundary, toasts, and threads provider around the context.
-// - The compatibility wrapper still defaults `useSingleEndpoint` to true. V2 transport
-//   requires false so `/info` reaches the catch-all `api/copilotkit/[...path]/route.ts`.
+// - The wrapper leaves `useSingleEndpoint` unset, so the core probes `GET /info` and falls
+//   back to the single-route envelope. `false` pins the V2 REST transport, so every call
+//   (`/info` first) reaches the catch-all `api/copilotkit/[...path]/route.ts` with no probe.
 // - `CopilotSidebar` ships from `@copilotkit/react-core/v2` and takes the same
 //   `messageView` slots as `CopilotChat`, so `useB4ChatSlots` skins it unchanged.
 // - The runtime route registers the B4.run /chat agent under CopilotKit's default id.

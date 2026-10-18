@@ -784,7 +784,7 @@
         "classification": "safe",
         "job": "copilotkit-examples-e2e",
         "stepIndex": 7,
-        "step": "Verify research transport",
+        "step": "Verify navlog transport",
         "kind": "run",
         "value": "pnpm --filter @b4-example/navlog-web test:e2e"
       },
