@@ -67,7 +67,7 @@ describe("the delivery guard", () => {
   })
 
   it("names the bot the workflows skip and protects the files the guard lives in", () => {
-    expect(FACTORY_BOT_LOGIN).toBe("b4[bot]")
+    expect(FACTORY_BOT_LOGIN).toBe("b4dotrun[bot]")
     expect(DELIVERY_PROTECTED_PATHS).toEqual([
       ".github/**",
       "apps/web/vercel.json",

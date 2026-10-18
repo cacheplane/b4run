@@ -9,7 +9,7 @@ import { REPOSITORY } from "./fake-delivery-adapter.ts"
 import { type FakeGitHubServer, startFakeGitHubServer } from "./fake-github-server.ts"
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
-const BOT_EMAIL = "123+b4[bot]@users.noreply.github.com"
+const BOT_EMAIL = "123+b4dotrun[bot]@users.noreply.github.com"
 
 let server: FakeGitHubServer | undefined
 afterEach(async () => {
@@ -105,7 +105,7 @@ describe("the GitHub adapter against GitHub's shapes", () => {
       author: Record<string, string>
       committer: Record<string, string>
     }
-    expect(body.author).toMatchObject({ name: "b4[bot]", email: BOT_EMAIL })
+    expect(body.author).toMatchObject({ name: "b4dotrun[bot]", email: BOT_EMAIL })
     expect(body.committer).toEqual(body.author)
     // Pull requests are looked up by `<owner>:<branch>`, which is how GitHub filters by head.
     const listings = server.requests.filter((r) => r.method === "GET" && /\/pulls\?/.test(r.path))
@@ -313,7 +313,7 @@ describe("the GitHub adapter against GitHub's shapes", () => {
         state: "closed",
         draft: false,
         merged,
-        author: "b4[bot]",
+        author: "b4dotrun[bot]",
         headRef: BRANCH,
         headRepository: REPOSITORY,
         headSha: "f".repeat(40),

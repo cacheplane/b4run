@@ -444,8 +444,8 @@ anything is created.
 
 **The GitHub App and the rulesets are a person's job, done once** (spec §10 says why each
 permission and rule; [the rung 4 plan](../../docs/superpowers/plans/2026-10-01-software-factory-rung4.md)'s
-Task 4 has the steps and the `gh api` checks). In short: an app named `b4` (the CI
-guards key on its bot login, `b4[bot]`, in `controller/src/lib/delivery/guard.json`)
+Task 4 has the steps and the `gh api` checks). In short: an app named `b4dotrun` (the CI
+guards key on its bot login, `b4dotrun[bot]`, in `controller/src/lib/delivery/guard.json`)
 with exactly `contents: write`, `pull_requests: write`, `issues: read` and `metadata: read`, no
 `workflows`, no events; installed on the target repository (and a scratch repository for the
 lane below) and nothing else; and the rulesets that keep it to `factory/**` branches it can

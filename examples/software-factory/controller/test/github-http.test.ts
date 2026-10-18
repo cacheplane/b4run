@@ -22,7 +22,7 @@ const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 20
 const target = { repository: "cacheplane/b4run", baseBranch: "main" }
 const SHA = "a".repeat(40)
 const BRANCH = "factory/wo-0123456789abcdef"
-const WHO = { name: "b4[bot]", email: "1+b4[bot]@users.noreply.github.com" }
+const WHO = { name: "b4dotrun[bot]", email: "1+b4dotrun[bot]@users.noreply.github.com" }
 const COMMIT = {
   message: "m",
   tree: SHA,
@@ -127,7 +127,7 @@ describe("the allow-list", () => {
       tree: [{ path: "src/a.ts", mode: "100644", type: "blob", sha: SHA }],
     })
     accept("POST", "/repos/cacheplane/b4run/git/commits", COMMIT)
-    accept("GET", `/users/${encodeURIComponent("b4[bot]")}`)
+    accept("GET", `/users/${encodeURIComponent("b4dotrun[bot]")}`)
   })
 })
 
@@ -419,7 +419,7 @@ describe("one request on the wire", () => {
   })
 
   it("refuses a URL that resolves elsewhere before a credential is made or a socket opens", async () => {
-    const s = await serve(json(200, { slug: "b4" }))
+    const s = await serve(json(200, { slug: "b4dotrun" }))
     credentials.minted = 0
     for (const base of [`${s.url}/`, `${s.url}?x=`, `${s.url}#`])
       expect(await failure(githubRequest(options(base), "GET", "/app"))).toBeInstanceOf(
