@@ -42,9 +42,9 @@
       "recordDigest": "aaab53e084bcba60beb45610704c3e157dd0123639386e3f2b21e4e286360753"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "9923e31866d130429437ddfaf41dce0634b0d20ad66b76bef85196867bd2c45a",
-      "recordDigest": "4a9c44c7853b066dc5ab60c762f73d2bd31b247e07d1f091fb72dd90f03a1093"
+      "lastModified": "2026-10-18T19:02:09.000Z",
+      "sourceDigest": "b6c0555c62885e96a03f115b0e35fb0034821ec6a9c07b32d58a3c6ad8c6695f",
+      "recordDigest": "c6545a8a9b0910b7406a5596eb6e3f939122e5daaecdf985218cbaa5a7c10e34"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "73d406d356cfb88bd6fcf92ac5b059c10f07b987ea1bc36eb68eb3ba47a90d8e"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "6117e308e8b731e10265d6a3eba3efcaddae51abfba08d4a1ad954765d3f261e",
-      "recordDigest": "7ef834c399a1d73b1a4a5dbeafb9923ebbb284fc9d1b75b9a0ba54f282fd6436"
+      "lastModified": "2026-10-18T19:02:09.000Z",
+      "sourceDigest": "85a474c09078012af88c8bf6b833e91edf8e518bcaf545aae5293364b08f5248",
+      "recordDigest": "0a2c192141dc4d7c436f2b38bea62764a26c49a48663f0505e75f8c6f15f0041"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-10T03:29:09.000Z",
