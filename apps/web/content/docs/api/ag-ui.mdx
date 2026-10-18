@@ -71,6 +71,7 @@ const runner = createB4AgentRunner(InMemoryAgentRunner, { url, fetch })
 | `@b4run/ag-ui/angular` | browser-only | not-claimed | application | supported |
 | `@b4run/ag-ui/angular/events` | browser-only | not-claimed | application | supported |
 | `@b4run/ag-ui/angular/copilotkit` | browser-only | not-claimed | application | supported |
+| `@b4run/ag-ui/copilotkit-runtime` | edge-safe | not-claimed | application | supported |
 | `@b4run/ag-ui/styles.css` | n/a | n/a | integration | supported |
 
 `@ag-ui/client` `>=1.0.1 <2.0.0` is an optional peer. Runtime validators (`RunAgentInputSchema`, `AgentCapabilitiesSchema`, `*EventSchema`) live at `@ag-ui/core/schemas` in 1.0; import types from `@ag-ui/core`.
@@ -284,12 +285,12 @@ The CopilotKit (React) connector: it drives a stock `<CopilotChat>` with the act
 | `B4ActivityProps` | Props for `B4Activity`: the agent id, per-tool `labels`, `hiddenTools`, per-tool `renderStep`, `renderInChat`, the clock and children. |
 | `useB4ActivityContext` | The turns, labels and `renderStep` `B4Activity` provides, for host UI outside the chat (a map, a sheet); throws outside `B4Activity`. |
 | `B4ActivityContextValue` | What `useB4ActivityContext` returns: the `TurnsView`, the `labels` and `renderStep` passed to `B4Activity`, and its clock. |
-| `useB4ChatSlots` | Props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows. |
-| `B4ChatSlots` | The `messageView` slots `useB4ChatSlots` returns: `transformMessages` and `assistantMessage`. |
+| `useB4ChatSlots` | Props to spread onto `<CopilotChat>`: one tool row per turn rendered as `TurnActivity`, no toolbar under tool-only rows, and no separate reasoning row for a turn whose `TurnActivity` already shows that reasoning (a turn with a tool or subagent step). A turn that only reasoned and answered keeps CopilotKit's reasoning row. |
+| `B4ChatSlots` | The `messageView` slots `useB4ChatSlots` returns: `transformMessages`, `assistantMessage` and `reasoningMessage`. |
 | `useB4Turns` | The agent's thread as turns (`reduceTurns`), plus `markResuming()` to call before sending a resume and `clearResuming()` to forget it when the resume request failed. |
 | `UseB4TurnsOptions` | Options for `useB4Turns`: the clock and the tools whose frames the view drops. |
 | `UseB4TurnsResult` | What `useB4Turns` returns: the `TurnsView`, `markResuming` and `clearResuming`. |
-| `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one tool-only assistant row per turn, the kept row carrying the union of the turn's tool-call ids, subagent messages dropped. |
+| `mergeTurnMessages` | The `transformMessages` function `useB4ChatSlots` installs: one activity row per turn, the turn's first assistant message that carries tool calls (text or not), holding the union of the turn's tool calls in order. A later calling message keeps its text without its calls, a later tool-only message is dropped, and subagent messages are dropped. |
 
 ### `@b4run/ag-ui/angular`
 
