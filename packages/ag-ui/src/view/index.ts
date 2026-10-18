@@ -67,6 +67,7 @@ export {
   type MessageTurn,
   type PendingApproval,
   pendingApprovals,
+  reasoningInActivity,
   type TranscriptMessage,
   toolCallIdsOf,
   turnForMessage,

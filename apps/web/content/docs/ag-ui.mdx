@@ -567,7 +567,7 @@ Load the stylesheet once, in `angular.json`'s `styles` or a global stylesheet:
 "styles": ["@b4run/ag-ui/styles.css", "src/styles.css"]
 ```
 
-With CopilotKit's Angular chat (`@copilotkit/angular` 0.5.3 or later), provide the activity store next to the chat and hand `<copilot-chat>` the kit's assistant message and approvals:
+With CopilotKit's Angular chat (`@copilotkit/angular` 0.5.3 or later), provide the activity store next to the chat and hand `<copilot-chat>` the kit's assistant message, reasoning message and approvals:
 
 ```ts
 import { Component, inject } from "@angular/core"
@@ -575,6 +575,7 @@ import { CopilotChat } from "@copilotkit/angular"
 import {
   B4ActivityApprovalsComponent,
   B4ActivityAssistantMessageComponent,
+  B4ActivityReasoningMessageComponent,
   B4ActivityStore,
   provideB4Activity,
 } from "@b4run/ag-ui/angular/copilotkit"
@@ -585,16 +586,18 @@ import {
   providers: [provideB4Activity({ agentId: "default" })],
   template: `<copilot-chat agentId="default"
     [assistantMessageComponent]="assistant"
+    [reasoningMessageComponent]="reasoning"
     [messageViewChildrenComponent]="approvals" />`,
 })
 export class ChatComponent {
   readonly activity = inject(B4ActivityStore) // created with the chat, so it sees every event
   readonly assistant = B4ActivityAssistantMessageComponent
+  readonly reasoning = B4ActivityReasoningMessageComponent
   readonly approvals = B4ActivityApprovalsComponent
 }
 ```
 
-Each assistant message renders its text through CopilotKit's own assistant message, then the turn's activity once per turn, and each parked interrupt renders as an approval card that resolves or cancels it through CopilotKit.
+Each assistant message renders its text through CopilotKit's own assistant message, then the turn's activity once per turn. Reasoning the turn's activity already shows gets no separate reasoning row; a turn that only reasoned and answered keeps CopilotKit's. Each parked interrupt renders as an approval card that resolves or cancels it through CopilotKit.
 
 Without CopilotKit — your own transcript, or another Angular chat framework that renders a slot per message — `@b4run/ag-ui/angular/events` folds the thread's AG-UI events (an RxJS `Observable<BaseEvent>`, or anything with the same `subscribe`) into turns: `provideB4Turns` provides the store, `<b4-message-activity>` renders a turn's activity on its first assistant message in your transcript, and `<b4-approvals>` renders the parked interrupts' approval cards for you to resume.
 

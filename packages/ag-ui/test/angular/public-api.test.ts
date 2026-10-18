@@ -110,12 +110,16 @@ describe("@b4run/ag-ui/angular/copilotkit public API", () => {
       [
         "B4ActivityApprovalsComponent",
         "B4ActivityAssistantMessageComponent",
+        "B4ActivityReasoningMessageComponent",
         "B4ActivityStore",
         "provideB4Activity",
       ].sort(),
     )
     expect(reflectComponentType(copilotkit.B4ActivityAssistantMessageComponent)?.selector).toBe(
       "b4-activity-assistant-message",
+    )
+    expect(reflectComponentType(copilotkit.B4ActivityReasoningMessageComponent)?.selector).toBe(
+      "b4-activity-reasoning-message",
     )
     expect(reflectComponentType(copilotkit.B4ActivityApprovalsComponent)?.selector).toBe(
       "b4-activity-approvals",

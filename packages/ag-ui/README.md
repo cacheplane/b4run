@@ -178,7 +178,7 @@ export default function Page() {
   const result = toResumeEntries(decisions, parked)
   if (result.ok) await agent.runAgent({ resume: result.entries })
   ```
-- `@b4run/ag-ui/angular/copilotkit` drives CopilotKit's `<copilot-chat>` (`@copilotkit/angular` `>=0.5.3`, the only Angular entry that imports it): `provideB4Activity` follows the chat's agent into turns, and `B4ActivityAssistantMessageComponent` and `B4ActivityApprovalsComponent` go in the chat's `[assistantMessageComponent]` and `[messageViewChildrenComponent]`.
+- `@b4run/ag-ui/angular/copilotkit` drives CopilotKit's `<copilot-chat>` (`@copilotkit/angular` `>=0.5.3`, the only Angular entry that imports it): `provideB4Activity` follows the chat's agent into turns, and `B4ActivityAssistantMessageComponent`, `B4ActivityReasoningMessageComponent` and `B4ActivityApprovalsComponent` go in the chat's `[assistantMessageComponent]`, `[reasoningMessageComponent]` and `[messageViewChildrenComponent]`. The reasoning message renders CopilotKit's own row except for reasoning the turn's activity already shows, as React's `useB4ChatSlots` does.
 
 ```ts
 import { Component, inject } from "@angular/core"
@@ -186,6 +186,7 @@ import { CopilotChat } from "@copilotkit/angular"
 import {
   B4ActivityApprovalsComponent,
   B4ActivityAssistantMessageComponent,
+  B4ActivityReasoningMessageComponent,
   B4ActivityStore,
   provideB4Activity,
 } from "@b4run/ag-ui/angular/copilotkit"
@@ -196,11 +197,13 @@ import {
   providers: [provideB4Activity({ agentId: "default" })],
   template: `<copilot-chat agentId="default"
     [assistantMessageComponent]="assistant"
+    [reasoningMessageComponent]="reasoning"
     [messageViewChildrenComponent]="approvals" />`,
 })
 export class ChatComponent {
   readonly activity = inject(B4ActivityStore) // created with the chat, so it sees every event
   readonly assistant = B4ActivityAssistantMessageComponent
+  readonly reasoning = B4ActivityReasoningMessageComponent
   readonly approvals = B4ActivityApprovalsComponent
 }
 ```

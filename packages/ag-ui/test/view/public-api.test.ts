@@ -45,6 +45,7 @@ it("exports the framework-free view surface", () => {
     "planProgress",
     "prettyValue",
     "readStepEvent",
+    "reasoningInActivity",
     "reasoningLabel",
     "reduceTurns",
     "sampleElapsed",
