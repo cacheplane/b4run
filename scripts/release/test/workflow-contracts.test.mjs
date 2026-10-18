@@ -4847,7 +4847,7 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       "ci.yml",
       (w) => {
         w.jobs["vercel-native"].if = ifOf(w, "vercel-native").replace(
-          / &&\n !startsWith\([^)]*\) &&\n [^)]*'b4-factory\[bot\]'/u,
+          / &&\n !startsWith\([^)]*\) &&\n [^)]*'b4\[bot\]'/u,
           "",
         )
       },
@@ -4873,7 +4873,7 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       "approve with the bot login misspelt",
       "auto-approve.yml",
       (w) => {
-        w.jobs.approve.if = ifOf(w, "approve").replace("b4-factory[bot]", "b4-factroy[bot]")
+        w.jobs.approve.if = ifOf(w, "approve").replace("b4[bot]", "b4x[bot]")
       },
     ],
     [
@@ -4888,7 +4888,7 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
       "auto-approve.yml",
       (w) => {
         w.jobs.approve.if =
-          "github.event.pull_request.head.repo.full_name == github.repository || (!startsWith(github.event.pull_request.head.ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]')"
+          "github.event.pull_request.head.repo.full_name == github.repository || (!startsWith(github.event.pull_request.head.ref, 'factory/') && github.event.pull_request.user.login != 'b4[bot]')"
       },
     ],
     [
@@ -5039,7 +5039,7 @@ test("factory pull requests run no secret-bearing, deploying or writing job (run
   assert.deepEqual(
     mutate("auto-approve.yml", (w) => {
       w.jobs.approve.if =
-        "github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'factory/') && github.event.pull_request.user.login != 'b4-factory[bot]'"
+        "github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'factory/') && github.event.pull_request.user.login != 'b4[bot]'"
     }),
     [],
   )

@@ -29,7 +29,7 @@ interface Fault {
   remaining: number
 }
 
-export const BOT = "b4-factory[bot]"
+export const BOT = "b4[bot]"
 export const REPOSITORY = "cacheplane/b4run"
 
 export interface FakeGitHub extends DeliveryAdapter {

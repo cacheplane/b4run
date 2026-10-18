@@ -237,7 +237,7 @@ describe("native Vercel job", () => {
         "(github.event_name == 'pull_request' && " +
         "github.event.pull_request.head.repo.full_name == github.repository && " +
         "!startsWith(github.event.pull_request.head.ref, 'factory/') && " +
-        "github.event.pull_request.user.login != 'b4-factory[bot]'))",
+        "github.event.pull_request.user.login != 'b4[bot]'))",
     )
     expect(nativeJob["runs-on"]).toBe("ubuntu-latest")
     expect(nativeJob["timeout-minutes"]).toBe(45)
