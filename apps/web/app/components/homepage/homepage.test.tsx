@@ -16,7 +16,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-it("opens with the install command, then the tour, guardrails, route shapes, shipping and the checklist", async () => {
+it("opens with the install command, then the tour, guardrails, route shapes, shipping, the checklist and the demo", async () => {
   const container = document.createElement("div")
   container.innerHTML = renderToString(await DeveloperHome())
   const hero = container.querySelector('[aria-labelledby="home-title"]')
@@ -42,6 +42,7 @@ it("opens with the install command, then the tour, guardrails, route shapes, shi
     "route-shapes",
     "test-and-ship",
     "last-mile",
+    "demo",
     "run-title",
   ].map((id) => [...container.querySelectorAll("[id]")].findIndex((node) => node.id === id))
   expect(order.every((index) => index >= 0)).toBe(true)

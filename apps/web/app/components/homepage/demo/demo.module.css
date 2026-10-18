@@ -1,0 +1,45 @@
+/* "See it run" (#demo). Paper Relay tokens only (tokens.css). */
+.section {
+  padding: 56px 0;
+  border-bottom: 1px solid var(--color-rule);
+}
+.intro {
+  max-width: 640px;
+  margin-bottom: 32px;
+}
+.eyebrow {
+  margin: 0;
+}
+.intro h2 {
+  font-size: clamp(30px, 3.5vw, 43px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  margin: 24px 0 16px;
+}
+.intro p:not([data-ui="eyebrow"]) {
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+.figure {
+  margin: 0;
+}
+/* The recording is 16:9; the frame holds that before the poster loads. */
+.video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: var(--color-panel);
+  border: 1px solid var(--color-rule);
+}
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 16px;
+  font-size: 15px;
+  line-height: 1.6;
+}
