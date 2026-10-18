@@ -13,7 +13,7 @@ const MEDIA_SCHEMA_VERSION = 1
 
 export const MEDIA_CAPTIONS = Object.freeze({
   "product-loop":
-    "A navlog demo: the agent's route, subagents, tools, approval gate and memory in code, each followed by the real B4.run Workbench running it — plan, weather brief, navlog, approved filing, and a reload that restores the thread.",
+    "A navlog demo: the agent's route, forecast rules, tools, approval gate and memory in code, each followed by the real B4.run Workbench running it — plan, computed weather verdict, navlog, approved filing, and a reload that restores the thread.",
 })
 
 export const MEDIA_CONTRACTS = Object.freeze(

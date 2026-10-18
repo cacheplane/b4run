@@ -12,8 +12,9 @@ agent's tool calls and replies are fixed in advance
 (`docs/brand/demo/scenario.mjs`). A loopback stub of the aviationweather.gov
 API answers the weather tools with fixed data: KSTP and KRST VFR, clear, 10
 statute miles, wind 320 at 8, winds aloft 320 at 20, and no AIRMET or SIGMET.
-Every tool runs for real against those inputs; the navlog numbers are what the
-generated `computeNavlog` returns.
+Every tool runs for real against those inputs; the navlog numbers and the
+forecast (each leg's winds, each airport's flight category and the verdict
+floor) are what the generated `computeNavlog` returns.
 
 ## Navlog demo
 
@@ -35,36 +36,41 @@ composer when the beat begins; the capture filled it before recording. The
 capture clicks Send, and the Workbench sends “Plan a VFR flight KSTP to KRST at
 4500 ft, 1400Z. N738ZU has long-range tanks.” to the navlog agent. The turn
 runs and settles: it checks memory, resolves the 1400Z departure, makes a
-four-item plan, looks up both airports, hands the weather and the performance
-to two subagents, computes the navlog, suggests a memory, saves the navlog to
+four-item plan, looks up both airports, hands the performance to the
+performance subagent, computes the navlog and its forecast (the step reads
+“Computed the navlog and forecast: 66 nm, 33 min, 5.5 gal, reserve 380 min, GO
+floor”), suggests a memory, saves the navlog to
 `reports/KSTP-KRST.md`, and answers with a structured brief: a GO bottom line,
 the route, the key numbers, its assumptions and sources, and an offer to file
 the plan. The scripted run finishes in well under a second, and a settled turn
 folds its activity, so the capture opens the turn and its plan step and scrolls
 the checklist into view; the camera then eases to the plan's to-dos.
 
-### 3. Subagents brief the weather.
+### 3. Code computes the weather.
 
-Two code panes side by side. Left, the weather subagent,
-`server/src/app/navlog/subagents/weather/index.ts`, marked at
-`allow: ["getMetar", "getTaf", "getWindsAloft", "getAdvisories"],`. Right, the
-shared tool `server/src/tools/getMetar.ts`, marked at
-`flightCategory: record.fltCat ?? "UNKNOWN",`.
+Two code panes side by side. Left, the tool
+`server/src/tools/computeNavlog.ts`, marked at
+`const choice = chooseProduct(products, midMs, now)`, where each leg takes the
+winds-aloft forecast for the time it is flown. Right, the verdict rules,
+`server/src/lib/forecast/verdict.ts`, marked at the floor's NO-GO rule for an
+airport that is IFR or LIFR when the flight is there.
 
-### 4. Weather, briefed and judged.
+### 4. Weather, computed and judged.
 
-Back in the Workbench, the camera eases to the top right: the weather strip,
-whose verdict pill reads “GO” beside a chip for each airport, and below it the
-navlog sheet's go/no-go card, which reads “GO” and “KSTP and KRST are VFR now
-and at the ETA, with no advisory during the flight.” The weather subagent
-called `getMetar`, `getTaf`, `getWindsAloft` and `getAdvisories` against the
+Back in the Workbench, the camera eases to the top right: the route bar
+(KSTP, KRST, 4500 ft, departing 1400Z, 66 nm), the map with a “VFR” chip on
+each airport, and below it the navlog sheet, whose verdict summary reads “GO”
+and “KSTP and KRST are VFR now and at the 1433Z ETA, with no advisory during
+the flight.” Its Legs tab shows the 320/20 forecast wind on each leg.
+`computeNavlog` fetched the METARs, TAFs, winds aloft and advisories from the
 loopback stub described above, so the weather on screen is the stub's fixed
 data, not a live observation.
 
 ### 5. Tools do the math.
 
-Two code panes: `server/src/tools/computeNavlog.ts`, marked at its
-`computeNavlog(input)` call, beside `server/src/lib/navlog.ts`, marked at
+Two code panes: `server/src/tools/computeNavlog.ts`, marked at
+`let navlog = navlogOf({ ...base, winds: first }, clock)`, where the legs are
+timed again on the forecast winds, beside `server/src/lib/navlog.ts`, marked at
 `const tri = solveWindTriangle({`.
 
 ### 6. A real navlog.
@@ -96,10 +102,11 @@ The memory declaration, `server/src/app/navlog/memory.ts`, marked at
 
 ### 10. Reload. Still there.
 
-The camera eases to the memory panel under the dock's header (“Memory · 1”).
-It lists the memory the planner suggested during the first turn, “N738ZU has
-long-range tanks: 50 gal usable.”, with Approve and Delete beside it, waiting
-for the pilot; the run does not store it on its own. The camera pulls
+The capture opens memory mode from the sidebar's Memory toggle, and the
+camera eases to the top of the Workbench, where the memory column
+(“Memory · 1”) lists the memory the planner suggested during the first turn,
+“N738ZU has long-range tanks: 50 gal usable.”, waiting for the pilot to approve
+or delete it; the run does not store it on its own. The camera pulls
 back and the browser frame reloads: the capture navigates the Workbench's frame
 to its own URL, as a browser reload would. It opens the thread list and selects
 the same thread, and both turns come back from the server checkpoint: the two
