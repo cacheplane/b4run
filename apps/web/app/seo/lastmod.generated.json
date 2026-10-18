@@ -42,9 +42,9 @@
       "recordDigest": "aaab53e084bcba60beb45610704c3e157dd0123639386e3f2b21e4e286360753"
     },
     "/docs/ag-ui": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "9923e31866d130429437ddfaf41dce0634b0d20ad66b76bef85196867bd2c45a",
-      "recordDigest": "4a9c44c7853b066dc5ab60c762f73d2bd31b247e07d1f091fb72dd90f03a1093"
+      "lastModified": "2026-10-18T18:55:07.000Z",
+      "sourceDigest": "cb362c364fee1ab18bd4b464b8f30e3767f43c751348d26e32c484d18cf35d2c",
+      "recordDigest": "e9b9220424b5dd799751ef912d8bda255bde9233a7b680af48bda0d2ccdd0de6"
     },
     "/docs/agents": {
       "lastModified": "2026-10-03T04:20:30.000Z",
@@ -57,9 +57,9 @@
       "recordDigest": "73d406d356cfb88bd6fcf92ac5b059c10f07b987ea1bc36eb68eb3ba47a90d8e"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "6117e308e8b731e10265d6a3eba3efcaddae51abfba08d4a1ad954765d3f261e",
-      "recordDigest": "7ef834c399a1d73b1a4a5dbeafb9923ebbb284fc9d1b75b9a0ba54f282fd6436"
+      "lastModified": "2026-10-18T18:55:07.000Z",
+      "sourceDigest": "d6a4415880f883720881473c3e0c2d0c254e2d2a8dc146d56dd21c3ead8c91e5",
+      "recordDigest": "81394943e56d93cdc6c77736f3eddbb85e3711b30bcaced141eb3b415dcab31d"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-10T03:29:09.000Z",
@@ -332,9 +332,9 @@
       "recordDigest": "abc562b3c5c3daa4935af6462325af331ee91d99c97117a2f801beba64035d9d"
     },
     "/docs/recipes/flight-planner-web-ui": {
-      "lastModified": "2026-10-15T21:35:55.000Z",
-      "sourceDigest": "29d95a2797a2ca3ef58263e0e3805c2e1e17daca09c3f9d43e316930767e256b",
-      "recordDigest": "c361e1059eb082f0f2dcea2ce996c1769142736258291fdb4b6134670c36d2c8"
+      "lastModified": "2026-10-18T18:55:07.000Z",
+      "sourceDigest": "9e2501ea086f0cde252f0b93de81c42774bfe8e2221882e381125bd8b110388f",
+      "recordDigest": "ec5804f5904b145314345b8e6607b95b9ad2dc2dfba3d6ee05fba4caef4d303a"
     },
     "/docs/recipes/navlog": {
       "lastModified": "2026-10-15T21:27:49.000Z",
