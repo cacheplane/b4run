@@ -1,6 +1,7 @@
 import { CopyCommand } from "../ui/CopyCommand"
 import { Eyebrow } from "../ui/Eyebrow"
 import { LastMile } from "./checklist/LastMile"
+import { DemoVideo } from "./demo/DemoVideo"
 import { Guardrails } from "./gates/Guardrails"
 import { prepareGates } from "./gates/prepare"
 import styles from "./homepage.module.css"
@@ -56,6 +57,7 @@ export async function DeveloperHome() {
         <RouteShapes code={shapes} />
         <TestAndShip code={targets} />
         <LastMile />
+        <DemoVideo />
         <section className={styles.takeaway} aria-labelledby="run-title">
           <div>
             <Eyebrow tone="panel" className={styles.eyebrow}>
