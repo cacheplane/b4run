@@ -1,6 +1,6 @@
 {
   "branchPrefix": "factory/",
-  "botLogin": "b4-factory[bot]",
+  "botLogin": "b4dotrun[bot]",
   "protectedPaths": [
     ".github/**",
     "apps/web/vercel.json",

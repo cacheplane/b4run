@@ -7,7 +7,7 @@ const context = {
   github: {
     event_name: "pull_request",
     actor: "Blove",
-    event: { pull_request: { head: { ref: "factory/wo-1" }, user: { login: "b4-factory[bot]" } } },
+    event: { pull_request: { head: { ref: "factory/wo-1" }, user: { login: "b4dotrun[bot]" } } },
   },
   needs: { scope: { result: "success", outputs: { prose_only: "false" } } },
   status: { always: true, success: true, failure: false, cancelled: false },
@@ -16,7 +16,7 @@ const evaluate = (expression) => evaluateExpression(expression, context)
 
 test("compares strings case-insensitively, as GitHub does", () => {
   assert.equal(evaluate("github.actor == 'blove'"), true)
-  assert.equal(evaluate("github.event.pull_request.user.login != 'B4-Factory[bot]'"), false)
+  assert.equal(evaluate("github.event.pull_request.user.login != 'B4DOTRUN[bot]'"), false)
   assert.equal(evaluate("startsWith(github.event.pull_request.head.ref, 'FACTORY/')"), true)
 })
 

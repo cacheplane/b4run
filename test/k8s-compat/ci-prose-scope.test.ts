@@ -295,7 +295,7 @@ test("every full CI job preserves cancellation, push and failure behavior when p
     ["factoryish/x", "octocat", false],
     ["factory/wo-x", "octocat", true],
     ["Factory/WO-X", "octocat", true],
-    ["feature/x", "b4-factory[bot]", true],
+    ["feature/x", "b4dotrun[bot]", true],
   ]
   for (const [id, job] of Object.entries(workflow.jobs) as [
     string,
