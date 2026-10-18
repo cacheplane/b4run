@@ -5,8 +5,7 @@ import {
   type CopilotChatReasoningMessageProps,
 } from "@copilotkit/react-core/v2"
 import type { ReactElement } from "react"
-import { turnForToolCalls } from "../../view/activity-lookup.js"
-import type { StepView, TurnsView } from "../../view/turns.js"
+import { reasoningInActivity, turnForToolCalls } from "../../view/activity-lookup.js"
 import { TurnActivity } from "../activity/TurnActivity.js"
 import { useB4ActivityContext } from "./B4Activity.js"
 import { mergeTurnMessages } from "./messages.js"
@@ -57,26 +56,6 @@ const B4AssistantMessage = Object.assign(function B4AssistantMessage(
     />
   )
 }, CopilotChatAssistantMessage)
-
-/** Whether `steps` hold the reasoning span or message `id`, at any depth. */
-function holdsReasoning(steps: readonly StepView[], id: string): boolean {
-  return steps.some(
-    (s) =>
-      (s.kind === "reasoning" && (s.id === id || s.messageId === id)) ||
-      (s.kind === "subagent" && holdsReasoning(s.turn.steps, id)),
-  )
-}
-
-/**
- * Whether the reasoning message `id` already shows as a `ReasoningStep` in a
- * `TurnActivity`: its turn has a tool or subagent step, which is what gives a
- * turn its activity row (`turnForToolCalls`). A turn that only reasoned and
- * answered has no activity row, so its reasoning stays CopilotKit's.
- */
-function reasoningInActivity(turns: TurnsView, id: string): boolean {
-  const turn = turns.turns.find((t) => holdsReasoning(t.steps, id))
-  return turn?.steps.some((s) => s.kind === "tool" || s.kind === "subagent") ?? false
-}
 
 // CopilotKit renders each reasoning message on its own row; `TurnActivity`
 // shows the same span as a `ReasoningStep`, so a turn with an activity row

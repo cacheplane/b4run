@@ -4,13 +4,14 @@ import {
   approvalLabel,
   approvalPrompt,
   pendingApprovals,
+  reasoningInActivity,
   type TranscriptMessage,
   toolCallIdsOf,
   turnForMessage,
   turnForToolCalls,
 } from "../../src/view/activity-lookup.ts"
 import type { TurnsView } from "../../src/view/turns.ts"
-import { approval, subagent, tool, turn } from "../fixtures/activity-fixtures.ts"
+import { approval, reasoning, subagent, tool, turn } from "../fixtures/activity-fixtures.ts"
 
 const user = (id: string): TranscriptMessage => ({ id, role: "user" })
 const assistant = (id: string, ...calls: string[]): TranscriptMessage => ({
@@ -212,5 +213,38 @@ describe("approvals", () => {
     ])
     expect(pendingApprovals(turns, undefined)).toEqual([])
     expect(pendingApprovals({ turns: [] }, undefined)).toEqual([])
+  })
+})
+
+describe("reasoningInActivity", () => {
+  const view: TurnsView = {
+    threadId: "t",
+    turns: [
+      // Reasoned, then called a tool: the activity block shows the reasoning.
+      turn({ runId: "r1", steps: [reasoning({ id: "span1", messageId: "rm1" }), tool("c1")] }),
+      // Reasoned and answered: no activity block, so the chat's row stays.
+      turn({ runId: "r2", steps: [reasoning({ id: "rm2" })] }),
+      // A subagent's reasoning, nested: the parent turn's block shows it.
+      turn({
+        runId: "r3",
+        steps: [
+          subagent({
+            id: "s1",
+            turn: turn({ runId: "s1", steps: [reasoning({ id: "rm3" }), tool("n1")] }),
+          }),
+        ],
+      }),
+    ],
+  }
+
+  test("true when the reasoning's turn has a tool or subagent step, by span or message id", () => {
+    expect(reasoningInActivity(view, "span1")).toBe(true)
+    expect(reasoningInActivity(view, "rm1")).toBe(true)
+    expect(reasoningInActivity(view, "rm3")).toBe(true)
+  })
+
+  test("false for a turn that only reasoned, and for an unknown id", () => {
+    expect(reasoningInActivity(view, "rm2")).toBe(false)
+    expect(reasoningInActivity(view, "nope")).toBe(false)
   })
 })

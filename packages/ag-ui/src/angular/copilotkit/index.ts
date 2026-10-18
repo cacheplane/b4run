@@ -3,7 +3,9 @@
  * B4.run's activity kit, on `@copilotkit/angular` (an optional peer; this is
  * the only entry that imports it). `provideB4Activity` follows the chat's
  * agent into turns, `B4ActivityAssistantMessageComponent` is `<copilot-chat>`'s
- * assistant message with one activity block per turn, and
+ * assistant message with one activity block per turn,
+ * `B4ActivityReasoningMessageComponent` is its reasoning message without the
+ * reasoning that activity block already shows, and
  * `B4ActivityApprovalsComponent` renders the parked interrupts' approval cards.
  */
 export {
@@ -14,3 +16,4 @@ export {
 } from "./activity-store.js"
 export { B4ActivityApprovalsComponent } from "./approvals.component.js"
 export { B4ActivityAssistantMessageComponent } from "./assistant-message.component.js"
+export { B4ActivityReasoningMessageComponent } from "./reasoning-message.component.js"

@@ -165,6 +165,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
 | `turnForToolCalls` | The turn that owns any of these tool call ids, nested subagent calls included. |
+| `reasoningInActivity` | Whether a reasoning message or span already shows as a reasoning step in its turn's activity: the turn has a tool or subagent step, nested subagent reasoning included. A chat's reasoning-message slot renders nothing when it is true. |
 | `turnForMessage` | The turn an assistant message belongs to, by the tool calls of its run of messages, else by position from the end of the thread; `first` marks the run's first assistant message, where a chat with one slot per message renders the turn's activity. |
 | `TranscriptMessage` | What `turnForMessage` reads of a message: id, role and the assistant's tool calls, as `toolCalls: { id }[]` (AG-UI's `Message` fits) or as `toolCallIds: string[]`; `toolCallIds` is read only when `toolCalls` is absent. |
 | `toolCallIdsOf` | A transcript message's tool call ids: `toolCalls`' ids, else `toolCallIds`, else none. |
@@ -343,6 +344,7 @@ The CopilotKit (Angular) connector, on `@copilotkit/angular`: it drives a stock 
 | `B4ActivityStore` | Follows the chat's agent into `turns` and CopilotKit's parked interrupts into `interrupts`; `decide(interruptId, decision)` marks the resume, then resolves or cancels through CopilotKit. Supports `approvals.grants: "off"` today. |
 | `B4Interrupt` | A parked interrupt, as CopilotKit's interrupt controller holds it. |
 | `B4ActivityAssistantMessageComponent` | `<copilot-chat>`'s assistant message: the message's text through CopilotKit's own assistant message, then the turn's `<b4-turn-activity>` on the turn's first assistant message. |
+| `B4ActivityReasoningMessageComponent` | `<copilot-chat>`'s reasoning message: CopilotKit's own reasoning message, except for reasoning the turn's `<b4-turn-activity>` already shows (a turn with a tool or subagent step), where it renders nothing. Same check as React's `useB4ChatSlots` (`reasoningInActivity`). |
 | `B4ActivityApprovalsComponent` | One approval card per interrupt CopilotKit holds open, as `<copilot-chat>`'s `[messageViewChildrenComponent]` or anywhere under `provideB4Activity`. |
 
 ### `@b4run/ag-ui/copilotkit-runtime`

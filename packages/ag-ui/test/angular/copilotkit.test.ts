@@ -9,6 +9,7 @@ import {
   B4ActivityApprovalsComponent,
   B4ActivityAssistantMessageComponent,
   type B4ActivityOptions,
+  B4ActivityReasoningMessageComponent,
   B4ActivityStore,
   provideB4Activity,
 } from "../../src/angular/copilotkit/index.js"
@@ -301,20 +302,141 @@ describe("<b4-activity-assistant-message>: CopilotChat's assistant message slot"
   })
 })
 
+describe("<b4-activity-reasoning-message>: CopilotChat's reasoning message slot", () => {
+  const reasoning = (span: string, messageId: string, delta: string) => [
+    { type: "REASONING_START", messageId: span },
+    { type: "REASONING_MESSAGE_START", messageId, role: "reasoning" },
+    { type: "REASONING_MESSAGE_CONTENT", messageId, delta },
+    { type: "REASONING_MESSAGE_END", messageId },
+    { type: "REASONING_END", messageId: span },
+  ]
+  const row = (messageId: string, content: string) => {
+    const message = { id: messageId, role: "reasoning", content }
+    const fixture = mount(B4ActivityReasoningMessageComponent, { message, messages: [message] })
+    return { fixture, root: fixture.nativeElement as HTMLElement }
+  }
+  const shown = (root: HTMLElement) => root.querySelector("copilot-chat-reasoning-message") !== null
+
+  test("drops CopilotKit's row once the turn's activity shows the reasoning; a reason-and-answer turn keeps it", async () => {
+    const { agent, kit } = setup()
+    const first = await startRun(kit, agent)
+    agent.emit(runStarted("r1"), ...reasoning("span-1", "rsn-1", "look first"))
+    await flush()
+    const looked = row("rsn-1", "look first")
+    // Before the turn calls a tool it has no activity block: CopilotKit's row stays.
+    expect(shown(looked.root)).toBe(true)
+    expect(looked.root.textContent).toContain("Thought")
+    // Once it calls one, `<b4-turn-activity>` shows the reasoning: the row goes.
+    agent.emit(toolStart("c1", "runBash"), toolEnd("c1"), toolResult("c1", "ok"), runFinished("r1"))
+    await endRun(agent, first.done)
+    looked.fixture.detectChanges()
+    expect(markupWithoutComments(looked.root)).toBe("")
+
+    const second = await startRun(kit, agent)
+    agent.emit(
+      runStarted("r2"),
+      ...reasoning("span-2", "rsn-2", "just answer"),
+      ...text("m2", "Done."),
+      runFinished("r2"),
+    )
+    await endRun(agent, second.done)
+    expect(shown(row("rsn-2", "just answer").root)).toBe(true)
+  })
+
+  test("a subagent's reasoning, nested in the parent turn's activity, is dropped", async () => {
+    const { agent, kit } = setup()
+    const { done } = await startRun(kit, agent)
+    agent.emit(
+      runStarted("r1"),
+      toolStart("task1", "task"),
+      toolEnd("task1"),
+      {
+        type: "SUBAGENT_STARTED",
+        subagentRunId: "s1",
+        name: "researcher",
+        parentToolCallId: "task1",
+      },
+      ...reasoning("span-s", "rsn-s", "child thinks").map((e) => ({ ...e, subagentRunId: "s1" })),
+      { type: "SUBAGENT_FINISHED", subagentRunId: "s1", outcome: { type: "success" } },
+      runFinished("r1"),
+    )
+    await endRun(agent, done)
+    expect(markupWithoutComments(row("rsn-s", "child thinks").root)).toBe("")
+  })
+})
+
 @Component({
   selector: "test-copilot-chat",
   imports: [CopilotChat],
   providers: [provideB4Activity({ now: () => 5000 })],
-  template: `<copilot-chat [assistantMessageComponent]="assistant" [messageViewChildrenComponent]="approvals" />`,
+  template: `<copilot-chat [assistantMessageComponent]="assistant" [reasoningMessageComponent]="reasoning" [messageViewChildrenComponent]="approvals" />`,
 })
 class TestCopilotChat {
   // Created with the host, so it follows the agent before the first run.
   readonly activity = inject(B4ActivityStore)
   readonly assistant = B4ActivityAssistantMessageComponent
+  readonly reasoning = B4ActivityReasoningMessageComponent
   readonly approvals = B4ActivityApprovalsComponent
 }
 
 describe("<copilot-chat> with the connector", () => {
+  /** jsdom has no ResizeObserver or scrollTo; the chat's stick-to-bottom scroller needs both. */
+  function stubScroller() {
+    const proto = Element.prototype as { scrollTo?: unknown }
+    proto.scrollTo = () => {}
+    onTestFinished(() => {
+      delete proto.scrollTo
+      vi.unstubAllGlobals()
+    })
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    )
+  }
+
+  test("reasoning the turn's activity shows renders once, as the activity's step", async () => {
+    stubScroller()
+    const agent = new ScriptedAgent()
+    TestBed.configureTestingModule({
+      providers: [provideCopilotKit({ agents: { default: agent }, enableInspector: false })],
+    })
+    const kit = TestBed.inject(CopilotKit)
+    const fixture = mount(TestCopilotChat, {})
+    const root = fixture.nativeElement as HTMLElement
+    TestBed.tick()
+    agent.addMessage({ id: "u1", role: "user", content: "Clean the build" })
+    const { done } = await startRun(kit, agent)
+    agent.emit(
+      runStarted("r1"),
+      { type: "REASONING_START", messageId: "span-1" },
+      { type: "REASONING_MESSAGE_START", messageId: "rsn-1", role: "reasoning" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "rsn-1", delta: "look first" },
+      { type: "REASONING_MESSAGE_END", messageId: "rsn-1" },
+      { type: "REASONING_END", messageId: "span-1" },
+      toolStart("c1", "runBash"),
+      toolEnd("c1"),
+      toolResult("c1", "ok"),
+      ...text("m1", "Cleaned."),
+      runFinished("r1"),
+    )
+    await endRun(agent, done)
+    await vi.waitFor(() => {
+      fixture.detectChanges()
+      expect(root.querySelector("section.b4-turn")).not.toBeNull()
+    })
+    expect(agent.messages.some((m) => m.role === "reasoning")).toBe(true)
+    expect(root.querySelector("b4-activity-reasoning-message")).not.toBeNull()
+    expect(root.querySelector("copilot-chat-reasoning-message")).toBeNull()
+    expect(root.querySelectorAll("section.b4-turn")).toHaveLength(1)
+    // The done turn opens to its steps: the reasoning is one of them.
+    click(fixture, root.querySelector("section.b4-turn > button.b4-turn__summary") as HTMLElement)
+    expect(root.querySelectorAll("section.b4-turn li[b4-reasoning-step]")).toHaveLength(1)
+  })
+
   test("a parked thread renders one activity block and its card inside the chat; axe finds nothing serious", async () => {
     // jsdom has no ResizeObserver or scrollTo; the chat's stick-to-bottom scroller needs both.
     const proto = Element.prototype as { scrollTo?: unknown }

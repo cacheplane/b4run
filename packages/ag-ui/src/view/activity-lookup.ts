@@ -24,6 +24,28 @@ export function turnForToolCalls(turns: TurnsView, ids: readonly string[]): Turn
   return turns.turns.find((turn) => owns(turn.steps))
 }
 
+/** Whether `steps` hold the reasoning span or message `id`, at any depth. */
+function holdsReasoning(steps: readonly StepView[], id: string): boolean {
+  return steps.some(
+    (s) =>
+      (s.kind === "reasoning" && (s.id === id || s.messageId === id)) ||
+      (s.kind === "subagent" && holdsReasoning(s.turn.steps, id)),
+  )
+}
+
+/**
+ * Whether the reasoning message `id` already shows as a reasoning step in its
+ * turn's activity: the turn has a tool or subagent step, which is what gives a
+ * turn its activity block (`turnForToolCalls`). A turn that only reasoned and
+ * answered has no activity block, so its reasoning stays the chat's own row.
+ * A chat's reasoning-message slot renders nothing when this is true, so the
+ * same span does not read "Thought for 40 seconds" twice.
+ */
+export function reasoningInActivity(turns: TurnsView, id: string): boolean {
+  const turn = turns.turns.find((t) => holdsReasoning(t.steps, id))
+  return turn?.steps.some((s) => s.kind === "tool" || s.kind === "subagent") ?? false
+}
+
 /**
  * The parts of a transcript message the turn lookup reads: an id, a role and
  * the assistant's tool calls, either as AG-UI spells them (`toolCalls`, as on
