@@ -32,7 +32,7 @@ and approval around LangGraph.js. Keep your application code in TypeScript.
 npm create b4-app@latest my-agent
 ```
 
-https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f
+https://github.com/user-attachments/assets/05193a61-b5eb-4b8e-8d6c-1b09044f6aaf
 
 The 50-second demo shows one agent file, a navlog and its weather forecast
 computed in code, approval-gated filing, memory, and a conversation restored

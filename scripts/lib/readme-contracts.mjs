@@ -99,7 +99,7 @@ const DEMO_POSTER_PATH = "apps/web/public/demo/product-loop-poster.webp"
  * embeds only a bare URL line, so the canonical README must not wrap it.
  */
 export const DEMO_INLINE_VIDEO_URL =
-  "https://github.com/user-attachments/assets/4c5b2e99-a3ca-45a7-8cdb-a133e177424f"
+  "https://github.com/user-attachments/assets/05193a61-b5eb-4b8e-8d6c-1b09044f6aaf"
 const CANONICAL_INLINE_VIDEO_LINE = `\n\n${DEMO_INLINE_VIDEO_URL}\n\n`
 
 const CANONICAL_QUICKSTART_BLOCK = `Requires Node.js 24 or later and npm 11. No API key needed:
