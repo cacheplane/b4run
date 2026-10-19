@@ -291,7 +291,7 @@ async function rejectionOf(promise: Promise<unknown>): Promise<Error> {
 const TURN = "page > main > section.b4-turn:not(.b4-step__children *)"
 const OWN_STEPS = `${TURN} > :scope > ol.b4-turn__steps > li.b4-step`
 const PLAN_STEP = `${OWN_STEPS}[data-kind="plan"] | hasText="Made a plan"`
-const SUBAGENT = `${OWN_STEPS}[data-kind="subagent"] | hasText="performance finished"`
+const SUBAGENT = `${OWN_STEPS}[data-kind="subagent"][data-state="done"] | hasText="Asked performance"`
 const CHILD_TURN = `${SUBAGENT} > :scope > .b4-step__children > section.b4-turn`
 const CHILD_TOOLS = `${CHILD_TURN} > :scope > ol.b4-turn__steps > li.b4-step[data-kind="tool"]`
 const ROOT_TOOLS = `${OWN_STEPS}[data-kind="tool"]`

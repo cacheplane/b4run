@@ -193,13 +193,14 @@ async function planJourney(
     turn.locator(`${OWN_STEPS}[data-kind="plan"]`).filter({ hasText: "Made a plan" }),
     "plan step",
   )
+  // `data-state="done"`: the row reads "Asked performance" while it runs too.
   const subagent = turn
-    .locator(`${OWN_STEPS}[data-kind="subagent"]`)
-    .filter({ hasText: "performance finished" })
+    .locator(`${OWN_STEPS}[data-kind="subagent"][data-state="done"]`)
+    .filter({ hasText: "Asked performance" })
   await expectExactlyOne(subagent, "performance subagent step")
   // A finished subagent folds; opening it shows its own (settled) turn's steps
   // straight away. That turn has no summary line: the subagent row already
-  // reads "performance finished · N steps", and repeating it would make the
+  // reads "Asked performance · N steps", and repeating it would make the
   // child's tool call a second disclosure away.
   await expand(subagent.locator(":scope > button.b4-step__line"), "The performance subagent step")
   const childTurn = subagent.locator(":scope > .b4-step__children > section.b4-turn")
