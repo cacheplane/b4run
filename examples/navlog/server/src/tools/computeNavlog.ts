@@ -179,5 +179,7 @@ export const display = {
     `Computing the navlog and forecast for ${waypoints.length - 1} leg${waypoints.length === 2 ? "" : "s"}`,
   done: (_input, log) =>
     `Computed the navlog and forecast: ${log.totals.distanceNm} nm, ${log.totals.eteMin} min, ${log.totals.fuelGal} gal, reserve ${Math.round(log.totals.reserveMin)} min, ${log.forecast.verdictFloor.level} floor`,
+  failed: ({ waypoints }) =>
+    `Couldn't compute the navlog for ${waypoints.map((wp) => wp.id).join("–")}`,
   sources: (log) => log.sources.map((source) => ({ title: `${source.figure} (${source.path})` })),
 } satisfies ToolDisplay<ComputeNavlogInput, ComputeNavlogOutput>

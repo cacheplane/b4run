@@ -53,7 +53,7 @@ describe("SubagentStep", () => {
     )
     expect(markup).toContain('<li class="b4-step" data-state="done" data-kind="subagent">')
     expect(markup).toContain('<span class="b4-step__line b4-step__line--static">')
-    expect(markup).toContain("researcher finished")
+    expect(markup).toContain("Asked <b>researcher</b>")
     expect(markup).not.toContain("<button")
     expect(markup).not.toContain("b4-step__children")
   })
@@ -92,7 +92,7 @@ describe("SubagentStep", () => {
     expect(markup).not.toContain("b4-step__note")
   })
 
-  test("paused maps to awaiting; done folds to researcher finished · N steps", () => {
+  test("paused maps to awaiting; done keeps Asked researcher · N steps", () => {
     expect(
       renderToStaticMarkup(
         <SubagentStep
@@ -104,12 +104,12 @@ describe("SubagentStep", () => {
     const done = renderToStaticMarkup(<SubagentStep step={sub({})} now={zero} />)
     expect(done).toContain('data-state="done" data-kind="subagent">')
     expect(done).toContain(
-      '<span class="b4-step__text">researcher finished</span><span class="b4-step__meta">· 2 steps</span>',
+      '<span class="b4-step__text">Asked <b>researcher</b></span><span class="b4-step__meta">· 2 steps</span>',
     )
     expect(done).not.toContain("b4-step__children")
   })
 
-  test("failed reads researcher failed with the error", () => {
+  test("failed keeps Asked researcher with failed and the error", () => {
     const markup = renderToStaticMarkup(
       <SubagentStep
         step={sub({ status: "failed", error: "boom", turn: nested("failed") })}
@@ -118,7 +118,7 @@ describe("SubagentStep", () => {
     )
     expect(markup).toContain('data-state="failed" data-kind="subagent" data-expanded="true"')
     expect(markup).toContain(
-      '<span class="b4-step__text">researcher failed</span><span class="b4-step__meta">· boom</span>',
+      '<span class="b4-step__text">Asked <b>researcher</b></span><span class="b4-step__meta">· failed · boom</span>',
     )
   })
 })

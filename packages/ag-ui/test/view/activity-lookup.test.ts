@@ -184,6 +184,26 @@ describe("approvals", () => {
     expect(approvalPrompt(turns, {}, undefined)).toEqual({ agent: "The agent", label: "continue" })
   })
 
+  test("approvalPrompt and pendingApprovals carry the gated tool's fields override", () => {
+    const fields = { query: "Search for" }
+    const labels = { searchCorpus: { fields } }
+    expect(approvalPrompt(turns, { toolCallId: "c1" }, labels)).toEqual({
+      agent: "The agent",
+      label: "searched the corpus",
+      fields,
+    })
+    const parked: TurnsView = {
+      turns: [
+        turn({
+          status: "awaiting",
+          steps: [tool("c1", { status: "awaiting", approval: approval(), label: "Search" })],
+        }),
+      ],
+    }
+    expect(pendingApprovals(parked, labels)[0]).toMatchObject({ fields })
+    expect(pendingApprovals(parked, undefined)[0]).not.toHaveProperty("fields")
+  })
+
   test("pendingApprovals: awaiting steps of the last awaiting turn, nested, then unattached", () => {
     const gate = approval({ interruptId: "g" })
     const child = approval({ interruptId: "n" })

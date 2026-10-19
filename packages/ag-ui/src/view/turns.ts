@@ -850,8 +850,11 @@ function applyStep(turn: TurnView, step: B4StepEventValue, at: number): TurnView
             ? "running"
             : s.status
     const settles = status === "done" || status === "failed" || status === "denied"
+    // A denied or failed call drops its running label: the call did not do
+    // what that sentence said, so the step reads its own label or the
+    // client's fallback, as a restored thread does.
     const { label: _label, sources: _sources, ...bare } = s
-    const base: ToolStep = step.status === "denied" ? bare : s
+    const base: ToolStep = step.status === "denied" || step.status === "failed" ? bare : s
     const patched: ToolStep = {
       ...base,
       ...(step.icon !== undefined ? { icon: step.icon } : {}),

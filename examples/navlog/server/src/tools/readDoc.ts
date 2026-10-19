@@ -23,5 +23,6 @@ export const display = {
   icon: "read",
   running: ({ path }) => `Reading ${path}`,
   done: ({ path }) => `Read ${path}`,
+  failed: ({ path }) => `Couldn't read ${path}`,
   sources: () => [],
 } satisfies ToolDisplay<{ readonly path: string }, { readonly content: string }>

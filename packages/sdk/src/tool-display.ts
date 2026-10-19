@@ -26,9 +26,9 @@ export interface ToolDisplaySource {
  * an AG-UI `CUSTOM` event named `b4.step`, so a chat UI can say
  * "Searched the corpus for “agents”" instead of `searchCorpus`.
  *
- * Every field is optional. Without `running`/`done` a client falls back to
- * "Using <tool>…" / "Used <tool>". Labels are plain text; the runtime
- * truncates them at {@link TOOL_DISPLAY_LABEL_MAX} characters.
+ * Every field is optional. Without `running`/`done`/`failed` a client falls
+ * back to "Using <tool>…" / "Used <tool>" / "<tool> failed". Labels are plain
+ * text; the runtime truncates them at {@link TOOL_DISPLAY_LABEL_MAX} characters.
  */
 // biome-ignore lint/suspicious/noExplicitAny: defaults widen to the tool's own input/output types
 export interface ToolDisplay<TInput = any, TOutput = any> {
@@ -42,6 +42,12 @@ export interface ToolDisplay<TInput = any, TOutput = any> {
    */
   readonly done?: (input: TInput, output: TOutput) => string
   /**
+   * The sentence when the call threw, e.g. `Couldn't search the corpus for “${query}”`.
+   * `error` is the text the model was given for the failure. Without it a
+   * client reads "<tool> failed".
+   */
+  readonly failed?: (input: TInput, error: string) => string
+  /**
    * What the call drew on, from its output. `output` is the value the tool
    * returned, exactly as returned — for a `{ result, state }` tool that is the
    * wrapper object, not `result`.
@@ -51,8 +57,8 @@ export interface ToolDisplay<TInput = any, TOutput = any> {
 
 export const TOOL_DISPLAY_LABEL_MAX = 120
 
-const DISPLAY_KEYS = ["icon", "running", "done", "sources"] as const
-const FUNCTION_KEYS = ["running", "done", "sources"] as const
+const DISPLAY_KEYS = ["icon", "running", "done", "failed", "sources"] as const
+const FUNCTION_KEYS = ["running", "done", "failed", "sources"] as const
 
 export function isToolDisplayIcon(value: unknown): value is ToolDisplayIcon {
   return typeof value === "string" && (TOOL_DISPLAY_ICONS as readonly string[]).includes(value)

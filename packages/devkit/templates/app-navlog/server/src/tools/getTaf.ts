@@ -16,4 +16,5 @@ export const display = {
   icon: "web",
   running: ({ ids }) => `Fetching TAFs for ${ids.join(", ").toUpperCase()}`,
   done: (_input, tafs) => `Fetched ${tafs.length} TAF${tafs.length === 1 ? "" : "s"}`,
+  failed: ({ ids }) => `Couldn't fetch TAFs for ${ids.join(", ").toUpperCase()}`,
 } satisfies ToolDisplay<{ readonly ids: readonly string[] }, Taf[]>

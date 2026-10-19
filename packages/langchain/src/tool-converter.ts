@@ -196,12 +196,15 @@ export function convertToolToLangChain(
           // the checkpointed ToolMessage carries it for a restored thread.
           if (isGraphInterrupt(error) || signal.aborted) throw error
           const failed = toolErrorMessage(error, tool.name, toolCallId)
+          const reason = error instanceof Error ? error.message : String(error)
           return new ToolMessage({
             tool_call_id: toolCallId,
             name: tool.name,
             status: "error",
             content: failed.content,
-            additional_kwargs: { [B4_STEP_KEY]: persisted("failed", describeFailed(display)) },
+            additional_kwargs: {
+              [B4_STEP_KEY]: persisted("failed", describeFailed(display, input, reason, tool.name)),
+            },
           })
         }
         // A denied call (tools.approve / tools.constrain) returns its reason as

@@ -98,4 +98,5 @@ export const display = {
   // The airport's details in parentheses: two calls merge as "Looked up KSTP and KRST".
   done: ({ id }, airport) =>
     `Looked up ${id.toUpperCase()} (${airport.name}, field elevation ${airport.elevationFt} ft)`,
+  failed: ({ id }) => `Couldn't find ${id.toUpperCase()}`,
 } satisfies ToolDisplay<{ readonly id: string }, Airport>

@@ -135,4 +135,6 @@ export const display = {
     stations.length === 0
       ? "Found no weather stations along the route"
       : `Found ${stations.length} weather station${stations.length === 1 ? "" : "s"} along the route: ${stations.map((s) => s.id).join(", ")}`,
+  failed: ({ waypoints }) =>
+    `Couldn't find weather stations along ${waypoints.map((wp) => wp.id).join("–")}`,
 } satisfies ToolDisplay<FindRouteStationsInput, { stations: RouteStation[] }>

@@ -45,14 +45,18 @@ export function Step({ step, labels, renderStep, now }: StepProps): ReactElement
           <>
             <StepIcon name={failed ? "alert" : step.icon} />
             <span className="b4-step__text">{stepLabel(step, labels)}</span>
-            <StatusText>{stepMeta(step)}</StatusText>
+            <StatusText>{stepMeta(step, labels)}</StatusText>
           </>
         }
       >
         {custom ? (
           <div className="b4-step__detail">{custom({ step })}</div>
         ) : (
-          <StepDetail args={step.args} result={step.result} />
+          <StepDetail
+            args={step.args}
+            result={step.result}
+            fields={ownEntry(labels, step.name)?.fields}
+          />
         )}
       </Disclosure>
       {step.sources ? <SourceChips sources={step.sources} /> : null}

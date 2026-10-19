@@ -228,6 +228,16 @@ function asInfinitive(label: string): string {
     : `${infinitive}${space === -1 ? "" : label.slice(space)}`
 }
 
+/** The gated tool's `fields` override, spread into its card's prompt; own keys only. */
+function fieldsFor(
+  step: ToolStep,
+  labels: StepLabelOverrides | undefined,
+): { readonly fields?: Readonly<Record<string, string>> } {
+  const fields =
+    labels !== undefined && Object.hasOwn(labels, step.name) ? labels[step.name]?.fields : undefined
+  return fields !== undefined ? { fields } : {}
+}
+
 /**
  * What follows "wants to" on an approval card: the step's running label (an
  * app override's, else the server's `display.running`), lower-cased, with a
@@ -247,6 +257,8 @@ export function approvalLabel(step: ToolStep, labels: StepLabelOverrides | undef
 export interface ApprovalPrompt {
   readonly agent: string
   readonly label: string
+  /** The gated tool's `fields` override, for the card's argument rows. */
+  readonly fields?: Readonly<Record<string, string>>
 }
 
 /**
@@ -265,7 +277,11 @@ export function approvalPrompt(
     (typeof metadata.subagentRunId === "string" ? metadata.subagentRunId : undefined)
   const located = locate(turns.turns, interrupt.toolCallId)
   if (located.step !== undefined) {
-    return { agent: located.agent, label: approvalLabel(located.step, labels) }
+    return {
+      agent: located.agent,
+      label: approvalLabel(located.step, labels),
+      ...fieldsFor(located.step, labels),
+    }
   }
   const agent =
     (subagentRunId !== undefined ? subagentName(turns.turns, subagentRunId) : undefined) ??
@@ -294,7 +310,12 @@ export function pendingApprovals(
   const collect = (turn: TurnView, agent: string): void => {
     for (const step of turn.steps) {
       if (step.kind === "tool" && step.status === "awaiting" && step.approval !== undefined) {
-        out.push({ approval: step.approval, agent, label: approvalLabel(step, labels) })
+        out.push({
+          approval: step.approval,
+          agent,
+          label: approvalLabel(step, labels),
+          ...fieldsFor(step, labels),
+        })
       } else if (step.kind === "subagent") {
         collect(step.turn, step.name)
       }

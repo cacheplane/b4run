@@ -11,6 +11,31 @@ export interface StepLabelOverride {
    */
   readonly done?: (args: unknown, result: string | undefined) => string
   readonly group?: (count: number) => string
+  /**
+   * Readable names for the call's argument keys, where a card or the step's
+   * detail lists them as rows: `{ item7: "Aircraft ID" }`. A nested row
+   * (`flightPlan.item7`) takes its own entry, else its inner key's. A key
+   * with no entry shows as it is.
+   */
+  readonly fields?: Readonly<Record<string, string>>
+}
+
+/**
+ * The row label `fields` gives `key` — its own entry, else a nested row's
+ * inner key's (`flightPlan.item7` → `item7`) — or undefined. Own keys only:
+ * keys come off the wire.
+ */
+export function fieldLabel(
+  fields: Readonly<Record<string, string>> | undefined,
+  key: string,
+): string | undefined {
+  if (fields === undefined) return undefined
+  const dot = key.indexOf(".")
+  for (const candidate of dot === -1 ? [key] : [key, key.slice(dot + 1)]) {
+    const label = Object.hasOwn(fields, candidate) ? fields[candidate] : undefined
+    if (typeof label === "string" && label !== "") return label
+  }
+  return undefined
 }
 
 export type StepLabelOverrides = Readonly<Record<string, StepLabelOverride>>
@@ -69,7 +94,7 @@ function truncate(label: string): string {
 /**
  * The sentence for a tool step: the app's override for that tool (given
  * parsed args) wins, else the server's `b4.step` label, else "Using X…" /
- * "Used X". A denied step reads "Denied X" unless the server labelled it: no
+ * "Used X" / "X failed". A denied step reads "Denied X" unless the server labelled it: no
  * override runs, because the call did nothing an override could describe.
  * Client wording wins so an app can reword or localize a label a built-in
  * tool ships with. Never throws, never echoes raw arguments, and never
@@ -89,7 +114,13 @@ export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): s
     if (produced) return truncate(produced)
   }
   if (step.label) return truncate(step.label)
-  return live ? `Using ${step.name}…` : `Used ${step.name}`
+  if (live) return `Using ${step.name}…`
+  return step.status === "failed" ? failedFallback(step.name) : `Used ${step.name}`
+}
+
+/** A failed step's sentence when nothing words it: "searchCorpus failed". */
+export function failedFallback(name: string): string {
+  return `${name} failed`
 }
 
 /** A group subject longer than this reads as a sentence, not a name: no list. */

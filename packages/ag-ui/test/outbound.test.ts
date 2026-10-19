@@ -2354,6 +2354,46 @@ describe("toolResultView", () => {
     })
   })
 
+  test("a failed step carries the icon and failed label its error ToolMessage persists", async () => {
+    const events = await collect([
+      { type: "tool_call", data: { id: "call_e_2", name: "readDoc", input: {} } },
+      {
+        type: "tool_result",
+        data: {
+          id: "call_e_2",
+          name: "readDoc",
+          output: {
+            status: "error",
+            content: "Error: ENOENT\n Please fix your mistakes.",
+            name: "readDoc",
+            tool_call_id: "call_e_2",
+            additional_kwargs: {
+              b4_step: {
+                status: "failed",
+                icon: "read",
+                label: "Couldn't read corpus/x.md",
+                startedAt: "2026-10-19T00:00:00.000Z",
+                settledAt: "2026-10-19T00:00:01.000Z",
+              },
+            },
+          },
+        },
+      },
+      { type: "done", data: {} },
+    ])
+    const resultIndex = events.findIndex((event) => event.type === EventType.TOOL_CALL_RESULT)
+    expect(events[resultIndex + 1]).toEqual({
+      type: EventType.CUSTOM,
+      name: "b4.step",
+      value: {
+        toolCallId: "call_e_2",
+        status: "failed",
+        icon: "read",
+        label: "Couldn't read corpus/x.md",
+      },
+    })
+  })
+
   test("a step with an empty call id is ignored", async () => {
     const events = await collect([
       { type: "step", data: { tool_call_id: "", status: "running" } },

@@ -64,8 +64,9 @@ Five states of one research turn. The mockup file
 3. **Done, collapsed.** The activity folds to "Worked for 1m 12s · 9 steps ·
    3 sources". The answer is the focus.
 4. **Done, expanded.** One sentence per step. Repeated calls merge ("Searched
-   the corpus 2 times"). A subagent folds to one line ("researcher finished ·
-   5 steps"). A decided call records its decision ("allowed once"). Every step
+   the corpus 2 times"). A subagent folds to one line ("Asked researcher ·
+   5 steps"; amended 2026-10-19 from "researcher finished · 5 steps", which
+   read oddly for a noun-named subagent such as navlog's "performance"). A decided call records its decision ("allowed once"). Every step
    opens to its inputs and output.
 5. **Something failed.** The failing step turns red, opens itself, and says
    whether the run continued ("the agent continued with the remaining
@@ -85,7 +86,7 @@ and renders the DOM contract in §5.6.
 | `StepDetail` | The step's **Inputs** and **Output** (pretty JSON or text), capped at 250px with scroll. | — |
 | `PlanStep` | "Made a plan · 2 of 4 done" with an SVG checklist. Updates in place. | running only while the run is active; settles when it ends |
 | `ReasoningStep` | "Thinking…", "Thought for 4s", "Show reasoning" (no duration). Opens to the reasoning text. | streaming · done · encrypted (not openable) |
-| `SubagentStep` | "Asked researcher to <task description>" with the child's own `TurnActivity` nested in a soft grey block. Folds to "researcher finished · 5 steps". Replaces the `task` tool call that started it. | running · paused · done · failed |
+| `SubagentStep` | "Asked researcher to <task description>" with the child's own `TurnActivity` nested in a soft grey block. Folds to "Asked researcher · 5 steps" (amended 2026-10-19; was "researcher finished · 5 steps"). Replaces the `task` tool call that started it. | running · paused · done · failed |
 | `ApprovalCard` | "<agent> wants to <label>", the reason, the payload, buttons, the scope line. | awaiting · deciding · failed-to-send |
 | `SourceChips` | File or URL chips from a step's `sources`, "+N" overflow. | — |
 

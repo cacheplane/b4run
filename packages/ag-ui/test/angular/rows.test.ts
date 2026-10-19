@@ -225,7 +225,7 @@ describe("li[b4-subagent-step]", () => {
     expect(root.querySelector(".b4-step__note")).toBeNull()
   })
 
-  test("paused maps to awaiting; done folds to researcher finished · N steps", () => {
+  test("paused maps to awaiting; done keeps Asked researcher · N steps", () => {
     const paused = host(SubagentHost, (h) =>
       h.step.set(subagent({ status: "paused", settledAt: undefined, turn: nested("awaiting") })),
     )
@@ -233,18 +233,18 @@ describe("li[b4-subagent-step]", () => {
     const done = host(SubagentHost, (h) => h.step.set(subagent({ turn: nested("done") })))
     expect(done.row().getAttribute("data-state")).toBe("done")
     expect(done.row().getAttribute("data-expanded")).toBeNull()
-    expect(done.root.querySelector(".b4-step__text")?.textContent).toBe("researcher finished")
+    expect(done.root.querySelector(".b4-step__text")?.textContent).toBe("Asked researcher")
     expect(done.root.querySelector(".b4-step__meta")?.textContent).toBe("· 2 steps")
     expect(done.root.querySelector(".b4-step__children")).toBeNull()
   })
 
-  test("failed reads researcher failed with the error, open", () => {
+  test("failed keeps Asked researcher with failed and the error, open", () => {
     const { root, row } = host(SubagentHost, (h) =>
       h.step.set(subagent({ status: "failed", error: "boom", turn: nested("failed") })),
     )
     expect(row().getAttribute("data-state")).toBe("failed")
     expect(row().getAttribute("data-expanded")).toBe("true")
-    expect(root.querySelector(".b4-step__text")?.textContent).toBe("researcher failed")
-    expect(root.querySelector(".b4-step__meta")?.textContent).toBe("· boom")
+    expect(root.querySelector(".b4-step__text")?.textContent).toBe("Asked researcher")
+    expect(root.querySelector(".b4-step__meta")?.textContent).toBe("· failed · boom")
   })
 })

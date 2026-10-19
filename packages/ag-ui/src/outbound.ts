@@ -23,7 +23,7 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
-import { isContentPartArray } from "@b4run/sdk"
+import { B4_STEP_KEY, isContentPartArray, readPersistedStep } from "@b4run/sdk"
 import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
@@ -202,11 +202,42 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function readToolMessageFields(
   value: unknown,
-): { readonly content: unknown; readonly status: unknown } | undefined {
+):
+  | { readonly content: unknown; readonly status: unknown; readonly additionalKwargs: unknown }
+  | undefined {
   if (!isPlainObject(value)) return undefined
   const fields = isPlainObject(value.kwargs) ? value.kwargs : value
   if (typeof fields.tool_call_id !== "string") return undefined
-  return { content: fields.content, status: fields.status }
+  return {
+    content: fields.content,
+    status: fields.status,
+    additionalKwargs: fields.additional_kwargs,
+  }
+}
+
+/**
+ * A failed call's icon and `failed` label, from the step its error
+ * ToolMessage persists — the same stamp a restored thread reads, so the live
+ * step and the restored one say the same thing.
+ */
+function failedStep(fields: { readonly additionalKwargs: unknown }): ToolResultView["failedStep"] {
+  if (!isPlainObject(fields.additionalKwargs)) return undefined
+  const step = readPersistedStep(fields.additionalKwargs[B4_STEP_KEY])
+  if (step?.status !== "failed") return undefined
+  return {
+    ...(step.icon !== undefined ? { icon: step.icon } : {}),
+    ...(step.label !== undefined ? { label: step.label } : {}),
+  }
+}
+
+function viewOf(fields: {
+  readonly content: unknown
+  readonly status: unknown
+  readonly additionalKwargs: unknown
+}): ToolResultView {
+  const failed = fields.status === "error"
+  const step = failed ? failedStep(fields) : undefined
+  return { content: contentText(fields.content), failed, ...(step ? { failedStep: step } : {}) }
 }
 
 /** A ToolMessage's text: a string as-is, content parts joined by their text parts. */
@@ -227,6 +258,8 @@ function contentText(content: unknown): string {
 export interface ToolResultView {
   readonly content: string
   readonly failed: boolean
+  /** A failed call's persisted icon and `failed` label, when it has them. */
+  readonly failedStep?: Pick<B4StepEventValue, "icon" | "label"> | undefined
 }
 
 /**
@@ -239,9 +272,7 @@ export interface ToolResultView {
 export function toolResultView(output: unknown): ToolResultView {
   try {
     const direct = readToolMessageFields(output)
-    if (direct !== undefined) {
-      return { content: contentText(direct.content), failed: direct.status === "error" }
-    }
+    if (direct !== undefined) return viewOf(direct)
     if (
       isPlainObject(output) &&
       isPlainObject(output.update) &&
@@ -250,9 +281,7 @@ export function toolResultView(output: unknown): ToolResultView {
       const messages = output.update.messages
       for (let index = messages.length - 1; index >= 0; index--) {
         const fields = readToolMessageFields(messages[index])
-        if (fields !== undefined) {
-          return { content: contentText(fields.content), failed: fields.status === "error" }
-        }
+        if (fields !== undefined) return viewOf(fields)
       }
     }
   } catch {
@@ -753,7 +782,9 @@ export async function* toAguiEvents(
         // fate in the ledger (a suppressed result suppresses it too).
         const events: AguiOutboundEvent[] = [
           resultEvent,
-          ...(view.failed ? [stepEvent(owner, { toolCallId, status: "failed" })] : []),
+          ...(view.failed
+            ? [stepEvent(owner, { toolCallId, status: "failed", ...view.failedStep })]
+            : []),
         ]
         if (owner === undefined) {
           yield* ledger.onToolResult(tr.id, tr.name, events)

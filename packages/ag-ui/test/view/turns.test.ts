@@ -374,6 +374,24 @@ describe("reduceTurns", () => {
     })
   })
 
+  it("a failed b4.step replaces the running label with its own, or drops it", () => {
+    const fold = (failed: BaseEvent) =>
+      foldEvents([
+        { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+        { type: EventType.TOOL_CALL_START, toolCallId: "t1", toolCallName: "readDoc" } as BaseEvent,
+        step("t1", "running", "Reading corpus/x.md"),
+        { type: EventType.TOOL_CALL_END, toolCallId: "t1" } as BaseEvent,
+        failed,
+      ]).turns[0]?.steps[0]
+    expect(fold(step("t1", "failed", "Couldn't read corpus/x.md"))).toMatchObject({
+      status: "failed",
+      label: "Couldn't read corpus/x.md",
+    })
+    const bare = fold(step("t1", "failed"))
+    expect(bare).toMatchObject({ status: "failed" })
+    expect(bare).not.toHaveProperty("label")
+  })
+
   it("marks the step failed when a failed b4.step follows its result", () => {
     const view = foldEvents([
       { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,

@@ -135,7 +135,15 @@ export function convertSubagentTaskToLangChain(
           if (nextDepth > MAX_SUBAGENT_DEPTH) {
             return toolMessage(
               `[B4_E5003] Cannot dispatch '${input.subagent}' at depth ${nextDepth}; the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}.`,
-              persisted("failed", describeFailed(display)),
+              persisted(
+                "failed",
+                describeFailed(
+                  display,
+                  input,
+                  `the maximum subagent depth is ${MAX_SUBAGENT_DEPTH}`,
+                  tool.name,
+                ),
+              ),
               undefined,
               true,
             )
@@ -150,7 +158,7 @@ export function convertSubagentTaskToLangChain(
           if (!resolved.ok) {
             return toolMessage(
               resolved.message,
-              persisted("failed", describeFailed(display)),
+              persisted("failed", describeFailed(display, input, resolved.message, tool.name)),
               undefined,
               true,
             )
@@ -224,7 +232,7 @@ export function convertSubagentTaskToLangChain(
             )
             return toolMessage(
               `subagent_failed: ${message}`,
-              persisted("failed", describeFailed(display)),
+              persisted("failed", describeFailed(display, input, message, tool.name)),
               { ...identity, outcome: "failed", error: message },
               true,
             )

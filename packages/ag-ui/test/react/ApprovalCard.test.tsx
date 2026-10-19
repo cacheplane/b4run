@@ -59,6 +59,26 @@ describe("ApprovalCard", () => {
     expect(markup).not.toContain("b4-approval__scope")
   })
 
+  test("fields name the argument rows; a key it does not list shows as it is", () => {
+    const markup = renderToStaticMarkup(
+      <ApprovalCard
+        approval={approval({
+          kind: "tool",
+          detail: {
+            toolName: "fileFlightPlan",
+            argsPreview: JSON.stringify({ flightPlan: { item7: "N734ST", item8: "VG" } }),
+          },
+        })}
+        agent="The agent"
+        label="file N734ST"
+        fields={{ item7: "Aircraft ID" }}
+        onDecide={() => {}}
+      />,
+    )
+    expect(markup).toContain("<dt>Aircraft ID</dt><dd>N734ST</dd>")
+    expect(markup).toContain("<dt>item8</dt><dd>VG</dd>")
+  })
+
   test("a tool call's JSON-object arguments render as rows; a cut value opens to the whole", () => {
     const remarks = `RMK/${"VFR ".repeat(30).trim()}`
     const markup = renderToStaticMarkup(
@@ -116,6 +136,16 @@ describe("ApprovalCard", () => {
     ).toEqual([
       { key: "item7", value: "N738ZU" },
       { key: "item8", value: '{"r":"V"}' },
+    ])
+    // fields names a row by its key, or a nested row by its inner key.
+    expect(
+      approvalArgsRows(
+        { argsPreview: JSON.stringify({ a: 1, b: { item7: "N734ST" } }) },
+        { a: "Alpha", item7: "Aircraft ID", toString: "" },
+      ),
+    ).toEqual([
+      { key: "a", label: "Alpha", value: "1" },
+      { key: "b.item7", label: "Aircraft ID", value: "N734ST" },
     ])
     // An empty single object, or a single scalar, keeps the plain rows.
     expect(approvalArgsRows({ argsPreview: '{"a":{}}' })).toEqual([{ key: "a", value: "—" }])

@@ -116,11 +116,28 @@ describe("Step", () => {
         <Step step={tool({ id: "a", name: "x", status: "awaiting" })} now={now} />,
       ),
     ).toContain('<span class="b4-step__meta">· awaiting approval</span>')
+    // The fallback sentence already says it failed, so no meta repeats it.
+    const bare = renderToStaticMarkup(
+      <Step step={tool({ id: "a", name: "x", status: "failed", result: undefined })} now={now} />,
+    )
+    expect(bare).toContain('<span class="b4-step__text">x failed</span>')
+    expect(bare).not.toContain("b4-step__meta")
     expect(
       renderToStaticMarkup(
-        <Step step={tool({ id: "a", name: "x", status: "failed", result: undefined })} now={now} />,
+        <Step
+          step={tool({
+            id: "a",
+            name: "x",
+            status: "failed",
+            result: undefined,
+            label: "Couldn't search",
+          })}
+          now={now}
+        />,
       ),
-    ).toContain('<span class="b4-step__meta">· failed</span>')
+    ).toContain(
+      '<span class="b4-step__text">Couldn&#x27;t search</span><span class="b4-step__meta">· failed</span>',
+    )
     const failed = renderToStaticMarkup(
       <Step step={tool({ id: "a", name: "x", status: "failed", result: "ENOENT" })} now={now} />,
     )
