@@ -57,9 +57,9 @@
       "recordDigest": "73d406d356cfb88bd6fcf92ac5b059c10f07b987ea1bc36eb68eb3ba47a90d8e"
     },
     "/docs/api/ag-ui": {
-      "lastModified": "2026-10-18T19:16:30.000Z",
-      "sourceDigest": "73f990dee97d8fc78b8d58ab5bef71a95acc73c1dd42e3cc042ddadd905b64c2",
-      "recordDigest": "6c0a260c59970202bddc6e6faf739a5993bc0ffd60ce7c12f67f56dc0715727e"
+      "lastModified": "2026-10-19T17:41:53.000Z",
+      "sourceDigest": "a0f5b06f23acf8aec52a8383a0c36b2c3055f5c14deab526ddf36394d06a876e",
+      "recordDigest": "d5a150c63af07f375de0d5dc9f75425532e43281f9dbd987523a200953200849"
     },
     "/docs/api/cli": {
       "lastModified": "2026-10-10T03:29:09.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-08T19:07:57.000Z",
-      "sourceDigest": "d52643d60c0756e1023f09b082208a93cbbc23d335cbc8a623bd8348a98b9d21",
-      "recordDigest": "9a1b1e09aa0ccae9d499b67d4b07f5c8274aee404f889afd70d4b31d827eaef5"
+      "lastModified": "2026-10-19T17:41:53.000Z",
+      "sourceDigest": "06216ffdf4d185ffb5405233f6787e6fa322d1eeda24372d3f76d00870e7054a",
+      "recordDigest": "a719c2858840df670187fb0d9900f38801949579380c50cdf752e59419eac7c5"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
@@ -422,9 +422,9 @@
       "recordDigest": "e406d657a050e56cc1eb08c099e1145d39dba61b6fd82734174499b23f4f5626"
     },
     "/docs/tools": {
-      "lastModified": "2026-10-08T20:37:22.000Z",
-      "sourceDigest": "ad11853c2b250b76f102761e5440741ead7d711484ceefc9be5f624c5b7f3dd2",
-      "recordDigest": "b994c0b8a90fda8db0f69ffa441c43f174825ead9747bcb40155d50903788879"
+      "lastModified": "2026-10-19T17:41:53.000Z",
+      "sourceDigest": "47b2f85cbe0ebf49f712adddd47f0b1a39dff5a9b0e6539ce30bf41ca165a350",
+      "recordDigest": "63b26b2a43b45acfbb93ac4bcb28c61264d57e84b07544e214a97ae128e43f83"
     },
     "/docs/troubleshooting": {
       "lastModified": "2026-09-23T18:32:41.000Z",
