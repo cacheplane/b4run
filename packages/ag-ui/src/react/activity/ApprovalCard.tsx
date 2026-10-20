@@ -18,6 +18,8 @@ export interface ApprovalCardProps {
   readonly agent: string
   /** The gated step's running label, lower-cased by the caller: "run a command". */
   readonly label: string
+  /** The gated tool's `fields` override (`ApprovalPrompt.fields`): readable argument names. */
+  readonly fields?: Readonly<Record<string, string>> | undefined
   readonly onDecide: (decision: ApprovalDecision) => Promise<void> | void
 }
 
@@ -27,7 +29,7 @@ function ArgRows({ rows }: { readonly rows: readonly ApprovalArgRow[] }): ReactE
     <dl className="b4-approval__payload b4-approval__args">
       {rows.map((row) => (
         <div key={row.key} className="b4-approval__arg">
-          <dt>{row.key}</dt>
+          <dt>{row.label ?? row.key}</dt>
           <dd>
             {row.full === undefined ? (
               row.value
@@ -49,6 +51,7 @@ export function ApprovalCard({
   approval,
   agent,
   label,
+  fields,
   onDecide,
 }: ApprovalCardProps): ReactElement {
   const [state, setState] = useState<"awaiting" | "deciding" | "failed">("awaiting")
@@ -67,7 +70,7 @@ export function ApprovalCard({
     )
   }
   const busy = state === "deciding"
-  const rows = approvalArgsRows(approval.detail)
+  const rows = approvalArgsRows(approval.detail, fields)
   return (
     <section
       className="b4-approval"

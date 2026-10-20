@@ -42,7 +42,7 @@ function truncate(label: string): string {
 
 function readLabel(
   toolName: string,
-  field: "running" | "done",
+  field: "running" | "done" | "failed",
   produce: () => unknown,
 ): string | undefined {
   try {
@@ -125,11 +125,23 @@ export function describeDenied(display: ToolDisplay): StepPayload {
 }
 
 /**
- * The step for a tool that threw: the icon only. There is no output for `done`
- * to describe, so the label is the client's fallback. Without a display, bare.
+ * The step for a tool that threw: the icon and the `failed` sentence, given
+ * the error text. There is no output for `done` to describe, so without
+ * `failed` the label is the client's fallback. Without a display, bare.
+ * Never throws.
  */
-export function describeFailed(display: ToolDisplay | undefined): StepPayload {
-  return display?.icon !== undefined ? { icon: display.icon } : {}
+export function describeFailed(
+  display: ToolDisplay | undefined,
+  input: unknown,
+  error: string,
+  toolName: string,
+): StepPayload {
+  const fn = display?.failed
+  const label = fn ? readLabel(toolName, "failed", () => fn(input, error)) : undefined
+  return {
+    ...(display?.icon !== undefined ? { icon: display.icon } : {}),
+    ...(label !== undefined ? { label } : {}),
+  }
 }
 
 /** Stream one step over LangChain's custom-event channel; a failure never fails the tool. */

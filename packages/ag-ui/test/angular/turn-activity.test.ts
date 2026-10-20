@@ -119,9 +119,7 @@ describe("b4-turn-activity", () => {
       expect(root.querySelector(".b4-turn__summary")).toBeNull()
       expect(root.querySelector("section.b4-turn > ol.b4-turn__steps")).not.toBeNull()
       expect(root.querySelector("section.b4-turn")?.getAttribute("data-expanded")).toBe("true")
-      expect(root.querySelector("[role=status]")?.textContent).toBe(
-        `researcher ${status === "done" ? "finished" : "failed"}`,
-      )
+      expect(root.querySelector("[role=status]")?.textContent).toBe("Asked researcher")
     }
   })
 

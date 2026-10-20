@@ -161,6 +161,24 @@ describe("converter persists a complete b4_step", () => {
     })
   })
 
+  test("a thrown tool's failed step carries display.failed, given the input and error", async () => {
+    const result = (await run({
+      name: "readFile",
+      display: {
+        icon: "read",
+        failed: (_input: unknown, error: string) => `Couldn't read it: ${error}`,
+      },
+      run: async () => {
+        throw new Error("ENOENT")
+      },
+    })) as ToolMessage
+    expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      status: "failed",
+      icon: "read",
+      label: "Couldn't read it: ENOENT",
+    })
+  })
+
   test("a thrown non-Error value is stringified like toolErrorMessage does", async () => {
     const result = (await run({
       name: "x",

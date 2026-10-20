@@ -1,10 +1,5 @@
 import type { ReactElement } from "react"
-import {
-  isSubagentLive,
-  subagentMeta,
-  subagentRowState,
-  subagentSettledText,
-} from "../../view/activity-format.js"
+import { isSubagentLive, subagentMeta, subagentRowState } from "../../view/activity-format.js"
 import type { StepLabelOverrides } from "../../view/labels.js"
 import type { SubagentStep as SubagentStepView } from "../../view/turns.js"
 import { Disclosure, useDisclosure } from "./Disclosure.js"
@@ -23,8 +18,9 @@ export interface SubagentStepProps {
 }
 
 /**
- * "Asked researcher", its description as a muted line beneath, with the
- * child's own activity nested (spec §3 `SubagentStep`). Descriptions are
+ * "Asked researcher", its description as a muted line beneath while it
+ * runs, with the child's own activity nested (spec §3 `SubagentStep`); once
+ * it settles the row keeps that sentence with "· 5 steps" or "· failed". Descriptions are
  * third-person summaries ("Briefs the weather …"), so they are never spliced
  * into the sentence. A settled child that took no steps has nothing to open,
  * so its line is a plain `span` rather than a button.
@@ -34,13 +30,12 @@ export function SubagentStep({ step, labels, renderStep, now }: SubagentStepProp
   const empty = !live && step.turn.steps.length === 0
   const autoOpen = !empty && (live || step.status === "failed")
   const { open, toggle } = useDisclosure(autoOpen, live, step.startedAt)
-  const text = live ? (
+  // The row keeps its sentence once the child settles; the meta says how it ended.
+  const text = (
     <>
       Asked <b>{step.name}</b>
-      {step.description ? <span className="b4-step__note">{step.description}</span> : null}
+      {live && step.description ? <span className="b4-step__note">{step.description}</span> : null}
     </>
-  ) : (
-    subagentSettledText(step)
   )
   const summary = (
     <>

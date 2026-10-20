@@ -101,4 +101,6 @@ export const display = {
     `Fetching winds aloft at ${station.toUpperCase()} for ${altitudeFt} ft`,
   done: (_input, out) =>
     `Winds at ${out.station} ${out.altitudeFt} ft: ${out.wind.dirDegTrue}° at ${Math.round(out.wind.speedKt)} kt${out.covered ? "" : " (preliminary)"}`,
+  failed: ({ station, altitudeFt }) =>
+    `Couldn't fetch winds aloft at ${station.toUpperCase()} for ${altitudeFt} ft`,
 } satisfies ToolDisplay<WindsAloftInput, WindsAloft>

@@ -23,7 +23,7 @@ import { B4ActivityStore } from "./activity-store.js"
   imports: [ApprovalCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { style: "display: contents" },
-  template: `@for (card of cards(); track card.approval.interruptId) {<b4-approval-card [approval]="card.approval" [agent]="card.agent" [label]="card.label" [onDecide]="card.onDecide" />}`,
+  template: `@for (card of cards(); track card.approval.interruptId) {<b4-approval-card [approval]="card.approval" [agent]="card.agent" [label]="card.label" [fields]="card.fields" [onDecide]="card.onDecide" />}`,
 })
 export class B4ActivityApprovalsComponent {
   readonly #store = inject(B4ActivityStore)

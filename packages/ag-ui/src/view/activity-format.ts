@@ -5,7 +5,13 @@
  * from these, so the two can never word a turn differently.
  */
 import type { B4PlanActivityContent } from "../activities.js"
-import { type StepGroup, type StepLabelOverrides, stepLabel } from "./labels.js"
+import {
+  failedFallback,
+  fieldLabel,
+  type StepGroup,
+  type StepLabelOverrides,
+  stepLabel,
+} from "./labels.js"
 import type { ReasoningStep, StepView, SubagentStep, ToolStep, TurnView } from "./turns.js"
 
 /**
@@ -113,7 +119,7 @@ export interface NestedTurn {
  * The summary of a subagent's own turn. While the subagent runs it reads like
  * any turn (spec §3.1: the active step's label, the elapsed tick); once it
  * pauses or settles it names the subagent: "researcher · paused",
- * "researcher finished · 5 steps", "researcher failed · boom".
+ * "Asked researcher · 5 steps", "Asked researcher · failed · boom".
  */
 export function nestedSummaryLine(
   turn: TurnView,
@@ -129,20 +135,26 @@ export function nestedSummaryLine(
       return { text: `${nested.name} · paused`, meta: "", live: false }
     case "failed":
       return {
-        text: `${nested.name} failed`,
-        meta: turn.error ? `· ${turn.error}` : steps,
+        text: `Asked ${nested.name}`,
+        meta: turn.error ? `· failed · ${turn.error}` : `· failed ${steps}`,
         live: false,
       }
     default:
-      return { text: `${nested.name} finished`, meta: steps, live: false }
+      return { text: `Asked ${nested.name}`, meta: steps, live: false }
   }
 }
 
-/** A tool step's muted tail: awaiting approval, denied, or failed with no error text to open. */
-export function stepMeta(step: ToolStep): string {
+/**
+ * A tool step's muted tail: awaiting approval, denied, or failed with no
+ * error text to open — unless its sentence already says it failed (the
+ * "X failed" fallback). Pass the same `labels` the step's sentence uses.
+ */
+export function stepMeta(step: ToolStep, labels?: StepLabelOverrides | undefined): string {
   if (step.status === "awaiting") return "· awaiting approval"
   if (step.status === "denied") return "· denied"
-  if (step.status === "failed" && step.result === undefined) return "· failed"
+  if (step.status === "failed" && step.result === undefined) {
+    return stepLabel(step, labels) === failedFallback(step.name) ? "" : "· failed"
+  }
   return ""
 }
 
@@ -206,14 +218,18 @@ export function subagentRowState(
 export const isSubagentLive = (step: Pick<SubagentStep, "status">): boolean =>
   step.status === "running" || step.status === "paused"
 
-/** A settled subagent row's sentence: "researcher finished", "researcher failed". */
-export function subagentSettledText(step: Pick<SubagentStep, "name" | "status">): string {
-  return step.status === "failed" ? `${step.name} failed` : `${step.name} finished`
+/**
+ * A subagent row's sentence, live or settled: "Asked researcher". The row
+ * keeps the sentence it ran with, past tense like every other step; whether
+ * it finished or failed is in `subagentMeta`.
+ */
+export function subagentSettledText(step: Pick<SubagentStep, "name">): string {
+  return `Asked ${step.name}`
 }
 
-/** A subagent row's muted tail: the error once failed, the step count once done. */
+/** A subagent row's muted tail: "failed" and the error once failed, the step count once done. */
 export function subagentMeta(step: SubagentStep): string {
-  if (step.status === "failed") return step.error ? `· ${step.error}` : ""
+  if (step.status === "failed") return step.error ? `· failed · ${step.error}` : "· failed"
   if (isSubagentLive(step)) return ""
   return `· ${plural(countSteps(step.turn), "step")}`
 }
@@ -249,6 +265,8 @@ export function stepDetailText(
 /** One `key  value` row of a readable detail block. */
 export interface DetailField {
   readonly key: string
+  /** The key's readable name from the tool's `fields` override, when it has one. */
+  readonly label?: string
   readonly value: string
 }
 
@@ -365,6 +383,29 @@ function detailBlock(text: string | undefined): DetailBlock | undefined {
   return { kind: "code", text: capDetail(prettyValue(text)) }
 }
 
+function nameRows(
+  rows: readonly DetailField[],
+  fields: Readonly<Record<string, string>>,
+): readonly DetailField[] {
+  return rows.map((row) => {
+    const label = fieldLabel(fields, row.key)
+    return label !== undefined ? { ...row, label } : row
+  })
+}
+
+/** An input block's rows named by the tool's `fields` override; any other block as it is. */
+function nameFields(
+  block: DetailBlock | undefined,
+  fields: Readonly<Record<string, string>> | undefined,
+): DetailBlock | undefined {
+  if (fields === undefined || block === undefined) return block
+  if (block.kind === "fields") return { kind: "fields", fields: nameRows(block.fields, fields) }
+  if (block.kind === "records") {
+    return { kind: "records", records: block.records.map((rows) => nameRows(rows, fields)) }
+  }
+  return block
+}
+
 const isRows = (block: DetailBlock | undefined): boolean =>
   block?.kind === "fields" || block?.kind === "records"
 
@@ -373,10 +414,15 @@ const isRows = (block: DetailBlock | undefined): boolean =>
  * becomes key/value rows, a short list of objects one group of rows each, a
  * string or scalar plain text, and anything deeper stays pretty JSON. When
  * rows shortened or reshaped a side, `raw` carries its original for a "Show
- * raw" toggle. Never throws.
+ * raw" toggle. `fields` (the tool's override) names the input's rows. Never
+ * throws.
  */
-export function stepDetailView(args: string, result: string | undefined): StepDetailView {
-  const input = detailBlock(args)
+export function stepDetailView(
+  args: string,
+  result: string | undefined,
+  fields?: Readonly<Record<string, string>> | undefined,
+): StepDetailView {
+  const input = nameFields(detailBlock(args), fields)
   const output = detailBlock(result)
   const inputRows = isRows(input)
   const resultRows = isRows(output)

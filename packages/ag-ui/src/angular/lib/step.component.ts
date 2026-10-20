@@ -44,7 +44,7 @@ export const defaultNow = (): number => Date.now()
     "[attr.data-state]": "rowState()",
     "[attr.data-expanded]": "panel.open() ? 'true' : null",
   },
-  template: `<button type="button" class="b4-step__line" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<b4-step-icon [name]="failed() ? 'alert' : step().icon" /><span class="b4-step__text">{{ label() }}</span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</button>@if (panel.open()) {@if (custom(); as view) {<div class="b4-step__detail"><ng-container *ngComponentOutlet="view; inputs: { step: step() }" /></div>} @else {<b4-step-detail [args]="step().args" [result]="step().result" />}}@if (step().sources; as sources) {<b4-source-chips [sources]="sources" />}`,
+  template: `<button type="button" class="b4-step__line" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<b4-step-icon [name]="failed() ? 'alert' : step().icon" /><span class="b4-step__text">{{ label() }}</span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</button>@if (panel.open()) {@if (custom(); as view) {<div class="b4-step__detail"><ng-container *ngComponentOutlet="view; inputs: { step: step() }" /></div>} @else {<b4-step-detail [args]="step().args" [result]="step().result" [fields]="fields()" />}}@if (step().sources; as sources) {<b4-source-chips [sources]="sources" />}`,
 })
 export class StepComponent {
   readonly step = input.required<ToolStep>()
@@ -63,6 +63,7 @@ export class StepComponent {
   // the user opened; a re-presented call hands control back to automation.
   protected readonly panel = disclosure(this.failed, this.live, () => this.step().startedAt)
   protected readonly label = computed(() => stepLabel(this.step(), this.labels()))
-  protected readonly meta = computed(() => stepMeta(this.step()))
+  protected readonly meta = computed(() => stepMeta(this.step(), this.labels()))
   protected readonly custom = computed(() => ownEntry(this.renderStep(), this.step().name))
+  protected readonly fields = computed(() => ownEntry(this.labels(), this.step().name)?.fields)
 }

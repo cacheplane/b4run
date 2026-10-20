@@ -94,7 +94,7 @@ export function B4Activity({
       <>
         {interrupts.map((interrupt) => {
           const approval = approvalFromInterrupt(interrupt)
-          const { agent: agentName, label } = approvalPrompt(turns, interrupt, labels)
+          const { agent: agentName, label, fields } = approvalPrompt(turns, interrupt, labels)
           const onDecide = async (decision: ApprovalDecision) => {
             markResuming()
             try {
@@ -112,6 +112,7 @@ export function B4Activity({
               approval={approval}
               agent={agentName}
               label={label}
+              fields={fields}
               onDecide={onDecide}
             />
           )

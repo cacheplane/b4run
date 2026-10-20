@@ -18,4 +18,5 @@ export const display = {
   running: ({ id }) => `Looking up ${id.toUpperCase()}`,
   // The navaid's details in parentheses: two calls merge as "Looked up SNS and PYE".
   done: ({ id }, navaid) => `Looked up ${id.toUpperCase()} (${navaid.name} ${navaid.type})`,
+  failed: ({ id }) => `Couldn't find ${id.toUpperCase()}`,
 } satisfies ToolDisplay<{ readonly id: string }, Navaid>

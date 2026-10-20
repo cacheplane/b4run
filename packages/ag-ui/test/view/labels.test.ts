@@ -47,6 +47,9 @@ describe("stepLabel", () => {
       "Using searchCorpus…",
     )
     expect(stepLabel(tool({ id: "1", name: "searchCorpus" }))).toBe("Used searchCorpus")
+    expect(stepLabel(tool({ id: "1", name: "searchCorpus", status: "failed" }))).toBe(
+      "searchCorpus failed",
+    )
   })
 
   it("picks the running or done override by status and hands done the result", () => {

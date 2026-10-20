@@ -4,6 +4,8 @@ import { type DetailBlock, type DetailField, stepDetailView } from "../../view/a
 export interface StepDetailProps {
   readonly args: string
   readonly result?: string | undefined
+  /** The tool's `fields` override: readable names for the input's rows. */
+  readonly fields?: Readonly<Record<string, string>> | undefined
 }
 
 function Fields({ fields }: { readonly fields: readonly DetailField[] }): ReactElement {
@@ -11,7 +13,7 @@ function Fields({ fields }: { readonly fields: readonly DetailField[] }): ReactE
     <dl className="b4-step__fields">
       {fields.map((field) => (
         <div key={field.key} className="b4-step__field">
-          <dt>{field.key}</dt>
+          <dt>{field.label ?? field.key}</dt>
           <dd>{field.value}</dd>
         </div>
       ))}
@@ -47,8 +49,8 @@ function Block({ block }: { readonly block: DetailBlock }): ReactElement {
  * string, pretty JSON for anything deeper.
  * When rows reshaped a value, "Show raw" opens the originals.
  */
-export function StepDetail({ args, result }: StepDetailProps): ReactElement {
-  const view = useMemo(() => stepDetailView(args, result), [args, result])
+export function StepDetail({ args, result, fields }: StepDetailProps): ReactElement {
+  const view = useMemo(() => stepDetailView(args, result, fields), [args, result, fields])
   const [showRaw, setShowRaw] = useState(false)
   return (
     <div className="b4-step__detail">

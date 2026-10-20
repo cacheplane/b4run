@@ -14,6 +14,11 @@ const ITEMS: readonly { readonly key: keyof FlightPlan; readonly label: string }
   { key: "item19", label: "19 Endurance / POB" },
 ]
 
+/** The ICAO items by key, for the `fileFlightPlan` approval card's rows (`fields`). */
+export const FPL_ITEM_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  ITEMS.map(({ key, label }) => [key, label]),
+)
+
 /** The FPL message a filing service accepts, one item per line. */
 export function fplMessage(plan: FlightPlan): string {
   return [

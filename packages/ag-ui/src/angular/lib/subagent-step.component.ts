@@ -6,7 +6,6 @@ import {
   type SubagentStep,
   subagentMeta,
   subagentRowState,
-  subagentSettledText,
 } from "@b4run/ag-ui/view"
 import { disclosure } from "./state.js"
 import { defaultNow, type StepRenderers } from "./step.component.js"
@@ -17,8 +16,9 @@ import { CHEVRON_TEMPLATE, SvgAttrsDirective } from "./svg.js"
 import { TurnActivityComponent } from "./turn-activity.component.js"
 
 /**
- * "Asked researcher", its description as a muted line beneath, with the
- * child's own activity nested; folds to "researcher finished · 5 steps".
+ * "Asked researcher", its description as a muted line beneath while it
+ * runs, with the child's own activity nested; once settled the row keeps
+ * that sentence and folds to "Asked researcher · 5 steps" or "· failed".
  * Descriptions are third-person summaries, so they are never spliced into the
  * sentence. A settled child that took no steps has nothing to open, so its
  * line is a plain `span`. Attaches to the contract's `li`:
@@ -34,7 +34,7 @@ import { TurnActivityComponent } from "./turn-activity.component.js"
     "[attr.data-state]": "rowState()",
     "[attr.data-expanded]": "panel.open() && !empty() ? 'true' : null",
   },
-  template: `@if (empty()) {<span class="b4-step__line b4-step__line--static"><b4-step-icon [name]="step().status === 'failed' ? 'alert' : 'agent'" /><span class="b4-step__text">{{ settledText() }}</span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</span>} @else {<button type="button" class="b4-step__line" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<b4-step-icon [name]="step().status === 'failed' ? 'alert' : 'agent'" /><span class="b4-step__text">@if (live()) {Asked <b>{{ step().name }}</b>@if (step().description) {<span class="b4-step__note">{{ step().description }}</span>}} @else {<ng-container>{{ settledText() }}</ng-container>}</span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</button>@if (panel.open()) {<div class="b4-step__children"><b4-turn-activity [turn]="step().turn" [labels]="labels()" [renderStep]="renderStep()" [now]="now()" [nested]="{ name: step().name, status: step().status }" /></div>}}`,
+  template: `@if (empty()) {<span class="b4-step__line b4-step__line--static"><b4-step-icon [name]="step().status === 'failed' ? 'alert' : 'agent'" /><span class="b4-step__text">Asked <b>{{ step().name }}</b></span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</span>} @else {<button type="button" class="b4-step__line" [attr.aria-expanded]="panel.open()" (click)="panel.toggle()">${CHEVRON_TEMPLATE}<b4-step-icon [name]="step().status === 'failed' ? 'alert' : 'agent'" /><span class="b4-step__text">@if (live()) {Asked <b>{{ step().name }}</b>@if (step().description) {<span class="b4-step__note">{{ step().description }}</span>}} @else {Asked <b>{{ step().name }}</b>}</span>@if (meta()) {<span class="b4-step__meta">{{ meta() }}</span>}</button>@if (panel.open()) {<div class="b4-step__children"><b4-turn-activity [turn]="step().turn" [labels]="labels()" [renderStep]="renderStep()" [now]="now()" [nested]="{ name: step().name, status: step().status }" /></div>}}`,
 })
 export class SubagentStepComponent {
   readonly step = input.required<SubagentStep>()
@@ -45,7 +45,6 @@ export class SubagentStepComponent {
   protected readonly chevron = CHEVRON_GLYPH
   protected readonly live = computed(() => isSubagentLive(this.step()))
   protected readonly rowState = computed(() => subagentRowState(this.step().status))
-  protected readonly settledText = computed(() => subagentSettledText(this.step()))
   protected readonly meta = computed(() => subagentMeta(this.step()))
   /** A settled child that took no steps has nothing to open: its line is a plain `span`. */
   protected readonly empty = computed(() => !this.live() && this.step().turn.steps.length === 0)

@@ -151,10 +151,10 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `StepStatus` | `pending`, `running`, `done`, `failed` or `awaiting`. |
 | `TurnStatus` | `working`, `awaiting`, `done`, `failed` or `stopped`. |
 | `ReduceTurnsOptions` | Inject the clock, name tools whose frames the view drops, and say whether a same-thread run resumes the awaiting turn (`resuming`). |
-| `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"; never throws, never echoes raw arguments, at most 120 characters. |
+| `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"/"X failed"; never throws, never echoes raw arguments, at most 120 characters. |
 | `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label: the app's `group` override, else the built-in wording, else one phrased from the steps' own labels (`phraseGroupLabel`), else "Used X n times"; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
 | `phraseGroupLabel` | A group label phrased from its steps' labels when they share leading words and differ in a short trailing name: "Looked up KSTP" and "Looked up KRST" read "Looked up KSTP and KRST", three name all three, more name two and count the rest ("and 2 more"). A trailing parenthetical is dropped; a subject over four words or 32 characters, or holding `,`, `;` or `:`, is not a name, and the result is undefined. |
-| `StepLabelOverride` | Client-side wording for one tool: reword, localize, or label a group. |
+| `StepLabelOverride` | Client-side wording for one tool: reword, localize, label a group, or name its argument keys (`fields`) for the approval card and step detail rows. |
 | `StepLabelOverrides` | Overrides keyed by tool name. |
 | `StepGroup` | A run of merged tool steps and its label. |
 | `GroupedStep` | A step or a group. |
@@ -174,7 +174,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `approvalFromInterrupt` | A parked AG-UI interrupt as an `ApprovalView`: kind, detail, message, grant, and whether "Always allow" is offered. |
 | `approvalPrompt` | The card's title, `{agent} wants to {label}`, for a parked interrupt: the gated step's running label and the subagent it sits in, else "The agent" and "continue". |
 | `approvalLabel` | A gated step's running label, lower-cased, as it follows "wants to"; "use X" when the step has none. |
-| `ApprovalPrompt` | An approval card's agent and label. |
+| `ApprovalPrompt` | An approval card's agent and label, and the gated tool's `fields` override when it has one. |
 | `pendingApprovals` | The approval cards an awaiting thread shows, read from its turns alone: every awaiting step's approval in the last turn and its paused subagents, then the interrupts that named no step. |
 | `PendingApproval` | One card to show: the `ApprovalView` and its prompt. |
 | `toResumeEntries` | The AG-UI `resume` entries for approval decisions: `once`/`always` resolve with that payload, `deny` cancels, each interrupt's grant rides at `metadata.grant`, in the parked interrupts' order. Every parked interrupt must be decided first: until then it returns `{ ok: false, reason: "undecided" }` naming the rest (`unknown_interrupt` for a decision on an interrupt that is not parked, `no_interrupts` when nothing is). Pure. |
@@ -182,13 +182,13 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `ResumableInterrupt` | A parked interrupt `toResumeEntries` answers: an AG-UI `Interrupt` (grant at `metadata.grant`) or an `ApprovalView` (grant at `grant`). |
 | `ResumeEntriesResult` | What `toResumeEntries` returns: `{ ok: true, entries }`, or `{ ok: false, reason, interruptIds }`. |
 | `summaryLine` | The summary sentence and meta for a turn at a given time. |
-| `nestedSummaryLine` | The summary of a subagent's own turn: like any turn while it runs, then "researcher · paused", "researcher finished · 5 steps" or "researcher failed · boom". |
+| `nestedSummaryLine` | The summary of a subagent's own turn: like any turn while it runs, then "researcher · paused", "Asked researcher · 5 steps" or "Asked researcher · failed · boom". |
 | `NestedTurn` | A subagent's name and status, as its nested turn's summary needs them. |
 | `SummaryLine` | A summary line: its text, its muted meta, and whether it shows the running treatment. |
 | `formatDuration` | `<1s`, `Ns`, `Nm Ms`; undefined for an unknown duration. |
 | `countSteps` | Steps in a turn and its nested subagent turns; a subagent counts as one step too. |
 | `countSources` | Sources cited by a turn's tool steps and its nested subagent turns. |
-| `stepMeta` | A tool step's muted tail: awaiting approval, denied, or failed with no error text. |
+| `stepMeta` | A tool step's muted tail: awaiting approval, denied, or failed with no error text, unless its sentence is already the "X failed" fallback; pass the same `labels` the sentence uses. |
 | `groupMeta` | A merged group's muted tail: how many sources its calls cite. |
 | `ownEntry` | An own-key lookup in a per-tool table, so a wire name like `toString` never finds `Object.prototype`. |
 | `planProgress` | How many plan items are done, of how many. |
@@ -196,10 +196,10 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `reasoningLabel` | "Thinking…", "Thought for 4s", or "Show reasoning" when the duration is unknown. |
 | `subagentRowState` | A subagent row's `data-state`; a paused subagent reads as awaiting. |
 | `isSubagentLive` | Whether a subagent is running or paused on an approval. |
-| `subagentSettledText` | A settled subagent row's sentence: "researcher finished" or "researcher failed". |
+| `subagentSettledText` | A subagent row's sentence, live or settled: "Asked researcher"; how it ended is in `subagentMeta` ("· 5 steps", "· failed · boom"). |
 | `subagentMeta` | A subagent row's muted tail: the error once failed, the step count once done. |
 | `stepDetailText` | A step's input and result pretty-printed and capped, the text "Show raw" opens, and whether both are empty. |
-| `stepDetailView` | A step's input and result as the detail panel shows them: rows for an object (one nested level as dotted keys), a group of rows per object in a short list, plain text for a string or scalar, pretty JSON for anything deeper, plus the raw original of each side shown as rows. |
+| `stepDetailView` | A step's input and result as the detail panel shows them: rows for an object (one nested level as dotted keys), a group of rows per object in a short list, plain text for a string or scalar, pretty JSON for anything deeper, plus the raw original of each side shown as rows; an optional `fields` names the input's rows. |
 | `StepDetailView` | What `stepDetailView` returns: the input and result blocks, the raw originals, and whether both are empty. |
 | `DetailBlock` | One side of a step's detail: `fields`, `records`, `text` or `code`. |
 | `DetailField` | One key/value row of a `fields` block. |
@@ -209,7 +209,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `MAX_DETAIL_CHARS` | The longest inputs or output a detail panel shows, 20,000 characters. |
 | `isSafeHref` | Whether a source's link may render as a link: web, mail and same-origin paths only. |
 | `approvalPayload` | The payload an approval card shows: args preview, command, a subagent gate's name, input and reason, or detail JSON. |
-| `approvalArgsRows` | A tool call's arguments as the approval card's rows, when the args preview is a JSON object: one row per key, a nested object's keys as `parent.key` (or, when the preview holds a single object-valued key, that object's keys with no prefix), anything deeper as compact JSON, and a value past 80 characters cut with the whole of it in `full`. Undefined otherwise; the card then prints `approvalPayload`. |
+| `approvalArgsRows` | A tool call's arguments as the approval card's rows, when the args preview is a JSON object: one row per key, a nested object's keys as `parent.key` (or, when the preview holds a single object-valued key, that object's keys with no prefix), anything deeper as compact JSON, and a value past 80 characters cut with the whole of it in `full`; an optional `fields` gives each row it lists a `label`. Undefined otherwise; the card then prints `approvalPayload`. |
 | `ApprovalArgRow` | One row: `key`, the one-line `value`, and `full` when the value was cut. |
 | `MAX_APPROVAL_ARG_CHARS` | The longest argument value a row shows (80 characters) before it is cut. |
 | `scopeLine` | What "Always allow" covers, from the interrupt's kind and pattern. |
@@ -252,9 +252,9 @@ The React activity kit. Components are pure functions of the `TurnView`/`StepVie
 | `PlanStep` | "Made a plan · 2 of 4 done" with the checklist; updates in place. |
 | `PlanStepProps` | Props for `PlanStep`: the plan step and whether the owning turn is live. |
 | `ReasoningStep` | "Thinking…", "Thought for 4s" or "Show reasoning"; opens to the text. |
-| `SubagentStep` | "Asked researcher", its description as a muted line beneath, with the child's own activity nested; folds to "researcher finished · N steps". |
+| `SubagentStep` | "Asked researcher", its description as a muted line beneath while it runs, with the child's own activity nested; folds to "Asked researcher · N steps" or "· failed". |
 | `SubagentStepProps` | Props for `SubagentStep`: the subagent step, label overrides, step renderers and the clock. |
-| `ApprovalCard` | A parked interrupt: who wants what, why, the payload, Allow once / Always allow / Deny on one row, and the scope line. |
+| `ApprovalCard` | A parked interrupt: who wants what, why, the payload, Allow once / Always allow / Deny on one row, and the scope line. `fields` (from `approvalPrompt`) names the argument rows. |
 | `ApprovalCardProps` | Props for `ApprovalCard`: the approval, the agent's name, the gated step's label and the decision callback. |
 | `ApprovalDecision` | `once`, `always` or `deny`. |
 | `SourceChips` | File or URL chips from a step's sources, with "+N" overflow. |

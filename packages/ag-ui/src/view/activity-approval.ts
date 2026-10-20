@@ -1,5 +1,7 @@
 /** The approval card's text (spec §3.2), framework-free: both activity kits render it. */
 
+import { fieldLabel } from "./labels.js"
+
 /** The three decisions an approval card offers. */
 export type ApprovalDecision = "once" | "always" | "deny"
 
@@ -45,6 +47,8 @@ export function approvalPayload(detail: Readonly<Record<string, unknown>>): stri
 export interface ApprovalArgRow {
   /** The argument's name; a nested object's keys read `parent.key`. */
   readonly key: string
+  /** The key's readable name from the tool's `fields` override, when it has one. */
+  readonly label?: string
   /** The value on one line, cut at `MAX_APPROVAL_ARG_CHARS` with an ellipsis. */
   readonly value: string
   /** The whole value, only when `value` is cut: the card shows it on expand. */
@@ -73,15 +77,21 @@ function argText(value: unknown): string {
   }
 }
 
-function argRow(key: string, value: unknown): ApprovalArgRow {
+function argRow(
+  key: string,
+  value: unknown,
+  fields: Readonly<Record<string, string>> | undefined,
+): ApprovalArgRow {
   const text = argText(value)
   const chars = [...text]
   const firstLine = text.split("\n", 1)[0] ?? ""
+  const label = fieldLabel(fields, key)
+  const named = label !== undefined ? { label } : {}
   if (chars.length <= MAX_APPROVAL_ARG_CHARS && firstLine.length === text.length) {
-    return { key, value: text }
+    return { key, ...named, value: text }
   }
   const head = [...firstLine].slice(0, MAX_APPROVAL_ARG_CHARS).join("").trimEnd()
-  return { key, value: `${head}…`, full: text }
+  return { key, ...named, value: `${head}…`, full: text }
 }
 
 /**
@@ -93,11 +103,13 @@ function argRow(key: string, value: unknown): ApprovalArgRow {
  * exactly one top-level key and its value is a non-empty plain object (the
  * `fileFlightPlan({ flightPlan: {...} })` shape), that wrapper is dropped: the
  * object's keys are the rows, unprefixed. A long value is cut,
- * with the whole of it in `full`. Undefined otherwise — a preview the server
+ * with the whole of it in `full`. `fields` (the tool's override) names the
+ * rows: a row whose key it lists carries that `label`. Undefined otherwise — a preview the server
  * cut short is no longer JSON — and the card prints `approvalPayload`.
  */
 export function approvalArgsRows(
   detail: Readonly<Record<string, unknown>>,
+  fields?: Readonly<Record<string, string>> | undefined,
 ): readonly ApprovalArgRow[] | undefined {
   const preview = text(detail.argsPreview)
   if (preview === undefined) return undefined
@@ -111,14 +123,16 @@ export function approvalArgsRows(
   const entries = Object.entries(args)
   const only = entries.length === 1 ? entries[0] : undefined
   if (only !== undefined && isPlainObject(only[1]) && Object.keys(only[1]).length > 0) {
-    return Object.entries(only[1]).map(([key, value]) => argRow(key, value))
+    return Object.entries(only[1]).map(([key, value]) => argRow(key, value, fields))
   }
   const rows: ApprovalArgRow[] = []
   for (const [key, value] of entries) {
     if (isPlainObject(value) && Object.keys(value).length > 0) {
-      for (const [inner, leaf] of Object.entries(value)) rows.push(argRow(`${key}.${inner}`, leaf))
+      for (const [inner, leaf] of Object.entries(value)) {
+        rows.push(argRow(`${key}.${inner}`, leaf, fields))
+      }
     } else {
-      rows.push(argRow(key, value))
+      rows.push(argRow(key, value, fields))
     }
   }
   return rows

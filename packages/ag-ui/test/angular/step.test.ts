@@ -100,9 +100,14 @@ describe("li[b4-step]", () => {
       render(tool({ id: "a", name: "x", status: "awaiting" })).root.querySelector(".b4-step__meta")
         ?.textContent,
     ).toBe("· awaiting approval")
+    // The fallback sentence already says it failed, so no meta repeats it.
+    const bare = render(tool({ id: "a", name: "x", status: "failed" })).root
+    expect(bare.querySelector(".b4-step__text")?.textContent).toBe("x failed")
+    expect(bare.querySelector(".b4-step__meta")).toBeNull()
     expect(
-      render(tool({ id: "a", name: "x", status: "failed" })).root.querySelector(".b4-step__meta")
-        ?.textContent,
+      render(
+        tool({ id: "a", name: "x", status: "failed", label: "Couldn't search" }),
+      ).root.querySelector(".b4-step__meta")?.textContent,
     ).toBe("· failed")
     const failed = render(tool({ id: "a", name: "x", status: "failed", result: "ENOENT" }))
     expect(failed.li().getAttribute("data-expanded")).toBe("true")

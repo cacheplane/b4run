@@ -21,7 +21,7 @@ import {
   selector: "b4-approval-card",
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { style: "display: contents" },
-  template: `<section class="b4-approval" [attr.data-state]="state()" role="alert" [attr.aria-busy]="busy() ? 'true' : null"><h3 class="b4-approval__title">{{ agent() }} wants to {{ label() }}</h3>@if (approval().message) {<p class="b4-approval__reason">{{ approval().message }}</p>}@if (rows(); as rows) {<dl class="b4-approval__payload b4-approval__args">@for (row of rows; track row.key) {<div class="b4-approval__arg"><dt>{{ row.key }}</dt><dd>@if (row.full !== undefined) {<details class="b4-approval__more"><summary>{{ row.value }}</summary><span class="b4-approval__full">{{ row.full }}</span></details>} @else {<ng-container>{{ row.value }}</ng-container>}</dd></div>}</dl>} @else {<pre class="b4-approval__payload">{{ payload() }}</pre>}<div class="b4-approval__actions"><button type="button" class="b4-approval__button b4-approval__button--primary" [disabled]="busy()" (click)="decide('once')">Allow once</button>@if (approval().offersAlways) {<button type="button" class="b4-approval__button b4-approval__button--secondary" [disabled]="busy()" (click)="decide('always')">Always allow</button>}<button type="button" class="b4-approval__button b4-approval__button--text" [disabled]="busy()" (click)="decide('deny')">Deny</button></div>@if (error() !== undefined) {<p class="b4-approval__error">{{ errorLine() }}</p>}@if (approval().offersAlways) {<p class="b4-approval__scope">{{ scope() }}</p>}</section>`,
+  template: `<section class="b4-approval" [attr.data-state]="state()" role="alert" [attr.aria-busy]="busy() ? 'true' : null"><h3 class="b4-approval__title">{{ agent() }} wants to {{ label() }}</h3>@if (approval().message) {<p class="b4-approval__reason">{{ approval().message }}</p>}@if (rows(); as rows) {<dl class="b4-approval__payload b4-approval__args">@for (row of rows; track row.key) {<div class="b4-approval__arg"><dt>{{ row.label ?? row.key }}</dt><dd>@if (row.full !== undefined) {<details class="b4-approval__more"><summary>{{ row.value }}</summary><span class="b4-approval__full">{{ row.full }}</span></details>} @else {<ng-container>{{ row.value }}</ng-container>}</dd></div>}</dl>} @else {<pre class="b4-approval__payload">{{ payload() }}</pre>}<div class="b4-approval__actions"><button type="button" class="b4-approval__button b4-approval__button--primary" [disabled]="busy()" (click)="decide('once')">Allow once</button>@if (approval().offersAlways) {<button type="button" class="b4-approval__button b4-approval__button--secondary" [disabled]="busy()" (click)="decide('always')">Always allow</button>}<button type="button" class="b4-approval__button b4-approval__button--text" [disabled]="busy()" (click)="decide('deny')">Deny</button></div>@if (error() !== undefined) {<p class="b4-approval__error">{{ errorLine() }}</p>}@if (approval().offersAlways) {<p class="b4-approval__scope">{{ scope() }}</p>}</section>`,
 })
 export class ApprovalCardComponent {
   readonly approval = input.required<ApprovalView>()
@@ -29,12 +29,14 @@ export class ApprovalCardComponent {
   readonly agent = input.required<string>()
   /** The gated step's running label, lower-cased by the caller: "run a command". */
   readonly label = input.required<string>()
+  /** The gated tool's `fields` override (`ApprovalPrompt.fields`): readable argument names. */
+  readonly fields = input<Readonly<Record<string, string>> | undefined>(undefined)
   readonly onDecide = input.required<(decision: ApprovalDecision) => Promise<void> | void>()
 
   protected readonly state = signal<"awaiting" | "deciding" | "failed">("awaiting")
   protected readonly error = signal<string | undefined>(undefined)
   protected readonly busy = computed(() => this.state() === "deciding")
-  protected readonly rows = computed(() => approvalArgsRows(this.approval().detail))
+  protected readonly rows = computed(() => approvalArgsRows(this.approval().detail, this.fields()))
   protected readonly payload = computed(() => approvalPayload(this.approval().detail))
   protected readonly scope = computed(() => scopeLine(this.approval().kind, this.approval().detail))
   protected readonly errorLine = computed(() => approvalErrorLine(this.error() ?? ""))

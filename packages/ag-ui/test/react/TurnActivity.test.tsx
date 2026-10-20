@@ -125,7 +125,7 @@ describe("TurnActivity", () => {
       )
       // The live region still names the outcome for assistive technology.
       expect(markup).toContain(
-        `<span class="b4-visually-hidden" role="status">researcher ${status === "done" ? "finished" : "failed"}</span>`,
+        `<span class="b4-visually-hidden" role="status">Asked researcher</span>`,
       )
     }
   })

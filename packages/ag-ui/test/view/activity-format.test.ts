@@ -203,6 +203,24 @@ describe("counts and labels", () => {
   })
 })
 
+describe("stepDetailView fields", () => {
+  test("names the input's rows from the tool's fields; the result keeps its keys", () => {
+    const view = stepDetailView(
+      JSON.stringify({ flightPlan: { item7: "N734ST", item8: "VG" } }),
+      JSON.stringify({ item7: "kept" }),
+      { item7: "Aircraft ID" },
+    )
+    expect(view.input).toEqual({
+      kind: "fields",
+      fields: [
+        { key: "flightPlan.item7", label: "Aircraft ID", value: "N734ST" },
+        { key: "flightPlan.item8", value: "VG" },
+      ],
+    })
+    expect(view.result).toEqual({ kind: "fields", fields: [{ key: "item7", value: "kept" }] })
+  })
+})
+
 describe("stepDetailView", () => {
   test("a flat object becomes rows: scalars as text, null as a dash, scalar arrays joined", () => {
     const view = stepDetailView(

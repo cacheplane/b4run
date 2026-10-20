@@ -15,4 +15,5 @@ export const display = {
   running: ({ ids }) => `Fetching METARs for ${ids.join(", ").toUpperCase()}`,
   done: (_input, metars) =>
     `Fetched METARs: ${metars.map((m) => `${m.id} ${m.flightCategory}`).join(", ")}`,
+  failed: ({ ids }) => `Couldn't fetch METARs for ${ids.join(", ").toUpperCase()}`,
 } satisfies ToolDisplay<{ readonly ids: readonly string[] }, Metar[]>

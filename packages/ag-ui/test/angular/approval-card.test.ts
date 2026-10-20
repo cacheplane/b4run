@@ -57,6 +57,25 @@ describe("b4-approval-card", () => {
     )
   })
 
+  test("fields name the argument rows", () => {
+    const fixture = mount(ApprovalCardComponent, {
+      approval: approval({
+        kind: "tool",
+        detail: {
+          toolName: "fileFlightPlan",
+          argsPreview: '{"flightPlan":{"item7":"N734ST","item8":"VG"}}',
+        },
+      }),
+      agent: "The agent",
+      label: "file N734ST",
+      fields: { item7: "Aircraft ID" },
+      onDecide: () => {},
+    })
+    const root = fixture.nativeElement as HTMLElement
+    const keys = [...root.querySelectorAll(".b4-approval__arg dt")].map((dt) => dt.textContent)
+    expect(keys).toEqual(["Aircraft ID", "item8"])
+  })
+
   test("without always: no second button and no scope line", () => {
     const { root } = card(() => {}, { offersAlways: false })
     expect(root.textContent).not.toContain("Always allow")

@@ -26,7 +26,8 @@ export default async (
 
 export const display = {
   icon: "tool",
-  running: ({ departure }) => `Resolve the departure time ${departure}`,
+  running: ({ departure }) => `Resolving the departure time ${departure}`,
   done: (_input, out) =>
     `Departure ${out.departureUtc.slice(0, 16).replace("T", " ")}Z, ${out.hoursAhead} h ahead`,
+  failed: ({ departure }) => `Couldn't read the departure time "${departure}"`,
 } satisfies ToolDisplay<{ readonly departure: string }, ResolvedDeparture>

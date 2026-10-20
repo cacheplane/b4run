@@ -5,6 +5,7 @@ vi.mock("@langchain/core/callbacks/dispatch/web", () => ({ dispatchCustomEvent }
 
 import {
   describeDone,
+  describeFailed,
   describeRunning,
   dispatchStep,
   type StepPayload,
@@ -15,6 +16,38 @@ const uid = (n: string) => `${n}-${crypto.randomUUID()}`
 afterEach(() => {
   vi.restoreAllMocks()
   dispatchCustomEvent.mockReset()
+})
+
+describe("describeFailed", () => {
+  it("words a thrown call from its input and the error text", () => {
+    const display = {
+      icon: "read" as const,
+      failed: ({ path }: { path: string }, error: string) => `Couldn't read ${path}: ${error}`,
+    }
+    expect(describeFailed(display, { path: "x.md" }, "ENOENT", "readDoc")).toEqual({
+      icon: "read",
+      label: "Couldn't read x.md: ENOENT",
+    })
+  })
+
+  it("leaves the label to the client without failed, and is bare without a display", () => {
+    expect(describeFailed({ icon: "read" }, {}, "ENOENT", "readDoc")).toEqual({ icon: "read" })
+    expect(describeFailed(undefined, {}, "ENOENT", "readDoc")).toEqual({})
+  })
+
+  it("never throws: a failed label that throws falls back", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const name = uid("tool")
+    const display = {
+      failed: () => {
+        throw new Error("nope")
+      },
+    }
+    expect(describeFailed(display, {}, "ENOENT", name)).toEqual({})
+    expect(warn).toHaveBeenCalledWith(
+      `[b4] display.failed for tool "${name}" threw; using the default label`,
+    )
+  })
 })
 
 describe("describeRunning / describeDone", () => {

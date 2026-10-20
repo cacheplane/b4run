@@ -29,6 +29,7 @@ describe("ToolDisplay", () => {
       icon: "search",
       running: ({ query }) => `Searching for ${query}`,
       done: ({ query }, results) => `Found ${results.length} results for ${query}`,
+      failed: ({ query }, error) => `Couldn't search for ${query}: ${error}`,
       sources: (results) => results.map((title) => ({ title })),
     }
     expect(describeToolDisplayProblem(full)).toBeUndefined()
@@ -44,17 +45,20 @@ describe("ToolDisplay", () => {
     expect(describeToolDisplayProblem({ running: "Searching" })).toBe(
       'display.running must be a function (got "Searching")',
     )
+    expect(describeToolDisplayProblem({ failed: "Broke" })).toBe(
+      'display.failed must be a function (got "Broke")',
+    )
     expect(describeToolDisplayProblem({ sources: 1 })).toBe(
       "display.sources must be a function (got number)",
     )
     expect(describeToolDisplayProblem({ group: () => "" })).toBe(
-      'display has an unknown key "group" (allowed: icon, running, done, sources)',
+      'display has an unknown key "group" (allowed: icon, running, done, failed, sources)',
     )
   })
 
   it("reports unknown keys before other problems", () => {
     expect(describeToolDisplayProblem({ group: 1, icon: "nope" })).toBe(
-      'display has an unknown key "group" (allowed: icon, running, done, sources)',
+      'display has an unknown key "group" (allowed: icon, running, done, failed, sources)',
     )
   })
 

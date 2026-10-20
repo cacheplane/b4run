@@ -73,7 +73,7 @@ export class TurnActivityComponent {
   // No key: a turn that becomes live again is automation's.
   protected readonly panel = disclosure(this.live, this.live)
   protected readonly grouped = computed(() => groupSteps(this.turn().steps, this.labels()))
-  // A settled subagent's row already says "researcher finished · 5 steps", so
+  // A settled subagent's row already says "Asked researcher · 5 steps", so
   // its own turn shows the steps straight away instead of repeating that line.
   protected readonly settledNested = computed(() => {
     const nested = this.nested()

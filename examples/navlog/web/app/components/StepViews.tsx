@@ -5,6 +5,7 @@ import { useContext } from "react"
 import { formatGal } from "../lib/format"
 import { parseNavlog } from "../lib/navlog-selectors"
 import { SheetControlContext } from "../lib/sheet-control"
+import { FPL_ITEM_LABELS } from "./FlightPlanBlock"
 import { MediaParts } from "./MediaParts"
 
 /**
@@ -60,4 +61,6 @@ export const NAVLOG_STEP_LABELS: StepLabelOverrides = {
   getWindsAloft: { group: (n) => `Checked winds aloft ${n} times` },
   getAdvisories: { group: (n) => `Checked advisories ${n} times` },
   readDoc: { group: (n) => `Read ${n} documents` },
+  // The approval card lists the plan's ICAO items; name them as the plan block does.
+  fileFlightPlan: { fields: FPL_ITEM_LABELS },
 }

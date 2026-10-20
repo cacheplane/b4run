@@ -16,4 +16,5 @@ export const display = {
     advisories.length === 0
       ? "No advisories touch the route"
       : `${advisories.length} advisor${advisories.length === 1 ? "y" : "ies"} touch the route`,
+  failed: () => "Couldn't check advisories",
 } satisfies ToolDisplay<{ readonly lat: number; readonly lon: number }, Advisory[]>
