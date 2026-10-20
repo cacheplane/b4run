@@ -2,14 +2,16 @@ import demoMedia from "../../../lib/demo-media.json"
 import { NAVLOG_DEMO_URL } from "../../site-links"
 import { Eyebrow } from "../../ui/Eyebrow"
 import { SiteLink } from "../../ui/SiteLink"
+import { AutoplayVideo } from "./AutoplayVideo"
 import styles from "./demo.module.css"
 
 const media = demoMedia.productLoop
 
 /**
  * "See it run": the navlog demo video (docs/brand/demo), served from Blob with
- * the poster in public/. Nothing loads until the visitor presses play, and the
- * poster's size reserves the frame, so the section costs one image up front.
+ * the poster in public/. It plays, muted, once it scrolls into view
+ * (`AutoplayVideo`); until then the poster, whose size reserves the frame, is
+ * the only thing the section loads.
  */
 export function DemoVideo() {
   return (
@@ -24,20 +26,16 @@ export function DemoVideo() {
         </p>
       </div>
       <figure className={styles.figure}>
-        {/* biome-ignore lint/a11y/useMediaCaption: the recording has no audio track; its on-screen text is in the transcript linked below */}
-        <video
+        <AutoplayVideo
           className={styles.video}
-          controls
-          playsInline
-          preload="none"
           poster={media.poster}
           width={1440}
           height={810}
-          aria-label={media.ariaLabel}
+          ariaLabel={media.ariaLabel}
         >
           <source src={media.webm} type="video/webm" />
           <source src={media.mp4} type="video/mp4" />
-        </video>
+        </AutoplayVideo>
         <figcaption className={styles.links}>
           <SiteLink href={NAVLOG_DEMO_URL}>Fly it live</SiteLink>
           <SiteLink href="/blog/how-we-built-navlog">How we built it</SiteLink>
