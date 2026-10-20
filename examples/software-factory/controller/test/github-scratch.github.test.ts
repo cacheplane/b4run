@@ -143,19 +143,30 @@ describe.skipIf(!enabled)("delivery against a real scratch repository", () => {
     const pin = (await session.commit(await mainTip(a.secrets()[0] as string))).sha
     const pinTree = (await session.commit(pin)).tree
     const blob = await session.createBlob("name: injected\non: push\njobs: {}\n")
-    const tree = await session.createTree(pinTree, [
-      { path: ".github/workflows/injected.yml", mode: "100644", sha: blob },
-    ])
-    const commit = await session.createCommit({
-      message: "probe",
-      tree,
-      parents: [pin],
-      author: { ...session.identity, date: new Date().toISOString() },
-      committer: { ...session.identity, date: new Date().toISOString() },
+    const branch = `factory/${freshId()}`
+    // GitHub refuses as soon as a tree carries a workflow file (POST /git/trees answers 403
+    // "Resource not accessible by integration"), before any commit or ref exists; an older
+    // reading expected the refusal at the ref. Either way the probe must end in a DeliveryError
+    // and leave no branch behind.
+    const probe = async () => {
+      const tree = await session.createTree(pinTree, [
+        { path: ".github/workflows/injected.yml", mode: "100644", sha: blob },
+      ])
+      const commit = await session.createCommit({
+        message: "probe",
+        tree,
+        parents: [pin],
+        author: { ...session.identity, date: new Date().toISOString() },
+        committer: { ...session.identity, date: new Date().toISOString() },
+      })
+      await session.createBranch(branch, commit)
+    }
+    await expect(probe()).rejects.toBeInstanceOf(DeliveryError)
+    const token = await tokenOf(a)
+    const ref = await fetch(`${API}/repos/${scratch}/git/ref/heads/${branch}`, {
+      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" },
     })
-    await expect(session.createBranch(`factory/${freshId()}`, commit)).rejects.toBeInstanceOf(
-      DeliveryError,
-    )
+    expect(ref.status).toBe(404)
   }, 120_000)
 
   it("links no issue from a closing keyword inside the spec's fence", async () => {
