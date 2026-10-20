@@ -167,8 +167,7 @@ describe("target:init reproduces the hand-written cli target", () => {
     expect(expectedPromotedOf(got.dockerfile)).toEqual([])
     expect(expectedPromotedOf(committedDockerfile("cli"))).toEqual([
       "@hono/node-server",
-      "commander",
-      "hono",
+      "axe-core",
       "typescript",
     ])
     expect(got.notes).toContain(
