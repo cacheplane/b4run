@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildStub } from "../src/offload/stub.js"
+import { buildStub, STUB_PREVIEW_MAX_CHARS } from "../src/offload/stub.js"
 
 describe("buildStub", () => {
   it("includes char count, path, threshold, and N preview lines", () => {
@@ -56,5 +56,30 @@ describe("buildStub", () => {
     expect(stub).toContain("Preview (first 2 lines):")
     expect(stub).toContain("plain text line one")
     expect(stub).toContain("plain text line two")
+  })
+
+  it("caps the preview by characters so a single giant line cannot ride inline", () => {
+    const content = "y".repeat(1_000_000)
+    const stub = buildStub({
+      content,
+      relPath: "tool-outputs/one-1-a.txt",
+      previewLines: 10,
+      thresholdChars: 40000,
+    })
+    expect(stub.length).toBeLessThan(STUB_PREVIEW_MAX_CHARS + 1_000)
+    expect(stub).toContain("tool-outputs/one-1-a.txt")
+  })
+
+  it("previews a JSON-encoded string result by its real lines", () => {
+    // A tool that returns a string is serialized as a JSON string literal.
+    const content = JSON.stringify(Array.from({ length: 50 }, (_, i) => `row ${i}`).join("\n"))
+    const stub = buildStub({
+      content,
+      relPath: "tool-outputs/str-1-a.txt",
+      previewLines: 3,
+      thresholdChars: 40000,
+    })
+    expect(stub).toContain("Preview (first 3 lines):\nrow 0\nrow 1\nrow 2\n")
+    expect(stub).not.toContain("row 3")
   })
 })

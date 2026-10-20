@@ -79,7 +79,7 @@ The runtime root is edge-safe for B4.run's emitted Hono/workerd target. The evid
 | `buildOffloadFileName` | Produce a sanitized deterministic output filename. |
 | `OffloadStore` | Persist tool output and perform throttled best-effort cleanup. |
 | `OffloadToolOutputCtx` | Configure one conditional tool-output offload. |
-| `offloadToolOutput` | Replace oversized output with a saved-file preview stub. |
+| `offloadToolOutput` | Replace oversized output with a saved-file preview stub, or a bounded truncated preview when the write fails. |
 | `buildStub` | Format a human-readable offloaded-output stub. |
 | `OffloadFn` | Describe the tool converter's output-offload callback. |
 | `ToolResultModality` | Describe the root model's modality support, used to shape a tool's media result. |
@@ -180,6 +180,7 @@ export interface OffloadToolOutputCtx {
   readonly store: Pick<OffloadStore, "write">
   readonly signal?: AbortSignal
   readonly toolCallId?: string
+  readonly onError?: (message: string) => void
 }
 ```
 
@@ -192,6 +193,7 @@ export interface OffloadToolOutputCtx {
 | `readonly store` | `Pick<OffloadStore, "write">` | yes | Persist full output. |
 | `readonly signal` | `AbortSignal` | no | Cancel the write. |
 | `readonly toolCallId` | `string` | no | Key the filename; content hashing is the fallback. |
+| `readonly onError` | `(message: string) => void` | no | Receive the sanitized message when the write fails; the output is then truncated to a bounded preview instead of inlined. |
 
 ```ts api-contract="@b4run/langchain#.:UnwrappedToolResult"
 export interface UnwrappedToolResult {

@@ -1438,12 +1438,17 @@ async function prepareRouteExecutionForInvocation(
     sandboxWorkspaceRoot = handle.workspaceRoot
   }
 
+  // The spill directory is the workspace the route's tools actually see: a
+  // managed sandbox's root (`/workspace`) when one is admitted, else the app's
+  // `workspace/`. Using the host path under a sandbox backend made every spill
+  // throw at the sandbox's path jail.
   const offload = buildOffload(
     loadedB4Config,
     sandboxBackends?.filesystem ?? configBackends?.filesystem,
     options.signal ?? new AbortController().signal,
     options.appRoot,
     fallbacks,
+    sandboxWorkspaceRoot,
   )
 
   let summarization: ResolvedSummarizationConfig | undefined
@@ -2716,6 +2721,7 @@ function buildOffload(
   signal: AbortSignal,
   appRoot: string,
   fallbacks: RuntimeBootFallbacks | undefined,
+  sandboxWorkspaceRoot?: string,
 ): OffloadFn | undefined {
   const root = appRoot
   // No filesystem fallback and no explicit backend means there is nowhere to
@@ -2727,9 +2733,14 @@ function buildOffload(
   // that DID configure it on a filesystem-less runtime is a different case —
   // that one is a dead config key, and it is raised as B4_E1005 at boot by
   // `collectRuntimeCapabilityGaps`, before any request reaches this function.
+  //
+  // A managed sandbox workspace (admitted only when `<appRoot>/workspace`
+  // exists) spills into ITS root through ITS backend, so the stub's
+  // `tool-outputs/…` path resolves for the sandboxed readFile tool exactly as a
+  // local one does.
   if (!fallbacks?.hasWorkspaceDir(root)) return undefined
   // `fallbacks` is non-null from here — the probe above returns otherwise.
-  const workspaceRoot = pureJoin(root, "workspace")
+  const workspaceRoot = sandboxWorkspaceRoot ?? pureJoin(root, "workspace")
   const t = config?.toolOutput ?? {}
   const store = new OffloadStore({
     backend: filesystem ?? fallbacks.defaultFilesystem(),
@@ -2755,8 +2766,24 @@ function buildOffload(
       ...(liveSignal ? { signal: liveSignal } : {}),
       store,
       ...(toolCallId ? { toolCallId } : {}),
+      onError: warnOffloadFailure,
     })
   }
+}
+
+const warnedOffloadFailures = new Set<string>()
+
+/**
+ * A failed spill truncates the output instead of inlining it (see
+ * `offloadToolOutput`); tell the developer once per distinct cause, since a
+ * misconfigured spill path fails every oversized call the same way.
+ */
+function warnOffloadFailure(message: string): void {
+  if (warnedOffloadFailures.has(message)) return
+  warnedOffloadFailures.add(message)
+  console.warn(
+    `B4.run: tool-output offloading failed (${message}); oversized tool output is being truncated instead of saved to tool-outputs/.`,
+  )
 }
 
 function buildSummarization(
