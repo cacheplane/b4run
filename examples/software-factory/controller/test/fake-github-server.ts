@@ -19,6 +19,10 @@ import { BOT, createFakeGitHub, type FakeGitHub, REPOSITORY } from "./fake-deliv
  *   another owner, and every pull request when the owner is left off (GitHub ignores it);
  * - GraphQL's `pullRequest: null` plus `errors` for a number that names no pull request.
  *
+ * Every object carries at least the top-level keys GitHub sends for it (the scratch lane's
+ * recording in `fixtures/github-contract.json`, replayed by `github-contract.test.ts`), with
+ * placeholder values of GitHub's types: ids of 1, zero hashes, `example.invalid` web URLs.
+ *
  * Each mint is a distinct token that expires an hour after the server's clock, and a request
  * under a token is honoured only when that token was minted. It can be told to answer any
  * request with a scripted status and headers instead. Every request is logged with its method,
@@ -69,6 +73,69 @@ export interface FakeGitHubServer {
 
 const DOCS = "https://docs.github.com/rest"
 const notFound = { message: "Not Found", documentation_url: DOCS, status: "404" }
+const API = "https://api.github.com"
+/** The web host the fake's `html_url`s point at: never a real one. */
+const WEB = "https://github.example.invalid"
+const T0 = "2026-01-01T00:00:00Z"
+const ZERO_SHA = "0".repeat(40)
+
+/** A user or bot as GitHub nests it (`owner`, `user`, `account`): GitHub's keys, no values of note. */
+function userJson(login: string, id: number, type: "User" | "Bot" | "Organization") {
+  const url = `${API}/users/${encodeURIComponent(login)}`
+  return {
+    login,
+    id,
+    node_id: `U_${id}`,
+    avatar_url: `${WEB}/avatars/u/${id}`,
+    gravatar_id: "",
+    url,
+    html_url: `${WEB}/${login}`,
+    followers_url: `${url}/followers`,
+    following_url: `${url}/following{/other_user}`,
+    gists_url: `${url}/gists{/gist_id}`,
+    starred_url: `${url}/starred{/owner}{/repo}`,
+    subscriptions_url: `${url}/subscriptions`,
+    organizations_url: `${url}/orgs`,
+    repos_url: `${url}/repos`,
+    events_url: `${url}/events{/privacy}`,
+    received_events_url: `${url}/received_events`,
+    type,
+    site_admin: false,
+    user_view_type: "public",
+  }
+}
+
+/** A git identity as GitHub answers it on a commit's `author` and `committer`. */
+const identity = { name: "fake", email: "fake@example.invalid", date: T0 }
+
+/** The `verification` block of an unsigned commit. */
+const unverified = {
+  verified: false,
+  reason: "unsigned",
+  signature: null,
+  payload: null,
+  verified_at: null,
+}
+
+/** The commit summary GitHub nests in a comparison's `base_commit`, `merge_base_commit` and `commits`. */
+function commitSummary(repository: string, sha: string) {
+  return {
+    sha,
+    node_id: `C_${sha}`,
+    url: `${API}/repos/${repository}/commits/${sha}`,
+    html_url: `${WEB}/${repository}/commit/${sha}`,
+    comments_url: `${API}/repos/${repository}/commits/${sha}/comments`,
+    commit: {
+      message: "m",
+      tree: { sha: ZERO_SHA, url: "" },
+      author: identity,
+      committer: identity,
+    },
+    author: null,
+    committer: null,
+    parents: [],
+  }
+}
 
 export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
   const repo = createFakeGitHub()
@@ -79,20 +146,152 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
   const [OWNER] = REPOSITORY.split("/") as [string, string]
   const prefix = `/repos/${REPOSITORY}`
 
+  const [, REPO] = REPOSITORY.split("/") as [string, string]
+
+  /** The repository as `GET /repos/{owner}/{repo}` answers it. */
+  const repoJson = () => {
+    const url = `${API}${prefix}`
+    const urls = Object.fromEntries(
+      [
+        "archive",
+        "assignees",
+        "blobs",
+        "branches",
+        "collaborators",
+        "comments",
+        "commits",
+        "compare",
+        "contents",
+        "contributors",
+        "deployments",
+        "downloads",
+        "events",
+        "forks",
+        "git_commits",
+        "git_refs",
+        "git_tags",
+        "hooks",
+        "issue_comment",
+        "issue_events",
+        "issues",
+        "keys",
+        "labels",
+        "languages",
+        "merges",
+        "milestones",
+        "notifications",
+        "pulls",
+        "releases",
+        "stargazers",
+        "statuses",
+        "subscribers",
+        "subscription",
+        "tags",
+        "teams",
+        "trees",
+      ].map((name) => [`${name}_url`, `${url}/${name.replace("_", "/")}`]),
+    )
+    return {
+      id: 1,
+      node_id: "R_1",
+      name: REPO,
+      full_name: REPOSITORY,
+      private: false,
+      owner: userJson(OWNER, 1, "Organization"),
+      html_url: `${WEB}/${REPOSITORY}`,
+      description: null,
+      fork: false,
+      url,
+      ...urls,
+      git_url: `git://github.example.invalid/${REPOSITORY}.git`,
+      ssh_url: `git@github.example.invalid:${REPOSITORY}.git`,
+      clone_url: `${WEB}/${REPOSITORY}.git`,
+      svn_url: `${WEB}/${REPOSITORY}`,
+      mirror_url: null,
+      homepage: null,
+      language: null,
+      forks_count: 0,
+      forks: 0,
+      stargazers_count: 0,
+      watchers_count: 0,
+      watchers: 0,
+      network_count: 0,
+      subscribers_count: 0,
+      size: 0,
+      default_branch: "main",
+      open_issues_count: 0,
+      open_issues: 0,
+      is_template: false,
+      topics: [],
+      has_issues: true,
+      has_projects: false,
+      has_wiki: false,
+      has_pages: false,
+      has_downloads: false,
+      has_discussions: false,
+      has_pull_requests: true,
+      archived: false,
+      disabled: false,
+      visibility: "public",
+      pushed_at: T0,
+      created_at: T0,
+      updated_at: T0,
+      permissions: { admin: false, maintain: false, push: true, triage: true, pull: true },
+      allow_rebase_merge: true,
+      allow_squash_merge: true,
+      allow_merge_commit: true,
+      allow_auto_merge: false,
+      allow_update_branch: false,
+      allow_forking: true,
+      delete_branch_on_merge: false,
+      use_squash_pr_title_as_default: false,
+      squash_merge_commit_title: "COMMIT_OR_PR_TITLE",
+      squash_merge_commit_message: server.repo.mergeMessages.squash,
+      merge_commit_title: "MERGE_MESSAGE",
+      merge_commit_message: server.repo.mergeMessages.merge,
+      pull_request_creation_policy: "anyone",
+      web_commit_signoff_required: false,
+      temp_clone_token: null,
+      license: null,
+      organization: userJson(OWNER, 1, "Organization"),
+      custom_properties: {},
+    }
+  }
+
   const pullJson = (p: Awaited<ReturnType<DeliverySession["pull"]>>, single: boolean) => {
+    const url = `${API}${prefix}/pulls/${p.number}`
+    const issueUrl = `${API}${prefix}/issues/${p.number}`
     const json: Record<string, unknown> = {
-      url: `https://api.github.com${prefix}/pulls/${p.number}`,
+      url,
       id: 9_000_000 + p.number,
-      number: p.number,
-      html_url: p.url,
       node_id: p.nodeId,
+      html_url: p.url,
+      diff_url: `${p.url}.diff`,
+      patch_url: `${p.url}.patch`,
+      issue_url: issueUrl,
+      commits_url: `${url}/commits`,
+      review_comments_url: `${url}/comments`,
+      review_comment_url: `${API}${prefix}/pulls/comments{/number}`,
+      comments_url: `${issueUrl}/comments`,
+      statuses_url: `${API}${prefix}/statuses/${p.headSha}`,
+      number: p.number,
       state: p.state,
       locked: false,
       title: "t",
-      draft: p.draft,
-      merged_at: p.merged ? "2026-10-01T00:00:00Z" : null,
+      user: userJson(p.author, 123, p.author.endsWith("[bot]") ? "Bot" : "User"),
+      body: "",
+      labels: [],
+      milestone: null,
+      active_lock_reason: null,
+      created_at: T0,
+      updated_at: T0,
       closed_at: p.state === "closed" ? "2026-10-01T00:00:00Z" : null,
-      user: { login: p.author, id: 123, type: p.author.endsWith("[bot]") ? "Bot" : "User" },
+      merged_at: p.merged ? "2026-10-01T00:00:00Z" : null,
+      merge_commit_sha: null,
+      assignee: null,
+      assignees: [],
+      requested_reviewers: [],
+      requested_teams: [],
       head: {
         label: `${OWNER}:${p.headRef}`,
         ref: p.headRef,
@@ -103,8 +302,37 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
             : { full_name: p.headRepository, name: p.headRepository.split("/")[1] },
       },
       base: { label: `${OWNER}:${p.baseRef}`, ref: p.baseRef, repo: { full_name: REPOSITORY } },
-      // Only the single pull request carries `merged`; a listing has `merged_at` alone.
-      ...(single ? { merged: p.merged, mergeable: null } : {}),
+      _links: {
+        self: { href: url },
+        html: { href: p.url },
+        issue: { href: issueUrl },
+        comments: { href: `${issueUrl}/comments` },
+        review_comments: { href: `${url}/comments` },
+        review_comment: { href: `${API}${prefix}/pulls/comments{/number}` },
+        commits: { href: `${url}/commits` },
+        statuses: { href: `${API}${prefix}/statuses/${p.headSha}` },
+      },
+      author_association: "CONTRIBUTOR",
+      auto_merge: null,
+      draft: p.draft,
+      // Only the single pull request carries `merged`, the mergeability and the counts; a
+      // listing has `merged_at` alone.
+      ...(single
+        ? {
+            merged: p.merged,
+            mergeable: null,
+            rebaseable: null,
+            mergeable_state: "unknown",
+            merged_by: null,
+            comments: 0,
+            review_comments: 0,
+            maintainer_can_modify: false,
+            commits: 1,
+            additions: 0,
+            deletions: 0,
+            changed_files: 0,
+          }
+        : {}),
     }
     return server.pullShape ? server.pullShape(json) : json
   }
@@ -113,14 +341,45 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
     const path = url.pathname
     const json = (status: number, value: unknown) => ({ status, value })
     if (method === "GET" && path === "/app")
-      return json(200, { id: 123456, slug: server.slug, name: server.slug })
+      return json(200, {
+        id: 123456,
+        slug: server.slug,
+        node_id: "A_1",
+        client_id: "Iv1.0000000000000000",
+        owner: userJson(OWNER, 1, "Organization"),
+        name: server.slug,
+        description: "",
+        external_url: `${WEB}/apps/${server.slug}`,
+        html_url: `${WEB}/apps/${server.slug}`,
+        created_at: T0,
+        updated_at: T0,
+        permissions: server.granted,
+        events: ["pull_request"],
+        installations_count: 1,
+      })
     if (method === "GET" && path === `${prefix}/installation`)
       return server.installed
         ? json(200, {
             id: server.installationId,
-            app_slug: server.slug,
-            account: { login: OWNER },
+            client_id: "Iv1.0000000000000000",
+            account: userJson(OWNER, 1, "Organization"),
             repository_selection: "selected",
+            access_tokens_url: `${API}/app/installations/${String(server.installationId)}/access_tokens`,
+            repositories_url: `${API}/installation/repositories`,
+            html_url: `${WEB}/organizations/${OWNER}/settings/installations/${String(server.installationId)}`,
+            app_id: 123456,
+            app_slug: server.slug,
+            target_id: 1,
+            target_type: "Organization",
+            permissions: server.granted,
+            events: ["pull_request"],
+            created_at: T0,
+            updated_at: T0,
+            single_file_name: null,
+            has_multiple_single_files: false,
+            single_file_paths: [],
+            suspended_by: null,
+            suspended_at: null,
           })
         : json(404, notFound)
     if (
@@ -134,19 +393,28 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
         expires_at: new Date(server.now() + 3_600_000).toISOString().replace(/\.\d{3}Z$/, "Z"),
         permissions: server.granted,
         repository_selection: "selected",
+        repositories: [repoJson()],
       })
     }
     if (method === "GET" && path === `/users/${encodeURIComponent(BOT)}`)
-      return json(200, { login: BOT, id: 123, type: "Bot" })
-    if (method === "GET" && path === prefix)
       return json(200, {
-        id: 1,
-        full_name: REPOSITORY,
-        default_branch: "main",
-        private: false,
-        squash_merge_commit_message: server.repo.mergeMessages.squash,
-        merge_commit_message: server.repo.mergeMessages.merge,
+        ...userJson(BOT, 123, "Bot"),
+        name: BOT,
+        company: null,
+        blog: "",
+        location: null,
+        email: null,
+        hireable: null,
+        bio: null,
+        twitter_username: null,
+        public_repos: 0,
+        public_gists: 0,
+        followers: 0,
+        following: 0,
+        created_at: T0,
+        updated_at: T0,
       })
+    if (method === "GET" && path === prefix) return json(200, repoJson())
     let m = /^\/repos\/[^/]+\/[^/]+\/rules\/branches\/(.+)$/.exec(path)
     if (method === "GET" && m)
       return json(
@@ -159,19 +427,64 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
         })),
       )
     m = /\/issues\/(\d+)$/.exec(path)
-    if (method === "GET" && m)
+    if (method === "GET" && m) {
+      const number = Number(m[1])
+      const state = await session.issueState(number)
+      const url = `${API}${prefix}/issues/${number}`
       return json(200, {
-        number: Number(m[1]),
-        state: await session.issueState(Number(m[1])),
+        url,
+        repository_url: `${API}${prefix}`,
+        labels_url: `${url}/labels{/name}`,
+        comments_url: `${url}/comments`,
+        events_url: `${url}/events`,
+        html_url: `${WEB}/${REPOSITORY}/issues/${number}`,
+        id: 8_000_000 + number,
+        node_id: `I_${number}`,
+        number,
         title: "an issue",
+        user: userJson("someone", 2, "User"),
+        labels: [],
+        state,
+        state_reason: state === "closed" ? "completed" : null,
+        locked: false,
+        assignee: null,
+        assignees: [],
+        milestone: null,
+        comments: 0,
+        created_at: T0,
+        updated_at: T0,
+        closed_at: state === "closed" ? "2026-10-01T00:00:00Z" : null,
+        author_association: "OWNER",
+        type: null,
+        active_lock_reason: null,
+        sub_issues_summary: { total: 0, completed: 0, percent_completed: 0 },
+        issue_dependencies_summary: {
+          blocked_by: 0,
+          total_blocked_by: 0,
+          blocking: 0,
+          total_blocking: 0,
+        },
+        issue_field_values: [],
+        body: "",
+        closed_by: null,
+        reactions: { url: `${url}/reactions`, total_count: 0 },
+        timeline_url: `${url}/timeline`,
+        performed_via_github_app: null,
+        pinned_comment: null,
       })
+    }
     m = /\/git\/ref\/heads\/(.+)$/.exec(path)
     if (method === "GET" && m) {
       const ref = `refs/heads/${m[1]}`
       const head = await session.branchHead(m[1] as string)
       return head === null
         ? json(404, notFound)
-        : json(200, { ref, node_id: "REF_1", object: { sha: head, type: "commit" } })
+        : json(200, {
+            ref,
+            node_id: "REF_1",
+            url: `${API}${prefix}/git/${ref}`,
+            object: { sha: head, type: "commit", url: `${API}${prefix}/git/commits/${head}` },
+          })
     }
     m = /\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(path)
     if (method === "GET" && m) {
@@ -183,7 +496,23 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
       }))
       while (!c.complete && files.length < 300)
         files.push({ filename: `filler/${files.length}`, status: "modified" })
-      return json(200, { status: c.status, ahead_by: c.aheadBy, behind_by: 0, files })
+      const [base, head] = [m[1] as string, m[2] as string]
+      const range = `${base}...${head}`
+      return json(200, {
+        url: `${API}${prefix}/compare/${range}`,
+        html_url: `${WEB}/${REPOSITORY}/compare/${range}`,
+        permalink_url: `${WEB}/${REPOSITORY}/compare/${OWNER}:${base.slice(0, 7)}...${OWNER}:${head.slice(0, 7)}`,
+        diff_url: `${WEB}/${REPOSITORY}/compare/${range}.diff`,
+        patch_url: `${WEB}/${REPOSITORY}/compare/${range}.patch`,
+        base_commit: commitSummary(REPOSITORY, base),
+        merge_base_commit: commitSummary(REPOSITORY, base),
+        status: c.status,
+        ahead_by: c.aheadBy,
+        behind_by: 0,
+        total_commits: c.aheadBy,
+        commits: [],
+        files,
+      })
     }
     m = /\/git\/commits\/([0-9a-f]{40})$/.exec(path)
     if (method === "GET" && m) {
@@ -193,9 +522,18 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
         : json(200, {
             sha: c.sha,
             node_id: `C_${c.sha}`,
-            tree: { sha: c.tree },
-            parents: c.parents.map((sha) => ({ sha })),
+            url: `${API}${prefix}/git/commits/${c.sha}`,
+            html_url: `${WEB}/${REPOSITORY}/commit/${c.sha}`,
+            author: identity,
+            committer: identity,
+            tree: { sha: c.tree, url: `${API}${prefix}/git/trees/${c.tree}` },
             message: "m",
+            parents: c.parents.map((sha) => ({
+              sha,
+              url: `${API}${prefix}/git/commits/${sha}`,
+              html_url: `${WEB}/${REPOSITORY}/commit/${sha}`,
+            })),
+            verification: unverified,
           })
     }
     m = /\/git\/trees\/([0-9a-f]{40})$/.exec(path)
@@ -203,14 +541,15 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
       const entries = await session.tree(m[1] as string)
       return json(200, {
         sha: m[1],
-        truncated: false,
+        url: `${API}${prefix}/git/trees/${m[1]}`,
         tree: entries.map((e) => ({ path: e.name, mode: e.mode, type: e.type, sha: e.sha })),
+        truncated: false,
       })
     }
     if (method === "POST" && path === `${prefix}/git/blobs`)
       return json(201, {
         sha: await session.createBlob(Buffer.from(String(body.content), "base64").toString("utf8")),
-        url: `https://api.github.com${prefix}/git/blobs/x`,
+        url: `${API}${prefix}/git/blobs/${ZERO_SHA}`,
       })
     if (method === "POST" && path === `${prefix}/git/trees`) {
       const sha = await session.createTree(
@@ -221,7 +560,7 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
           sha: e.sha,
         })),
       )
-      return json(201, { sha, truncated: false, tree: [] })
+      return json(201, { sha, url: `${API}${prefix}/git/trees/${sha}`, tree: [], truncated: false })
     }
     if (method === "POST" && path === `${prefix}/git/commits`) {
       const input = body as unknown as Parameters<DeliverySession["createCommit"]>[0]
@@ -229,12 +568,18 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
       return json(201, {
         sha,
         node_id: `C_${sha}`,
+        url: `${API}${prefix}/git/commits/${sha}`,
+        html_url: `${WEB}/${REPOSITORY}/commit/${sha}`,
         author: input.author,
         committer: input.committer ?? input.author,
+        tree: { sha: input.tree, url: `${API}${prefix}/git/trees/${input.tree}` },
         message: input.message,
-        tree: { sha: input.tree },
-        parents: input.parents.map((p) => ({ sha: p })),
-        verification: { verified: false, reason: "unsigned" },
+        parents: input.parents.map((p) => ({
+          sha: p,
+          url: `${API}${prefix}/git/commits/${p}`,
+          html_url: `${WEB}/${REPOSITORY}/commit/${p}`,
+        })),
+        verification: unverified,
       })
     }
     if (method === "POST" && path === `${prefix}/git/refs`) {
@@ -248,7 +593,16 @@ export async function startFakeGitHubServer(): Promise<FakeGitHubServer> {
             documentation_url: `${DOCS}/git/refs#create-a-reference`,
             status: "422",
           })
-        : json(201, { ref: body.ref, node_id: "REF_1", object: { sha: body.sha, type: "commit" } })
+        : json(201, {
+            ref: body.ref,
+            node_id: "REF_1",
+            url: `${API}${prefix}/git/${String(body.ref)}`,
+            object: {
+              sha: body.sha,
+              type: "commit",
+              url: `${API}${prefix}/git/commits/${String(body.sha)}`,
+            },
+          })
     }
     if (method === "GET" && path === `${prefix}/pulls`) {
       // GitHub's filter is `<owner>:<branch>`; with no owner it is ignored and every pull

@@ -2,7 +2,15 @@
   "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/.b4", "!**/.factory", "!fixtures", "!tasks", "!node_modules"]
+    "includes": [
+      "**",
+      "!**/.b4",
+      "!**/.factory",
+      "!fixtures",
+      "!tasks",
+      "!node_modules",
+      "!test/fixtures/github-contract.json"
+    ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "asNeeded" } },
