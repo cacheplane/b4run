@@ -12,10 +12,16 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
-import { acceptanceIdsOf, acceptanceMismatch, parseDraft } from "../src/lib/intake/draft.ts"
+import {
+  acceptanceIdsOf,
+  acceptanceMismatch,
+  buildFactsAt,
+  parseDraft,
+} from "../src/lib/intake/draft.ts"
 import { digestGeneratedTask, writeGeneratedTask } from "../src/lib/intake/generated-task.ts"
 import {
   configureCatalog,
+  loadTargetRecipe,
   loadTask,
   PLACEHOLDER_RESOURCES,
   repositoryRoot,
@@ -94,6 +100,40 @@ describe("parseDraft", () => {
     expect(parsed.reason).toMatch(
       /^draft\/checks\/spawn-deadline\.test\.ts fails the static pre-check \(1 problem\): \[node-test-import\]/,
     )
+  })
+
+  it("reads the cli target's build facts at its pin: dist/ prefixes and the entry its bin runs", () => {
+    const pin = shippedPin("cli")
+    const facts = buildFactsAt(undefined, pin, loadTargetRecipe("cli", { pin }))
+    expect(facts?.prefixes).toContain("packages/cli/dist/")
+    expect(facts?.entries).toEqual([
+      { path: "packages/cli/dist/index.js", bin: "packages/cli/bin/b4.js" },
+    ])
+    expect(facts?.tree.kind("packages/cli/src/lib/output.ts")).toBe("file")
+    // A target that builds nothing has no build facts to read.
+    const flags = shippedPin("cli-flags")
+    expect(buildFactsAt(undefined, flags, loadTargetRecipe("cli-flags", { pin: flags }))).toBe(
+      undefined,
+    )
+  })
+
+  it("refuses a check naming a built file no source at the pin compiles to, with the namesake", () => {
+    const check = "draft/checks/spawn-deadline.test.ts"
+    const shipped = GOOD_DRAFT[check] as string
+    expect(shipped).toContain('"packages/devkit/dist/testing/index.js"')
+    const source = shipped.replace(
+      '"packages/devkit/dist/testing/index.js"',
+      '"packages/devkit/dist/index/testing.js"',
+    )
+    const parsed = parseDraft(files({ ...GOOD_DRAFT, [check]: source }), {
+      workOrderId: WO,
+      pin: PIN,
+    })
+    expect(parsed).toMatchObject({ ok: false, blockedReason: "intake_invalid" })
+    if (parsed.ok) return
+    expect(parsed.reason).toContain("[built-source line 10]")
+    expect(parsed.reason).toContain("the pin holds no packages/devkit/src/index/testing.ts")
+    expect(parsed.reason).toContain('did you mean "packages/devkit/dist/testing/index.js"')
   })
 
   it("reads the package under repair's name at the pin, and refuses a check importing it", () => {

@@ -123,10 +123,17 @@ export function targetLine(
   // ESM resolves an import specifier against the importing file, not the working directory:
   // "imports the built artifact by that path" read as `import "packages/.../dist/x.js"` is
   // ERR_MODULE_NOT_FOUND. The check runs from the target root, so it goes through `cwd`.
-  if (built && target.commands.build.length > 0)
+  if (built && target.commands.build.length > 0) {
     facts.push(
       `the build writes \`${built}\`, and the check loads the built artifact with \`await import(join(process.cwd(), "${built}<file>.js"))\``,
     )
+    // The live run's drafts guessed `dist/output.js` (the file is `dist/lib/output.js`) and
+    // imported the CLI's `dist/index.js` entry, whose proof hung: each cost a whole proof.
+    const src = `${built.slice(0, -"dist/".length)}src/`
+    facts.push(
+      `\`${built}<file>.js\` exists exactly when \`${src}<file>.ts\` does, so find the module with listDir or readFile under \`repo/${src}\` before writing its import; import the module that owns the behaviour, never the entry a package's \`bin\` runs (the cli's \`packages/cli/dist/index.js\`)`,
+    )
+  }
   facts.push("its runner configuration is fixed by the factory")
   return `- \`${target.id}\` (root: \`${target.root}\`, ${facts.join("; ")})`
 }

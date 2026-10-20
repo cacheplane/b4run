@@ -2,10 +2,14 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  type BuildFacts,
   describePrecheck,
+  type PinSource,
   type PrecheckRule,
   precheckDraftedCheck,
 } from "../src/lib/intake/check-precheck.ts"
+import { repositoryRoot } from "../src/lib/targets/catalog.ts"
+import { gitPinTree } from "../src/lib/targets/init/pin-tree.ts"
 
 const FILE = "checks/runs-wait-undefined.test.ts"
 const fixture = (attempt: number) => {
@@ -248,6 +252,179 @@ describe("the static pre-check", () => {
         'await import("/workspace/packages/cli/dist/index.js")',
       )
       expect(rules(check(source))).toEqual(["absolute-path", "cwd-artifact"])
+    })
+  })
+
+  describe("(f) a built module is compiled from a source the pin holds, (g) not the CLI entry", () => {
+    /** A pin holding exactly `paths` (files; their directories implied). */
+    const fakePin = (paths: readonly string[]): PinSource => {
+      const dirs = new Set<string>([""])
+      for (const path of paths)
+        for (let at = path.lastIndexOf("/"); at > 0; at = path.lastIndexOf("/", at - 1))
+          dirs.add(path.slice(0, at))
+      const kind = (path: string) =>
+        paths.includes(path) ? "file" : dirs.has(path.replace(/\/+$/, "")) ? "dir" : undefined
+      return {
+        kind,
+        children: (dir) => {
+          const prefix = dir === "" ? "" : `${dir}/`
+          const names = new Set(
+            [...paths, ...dirs]
+              .filter((p) => p.startsWith(prefix) && p.length > prefix.length)
+              .map((p) => p.slice(prefix.length).split("/")[0] as string),
+          )
+          return [...names].sort().map((name) => ({
+            name,
+            kind: kind(`${prefix}${name}`) as string,
+          }))
+        },
+        files: (path) =>
+          paths.filter((p) => p === path || p.startsWith(`${path}/`)).map((p) => ({ path: p })),
+      }
+    }
+    const CLI_SRC = [
+      "packages/cli/src/index.ts",
+      "packages/cli/src/runtime-exports.ts",
+      "packages/cli/src/commands/start.ts",
+      "packages/cli/src/lib/output.ts",
+      "packages/cli/src/lib/dev/parse-port.ts",
+      "packages/cli/src/lib/view.tsx",
+      "packages/cli/src/testing/index.ts",
+      "packages/cli/bin/b4.js",
+    ]
+    const BUILD: BuildFacts = {
+      prefixes: ["packages/cli/dist/", "packages/core/dist/"],
+      tree: fakePin(CLI_SRC),
+      entries: [{ path: "packages/cli/dist/index.js", bin: "packages/cli/bin/b4.js" }],
+    }
+    const importing = (...lines: string[]) =>
+      GOOD.replace(
+        'const { run } = await import(join(process.cwd(), "packages/cli/dist/index.js"))',
+        lines.join("\n"),
+      )
+    const check = (source: string) =>
+      precheckDraftedCheck({ source, file: FILE, assertions: ["A1: x", "A2: y"], build: BUILD })
+
+    it("admits the imports of the live run's one draft that worked", () => {
+      const source = importing(
+        'const { run } = await import(join(process.cwd(), "packages/cli/dist/commands/start.js"))',
+        'const { parsePort } = await import(join(process.cwd(), "packages/cli/dist/lib/dev/parse-port.js"))',
+        'const output = await import(join(process.cwd(), "packages/cli/dist/lib/output.js"))',
+      )
+      expect(check(source)).toEqual([])
+    })
+
+    it("refuses the live run's guess dist/output.js, naming the source looked for and the namesake", () => {
+      const source = importing(
+        'const { run } = await import(join(process.cwd(), "packages/cli/dist/output.js"))',
+      )
+      const violations = check(source)
+      expect(rules(violations)).toEqual(["built-source"])
+      expect(violations[0]?.line).toBe(6)
+      const detail = violations[0]?.detail as string
+      expect(detail).toContain(
+        '"packages/cli/dist/output.js" is not built from anything at the pin',
+      )
+      expect(detail).toContain("the pin holds no packages/cli/src/output.ts (or .tsx, .js, .jsx)")
+      expect(detail).toContain('did you mean "packages/cli/dist/lib/output.js"')
+    })
+
+    it("lists the nearest directory when no module of that name exists", () => {
+      const source = importing(
+        'const { run } = await import(join(process.cwd(), "packages/cli/dist/lib/nope/thing.js"))',
+      )
+      const detail = check(source)[0]?.detail as string
+      expect(detail).toContain("packages/cli/src/lib/ holds dev/, output.ts, view.tsx")
+    })
+
+    it("accepts a .tsx source, and a directory import of an index.ts", () => {
+      expect(
+        check(
+          importing(
+            'const { run } = await import(join(process.cwd(), "packages/cli/dist/lib/view.js"))',
+          ),
+        ),
+      ).toEqual([])
+      expect(
+        check(
+          importing(
+            'const { run } = await import(join(process.cwd(), "packages/cli/dist/testing"))',
+          ),
+        ),
+      ).toEqual([])
+      expect(
+        rules(
+          check(
+            importing('const { run } = await import(join(process.cwd(), "packages/cli/dist/lib"))'),
+          ),
+        ),
+      ).toEqual(["built-source"])
+    })
+
+    it("reads a path built from a variable, and a variable used only in a template", () => {
+      const joined = importing(
+        'const dist = join(process.cwd(), "packages/cli/dist")',
+        'const { run } = await import(join(dist, "lib/outptu.js"))',
+        'const ok = await import(pathToFileURL(join(dist, "lib/output.js")).href)',
+      )
+      const violations = check(joined)
+      expect(violations.map((v) => [v.rule, v.line])).toEqual([["built-source", 7]])
+      expect(violations[0]?.detail).toContain('"packages/cli/dist/lib/outptu.js"')
+      // The shipped devkit check's shape: the path held, the import inside a spawned script.
+      const held = importing(
+        'const entry = join(process.cwd(), "packages/cli/dist/testin/index.js")',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: the check's own template, as text
+        "const script = `import(${JSON.stringify(entry)})`",
+        "const run = () => script",
+      )
+      expect(check(held).map((v) => [v.rule, v.line])).toEqual([["built-source", 6]])
+    })
+
+    it("ignores a specifier outside the build prefixes, and a prefix whose src/ the pin lacks", () => {
+      const source = importing(
+        'import data from "./fixture.json" with { type: "json" }',
+        'const other = await import(join(process.cwd(), "packages/other/dist/x.js"))',
+        'const core = await import(join(process.cwd(), "packages/core/dist/x.js"))',
+        'const map = join(process.cwd(), "packages/cli/dist/lib/output.js.map")',
+        "const run = () => 1",
+      )
+      expect(check(source)).toEqual([])
+    })
+
+    it("refuses importing the CLI entry a bin runs", () => {
+      const violations = check(GOOD)
+      expect(rules(violations)).toEqual(["bin-entry"])
+      expect(violations[0]?.detail).toContain(
+        '"packages/cli/dist/index.js" is the CLI entry (packages/cli/bin/b4.js runs it)',
+      )
+      // Without build facts, neither rule is read.
+      expect(
+        precheckDraftedCheck({ source: GOOD, file: FILE, assertions: ["A1: x", "A2: y"] }),
+      ).toEqual([])
+    })
+
+    it("admits every shipped task's check against its target's pin", () => {
+      const tasks = join(import.meta.dirname, "..", "tasks")
+      const targets = join(import.meta.dirname, "..", "targets")
+      let read = 0
+      for (const id of readdirSync(tasks)) {
+        const task = JSON.parse(readFileSync(join(tasks, id, "task.json"), "utf8"))
+        const target = JSON.parse(readFileSync(join(targets, task.target, "target.json"), "utf8"))
+        const prefixes = (target.snapshotIgnore as string[]).filter((p) => p.endsWith("dist/"))
+        if (prefixes.length === 0 || target.root !== ".") continue
+        const checks = JSON.parse(readFileSync(join(tasks, id, "checks.json"), "utf8"))
+        const file = checks.independent.file as string
+        const violations = precheckDraftedCheck({
+          source: readFileSync(join(tasks, id, file), "utf8"),
+          file,
+          assertions: checks.independent.assertions,
+          skipSyntax: true,
+          build: { prefixes, tree: gitPinTree(repositoryRoot(), task.pin ?? target.pin) },
+        }).filter((v) => v.rule === "built-source" || v.rule === "bin-entry")
+        expect({ id, violations }).toEqual({ id, violations: [] })
+        read += 1
+      }
+      expect(read).toBeGreaterThanOrEqual(2)
     })
   })
 })
