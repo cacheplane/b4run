@@ -45,6 +45,7 @@ export function builderRules(task: TaskRecipe): string[] {
   return [
     "Change an existing file with `editFile`, which replaces one exact span of its text with another. Never rewrite an existing file with `writeFile`: every file you may change already exists, and rewriting one whole loses whatever you did not reproduce.",
     "Read a large file in ranges: `readFile` with `startLine` and `endLine`, or find the lines with `grep -n` and read around them with `sed -n '<from>,<to>p'`. Do not read a large file whole.",
+    "Search only inside the package you are repairing, naming its directories (`grep -rn <pattern> packages/<name>/src packages/<name>/test`), and cap what a search prints (`| head -n 100`). Never search `..`, the repository root or `node_modules` recursively: the output is megabytes, it fills your context and the run ends without a repair.",
     "Never write placeholder or elision text into a file (a line such as `...` standing in for omitted code, `(file truncated)`, `rest of the file unchanged`): every line you write is the file's content. A changed file carrying such a line, or smaller than half its original size, is refused before it is tested.",
     `Run ${named} above to confirm the repair before you stop.`,
     `The commands you may run are ${named} above, exactly as written (appending flags is fine), and commands starting with ${others.join(", ")}. Any other command is refused with an error; do not retry it under another name or through \`bash -c\`.`,
