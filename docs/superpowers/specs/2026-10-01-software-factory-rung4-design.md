@@ -987,6 +987,8 @@ the live run is PR 5.
 
 ---
 
+**As landed (Task 4, 2026-10-20).** The app is `b4dotrun` (`b4` is a reserved account name), installed with all repositories and Issues: write by Brian's choice. §10.2's confining rulesets are active on `cacheplane/b4run` with one change forced by GitHub: GitHub Actions cannot be a ruleset bypass actor, and the release pushes `changeset-release/main` and `v*` tags as `GITHUB_TOKEN`, so those refs are excluded (`changeset-release/**`; tags `v[0-9]*.[0-9]*.[0-9]*`) instead of bypassed. The residual, a leaked token pushing the version branch or a semver-shaped tag, is bounded by `release.yml`'s candidate gates; a release App with bypass would close it. Details in the plan's Task 4 note.
+
 ## 14. Proof
 
 **Unit, against a fake GitHub** (an in-process HTTP server speaking the allow-listed endpoints,
