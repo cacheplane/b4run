@@ -29,10 +29,19 @@ export interface ToolStepFixtureEvent {
   readonly metadata?: Readonly<Record<string, unknown>>
   /** Epoch ms; the settle time for `RUN_ERROR` and `RUN_FINISHED`. */
   readonly timestamp?: number
-  /** `RUN_FINISHED` outcome, as a type string or `{ type, pendingToolCallIds? }`. */
+  /** `RUN_FINISHED` outcome, as a type string or `{ type, interrupts?, pendingToolCallIds? }`. */
   readonly outcome?:
     | string
-    | { readonly type: string; readonly pendingToolCallIds?: readonly string[] }
+    | {
+        readonly type: string
+        /** Interrupts that park a tool call; their calls stay open. */
+        readonly interrupts?: readonly {
+          readonly id: string
+          readonly reason?: string
+          readonly toolCallId?: string
+        }[]
+        readonly pendingToolCallIds?: readonly string[]
+      }
   /** Calls still waiting on an interrupt; they stay open when the run finishes. */
   readonly pendingToolCallIds?: readonly string[]
 }
@@ -117,8 +126,15 @@ function settle(
 }
 
 function pendingIds(event: ToolStepFixtureEvent): ReadonlySet<string> {
-  const nested = typeof event.outcome === "object" ? event.outcome.pendingToolCallIds : undefined
-  return new Set([...(event.pendingToolCallIds ?? []), ...(nested ?? [])])
+  const outcome = typeof event.outcome === "object" ? event.outcome : undefined
+  const parked = (outcome?.interrupts ?? []).flatMap((i) =>
+    i.toolCallId === undefined ? [] : [i.toolCallId],
+  )
+  return new Set([
+    ...(event.pendingToolCallIds ?? []),
+    ...(outcome?.pendingToolCallIds ?? []),
+    ...parked,
+  ])
 }
 
 function outcomeType(event: ToolStepFixtureEvent): string | undefined {
@@ -136,9 +152,14 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  *   Updates are read with `readToolStepUpdate`, so a legacy value never
  *   overwrites a stored `provider` kind.
  * - A `CUSTOM` step for an id not yet started is held until its START.
- * - `RUN_ERROR` settles open steps as `failed`; a `RUN_FINISHED` with a
- *   `cancelled` or `interrupt` outcome settles them as `cancelled`, except
- *   `pendingToolCallIds`. The event's `timestamp` is the settle time.
+ * - `RUN_ERROR` settles open steps as `failed`. A `RUN_FINISHED` with a
+ *   `cancelled` outcome settles every open step as `cancelled`; with an
+ *   `interrupt` outcome it does the same except calls named by
+ *   `interrupts[].toolCallId` or `pendingToolCallIds`. A success outcome, or
+ *   none, settles nothing.
+ * - A `TOOL_CALL_RESULT` completes a step that is still `running`.
+ * - The settle time is `event.timestamp ?? 0`. Real reducers use the current
+ *   time where this reference fold uses 0; every fixture supplies timestamps.
  * - A call with no step at all becomes `{ v: 1, kind: "server", status }`.
  * - `toolCallId` is the record key, so it is left off the stored steps.
  *
@@ -163,10 +184,12 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         if (id === undefined) break
         startCall(fold, id)
         fold.frame[id] = "completed"
-        if (fold.derived.has(id) && fold.steps[id]?.status === "running") {
-          fold.steps[id] = { ...fold.steps[id], status: "completed" }
-        }
         applyMetadata(fold, id, event.metadata, "message")
+        // RESULT means complete: a step still running after it is completed.
+        if (fold.steps[id]?.status === "running") {
+          fold.steps[id] = { ...fold.steps[id], status: "completed" }
+          fold.derived.delete(id)
+        }
         break
       case "CUSTOM": {
         if (event.name !== B4_STEP_EVENT_NAME) break
@@ -198,7 +221,8 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         break
       case "RUN_FINISHED": {
         const type = outcomeType(event)
-        if (type === "cancelled" || type === "interrupt") {
+        if (type === "cancelled") settle(fold, "cancelled", new Set(), event.timestamp ?? 0)
+        else if (type === "interrupt") {
           settle(fold, "cancelled", pendingIds(event), event.timestamp ?? 0)
         }
         break

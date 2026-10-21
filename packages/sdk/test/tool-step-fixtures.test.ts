@@ -17,6 +17,9 @@ describe("tool-step fixture corpus", () => {
       "unknown-status-falls-back",
       "provider-web-search-with-citations",
       "frames-only-no-step",
+      "result-completes-running-step",
+      "success-run-leaves-open-steps",
+      "cancelled-run-ignores-pending-ids",
     ])
   })
 

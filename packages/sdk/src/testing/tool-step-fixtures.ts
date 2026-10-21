@@ -391,7 +391,10 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       end("c2"),
       {
         type: "RUN_FINISHED",
-        outcome: { type: "interrupt", pendingToolCallIds: ["c1"] },
+        outcome: {
+          type: "interrupt",
+          interrupts: [{ id: "i1", reason: "tool_approval", toolCallId: "c1" }],
+        },
         timestamp: 9700,
       },
     ],
@@ -566,6 +569,84 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       steps: {
         c1: { v: 1, kind: "server", status: "completed" },
         c2: { v: 1, kind: "server", status: "running" },
+      },
+    },
+  },
+  {
+    name: "result-completes-running-step",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Rendering chart",
+        startedAt: 12000,
+      }),
+      end("c1"),
+      result("c1"),
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "completed",
+          label: "Rendering chart",
+          startedAt: 12000,
+        },
+      },
+    },
+  },
+  {
+    name: "success-run-leaves-open-steps",
+    events: [
+      { type: "RUN_STARTED" },
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Syncing in background",
+        startedAt: 13000,
+      }),
+      end("c1"),
+      { type: "RUN_FINISHED", outcome: { type: "success" }, timestamp: 13100 },
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "running",
+          label: "Syncing in background",
+          startedAt: 13000,
+        },
+      },
+    },
+  },
+  {
+    name: "cancelled-run-ignores-pending-ids",
+    events: [
+      { type: "RUN_STARTED" },
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Uploading",
+        startedAt: 13500,
+      }),
+      end("c1"),
+      start("c2", { v: 1, kind: "server", status: "running", label: "Indexing", startedAt: 13600 }),
+      end("c2"),
+      {
+        type: "RUN_FINISHED",
+        outcome: { type: "cancelled", pendingToolCallIds: ["c1"] },
+        timestamp: 13700,
+      },
+    ],
+    expected: {
+      steps: {
+        c1: { v: 1, kind: "server", status: "cancelled", startedAt: 13500, settledAt: 13700 },
+        c2: { v: 1, kind: "server", status: "cancelled", startedAt: 13600, settledAt: 13700 },
       },
     },
   },
