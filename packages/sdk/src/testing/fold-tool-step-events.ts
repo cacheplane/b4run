@@ -25,6 +25,8 @@ export interface ToolStepFixtureEvent {
   /** `CUSTOM` event value. */
   readonly value?: unknown
   readonly content?: string
+  /** `TOOL_CALL_RESULT` error text: the call threw. */
+  readonly error?: string
   /** Tool-call and message metadata, keyed by `b4.step` / `b4.answer`. */
   readonly metadata?: Readonly<Record<string, unknown>>
   /** Epoch ms; the settle time for `RUN_ERROR` and `RUN_FINISHED`. */
@@ -97,6 +99,14 @@ function applyMetadata(
 
 function startCall(fold: Fold, id: string): void {
   if (fold.frame[id] === undefined) fold.frame[id] = "running"
+  const step = fold.steps[id]
+  if (step?.status === "cancelled") {
+    // A re-presented call (the resume runs it) reopens: back to the frames.
+    const { label: _label, settledAt: _settledAt, ...rest } = step
+    fold.steps[id] = { ...rest, status: "running" }
+    fold.frame[id] = "running"
+    fold.derived.add(id)
+  }
   for (const held of fold.held[id] ?? []) applyUpdate(fold, id, held, "call")
   delete fold.held[id]
 }
@@ -123,6 +133,10 @@ function settle(
     fold.steps[id] = step
     if (step.status !== "running") fold.derived.delete(id)
   }
+}
+
+function dropHeld(fold: Fold): void {
+  for (const id of Object.keys(fold.held)) delete fold.held[id]
 }
 
 function pendingIds(event: ToolStepFixtureEvent): ReadonlySet<string> {
@@ -157,7 +171,13 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  *   `interrupt` outcome it does the same except calls named by
  *   `interrupts[].toolCallId` or `pendingToolCallIds`. A success outcome, or
  *   none, settles nothing.
- * - A `TOOL_CALL_RESULT` completes a step that is still `running`.
+ * - A `TOOL_CALL_RESULT` ends a step that is still `running`: `failed` with
+ *   `error: { message }` when the result carries `error`, else `completed`.
+ *   Either way the running label goes; a completion keeps the sources.
+ * - A `TOOL_CALL_START` for a `cancelled` step (a call the resume re-runs)
+ *   reopens it as `running`, without its label or `settledAt`.
+ * - Steps held for calls not yet started are dropped at `RUN_FINISHED` and
+ *   `RUN_ERROR`: they never cross runs.
  * - The settle time is `event.timestamp ?? 0`. Real reducers use the current
  *   time where this reference fold uses 0; every fixture supplies timestamps.
  * - A call with no step at all becomes `{ v: 1, kind: "server", status }`.
@@ -180,17 +200,27 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         if (id === undefined) break
         applyMetadata(fold, id, event.metadata, "call")
         break
-      case "TOOL_CALL_RESULT":
+      case "TOOL_CALL_RESULT": {
         if (id === undefined) break
         startCall(fold, id)
         fold.frame[id] = "completed"
         applyMetadata(fold, id, event.metadata, "message")
-        // RESULT means complete: a step still running after it is completed.
-        if (fold.steps[id]?.status === "running") {
-          fold.steps[id] = { ...fold.steps[id], status: "completed" }
+        // RESULT means it ended: a step still running after it fails when the
+        // result carries an error, and completes otherwise. Either way its
+        // running label no longer says what happened.
+        const open = fold.steps[id]
+        if (open?.status === "running") {
+          const { label: _label, ...rest } = open
+          if (typeof event.error === "string" && event.error !== "") {
+            const { sources: _sources, ...bare } = rest
+            fold.steps[id] = { ...bare, status: "failed", error: { message: event.error } }
+          } else {
+            fold.steps[id] = { ...rest, status: "completed" }
+          }
           fold.derived.delete(id)
         }
         break
+      }
       case "CUSTOM": {
         if (event.name !== B4_STEP_EVENT_NAME) break
         const update = readToolStepUpdate(event.value)
@@ -218,8 +248,11 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
       }
       case "RUN_ERROR":
         settle(fold, "failed", new Set(), event.timestamp ?? 0)
+        dropHeld(fold)
         break
       case "RUN_FINISHED": {
+        // Steps held for calls this run never started do not cross runs.
+        dropHeld(fold)
         const type = outcomeType(event)
         if (type === "cancelled") settle(fold, "cancelled", new Set(), event.timestamp ?? 0)
         else if (type === "interrupt") {

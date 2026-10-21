@@ -317,10 +317,13 @@ function withErrorRule(step: B4ToolStep): B4ToolStep {
 /**
  * Folds `next` into `previous` by the contract's merge rules: `failed` wins;
  * `completed`, `denied` and `cancelled` settle an unfailed step; `running`
- * only lifts an unsettled step; a `"message"` beats a `"call"`; failed,
- * denied and cancelled clear the running label and sources. A `next` without
- * a status never changes the status. With no `previous` and no status the
- * step starts as `running`.
+ * only lifts an unsettled step; a `"message"` beats a `"call"`. A move into
+ * `failed`, `denied` or `cancelled` from any other status (running or
+ * completed) drops the previous label and sources, takes `next`'s fields over
+ * the previous ones, and keeps the previous icon only when `next` names none;
+ * a repeated settle into the same status keeps what the step shows. A `next`
+ * without a status never changes the status. With no `previous` and no status
+ * the step starts as `running`.
  */
 export function mergeToolStep(
   previous: B4ToolStep | undefined,
@@ -340,12 +343,17 @@ export function mergeToolStep(
   else if (nextStatus !== undefined && nextStatus !== "running") {
     if (source === "message" || !prevSettled) status = nextStatus
   } else if (nextStatus === "running" && !prevSettled) status = "running"
+  if (CLEARS_RUNNING.has(status) && status !== previous.status) {
+    // The call ended badly: what it showed before (a running sentence, or a
+    // completed one) no longer says what happened.
+    const { label: _label, sources: _sources, ...kept } = previous
+    return withErrorRule({ ...kept, ...nextFields, status })
+  }
   const nextWins = source === "message" || !prevSettled
   const merged: B4ToolStep = nextWins
     ? { ...previous, ...nextFields, status }
     : { ...nextFields, ...previous, status }
-  const leavesRunning = !prevSettled && CLEARS_RUNNING.has(status)
-  return withErrorRule(leavesRunning ? withoutRunningDetail(merged, next) : merged)
+  return withErrorRule(merged)
 }
 
 /**

@@ -174,6 +174,29 @@ describe("mergeToolStep", () => {
     expect(merged.label).toBe("Denied by user")
   })
 
+  it("drops what a completed step showed when it then fails, taking next's fields", () => {
+    const done = running({
+      status: "completed",
+      label: "Searched",
+      icon: "search",
+      sources: [{ id: "c1:0", kind: "record", title: "A" }],
+    })
+
+    const failed = mergeToolStep(
+      done,
+      running({ status: "failed", label: "Search failed", icon: "alert" }),
+      "call",
+    )
+    const bare = mergeToolStep(done, running({ status: "failed" }), "call")
+
+    expect(failed).toMatchObject({ status: "failed", label: "Search failed", icon: "alert" })
+    expect(failed).not.toHaveProperty("sources")
+    expect(failed.error).toEqual({ message: "Tool call did not finish" })
+    expect(bare).not.toHaveProperty("label")
+    expect(bare).not.toHaveProperty("sources")
+    expect(bare.icon).toBe("search")
+  })
+
   it("keeps the stored provider kind against a sparse legacy value", () => {
     const stored = running({ kind: "provider", builtin: "web_search" })
 

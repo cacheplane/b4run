@@ -304,6 +304,9 @@ function containsOwner(turn: TurnView, owner: string): boolean {
  * was answered elsewhere), when the next turn is glued onto the old one; a
  * connector that knows better passes `resuming: false`.
  *
+ * A call the interrupt cancelled stays cancelled here; when the resumed run
+ * presents it again, `TOOL_CALL_START` reopens it.
+ *
  * A deny: the gated call is never re-executed, so no result arrives; a
  * successful `RUN_FINISHED` settles no open call (the `b4.step` contract), so
  * the step stays `running` unless a `denied` step names it. A B4 permission
@@ -510,7 +513,9 @@ function withFailedCount(turn: TurnView): TurnView {
  * `b4.step` metadata on `TOOL_CALL_START`, `_END` and `_RESULT` (the result's
  * beats the call's) or as a `CUSTOM` `b4.step` event, v1 or legacy, and merges
  * by `mergeToolStep`; a step for a call not yet started is held until its
- * `TOOL_CALL_START`. A result completes a call still open. A run error fails
+ * `TOOL_CALL_START` (never across runs). A result ends a call still open,
+ * dropping its running label: failed when the result carries `error`, else
+ * done. A `TOOL_CALL_START` reopens a cancelled call. A run error fails
  * the open calls, a cancelled run cancels them, and an interrupt cancels all
  * but the calls it parks; a successful run settles none.
  *
@@ -566,7 +571,8 @@ export function reduceTurns(
               ? outcome.interrupts
               : []
             for (const interrupt of interrupts) next = attachInterrupt(next, interrupt)
-            return cancelOpenTools(next, at, parkedCalls(interrupts, outcome))
+            // Steps held for calls this run never started do not cross into the resume.
+            return dropHeldSteps(cancelOpenTools(next, at, parkedCalls(interrupts, outcome)))
           }
           if (outcome?.type === "cancelled") {
             return { ...settleOpen(turn, at, NONE, "cancelled"), status: "stopped", endedAt: at }
@@ -633,7 +639,7 @@ export function reduceTurns(
             status: suspended ? "paused" : "done",
             ...(finished.result !== undefined ? { result: finished.result } : {}),
             ...(suspended
-              ? {}
+              ? { turn: dropHeldSteps(step.turn) }
               : {
                   settledAt: at,
                   turn: {
@@ -719,9 +725,12 @@ export function reduceTurns(
             startedAt: at,
           }
           // The resumed run re-presents a gated call under the same id and
-          // streams its arguments again: start them over, keep the rest.
+          // streams its arguments again: start them over, keep the rest. A
+          // call the interrupt cancelled runs again, so it reopens.
           const framed = turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)
-            ? mapStep(turn, toolCallId, (s) => (s.args === "" ? s : { ...s, args: "" }))
+            ? mapStep(turn, toolCallId, (s) =>
+                s.status === "cancelled" ? reopenTool(s) : s.args === "" ? s : { ...s, args: "" },
+              )
             : { ...turn, steps: [...turn.steps, tool] }
           // Steps that arrived before the call apply now, then its own metadata.
           const started = releaseHeldSteps(framed, toolCallId, at)
@@ -771,6 +780,8 @@ export function reduceTurns(
       )
       // The result message's own step beats the call's (`"message"`).
       const update = stepMetadata(event, toolCallId)
+      const { error } = event as { error?: unknown }
+      const failure = typeof error === "string" && error !== "" ? error : undefined
       const at = now()
       return withTurns(
         state,
@@ -791,11 +802,12 @@ export function reduceTurns(
                 update === undefined
                   ? withResult
                   : mergeIntoToolStep(withResult, update, "message", at)
-              // A result completes a call still open; a settled step already
-              // said how it ended, and its time stands.
+              // A result ends a call still open: failed when it carries an
+              // error, else done, and the running label no longer says what
+              // happened. A settled step already said how it ended; its time stands.
               const settled: ToolStep = isSettledStatus(merged.status)
                 ? merged
-                : { ...merged, status: "done", settledAt: merged.settledAt ?? at }
+                : endOpenTool(merged, failure, at)
               return s.result === result && sameParts && sameToolStep(s, settled) ? s : settled
             }),
           ),
@@ -959,6 +971,40 @@ function applyStep(
 ): TurnView {
   const next = mapStep(turn, id, (s) => mergeIntoToolStep(s, update, source, at))
   return next === turn ? turn : withFailedCount(next)
+}
+
+/**
+ * An open call its result ended: `failed` with the result's error (dropping
+ * the running label and sources) or `done` (dropping the running label,
+ * keeping the sources).
+ */
+function endOpenTool(step: ToolStep, failure: string | undefined, at: number): ToolStep {
+  const { label: _label, ...rest } = step
+  const settledAt = step.settledAt ?? at
+  if (failure === undefined) return { ...rest, status: "done", settledAt }
+  const { sources: _sources, ...bare } = rest
+  return { ...bare, status: "failed", error: { message: failure }, settledAt }
+}
+
+/** A cancelled call presented again (the resume runs it): back to the frames, no label, no settle time. */
+function reopenTool(step: ToolStep): ToolStep {
+  const { label: _label, settledAt: _settledAt, ...rest } = step
+  return { ...rest, status: "pending", args: "" }
+}
+
+/** The turn without held steps, nested subagent turns included; unchanged turns keep identity. */
+function dropHeldSteps(turn: TurnView): TurnView {
+  let changed = false
+  const steps = turn.steps.map((step): StepView => {
+    if (step.kind !== "subagent") return step
+    const nested = dropHeldSteps(step.turn)
+    if (nested === step.turn) return step
+    changed = true
+    return { ...step, turn: nested }
+  })
+  if (!changed && turn.pendingSteps === undefined) return turn
+  const { pendingSteps: _pendingSteps, ...rest } = turn
+  return { ...rest, steps }
 }
 
 /** Holds a `b4.step` for a call this turn has not seen start, until its `TOOL_CALL_START`. */

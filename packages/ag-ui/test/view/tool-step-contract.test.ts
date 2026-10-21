@@ -6,22 +6,30 @@ import { stepLabel } from "../../src/view/labels.ts"
 import { toContractSteps } from "../../src/view/tool-steps.ts"
 import { EMPTY_TURNS, reduceTurns, type ToolStep, type TurnsView } from "../../src/view/turns.ts"
 
-const RUN = { threadId: "th-contract", runId: "rn-contract" }
-
-/** A fixture event as the AG-UI event `reduceTurns` takes: a `RUN_STARTED` needs its ids. */
-function toEvent(event: ToolStepFixtureEvent): BaseEvent {
-  return (event.type === EventType.RUN_STARTED ? { ...event, ...RUN } : event) as BaseEvent
-}
-
-/** Folds a fixture's events, opening a run first when the fixture starts none. */
-function foldFixture(events: readonly ToolStepFixtureEvent[]): TurnsView {
+/**
+ * The fixture events as the AG-UI events `reduceTurns` takes: each
+ * `RUN_STARTED` gets the thread id and a run id of its own (a second run is
+ * the resume), and a run opens first when the fixture starts none.
+ */
+function toEvents(events: readonly ToolStepFixtureEvent[]): readonly BaseEvent[] {
   const opened = events.some((event) => event.type === EventType.RUN_STARTED)
   const stream: readonly ToolStepFixtureEvent[] = opened
     ? events
     : [{ type: EventType.RUN_STARTED }, ...events]
+  let runs = 0
+  return stream.map(
+    (event) =>
+      (event.type === EventType.RUN_STARTED
+        ? { ...event, threadId: "th-contract", runId: `rn-${++runs}` }
+        : event) as BaseEvent,
+  )
+}
+
+/** Folds a fixture's events with a deterministic clock. */
+function foldFixture(events: readonly ToolStepFixtureEvent[]): TurnsView {
   let clock = 0
-  return stream.reduce(
-    (view, event) => reduceTurns(view, toEvent(event), { now: () => (clock += 1000) }),
+  return toEvents(events).reduce(
+    (view, event) => reduceTurns(view, event, { now: () => (clock += 1000) }),
     EMPTY_TURNS,
   )
 }

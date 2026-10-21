@@ -179,12 +179,9 @@ describe("reduceTurns", () => {
       status: "done",
     })
     expect(subagent.turn.steps.map((s) => s.kind)).toEqual(["tool"])
-    expect(subagent.turn.steps[0]).toMatchObject({
-      id: "k1",
-      name: "readDoc",
-      label: "Reading a.md",
-      status: "done",
-    })
+    // Completed by its result alone: the running label goes (b4.step contract).
+    expect(subagent.turn.steps[0]).toMatchObject({ id: "k1", name: "readDoc", status: "done" })
+    expect(subagent.turn.steps[0]).not.toHaveProperty("label")
     expect(subagent.turn.text).toBe("ReAct is…")
     expect(subagent.turn.status).toBe("done")
   })
@@ -352,10 +349,10 @@ describe("reduceTurns", () => {
     ])
     const tools = view.turns[0]?.steps.filter((s) => s.kind === "tool") ?? []
     expect(tools).toHaveLength(1)
-    // The b4.step contract's merge: once the result completed the call, a
-    // later step from the call side never replaces what it shows (the
-    // reference fold, `foldToolStepEvents`, ends the same way).
-    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Searching again" })
+    // The b4.step contract: the result completes the call and drops its
+    // running label; the completed step then words it, and a later running
+    // step from the call side never replaces that (`foldToolStepEvents` agrees).
+    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Searched" })
   })
 
   it("accepts the completed step before or after the result, to the same step", () => {
@@ -541,6 +538,46 @@ describe("reduceTurns", () => {
       runId: "1",
     } as BaseEvent)
     expect(finished.turns[0]).not.toHaveProperty("pendingSteps")
+  })
+
+  it("does not carry a step held for an unstarted call across an interrupt into the resume", () => {
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      step("ghost", "running", "Hm"),
+      {
+        type: EventType.RUN_FINISHED,
+        threadId: "a",
+        runId: "1",
+        outcome: { type: "interrupt", interrupts: [{ id: "i1", reason: "tool" }] },
+      } as BaseEvent,
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "2" } as BaseEvent,
+      { type: EventType.TOOL_CALL_START, toolCallId: "ghost", toolCallName: "lookup" } as BaseEvent,
+    ])
+
+    const ghost = view.turns[0]?.steps[0]
+
+    expect(view.turns).toHaveLength(1)
+    expect(ghost).toMatchObject({ id: "ghost", status: "pending" })
+    expect(ghost).not.toHaveProperty("label")
+  })
+
+  it("drops held steps on a paused subagent's nested turn", () => {
+    const view = foldEvents([
+      { type: EventType.RUN_STARTED, threadId: "a", runId: "1" } as BaseEvent,
+      { type: EventType.TOOL_CALL_START, toolCallId: "t", toolCallName: "task" } as BaseEvent,
+      { type: EventType.SUBAGENT_STARTED, subagentRunId: "t", name: "researcher" } as BaseEvent,
+      { ...step("ghost", "running", "Hm"), subagentRunId: "t" } as BaseEvent,
+      {
+        type: EventType.SUBAGENT_FINISHED,
+        subagentRunId: "t",
+        outcome: { type: "suspended" },
+      } as BaseEvent,
+    ])
+
+    const subagent = view.turns[0]?.steps[0] as SubagentStep
+
+    expect(subagent.status).toBe("paused")
+    expect(subagent.turn).not.toHaveProperty("pendingSteps")
   })
 
   it("resumes the awaiting turn on the next run of the same thread: one turn, no approvals", async () => {

@@ -20,6 +20,9 @@ describe("tool-step fixture corpus", () => {
       "result-completes-running-step",
       "success-run-leaves-open-steps",
       "cancelled-run-ignores-pending-ids",
+      "result-then-failed-step",
+      "result-error-fails-running-step",
+      "restart-reopens-cancelled-step",
     ])
   })
 

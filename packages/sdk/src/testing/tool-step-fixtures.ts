@@ -436,7 +436,8 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
     ],
     expected: {
       steps: {
-        c1: { v: 1, kind: "server", status: "completed", label: "Reviewing" },
+        // The result completed it, so the label it ran under goes.
+        c1: { v: 1, kind: "server", status: "completed" },
         c2: { v: 1, kind: "server", status: "running", label: "Still reviewing" },
       },
     },
@@ -580,6 +581,7 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
         kind: "server",
         status: "running",
         label: "Rendering chart",
+        sources: [{ id: "c1:0", kind: "record", title: "Sales table" }],
         startedAt: 12000,
       }),
       end("c1"),
@@ -587,11 +589,12 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
     ],
     expected: {
       steps: {
+        // Completed by the frames: the running label goes, the sources stay.
         c1: {
           v: 1,
           kind: "server",
           status: "completed",
-          label: "Rendering chart",
+          sources: [{ id: "c1:0", kind: "record", title: "Sales table" }],
           startedAt: 12000,
         },
       },
@@ -647,6 +650,124 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       steps: {
         c1: { v: 1, kind: "server", status: "cancelled", startedAt: 13500, settledAt: 13700 },
         c2: { v: 1, kind: "server", status: "cancelled", startedAt: 13600, settledAt: 13700 },
+      },
+    },
+  },
+  {
+    name: "result-then-failed-step",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Searching the corpus…",
+        icon: "search",
+        sources: [{ id: "c1:0", kind: "record", title: "corpus/a.md" }],
+        startedAt: 14000,
+      }),
+      end("c1"),
+      result("c1"),
+      custom({
+        v: 1,
+        toolCallId: "c1",
+        kind: "server",
+        status: "failed",
+        label: "Search failed",
+        icon: "alert",
+        settledAt: 14200,
+      }),
+    ],
+    expected: {
+      steps: {
+        // A thrown tool reads as failed: nothing it showed before survives.
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "failed",
+          label: "Search failed",
+          icon: "alert",
+          startedAt: 14000,
+          settledAt: 14200,
+          error: DEFAULT_ERROR,
+        },
+      },
+    },
+  },
+  {
+    name: "result-error-fails-running-step",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Reading corpus/x.md",
+        startedAt: 14500,
+      }),
+      end("c1"),
+      { ...result("c1"), content: "", error: "ENOENT: corpus/x.md" },
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "failed",
+          startedAt: 14500,
+          error: { message: "ENOENT: corpus/x.md" },
+        },
+      },
+    },
+  },
+  {
+    name: "restart-reopens-cancelled-step",
+    events: [
+      { type: "RUN_STARTED" },
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Waiting for approval",
+        startedAt: 15000,
+      }),
+      end("c1"),
+      start("c2", { v: 1, kind: "server", status: "running", label: "Indexing", startedAt: 15050 }),
+      end("c2"),
+      {
+        type: "RUN_FINISHED",
+        outcome: {
+          type: "interrupt",
+          interrupts: [{ id: "i1", reason: "tool_approval", toolCallId: "c1" }],
+        },
+        timestamp: 15100,
+      },
+      // The resume re-presents both calls and runs them.
+      { type: "RUN_STARTED" },
+      start("c1"),
+      end("c1"),
+      result("c1", {
+        v: 1,
+        kind: "server",
+        status: "completed",
+        label: "Approved and sent",
+        settledAt: 15300,
+      }),
+      start("c2"),
+      end("c2"),
+      // No step of its own: only the reopen lets the frames complete it.
+      result("c2"),
+      { type: "RUN_FINISHED", outcome: { type: "success" }, timestamp: 15500 },
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "completed",
+          label: "Approved and sent",
+          startedAt: 15000,
+          settledAt: 15300,
+        },
+        c2: { v: 1, kind: "server", status: "completed", startedAt: 15050 },
       },
     },
   },
