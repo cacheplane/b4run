@@ -56,7 +56,7 @@ export function renderError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export interface RunOptions {
+interface RunOptions {
   readonly signals?: SignalsEmitter
 }
 
