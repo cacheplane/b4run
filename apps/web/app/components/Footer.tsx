@@ -39,6 +39,7 @@ const COLUMNS: readonly Column[] = [
   {
     heading: "Legal",
     items: [
+      { label: "Privacy", href: "/privacy" },
       { label: "MIT License", href: "https://github.com/cacheplane/b4run/blob/main/LICENSE" },
       {
         label: "Code of Conduct",

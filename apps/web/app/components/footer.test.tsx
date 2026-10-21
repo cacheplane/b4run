@@ -21,7 +21,7 @@ it("opens same-origin files in a new tab as plain anchors, off-site links with r
   const github = anchor(html, "https://github.com/cacheplane/b4run")
   expect(github).toContain('target="_blank"')
   expect(github).toContain('rel="noopener noreferrer"')
-  for (const href of ["/docs/getting-started", "/blog"]) {
+  for (const href of ["/docs/getting-started", "/blog", "/privacy"]) {
     const tag = anchor(html, href)
     expect(tag).not.toContain("target=")
     expect(tag).not.toContain("rel=")
