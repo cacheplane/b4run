@@ -1,0 +1,11 @@
+{
+  "slug": "cli-commands-by-command",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "CLI commands by command",
+  "description": "Completed reporting commands by command name; one anonymous id is one machine, not one person.",
+  "events": [{ "event": "cli:command_completed" }],
+  "breakdown": "command",
+  "interval": "day",
+  "date_from": "-30d"
+}
