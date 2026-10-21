@@ -631,7 +631,9 @@ with it:
   `.changeset/factory-<id>.md` (a `patch` for the target's package, when it is publishable) and
   the independent check promoted into the package's own `test/` directory (translated from
   `node:test` to vitest: the built-artifact import becomes the `../src/<file>.ts` import a test
-  file uses; a check the translation cannot express is left out and named), commits that as
+  file uses, then formatted with the checkout's own Biome and config when the checkout has
+  them, so it passes the repository's lint as written; a check the translation cannot express
+  is left out and named), commits that as
   the person's own commit, pushes, opens the person's pull request with `gh` (title the
   issue's, body naming the factory PR, the bundle digest, the receipt and the verifier,
   `Closes #<n>`), then comments on the factory's draft with the link and closes it. Nothing

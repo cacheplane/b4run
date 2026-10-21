@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join, posix } from "node:path"
@@ -58,13 +59,38 @@ export interface AdoptResult {
   readonly branch: string
   readonly commit: string
   readonly changeset: string | null
-  /** The promoted test's repository path, or why none was written. */
-  readonly promoted: { readonly path: string } | { readonly skipped: string }
+  /**
+   * The promoted test's repository path and whether the checkout's own formatter was run on
+   * it (Biome, found under the checkout's node_modules with the checkout's config; a repository
+   * without one gets the translation as is), or why none was written.
+   */
+  readonly promoted:
+    | { readonly path: string; readonly formatted: boolean }
+    | { readonly skipped: string }
   readonly pullRequest: { readonly url: string } | null
   readonly factoryPullRequest: { readonly number: number; readonly closed: boolean }
 }
 
 export class AdoptError extends Error {}
+
+/**
+ * The checkout's Biome and its config, when the checkout has them: `node_modules/.bin/biome`
+ * under the root, and `biome.json` at the root or the shared `packages/config-biome/biome.json`
+ * this repository keeps. A promoted test is formatted with them so the person's PR passes the
+ * repository's own lint as written; a repository without them gets the translation as is.
+ */
+export function biomeIn(
+  root: string,
+): { readonly binary: string; readonly config: string } | undefined {
+  const binary = join(root, "node_modules", ".bin", "biome")
+  if (!existsSync(binary)) return undefined
+  for (const config of [
+    join(root, "biome.json"),
+    join(root, "packages", "config-biome", "biome.json"),
+  ])
+    if (existsSync(config)) return { binary, config }
+  return undefined
+}
 
 /** `# <title> (<owner/name>#<n>)`, as intake writes `issue.md`'s first line. */
 export function issueTitleFrom(issueMd: string, repository: string, number: number): string {
@@ -305,20 +331,27 @@ export async function adopt(input: AdoptInput, deps: AdoptDeps): Promise<AdoptRe
       checkFile: input.check.file,
       source: input.check.source,
     })
-    const promoted: AdoptResult["promoted"] = promotion.ok
-      ? { path: promotion.path }
-      : { skipped: promotion.reason }
-
     const written: string[] = []
     if (changeset) {
       await mkdir(join(worktree, posix.dirname(changeset.path)), { recursive: true })
       await writeFile(join(worktree, changeset.path), changeset.text, "utf8")
       written.push(changeset.path)
     }
+    let formatted = false
     if (promotion.ok) {
       await mkdir(join(worktree, posix.dirname(promotion.path)), { recursive: true })
       await writeFile(join(worktree, promotion.path), promotion.source, "utf8")
       written.push(promotion.path)
+      const biome = biomeIn(root)
+      if (biome) {
+        // Scoped to the one file: the checkout's formatter and import order, never the tree.
+        await exec(
+          biome.binary,
+          ["check", "--write", "--config-path", biome.config, promotion.path],
+          { cwd: worktree },
+        )
+        formatted = true
+      }
     }
     if (written.length > 0) {
       await git(["add", "--", ...written], worktree)
@@ -342,6 +375,9 @@ export async function adopt(input: AdoptInput, deps: AdoptDeps): Promise<AdoptRe
     const commit = (await git(["rev-parse", "HEAD"], worktree)).stdout.trim()
     await git(["push", "--quiet", "-u", "origin", branch], worktree)
 
+    const promoted: AdoptResult["promoted"] = promotion.ok
+      ? { path: promotion.path, formatted }
+      : { skipped: promotion.reason }
     let pullRequest: { url: string } | null = null
     let closed = false
     if (input.openPullRequest) {

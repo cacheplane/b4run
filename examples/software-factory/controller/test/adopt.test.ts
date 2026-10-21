@@ -7,10 +7,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   adopt,
   adoptCommitMessage,
+  biomeIn,
   changesetFor,
   issueTitleFrom,
   promoteCheck,
 } from "../src/lib/operator/adopt.ts"
+
+/** This repository: the checkout whose Biome and config `adopt` would find. */
+const repositoryRoot = join(import.meta.dirname, "..", "..", "..", "..")
 
 const run = promisify(execFile)
 
@@ -132,6 +136,51 @@ describe("promoteCheck", () => {
     expect(reason(`${CHECK}\nconst root = process.cwd()\n`)).toMatch(/process\.cwd\(\)/)
     expect(reason(`${CHECK}\nconst other = "packages/devkit/dist/x.js"\n`)).toMatch(/dist\/ path/)
   })
+})
+
+describe("biomeIn and the promoted test's formatting", () => {
+  it("finds this checkout's Biome and config, and none in a bare directory", () => {
+    expect(biomeIn(repositoryRoot)).toEqual({
+      binary: join(repositoryRoot, "node_modules", ".bin", "biome"),
+      config: join(repositoryRoot, "packages", "config-biome", "biome.json"),
+    })
+    const bare = mkdtempSync(join(tmpdir(), "factory-adopt-bare-"))
+    try {
+      expect(biomeIn(bare)).toBeUndefined()
+    } finally {
+      rmSync(bare, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves the promoted check lint-clean under the checkout's own Biome once formatted, as adopt formats it", async () => {
+    // The translation alone is not: Biome orders imports and wraps the long test names. The
+    // second live run's hand-off needed a formatting commit for exactly this.
+    const biome = biomeIn(repositoryRoot)
+    if (!biome) throw new Error("this checkout has no Biome")
+    const promoted = promoteCheck({
+      packageDir: "packages/devkit",
+      checkFile: "checks/write-template.test.ts",
+      source: CHECK,
+    })
+    if (!promoted.ok) throw new Error(promoted.reason)
+    const dir = mkdtempSync(join(tmpdir(), "factory-adopt-format-"))
+    try {
+      mkdirSync(join(dir, "packages", "devkit", "test"), { recursive: true })
+      writeFileSync(join(dir, promoted.path), promoted.source)
+      const check = () =>
+        run(biome.binary, ["check", "--config-path", biome.config, promoted.path], { cwd: dir })
+      await expect(check()).rejects.toThrow()
+      await run(biome.binary, ["check", "--write", "--config-path", biome.config, promoted.path], {
+        cwd: dir,
+      })
+      await expect(check()).resolves.toBeTruthy()
+      expect(readFileSync(join(dir, promoted.path), "utf8")).toContain(
+        'import { writeTemplate } from "../src/write-template.ts"',
+      )
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
 
 describe("adoptCommitMessage", () => {
@@ -281,7 +330,8 @@ describe("adopt against a real git repository and a stubbed gh", () => {
       ok: true,
       branch: "adopt/wo-1",
       changeset: ".changeset/factory-wo-1.md",
-      promoted: { path: "packages/devkit/test/write-template.test.ts" },
+      // The fixture checkout has no Biome: the translation is committed as is, and says so.
+      promoted: { path: "packages/devkit/test/write-template.test.ts", formatted: false },
       pullRequest: { url: "https://github.com/o/r/pull/42" },
       factoryPullRequest: { number: 9, closed: true },
     })
