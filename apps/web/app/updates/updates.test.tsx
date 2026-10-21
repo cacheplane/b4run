@@ -7,13 +7,12 @@ import { DISCLOSURE_VERSION, FOUNDER_UPDATES_DISCLOSURE } from "../lib/growth/di
 import { FounderUpdatesForm } from "./FounderUpdatesForm"
 
 vi.mock("../lib/analytics/client", () => ({ track: vi.fn() }))
-vi.mock("posthog-js", () => ({
-  default: {
-    __loaded: true,
-    has_opted_out_capturing: () => false,
-    get_distinct_id: () => "distinct-1",
-  },
+const ph = vi.hoisted(() => ({
+  __loaded: true,
+  has_opted_out_capturing: (() => false) as () => boolean,
+  get_distinct_id: (() => "distinct-1") as () => string,
 }))
+vi.mock("posthog-js", () => ({ default: ph }))
 
 const roots: ReturnType<typeof createRoot>[] = []
 let container: HTMLDivElement
@@ -25,6 +24,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.mocked(track).mockClear()
+  ph.__loaded = true
+  ph.has_opted_out_capturing = () => false
+  ph.get_distinct_id = () => "distinct-1"
   vi.unstubAllGlobals()
   for (const root of roots) await act(async () => root.unmount())
   roots.length = 0
@@ -92,8 +94,36 @@ describe("founder updates form", () => {
       "site:form_fail",
       { form: "founder_updates", failure_reason: "rate_limited" },
     ])
+    expect(JSON.stringify(vi.mocked(track).mock.calls)).not.toContain("reader@example.com")
     expect(container.querySelector("form")).not.toBeNull()
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  })
+
+  describe("omits posthog_distinct_id", () => {
+    async function postedBody() {
+      const fetchMock = stubFetch(200, { ok: true })
+      await render()
+      await fillAndSubmit("reader@example.com")
+      const call = fetchMock.mock.calls[0] as unknown as [string, { body: string }]
+      return JSON.parse(call[1].body) as Record<string, unknown>
+    }
+
+    it("when the visitor has opted out", async () => {
+      ph.has_opted_out_capturing = () => true
+      expect(await postedBody()).not.toHaveProperty("posthog_distinct_id")
+    })
+
+    it("when posthog-js is not loaded", async () => {
+      ph.__loaded = false
+      expect(await postedBody()).not.toHaveProperty("posthog_distinct_id")
+    })
+
+    it("when reading the id throws", async () => {
+      ph.get_distinct_id = () => {
+        throw new Error("boom")
+      }
+      expect(await postedBody()).not.toHaveProperty("posthog_distinct_id")
+    })
   })
 
   it("reports a network failure when fetch throws", async () => {
