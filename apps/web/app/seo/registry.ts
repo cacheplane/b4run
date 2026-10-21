@@ -659,7 +659,20 @@ export const HOME_SEO_PAGE: StaticWebSeoPage = {
   lastModified: requireValidLastModified(STATIC_LASTMOD, "/"),
   sourcePath: "apps/web/app/page.tsx",
 }
+export const PRIVACY_SEO_PAGE: StaticWebSeoPage = {
+  path: "/privacy",
+  canonical: "https://b4.run/privacy",
+  title: "Privacy",
+  description:
+    "How B4.run's website and CLI record anonymous signals, what happens to an email you give us, and how to opt out or ask for deletion.",
+  kind: "WebPage",
+  routeKind: "legal",
+  breadcrumbs: [{ label: "Home", href: "/" }, { label: "Privacy" }],
+  lastModified: requireValidLastModified(STATIC_LASTMOD, "/privacy"),
+  sourcePath: "apps/web/content/privacy.mdx",
+}
 export const STATIC_SEO_PAGES: Readonly<Record<string, SeoPage>> = {
   [HOME_SEO_PAGE.path]: HOME_SEO_PAGE,
+  [PRIVACY_SEO_PAGE.path]: PRIVACY_SEO_PAGE,
   ...DOCS_SEO_PAGES,
 }

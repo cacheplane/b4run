@@ -30,6 +30,7 @@ export function CopyPromptButton({
         variant={isHero ? "primary" : "secondary"}
         {...(isHero ? {} : { size: "sm" as const, className: "mb-4" })}
         aria-label={ariaLabel ?? `${label} to clipboard`}
+        data-cta-id="docs_prompt_copy"
       >
         <Icon name={copied ? "check" : "copy"} />
         {copied ? "Copied" : label}

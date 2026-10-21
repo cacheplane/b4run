@@ -275,6 +275,7 @@ substitute for the other or optional release cleanup.
   `apps/web/app/components/docs/nav.ts`).
 - Specs, plans, audits, runbooks: `docs/superpowers/`.
 - CI: `.github/workflows/ci.yml`.
+- Growth signals and PostHog dashboards: `scripts/posthog/`, operations in `docs/growth/README.md`.
 - Changeset config (fixed group, patch-on-0.x): `.changeset/config.json`.
 
 ## Cross-links

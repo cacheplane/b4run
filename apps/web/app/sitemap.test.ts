@@ -163,6 +163,7 @@ describe("sitemap documentation entries", () => {
     const expectedPaths = [
       "/",
       "/blog",
+      "/privacy",
       ...ALL_DOCS_PAGES.map((page) => page.href),
       ...posts.map((post) => `/blog/${post.slug}`),
       ...tags.map((tag) => `/blog/tags/${tag}`),
@@ -180,8 +181,8 @@ describe("sitemap documentation entries", () => {
     // Both posts are dated after the frozen as-of date.
     expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
     expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
-    expect(entries).toHaveLength(2 + ALL_DOCS_PAGES.length + posts.length + tags.length)
-    expect(entries).toHaveLength(94)
+    expect(entries).toHaveLength(3 + ALL_DOCS_PAGES.length + posts.length + tags.length)
+    expect(entries).toHaveLength(95)
   })
 
   it("keeps production post and tag static params aligned with the frozen sitemap inventory", async () => {

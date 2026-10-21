@@ -1709,6 +1709,48 @@
         "value": "set -eu\nif [ \"$SCOPE_RESULT\" != \"success\" ]; then\n  echo \"Kubernetes compatibility scope did not succeed: $SCOPE_RESULT\" >&2\n  exit 1\nfi\ncase \"$REQUIRED\" in\n  false)\n    if [ \"$COMPAT_RESULT\" = \"skipped\" ]; then\n      exit 0\n    fi\n    echo \"Unrequired Kubernetes compatibility work was not skipped: $COMPAT_RESULT\" >&2\n    exit 1\n    ;;\n  true)\n    if [ \"$COMPAT_RESULT\" = \"success\" ]; then\n      exit 0\n    fi\n    echo \"Required Kubernetes compatibility work did not succeed: $COMPAT_RESULT\" >&2\n    exit 1\n    ;;\n  *)\n    echo \"Malformed or missing Kubernetes compatibility scope output\" >&2\n    exit 1\n    ;;\nesac\n"
       }
     ],
+    "posthog-quality.yml": [
+      {
+        "classification": "safe",
+        "job": "live-quality",
+        "stepIndex": 0,
+        "step": null,
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "live-quality",
+        "stepIndex": 1,
+        "step": null,
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "live-quality",
+        "stepIndex": 2,
+        "step": null,
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "live-quality",
+        "stepIndex": 3,
+        "step": null,
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "live-quality",
+        "stepIndex": 4,
+        "step": "Plan dashboards and run live quality check",
+        "kind": "run",
+        "value": "set -euo pipefail\nif [ -z \"${POSTHOG_PERSONAL_API_KEY:-}\" ] || [ -z \"${POSTHOG_PROJECT_ID:-}\" ]; then\n  echo \"::error::POSTHOG_PERSONAL_API_KEY_READONLY and POSTHOG_PROJECT_ID Actions secrets are required.\"\n  exit 1\nfi\npnpm posthog:plan\npnpm posthog:quality --days \"$DAYS\" --limit-per-event \"$LIMIT\"\n"
+      }
+    ],
     "publish-chart.yml": [
       {
         "classification": "safe",

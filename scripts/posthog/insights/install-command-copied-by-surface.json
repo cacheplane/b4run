@@ -1,0 +1,11 @@
+{
+  "slug": "install-command-copied-by-surface",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "Install command copied by surface",
+  "description": "Copy clicks on the npm create command. A copy is intent, not an npm install.",
+  "events": [{ "event": "site:install_command_copied" }],
+  "breakdown": "surface",
+  "interval": "day",
+  "date_from": "-30d"
+}

@@ -1,0 +1,13 @@
+{
+  "slug": "copy-code-by-surface",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "Code copies by surface",
+  "description": "Copy clicks on code blocks in docs and blog posts. A copy is intent, not proof the code was run.",
+  "events": [
+    { "event": "docs:copy_code_click", "name": "Docs code copied" },
+    { "event": "blog:copy_code_click", "name": "Blog code copied" }
+  ],
+  "interval": "day",
+  "date_from": "-30d"
+}
