@@ -43,9 +43,9 @@ export async function sendSignals(
   body: SignalsRequestBody,
   options: SendSignalsOptions,
 ): Promise<void> {
+  const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const controller = new AbortController()
     timer = setTimeout(() => controller.abort(), options.timeoutMs ?? SIGNALS_TIMEOUT_MS)
     timer.unref()
     const doFetch: FetchLike = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
@@ -59,5 +59,7 @@ export async function sendSignals(
     // Intentionally silent: usage reporting must never surface errors to the user.
   } finally {
     if (timer !== undefined) clearTimeout(timer)
+    // Abort after settling so an unread response body releases its socket.
+    controller.abort()
   }
 }

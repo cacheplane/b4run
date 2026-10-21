@@ -40,13 +40,26 @@ describe("sendSignals", () => {
   it("posts JSON without credentials", async () => {
     const fetch = vi.fn<FetchLike>(async () => ({ ok: true, status: 202 }))
     await sendSignals(body, { url: "http://localhost/x", fetch })
-    const [url, init] = fetch.mock.calls[0]!
+    const call = fetch.mock.calls[0]
+    if (!call) throw new Error("fetch was not called")
+    const [url, init] = call
     expect(url).toBe("http://localhost/x")
     expect(init.method).toBe("POST")
     expect(init.headers["content-type"]).toBe("application/json")
     expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain("authorization")
     expect(JSON.parse(init.body)).toEqual(body)
     expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+  it("aborts the request signal once settled so an unread body is released", async () => {
+    let signal: AbortSignal | undefined
+    await sendSignals(body, {
+      url: "http://localhost/x",
+      fetch: async (_url, init) => {
+        signal = init.signal
+        return { ok: true, status: 202 }
+      },
+    })
+    expect(signal?.aborted).toBe(true)
   })
   it("resolves when fetch rejects and when the response is a 404", async () => {
     await expect(
