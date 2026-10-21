@@ -37,8 +37,30 @@ export async function readOrCreateUsageId(dir: string): Promise<UsageIdentity | 
     // Missing or unreadable: fall through and create one.
   }
   try {
-    const id = randomUUID()
     await mkdir(dir, { recursive: true })
+  } catch {
+    return null
+  }
+  const id = randomUUID()
+  try {
+    // Exclusive create: of two concurrent first runs (turbo), exactly one wins.
+    await writeFile(file, `${id}\n`, { flag: "wx", mode: 0o600 })
+    return { id, created: true }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code !== "EEXIST") return null
+  }
+  // The winner may not have written its id yet; give it a moment before replacing.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const winner = (await readFile(file, "utf8")).trim()
+      if (UUID_PATTERN.test(winner)) return { id: winner, created: false }
+      if (winner !== "") break
+    } catch {
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  try {
     await writeFile(file, `${id}\n`, { mode: 0o600 })
     return { id, created: true }
   } catch {

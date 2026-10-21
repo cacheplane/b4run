@@ -199,7 +199,15 @@ export async function runDevChildCommand(options: DevChildCommandOptions): Promi
   } satisfies DevChildReadyMessage)
 
   setDevRunListener(({ routeKind }) => {
-    process.send?.({ type: "run-finished", routeKind } satisfies DevChildRunFinishedMessage)
+    // An orphaned child has no channel; the callback keeps a failed send from
+    // surfacing as an unhandled `error` event on process.
+    if (!process.connected) return
+    process.send?.(
+      { type: "run-finished", routeKind } satisfies DevChildRunFinishedMessage,
+      undefined,
+      {},
+      () => {},
+    )
   })
 
   await closed

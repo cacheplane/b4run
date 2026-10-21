@@ -37,6 +37,9 @@ export const CI_ENVIRONMENT_VARIABLES: readonly string[] = [
   "DRONE",
   "NETLIFY",
   "VERCEL",
+  "RENDER",
+  "RAILWAY_ENVIRONMENT",
+  "CF_PAGES",
 ]
 
 /** A flag is set when defined, non-empty, and not "0" or "false" (case-insensitive). */

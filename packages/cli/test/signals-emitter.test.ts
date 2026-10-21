@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { readCliVersion } from "../src/lib/signals/cli-version.ts"
 import { createSignalsEmitter, FIRST_RUN_NOTICE } from "../src/lib/signals/emitter.ts"
-import type { FetchLike } from "../src/lib/signals/transport.ts"
+import { DEFAULT_SIGNALS_URL, type FetchLike } from "../src/lib/signals/transport.ts"
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -129,6 +129,52 @@ describe("createSignalsEmitter", () => {
     h.emitter.commandCompleted({ outcome: "ok", durationMs: 1 })
     await h.emitter.flush()
     expect(h.fetch.mock.calls[0]?.[0]).toBe("http://127.0.0.1:1/cli")
+  })
+  it("reads B4_SIGNALS_URL from the creation-time env only, never from a later env", async () => {
+    const home = await mkdtemp(join(tmpdir(), "b4-emitter-"))
+    dirs.push(home)
+    const fetch = vi.fn<FetchLike>(async () => ({ ok: true, status: 202 }))
+    const startup: Record<string, string | undefined> = {}
+    const later: Record<string, string | undefined> = {}
+    const emitter = createSignalsEmitter({
+      io: { stdout: () => undefined, stderr: () => undefined },
+      env: startup,
+      currentEnv: () => later,
+      homeDir: home,
+      fetch,
+      cliVersion: "0.14.0",
+      nodeMajor: 24,
+      os: "linux",
+    })
+    emitter.commandStarted("dev")
+    // A project .env loaded after startup must not move the endpoint.
+    later.B4_SIGNALS_URL = "http://127.0.0.1:1/elsewhere"
+    startup.B4_SIGNALS_URL = "http://127.0.0.1:1/elsewhere"
+    emitter.commandCompleted({ outcome: "ok", durationMs: 1 })
+    await emitter.flush()
+    expect(fetch.mock.calls[0]?.[0]).toBe(DEFAULT_SIGNALS_URL)
+  })
+  it("sends nothing when the opt-out appears in the current env after commandStarted", async () => {
+    const home = await mkdtemp(join(tmpdir(), "b4-emitter-"))
+    dirs.push(home)
+    const fetch = vi.fn<FetchLike>(async () => ({ ok: true, status: 202 }))
+    const later: Record<string, string | undefined> = {}
+    const emitter = createSignalsEmitter({
+      io: { stdout: () => undefined, stderr: () => undefined },
+      env: {},
+      currentEnv: () => later,
+      homeDir: home,
+      fetch,
+      cliVersion: "0.14.0",
+      nodeMajor: 24,
+      os: "linux",
+    })
+    emitter.commandStarted("dev")
+    later.B4_TELEMETRY_DISABLED = "1"
+    emitter.devFirstRunCompleted("graph")
+    emitter.commandCompleted({ outcome: "ok", durationMs: 1 })
+    await emitter.flush()
+    expect(fetch).not.toHaveBeenCalled()
   })
   it("never throws or rejects when the transport fails", async () => {
     const home = await mkdtemp(join(tmpdir(), "b4-emitter-"))

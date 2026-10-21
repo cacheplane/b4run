@@ -50,6 +50,14 @@ describe("readOrCreateUsageId", () => {
     expect(identity?.created).toBe(true)
     expect(identity?.id).toMatch(UUID)
   })
+  it("agrees on one id when two first runs race", async () => {
+    const dir = join(await tempHome(), ".b4")
+    const [a, b] = await Promise.all([readOrCreateUsageId(dir), readOrCreateUsageId(dir)])
+    expect(a?.id).toMatch(UUID)
+    expect(b?.id).toBe(a?.id)
+    expect([a?.created, b?.created].filter((created) => created === true)).toHaveLength(1)
+    expect((await readFile(join(dir, USAGE_ID_FILENAME), "utf8")).trim()).toBe(a?.id)
+  })
   it("returns null when the directory cannot be written", async () => {
     if (process.platform === "win32" || process.getuid?.() === 0) return
     const home = await tempHome()

@@ -23,7 +23,13 @@ export const FIRST_RUN_NOTICE =
 
 export interface SignalsEmitterOptions {
   readonly io: CommandIo
+  /** The startup environment; copied at creation, so later changes never move the endpoint. */
   readonly env?: Readonly<Record<string, string | undefined>>
+  /**
+   * The live environment, re-checked for the opt-out before every send so a
+   * project `.env` loaded after startup can still turn reporting off.
+   */
+  readonly currentEnv?: () => Readonly<Record<string, string | undefined>>
   readonly homeDir?: string
   readonly fetch?: FetchLike
   readonly cliVersion?: string
@@ -58,7 +64,12 @@ interface Armed {
 }
 
 export function createSignalsEmitter(options: SignalsEmitterOptions): SignalsEmitter {
-  const env = options.env ?? process.env
+  const env: Readonly<Record<string, string | undefined>> = { ...(options.env ?? process.env) }
+  const injectedEnv = options.env
+  const currentEnv =
+    options.currentEnv ?? (injectedEnv !== undefined ? () => injectedEnv : () => process.env)
+  // Read once: a project .env loaded later (b4 dev, b4 inspect) cannot redirect reports.
+  const signalsUrl = resolveSignalsUrl(env)
   const cliVersion = options.cliVersion ?? readCliVersion()
   const nodeMajor = options.nodeMajor ?? Number(process.versions.node.split(".")[0])
   const os = options.os ?? process.platform
@@ -86,7 +97,9 @@ export function createSignalsEmitter(options: SignalsEmitterOptions): SignalsEmi
     // The job joins the set synchronously, before its first await.
     const job = (async () => {
       try {
+        if (signalsDisabledReason(currentEnv()) !== null) return
         const identity = await state.identity
+        if (signalsDisabledReason(currentEnv()) !== null) return
         if (identity === null) return
         await sendSignals(
           {
@@ -96,7 +109,7 @@ export function createSignalsEmitter(options: SignalsEmitterOptions): SignalsEmi
             events: [build(state)],
           },
           {
-            url: resolveSignalsUrl(env),
+            url: signalsUrl,
             ...(options.fetch !== undefined ? { fetch: options.fetch } : {}),
           },
         )

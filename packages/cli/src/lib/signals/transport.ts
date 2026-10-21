@@ -29,6 +29,7 @@ export type FetchLike = (
     headers: Record<string, string>
     body: string
     signal: AbortSignal
+    redirect: "error"
   },
 ) => Promise<unknown>
 
@@ -54,6 +55,8 @@ export async function sendSignals(
       headers: { "content-type": "application/json", "user-agent": "b4-cli" },
       body: JSON.stringify(body),
       signal: controller.signal,
+      // Never re-send the body to another host on a 307/308.
+      redirect: "error",
     })
   } catch {
     // Intentionally silent: usage reporting must never surface errors to the user.

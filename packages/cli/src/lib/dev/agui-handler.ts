@@ -1332,6 +1332,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : [],
               },
             )) {
+              // A run that parks on an interrupt is a finished run here; per the
+              // spec only a `cancelled` outcome is excluded.
               if (
                 !notifiedRunFinished &&
                 event.type === "RUN_FINISHED" &&

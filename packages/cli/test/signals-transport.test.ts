@@ -49,6 +49,7 @@ describe("sendSignals", () => {
     expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain("authorization")
     expect(JSON.parse(init.body)).toEqual(body)
     expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(init.redirect).toBe("error")
   })
   it("aborts the request signal once settled so an unread body is released", async () => {
     let signal: AbortSignal | undefined
