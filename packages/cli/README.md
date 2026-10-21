@@ -82,7 +82,7 @@ The development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verif
 | `DO_NOT_TRACK=1` | Turns usage reporting off. |
 | `B4_SIGNALS_URL` | Overrides the URL signals are posted to. |
 
-`B4_SIGNALS_URL` is read from the shell environment once at startup, never from a project `.env`. The two opt-out variables are honoured from a project `.env` as well as from the shell.
+`B4_SIGNALS_URL` is read from the shell environment once at startup, never from a project `.env`. The two opt-out variables are honoured from the shell before anything happens, and from a project `.env` for every send; a project `.env` loads after the command starts, so on the very first run the id file and the notice can still appear before it takes effect.
 
 ## Related
 
