@@ -65,14 +65,17 @@ export async function handleFounderUpdatesPost(
       submissionId: submission.submissionId,
       now: deps.now(),
     })
-    try {
-      await deps.createSignals(env.posthogKey).capture({
-        distinctId: submission.posthogDistinctId ?? deps.randomUUID(),
-        event: "site:contact_accepted",
-        properties: { form: "founder_updates", email_kind: result.emailKind },
-      })
-    } catch {
-      // The contact is stored; a signal failure is not the visitor's problem.
+    // A conversion is a new, approved contact; re-submissions and stopped contacts emit nothing.
+    if (result.created && result.approved) {
+      try {
+        await deps.createSignals(env.posthogKey).capture({
+          distinctId: submission.posthogDistinctId ?? deps.randomUUID(),
+          event: "site:contact_accepted",
+          properties: { form: "founder_updates", email_kind: result.emailKind },
+        })
+      } catch {
+        // The contact is stored; a signal failure is not the visitor's problem.
+      }
     }
     // The same answer whether or not the contact was approved: a stop is never disclosed.
     return json(200, { ok: true })

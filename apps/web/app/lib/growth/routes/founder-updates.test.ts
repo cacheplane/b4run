@@ -7,7 +7,9 @@ vi.mock("../contacts", () => ({ acceptFounderUpdatesForm: accept }))
 
 import { type FounderUpdatesRouteDeps, handleFounderUpdatesPost } from "./founder-updates"
 
+const MESSAGE = "please call me about pricing"
 const body = {
+  message: MESSAGE,
   email: "ada@example.com",
   disclosure_version: DISCLOSURE_VERSION,
   submission_id: "7d9f3b0e-2c1a-4f6e-9a55-0b1d2c3e4f50",
@@ -103,6 +105,19 @@ describe("handleFounderUpdatesPost", () => {
     const response = await handleFounderUpdatesPost(post(body), deps)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
+  })
+
+  it.each([
+    ["a re-submission by an existing contact", { created: false, approved: true }],
+    ["a created but unapproved contact", { created: true, approved: false }],
+    ["a stopped contact", { created: false, approved: false }],
+  ])("emits no signal for %s but still returns 200", async (_label, flags) => {
+    accept.mockResolvedValue({ contactId: "c1", emailKind: "work", ...flags })
+    const { deps, capture } = setup()
+    const response = await handleFounderUpdatesPost(post(body), deps)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(capture).not.toHaveBeenCalled()
   })
 
   it("returns 429 past the rate limit, keyed on the first forwarded address", async () => {
