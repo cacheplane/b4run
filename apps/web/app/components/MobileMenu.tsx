@@ -153,7 +153,7 @@ export function MobileMenu() {
               ))}
             </ul>
             <div className="mt-5 px-3">
-              <CopyCommand command="npm create b4-app@latest my-agent" />
+              <CopyCommand command="npm create b4-app@latest my-agent" surface="mobile_nav" />
             </div>
           </div>
 

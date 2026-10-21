@@ -140,6 +140,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           </SiteLink>
           <CopyCommand
             command="npm create b4-app@latest my-agent"
+            surface="header"
             className={homepageStyles.chip ?? ""}
           />
         </nav>

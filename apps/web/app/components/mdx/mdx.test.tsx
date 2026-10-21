@@ -89,4 +89,32 @@ describe("MDX hooks the CSS keys off", () => {
     expect(JSON.stringify(vi.mocked(track).mock.calls)).not.toContain("secret")
     await act(async () => root.unmount())
   })
+
+  it.each([
+    ["/blog/x", "blog:copy_code_click"],
+    ["/", undefined],
+  ])("a code copy on %s reports %s", async (path, event) => {
+    vi.mocked(track).mockClear()
+    history.replaceState(null, "", path)
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => {} },
+    })
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () =>
+      root.render(
+        <Pre data-language="ts">
+          <code>const a = 1</code>
+        </Pre>,
+      ),
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("[aria-label='Copy code']")?.click(),
+    )
+    if (event) expect(track).toHaveBeenCalledWith(event, { code_lang: "ts" })
+    else expect(track).not.toHaveBeenCalled()
+    await act(async () => root.unmount())
+  })
 })
