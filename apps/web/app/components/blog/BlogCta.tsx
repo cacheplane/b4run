@@ -8,7 +8,7 @@ export function BlogCta() {
         <h2 id="blog-cta-title">Build your own agent.</h2>
         <p>Scaffold a project and walk through every file it gives you.</p>
         <div className={styles.ctaLinks}>
-          <CopyCommand command="npm create b4-app@latest my-agent" variant="dark" />
+          <CopyCommand command="npm create b4-app@latest my-agent" variant="dark" surface="blog" />
           <a href="/docs/getting-started" data-cta-id="blog_cta_get_started">
             Read Getting Started
           </a>

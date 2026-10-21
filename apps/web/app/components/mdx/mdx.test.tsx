@@ -1,8 +1,20 @@
+// @vitest-environment jsdom
+import { act } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+import { track } from "../../lib/analytics/client"
+import { Pre } from "./CodeBlock"
 import { CodeGroup } from "./CodeGroup"
 import { Step, Steps } from "./Steps"
 import { Tab, Tabs } from "./Tabs"
+
+vi.mock("../../lib/analytics/client", async () => ({
+  track: vi.fn(),
+  copyCodeEventFor: (
+    await vi.importActual<typeof import("../../lib/analytics/client")>("../../lib/analytics/client")
+  ).copyCodeEventFor,
+}))
 
 describe("MDX hooks the CSS keys off", () => {
   it("Steps renders an ordered list with a number span directly inside each item", () => {
@@ -50,5 +62,31 @@ describe("MDX hooks the CSS keys off", () => {
     expect(html.match(/<pre/g)).toHaveLength(1)
     expect(html).toContain("const a = 1")
     expect(html).not.toContain("var a = 1")
+  })
+
+  it("a code copy on /docs/* reports docs:copy_code_click with code_lang and not the code", async () => {
+    history.replaceState(null, "", "/docs/x")
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => {} },
+    })
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () =>
+      root.render(
+        <Pre data-language="ts">
+          <code>const secret = 1</code>
+        </Pre>,
+      ),
+    )
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("[aria-label='Copy code']")?.click(),
+    )
+    expect(track).toHaveBeenCalledWith("docs:copy_code_click", {
+      code_lang: "ts",
+    })
+    expect(JSON.stringify(vi.mocked(track).mock.calls)).not.toContain("secret")
+    await act(async () => root.unmount())
   })
 })

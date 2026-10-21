@@ -11,6 +11,8 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
+import { track } from "../../lib/analytics/client"
+import { SIGNAL_EVENTS } from "../../lib/analytics/events"
 import { Button } from "../ui/Button"
 import { Eyebrow } from "../ui/Eyebrow"
 import { Icon } from "../ui/Icon"
@@ -175,6 +177,7 @@ export function DocsSearch() {
     (href: string) => {
       returnFocusRef.current = null
       close()
+      track(SIGNAL_EVENTS.docsSearchResultClick)
       router.push(href)
     },
     [router, close],

@@ -128,7 +128,14 @@ export function CodeGroup({ children }: CodeGroupProps) {
             ))}
           </div>
         }
-        right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
+        right={
+          <CopyButton
+            getText={() => ref.current?.textContent ?? ""}
+            {...(current.pre.props["data-language"]
+              ? { language: current.pre.props["data-language"] }
+              : {})}
+          />
+        }
       />
       <div ref={ref}>
         <HeadlessPreContext.Provider value={true}>{current.pre}</HeadlessPreContext.Provider>

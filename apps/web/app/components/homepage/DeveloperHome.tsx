@@ -41,7 +41,11 @@ export async function DeveloperHome() {
             </p>
             <p className={styles.runtime}>Runs on LangGraph.js. You keep the graph.</p>
             <div className={styles.heroActions}>
-              <CopyCommand command={createCommand} className={styles.command ?? ""} />
+              <CopyCommand
+                command={createCommand}
+                surface="home"
+                className={styles.command ?? ""}
+              />
               <a
                 href="/docs/getting-started"
                 data-cta-id="home_get_started"
@@ -69,7 +73,12 @@ export async function DeveloperHome() {
             </Eyebrow>
             <h2 id="run-title">Build your own agent.</h2>
             <p>Scaffold a new B4 app with one command:</p>
-            <CopyCommand command={createCommand} variant="dark" className={styles.command ?? ""} />
+            <CopyCommand
+              command={createCommand}
+              variant="dark"
+              surface="home"
+              className={styles.command ?? ""}
+            />
             <br />
             <a href="/docs/getting-started" className={styles.reportLink}>
               Getting Started →
