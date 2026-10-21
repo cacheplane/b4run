@@ -73,6 +73,8 @@ describe("handleFounderUpdatesPost", () => {
       form: "founder_updates",
       email_kind: "work",
     })
+    expect(JSON.stringify(capture.mock.calls)).not.toContain(body.email)
+    expect(JSON.stringify(capture.mock.calls)).not.toContain(MESSAGE)
   })
 
   it("uses a generated distinct id when the browser sent none", async () => {
