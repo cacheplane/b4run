@@ -8,15 +8,27 @@ export interface DockerPidExhaustionRecovery {
   ) => Promise<SpawnResult | undefined>
 }
 
+// runc's init is a Go binary. When it joins a saturated pids cgroup, the Go
+// runtime can fail to start a thread and abort before the command runs; Docker
+// then relays the crash dump as the exec's own stderr, with no OCI wrapper.
+function isRuncInitThreadExhaustion(output: string): boolean {
+  return (
+    output.includes("github.com/opencontainers/runc/libcontainer") &&
+    (output.includes("runtime/cgo: pthread_create failed: Resource temporarily unavailable") ||
+      output.includes("runtime: failed to create new OS thread"))
+  )
+}
+
 export function isDockerExecAdmissionPidExhaustion(result: SpawnResult): boolean {
   if (result.exitCode === 0) return false
   const output = `${result.stdout}\n${result.stderr}`
   return (
-    output.includes("OCI runtime exec failed") &&
-    (output.includes("Resource temporarily unavailable") ||
-      output.includes("read init-p: connection reset by peer") ||
-      (output.includes("unable to start container process") &&
-        output.includes("procReady not received")))
+    (output.includes("OCI runtime exec failed") &&
+      (output.includes("Resource temporarily unavailable") ||
+        output.includes("read init-p: connection reset by peer") ||
+        (output.includes("unable to start container process") &&
+          output.includes("procReady not received")))) ||
+    isRuncInitThreadExhaustion(output)
   )
 }
 
