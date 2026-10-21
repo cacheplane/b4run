@@ -2438,6 +2438,100 @@
         }
       ]
     },
+    "posthog-quality.yml": {
+      "classification": "safe",
+      "descriptor": {
+        "concurrency": {
+          "cancel-in-progress": false,
+          "group": "posthog-signal-quality"
+        },
+        "env": {
+          "DO_NOT_TRACK": "1"
+        },
+        "name": "PostHog signal quality",
+        "on": {
+          "schedule": [
+            {
+              "cron": "23 14 * * *"
+            }
+          ],
+          "workflow_dispatch": {
+            "inputs": {
+              "days": {
+                "default": "7",
+                "description": "Days of live events to inspect",
+                "required": false
+              },
+              "limit_per_event": {
+                "default": "100",
+                "description": "Maximum events to sample per contracted event",
+                "required": false
+              }
+            }
+          }
+        },
+        "permissions": {
+          "contents": "read"
+        }
+      },
+      "jobs": [
+        {
+          "classification": "safe",
+          "id": "live-quality",
+          "descriptor": {
+            "name": "Live signal contract and coverage",
+            "runs-on": "ubuntu-latest"
+          },
+          "steps": [
+            {
+              "classification": "safe",
+              "descriptor": {
+                "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "uses": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86",
+                "with": {
+                  "version": "10.33.0"
+                }
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+                "with": {
+                  "cache": "pnpm",
+                  "node-version": "24.17.0"
+                }
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "run": "pnpm install --frozen-lockfile"
+              }
+            },
+            {
+              "classification": "safe",
+              "descriptor": {
+                "env": {
+                  "DAYS": "${{ github.event.inputs.days || '7' }}",
+                  "LIMIT": "${{ github.event.inputs.limit_per_event || '100' }}",
+                  "POSTHOG_HOST": "https://us.i.posthog.com",
+                  "POSTHOG_PERSONAL_API_KEY": "${{ secrets.POSTHOG_PERSONAL_API_KEY_READONLY }}",
+                  "POSTHOG_PROJECT_ID": "${{ secrets.POSTHOG_PROJECT_ID }}"
+                },
+                "name": "Plan dashboards and run live quality check",
+                "run": "set -euo pipefail\nif [ -z \"${POSTHOG_PERSONAL_API_KEY:-}\" ] || [ -z \"${POSTHOG_PROJECT_ID:-}\" ]; then\n  echo \"::error::POSTHOG_PERSONAL_API_KEY_READONLY and POSTHOG_PROJECT_ID Actions secrets are required.\"\n  exit 1\nfi\npnpm posthog:plan\npnpm posthog:quality --days \"$DAYS\" --limit-per-event \"$LIMIT\"\n"
+              }
+            }
+          ]
+        }
+      ]
+    },
     "publish-chart.yml": {
       "classification": "safe",
       "descriptor": {
