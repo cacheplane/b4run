@@ -182,7 +182,7 @@ describe("sitemap documentation entries", () => {
     // Both posts are dated after the frozen as-of date.
     expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
     expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
-    expect(entries).toHaveLength(3 + ALL_DOCS_PAGES.length + posts.length + tags.length)
+    expect(entries).toHaveLength(4 + ALL_DOCS_PAGES.length + posts.length + tags.length)
     expect(entries).toHaveLength(96)
   })
 

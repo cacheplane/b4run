@@ -74,7 +74,7 @@ export function FounderUpdatesForm() {
   }
 
   const field =
-    "w-full rounded-md border border-ink-muted/40 bg-transparent px-3 py-2 text-ink focus:outline-none focus:ring-2"
+    "w-full border border-ink-muted/40 bg-transparent px-3 py-2 text-ink focus:outline-none focus:ring-2"
   return (
     <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm text-ink">
@@ -114,7 +114,7 @@ export function FounderUpdatesForm() {
         <button
           type="submit"
           disabled={state === "sending"}
-          className="self-start rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper disabled:opacity-60"
+          className="self-start bg-ink px-4 py-2 text-sm font-medium text-page disabled:opacity-60"
         >
           Send me updates
         </button>
