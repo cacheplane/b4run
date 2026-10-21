@@ -57,9 +57,11 @@ describe("transition table", () => {
     ])
   })
 
-  it("fails the run from dispatched or running", () => {
-    expect(nextState("dispatched", "run_failed")).toBe("failed")
-    expect(nextState("running", "run_failed")).toBe("failed")
+  it("blocks, not fails, a run that errored from dispatched or running: retry may answer it", () => {
+    expect(nextState("dispatched", "run_failed")).toBe("blocked")
+    expect(nextState("running", "run_failed")).toBe("blocked")
+    expect(BLOCKED_REASONS).toContain("builder_error")
+    expect(RETRYABLE_BLOCKED_REASONS.has("builder_error")).toBe(true)
   })
 
   it("fails when the turn ends without changes, from dispatched or running", () => {
@@ -158,6 +160,7 @@ describe("retry", () => {
   it("retries only the blocks a candidate failure leaves", () => {
     expect([...RETRYABLE_BLOCKED_REASONS].sort()).toEqual(
       [
+        "builder_error",
         "candidate_rejected",
         "encoding_violation",
         "scope_violation",

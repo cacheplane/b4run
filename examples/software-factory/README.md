@@ -412,9 +412,11 @@ without a terminal, or on no answer or a wrong one, it sends nothing, exits 3 an
 commands a person runs (`pnpm factory review <id>`, then `pnpm factory run <id>`).
 `FACTORY_CLI_INTERACTIVE` is a test seam that works only under vitest. `--allow-missing-evidence`
 applies to both gates' reviews: it approves nothing, and only lets a review show evidence a
-fake verifier never wrote, with its warning. `run` stops at a block with the next commands
-(`retry` then `run` when attempts are left, else `events` and `cancel`) and never retries or
-cancels. Exit codes: **0** exported, **3** waiting on a person, **130** interrupted (the
+fake verifier never wrote, with its warning. `run` retries a candidate failure itself
+(a scope or encoding violation, a rejected candidate, a failed or inconclusive verification, an
+unexpected interrupt, a builder turn that errored) while `FACTORY_MAX_CANDIDATE_ATTEMPTS`
+leaves attempts, journalling each `retry`; it stops at every other block with the next commands
+(`events` and `cancel`, or `redeliver`) and never cancels. Exit codes: **0** exported, **3** waiting on a person, **130** interrupted (the
 controller keeps working; `run` again resumes), **1** anything else (a refusal, a block, an
 ended work order, an expired bundle, a follow past its bound).
 

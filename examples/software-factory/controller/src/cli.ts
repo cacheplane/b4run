@@ -1495,6 +1495,17 @@ async function runCommand(
           if (!outcome.ok && unmoved()) return finish(outcome, 1)
           continue
         }
+        case "retry": {
+          // The controller's own `retry`: the old thread released, the row back to received;
+          // the next pass dispatches. A refusal that moved nothing stops here with its message.
+          process.stderr.write(
+            `factory run: ${workOrder} blocked (${step.reason}); retrying, attempt ${step.attempt} of ${row.maxCandidateAttempts}\n`,
+          )
+          const outcome = await client().retry(workOrder)
+          if (!outcome.ok && unmoved())
+            return finish({ ...outcome, next: blockedNext(workOrder, row.blockedReason) }, 1)
+          continue
+        }
         case "gate": {
           if (step.gate === "export") {
             // An approval an earlier run sent may still be re-verifying, with the row parked at

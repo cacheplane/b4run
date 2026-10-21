@@ -58,7 +58,7 @@ export async function observeRun(
       const row = ctx.mustGet(id)
       if (!isRunState(row.state)) return
       if (error) {
-        ctx.transition(id, "run_failed", { failureReason: "route_error" }, { error })
+        ctx.transition(id, "run_failed", { blockedReason: "builder_error" }, { error })
         return
       }
       if (reattached) {

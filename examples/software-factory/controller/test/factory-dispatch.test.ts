@@ -226,12 +226,19 @@ describe("create and dispatch", () => {
     await expect(factory.create({ taskId: "nope" })).rejects.toThrow(/Unknown task/)
   })
 
-  it("fails on a route error", async () => {
+  it("blocks as builder_error on a route error, with the attempt spent and the error journalled", async () => {
     await boot({ run: "route_error" })
     const { id } = await factory.create({ taskId: "cli-flags" })
     await dispatchWith(id)
     const row = await factory.waitFor(id, (r) => settled(r.state), 20_000)
-    expect(row).toMatchObject({ state: "failed", failureReason: "route_error" })
+    expect(row).toMatchObject({
+      state: "blocked",
+      blockedReason: "builder_error",
+      failureReason: null,
+      candidateAttempts: 1,
+    })
+    const failed = eventsOf(id, "transition").find((e) => e.payload.event === "run_failed")
+    expect(typeof failed?.payload.error).toBe("string")
   })
 
   it("fails when the turn left the baseline unchanged", async () => {
