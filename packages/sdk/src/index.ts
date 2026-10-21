@@ -172,6 +172,7 @@ export type {
   B4ToolStep,
   B4ToolStepRead,
   B4ToolStepStatus,
+  B4ToolStepUpdate,
 } from "./tool-step.js"
 export {
   B4_ANSWER_JSON_SCHEMA,
@@ -185,6 +186,7 @@ export {
   mergeToolStep,
   readAnswerAnnotations,
   readToolStep,
+  readToolStepUpdate,
   settleOpenSteps,
 } from "./tool-step.js"
 export type { Prettify } from "./types.js"

@@ -6,6 +6,7 @@ import {
   mergeToolStep,
   readAnswerAnnotations,
   readToolStep,
+  readToolStepUpdate,
   settleOpenSteps,
 } from "../src/tool-step.ts"
 
@@ -55,6 +56,7 @@ describe("readToolStep", () => {
 
     expect(step?.toolCallId).toBe("c9")
     expect(step?.sources).toEqual([{ id: "c9:0", kind: "record", title: "Row" }])
+    expect(accepts(B4_TOOL_STEP_JSON_SCHEMA, step as never)).toBe(true)
   })
 
   it("reads a legacy PersistedStep's ISO times as epoch ms", () => {
@@ -68,12 +70,14 @@ describe("readToolStep", () => {
     expect(step?.startedAt).toBe(1792540800000)
     expect(step?.settledAt).toBe(1792540801000)
     expect(step?.decision).toBe("once")
+    expect(accepts(B4_TOOL_STEP_JSON_SCHEMA, step as never)).toBe(true)
   })
 
   it("cuts a 130-character label to 120", () => {
     const step = readToolStep({ status: "running", label: "x".repeat(130) })
 
     expect(step?.label).toHaveLength(120)
+    expect(accepts(B4_TOOL_STEP_JSON_SCHEMA, step as never)).toBe(true)
   })
 
   it("leaves status out for an unknown status string", () => {
@@ -100,6 +104,7 @@ describe("readToolStep", () => {
     })
 
     expect(step).toMatchObject({ kind: "provider", icon: "rocket", builtin: "x_search" })
+    expect(accepts(B4_TOOL_STEP_JSON_SCHEMA, step as never)).toBe(true)
   })
 
   it("drops error unless the step failed", () => {
@@ -159,6 +164,33 @@ describe("mergeToolStep", () => {
 
     expect(merged.status).toBe("completed")
     expect(merged.label).toBe("L")
+  })
+
+  it("keeps a settled step's label when a later call has none", () => {
+    const denied = running({ status: "denied", label: "Denied by user" })
+
+    const merged = mergeToolStep(denied, running({ status: "denied" }), "call")
+
+    expect(merged.label).toBe("Denied by user")
+  })
+
+  it("keeps the stored provider kind against a sparse legacy value", () => {
+    const stored = running({ kind: "provider", builtin: "web_search" })
+
+    const merged = mergeToolStep(
+      stored,
+      readToolStepUpdate({ toolCallId: "c1", status: "completed" }) as never,
+      "message",
+    )
+
+    expect(merged.kind).toBe("provider")
+    expect(merged.status).toBe("completed")
+  })
+
+  it("gives a failed step without an error the default one", () => {
+    const merged = mergeToolStep(running(), running({ status: "failed" }), "call")
+
+    expect(merged.error).toEqual({ message: "Tool call did not finish" })
   })
 
   it("starts from next when there is no previous step", () => {

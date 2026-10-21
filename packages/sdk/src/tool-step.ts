@@ -80,6 +80,16 @@ export type B4ToolStepRead = Omit<B4ToolStep, "status"> & {
   readonly status?: B4ToolStepStatus
 }
 
+/**
+ * What {@link readToolStepUpdate} returns: like {@link B4ToolStepRead}, but
+ * `kind` is absent when the source did not state it, so a merge keeps the
+ * stored kind. {@link B4ToolStepRead} is assignable to it.
+ */
+export type B4ToolStepUpdate = Omit<B4ToolStep, "status" | "kind"> & {
+  readonly status?: B4ToolStepStatus
+  readonly kind?: B4ToolStep["kind"]
+}
+
 /** Annotations on a final answer (`b4.answer`). */
 export interface B4AnswerAnnotations {
   readonly v: 1
@@ -173,6 +183,19 @@ function readSources(value: unknown, idPrefix: string): readonly B4StepSource[] 
  * Unknown fields are ignored. `toolCallId` is the fallback id for the step.
  */
 export function readToolStep(value: unknown, toolCallId?: string): B4ToolStepRead | undefined {
+  const update = readToolStepUpdate(value, toolCallId)
+  return update === undefined ? undefined : { ...update, kind: update.kind ?? "server" }
+}
+
+/**
+ * Like {@link readToolStep}, but leaves `kind` out when the source states
+ * none. Use it for the `next` argument of {@link mergeToolStep}, so a sparse
+ * legacy value cannot turn a stored `provider` step into a `server` one.
+ */
+export function readToolStepUpdate(
+  value: unknown,
+  toolCallId?: string,
+): B4ToolStepUpdate | undefined {
   if (!isRecord(value)) return undefined
   if (typeof value.status !== "string") return undefined
   const status = STATUSES.includes(value.status) ? (value.status as B4ToolStepStatus) : undefined
@@ -197,7 +220,7 @@ export function readToolStep(value: unknown, toolCallId?: string): B4ToolStepRea
   return {
     v: 1,
     ...(id !== undefined ? { toolCallId: id } : {}),
-    kind: value.kind === "provider" ? "provider" : "server",
+    ...(value.kind === "provider" || value.kind === "server" ? { kind: value.kind } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(builtin !== undefined ? { builtin } : {}),
     ...(provider !== undefined ? { provider } : {}),
@@ -269,13 +292,26 @@ export function readAnswerAnnotations(value: unknown): B4AnswerAnnotations | und
 const SETTLED: ReadonlySet<string> = new Set(["completed", "failed", "denied", "cancelled"])
 const CLEARS_RUNNING: ReadonlySet<string> = new Set(["failed", "denied", "cancelled"])
 
-function withoutRunningDetail(step: B4ToolStep, keep: B4ToolStepRead): B4ToolStep {
+const DEFAULT_FAILURE = "Tool call did not finish"
+
+/** Drops the running label and sources, keeping only what `keep` itself supplies. */
+function withoutRunningDetail(step: B4ToolStep, keep: B4ToolStepUpdate): B4ToolStep {
   const { label, sources, ...rest } = step
   return {
     ...rest,
     ...(keep.label !== undefined && label !== undefined ? { label } : {}),
     ...(keep.sources !== undefined && sources !== undefined ? { sources } : {}),
   }
+}
+
+/** A failed step always carries an error; any other step never does. */
+function withErrorRule(step: B4ToolStep): B4ToolStep {
+  if (step.status === "failed") {
+    return step.error === undefined ? { ...step, error: { message: DEFAULT_FAILURE } } : step
+  }
+  if (step.error === undefined) return step
+  const { error: _error, ...rest } = step
+  return rest
 }
 
 /**
@@ -288,15 +324,15 @@ function withoutRunningDetail(step: B4ToolStep, keep: B4ToolStepRead): B4ToolSte
  */
 export function mergeToolStep(
   previous: B4ToolStep | undefined,
-  next: B4ToolStepRead,
+  next: B4ToolStepUpdate,
   source: "call" | "message",
 ): B4ToolStep {
   if (previous === undefined) {
     const status = next.status ?? "running"
-    const created: B4ToolStep = { ...next, status }
-    return CLEARS_RUNNING.has(status) ? withoutRunningDetail(created, next) : created
+    const created: B4ToolStep = { ...next, kind: next.kind ?? "server", status }
+    return withErrorRule(CLEARS_RUNNING.has(status) ? withoutRunningDetail(created, next) : created)
   }
-  if (previous.status === "failed") return previous
+  if (previous.status === "failed") return withErrorRule(previous)
   const prevSettled = SETTLED.has(previous.status)
   const { status: nextStatus, ...nextFields } = next
   let status: B4ToolStepStatus = previous.status
@@ -308,10 +344,8 @@ export function mergeToolStep(
   const merged: B4ToolStep = nextWins
     ? { ...previous, ...nextFields, status }
     : { ...nextFields, ...previous, status }
-  const cleared = CLEARS_RUNNING.has(status) ? withoutRunningDetail(merged, next) : merged
-  if (cleared.status === "failed" || cleared.error === undefined) return cleared
-  const { error: _error, ...rest } = cleared
-  return rest
+  const leavesRunning = !prevSettled && CLEARS_RUNNING.has(status)
+  return withErrorRule(leavesRunning ? withoutRunningDetail(merged, next) : merged)
 }
 
 /**
@@ -336,9 +370,7 @@ export function settleOpenSteps(
       ...rest,
       status: outcome,
       settledAt: at,
-      ...(outcome === "failed"
-        ? { error: { message: "The run ended before this step finished." } }
-        : {}),
+      ...(outcome === "failed" ? { error: { message: DEFAULT_FAILURE } } : {}),
     }
   }
   return result
