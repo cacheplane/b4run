@@ -34,10 +34,10 @@ function queryToken(request: Request): string | undefined {
 
 type BodyToken = { ok: true; token: string | undefined } | { ok: false }
 
-async function bodyToken(request: Request): Promise<BodyToken> {
-  const text = await request.text()
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return { ok: false }
-  const type = (request.headers.get("content-type") ?? "").toLowerCase()
+function parseBodyToken(text: string, contentType: string): BodyToken {
+  // An empty body carries no token whatever its type; the query token may still apply.
+  if (text === "") return { ok: true, token: undefined }
+  const type = contentType.toLowerCase()
   if (type.includes("application/json")) {
     try {
       const parsed: unknown = JSON.parse(text)
@@ -80,12 +80,17 @@ export async function handleUnsubscribePost(
   request: Request,
   deps: UnsubscribeRouteDeps,
 ): Promise<Response> {
-  const body = await bodyToken(request)
-  if (!body.ok) return failure()
-  const token = body.token ?? queryToken(request)
-  if (token === undefined) return failure()
+  const declared = Number(request.headers.get("content-length") ?? "0")
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return failure()
 
   try {
+    const text = await request.text()
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return failure()
+    const body = parseBodyToken(text, request.headers.get("content-type") ?? "")
+    if (!body.ok) return failure()
+    const token = body.token ?? queryToken(request)
+    if (token === undefined) return failure()
+
     const env = deps.loadEnv()
     const now = deps.now()
     const verified = verifyActionToken({

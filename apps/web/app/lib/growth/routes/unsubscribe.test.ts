@@ -176,6 +176,48 @@ describe("unsubscribe route", () => {
     expect(stop).not.toHaveBeenCalled()
   })
 
+  it("POST with no headers and no body uses the query token", async () => {
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, { method: "POST" }),
+      deps(),
+    )
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST urlencoded with an empty body uses the query token", async () => {
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "",
+      }),
+      deps(),
+    )
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST rejects an oversize declared content-length before reading", async () => {
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, {
+        method: "POST",
+        headers: { "content-length": "99999" },
+      }),
+      deps(),
+    )
+    expect(res.status).toBe(400)
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it("POST answers the failure page with headers when the body read aborts", async () => {
+    const req = new Request(`${URL_BASE}?token=${token()}`, { method: "POST" })
+    vi.spyOn(req, "text").mockRejectedValue(new Error("aborted"))
+    const res = await handleUnsubscribePost(req, deps())
+    expect(res.status).toBe(503)
+    expectHeaders(res)
+  })
+
   it("POST answers 503 with the failure page on a database error, never the message", async () => {
     stop.mockRejectedValue(new Error("connection refused secret-host"))
     const res = await handleUnsubscribePost(

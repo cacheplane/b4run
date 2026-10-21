@@ -28,7 +28,7 @@ export function renderConfirmPage(input: { token: string }): string {
   return page(
     "Unsubscribe",
     `<h1>Unsubscribe from B4.run updates?</h1>
-<form method="post" action="">
+<form method="post" action="/api/growth/unsubscribe">
 <input type="hidden" name="token" value="${escapeHtml(input.token)}">
 <button type="submit">Unsubscribe</button>
 </form>`,
