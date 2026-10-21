@@ -874,7 +874,9 @@ substitution, `source <(...)`, is silently ignored by macOS's bash 3.2):
 
 **After a restart.** The controller reconciles on its first request, not when the process
 starts (b4 has no boot hook), so after restarting it by hand run `factory reconcile` before
-anything else (`pnpm factory up` does this itself once the controller is ready). A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
+anything else (`pnpm factory up` does this itself once the controller is ready). Every open
+work order the walk looks at and leaves alone journals `reconciled { resolution: "nothing_to_do" }`,
+so a journal with no line after a restart is a boot that never reconciled. A work order interrupted mid-intake is reconciled then: a drafter thread that is idle,
 or that the restarted drafter still calls `busy` with no run behind it (a reattach answers
 `live: false`; the runtime persists `busy` across a crash), has its turn treated as ended, and
 its `draft/` is read and proved like any other: a missing or partial draft is refused and
@@ -888,9 +890,10 @@ active state, for up to the row's active budget plus 10 minutes, then prints the
 same exit codes. `approve` re-verifies with the row still `awaiting_approval` at its revision
 (about 20 minutes on the `cli` target), so it is followed by its journal instead: the
 `approve_started` line says the request arrived, `approve_refused` ends it as a refusal, and it
-exits 0 only when the row reads `exported`. Do not repeat a timed-out `approve`: the repeat is
-refused `run_in_flight` while the first still runs. `FACTORY_STATE_DIR` must be set for that
-fallback.
+exits 0 only when the row reads `exported`. A repeated `approve` (or `review --approve`) while
+the first still runs is refused `run_in_flight` by the runtime; the CLI then follows the one
+running from the registry and answers from the row, the same way. `FACTORY_STATE_DIR` must be
+set for that fallback.
 
 `dispatch` returns when the work order has stopped moving — including through the controller's
 own `verifying` phase, which is not the builder's — and tails the journal to stderr while it
@@ -923,7 +926,8 @@ The drafter's `immutablePaths` need not restate the target's runner configuratio
 controller fills it in after the drafter's own entries, as it fills the id and the pin, and
 refuses only a draft whose allowed paths reach it (every such path named in one refusal).
 A redraft reuses the admitted thread and stages nothing. The controller validates
-the draft, reads its check statically (a **pre-check**, in milliseconds, before any container:
+the draft, reads its check statically (a **pre-check**, in milliseconds, before any container,
+journalled `precheck_passed` when it passes:
 the check must parse (skipped for a target whose checks run under a loader), import `test` or
 `it` from `node:test` at run time (not `import type`), load the build only through
 `join(process.cwd(), "packages/<name>/dist/...")` (or a variable holding `process.cwd()`), import

@@ -135,6 +135,17 @@ describe("reconciliation", () => {
       bundleDigest: row.bundleDigest,
       candidateDigest: row.candidateDigest,
     })
+    // The boot that left it alone is on the record, so a journal with no line after the
+    // restart is a boot that never reconciled, not one with nothing to do.
+    expect(
+      factory
+        .events(id)
+        .filter((e) => e.type === "reconciled")
+        .at(-1)?.payload,
+    ).toEqual({
+      resolution: "nothing_to_do",
+      state: "awaiting_approval",
+    })
     const outcome = await factory.approve(id, {
       revision: row.revision,
       bundleDigest: row.bundleDigest as string,

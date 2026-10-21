@@ -993,6 +993,40 @@ esac
     })
   }, 90_000)
 
+  it("follows an approval the runtime refuses run_in_flight, instead of answering with the refusal", async () => {
+    // The live run: `review --approve` sent while the same approval was re-verifying answered
+    // "A run is already in flight". The repeat now follows the one running, as a timed-out
+    // request does, and answers from the row: both senders read `exported`.
+    const verifier = createFakeVerifier({ verdict: "pass" })
+    const { cli, env } = await boot({}, { verifier })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    const { json: dispatched } = await cli("dispatch", id)
+    expect(dispatched.row.state).toBe("awaiting_approval")
+    verifier.script = { verdict: "pass", delayMs: 3_000 }
+    const approve = () =>
+      run(
+        process.execPath,
+        [
+          tsxBin,
+          cliEntry,
+          "review",
+          id,
+          "--approve",
+          "--digest",
+          dispatched.row.bundleDigest,
+          "--allow-missing-evidence",
+        ],
+        { env, cwd: packageRoot },
+      )
+    const first = approve()
+    await new Promise((r) => setTimeout(r, 1_000))
+    const second = await approve()
+    expect(second.stderr).toContain(`a command is already running on ${id}`)
+    expect(JSON.parse(second.stdout)).toMatchObject({ ok: true, state: "exported" })
+    expect(JSON.parse((await first).stdout)).toMatchObject({ ok: true, state: "exported" })
+  }, 90_000)
+
   it("follows the row past a timed-out intake, with the intake's exit code", async () => {
     const { env } = await boot(
       {},

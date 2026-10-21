@@ -139,6 +139,16 @@ describe("taskPrompt's rules", () => {
     expect(rules).toMatch(/Your tools are readFile, listDir, editFile, writeFile and runBash\./)
   })
 
+  it("tells it to take the approach the task names, and that a heavier route is not a better repair", () => {
+    const rules = rulesOf(taskPrompt(loadTask("devkit-spawn-deadline")))
+    expect(rules).toMatch(
+      /When the task names an approach, take it unless it cannot meet the acceptance criteria/,
+    )
+    expect(rules).toMatch(
+      /a regular expression and an escape helper where a function replacer was named/,
+    )
+  })
+
   it("tells it to read a large file in ranges, and names both ways", () => {
     const rules = rulesOf(taskPrompt(loadTask("devkit-spawn-deadline")))
     expect(rules).toMatch(/`readFile` with `startLine` and `endLine`/)
