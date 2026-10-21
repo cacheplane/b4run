@@ -27,6 +27,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: { B4_TELEMETRY_DISABLED: "1" },
     include: ["test/**/*.test.ts"],
   },
 })
