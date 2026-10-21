@@ -11,6 +11,10 @@ When a tool returns a large result, B4.run writes the full output to `workspace/
 
 Offloading turns on as soon as a `workspace/` directory exists at the app root. There's nothing else to configure.
 
+If the route runs in a [sandbox](/docs/sandbox) workspace, the offloaded files go into that thread's workspace, under `/workspace/tool-outputs/` inside the sandbox, not into the app's `workspace/` on the host. The stub's `tool-outputs/…` path works with `readFile` the same way it does for a local workspace.
+
+If the offload write fails, B4.run still keeps the result out of the context. The model gets a short stub with the first preview lines (at most 8,192 characters), the error message, and a note that the output was truncated and not saved. The server logs a warning once for each distinct cause.
+
 ### What the model sees
 
 The stub looks like this:

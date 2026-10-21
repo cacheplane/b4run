@@ -8,7 +8,13 @@ import type {
 } from "@b4run/workspace"
 import { verifyReadyWorkspace } from "@b4run/workspace/node"
 /** A remote-service model: records and files survive compute sessions and runtime objects. */
-export function managedProviderFixture(options: { readonly reads?: boolean } = {}) {
+export function managedProviderFixture(
+  options: {
+    readonly reads?: boolean
+    /** Reject writes outside `/workspace`, as a real managed workspace's path jail does. */
+    readonly jail?: boolean
+  } = {},
+) {
   const records = new Map<
     string,
     { intent: WorkspaceCreateIntent; ready: ReadyWorkspace; files: Map<string, Uint8Array> }
@@ -95,6 +101,8 @@ export function managedProviderFixture(options: { readonly reads?: boolean } = {
             },
             async writeFile(path, text) {
               live()
+              if (options.jail && !path.startsWith("/workspace/"))
+                throw new Error("Path is outside the workspace")
               const bytes = new TextEncoder().encode(text)
               record.files.set(path, bytes)
               return { bytesWritten: bytes.length }

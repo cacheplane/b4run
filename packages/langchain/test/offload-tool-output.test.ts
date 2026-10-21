@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { offloadToolOutput } from "../src/offload/offload-tool-output.js"
+import {
+  OFFLOAD_FAILURE_PREVIEW_CHARS,
+  offloadToolOutput,
+} from "../src/offload/offload-tool-output.js"
 
 function fakeStore(rel = "tool-outputs/x-1-a.txt") {
   return { write: vi.fn(async () => rel) }
@@ -25,15 +28,46 @@ describe("offloadToolOutput", () => {
     expect(out).toContain("tool-outputs/search-1-a.txt")
   })
 
-  it("returns original content if the store write throws", async () => {
+  it("fails closed with a bounded stub, never the full content, when the store write throws", async () => {
+    const store = {
+      write: vi.fn(async () => {
+        throw new Error(
+          "Path is outside the workspace: /Users/someone/app/workspace/tool-outputs/x.txt",
+        )
+      }),
+    }
+    const onError = vi.fn()
+    const lines = Array.from({ length: 200_000 }, (_, i) => `match ${i}`)
+    const big = `${lines.join("\n")}\nTAIL-MARKER`
+    const out = await offloadToolOutput(big, { ...base, store: store as never, onError })
+    expect(out).not.toBe(big)
+    expect(out).not.toContain("TAIL-MARKER")
+    expect(out.length).toBeLessThan(OFFLOAD_FAILURE_PREVIEW_CHARS + 1_000)
+    expect(out).toContain("match 0")
+    expect(out).toContain("match 9")
+    expect(out).not.toContain("match 10\n")
+    expect(out).toMatch(/offload(ing)? failed/i)
+    expect(out).toContain("Path is outside the workspace")
+    expect(out).toContain(
+      `truncated to ${OFFLOAD_FAILURE_PREVIEW_CHARS.toLocaleString("en-US")} chars`,
+    )
+    // The error's message rides along, but never a host path outside the workspace.
+    expect(out).not.toContain("/Users/someone")
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(String(onError.mock.calls[0]?.[0])).toContain("Path is outside the workspace")
+    expect(String(onError.mock.calls[0]?.[0])).not.toContain("/Users/someone")
+  })
+
+  it("bounds the failure stub even for a single giant line", async () => {
     const store = {
       write: vi.fn(async () => {
         throw new Error("disk full")
       }),
     }
-    const big = "x".repeat(40_001)
+    const big = "x".repeat(2_000_000)
     const out = await offloadToolOutput(big, { ...base, store: store as never })
-    expect(out).toBe(big)
+    expect(out.length).toBeLessThan(OFFLOAD_FAILURE_PREVIEW_CHARS + 1_000)
+    expect(out).toContain("disk full")
   })
 
   it("forwards toolCallId to store.write", async () => {

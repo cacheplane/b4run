@@ -696,3 +696,89 @@ it("records an interactive Always resumed through /resume in the thread's grants
     else process.env.B4_PERMISSIONS_MODE = previousMode
   }
 }, 60_000)
+
+// Tool-output offloading under a managed workspace: the spilled file must land in
+// the THREAD's workspace (its backend, under its root), so the stub's
+// `tool-outputs/…` path is readable back through the sandboxed readFile tool. The
+// live defect wrote to the host `<appRoot>/workspace` path, the sandbox write
+// threw, and the full multi-megabyte result went inline into the model context.
+it("offloads an oversized tool result into the sandbox workspace and reads it back through readFile", async () => {
+  const aimock = await createAimock({ fixtures: [] })
+  const previousBaseUrl = process.env.OPENAI_BASE_URL
+  const previousKey = process.env.OPENAI_API_KEY
+  process.env.OPENAI_BASE_URL = aimock.baseUrl
+  process.env.OPENAI_API_KEY = previousKey ?? "test-not-used"
+  try {
+    aimock.addFixtures(
+      script()
+        .user("dump it")
+        .callsTool("dump", {}, { id: "call_dump" })
+        .callsTool("readFile", { path: "tool-outputs/dump-call_dump.txt" }, { id: "call_read" })
+        .replies("Read it.")
+        .build(),
+    )
+    const { appRoot } = await fixture()
+    const files = {
+      "src/app/big/index.ts": `import { agent } from "@b4run/sdk"\nexport default agent({ model: "gpt-5-mini", systemPrompt: "Use the tools." })\n`,
+      "src/app/big/tools/dump.ts":
+        "/** Dump a large result. */\nexport default async function dump(): Promise<string> { return Array.from({ length: 10000 }, (_, i) => 'row ' + i).join('\\n') + '\\nEND-OF-DUMP' }\n",
+    }
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(appRoot, path, ".."), { recursive: true })
+      await writeFile(join(appRoot, path), text)
+    }
+    const physical = managedProviderFixture({ jail: true })
+    const config = {
+      sandbox: {
+        provider: physical.provider,
+        thread: async () => ({
+          workspace: { source: { directory: "source", include: ["main.txt"] } },
+        }),
+      },
+    }
+    const handler = await createRuntimeFetchHandler({ appRoot, config })
+    handlers.push(handler)
+    const response = await handler.fetch(
+      new Request("http://localhost/threads/one/runs/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          route: "/big#agent",
+          input: { messages: [{ role: "user", content: "dump it" }] },
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    // The ToolMessage contents exactly as the model receives them on its next call.
+    const toolMessages = (await response.text())
+      .split("\n\n")
+      .filter((frame) => frame.startsWith("event: tool_result\n"))
+      .map((frame) => {
+        const data = JSON.parse(frame.slice(frame.indexOf("data: ") + 6)) as {
+          output: { kwargs: { content: unknown } }
+        }
+        const content = data.output.kwargs.content
+        return typeof content === "string" ? content : JSON.stringify(content)
+      })
+    expect(toolMessages).toHaveLength(2)
+    const [stub, readBack] = toolMessages as [string, string]
+    // What the model received for the oversized call is a bounded stub pointing at tool-outputs/.
+    expect(stub).toContain("Tool output offloaded")
+    expect(stub).toContain("tool-outputs/dump-call_dump.txt")
+    expect(stub).not.toContain("END-OF-DUMP")
+    expect(stub.length).toBeLessThan(2_000)
+    // The file lives in the sandbox workspace, and readFile reads it back in full.
+    const [record] = [...physical.records.values()]
+    expect(record?.files.has("/workspace/tool-outputs/dump-call_dump.txt")).toBe(true)
+    expect(readBack).toContain("row 9999")
+    expect(readBack).toContain("END-OF-DUMP")
+    expect(existsSync(join(appRoot, "workspace", "tool-outputs"))).toBe(false)
+    await handler.close()
+  } finally {
+    await aimock.close()
+    if (previousBaseUrl === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = previousBaseUrl
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousKey
+  }
+}, 60_000)
