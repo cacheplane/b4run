@@ -1,9 +1,9 @@
-import { afterAll, test } from "vitest"
-import { writeTemplate } from "../src/write-template.ts"
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { afterAll, test } from "vitest"
+import { writeTemplate } from "../src/write-template.ts"
 
 const dirs: string[] = []
 afterAll(async () => {
@@ -21,7 +21,11 @@ test("A1: writeTemplate writes replacement values containing $$ exactly as given
 
   await makeTemplate(template)
 
-  await writeTemplate({ templateDir: template, targetDir: target, replacements: { appName: "my$$app" } })
+  await writeTemplate({
+    templateDir: template,
+    targetDir: target,
+    replacements: { appName: "my$$app" },
+  })
 
   const content = await readFile(join(target, "package.json"), "utf8")
   assert.equal(content, '{"name":"my$$app"}')
@@ -34,7 +38,11 @@ test("A2: writeTemplate writes replacement values containing $& and similar patt
 
   await makeTemplate(template)
 
-  await writeTemplate({ templateDir: template, targetDir: target, replacements: { appName: "x$&y$`z$'w" } })
+  await writeTemplate({
+    templateDir: template,
+    targetDir: target,
+    replacements: { appName: "x$&y$`z$'w" },
+  })
 
   const content = await readFile(join(target, "package.json"), "utf8")
   assert.equal(content, '{"name":"x$&y$`z$\'w"}')
