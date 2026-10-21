@@ -54,6 +54,12 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### `b4.step` is a versioned contract
+
+Landed in **0.14.1**. No action required. Everything you already send and read keeps working.
+
+A tool call's step is now `B4ToolStep` from `@b4run/sdk`: `v: 1`, camelCase on every carrier, with `readToolStep`, `mergeToolStep`, a JSON Schema at `@b4run/sdk/tool-step.schema.json` and a fixture corpus in `@b4run/sdk/testing`. `PersistedStep`, `readPersistedStep`, `B4StepEventValue` and `readStepEvent` stay exported and are deprecated; the old shapes still read. Two behaviors changed. `readStepEvent` drops an empty-string `label`, and a cancelled or interrupted run settles its open steps as `cancelled` instead of `failed`, so a row that showed "failed" after a cancel now shows as cancelled. See [Step events](/docs/ag-ui#step-events).
+
 ### `@b4run/ag-ui` has one folder per framework; the stylesheet is `@b4run/ag-ui/styles.css`
 
 Landed in **0.14.0**. Action required if you import the activity stylesheet, or the CopilotKit connector from a pre-release build.
