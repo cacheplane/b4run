@@ -121,6 +121,9 @@ importers:
       next:
         specifier: 16.3.6
         version: 16.3.6(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.105.1)
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       posthog-js:
         specifier: 1.438.2
         version: 1.438.2(@types/react@19.2.18)(react@19.2.8)
@@ -182,12 +185,18 @@ importers:
       '@langchain/langgraph':
         specifier: 1.4.17
         version: 1.4.17(@langchain/core@1.2.12(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.10.0)(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.4.3)
+      '@testcontainers/postgresql':
+        specifier: ^12.0.4
+        version: 12.0.4
       '@types/mdx':
         specifier: ^2.0.14
         version: 2.0.14
       '@types/node':
         specifier: 26.1.2
         version: 26.1.2
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.4
       '@types/react':
         specifier: 19.2.18
         version: 19.2.18
@@ -200,6 +209,9 @@ importers:
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
+      tsx:
+        specifier: ^4.23.5
+        version: 4.23.10
       typescript:
         specifier: 7.0.2
         version: 7.0.2

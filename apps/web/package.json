@@ -6,12 +6,14 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
+    "growth:migrate": "tsx scripts/growth-migrate.mts",
     "lint": "biome check --config-path ../../packages/config-biome/biome.json --css-parse-tailwind-directives=true package.json app content lib scripts mdx-components.tsx next.config.ts postcss.config.mjs vercel.json vitest.config.ts vitest.setup.ts tsconfig.json tsconfig.build.json",
     "seo:audit-built": "node scripts/audit-built-seo.mjs",
     "seo:lastmod": "node scripts/generate-seo-lastmod.mjs",
     "seo:lastmod:check": "node scripts/generate-seo-lastmod.mjs --check",
     "seo:lastmod:routes": "node scripts/generate-seo-lastmod.mjs --check-routes",
     "test": "vitest --run --config vitest.config.ts",
+    "test:growth-db": "B4_TEST_GROWTH_DB=1 vitest --run --config vitest.config.ts app/lib/growth",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
     "gray-matter": "^4.0.3",
     "gsap": "3.15.0",
     "next": "16.3.6",
+    "pg": "^8.22.0",
     "posthog-js": "1.438.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -46,12 +49,15 @@
     "@b4run/sdk": "workspace:*",
     "@langchain/core": "1.2.12",
     "@langchain/langgraph": "1.4.17",
+    "@testcontainers/postgresql": "^12.0.4",
     "@types/mdx": "^2.0.14",
     "@types/node": "26.1.2",
+    "@types/pg": "^8.20.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitest/ui": "^4.1.11",
     "jsdom": "^30.0.1",
+    "tsx": "^4.23.5",
     "typescript": "7.0.2",
     "vitest": "^4.1.11",
     "zod": "4.4.3"
