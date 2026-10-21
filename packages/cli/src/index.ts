@@ -62,7 +62,7 @@ export interface RunOptions {
 
 export function createProgram(
   io: CommandIo,
-  _options: { readonly signals?: SignalsEmitter } = {},
+  options: { readonly signals?: SignalsEmitter } = {},
 ): Command {
   const program = new Command()
 
@@ -87,7 +87,7 @@ export function createProgram(
   registerBuildCommand(program, io)
   registerCheckCommand(program, io)
   registerClientToolsCommand(program, io)
-  registerDevCommand(program, io)
+  registerDevCommand(program, io, options.signals)
   registerDocsCommand(program, io)
   registerEvalCommand(program, io)
   registerInspectCommand(program, io)

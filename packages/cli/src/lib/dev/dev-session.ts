@@ -3,6 +3,7 @@ import { findB4App } from "@b4run/core/node"
 import { loadB4Config } from "../node-config.js"
 
 import { type CommandIo, formatErrorMessage, writeLine } from "../output.js"
+import type { RouteKind } from "../signals/events.js"
 import { allocateFreePort } from "./allocate-port.js"
 import { buildRuntimeServerOptions } from "./boot-runtime.js"
 import { classifyChange, describeChangeReason } from "./classify-change.js"
@@ -22,6 +23,7 @@ export async function startDevSession(options: {
   readonly io: CommandIo
   readonly port?: number
   readonly envFile?: string
+  readonly onRunFinished?: (routeKind: RouteKind) => void
 }): Promise<DevSession> {
   const discoveredApp = await discoverInitialApp(options.cwd)
 
@@ -37,6 +39,7 @@ export async function startDevSession(options: {
   const session = new InternalDevSession({
     appRoot: discoveredApp.appRoot,
     io: options.io,
+    ...(options.onRunFinished !== undefined ? { onRunFinished: options.onRunFinished } : {}),
     port,
     url,
   })
@@ -57,6 +60,7 @@ export async function startDevSession(options: {
 class InternalDevSession {
   private currentChild: SpawnedDevChild | null = null
   private readonly io: CommandIo
+  private readonly onRunFinished: ((routeKind: RouteKind) => void) | undefined
   private readonly appRoot: string
   private readonly port: number
   private readonly url: string
@@ -73,11 +77,13 @@ class InternalDevSession {
   constructor(options: {
     readonly appRoot: string
     readonly io: CommandIo
+    readonly onRunFinished?: (routeKind: RouteKind) => void
     readonly port: number
     readonly url: string
   }) {
     this.appRoot = options.appRoot
     this.io = options.io
+    this.onRunFinished = options.onRunFinished
     this.port = options.port
     this.url = options.url
     this.closedPromise = new Promise<void>((resolve, reject) => {
@@ -263,6 +269,7 @@ class InternalDevSession {
       onStdout: (chunk) => {
         this.io.stdout(chunk)
       },
+      ...(this.onRunFinished !== undefined ? { onRunFinished: this.onRunFinished } : {}),
       port: this.port,
     })
 
