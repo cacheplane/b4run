@@ -68,4 +68,24 @@ export const EVENT_CONTRACT: Readonly<Record<string, EventContract>> = {
     allowedProperties: ["source_page", "code_lang"],
     allowedBreakdowns: ["code_lang", "source_page"],
   },
+  "site:form_submit": {
+    requiredProperties: ["form"],
+    allowedProperties: ["form", "failure_reason", "source_page"],
+    allowedBreakdowns: ["form", "failure_reason"],
+  },
+  "site:form_success": {
+    requiredProperties: ["form"],
+    allowedProperties: ["form", "failure_reason", "source_page"],
+    allowedBreakdowns: ["form", "failure_reason"],
+  },
+  "site:form_fail": {
+    requiredProperties: ["form"],
+    allowedProperties: ["form", "failure_reason", "source_page"],
+    allowedBreakdowns: ["form", "failure_reason"],
+  },
+  "site:contact_accepted": {
+    requiredProperties: ["form", "email_kind"],
+    allowedProperties: ["form", "email_kind", "failure_reason", "source_page"],
+    allowedBreakdowns: ["form", "email_kind"],
+  },
 }

@@ -7,6 +7,10 @@ export const SIGNAL_EVENTS = {
   docsSearchResultClick: "docs:search_result_click",
   docsCopyCodeClick: "docs:copy_code_click",
   blogCopyCodeClick: "blog:copy_code_click",
+  siteFormSubmit: "site:form_submit",
+  siteFormSuccess: "site:form_success",
+  siteFormFail: "site:form_fail",
+  siteContactAccepted: "site:contact_accepted",
 } as const
 
 export type SignalEventName = (typeof SIGNAL_EVENTS)[keyof typeof SIGNAL_EVENTS]
@@ -42,4 +46,7 @@ export interface SignalProperties {
   readonly engaged_seconds?: 10 | 30
   readonly code_lang?: string
   readonly source_page?: string
+  readonly form?: "founder_updates"
+  readonly failure_reason?: string
+  readonly email_kind?: "work" | "personal"
 }
