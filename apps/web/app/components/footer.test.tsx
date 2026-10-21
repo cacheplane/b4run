@@ -3,11 +3,20 @@ import { expect, it } from "vitest"
 import { Footer } from "./Footer"
 import { NAVLOG_DEMO_URL } from "./site-links"
 
+/**
+ * The opening `<a …>` tag whose href is exactly `href`. Plain string search
+ * rather than a RegExp built from the href: a hostname in a pattern reads as
+ * an incomplete hostname check to static analysis, and nothing here needs
+ * pattern matching.
+ */
 const anchor = (html: string, href: string) => {
-  const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = new RegExp(`<a [^>]*href="${escaped}"[^>]*>`).exec(html)
-  expect(match, href).not.toBeNull()
-  return match?.[0] ?? ""
+  const at = html.indexOf(`href="${href}"`)
+  expect(at, href).toBeGreaterThanOrEqual(0)
+  const start = html.lastIndexOf("<a ", at)
+  const end = html.indexOf(">", at)
+  expect(start, href).toBeGreaterThanOrEqual(0)
+  expect(end, href).toBeGreaterThan(start)
+  return html.slice(start, end + 1)
 }
 
 it("opens same-origin files in a new tab as plain anchors, off-site links with rel, internal links in place", () => {
