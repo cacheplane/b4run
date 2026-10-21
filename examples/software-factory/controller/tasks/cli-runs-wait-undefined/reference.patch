@@ -1,8 +1,8 @@
 diff --git a/packages/cli/src/lib/dev/runtime-fetch-core.ts b/packages/cli/src/lib/dev/runtime-fetch-core.ts
-index bfb33cb8b..03e8e67ee 100644
+index 5afa926..c121a6b 100644
 --- a/packages/cli/src/lib/dev/runtime-fetch-core.ts
 +++ b/packages/cli/src/lib/dev/runtime-fetch-core.ts
-@@ -2630,7 +2630,34 @@ async function handleApWaitRequest(options: {
+@@ -3584,7 +3584,34 @@ async function handleApWaitRequest(options: {
      // /runs/wait turn that parks still reads "idle" here. Clients detect that
      // case via GET /threads/:id/pending_interrupts.
      await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
