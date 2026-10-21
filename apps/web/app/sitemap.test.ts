@@ -163,6 +163,7 @@ describe("sitemap documentation entries", () => {
     const expectedPaths = [
       "/",
       "/blog",
+      "/privacy",
       ...ALL_DOCS_PAGES.map((page) => page.href),
       ...posts.map((post) => `/blog/${post.slug}`),
       ...tags.map((tag) => `/blog/tags/${tag}`),
