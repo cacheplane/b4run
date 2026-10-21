@@ -110,6 +110,19 @@ describe("Step", () => {
     expect(glyph(denied)).not.toBe(glyph(failed))
   })
 
+  test("a cancelled step reads Cancelled x like a denied one: muted meta, closed, not running", () => {
+    const cancelled = renderToStaticMarkup(
+      <Step
+        step={tool({ id: "a", name: "exportData", status: "cancelled", icon: "search" })}
+        now={now}
+      />,
+    )
+    expect(cancelled).toContain('data-state="cancelled" data-kind="tool"')
+    expect(cancelled).not.toContain('data-expanded="true"')
+    expect(cancelled).toContain("Cancelled exportData")
+    expect(cancelled).toContain('<span class="b4-step__meta">· cancelled</span>')
+  })
+
   test("awaiting and failed add meta; a failed step opens itself", () => {
     expect(
       renderToStaticMarkup(

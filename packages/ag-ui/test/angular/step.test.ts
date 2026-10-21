@@ -95,6 +95,16 @@ describe("li[b4-step]", () => {
     expect(glyph(denied.root)).not.toBe(glyph(failed.root))
   })
 
+  test("a cancelled step reads Cancelled x like a denied one: muted meta, closed, not running", () => {
+    const cancelled = render(
+      tool({ id: "a", name: "exportData", status: "cancelled", icon: "search" }),
+    )
+    expect(cancelled.li().getAttribute("data-state")).toBe("cancelled")
+    expect(cancelled.li().getAttribute("data-expanded")).toBeNull()
+    expect(cancelled.root.textContent).toContain("Cancelled exportData")
+    expect(cancelled.root.querySelector(".b4-step__meta")?.textContent).toBe("· cancelled")
+  })
+
   test("awaiting and failed add meta; a failed step opens itself", () => {
     expect(
       render(tool({ id: "a", name: "x", status: "awaiting" })).root.querySelector(".b4-step__meta")

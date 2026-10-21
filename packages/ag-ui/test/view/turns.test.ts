@@ -267,7 +267,11 @@ describe("reduceTurns", () => {
     )
     expect(errored.turns[0]?.status).toBe("failed")
     expect(errored.turns[0]?.error).toBe("boom")
-    expect(errored.turns[0]?.steps[0]).toMatchObject({ status: "failed", label: "Searching" })
+    // The b4.step contract (fixture run-error-settles-open): a call the run
+    // error cut short drops its running label; the client's fallback reads it.
+    const failed = errored.turns[0]?.steps[0]
+    expect(failed).toMatchObject({ status: "failed" })
+    expect(failed).not.toHaveProperty("label")
     expect(errored.turns[0]?.failed).toBe(1)
   })
 
@@ -348,7 +352,10 @@ describe("reduceTurns", () => {
     ])
     const tools = view.turns[0]?.steps.filter((s) => s.kind === "tool") ?? []
     expect(tools).toHaveLength(1)
-    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Late running" })
+    // The b4.step contract's merge: once the result completed the call, a
+    // later step from the call side never replaces what it shows (the
+    // reference fold, `foldToolStepEvents`, ends the same way).
+    expect(tools[0]).toMatchObject({ id: "r1", status: "done", label: "Searching again" })
   })
 
   it("accepts the completed step before or after the result, to the same step", () => {
@@ -511,7 +518,7 @@ describe("reduceTurns", () => {
     expect(other.turns.map((turn) => turn.runId)).toEqual(["3"])
   })
 
-  it("ignores events before any turn and b4.step for a call it never saw framed", () => {
+  it("ignores events before any turn, and holds a b4.step for an unframed call until the run ends", () => {
     expect(
       reduceTurns(EMPTY_TURNS, {
         type: EventType.TEXT_MESSAGE_CONTENT,
@@ -524,7 +531,16 @@ describe("reduceTurns", () => {
       threadId: "a",
       runId: "1",
     } as BaseEvent)
-    expect(reduceTurns(started, step("ghost", "running", "Hm"))).toBe(started)
+    // The contract lets a step arrive before its call's START: it is held,
+    // shows nothing, and is dropped when the run ends without that call.
+    const held = reduceTurns(started, step("ghost", "running", "Hm"))
+    expect(held.turns[0]?.steps).toEqual([])
+    const finished = reduceTurns(held, {
+      type: EventType.RUN_FINISHED,
+      threadId: "a",
+      runId: "1",
+    } as BaseEvent)
+    expect(finished.turns[0]).not.toHaveProperty("pendingSteps")
   })
 
   it("resumes the awaiting turn on the next run of the same thread: one turn, no approvals", async () => {

@@ -7,7 +7,7 @@ export interface StepLabelOverride {
   readonly running?: (args: unknown) => string
   /**
    * Also runs for a failed step, with the error text as `result`. Never runs
-   * for a denied step: the call did nothing to describe.
+   * for a denied or cancelled step: the call did nothing to describe.
    */
   readonly done?: (args: unknown, result: string | undefined) => string
   readonly group?: (count: number) => string
@@ -94,8 +94,9 @@ function truncate(label: string): string {
 /**
  * The sentence for a tool step: the app's override for that tool (given
  * parsed args) wins, else the server's `b4.step` label, else "Using X…" /
- * "Used X" / "X failed". A denied step reads "Denied X" unless the server labelled it: no
- * override runs, because the call did nothing an override could describe.
+ * "Used X" / "X failed". A denied step reads "Denied X" and a cancelled one
+ * "Cancelled X" unless the server labelled it: no override runs, because the
+ * call did nothing an override could describe.
  * Client wording wins so an app can reword or localize a label a built-in
  * tool ships with. Never throws, never echoes raw arguments, and never
  * returns more than 120 characters.
@@ -103,6 +104,9 @@ function truncate(label: string): string {
 export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): string {
   if (step.status === "denied") {
     return step.label ? truncate(step.label) : `Denied ${step.name}`
+  }
+  if (step.status === "cancelled") {
+    return step.label ? truncate(step.label) : cancelledFallback(step.name)
   }
   const override = lookup(overrides, step.name)
   const live = step.status === "pending" || step.status === "running" || step.status === "awaiting"
@@ -116,6 +120,11 @@ export function stepLabel(step: ToolStep, overrides: StepLabelOverrides = {}): s
   if (step.label) return truncate(step.label)
   if (live) return `Using ${step.name}…`
   return step.status === "failed" ? failedFallback(step.name) : `Used ${step.name}`
+}
+
+/** A cancelled step's sentence when nothing words it: "Cancelled searchCorpus". */
+export function cancelledFallback(name: string): string {
+  return `Cancelled ${name}`
 }
 
 /** A failed step's sentence when nothing words it: "searchCorpus failed". */
@@ -190,9 +199,9 @@ export type GroupedStep = StepView | StepGroup
  * summary label. The label is the app's `group` override, else B4.run's
  * wording for a built-in tool ("Read 2 files"), else one phrased from the
  * steps' own labels when they share a verb phrase ("Looked up KSTP and KRST",
- * see `phraseGroupLabel`), else "Used X n times". Running, failed, denied and
- * awaiting steps never join a group, and `task`/`writeTodos` never do. A group
- * override that throws or returns nothing falls back to the next wording.
+ * see `phraseGroupLabel`), else "Used X n times". Running, failed, denied,
+ * cancelled and awaiting steps never join a group, and `task`/`writeTodos`
+ * never do. A group override that throws or returns nothing falls back to the next wording.
  * Steps that are not grouped are returned as the same objects they came in as.
  */
 export function groupSteps(
