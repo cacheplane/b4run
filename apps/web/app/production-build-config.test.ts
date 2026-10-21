@@ -96,8 +96,8 @@ describe("production response policy", () => {
   })
 
   it("redirects /call to /updates when B4_CALL_URL is unset", async () => {
-    const saved = process.env["B4_CALL_URL"]
-    delete process.env["B4_CALL_URL"]
+    const saved = process.env.B4_CALL_URL
+    delete process.env.B4_CALL_URL
     vi.resetModules()
     try {
       const { default: fresh } = await import("../next.config")
@@ -108,7 +108,7 @@ describe("production response policy", () => {
         permanent: false,
       })
     } finally {
-      if (saved !== undefined) process.env["B4_CALL_URL"] = saved
+      if (saved !== undefined) process.env.B4_CALL_URL = saved
     }
   })
 
