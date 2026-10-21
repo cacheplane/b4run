@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { SIGNAL_EVENTS } from "../../apps/web/app/lib/analytics/events.ts"
+import { CLI_EVENT_PROPERTIES } from "../../packages/cli/src/lib/signals/events.ts"
 import { EVENT_CONTRACT, FORBIDDEN_PROPERTIES } from "./contract.ts"
 
 describe("EVENT_CONTRACT", () => {
@@ -9,6 +10,18 @@ describe("EVENT_CONTRACT", () => {
     )
     expect([...keys].sort()).toEqual(Object.values(SIGNAL_EVENTS).sort())
     expect(EVENT_CONTRACT.$pageview).toBeDefined()
+  })
+
+  it("allows exactly the properties the CLI sends for each cli: event", () => {
+    const cliEvents = Object.keys(EVENT_CONTRACT).filter((key) => key.startsWith("cli:"))
+    expect([...cliEvents].sort()).toEqual(Object.keys(CLI_EVENT_PROPERTIES).sort())
+    for (const event of Object.keys(
+      CLI_EVENT_PROPERTIES,
+    ) as (keyof typeof CLI_EVENT_PROPERTIES)[]) {
+      expect(new Set(EVENT_CONTRACT[event]?.allowedProperties)).toEqual(
+        new Set(CLI_EVENT_PROPERTIES[event]),
+      )
+    }
   })
 
   it("pins the two CLI events to the spec's properties", () => {
