@@ -60,11 +60,17 @@ function parsePort(rawPort: string | undefined): number | undefined {
     return undefined
   }
 
+  // Require a purely decimal integer spelling to avoid hex/exponential forms
+  // (e.g. 0x1f90 or 1e3) being accepted by Number().
+  if (!/^\d+$/.test(rawPort)) {
+    throw new CliError(`Invalid port: ${rawPort}`, 2)
+  }
+
   const port = Number(rawPort)
 
   // Unlike dev.ts's parsePort, 0 is accepted here: it's a legitimate request
   // for a kernel-assigned ephemeral port (and how tests drive this command).
-  if (!Number.isInteger(port) || port < 0) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new CliError(`Invalid port: ${rawPort}`, 2)
   }
 
