@@ -36,11 +36,10 @@ export async function applyMigrations(input: {
   const applied: string[] = []
   const skipped: string[] = []
 
-  await executor.query(CREATE_LEDGER)
-
   for (const migration of migrations) {
     await executor.transaction(async (tx) => {
       await tx.query("select pg_advisory_xact_lock(hashtext('b4-growth-migrations'))")
+      await tx.query(CREATE_LEDGER)
       const ledger = await tx.query<{ name: string; checksum: string }>(
         "select name, checksum from growth_schema_migrations",
       )

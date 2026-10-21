@@ -17,7 +17,7 @@ export interface SqlExecutor extends SqlTransaction {
   end(): Promise<void>
 }
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"])
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
 
 export function createPgExecutor(databaseUrl: string): SqlExecutor {
   const { hostname } = new URL(databaseUrl)
@@ -25,6 +25,12 @@ export function createPgExecutor(databaseUrl: string): SqlExecutor {
     connectionString: databaseUrl,
     max: 3,
     ...(LOCAL_HOSTS.has(hostname) ? {} : { ssl: { rejectUnauthorized: true } }),
+  })
+
+  // An idle client that loses its connection emits "error" on the pool; unhandled, that
+  // crashes the process. pg discards the dead client itself, so only log.
+  pool.on("error", (error: Error) => {
+    process.stderr.write(`growth database pool error: ${error.message}\n`)
   })
 
   async function run<Row extends Record<string, unknown>>(
