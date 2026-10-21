@@ -1,0 +1,47 @@
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
+export const USAGE_ID_FILENAME = "usage-id"
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export interface UsageIdentity {
+  readonly id: string
+  readonly created: boolean
+}
+
+/** The directory holding the usage id, or null when no home directory is known. */
+export function resolveUsageDir(homeDir?: string): string | null {
+  let home: string
+  try {
+    home = homeDir ?? homedir()
+  } catch {
+    return null
+  }
+  if (home === "") return null
+  return join(home, ".b4")
+}
+
+/**
+ * Read the persisted random id, or create one. Any filesystem failure yields
+ * null so callers can stay silent rather than fail a command.
+ */
+export async function readOrCreateUsageId(dir: string): Promise<UsageIdentity | null> {
+  const file = join(dir, USAGE_ID_FILENAME)
+  try {
+    const existing = (await readFile(file, "utf8")).trim()
+    if (UUID_PATTERN.test(existing)) return { id: existing, created: false }
+  } catch {
+    // Missing or unreadable: fall through and create one.
+  }
+  try {
+    const id = randomUUID()
+    await mkdir(dir, { recursive: true })
+    await writeFile(file, `${id}\n`, { mode: 0o600 })
+    return { id, created: true }
+  } catch {
+    return null
+  }
+}
