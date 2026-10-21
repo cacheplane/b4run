@@ -166,25 +166,35 @@ describe("serveRuntime", () => {
 })
 
 describe("resolveServePort", () => {
-  test("empty PORT env resolves to the 8000 default (not a random port)", () => {
+  test("unset and empty PORT env return the 8000 default", () => {
+    expect(resolveServePort(undefined, undefined)).toBe(8000)
     expect(resolveServePort(undefined, "")).toBe(8000)
   })
 
-  test("unset PORT env resolves to the 8000 default", () => {
-    expect(resolveServePort(undefined, undefined)).toBe(8000)
-  })
-
-  test("non-numeric PORT env resolves to the 8000 default", () => {
-    expect(resolveServePort(undefined, "not-a-number")).toBe(8000)
-  })
-
-  test("numeric PORT env is honored", () => {
+  test("a normal valid value returns the parsed port", () => {
     expect(resolveServePort(undefined, "3000")).toBe(3000)
   })
 
-  test("explicit port always wins, including 0 for a random port", () => {
+  test("boundary values 0 and 65535 are accepted", () => {
+    expect(resolveServePort(undefined, "0")).toBe(0)
+    expect(resolveServePort(undefined, "65535")).toBe(65535)
+  })
+
+  test("invalid PORT values fall back to 8000", () => {
+    expect(resolveServePort(undefined, "3.5")).toBe(8000)
+    expect(resolveServePort(undefined, "-1")).toBe(8000)
+    expect(resolveServePort(undefined, "70000")).toBe(8000)
+    expect(resolveServePort(undefined, "0x50")).toBe(8000)
+    expect(resolveServePort(undefined, "1e3")).toBe(8000)
+    expect(resolveServePort(undefined, "abc")).toBe(8000)
+  })
+
+  test("an explicit port takes precedence over the environment value, including explicit port 0", () => {
     expect(resolveServePort(0, "8000")).toBe(0)
+    expect(resolveServePort(0, "3000")).toBe(0)
+    expect(resolveServePort(5555, "8000")).toBe(5555)
     expect(resolveServePort(5555, "")).toBe(5555)
+    expect(resolveServePort(5555, undefined)).toBe(5555)
   })
 })
 
