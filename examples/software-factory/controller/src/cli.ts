@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createInterface } from "node:readline"
@@ -27,6 +27,7 @@ import {
   repositoryFromRemoteUrl,
   resolvePin,
 } from "./lib/intake/issue.js"
+import { type AdoptResult, adopt, issueTitleFrom } from "./lib/operator/adopt.js"
 import {
   applyConfigDefaults,
   DEFAULT_CONFIG_PATH,
@@ -75,6 +76,7 @@ const USAGE = `factory <command> [options]
   show      <workOrderId>
   events    <workOrderId>
   evidence  <workOrderId>
+  adopt     <workOrderId> [--branch <name>] [--no-pr] [--no-close]   (the person's hand-off of a delivered draft PR)
   list
   run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--deliver local|draft-pr] [--new] [--allow-missing-evidence]
   run       --task <id> [--new] [--allow-missing-evidence]
@@ -115,6 +117,15 @@ redeliver resumes a delivery blocked by delivery_unauthorized, delivery_rate_lim
 delivery_unconfirmed, under the approval already given, within a day of it; every other delivery
 block needs a new work order: cancel it, then run --issue <n> --repo <owner/name> --deliver
 draft-pr --new, with no --pin, so the new work order is pinned at main's tip.
+
+adopt does the hand-off spec §11 asks of a person for a delivered draft-PR work order, on the
+person's side: in a temporary worktree of FACTORY_REPO_ROOT it branches adopt/<id> from
+origin/<base>, cherry-picks the delivered commit, adds a changeset for the target's package
+(when publishable) and the independent check promoted into the package's test directory
+(translated from node:test to vitest; left out, and named, when the translation cannot express
+it), commits that as the person's own commit, pushes, opens the person's PR with gh (FACTORY_GH)
+closing the issue, and comments on and closes the factory's draft. --no-pr stops at the pushed
+branch; --no-close leaves the draft open. Nothing runs locally: the person's PR runs every lane.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
@@ -1372,6 +1383,68 @@ function finish(outcome: unknown, code: number): number {
 }
 
 /**
+ * `factory adopt <id>`: resolve what the hand-off needs from the registry (read-only), the
+ * generated task and the checkout, then run it. Refuses anything but a `delivered` draft-PR
+ * work order from an issue, naming what is missing.
+ */
+async function adoptCommand(
+  id: string,
+  options: {
+    readonly branch?: string
+    readonly openPullRequest: boolean
+    readonly closeFactoryPullRequest: boolean
+  },
+): Promise<AdoptResult> {
+  const stateDir = process.env.FACTORY_STATE_DIR
+  if (!stateDir) throw new Error("FACTORY_STATE_DIR is required to read the registry")
+  const { row, delivery, receipt } = read((reader) => {
+    const row = reader.show(id)
+    if (!row) throw new Error(`Unknown work order ${id}`)
+    return { row, delivery: reader.delivery(id), receipt: reader.evidence(id).receipt }
+  })
+  if (row.state !== "delivered")
+    throw new Error(
+      `Cannot adopt a work order that is ${row.state}: only a delivered draft PR is adopted`,
+    )
+  if (row.delivery.kind !== "draft-pr" || row.origin.kind !== "issue")
+    throw new Error("Cannot adopt: only a draft-PR work order created from an issue is adopted")
+  const pullRequest = delivery?.pullRequest
+  if (!pullRequest)
+    throw new Error("Cannot adopt: the registry records no pull request for this work order")
+  if (row.bundleDigest === null || receipt === null)
+    throw new Error("Cannot adopt: the registry records no bundle or receipt for this work order")
+  configureCatalog({ generatedTasksDir: generatedTasksDirFor(stateDir) })
+  const task = loadTaskRecipe(id)
+  const checkFile = task.checks.independent.file
+  const check = readFileSync(join(task.directory, checkFile), "utf8")
+  const issueMd = readFileSync(join(task.directory, "issue.md"), "utf8")
+  return adopt(
+    {
+      workOrderId: id,
+      repository: row.delivery.repository,
+      baseBranch: row.delivery.baseBranch,
+      factoryBranch: row.delivery.branch,
+      headSha: pullRequest.headSha,
+      factoryPullRequest: { number: pullRequest.number, url: pullRequest.url },
+      issue: {
+        number: row.origin.number,
+        title: issueTitleFrom(issueMd, row.origin.repository, row.origin.number),
+      },
+      packageDir: task.target.commands.cwd,
+      check: { file: checkFile, source: check },
+      bundleDigest: row.bundleDigest,
+      receiptId: receipt.id,
+      verifierIdentity: receipt.verifierIdentity,
+      repositoryRoot: repositoryRoot(),
+      ...(options.branch !== undefined ? { branch: options.branch } : {}),
+      openPullRequest: options.openPullRequest,
+      closeFactoryPullRequest: options.closeFactoryPullRequest,
+    },
+    { gh: process.env.FACTORY_GH ?? "gh" },
+  )
+}
+
+/**
  * `factory run`: carry one work order to each person's gate and stop there (D13-D16). The
  * step table has no approval step; at a gate the only call is the review's own display and
  * typed-prefix prompt, with every approving input absent. A source pin reads this body.
@@ -1661,6 +1734,9 @@ async function main(argv: string[]): Promise<number> {
       approve: { type: "boolean", default: false },
       reject: { type: "boolean", default: false },
       "allow-missing-evidence": { type: "boolean", default: false },
+      branch: { type: "string" },
+      "no-pr": { type: "boolean", default: false },
+      "no-close": { type: "boolean", default: false },
       new: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -1873,6 +1949,15 @@ async function main(argv: string[]): Promise<number> {
       case "evidence":
         print(read((reader) => reader.evidence(needId())))
         return 0
+      case "adopt": {
+        const outcome = await adoptCommand(needId(), {
+          ...(values.branch !== undefined ? { branch: values.branch } : {}),
+          openPullRequest: !values["no-pr"],
+          closeFactoryPullRequest: !values["no-close"],
+        })
+        print(outcome)
+        return 0
+      }
       case "list":
         print(
           read((reader) =>

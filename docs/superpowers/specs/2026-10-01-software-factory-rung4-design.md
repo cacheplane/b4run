@@ -850,6 +850,27 @@ on the fence. A PR body is model input for nobody: `claude-review` skips factory
   checks the factory's commit out onto their own branch, adds the changeset, opens their own PR
   (which runs every lane, `vercel-native` and `claude-review` included) and closes the factory
   PR with a link. §15 records the alternative.
+- **`factory adopt <id>` does that hand-off for the person (decided 2026-10-21, §15 item 8).**
+  The second live run's audit found the factory's PR can never be the merge unit by
+  construction: the candidate cannot add a changeset or a test, the `changesets` job is red for
+  any change under `packages/*/src`, and `factory/*` is append-never, so a maintainer cannot
+  amend the branch. The trust boundary is kept: the factory's output stays exactly the approved
+  bytes, and the hand-off runs on the person's side, with the person's git and `gh`, never the
+  app's. `adopt` reads the registry (read-only) and the generated task, refuses anything but a
+  `delivered` draft-PR work order, and in a temporary worktree of the operator's checkout
+  (`FACTORY_REPO_ROOT`, never its working tree): branches `adopt/<id>` from `origin/<base>`,
+  cherry-picks the delivered commit (its author stays the app), writes
+  `.changeset/factory-<id>.md` (`patch` for the target's package, the issue's title, a `Refs`
+  line) when that package is publishable, promotes the independent check into the package's
+  own test directory translated mechanically from `node:test` to the package's runner (the
+  built-artifact import becomes the source import a test file uses), commits that as the
+  person's own commit, pushes, opens the person's PR with `gh` (title the issue's, body naming
+  the factory PR, the bundle digest, the receipt and the verifier identity, `Closes #<n>`), then
+  comments on the factory PR with the link and closes it. A check the translation cannot express
+  is left out, named in the output and the PR body, and the person adds the test by hand.
+  Nothing is verified locally: the person's PR runs every lane, which is the point of it, and a
+  red promoted test is the person's to fix on their own branch. `--branch` names the branch,
+  `--no-pr` stops at the pushed branch, `--no-close` leaves the factory PR open.
 
 ---
 
@@ -1076,10 +1097,12 @@ ones marked.
    terminal (the `review` prompt's own), is allowed for 24 hours after the approval, and beyond
    that the remedy is a new work order. The alternative is no limit, on the argument that the
    bytes and destination are unchanged.
-8. **Adopt or merge directly** (§11). Recommendation: for a change touching a publishable package,
-   adopt onto a person's branch so the changeset and `vercel-native` happen; for a change touching
-   only examples, docs or scripts, a person may merge the factory PR as is. The alternative,
-   always adopt, is simpler to state and costs one extra PR per delivery.
+8. **Adopt or merge directly** (§11). Decided 2026-10-21: adopt, and `factory adopt` does it (§11).
+   For a change touching only examples, docs or scripts a person may still merge the factory PR
+   as is; `adopt` works there too, with no changeset. The alternative considered and rejected,
+   delivery appending a generated changeset and test to the delivered commit, would move the
+   trust boundary: the delivered tree would no longer equal the approved candidate, and D-series
+   read-back, the bundle digest and the append-never ruleset would all need redefining.
 9. **Vercel-side protection in addition to the script.** The ignore script is the only Vercel
    gate and it is repository-controlled. Recommendation: keep §9.2 as the gate (it is tested and
    protected), and also check whether the Vercel project's Git settings can exclude `factory/*`
