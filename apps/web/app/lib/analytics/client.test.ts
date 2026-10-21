@@ -5,7 +5,7 @@ const { capture } = vi.hoisted(() => ({ capture: vi.fn() }))
 vi.mock("posthog-js", () => ({ default: { capture } }))
 
 import { copyCodeEventFor, safeLabel, sourcePage, track } from "./client"
-import { SIGNAL_EVENTS } from "./events"
+import { SIGNAL_EVENTS, type SignalProperties } from "./events"
 
 beforeEach(() => {
   capture.mockReset()
@@ -47,6 +47,29 @@ describe("track", () => {
       engaged_seconds: 30,
       source_page: "/",
     })
+  })
+
+  it("sends no property outside the allowlist", () => {
+    history.replaceState(null, "", "/")
+    track(SIGNAL_EVENTS.siteCtaClick, {
+      email: "a@b.c",
+      cta_id: "header_github",
+    } as unknown as SignalProperties)
+    const props = capture.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(props).not.toHaveProperty("email")
+    expect(props.cta_id).toBe("header_github")
+  })
+
+  it("normalises an explicit source_page to a pathname", () => {
+    track(SIGNAL_EVENTS.docsSearchOpen, { source_page: "/blog/x?y=1#z" })
+    expect(capture).toHaveBeenCalledWith("docs:search_open", { source_page: "/blog/x" })
+  })
+
+  it("drops engaged_seconds other than 10 or 30", () => {
+    history.replaceState(null, "", "/")
+    track(SIGNAL_EVENTS.siteEngagedTime, { engaged_seconds: 7 } as unknown as SignalProperties)
+    const props = capture.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(props).not.toHaveProperty("engaged_seconds")
   })
 
   it("never throws when capture throws", () => {
