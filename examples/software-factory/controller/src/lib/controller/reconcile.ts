@@ -71,7 +71,13 @@ export async function reconcileAll(ctx: ControllerContext): Promise<void> {
     }
   }
   for (const row of ctx.store.list()) {
-    if (!isTerminal(row.state) && !handled.has(row.id)) await safeReconcile(ctx, row.id)
+    if (isTerminal(row.state) || handled.has(row.id)) continue
+    const before = ctx.store.events(row.id).length
+    await safeReconcile(ctx, row.id)
+    // A row the walk looked at and left alone (a parked gate, a `received` row) says so, or the
+    // journal cannot tell a boot that reconciled from one that never ran.
+    if (ctx.store.events(row.id).length === before)
+      journal(ctx, row.id, "reconciled", { resolution: "nothing_to_do", state: row.state })
   }
 }
 

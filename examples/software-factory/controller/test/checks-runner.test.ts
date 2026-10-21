@@ -8,6 +8,7 @@ import {
   failureMessageLine,
   gradeNodeTestEvents,
   gradeVitestReport,
+  nodeTestSummary,
   runBuild,
   runNodeTestSuite,
   shellJoin,
@@ -306,6 +307,14 @@ describe("runNodeTestSuite against node:test", () => {
         },
       ])
       const asserts = await run("checks/asserts.test.mjs", ["A1: x", "A2: y", "A3: z"])
+      // The stored output is self-evidencing: the graded lines follow whatever the child
+      // printed, so a reviewer at the gate sees what passed and failed, not only a warning.
+      expect(asserts.output).toContain("--- node:test, graded by the verifier\n")
+      expect(asserts.output).toContain("fail: A1: x (ERR_ASSERTION: 1 == 2)\n")
+      expect(asserts.output).toContain("fail: A2: y (TypeError: no)\n")
+      // `run()` grades in-process: the child's exit code is the runner's, 0, and the verdict
+      // comes from the events, which is the point of printing both.
+      expect(asserts.output).toMatch(/0 passed, 3 failed, 3 reported; exit 0; verdict fail\n$/)
       expect(asserts.events).toEqual([
         { type: "test:fail", name: "A1: x", failure: "ERR_ASSERTION", message: "1 == 2" },
         { type: "test:fail", name: "A2: y", failure: "TypeError", message: "no" },
@@ -334,6 +343,31 @@ describe("runNodeTestSuite against node:test", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
+  })
+})
+
+describe("nodeTestSummary", () => {
+  it("lists every graded event with its mark and cause, then the totals and the verdict", () => {
+    const summary = nodeTestSummary(0, "pass", [
+      { type: "test:pass", name: "A1: x" },
+      { type: "test:pass", name: "A2: y", skip: true },
+      { type: "test:fail", name: "A3: z", todo: true, failure: "ERR_ASSERTION", message: "1 == 2" },
+    ])
+    expect(summary).toBe(
+      [
+        "",
+        "--- node:test, graded by the verifier",
+        "pass: A1: x",
+        "skip: A2: y",
+        "todo: A3: z (ERR_ASSERTION: 1 == 2)",
+        "1 passed, 0 failed, 3 reported; exit 0; verdict pass",
+        "",
+      ].join("\n"),
+    )
+    // A load failure has no cause: the line says so rather than printing an empty pair.
+    expect(nodeTestSummary(1, "fail", [{ type: "test:fail", name: "checks/x.test.ts" }])).toContain(
+      "fail: checks/x.test.ts (no cause recorded)",
+    )
   })
 })
 

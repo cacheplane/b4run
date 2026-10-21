@@ -367,6 +367,12 @@ async function proveDraft(
     await refuse(ctx, id, parsed.reason, parsed.blockedReason, draft)
     return
   }
+  // The static pre-check is the last thing `parseDraft` does, so a parsed draft is one it
+  // passed: on the record, since a refusal is journalled and a pass otherwise would not be.
+  ctx.recordEvent(id, "precheck_passed", {
+    file: parsed.checks.independent.file,
+    assertions: parsed.checks.independent.assertions.length,
+  })
   // A work order that will be delivered as a pull request may never be allowed to change the
   // files the CI guard lives in (rung 4 spec §9.3): the person then approves a task.json that
   // cannot name one. Refused like any fit failure, so the drafter redrafts with the paths named.

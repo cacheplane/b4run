@@ -810,8 +810,9 @@ async function approveExport(
   id: string,
   input: { revision: number; bundleDigest: string; operationKey?: string },
 ): Promise<RouteOutcome> {
-  const outcome = await awaiting(
+  const outcome = await followingInFlight(
     id,
+    "approve",
     (controller) => controller.approve(id, input),
     APPROVE_ACTIVE,
     APPROVE_SUCCESS,
@@ -821,6 +822,34 @@ async function approveExport(
   return outcome.next === undefined && row?.state === "blocked"
     ? { ...outcome, next: blockedNext(row.id, row.blockedReason) }
     : outcome
+}
+
+/**
+ * `awaiting`, and when the runtime refuses the request `run_in_flight` (a command is already
+ * running on the work order's thread: the same approval, sent moments earlier and still
+ * re-verifying), follow that one from the registry as the transport-failure path does instead
+ * of answering with the refusal. The row was marked before the request left, so the follow
+ * reads the command already in flight, whoever sent it; a 409 that is not `run_in_flight`
+ * is still the caller's.
+ */
+async function followingInFlight(
+  id: string,
+  command: string,
+  request: (controller: ControllerClient) => Promise<RouteOutcome>,
+  active: ReadonlySet<WorkOrderState>,
+  success: ReadonlySet<WorkOrderState>,
+  events?: FollowEvents,
+): Promise<RouteOutcome> {
+  const before = markRow(id)
+  try {
+    return await awaiting(id, request, active, success, events)
+  } catch (error) {
+    if (!(error instanceof ControllerHttpError && error.code === "run_in_flight")) throw error
+    process.stderr.write(
+      `factory: a command is already running on ${id} (an ${command} sent earlier, still working); following it in the registry\n`,
+    )
+    return await followRow(id, active, success, before, events)
+  }
 }
 
 /** Send a rejection of a parked draft and await the redraft, as `reject-intake` does. */
@@ -965,11 +994,18 @@ async function reviewOutcome(id: string, options: ReviewOptions): Promise<Review
 
   const operationKey = key ? { operationKey: key } : {}
   if (built.kind === "intake") {
-    const outcome = await client().approveIntake(id, {
-      revision: built.revision,
-      taskDigest: built.digest,
-      ...operationKey,
-    })
+    const outcome = await followingInFlight(
+      id,
+      "approve-intake",
+      (controller) =>
+        controller.approveIntake(id, {
+          revision: built.revision,
+          taskDigest: built.digest,
+          ...operationKey,
+        }),
+      INTAKE_ACTIVE,
+      INTAKE_SUCCESS,
+    )
     return { kind: "sent", outcome, code: outcome.ok ? 0 : 1 }
   }
   const outcome = await approveExport(id, {

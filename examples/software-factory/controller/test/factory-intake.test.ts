@@ -300,6 +300,7 @@ describe("intake", () => {
       "intake_run_started:",
       "intake_turn_ended:",
       "draft_read:",
+      "precheck_passed:",
       "image_bound:",
       "task_generated:",
       "oracle_receipt:",
@@ -557,7 +558,9 @@ describe("intake", () => {
     })
     expect(captures).toHaveLength(1)
     // The upload stays on the drafter, unnamed, until its retention window reclaims it.
-    expect(eventTypes(id)).toEqual(["created:", "drafter_source_staged:"])
+    // The controller's first request reconciles; the row it found `received` with nothing
+    // to do says so, between its creation and the intake that then runs.
+    expect(eventTypes(id)).toEqual(["created:", "reconciled:", "drafter_source_staged:"])
   })
 
   it("refuses the intake, with no thread, when the upload fails", async () => {

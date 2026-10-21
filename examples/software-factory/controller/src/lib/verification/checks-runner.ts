@@ -333,7 +333,47 @@ const { run } = require('node:test')
   }
 
   const graded = gradeNodeTestEvents(result.exitCode, parsed.events, suite.assertions)
-  return { verdict: graded.verdict, output: parsed.output, events: graded.events }
+  return {
+    verdict: graded.verdict,
+    output: `${parsed.output}${nodeTestSummary(result.exitCode, graded.verdict, graded.events)}`,
+    events: graded.events,
+  }
+}
+
+/**
+ * The graded events as lines, appended to the suite's stored output so the artifact a
+ * reviewer reads at the gate shows WHAT passed and failed, not only what the child printed
+ * (an independent check that passes prints nothing, and its artifact held only node's own
+ * module-type warning). The verdict is still graded from the events, never parsed from this.
+ */
+export function nodeTestSummary(
+  exitCode: number,
+  verdict: SuiteResult["verdict"],
+  events: readonly SuiteEvent[],
+): string {
+  const lines = events.map((event) => {
+    const mark = event.todo
+      ? "todo"
+      : event.skip
+        ? "skip"
+        : event.type === "test:pass"
+          ? "pass"
+          : "fail"
+    const detail =
+      event.type === "test:fail"
+        ? ` (${[event.failure, event.message].filter((part) => part).join(": ") || "no cause recorded"})`
+        : ""
+    return `${mark}: ${event.name}${detail}`
+  })
+  const passed = events.filter((e) => e.type === "test:pass" && !e.skip && !e.todo).length
+  const failed = events.filter((e) => e.type === "test:fail" && !e.todo).length
+  return [
+    "",
+    "--- node:test, graded by the verifier",
+    ...lines,
+    `${passed} passed, ${failed} failed, ${events.length} reported; exit ${exitCode}; verdict ${verdict}`,
+    "",
+  ].join("\n")
 }
 
 /**
