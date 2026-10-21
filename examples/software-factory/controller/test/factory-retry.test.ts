@@ -175,6 +175,27 @@ describe("retry", () => {
     expect(reader.reads).toEqual([second.threadId])
   })
 
+  it("returns a work order whose builder turn errored to received, and a fresh thread repairs it", async () => {
+    await boot({ run: "route_error" })
+    const { id } = await factory.create({ taskId: "cli-flags" })
+    const first = await dispatchAndSettle(id)
+    expect(first.row).toMatchObject({
+      state: "blocked",
+      blockedReason: "builder_error",
+      candidateAttempts: 1,
+    })
+    fake.behaviour.run = "edits_only"
+    expect(await factory.retry(id)).toMatchObject({ ok: true, state: "received" })
+    expect(factory.events(id).find((e) => e.type === "retry")?.payload).toMatchObject({
+      attempt: 2,
+      previousBlockedReason: "builder_error",
+      previousThreadId: first.threadId,
+    })
+    const second = await dispatchAndSettle(id)
+    expect(second.threadId).not.toBe(first.threadId)
+    expect(second.row).toMatchObject({ state: "awaiting_approval", candidateAttempts: 2 })
+  })
+
   it("refuses once the row's candidate attempts are spent", async () => {
     await boot({ run: "unexpected_interrupt" }, { maxCandidateAttempts: 1 })
     const { id } = await factory.create({ taskId: "cli-flags" })

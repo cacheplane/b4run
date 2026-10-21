@@ -1,5 +1,10 @@
 import { dispatchPreparing } from "../controller/images.js"
-import { blockedNext, RETRYABLE_BLOCKED_REASONS, TERMINAL_STATES } from "../domain/states.js"
+import {
+  type BlockedReason,
+  blockedNext,
+  RETRYABLE_BLOCKED_REASONS,
+  TERMINAL_STATES,
+} from "../domain/states.js"
 import type { FactoryEvent, WorkOrderRow } from "../domain/work-order.js"
 
 /** `run`'s exit code when it stopped at a person's gate and approved nothing. */
@@ -13,6 +18,8 @@ export const RUN_WAITING_ON_A_PERSON = 3
 export type RunStep =
   | { readonly kind: "intake" }
   | { readonly kind: "dispatch" }
+  /** A candidate failure with attempts left: `run` retries it, then dispatches. */
+  | { readonly kind: "retry"; readonly reason: BlockedReason; readonly attempt: number }
   | { readonly kind: "follow"; readonly why: string }
   | { readonly kind: "gate"; readonly gate: "intake" | "export" }
   | { readonly kind: "done" }
@@ -127,17 +134,21 @@ export function nextStep(
     case "delivered":
       return { kind: "done" }
     case "blocked": {
+      // A candidate failure with attempts left is retried by `run` itself: a person running
+      // `run` has asked for the work order to be carried as far as it goes, and the attempt
+      // cap (FACTORY_MAX_CANDIDATE_ATTEMPTS) bounds it. Every other block stops with its
+      // commands; nothing here can approve.
       const reason = row.blockedReason
-      const retryable =
+      if (
         reason !== null &&
         RETRYABLE_BLOCKED_REASONS.has(reason) &&
         row.candidateAttempts < row.maxCandidateAttempts
+      )
+        return { kind: "retry", reason, attempt: row.candidateAttempts + 1 }
       return {
         kind: "stop",
         message: `Blocked: ${reason ?? "no reason recorded"}`,
-        next: retryable
-          ? [`pnpm factory retry ${id}`, `pnpm factory run ${id}`]
-          : blockedNext(id, reason),
+        next: blockedNext(id, reason),
       }
     }
     case "denied":

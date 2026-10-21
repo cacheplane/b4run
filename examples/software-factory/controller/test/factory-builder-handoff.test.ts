@@ -125,7 +125,7 @@ describe("the builder's workspace at dispatch", () => {
     await boot({ run: "route_error" })
     const first = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(first.id)
-    await factory.waitFor(first.id, (r) => r.state === "failed", 20_000)
+    await factory.waitFor(first.id, (r) => r.state === "blocked", 20_000)
     const second = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(second.id)
     // Two work orders of one task: the same bytes, uploaded once and named twice.

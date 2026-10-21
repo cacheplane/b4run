@@ -77,6 +77,12 @@ export const BLOCKED_REASONS = [
   // shrank past half its baseline: the builder rewrote a file it had only partly read.
   // Refused at assembly, before a verification that could only fail on it.
   "candidate_rejected",
+  // The builder turn ended with an error that is the model's or the worker's, not the
+  // candidate's: the provider answered 5xx, the context overflowed, the route threw. Nothing
+  // was verified, so nothing is known about a repair; a fresh builder thread is the remedy,
+  // and `run` takes it while attempts remain. Rows that ended as `failed (route_error)` before
+  // this reason existed keep that failure.
+  "builder_error",
   // Rung 4, a draft-PR delivery (spec §4). Each is recorded, not blindly retried: main
   // changed a path the change touches (or a protected path), or the pin left main's history,
   // or the comparison could not be read whole.
@@ -113,6 +119,7 @@ export const RETRYABLE_BLOCKED_REASONS: ReadonlySet<BlockedReason> = new Set<Blo
   "candidate_rejected",
   "verification_failed",
   "verification_inconclusive",
+  "builder_error",
 ])
 
 /**
@@ -138,6 +145,8 @@ export function blockedNext(id: string, reason: BlockedReason | null): string[] 
     : [`pnpm factory events ${id}`, `pnpm factory cancel ${id}`]
 }
 
+// `route_error` is retired: a builder turn that errors now blocks as `builder_error`, which
+// `retry` answers. Kept because rows that failed before carry it and the row schema is an enum.
 export const FAILURE_REASONS = ["route_error", "ended_without_candidate"] as const
 export type FailureReason = (typeof FAILURE_REASONS)[number]
 
@@ -189,7 +198,9 @@ const TABLE: Readonly<Record<TransitionEvent, Row>> = {
   // the controller's own baseline that says so, not the end of the stream.
   turn_ended_without_changes: { dispatched: "failed", running: "failed", verifying: "failed" },
   unexpected_interrupt: { dispatched: "blocked", running: "blocked", verifying: "blocked" },
-  run_failed: { dispatched: "failed", running: "failed" },
+  // A turn that errored is a block, not an end: the candidate was never judged, and a fresh
+  // thread may do better (a provider 5xx, a context overflow). `retry` returns it to received.
+  run_failed: { dispatched: "blocked", running: "blocked" },
   assembly_rejected: { verifying: "blocked" },
   receipt_passed: { verifying: "awaiting_approval" },
   receipt_failed: { verifying: "blocked" },

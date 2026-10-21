@@ -125,17 +125,21 @@ describe("nextStep", () => {
     expect(at("exported")).toEqual({ kind: "done" })
   })
 
-  it("stops at a block, naming retry only when the block is a candidate's with attempts left", () => {
+  it("retries a candidate's block itself while attempts are left, and stops at every other", () => {
     const retryable = at("blocked", { blockedReason: "verification_failed", candidateAttempts: 1 })
-    expect(retryable).toMatchObject({
-      kind: "stop",
-      next: ["pnpm factory retry wo-0000000000000001", "pnpm factory run wo-0000000000000001"],
-    })
+    expect(retryable).toEqual({ kind: "retry", reason: "verification_failed", attempt: 2 })
+    const errored = at("blocked", { blockedReason: "builder_error", candidateAttempts: 1 })
+    expect(errored).toEqual({ kind: "retry", reason: "builder_error", attempt: 2 })
     const spent = at("blocked", { blockedReason: "verification_failed", candidateAttempts: 2 })
     expect(spent).toMatchObject({ kind: "stop" })
     expect(JSON.stringify(spent)).not.toContain("retry")
     const intake = at("blocked", { blockedReason: "intake_attempts_exhausted" })
+    expect(intake).toMatchObject({ kind: "stop" })
     expect(JSON.stringify(intake)).not.toContain("retry")
+    // A delivery block the world can heal is a person's redeliver, never a retry.
+    const healable = at("blocked", { blockedReason: "delivery_rate_limited", candidateAttempts: 1 })
+    expect(healable).toMatchObject({ kind: "stop" })
+    expect(JSON.stringify(healable)).not.toContain("factory retry")
   })
 
   it("stops at a terminal state with the command that starts again", () => {
