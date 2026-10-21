@@ -52,6 +52,17 @@ describe("production response policy", () => {
     expect(nextConfig.skipTrailingSlashRedirect).toBe(true)
   })
 
+  it("restores trailing-slash redirects for every path except /ingest", async () => {
+    const redirects = (await nextConfig.redirects?.()) ?? []
+
+    expect(redirects[0]).toEqual({
+      source: "/:path((?!ingest(?:/|$)).*)/",
+      destination: "/:path",
+      permanent: true,
+    })
+    expect(String(redirects[0]?.source)).toContain("ingest")
+  })
+
   it("redirects the docs root permanently from config instead of a page", async () => {
     const redirects = (await nextConfig.redirects?.()) ?? []
 

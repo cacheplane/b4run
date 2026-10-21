@@ -83,6 +83,14 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // skipTrailingSlashRedirect is on for the PostHog proxy, which turns off
+      // Next's canonical trailing-slash redirect for every route. Restore it
+      // for all paths except /ingest, where posthog-js needs trailing slashes.
+      {
+        source: "/:path((?!ingest(?:/|$)).*)/",
+        destination: "/:path",
+        permanent: true,
+      },
       // Next removes trailing slashes. An explicit file URL keeps the portable
       // identity page's relative assets working on the site and in the ZIP.
       {
