@@ -143,6 +143,15 @@ export function targetInspectionOptions(task: Pick<TaskRecipe, "target">): Works
   return {
     excludeRootDirectories: [".git"],
     expectedRootSymlinks,
-    ignorePrefixes: [...task.target.snapshotIgnore],
+    ignorePrefixes: [...task.target.snapshotIgnore, ...FRAMEWORK_SCRATCH_PREFIXES],
   }
 }
+
+/**
+ * Root-relative prefixes the framework itself writes under in every sandboxed workspace, never
+ * the model: B4's tool-output offloading spills an oversized tool result to
+ * `tool-outputs/<tool>-<call>.txt` in the thread's workspace (context-management docs). It is
+ * scratch, not a change, so the reader's observed set leaves it out: with it in, the first live
+ * run's candidate was refused as `added tool-outputs/runBash-….txt` after a correct repair.
+ */
+export const FRAMEWORK_SCRATCH_PREFIXES: readonly string[] = ["tool-outputs/"]
