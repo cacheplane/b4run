@@ -346,6 +346,11 @@
       "sourceDigest": "eed15219ea3357d96c246407656788a16b961c7e24d3bbdea19ca7cd0115fdba",
       "recordDigest": "c9570f9f413b83a0ea8459574c90bc3df616f486a77285ed13c2ca72d018a2bb"
     },
+    "/docs/recipes/software-factory": {
+      "lastModified": "2026-10-21T23:12:59.556Z",
+      "sourceDigest": "3aa1ac7cbfeb2a5a8d5280471353fedac0e8e670d490e2057726334e0297a998",
+      "recordDigest": "0cee2c6c929058de473ad00e58e7101136e672556ff92951ddfc99e565006afd"
+    },
     "/docs/recipes/stream-output": {
       "lastModified": "2026-10-04T23:15:09.000Z",
       "sourceDigest": "063857189cc49cf52a456f93a6e2deb103a13f54598b894c28679f05c7418505",
