@@ -624,12 +624,25 @@ done on it feeds back into the work order. CI on it tests the merge with today's
 is not the verifier's question; a red CI is information for the person. What the person does
 with it:
 
-- **A change to a publishable package** (anything under `packages/`): adopt it. Check the
-  factory's commit out onto your own branch, add a changeset, open your own pull request (so
-  `vercel-native`, which skips `factory/*` branches and the factory's bot,
-  runs there), and close the factory's pull request with a link to yours. A candidate cannot add
-  a changeset, and AGENTS.md requires `vercel-native` green for a release-bearing change.
-- **A change only to examples, docs or scripts:** review it and merge it as is.
+- **Adopt it: `pnpm factory adopt <id>`.** The hand-off, done on the person's side with the
+  person's git and `gh` (`FACTORY_GH`), never the app's. In a temporary worktree of
+  `FACTORY_REPO_ROOT` (its working tree and branch are untouched) it branches `adopt/<id>` from
+  `origin/<base>`, cherry-picks the delivered commit (its author stays the app), adds
+  `.changeset/factory-<id>.md` (a `patch` for the target's package, when it is publishable) and
+  the independent check promoted into the package's own `test/` directory (translated from
+  `node:test` to vitest: the built-artifact import becomes the `../src/<file>.ts` import a test
+  file uses; a check the translation cannot express is left out and named), commits that as
+  the person's own commit, pushes, opens the person's pull request with `gh` (title the
+  issue's, body naming the factory PR, the bundle digest, the receipt and the verifier,
+  `Closes #<n>`), then comments on the factory's draft with the link and closes it. Nothing
+  runs locally: the person's PR runs every lane (`vercel-native` and `changesets` included),
+  which is what the person's PR is for, and a promoted test that fails there is the person's
+  to fix on their branch. `--branch <name>` names the branch, `--no-pr` stops at the pushed
+  branch, `--no-close` leaves the draft open. A candidate can never add a changeset or a test
+  itself, and `factory/*` is append-never, so this is the only way a factory change reaches
+  `main` with both.
+- **A change only to examples, docs or scripts:** review it and merge it as is, or adopt it
+  (no changeset is written for a private package).
 
 ## Run it by hand
 
