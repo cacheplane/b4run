@@ -7,6 +7,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { isDevChildRunFinishedMessage } from "../src/lib/dev/dev-child.ts"
 import { notifyDevRunFinished, setDevRunListener } from "../src/lib/signals/dev-run-notifier.ts"
 import { signalsDisabledReason } from "../src/lib/signals/env.ts"
 
@@ -42,6 +43,23 @@ describe("dev run notifier", () => {
     notifyDevRunFinished({ routeKind: "chain" })
     setDevRunListener(null)
     expect(seen).toEqual(["chain"])
+  })
+})
+
+describe("dev child run-finished message guard", () => {
+  it("accepts each known route kind", () => {
+    for (const routeKind of ["agent", "chain", "graph", "workflow"]) {
+      expect(isDevChildRunFinishedMessage({ type: "run-finished", routeKind })).toBe(true)
+    }
+  })
+
+  it("rejects an unknown or missing route kind, another type, and non-objects", () => {
+    expect(isDevChildRunFinishedMessage({ type: "run-finished", routeKind: "/zzqx" })).toBe(false)
+    expect(isDevChildRunFinishedMessage({ type: "run-finished", routeKind: 1 })).toBe(false)
+    expect(isDevChildRunFinishedMessage({ type: "run-finished" })).toBe(false)
+    expect(isDevChildRunFinishedMessage({ type: "ready", routeKind: "graph" })).toBe(false)
+    expect(isDevChildRunFinishedMessage(null)).toBe(false)
+    expect(isDevChildRunFinishedMessage("run-finished")).toBe(false)
   })
 })
 

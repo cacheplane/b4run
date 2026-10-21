@@ -54,9 +54,24 @@ interface DevChildStartupErrorMessage {
   readonly type: "startup-error"
 }
 
-interface DevChildRunFinishedMessage {
+export interface DevChildRunFinishedMessage {
   readonly type: "run-finished"
   readonly routeKind: RouteKind
+}
+
+const ROUTE_KINDS: ReadonlySet<string> = new Set<RouteKind>(["agent", "chain", "graph", "workflow"])
+
+/** A `run-finished` message whose `routeKind` is one of the four route kinds. */
+export function isDevChildRunFinishedMessage(value: unknown): value is DevChildRunFinishedMessage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "run-finished" &&
+    "routeKind" in value &&
+    typeof value.routeKind === "string" &&
+    ROUTE_KINDS.has(value.routeKind)
+  )
 }
 
 type DevChildMessage =
@@ -257,6 +272,10 @@ export function spawnDevChild(options: SpawnDevChildOptions): SpawnedDevChild {
 
     // Not a readiness signal: it must never reach the fall-through below.
     if (message.type === "run-finished") {
+      // Only a known route kind may reach the emitter; anything else is dropped.
+      if (!isDevChildRunFinishedMessage(message)) {
+        return
+      }
       try {
         options.onRunFinished?.(message.routeKind)
       } catch {
