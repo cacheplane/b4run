@@ -440,6 +440,11 @@
       "lastModified": "2026-10-08T23:13:19.000Z",
       "sourceDigest": "dbaec8642471bcc981046eaa982cebf32debdfd73db53c98dc3e76ce0db3699e",
       "recordDigest": "90a2ce6f7143e3d62b70acbe5c8e8199d9c9f885a9eeb8b0962a96b0e2113c9a"
+    },
+    "/privacy": {
+      "lastModified": "2026-10-21T16:02:02.000Z",
+      "sourceDigest": "e20914c82379584aa68346b848497f5440701a3f72fd2902fc05f32458ca8b08",
+      "recordDigest": "375209415f84bb9dc9e29151b0d5d56c41c86de85bea811a7060337a9990f414"
     }
   }
 }
