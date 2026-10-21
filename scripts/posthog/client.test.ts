@@ -49,7 +49,6 @@ describe("createPosthogClient", () => {
       attempts += 1
       return json(502)
     }) as unknown as typeof fetch
-    const client = createPosthogClient(env, fetchImpl, async () => undefined)
     const sleeps: number[] = []
     const withSleep = createPosthogClient(env, fetchImpl, async (ms) => {
       sleeps.push(ms)
