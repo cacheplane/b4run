@@ -28,11 +28,13 @@ export const CTA_IDS = [
   "footer_npm",
   "footer_live_demo",
   "footer_rss",
+  "footer_updates",
   "home_scaffold",
   "home_get_started",
   "home_github",
   "home_live_demo",
   "blog_cta_get_started",
+  "blog_cta_updates",
   "docs_prompt_copy",
 ] as const
 

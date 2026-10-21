@@ -101,12 +101,15 @@ export function buildSeoPageInventory(
   if (!home) throw new Error("Homepage SEO page is not registered")
   const privacy = resolveStaticSeoPage("/privacy")
   if (!privacy) throw new Error("Privacy SEO page is not registered")
+  const updates = resolveStaticSeoPage("/updates")
+  if (!updates) throw new Error("Updates SEO page is not registered")
   const visiblePosts = selectVisiblePosts(posts, currentDate)
 
   return [
     home,
     resolveBlogIndexSeoPage(),
     privacy,
+    updates,
     ...Object.values(DOCS_SEO_PAGES),
     ...visiblePosts.map(resolveBlogSeoPage),
     ...collectPostTags(visiblePosts).map((tag) =>

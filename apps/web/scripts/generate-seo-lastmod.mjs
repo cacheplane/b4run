@@ -152,6 +152,14 @@ function sourcesByRouteFor(asOf) {
   const sourcesByRoute = new Map([
     ["/", homepageSourceFiles()],
     ["/privacy", [join(appRoot, "app", "privacy", "page.tsx"), join(contentRoot, "privacy.mdx")]],
+    [
+      "/updates",
+      [
+        join(appRoot, "app", "updates", "page.tsx"),
+        join(appRoot, "app", "updates", "FounderUpdatesForm.tsx"),
+        join(contentRoot, "updates.mdx"),
+      ],
+    ],
     ["/blog", publishedPosts.map((post) => post.source)],
     ...docs.map((source) => [routeForDoc(source), [source]]),
   ])

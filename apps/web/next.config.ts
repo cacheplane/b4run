@@ -105,6 +105,12 @@ const nextConfig: NextConfig = {
         destination: "/docs/getting-started",
         permanent: true,
       },
+      // A short link for outreach; set B4_CALL_URL to a booking page, else the form.
+      {
+        source: "/call",
+        destination: process.env.B4_CALL_URL ?? "/updates",
+        permanent: false,
+      },
       // The research recipes became the flight-planner recipes (navlog series, PR 6).
       {
         source: "/docs/recipes/research-assistant",

@@ -12,6 +12,9 @@ export function BlogCta() {
           <a href="/docs/getting-started" data-cta-id="blog_cta_get_started">
             Read Getting Started
           </a>
+          <a href="/updates" data-cta-id="blog_cta_updates">
+            Get updates from Brian
+          </a>
         </div>
       </div>
     </section>

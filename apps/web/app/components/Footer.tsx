@@ -27,6 +27,7 @@ const COLUMNS: readonly Column[] = [
       { label: "Examples", href: "https://github.com/cacheplane/b4run/tree/main/examples" },
       { label: "Live demo", href: NAVLOG_DEMO_URL, ctaId: "footer_live_demo" },
       { label: "Blog", href: "/blog" },
+      { label: "Updates", href: "/updates", ctaId: "footer_updates" },
     ],
   },
   {

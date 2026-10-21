@@ -55,3 +55,8 @@ it("tags its calls to action and marks the footer surface", () => {
   ]
   for (const [href, id] of cases) expect(anchor(html, href)).toContain(`data-cta-id="${id}"`)
 })
+
+it("links Updates in the Product column with its call-to-action id", () => {
+  const tag = anchor(renderToStaticMarkup(<Footer />), "/updates")
+  expect(tag).toContain('data-cta-id="footer_updates"')
+})

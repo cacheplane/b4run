@@ -288,7 +288,7 @@ describe("production SEO inventory", () => {
       expect(pages.map(({ path }) => path)).not.toContain("/blog/draft-inventory-post")
       expect(pages.map(({ path }) => path)).toContain("/blog/tags/typescript")
       expect(pages.map(({ path }) => path)).not.toContain("/blog/tags/patterns")
-      expect(pages).toHaveLength(95)
+      expect(pages).toHaveLength(96)
       expectNormalizedDescriptions(pages)
     }
   })
@@ -332,7 +332,7 @@ describe("production SEO inventory", () => {
     }
   })
 
-  it("builds one normalized route-kind union for the current 95 indexable routes", () => {
+  it("builds one normalized route-kind union for the current 96 indexable routes", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -346,6 +346,7 @@ describe("production SEO inventory", () => {
       "/",
       "/blog",
       "/privacy",
+      "/updates",
       ...ALL_DOCS_PAGES.map(({ href }) => href),
       "/blog/b4-0-8-framework-around-the-agent",
       "/blog/b4-at-the-edge",
@@ -359,18 +360,19 @@ describe("production SEO inventory", () => {
       "/blog/tags/releases",
       "/blog/tags/patterns",
     ])
-    expect(pages).toHaveLength(95)
+    expect(pages).toHaveLength(96)
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
       "blog-index",
       "legal",
+      "page",
       ...Array.from({ length: 81 }, () => "docs"),
       ...Array.from({ length: 6 }, () => "blog-post"),
       ...Array.from({ length: 5 }, () => "blog-tag"),
     ])
   })
 
-  it("keeps all 95 production descriptions normalized and globally unique", () => {
+  it("keeps all 96 production descriptions normalized and globally unique", () => {
     const buildSeoPageInventory = Reflect.get(seoResolvers, "buildSeoPageInventory")
     expect(buildSeoPageInventory).toBeTypeOf("function")
     if (typeof buildSeoPageInventory !== "function") return
@@ -379,7 +381,7 @@ describe("production SEO inventory", () => {
       readonly path: string
       readonly description: string
     }[]
-    expect(pages).toHaveLength(95)
+    expect(pages).toHaveLength(96)
     expectNormalizedDescriptions(pages)
   })
 })

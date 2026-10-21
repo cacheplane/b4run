@@ -16,3 +16,9 @@ it("marks the blog surface and tags the Getting Started link", () => {
     /<a [^>]*href="\/docs\/getting-started"[^>]*data-cta-id="blog_cta_get_started"/,
   )
 })
+
+it("offers founder updates with its own call-to-action id", () => {
+  const html = renderToStaticMarkup(<BlogCta />)
+  expect(html).toMatch(/<a [^>]*href="\/updates"[^>]*data-cta-id="blog_cta_updates"/)
+  expect(html).toContain("Get updates from Brian")
+})
