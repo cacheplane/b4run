@@ -1,6 +1,6 @@
 {
   "id": "cli",
-  "pin": "765e6e16fec86bba0859d3f85edf7136f663f720",
+  "pin": "84063ae1779f6919f4b135f311e85427128a84a4",
   "root": ".",
   "capture": {
     "include": [
@@ -13,6 +13,7 @@
       "packages/cli/tsconfig.build.json",
       "packages/cli/vitest.config.ts",
       "packages/cli/src",
+      "packages/cli/test/helpers/header-auth.ts",
       "packages/cli/test/helpers/probe-file.ts",
       "packages/cli/test/execute-route.test.ts",
       "packages/cli/test/run-cancellation.test.ts",

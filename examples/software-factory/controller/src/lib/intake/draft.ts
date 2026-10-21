@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { posix } from "node:path"
 import { z } from "zod"
 import {
   assertTaskFitsTarget,
@@ -19,8 +20,9 @@ import {
   UnknownTargetError,
   unmeasuredProblem,
 } from "../targets/catalog.js"
+import { gitPinTree, type PinTree } from "../targets/init/pin-tree.js"
 import { recipeProblem } from "../targets/prepare.js"
-import { describePrecheck, precheckDraftedCheck } from "./check-precheck.js"
+import { type BuildFacts, describePrecheck, precheckDraftedCheck } from "./check-precheck.js"
 
 /** Where the drafter writes, relative to its workspace. Keys outside it are not the draft. */
 export const DRAFT_ROOT = "draft/"
@@ -193,6 +195,72 @@ function packageNameAt(root: string | undefined, pin: string, cwd: string): stri
   }
 }
 
+/** A relative module specifier in a bin script: `import ... from "../dist/x.js"` or `import("...")`. */
+const RELATIVE_SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)(["'])(\.\.?\/[^"'\n]*)\1/g
+
+/**
+ * What the pre-check's build rules read, at the pin: the target's build output prefixes (its
+ * `snapshotIgnore` entries ending in `dist/`), the pin's tree seen from the target root, and the
+ * built files the package's `bin` runs (a bin under `dist/`, or the `dist/` modules a bin
+ * script imports). Undefined when the target builds nothing or the pin cannot be listed: the
+ * rules are then skipped, as for any fact the controller cannot read.
+ */
+export function buildFactsAt(
+  root: string | undefined,
+  pin: string,
+  target: TargetRecipe,
+): BuildFacts | undefined {
+  const prefixes = target.snapshotIgnore.filter((prefix) => prefix.endsWith("dist/"))
+  if (prefixes.length === 0 || target.commands.build.length === 0) return undefined
+  let pinTree: PinTree
+  try {
+    pinTree = gitPinTree(root ?? repositoryRoot(), pin)
+  } catch {
+    return undefined
+  }
+  const base = target.root === "." ? "" : `${target.root}/`
+  const at = (path: string) =>
+    path === "" ? (target.root === "." ? "" : target.root) : `${base}${path}`
+  const tree: BuildFacts["tree"] = {
+    kind: (path) => pinTree.kind(at(path)),
+    children: (dir) => pinTree.children(at(dir)),
+    files: (path) =>
+      pinTree.files(at(path)).map((file) => ({ path: file.path.slice(base.length) })),
+  }
+  const entries: { path: string; bin: string }[] = []
+  try {
+    const pkg = target.commands.cwd === "." ? "" : `${target.commands.cwd}/`
+    const manifest = JSON.parse(pinTree.read(at(`${pkg}package.json`)) ?? "{}") as {
+      bin?: unknown
+    }
+    const bins =
+      typeof manifest.bin === "string"
+        ? [manifest.bin]
+        : manifest.bin !== null && typeof manifest.bin === "object"
+          ? Object.values(manifest.bin).filter(
+              (value): value is string => typeof value === "string",
+            )
+          : []
+    for (const bin of bins) {
+      const binPath = posix.normalize(`${pkg}${bin}`)
+      if (prefixes.some((prefix) => binPath.startsWith(prefix))) {
+        entries.push({ path: binPath, bin: `${pkg}package.json "bin"` })
+        continue
+      }
+      if (pinTree.kind(at(binPath)) !== "file") continue
+      const script = pinTree.read(at(binPath)) ?? ""
+      for (const match of script.matchAll(RELATIVE_SPECIFIER)) {
+        const imported = posix.normalize(posix.join(posix.dirname(binPath), match[2] as string))
+        if (prefixes.some((prefix) => imported.startsWith(prefix)))
+          entries.push({ path: imported, bin: binPath })
+      }
+    }
+  } catch {
+    // A package.json or bin the pin does not hold (or that does not parse): no entries.
+  }
+  return { prefixes, tree, ...(entries.length > 0 ? { entries } : {}) }
+}
+
 /**
  * Turn what a drafter wrote under `draft/` into a task the catalog can load, or refuse it with
  * a reason that names the offending file. The controller fills what the drafter must not
@@ -323,6 +391,7 @@ export function parseDraft(
   // Last, and before any container is started: the check's own text, read statically. What it
   // refuses would otherwise take a whole oracle proof (minutes) to find, one defect at a time.
   const ownPackage = packageNameAt(input.catalog?.repositoryRoot, pin, target.commands.cwd)
+  const build = buildFactsAt(input.catalog?.repositoryRoot, pin, target)
   const violations = precheckDraftedCheck({
     source: draft.get(checks.independent.file) as string,
     file: checks.independent.file,
@@ -330,6 +399,7 @@ export function parseDraft(
     // A loader (`--import tsx`) accepts syntax node's own stripper does not.
     skipSyntax: target.commands.nodeTestExecArgv.length > 0,
     ...(ownPackage !== undefined ? { ownPackage } : {}),
+    ...(build !== undefined ? { build } : {}),
   })
   if (violations.length > 0) return invalid(describePrecheck(checks.independent.file, violations))
 

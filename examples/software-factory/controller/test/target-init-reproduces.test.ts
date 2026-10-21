@@ -54,8 +54,8 @@ const CLI_BUILD = [
   "-b",
   "--builders",
   "1",
-  "../ag-ui",
   "../sdk",
+  "../ag-ui",
   "../langgraph",
   "../permissions",
   "../workspace",
@@ -131,7 +131,7 @@ describe("target:init reproduces the hand-written cli target", () => {
   it("is the committed target with exactly the named differences applied", () => {
     const scoped = want.capture.include.filter((path) => path.startsWith("packages/cli/test/"))
     const committedCommand = parseVitestCommand(want.commands.test)
-    expect(scoped).toHaveLength(9)
+    expect(scoped).toHaveLength(10)
     expect(committedCommand.files).toHaveLength(8)
     // Two hand-picked module assertions (commander checks the promotion), a build that
     // disables declaration maps (a snapshot-cost mitigation #826 and #829 made unnecessary),
@@ -167,8 +167,7 @@ describe("target:init reproduces the hand-written cli target", () => {
     expect(expectedPromotedOf(got.dockerfile)).toEqual([])
     expect(expectedPromotedOf(committedDockerfile("cli"))).toEqual([
       "@hono/node-server",
-      "commander",
-      "hono",
+      "axe-core",
       "typescript",
     ])
     expect(got.notes).toContain(

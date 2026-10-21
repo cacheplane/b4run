@@ -10285,6 +10285,8 @@ Brian approves at both gates as before. Expected: `blocked` with `delivery_base_
 
 ---
 
+**As landed (Task 23).** Steps 1–3 done on 2026-10-20: see the spec's §14 as-landed note (PR cacheplane/b4run#1050; five work orders; the five findings and their fixes, the framework fix #1048, and the two terminal `route_error` classifications to revisit). Operator facts worth keeping: `up` does not survive the terminal it runs in (a session move killed it once; the state is durable and `up` reconciles on restart); the CLI's `run` stream can drop (`fetch failed`) while the controller carries on, and `factory show`/the controller log are the reliable view; a refused draft is kept under `<state>/tasks/.refused/<id>/attempt-N`; the builder's transcript is in the builder app's `.b4/checkpoints.sqlite` (`writes.value` is a comma-separated byte list of JSON). Step 4 not run (the `cli` image at `765e6e16` no longer builds under the pin-specific promotion set). Step 5: recorded here.
+
 ## Proof map
 
 | Proof (spec §14 and the hard rules) | Where |

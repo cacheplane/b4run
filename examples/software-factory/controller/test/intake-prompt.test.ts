@@ -114,7 +114,7 @@ describe("intakePrompt", () => {
   it("renders each target with a concrete path, its built artifact and its fixed runner configuration", () => {
     const cli = targetLine(loadTarget("cli"))
     expect(cli).toBe(
-      '- `cli` (root: `.`, the repository root: paths start at the repository root and look like `packages/cli/src/...`, never `src/...`; the build writes `packages/cli/dist/`, and the check loads the built artifact with `await import(join(process.cwd(), "packages/cli/dist/<file>.js"))`; its runner configuration is fixed by the factory)',
+      "- `cli` (root: `.`, the repository root: paths start at the repository root and look like `packages/cli/src/...`, never `src/...`; the build writes `packages/cli/dist/`, and the check loads the built artifact with `await import(join(process.cwd(), \"packages/cli/dist/<file>.js\"))`; `packages/cli/dist/<file>.js` exists exactly when `packages/cli/src/<file>.ts` does, so find the module with listDir or readFile under `repo/packages/cli/src/` before writing its import; import the module that owns the behaviour, never the entry a package's `bin` runs (the cli's `packages/cli/dist/index.js`); its runner configuration is fixed by the factory)",
     )
     // Never "imports ... by that path": ESM resolves a bare path against the check file, and
     // the live run's reading of it was ERR_MODULE_NOT_FOUND.

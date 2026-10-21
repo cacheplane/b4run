@@ -56,8 +56,11 @@ describe("a workspace for target:measure", () => {
     expect(definition.environmentLinks).toEqual([
       { path: "node_modules", target: "/opt/targets/app/node_modules" },
     ])
-    expect(targetInspectionOptions({ target: recipe }).ignorePrefixes).toEqual(
-      recipe.snapshotIgnore,
-    )
+    // The target's build output, plus the framework's own scratch: an offloaded tool output
+    // the builder's turn spilled under tool-outputs/ is not a change to the target.
+    expect(targetInspectionOptions({ target: recipe }).ignorePrefixes).toEqual([
+      ...recipe.snapshotIgnore,
+      "tool-outputs/",
+    ])
   })
 })
