@@ -54,8 +54,13 @@ function toOutputName(entryName: string): string {
 }
 
 function applyReplacements(source: string, replacements: TemplateReplacements): string {
-  return Object.entries(replacements).reduce(
-    (currentSource, [token, value]) => currentSource.replaceAll(`{{${token}}}`, value),
-    source,
-  )
+  // Use a replacer function with a RegExp to ensure replacement values are
+  // inserted literally; this avoids special handling of `$` sequences in
+  // replacement strings (like $&, $$, etc.).
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+  return Object.entries(replacements).reduce((currentSource, [token, value]) => {
+    const pattern = new RegExp(escapeRegExp(`{{${token}}}`), "g")
+    return currentSource.replace(pattern, () => value)
+  }, source)
 }
