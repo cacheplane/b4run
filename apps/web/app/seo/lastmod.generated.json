@@ -445,6 +445,11 @@
       "lastModified": "2026-10-21T16:02:02.000Z",
       "sourceDigest": "e20914c82379584aa68346b848497f5440701a3f72fd2902fc05f32458ca8b08",
       "recordDigest": "375209415f84bb9dc9e29151b0d5d56c41c86de85bea811a7060337a9990f414"
+    },
+    "/updates": {
+      "lastModified": "2026-10-21T23:04:17.000Z",
+      "sourceDigest": "7131481341f4009a356f95c54b5ab91fd2278ef2fd3ef7882c9bba890ca5018e",
+      "recordDigest": "8bdcbe07ac9bc47844a0411442475d387bf60f4f56de495de1116c1e19734a9e"
     }
   }
 }
