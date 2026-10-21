@@ -168,6 +168,7 @@ describe("docs search dialog", () => {
   it("choosing a search result reports docs:search_result_click without the query", async () => {
     const container = await render()
     await openFromTrigger(container)
+    vi.mocked(track).mockClear()
     await type("backoff")
     await key(input() as HTMLInputElement, { key: "Enter" })
     expect(track).toHaveBeenCalledTimes(1)
@@ -219,6 +220,14 @@ describe("docs search dialog", () => {
     document.body.append(textarea)
     await key(textarea, { key: "/" })
     expect(dialog()?.open).toBe(false)
+  })
+
+  it("reports docs:search_open exactly once for a Cmd/Ctrl-K keydown", async () => {
+    await render()
+    await key(window, { key: "k", metaKey: true })
+    expect(dialog()?.open).toBe(true)
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(track).toHaveBeenCalledWith("docs:search_open")
   })
 
   it("opens from another trigger via the open event and returns focus to it", async () => {

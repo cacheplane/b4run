@@ -1,7 +1,7 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { useEffect } from "react"
-import { OPEN_DOCS_SEARCH_EVENT } from "../../components/docs/docs-search-events"
 import { classifyClick } from "./click-signals"
 import { track } from "./client"
 import { createEngagedTimeTracker } from "./engaged-time"
@@ -9,10 +9,12 @@ import { SIGNAL_EVENTS } from "./events"
 
 /**
  * Site-wide signals that need no per-component wiring: delegated link and
- * call-to-action clicks, visible time, and the docs search opening. Mounted
+ * call-to-action clicks, and visible time per page view. Mounted
  * once in the root layout; renders nothing.
  */
 export function SiteSignals() {
+  const pathname = usePathname()
+
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
       const signal = classifyClick(event.target, window.location.origin)
@@ -33,6 +35,12 @@ export function SiteSignals() {
       }
     }
 
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname restarts the clock
+  useEffect(() => {
     const visible = () => document.visibilityState === "visible"
     const engaged = createEngagedTimeTracker({
       now: Date.now,
@@ -48,18 +56,12 @@ export function SiteSignals() {
       if (engaged.isComplete()) window.clearInterval(interval)
     }, 1_000)
 
-    const onSearchOpen = () => track(SIGNAL_EVENTS.docsSearchOpen)
-
-    document.addEventListener("click", onClick, true)
     document.addEventListener("visibilitychange", onVisibility)
-    window.addEventListener(OPEN_DOCS_SEARCH_EVENT, onSearchOpen)
     return () => {
-      document.removeEventListener("click", onClick, true)
       document.removeEventListener("visibilitychange", onVisibility)
-      window.removeEventListener(OPEN_DOCS_SEARCH_EVENT, onSearchOpen)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [pathname])
 
   return null
 }

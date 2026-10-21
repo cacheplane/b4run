@@ -6,6 +6,8 @@ import { OPEN_DOCS_SEARCH_EVENT } from "../../components/docs/docs-search-events
 import { track } from "./client"
 import { SiteSignals } from "./SiteSignals"
 
+let currentPath = "/docs/a"
+vi.mock("next/navigation", () => ({ usePathname: () => currentPath }))
 vi.mock("./client", () => ({ track: vi.fn() }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -17,6 +19,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.mocked(track).mockClear()
   visibility = "visible"
+  currentPath = "/docs/a"
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility })
   container = document.createElement("div")
   document.body.appendChild(container)
@@ -52,12 +55,23 @@ describe("SiteSignals", () => {
     expect(track).toHaveBeenCalledTimes(2)
   })
 
-  it("fires docs:search_open when the window event is dispatched", () => {
-    window.dispatchEvent(new Event(OPEN_DOCS_SEARCH_EVENT))
-    expect(track).toHaveBeenCalledWith("docs:search_open")
+  it("restarts the engaged-time clock on every pathname change", () => {
+    vi.advanceTimersByTime(10_000)
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(track).toHaveBeenLastCalledWith("site:engaged_time", { engaged_seconds: 10 })
+    currentPath = "/docs/b"
+    act(() => root.render(createElement(SiteSignals)))
+    vi.advanceTimersByTime(10_000)
+    expect(track).toHaveBeenCalledTimes(2)
+    expect(track).toHaveBeenLastCalledWith("site:engaged_time", { engaged_seconds: 10 })
   })
 
-  it("tracks a delegated click", () => {
+  it("leaves docs:search_open to the search dialog", () => {
+    window.dispatchEvent(new Event(OPEN_DOCS_SEARCH_EVENT))
+    expect(track).not.toHaveBeenCalled()
+  })
+
+  it("reports a delegated click", () => {
     const a = document.createElement("a")
     a.href = "https://example.com/x"
     document.body.appendChild(a)

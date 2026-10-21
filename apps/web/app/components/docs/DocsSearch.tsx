@@ -160,6 +160,7 @@ export function DocsSearch() {
     if (focused instanceof HTMLElement && focused !== document.body) {
       returnFocusRef.current = focused
     }
+    track(SIGNAL_EVENTS.docsSearchOpen)
     setOpen(true)
     load()
   }, [load])

@@ -20,7 +20,7 @@
 /**
  * 10s matches PostHog's own bounce cutoff (`session_duration >= 10s`), so a
  * reader who never clicks stops being recorded as a zero-second visit. 30s is
- * the "actually read something" signal. Two events per page load at most.
+ * the "actually read something" signal. Two events per page view at most (the island restarts the clock on every pathname change).
  */
 export const ENGAGED_TIME_THRESHOLDS_MS = [10_000, 30_000] as const
 

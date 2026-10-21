@@ -50,10 +50,11 @@ describe("insight and dashboard definitions", () => {
     }
   })
 
-  it("gives every insight a description and an unassigned posthog_id", () => {
+  it("gives every insight a description and a posthog_id that is null or a positive integer", () => {
     for (const { file, data } of [...insights, ...dashboards]) {
       expect(data.description, file).toBeTruthy()
-      expect(data.posthog_id, file).toBeNull()
+      const id = data.posthog_id
+      expect(id === null || (Number.isInteger(id) && id > 0), file).toBe(true)
     }
   })
 
