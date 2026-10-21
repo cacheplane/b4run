@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "rootDir": "."
+    "rootDir": "../.."
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "../../apps/web/app/lib/analytics/events.ts"]
 }
