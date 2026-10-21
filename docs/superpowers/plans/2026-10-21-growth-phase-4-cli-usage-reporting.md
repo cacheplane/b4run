@@ -14,7 +14,7 @@
 
 1. The spec's command list names `validate` and `typecheck`; the CLI's actual commands are `check` ("Validate a B4.run app") and `typegen`. The allowlist uses the real names: `dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`.
 2. The website ingest route (`apps/web/app/api/signals/v1/cli`) is deferred to a later PR in `apps/web`. This plan writes its request contract into `docs/growth/README.md` (Task 9). Until it exists the CLI receives a 404 and ignores it.
-3. Phase 1 added `command` to `FORBIDDEN_PROPERTIES` in `scripts/posthog/contract.ts` to guard against free text. `cli:command_completed` carries `command` as one of seven fixed names, so Task 8 removes `command` from the forbidden list and the event contract pins the allowed values.
+3. Phase 1 added `command` to `FORBIDDEN_PROPERTIES` in `scripts/posthog/contract.ts` to guard against free text. `cli:command_completed` carries `command` as one of seven fixed names, so Task 8 removes `command` from the forbidden list and the event contract lists `command` as an allowed property name. The contract pins property names only; the allowed values are rules in `docs/growth/README.md` for the future ingest route to enforce.
 4. A `CommanderError` (usage error, `--help`, `--version`) means the command never dispatched, so it emits nothing. The outcome `cancelled` is an error whose `name` is `AbortError` or a `CliError` with `exitCode` 130; `b4 dev` stopped by Ctrl-C closes cleanly and reports `ok`.
 5. The first-run notice is printed when the identity file is created, which is the only persistent state the spec allows. "Printed once" and "created on first run" are the same event.
 

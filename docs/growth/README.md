@@ -85,9 +85,9 @@ The CLI sends one event per request today. The contract allows up to ten.
 
 | Variable | Used by | Notes |
 |---|---|---|
-| `B4_TELEMETRY_DISABLED` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. |
-| `DO_NOT_TRACK` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. |
-| `B4_SIGNALS_URL` | the `b4` CLI | Overrides the ingest URL, for example to point at a local test server. |
+| `B4_TELEMETRY_DISABLED` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. Honoured from the shell and from a project `.env`. |
+| `DO_NOT_TRACK` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. Honoured from the shell and from a project `.env`. |
+| `B4_SIGNALS_URL` | the `b4` CLI | Overrides the ingest URL, for example to point at a local test server. Read from the shell environment at startup only, never from a project `.env`. |
 
 The CLI is also inert when a common CI variable is set, before any file write or network call.
 

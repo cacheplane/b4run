@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": ["B4_TELEMETRY_DISABLED", "DO_NOT_TRACK", "CI", "GITHUB_ACTIONS"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

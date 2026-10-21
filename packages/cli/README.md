@@ -74,13 +74,15 @@ console.log(runtime.url)
 
 ## Usage reporting
 
-The development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`) report an anonymous usage signal when they finish: the command name, CLI version, Node major version, operating system, outcome, a coarse duration bucket, and an error class on failure. `b4 dev` also reports one activation signal the first time an AG-UI run finishes in a session, carrying only the CLI version and the route kind. `b4 start`, the runtime packages, and `create-b4-app` never report, and nothing about your routes, models, prompts, paths, or identity is sent. The first reporting command prints a one-time notice to stderr and creates a random id in `~/.b4/usage-id`. CI environments are silent automatically; see [b4.run/privacy](https://b4.run/privacy) for details.
+The development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`) report an anonymous usage signal when they finish: the command name, CLI version, Node major version, operating system, outcome, a coarse duration bucket, and an error class on failure. `b4 dev` also reports one activation signal the first time an AG-UI run finishes in a session, carrying only the CLI version and the route kind. `b4 start`, the runtime packages, and `create-b4-app` never report, and nothing about your routes, models, prompts, paths, or identity is sent. The first reporting command prints a one-time notice to stderr and creates a random id in `~/.b4/usage-id`. CI and hosted build environments (GitHub Actions, Vercel, Render, Cloudflare Pages, and others) are silent automatically; see [b4.run/privacy](https://b4.run/privacy) for details.
 
 | Variable | Effect |
 |---|---|
 | `B4_TELEMETRY_DISABLED=1` | Turns usage reporting off. |
 | `DO_NOT_TRACK=1` | Turns usage reporting off. |
 | `B4_SIGNALS_URL` | Overrides the URL signals are posted to. |
+
+`B4_SIGNALS_URL` is read from the shell environment once at startup, never from a project `.env`. The two opt-out variables are honoured from a project `.env` as well as from the shell.
 
 ## Related
 
