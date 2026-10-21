@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { COLOR } from "../lib/design-tokens"
 import { Footer } from "./components/Footer"
 import { Header } from "./components/Header"
+import { SiteSignals } from "./lib/analytics/SiteSignals"
 import { JsonLd } from "./seo/JsonLd"
 import { SOCIAL_CARD, SOCIAL_SITE_NAME } from "./seo/social"
 import { siteJsonLd } from "./seo/structured-data"
@@ -89,6 +90,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <div className="flex-1 flex flex-col">{children}</div>
           <Footer />
         </div>
+        <SiteSignals />
       </body>
     </html>
   )

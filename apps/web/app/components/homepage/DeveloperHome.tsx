@@ -42,7 +42,11 @@ export async function DeveloperHome() {
             <p className={styles.runtime}>Runs on LangGraph.js. You keep the graph.</p>
             <div className={styles.heroActions}>
               <CopyCommand command={createCommand} className={styles.command ?? ""} />
-              <a href="/docs/getting-started" className={styles.textLink}>
+              <a
+                href="/docs/getting-started"
+                data-cta-id="home_get_started"
+                className={styles.textLink}
+              >
                 Get started →
               </a>
             </div>

@@ -14,6 +14,7 @@ vi.mock("next/font/google", () => ({
   JetBrains_Mono: () => ({ variable: "font-mono" }),
 }))
 vi.mock("./components/Header", () => ({ Header: () => <header>header</header> }))
+vi.mock("./lib/analytics/SiteSignals", () => ({ SiteSignals: () => null }))
 
 const appDir = resolve(__dirname)
 const read = (path: string) => readFileSync(resolve(appDir, path), "utf8")

@@ -37,7 +37,9 @@ export function DemoVideo() {
           <source src={media.mp4} type="video/mp4" />
         </AutoplayVideo>
         <figcaption className={styles.links}>
-          <SiteLink href={NAVLOG_DEMO_URL}>Fly it live</SiteLink>
+          <SiteLink href={NAVLOG_DEMO_URL} data-cta-id="home_live_demo">
+            Fly it live
+          </SiteLink>
           <SiteLink href="/blog/how-we-built-navlog">How we built it</SiteLink>
           <SiteLink href={media.transcript}>Transcript</SiteLink>
         </figcaption>

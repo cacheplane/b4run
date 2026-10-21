@@ -93,7 +93,11 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
   const layout = pathname === "/" ? "home" : isReadingLayout(pathname) ? "reading" : "site"
 
   return (
-    <header data-layout={layout} className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}>
+    <header
+      data-layout={layout}
+      data-signal-surface="header"
+      className={`sticky top-0 z-50 border-b ${homepageStyles.header}`}
+    >
       <div className={`${homepageStyles.bar} flex justify-between items-center`}>
         <BrandLogo imageClassName="h-8" variant="dark" />
         <nav
@@ -102,6 +106,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
         >
           <Link
             href="/docs/getting-started"
+            data-cta-id="header_get_started"
             className={linkClass(docsActive)}
             {...(docsActive ? { "aria-current": "page" as const } : {})}
           >
@@ -109,19 +114,25 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           </Link>
           <Link
             href="/blog"
+            data-cta-id="header_blog"
             className={linkClass(blogActive)}
             {...(blogActive ? { "aria-current": "page" as const } : {})}
           >
             Blog
           </Link>
           {/* The live navlog example, in a new tab (SiteLink opens off-site hrefs there). */}
-          <SiteLink href={NAVLOG_DEMO_URL} className={linkClass(false)}>
+          <SiteLink
+            href={NAVLOG_DEMO_URL}
+            data-cta-id="header_live_demo"
+            className={linkClass(false)}
+          >
             Demo
           </SiteLink>
           {docsActive ? null : <HeaderSearchButton />}
           <SiteLink
             href={repoUrl}
             aria-label="GitHub"
+            data-cta-id="header_github"
             data-no-arrow
             className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink transition-colors"
           >

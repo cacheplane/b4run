@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-10-20T01:23:40.000Z",
-      "sourceDigest": "02c8628bd1d243bdc875f2f531b6792bb3a40139b5290fbf4d607c545bd88a8c",
-      "recordDigest": "bbc53f28a14a24c3a450c60320046a145237cf928dd180fb9942583db97c987d"
+      "lastModified": "2026-10-21T16:26:47.000Z",
+      "sourceDigest": "14e6b9b87be94af5e86e9d8a23bb9898f3d58e9989475127cf023e5ef16db877",
+      "recordDigest": "4b8aa1db793fd849137e8c3f768aa933937ff798c931a6c9f7eb8264f639f2b9"
     },
     "/blog": {
       "lastModified": "2026-10-20T01:48:58.000Z",
