@@ -10,7 +10,7 @@ interface LinkItem {
   readonly href: string
   /** Same-origin files (RSS, llms.txt) must bypass the client router and open in a new tab. */
   readonly target?: "_blank"
-  /** Marks the link as a tracked call to action. */
+  /** Gives the link a call-to-action id for click signals. */
   readonly ctaId?: CtaId
 }
 

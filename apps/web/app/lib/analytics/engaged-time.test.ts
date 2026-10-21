@@ -9,17 +9,17 @@ import { createEngagedTimeTracker, ENGAGED_TIME_THRESHOLDS_MS } from "./engaged-
 function setup(startVisible = true) {
   let clock = 1_000
   const onThreshold = vi.fn()
-  const tracker = createEngagedTimeTracker({
+  const engaged = createEngagedTimeTracker({
     onThreshold,
     now: () => clock,
     startVisible,
   })
   return {
     onThreshold,
-    tracker,
+    engaged,
     advance(ms: number) {
       clock += ms
-      tracker.tick()
+      engaged.tick()
     },
     advanceWithoutTick(ms: number) {
       clock += ms
@@ -29,7 +29,7 @@ function setup(startVisible = true) {
 
 describe("engaged time thresholds", () => {
   it("exports 10s and 30s, the first matching PostHog bounce cutoff", () => {
-    // 10s is not arbitrary: PostHog"s bounce test is `session_duration >= 10s`.
+    // 10s is not arbitrary: PostHog's bounce test is `session_duration >= 10s`.
     // An event at a genuine 10 visible seconds makes the recorded duration
     // match reality for a reader who never clicks.
     expect(ENGAGED_TIME_THRESHOLDS_MS).toEqual([10_000, 30_000])
@@ -63,73 +63,73 @@ describe("engaged time thresholds", () => {
     // The honesty test. A backgrounded tab accrues wall-clock time but no
     // engagement; counting it would inflate session duration rather than
     // correct it.
-    const { advance, tracker, onThreshold } = setup()
+    const { advance, engaged, onThreshold } = setup()
     advance(5_000)
-    tracker.setVisible(false)
+    engaged.setVisible(false)
     advance(60_000)
     expect(onThreshold).not.toHaveBeenCalled()
-    expect(tracker.visibleMs()).toBe(5_000)
+    expect(engaged.visibleMs()).toBe(5_000)
   })
 
   it("resumes accumulating when the page becomes visible again", () => {
-    const { advance, tracker, onThreshold } = setup()
+    const { advance, engaged, onThreshold } = setup()
     advance(6_000)
-    tracker.setVisible(false)
+    engaged.setVisible(false)
     advance(60_000)
-    tracker.setVisible(true)
+    engaged.setVisible(true)
     advance(4_000)
     expect(onThreshold).toHaveBeenCalledExactlyOnceWith(10_000)
-    expect(tracker.visibleMs()).toBe(10_000)
+    expect(engaged.visibleMs()).toBe(10_000)
   })
 
   it("keeps time from earlier visible runs across repeated hide/show cycles", () => {
     // One cycle cannot distinguish `accumulatedMs +=` from `accumulatedMs =`,
     // because the accumulator is still zero. Two can.
-    const { advance, tracker, onThreshold } = setup()
+    const { advance, engaged, onThreshold } = setup()
     advance(4_000)
-    tracker.setVisible(false)
+    engaged.setVisible(false)
     advance(60_000)
-    tracker.setVisible(true)
+    engaged.setVisible(true)
     advance(4_000)
-    tracker.setVisible(false)
+    engaged.setVisible(false)
     advance(60_000)
-    tracker.setVisible(true)
+    engaged.setVisible(true)
     advance(2_000)
-    expect(tracker.visibleMs()).toBe(10_000)
+    expect(engaged.visibleMs()).toBe(10_000)
     expect(onThreshold).toHaveBeenCalledExactlyOnceWith(10_000)
   })
 
   it("reports completion only once every threshold has fired", () => {
-    const { advance, tracker } = setup()
+    const { advance, engaged } = setup()
     advance(10_000)
-    expect(tracker.isComplete()).toBe(false)
+    expect(engaged.isComplete()).toBe(false)
     advance(20_000)
-    expect(tracker.isComplete()).toBe(true)
+    expect(engaged.isComplete()).toBe(true)
   })
 
   it("never fires for a page that starts hidden and is never seen", () => {
     // A prerendered or background-opened tab must not report engagement.
-    const { advance, onThreshold, tracker } = setup(false)
+    const { advance, onThreshold, engaged } = setup(false)
     advance(120_000)
     expect(onThreshold).not.toHaveBeenCalled()
-    expect(tracker.visibleMs()).toBe(0)
+    expect(engaged.visibleMs()).toBe(0)
   })
 
   it("counts time that elapsed between ticks, not tick count", () => {
     // The production caller ticks on an interval; a throttled background
     // timer must not under-report time the page was genuinely visible.
-    const { advanceWithoutTick, tracker, onThreshold } = setup()
+    const { advanceWithoutTick, engaged, onThreshold } = setup()
     advanceWithoutTick(30_000)
-    tracker.tick()
+    engaged.tick()
     expect(onThreshold).toHaveBeenCalledTimes(2)
   })
 
   it("does not double count when told it is visible twice", () => {
-    const { advance, tracker, onThreshold } = setup()
+    const { advance, engaged, onThreshold } = setup()
     advance(5_000)
-    tracker.setVisible(true)
+    engaged.setVisible(true)
     advance(4_999)
     expect(onThreshold).not.toHaveBeenCalled()
-    expect(tracker.visibleMs()).toBe(9_999)
+    expect(engaged.visibleMs()).toBe(9_999)
   })
 })

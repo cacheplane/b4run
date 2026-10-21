@@ -24,7 +24,7 @@
  */
 export const ENGAGED_TIME_THRESHOLDS_MS = [10_000, 30_000] as const
 
-export type EngagedTimeTracker = {
+export type EngagedTime = {
   /** Report a visibility transition. Hidden time is never counted. */
   setVisible(visible: boolean): void
   /** Re-evaluate accumulated time and fire any newly crossed thresholds. */
@@ -50,7 +50,7 @@ export function createEngagedTimeTracker({
   now,
   startVisible,
   thresholdsMs = ENGAGED_TIME_THRESHOLDS_MS,
-}: EngagedTimeOptions): EngagedTimeTracker {
+}: EngagedTimeOptions): EngagedTime {
   let accumulatedMs = 0
   // Timestamp the current visible run began, or null while hidden. Elapsed
   // time is derived from this rather than counted per tick, so a throttled

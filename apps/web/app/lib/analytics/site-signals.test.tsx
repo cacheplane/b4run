@@ -69,6 +69,22 @@ describe("SiteSignals", () => {
     })
   })
 
+  it("reports a cta click once and never as an external link", () => {
+    const root = document.createElement("div")
+    root.setAttribute("data-signal-surface", "footer")
+    root.innerHTML = `<a href="https://github.com/cacheplane/b4run" data-cta-id="footer_github"><span>GitHub</span></a>`
+    document.body.appendChild(root)
+    root.querySelector("span")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    root.remove()
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(track).toHaveBeenCalledWith("site:cta_click", {
+      cta_id: "footer_github",
+      surface: "footer",
+      destination_url: "github.com",
+    })
+    expect(track).not.toHaveBeenCalledWith("site:external_link_click", expect.anything())
+  })
+
   it("stops listening after unmount", () => {
     act(() => root.unmount())
     window.dispatchEvent(new Event(OPEN_DOCS_SEARCH_EVENT))

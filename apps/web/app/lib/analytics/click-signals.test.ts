@@ -56,4 +56,18 @@ describe("classifyClick", () => {
     expect(classifyClick(null, ORIGIN)).toBeUndefined()
     expect(classifyClick(document, ORIGIN)).toBeUndefined()
   })
+
+  it("drops an element whose data-cta-id is not a known id", () => {
+    mount(`<a id="a" href="https://example.com/x" data-cta-id="not_a_real_id">x</a>`)
+    expect(classifyClick(document.getElementById("a"), ORIGIN)).toBeUndefined()
+  })
+
+  it("falls back to the derived surface when data-signal-surface is unknown", () => {
+    window.history.pushState({}, "", "/docs/x")
+    mount(
+      `<div data-signal-surface="nope"><a id="a" href="/docs" data-cta-id="header_blog">x</a></div>`,
+    )
+    expect(classifyClick(document.getElementById("a"), ORIGIN)).toMatchObject({ surface: "docs" })
+    window.history.pushState({}, "", "/")
+  })
 })

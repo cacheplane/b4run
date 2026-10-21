@@ -5,7 +5,7 @@ import { OPEN_DOCS_SEARCH_EVENT } from "../../components/docs/docs-search-events
 import { classifyClick } from "./click-signals"
 import { track } from "./client"
 import { createEngagedTimeTracker } from "./engaged-time"
-import { type CtaId, SIGNAL_EVENTS, type SignalSurface } from "./events"
+import { SIGNAL_EVENTS } from "./events"
 
 /**
  * Site-wide signals that need no per-component wiring: delegated link and
@@ -19,8 +19,8 @@ export function SiteSignals() {
       if (signal === undefined) return
       if (signal.event === SIGNAL_EVENTS.siteCtaClick) {
         track(signal.event, {
-          cta_id: signal.cta_id as CtaId,
-          surface: signal.surface as SignalSurface,
+          cta_id: signal.cta_id,
+          surface: signal.surface,
           ...(signal.destination_url !== undefined
             ? { destination_url: signal.destination_url }
             : {}),
@@ -28,7 +28,7 @@ export function SiteSignals() {
       } else {
         track(signal.event, {
           destination_host: signal.destination_host,
-          surface: signal.surface as SignalSurface,
+          surface: signal.surface,
         })
       }
     }

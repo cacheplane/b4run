@@ -1,10 +1,20 @@
-export type ClickSignal =
-  | { event: "site:cta_click"; cta_id: string; surface: string; destination_url?: string }
-  | { event: "site:external_link_click"; destination_host: string; surface: string }
+import { CTA_IDS, type CtaId, SIGNAL_SURFACES, type SignalSurface } from "./events"
 
-function surfaceFor(element: Element): string {
+export type ClickSignal =
+  | { event: "site:cta_click"; cta_id: CtaId; surface: SignalSurface; destination_url?: string }
+  | { event: "site:external_link_click"; destination_host: string; surface: SignalSurface }
+
+export function isCtaId(value: string): value is CtaId {
+  return (CTA_IDS as readonly string[]).includes(value)
+}
+
+export function isSignalSurface(value: string): value is SignalSurface {
+  return (SIGNAL_SURFACES as readonly string[]).includes(value)
+}
+
+function surfaceFor(element: Element): SignalSurface {
   const marked = element.closest("[data-signal-surface]")?.getAttribute("data-signal-surface")
-  if (marked) return marked
+  if (marked && isSignalSurface(marked)) return marked
   const path = element.ownerDocument.defaultView?.location.pathname ?? "/"
   if (path === "/docs" || path.startsWith("/docs/")) return "docs"
   if (path === "/blog" || path.startsWith("/blog/")) return "blog"
@@ -42,7 +52,9 @@ export function classifyClick(
   }
 
   const ctaId = element.getAttribute("data-cta-id")
-  if (ctaId) {
+  if (ctaId !== null) {
+    // A mistyped id is dropped entirely rather than reported as another event.
+    if (!isCtaId(ctaId)) return undefined
     const destination =
       url !== undefined && (url.protocol === "http:" || url.protocol === "https:")
         ? url.origin === currentOrigin
