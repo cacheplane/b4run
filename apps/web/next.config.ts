@@ -41,6 +41,22 @@ export const PUBLIC_ASSET_SOURCES = [
 const nextConfig: NextConfig = {
   experimental: { useTypeScriptCli: true },
   reactStrictMode: true,
+  // Same-origin PostHog ingest so the browser never calls a third-party host
+  // directly. The static asset rule must come first: it is more specific than
+  // the catch-all ingest rule.
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      {
+        source: "/ingest/:path*",
+        destination: "https://us.i.posthog.com/:path*",
+      },
+    ]
+  },
   // OG image modules read these at load; trace them in case a route renders on demand.
   outputFileTracingIncludes: {
     "/blog/*": [

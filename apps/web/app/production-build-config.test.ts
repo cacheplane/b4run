@@ -40,6 +40,18 @@ describe("production web build boundary", () => {
 })
 
 describe("production response policy", () => {
+  it("proxies PostHog through /ingest so the browser talks only to b4.run", async () => {
+    const rewrites = await nextConfig.rewrites?.()
+    expect(rewrites).toEqual([
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      { source: "/ingest/:path*", destination: "https://us.i.posthog.com/:path*" },
+    ])
+    expect(nextConfig.skipTrailingSlashRedirect).toBe(true)
+  })
+
   it("redirects the docs root permanently from config instead of a page", async () => {
     const redirects = (await nextConfig.redirects?.()) ?? []
 
