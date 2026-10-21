@@ -1,9 +1,11 @@
 import { acceptFounderUpdatesForm } from "../contacts"
-import { createPgExecutor, type SqlExecutor } from "../database"
+import type { SqlExecutor } from "../database"
 import { type GrowthEnv, loadGrowthEnv } from "../env"
 import { parseFounderUpdatesSubmission } from "../forms"
 import { createRateLimiter, FORM_RATE_LIMIT } from "../rate-limit"
 import { createPosthogServerClient, noopSignalClient, type ServerSignalClient } from "../signals"
+
+import { getSharedExecutor } from "./shared"
 
 const MAX_BODY_BYTES = 4096
 
@@ -87,7 +89,6 @@ export async function handleFounderUpdatesPost(
   }
 }
 
-let executor: SqlExecutor | undefined
 let signals: { key: string; client: ServerSignalClient } | undefined
 let limiter: { allow(key: string): boolean } | undefined
 
@@ -95,10 +96,7 @@ export function defaultFounderUpdatesDeps(): FounderUpdatesRouteDeps {
   limiter ??= createRateLimiter(FORM_RATE_LIMIT)
   return {
     loadEnv: () => loadGrowthEnv(),
-    createExecutor(url) {
-      executor ??= createPgExecutor(url)
-      return executor
-    },
+    createExecutor: getSharedExecutor,
     createSignals(key) {
       if (key === undefined) return noopSignalClient()
       if (signals?.key !== key) signals = { key, client: createPosthogServerClient(key) }
