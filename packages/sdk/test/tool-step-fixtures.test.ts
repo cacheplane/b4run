@@ -23,6 +23,8 @@ describe("tool-step fixture corpus", () => {
       "result-then-failed-step",
       "result-error-fails-running-step",
       "restart-reopens-cancelled-step",
+      "late-result-keeps-cancelled",
+      "held-step-dropped-at-run-end",
     ])
   })
 

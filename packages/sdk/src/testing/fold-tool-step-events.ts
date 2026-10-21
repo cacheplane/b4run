@@ -97,10 +97,16 @@ function applyMetadata(
   if (update !== undefined) applyUpdate(fold, id, update, source)
 }
 
-function startCall(fold: Fold, id: string): void {
+/**
+ * Opens a call's frames and applies the steps held for it. `presented` is
+ * true only for `TOOL_CALL_START`: a call presented again after it was
+ * cancelled (the resume runs it) reopens, while a late `TOOL_CALL_RESULT`
+ * leaves it cancelled.
+ */
+function startCall(fold: Fold, id: string, presented: boolean): void {
   if (fold.frame[id] === undefined) fold.frame[id] = "running"
   const step = fold.steps[id]
-  if (step?.status === "cancelled") {
+  if (presented && step?.status === "cancelled") {
     // A re-presented call (the resume runs it) reopens: back to the frames.
     const { label: _label, settledAt: _settledAt, ...rest } = step
     fold.steps[id] = { ...rest, status: "running" }
@@ -175,7 +181,8 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  *   `error: { message }` when the result carries `error`, else `completed`.
  *   Either way the running label goes; a completion keeps the sources.
  * - A `TOOL_CALL_START` for a `cancelled` step (a call the resume re-runs)
- *   reopens it as `running`, without its label or `settledAt`.
+ *   reopens it as `running`, without its label or `settledAt`; a late
+ *   `TOOL_CALL_RESULT` with no new START leaves it `cancelled`.
  * - Steps held for calls not yet started are dropped at `RUN_FINISHED` and
  *   `RUN_ERROR`: they never cross runs.
  * - The settle time is `event.timestamp ?? 0`. Real reducers use the current
@@ -193,7 +200,7 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
     switch (event.type) {
       case "TOOL_CALL_START":
         if (id === undefined) break
-        startCall(fold, id)
+        startCall(fold, id, true)
         applyMetadata(fold, id, event.metadata, "call")
         break
       case "TOOL_CALL_END":
@@ -202,7 +209,7 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         break
       case "TOOL_CALL_RESULT": {
         if (id === undefined) break
-        startCall(fold, id)
+        startCall(fold, id, false)
         fold.frame[id] = "completed"
         applyMetadata(fold, id, event.metadata, "message")
         // RESULT means it ended: a step still running after it fails when the

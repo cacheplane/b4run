@@ -771,4 +771,60 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       },
     },
   },
+  {
+    name: "late-result-keeps-cancelled",
+    events: [
+      { type: "RUN_STARTED" },
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Waiting for approval",
+        startedAt: 16000,
+      }),
+      end("c1"),
+      start("c2", { v: 1, kind: "server", status: "running", label: "Indexing", startedAt: 16050 }),
+      end("c2"),
+      {
+        type: "RUN_FINISHED",
+        outcome: {
+          type: "interrupt",
+          interrupts: [{ id: "i1", reason: "tool_approval", toolCallId: "c1" }],
+        },
+        timestamp: 16100,
+      },
+      // The next run delivers a late result for c2 without presenting it again.
+      { type: "RUN_STARTED" },
+      result("c2"),
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "running",
+          label: "Waiting for approval",
+          startedAt: 16000,
+        },
+        c2: { v: 1, kind: "server", status: "cancelled", startedAt: 16050, settledAt: 16100 },
+      },
+    },
+  },
+  {
+    name: "held-step-dropped-at-run-end",
+    events: [
+      { type: "RUN_STARTED" },
+      // A step for a call this run never starts.
+      custom({ v: 1, toolCallId: "c1", kind: "server", status: "running", label: "Ghost label" }),
+      { type: "RUN_FINISHED", outcome: { type: "success" }, timestamp: 17000 },
+      { type: "RUN_STARTED" },
+      start("c1"),
+      end("c1"),
+    ],
+    expected: {
+      steps: {
+        c1: { v: 1, kind: "server", status: "running" },
+      },
+    },
+  },
 ]
