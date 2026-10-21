@@ -624,7 +624,7 @@ jobs:
         run: pnpm build
 
       - name: Real-Postgres growth tests
-        run: pnpm --dir apps/web test:growth-db -- --reporter=json --outputFile.json="$RUNNER_TEMP/growth-db.json"
+        run: pnpm --dir apps/web test:growth-db --reporter=json --outputFile.json="$RUNNER_TEMP/growth-db.json"
 
       - name: Require the integration tests to have run
         # Vitest exits 0 when a gated suite skips, so green alone does not mean

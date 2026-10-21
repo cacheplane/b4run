@@ -516,7 +516,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Real-Postgres growth tests",
-                "run": "pnpm --dir apps/web test:growth-db -- --reporter=json --outputFile.json=\"$RUNNER_TEMP/growth-db.json\""
+                "run": "pnpm --dir apps/web test:growth-db --reporter=json --outputFile.json=\"$RUNNER_TEMP/growth-db.json\""
               }
             },
             {

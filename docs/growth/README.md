@@ -33,12 +33,12 @@ need the `GROWTH_*` variables below:
 
 ```bash
 pnpm --dir apps/web growth:migrate                                  # apply pending database migrations
-pnpm --dir apps/web growth:control -- status --email <address>      # show a contact's state
-pnpm --dir apps/web growth:control -- approve --email <address>     # founder reapproval (the only way to reapprove)
-pnpm --dir apps/web growth:control -- stop --email <address>        # stop all email to the contact
-pnpm --dir apps/web growth:control -- delete --email <address>      # delete the contact, keeping only the minimum
-pnpm --dir apps/web growth:report -- journey --email <address>      # one contact's recorded journey
-pnpm --dir apps/web growth:report -- counts                         # aggregate counts
+pnpm --dir apps/web growth:control status --email <address>      # show a contact's state
+pnpm --dir apps/web growth:control approve --email <address>     # founder reapproval (the only way to reapprove)
+pnpm --dir apps/web growth:control stop --email <address>        # stop all email to the contact
+pnpm --dir apps/web growth:control delete --email <address>      # delete the contact, keeping only the minimum
+pnpm --dir apps/web growth:report journey --email <address>      # one contact's recorded journey
+pnpm --dir apps/web growth:report counts                         # aggregate counts
 pnpm --dir apps/web test:growth-db                                  # real-Postgres tests (needs Docker)
 ```
 
