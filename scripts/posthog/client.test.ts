@@ -50,8 +50,13 @@ describe("createPosthogClient", () => {
       return json(502)
     }) as unknown as typeof fetch
     const client = createPosthogClient(env, fetchImpl, async () => undefined)
-    await expect(client.patch("/insights/3/", {})).rejects.toThrow(/PATCH \/insights\/3\/.*502/)
+    const sleeps: number[] = []
+    const withSleep = createPosthogClient(env, fetchImpl, async (ms) => {
+      sleeps.push(ms)
+    })
+    await expect(withSleep.patch("/insights/3/", {})).rejects.toThrow(/PATCH \/insights\/3\/.*502/)
     expect(attempts).toBe(3)
+    expect(sleeps).toEqual([500, 1000])
   })
 
   it("does not retry a 404 and handles delete", async () => {

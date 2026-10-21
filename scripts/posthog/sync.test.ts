@@ -174,9 +174,20 @@ describe("applyPlan", () => {
     const root = await fixtureRoot()
     await writeFile(join(root, "insights/i.json"), insight())
     const before = await readFile(join(root, "insights/i.json"), "utf8")
-    const client = fakeClient()
+    const forbid = async (): Promise<never> => {
+      throw new Error("mutating call during dry run")
+    }
+    const client: SyncClient = {
+      ...fakeClient(),
+      createInsight: forbid,
+      createDashboard: forbid,
+      updateInsight: forbid,
+      updateDashboard: forbid,
+      deleteInsight: forbid,
+      deleteDashboard: forbid,
+    }
     const plan = await computePlan({ root, client })
-    await applyPlan({ root, client, plan, dryRun: true })
+    await applyPlan({ root, client, plan, dryRun: true, deleteOrphans: true })
     expect(await readFile(join(root, "insights/i.json"), "utf8")).toBe(before)
   })
 
@@ -213,6 +224,88 @@ describe("applyPlan", () => {
       [1, [99, 10]],
       [2, [99]],
     ])
+  })
+})
+
+describe("applyPlan failure handling", () => {
+  const dashboard = (tile: string) =>
+    JSON.stringify({
+      slug: "d",
+      posthog_id: null,
+      name: "D",
+      description: "",
+      tiles: [{ insight: tile }],
+    })
+
+  it("writes posthog_id back for items adopted by name match", async () => {
+    const root = await fixtureRoot()
+    await writeFile(join(root, "insights/i.json"), insight())
+    const client = fakeClient({ insights: [{ id: 77, name: "I" }] })
+    const result = await applyPlan({ root, client, plan: await computePlan({ root, client }) })
+    expect(result.failed).toBe(0)
+    const written = JSON.parse(await readFile(join(root, "insights/i.json"), "utf8"))
+    expect(written.posthog_id).toBe(77)
+  })
+
+  it("counts orphan delete failures", async () => {
+    const root = await fixtureRoot()
+    const client: SyncClient = {
+      ...fakeClient({ insights: [{ id: 5, name: "Stray" }] }),
+      deleteInsight: async () => {
+        throw new Error("boom")
+      },
+    }
+    const result = await applyPlan({
+      root,
+      client,
+      plan: await computePlan({ root, client }),
+      deleteOrphans: true,
+    })
+    expect(result.failed).toBe(1)
+    expect(result.errors).toHaveLength(1)
+  })
+
+  it("rejects an unknown tile slug before any client call", async () => {
+    const root = await fixtureRoot()
+    await writeFile(join(root, "dashboards/d.json"), dashboard("nope"))
+    await writeFile(join(root, "insights/i.json"), insight())
+    const calls: string[] = []
+    const record = (name: string) => async (): Promise<never> => {
+      calls.push(name)
+      throw new Error("unexpected")
+    }
+    const client: SyncClient = {
+      ...fakeClient(),
+      createInsight: record("createInsight"),
+      createDashboard: record("createDashboard"),
+      deleteInsight: record("deleteInsight"),
+    }
+    const plan = await computePlan({ root, client })
+    await expect(applyPlan({ root, client, plan, deleteOrphans: true })).rejects.toThrow(
+      /dashboards\/d\.json.*"nope"/,
+    )
+    expect(calls).toEqual([])
+  })
+
+  it("fails the dependent dashboard per item when its insight cannot be created", async () => {
+    const root = await fixtureRoot()
+    await writeFile(join(root, "dashboards/d.json"), dashboard("i"))
+    await writeFile(join(root, "insights/i.json"), insight())
+    const deleted: number[] = []
+    const client: SyncClient = {
+      ...fakeClient({ insights: [{ id: 9, name: "Stray" }] }),
+      createInsight: async () => {
+        throw new Error("500")
+      },
+      deleteInsight: async (id) => {
+        deleted.push(id)
+      },
+    }
+    const plan = await computePlan({ root, client })
+    const result = await applyPlan({ root, client, plan, deleteOrphans: true })
+    expect(result.failed).toBe(2)
+    expect(result.errors.map((e) => e.kind).sort()).toEqual(["dashboard", "insight"])
+    expect(deleted).toEqual([9])
   })
 })
 

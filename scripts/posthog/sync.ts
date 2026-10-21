@@ -190,17 +190,33 @@ async function atomicWriteJson(path: string, data: unknown): Promise<void> {
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
-// Fail early on a tile that names an insight slug nobody defines. Tiles are
-// not sent to PostHog (read-only there); membership is wired through each
-// insight's `dashboards` field afterwards.
-function assertTilesResolve(dashboard: DashboardLocal, known: Map<string, number>): void {
-  for (const tile of dashboard.tiles) {
-    if (!known.has(tile.insight)) {
-      throw new Error(
-        `dashboards/${dashboard.slug}.json references unknown insight slug "${tile.insight}"`,
-      )
+// Fail before any remote call when a tile names an insight slug that no local
+// insight file defines. Tiles are not sent to PostHog (read-only there);
+// membership is wired through each insight's `dashboards` field afterwards.
+function assertTilesDefined(plan: SyncPlan): void {
+  const defined = new Set<string>()
+  for (const item of [...plan.create, ...plan.update]) {
+    if (item.kind === "insight") defined.add(item.local.slug)
+  }
+  for (const item of [...plan.create, ...plan.update]) {
+    if (item.kind !== "dashboard") continue
+    for (const tile of item.local.tiles) {
+      if (!defined.has(tile.insight)) {
+        throw new Error(
+          `dashboards/${item.local.slug}.json references unknown insight slug "${tile.insight}"`,
+        )
+      }
     }
   }
+}
+
+// Returns the first tile slug whose insight id is not known (its create or
+// update failed), or undefined when every tile resolves.
+function firstUnresolvedTile(
+  dashboard: DashboardLocal,
+  known: Map<string, number>,
+): string | undefined {
+  return dashboard.tiles.find((tile) => !known.has(tile.insight))?.insight
 }
 
 // Maps the local insight shape to PostHog's query schema (InsightVizNode).
@@ -277,6 +293,9 @@ export async function applyPlan(options: ApplyOptions): Promise<ApplyResult> {
     else dashboardSlugToId.set(item.local.slug, item.remoteId)
   }
 
+  const skippedDashboards = new Set<string>()
+  if (!dryRun) assertTilesDefined(plan)
+
   const fail = (kind: Kind, slug: string, err: unknown): void => {
     result.failed += 1
     result.errors.push({ kind, slug, error: message(err) })
@@ -289,7 +308,18 @@ export async function applyPlan(options: ApplyOptions): Promise<ApplyResult> {
     if (dryRun) continue
 
     for (const item of creates) {
-      if (item.kind === "dashboard") assertTilesResolve(item.local, insightSlugToId)
+      if (item.kind === "dashboard") {
+        const missing = firstUnresolvedTile(item.local, insightSlugToId)
+        if (missing !== undefined) {
+          skippedDashboards.add(item.local.slug)
+          fail(
+            item.kind,
+            item.local.slug,
+            new Error(`insight "${missing}" was not created or updated`),
+          )
+          continue
+        }
+      }
       try {
         const created =
           item.kind === "insight"
@@ -310,12 +340,26 @@ export async function applyPlan(options: ApplyOptions): Promise<ApplyResult> {
 
     for (const item of updates) {
       if (item.remoteId === undefined) continue
-      if (item.kind === "dashboard") assertTilesResolve(item.local, insightSlugToId)
+      if (item.kind === "dashboard") {
+        const missing = firstUnresolvedTile(item.local, insightSlugToId)
+        if (missing !== undefined) {
+          skippedDashboards.add(item.local.slug)
+          fail(
+            item.kind,
+            item.local.slug,
+            new Error(`insight "${missing}" was not created or updated`),
+          )
+          continue
+        }
+      }
       try {
         if (item.kind === "insight") {
           await client.updateInsight(item.remoteId, toPostHogInsight(item.local) as Body)
         } else {
           await client.updateDashboard(item.remoteId, toPostHogDashboard(item.local))
+        }
+        if (item.local.posthog_id !== item.remoteId) {
+          await atomicWriteJson(join(root, item.path), { ...item.local, posthog_id: item.remoteId })
         }
         result.applied += 1
       } catch (err) {
@@ -329,11 +373,13 @@ export async function applyPlan(options: ApplyOptions): Promise<ApplyResult> {
   if (!dryRun && dashboardSlugToId.size > 0) {
     try {
       const localDashboards = await loadLocalDir(root, "dashboards", DashboardLocal)
-      const managed = new Set(dashboardSlugToId.values())
+      const managed = new Set(
+        [...dashboardSlugToId].filter(([slug]) => !skippedDashboards.has(slug)).map(([, id]) => id),
+      )
       const desired = new Map<number, number[]>()
       for (const { data: dashboard } of localDashboards) {
         const dashboardId = dashboardSlugToId.get(dashboard.slug)
-        if (dashboardId === undefined) continue
+        if (dashboardId === undefined || skippedDashboards.has(dashboard.slug)) continue
         for (const tile of dashboard.tiles) {
           const insightId = insightSlugToId.get(tile.insight)
           if (insightId === undefined) throw new Error(`Unknown insight ${tile.insight}`)
@@ -379,11 +425,7 @@ export async function applyPlan(options: ApplyOptions): Promise<ApplyResult> {
         if (item.kind === "insight") await client.deleteInsight(item.remote.id)
         else await client.deleteDashboard(item.remote.id)
       } catch (err) {
-        result.errors.push({
-          kind: item.kind,
-          slug: `(orphan id=${item.remote.id})`,
-          error: message(err),
-        })
+        fail(item.kind, `(orphan id=${item.remote.id})`, err)
       }
     }
   }
