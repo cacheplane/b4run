@@ -22,6 +22,41 @@ export const ToolResultFrameSchema = z.looseObject({
 
 export const DoneFrameSchema = z.looseObject({ output: z.unknown() })
 
+/**
+ * One finished model call, as the runtime forwards the provider's own `usage_metadata`
+ * (`event: usage`). Only the counts the ledger sums are read; the rest passes untouched.
+ */
+export const UsageFrameSchema = z.looseObject({
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  usage_metadata: z.looseObject({
+    input_tokens: z.number().nonnegative(),
+    output_tokens: z.number().nonnegative(),
+    total_tokens: z.number().nonnegative().optional(),
+    input_token_details: z
+      .looseObject({ cache_read: z.number().nonnegative().optional() })
+      .optional(),
+    output_token_details: z
+      .looseObject({ reasoning: z.number().nonnegative().optional() })
+      .optional(),
+  }),
+})
+export type UsageFrame = z.infer<typeof UsageFrameSchema>
+
+/** The journal's `model_usage` payload, flattened from a usage frame: one line per model call. */
+export function modelUsagePayload(frame: UsageFrame): Record<string, unknown> {
+  const usage = frame.usage_metadata
+  return {
+    ...(frame.provider !== undefined ? { provider: frame.provider } : {}),
+    ...(frame.model !== undefined ? { model: frame.model } : {}),
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cachedInputTokens: usage.input_token_details?.cache_read ?? 0,
+    reasoningTokens: usage.output_token_details?.reasoning ?? 0,
+    totalTokens: usage.total_tokens ?? usage.input_tokens + usage.output_tokens,
+  }
+}
+
 export const ThreadSchema = z.looseObject({ thread_id: z.string().min(1), status: z.string() })
 
 /** `PUT /workspace/sources/:digest`'s answer: `created` for new bytes, `held` for bytes it had. */

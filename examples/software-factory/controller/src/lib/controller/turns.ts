@@ -3,12 +3,16 @@ import {
   InterruptFrameSchema,
   type StreamFrame,
   ToolResultFrameSchema,
+  type UsageFrame,
+  UsageFrameSchema,
 } from "../worker/wire.js"
 
 export interface TurnHandlers {
   onFirstFrame?: () => Promise<void>
   onToolResult?: (name: string, output: unknown) => Promise<void>
   onInterrupt?: (frame: InterruptFrame) => Promise<void>
+  /** One finished model call's token counts, as the provider reported them. */
+  onUsage?: (frame: UsageFrame) => Promise<void>
   onDone?: (data: unknown) => Promise<void>
 }
 
@@ -60,6 +64,15 @@ export async function consumeTurn(
         interrupts.push(parsed.data)
         phase = "handler"
         await handlers.onInterrupt?.(parsed.data)
+        phase = "transport"
+      } else if (frame.event === "usage") {
+        const parsed = UsageFrameSchema.safeParse(frame.data)
+        if (!parsed.success) {
+          malformed += 1
+          continue
+        }
+        phase = "handler"
+        await handlers.onUsage?.(parsed.data)
         phase = "transport"
       } else if (frame.event === "done") {
         sawDone = true

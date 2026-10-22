@@ -1,5 +1,5 @@
 import type { WorkOrderRow } from "../domain/work-order.js"
-import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { classifyDone, modelUsagePayload, type StreamFrame } from "../worker/wire.js"
 import type { ControllerContext } from "./context.js"
 import { reconcileWorkOrder } from "./reconcile.js"
 import { consumeTurn } from "./turns.js"
@@ -33,6 +33,12 @@ export async function observeRun(
       // `transition` re-reads the row inside its own transaction, so the state it checks
       // is the state it writes from: no read-then-write race with a concurrent command.
       if (ctx.mustGet(id).state === "dispatched") ctx.transition(id, "run_started")
+    },
+    // Every model call's counts, as the stream reports them: the ledger sums these per phase.
+    // Journalled whatever the row's state, since a cancel racing the last call loses nothing
+    // by recording what was already spent.
+    onUsage: async (frame) => {
+      ctx.recordEvent(id, "model_usage", { phase: "build", ...modelUsagePayload(frame) })
     },
     onInterrupt: async (frame) => {
       // Rung 1's builder route has no gate to park on: the controller decides what the turn

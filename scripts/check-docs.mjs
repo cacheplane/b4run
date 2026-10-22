@@ -4114,6 +4114,7 @@ const expectedNavDocEntries = [
   { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
   { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
   { label: "Navlog Example App", href: "/docs/recipes/navlog" },
+  { label: "Software Factory Example", href: "/docs/recipes/software-factory" },
   { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
   { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
   { label: "Blueprints", href: "/docs/blueprints" },
@@ -4212,9 +4213,9 @@ if (apiReferenceRegistry) {
     ...navDocEntries.slice(apiHubIndex + 1),
   ]
   const expectedAllDocsPageCount = navDocEntries.length + API_REFERENCE_PAGES.length
-  if (navDocEntries.length !== 65 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
+  if (navDocEntries.length !== 66 || expectedAllDocsPages.length !== expectedAllDocsPageCount) {
     failures.push(
-      `Docs page registries must retain 65 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
+      `Docs page registries must retain 66 journey pages plus every registered API reference leaf; received ${navDocEntries.length} journey pages, ${API_REFERENCE_PAGES.length} reference leaves, and ${expectedAllDocsPages.length} total pages`,
     )
   }
   const navModule = await tsImport(pathToFileURL(docsNavPath).href, import.meta.url).catch(
