@@ -256,6 +256,9 @@ it("runs a real drafter turn against the wide capture, reads only draft/, and pr
     "intake_thread_created",
     "transition",
     "intake_run_started",
+    // One line per model call the drafter's stream reported: the eight scripted
+    // requests asserted below.
+    ...Array.from({ length: 8 }, () => "model_usage"),
     "intake_turn_ended",
     "draft_read",
     // The draft parsed and its check passed the static pre-check: on the record.
