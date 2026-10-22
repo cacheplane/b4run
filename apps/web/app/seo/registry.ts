@@ -442,6 +442,13 @@ export const DOCS_SEO_ENTRIES = [
     sourcePath: "apps/web/content/docs/recipes/navlog.mdx",
   },
   {
+    path: "/docs/recipes/software-factory",
+    title: "Software Factory Example",
+    description:
+      "Turn a GitHub issue into a merged fix with a person at two gates, a sandboxed builder, and an independent check the builder never sees.",
+    sourcePath: "apps/web/content/docs/recipes/software-factory.mdx",
+  },
+  {
     path: "/docs/recipes/flight-planner",
     title: "Build a Flight Planner",
     description:

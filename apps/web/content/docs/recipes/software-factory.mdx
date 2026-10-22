@@ -1,0 +1,85 @@
+# Software Factory Example
+
+The software factory turns a GitHub issue into a merged fix with a person at two gates and nowhere else. It is built from B4.run routes: a **controller** app that owns every decision, a **drafter** agent that writes the task, and a **builder** agent that makes the repair in a sandbox it cannot leave. It lives in [`examples/software-factory`](https://github.com/cacheplane/b4run/tree/main/examples/software-factory), runs on your machine with Docker, and has delivered three real fixes to B4.run's own repository.
+
+<Callout type="info" title="What this page is">
+An overview of what the example does, what it proves, and how to run it. The example's own [README](https://github.com/cacheplane/b4run/blob/main/examples/software-factory/README.md) is the operator's manual, and the design is in the program's specs under `docs/superpowers/specs/`.
+</Callout>
+
+## What it does
+
+One issue becomes one **work order**, and a work order moves through a closed state machine that the controller alone advances:
+
+1. **Intake.** The drafter reads the issue and the target package at a pinned commit and writes a task: the one or two files the builder may change, a specification with numbered acceptance criteria, and an independent check as a `node:test` file. The controller proves the check **fails** on the unpatched code before anyone sees it. A check that passes early is refused and redrafted.
+2. **First gate.** A person reads the task, the spec and the check, and approves them by digest.
+3. **Build.** The builder gets the captured package in a container built for that commit, the spec, and the package's own test suite. It edits files and stops. It never sees the independent check and has no way to report a verdict.
+4. **Verify.** The controller diffs the builder's workspace against its own baseline, refuses anything outside the allowed files, and runs the visible suite and the independent check in two separate containers. It issues the receipt itself.
+5. **Second gate.** A person approves a frozen bundle: the candidate's bytes, the spec, the policy, the verifier's identity and the evidence, all under one digest.
+6. **Deliver.** A GitHub App confined to `factory/*` branches opens a draft pull request with one commit parented at the pin, re-verifying first and reading the tree back before it records success.
+7. **Adopt.** `factory adopt` turns the draft into the person's own PR on the person's side: the delivered commit cherry-picked, a changeset, and the independent check promoted into the package's test suite. The person's PR runs the repository's full CI and closes the issue.
+
+Every transition is journalled, every command is idempotent under an operation key, and a controller restart reconciles from the journal rather than re-running anything.
+
+## What it shows about B4.run
+
+| What the factory needs | B4.run feature | Where |
+| --- | --- | --- |
+| Long-running, restartable commands that return a decision | [`workflow` routes](/docs/routes) on the controller | `controller/src/app/work-orders/` |
+| A builder that can edit files but cannot leave its directory, open the network, or ask a person for anything | A [sandbox per thread](/docs/sandbox) with `non-interactive` [permissions](/docs/permissions) | `server/src/app/build/`, `server/b4.config.ts` |
+| The controller reading the builder's files without trusting the builder | The [workspace](/docs/workspace) read over the Agent Protocol port, with a token | `controller/src/lib/controller/verify.ts` |
+| Each work order in its own image at its own commit | A handoff in thread metadata that names the image by id, checked at admission | `controller/src/lib/builder-handoff.ts` |
+| A drafter that reads a whole package but cannot touch it | A second agent app with a read-only wide capture and a `draft/` directory it may write | `drafter/src/app/intake/` |
+| Durable state that survives a crash | SQLite registry, append-only journal, content-addressed artifacts | `controller/src/lib/registry/` |
+
+## What it proves
+
+These are the invariants the test suites and the live runs hold to:
+
+- **The controller owns the verdict.** It captures the baseline, reads the workspace, diffs the candidate, runs the checks in its own containers and writes the receipt. Nothing the builder says is read as a verdict.
+- **The independent check is out of reach.** It is written from the controller's copy into a container the builder's suite never ran in. A candidate that passes the visible suite and fails the check cannot reach approval.
+- **A candidate cannot repair itself by editing tests.** The test directory is immutable, and each verification session snapshots the workspace before and after its suite.
+- **Approval binds a frozen bundle.** Change the policy or the verifier's environment and the consent is void, even if the candidate's bytes did not change.
+- **Only the approved bytes leave.** The delivered commit's tree is compared to the expected tree, and a tree GitHub holds that differs is a refusal, never a retry.
+- **"We do not know" is its own answer.** An unreadable workspace or a harness that could not run settles as inconclusive, which blocks and is never confused with a failure.
+
+## What it has done
+
+Three issues in B4.run's own repository, each pinned at `main`'s tip of the day, each delivered as a draft PR by the factory's app and adopted into a merged fix with a changeset and a regression test:
+
+| Issue | Package | Work orders | Factory time | Result |
+| --- | --- | --- | --- | --- |
+| A `--port` flag with no upper bound | `cli` | 5 | hours | merged |
+| A template writer mangling `$` in values | `devkit` | 1 | about 4 minutes | merged |
+| A `PORT` env var reaching `net.listen` unchecked | `cli` | 1 | about 4 minutes | merged |
+
+The first run's five work orders were the point: each failure was a defect in the factory or in B4.run itself, fixed before the second run. The second and third runs each took one intake attempt and one candidate attempt. An independent audit of the second run recomputed the task digest and the verifier identity from the stored evidence and found every delivered property held.
+
+## What it does not do yet
+
+- **No cost figures.** Model usage per work order is not yet collected into a ledger, so cost per accepted change, the program's own metric, is not measured. That is the next piece of work.
+- **One file in one package.** Every run so far allowed a single source file. Wider task classes are deliberately not claimed until measured.
+- **Issues written for it.** The three issues were written by someone who knew the shape the drafter expects. Intake on issues as users write them is untested.
+- **No authentication on the controller.** It is an HTTP app meant for loopback. Its workers, by contrast, admit only the controller's token.
+- **No merge.** The factory never marks a PR ready, merges, or pushes to its branch again. Merging is a person's act, by design.
+
+## Run it
+
+You need Docker, Git, Node 24 and an OpenAI API key. From the repository root, build the workspace, then from `examples/software-factory`:
+
+```bash
+FACTORY_MAX_ACTIVE_MS=18000000 FACTORY_APPROVAL_TTL_MS=86400000 pnpm factory up
+```
+
+```bash
+pnpm factory run --issue 714 --pin 765e6e16fec86bba0859d3f85edf7136f663f720
+```
+
+`up` starts the controller, builder and drafter on loopback and reconciles any work order a previous run left. `run` creates the work order, carries it to each gate, and stops there: `pnpm factory review <id>` shows what an approval covers and takes the digest's prefix. Delivering as a draft PR needs a GitHub App and a local config; the README's "Delivering as a draft pull request" section has the setup, and `factory adopt <id>` does the hand-off once a draft exists.
+
+The shipped tasks under `controller/tasks/` run without an issue or a GitHub App: `pnpm factory run --task cli-flags` exercises the whole lifecycle against a fake verifier in the test suite, and the real one with Docker.
+
+## Read more
+
+- The [README](https://github.com/cacheplane/b4run/blob/main/examples/software-factory/README.md): every command, every environment variable, every journal event, and what each rung changed.
+- The program's RFC and the rung designs under `docs/superpowers/specs/` in the repository, from rung 0 (a controller in front of a worker) to rung 4 (draft pull requests).
+- [What is a software factory?](/blog/what-is-a-software-factory), the blog post the program started from.

@@ -298,6 +298,9 @@ describe("intake", () => {
       "intake_thread_created:",
       "transition:intake_started",
       "intake_run_started:",
+      // One line per model call the drafter's stream reported.
+      "model_usage:",
+      "model_usage:",
       "intake_turn_ended:",
       "draft_read:",
       "precheck_passed:",

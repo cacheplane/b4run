@@ -610,6 +610,22 @@ person's job. Confirm, the last step, only reads, so a cancel that lands while i
 records the receipt: a `cancelled` work order may show a `pullRequest`, and the receipt is the
 truth about what was published.
 
+**`pnpm factory ledger [<id>...] [--json] [--md <path>]`** is the cost and time ledger: one row
+per work order, computed from the journal and the row alone. Attempts (intake and candidate);
+minutes per phase, each summed over the attempts that ran it (intake: drafter turns and oracle
+proofs; image: image builds, during which the budget is paused; build: builder turns; verify:
+verifications; deliver: approval to delivered; waiting: parked at a gate); what a person read
+(drafts and bundles); the tokens each phase's model calls reported; and the cost estimated from
+a price table. The tokens come from the stream: the runtime forwards every finished model
+call's `usage_metadata` as a `usage` frame, and the controller journals each as `model_usage`
+(`phase`, `model`, `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens`) while
+the builder's or drafter's turn runs. The price table is `controller/src/lib/operator/prices.ts`
+(list prices as of the date it names); `FACTORY_PRICES_JSON` lays a JSON object of the same
+shape over it. Every money figure is an estimate (RFC §13): the provider's invoice is the
+authority. A run journalled before the ledger existed shows `n/a` for tokens and cost; its
+timing still sums. Human active minutes are not recorded: the gate counts and the waiting
+time are the proxies.
+
 **`run` never approves or redelivers.** It stops at the bundle as it does for an export (the
 same review, now naming the delivery) and, at a block, prints the next commands
 (`redeliver` among them only when the reason allows) and exits 1. Its source pin test forbids
