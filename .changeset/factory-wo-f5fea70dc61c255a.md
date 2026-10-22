@@ -2,4 +2,4 @@
 "@b4run/cli": patch
 ---
 
-`--port` has no upper bound: `b4 start --port 70000` crashes with Node's `ERR_SOCKET_BAD_PORT` instead of `Invalid port`. Refs #1047.
+`b4 start --port` now rejects values above 65535 with `Invalid port` instead of crashing with Node's `ERR_SOCKET_BAD_PORT`. Fixes #1047.

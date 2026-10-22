@@ -2,4 +2,4 @@
 "@b4run/devkit": patch
 ---
 
-devkit: writeTemplate mangles a replacement value containing `$`. Refs #1053.
+Template replacements now preserve literal dollar signs in replacement values instead of interpreting them as replacement patterns. Fixes #1053.
