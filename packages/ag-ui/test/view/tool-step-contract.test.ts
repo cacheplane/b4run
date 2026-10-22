@@ -34,14 +34,22 @@ function foldFixture(events: readonly ToolStepFixtureEvent[]): TurnsView {
   )
 }
 
-/** The fields the contract compares; times are each side's own clock. */
+/**
+ * The fields the contract compares: every field the view stores. Times are
+ * each side's own clock, and `parentToolCallId` is not kept by the view.
+ */
 function compared(step: B4ToolStep) {
   return {
     status: step.status,
     kind: step.kind,
+    ...(step.builtin !== undefined ? { builtin: step.builtin } : {}),
+    ...(step.provider !== undefined ? { provider: step.provider } : {}),
     ...(step.label !== undefined ? { label: step.label } : {}),
+    ...(step.icon !== undefined ? { icon: step.icon } : {}),
+    ...(step.queries !== undefined ? { queries: step.queries } : {}),
     ...(step.sources !== undefined ? { sources: step.sources } : {}),
     ...(step.error !== undefined ? { error: step.error } : {}),
+    ...(step.decision !== undefined ? { decision: step.decision } : {}),
   }
 }
 
