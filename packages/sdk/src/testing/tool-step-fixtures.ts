@@ -827,4 +827,80 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       },
     },
   },
+  {
+    name: "completed-without-label-drops-running-label",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Searching flights",
+        icon: "search",
+        queries: ["SFO to JFK"],
+        sources: [{ id: "c1:0", kind: "record", title: "Fare table" }],
+        startedAt: 18000,
+      }),
+      end("c1"),
+      // The settle restates neither the label nor the sources.
+      custom({ v: 1, toolCallId: "c1", kind: "server", status: "completed", settledAt: 18500 }),
+      result("c1"),
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "completed",
+          icon: "search",
+          queries: ["SFO to JFK"],
+          startedAt: 18000,
+          settledAt: 18500,
+        },
+      },
+    },
+  },
+  {
+    name: "late-running-adds-nothing-to-settled",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "running",
+        label: "Sending invoice",
+        startedAt: 19000,
+      }),
+      end("c1"),
+      custom({
+        v: 1,
+        toolCallId: "c1",
+        kind: "server",
+        status: "completed",
+        label: "Sent invoice",
+        settledAt: 19400,
+      }),
+      // A running write that arrives late says nothing about a settled step.
+      custom({
+        v: 1,
+        toolCallId: "c1",
+        kind: "server",
+        status: "running",
+        label: "Still sending",
+        icon: "mail",
+        queries: ["late"],
+      }),
+      result("c1"),
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "completed",
+          label: "Sent invoice",
+          startedAt: 19000,
+          settledAt: 19400,
+        },
+      },
+    },
+  },
 ]

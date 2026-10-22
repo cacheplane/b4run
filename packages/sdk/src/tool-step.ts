@@ -294,16 +294,6 @@ const CLEARS_RUNNING: ReadonlySet<string> = new Set(["failed", "denied", "cancel
 
 const DEFAULT_FAILURE = "Tool call did not finish"
 
-/** Drops the running label and sources, keeping only what `keep` itself supplies. */
-function withoutRunningDetail(step: B4ToolStep, keep: B4ToolStepUpdate): B4ToolStep {
-  const { label, sources, ...rest } = step
-  return {
-    ...rest,
-    ...(keep.label !== undefined && label !== undefined ? { label } : {}),
-    ...(keep.sources !== undefined && sources !== undefined ? { sources } : {}),
-  }
-}
-
 /** A failed step always carries an error; any other step never does. */
 function withErrorRule(step: B4ToolStep): B4ToolStep {
   if (step.status === "failed") {
@@ -315,15 +305,35 @@ function withErrorRule(step: B4ToolStep): B4ToolStep {
 }
 
 /**
- * Folds `next` into `previous` by the contract's merge rules: `failed` wins;
- * `completed`, `denied` and `cancelled` settle an unfailed step; `running`
- * only lifts an unsettled step; a `"message"` beats a `"call"`. A move into
- * `failed`, `denied` or `cancelled` from any other status (running or
- * completed) drops the previous label and sources, takes `next`'s fields over
- * the previous ones, and keeps the previous icon only when `next` names none;
- * a repeated settle into the same status keeps what the step shows. A `next`
- * without a status never changes the status. With no `previous` and no status
- * the step starts as `running`.
+ * Folds `next` into `previous` by the contract's merge rules and returns the
+ * merged step; neither argument is mutated.
+ *
+ * Read `next` with {@link readToolStepUpdate}, not {@link readToolStep}: the
+ * update leaves `kind` out when the source states none, so a sparse legacy
+ * value never turns a stored `provider` step into a `server` one. `source` is
+ * the carrier: `"message"` for the call's result (TOOL_CALL_RESULT metadata or
+ * the ToolMessage), `"call"` for START/END metadata and CUSTOM events.
+ *
+ * Status:
+ * - `failed` wins over every other status.
+ * - `completed`, `denied` and `cancelled` settle a step that is still running.
+ *   A settled step changes only for a `"message"` write, or for a move from
+ *   `completed` into `denied` or `cancelled`.
+ * - `running` only lifts an unsettled step. A `next` without a status never
+ *   changes the status. With no `previous` and no status the step starts as
+ *   `running`.
+ *
+ * Fields:
+ * - A settle out of `running` drops the running-only `label` and `sources`
+ *   unless `next` restates them; `icon`, `startedAt`, `queries`, `kind`,
+ *   `builtin` and `provider` carry over.
+ * - A move into a different bad status (`failed`, `denied`, `cancelled`) from
+ *   `completed` does the same: `next`'s label and sources, or none.
+ * - A `running` write never contributes fields to a settled step.
+ * - Otherwise `next`'s defined fields merge over `previous`, and a
+ *   `"message"` write beats a `"call"` write on a settled step.
+ * - A failed step always carries `error`, defaulting to
+ *   `{ message: "Tool call did not finish" }`; any other step carries none.
  */
 export function mergeToolStep(
   previous: B4ToolStep | undefined,
@@ -331,21 +341,25 @@ export function mergeToolStep(
   source: "call" | "message",
 ): B4ToolStep {
   if (previous === undefined) {
-    const status = next.status ?? "running"
-    const created: B4ToolStep = { ...next, kind: next.kind ?? "server", status }
-    return withErrorRule(CLEARS_RUNNING.has(status) ? withoutRunningDetail(created, next) : created)
+    return withErrorRule({ ...next, kind: next.kind ?? "server", status: next.status ?? "running" })
   }
   if (previous.status === "failed") return withErrorRule(previous)
   const prevSettled = SETTLED.has(previous.status)
   const { status: nextStatus, ...nextFields } = next
+  // A running write says nothing about a step that has already settled.
+  if (prevSettled && nextStatus === "running") return withErrorRule(previous)
   let status: B4ToolStepStatus = previous.status
   if (nextStatus === "failed") status = "failed"
-  else if (nextStatus !== undefined && nextStatus !== "running") {
-    if (source === "message" || !prevSettled) status = nextStatus
-  } else if (nextStatus === "running" && !prevSettled) status = "running"
-  if (CLEARS_RUNNING.has(status) && status !== previous.status) {
-    // The call ended badly: what it showed before (a running sentence, or a
-    // completed one) no longer says what happened.
+  else if (nextStatus === "running") status = "running"
+  else if (nextStatus !== undefined) {
+    const badAfterCompleted = previous.status === "completed" && CLEARS_RUNNING.has(nextStatus)
+    if (source === "message" || !prevSettled || badAfterCompleted) status = nextStatus
+  }
+  const settlesRunning = previous.status === "running" && SETTLED.has(status)
+  const turnsBad = CLEARS_RUNNING.has(status) && status !== previous.status
+  if (settlesRunning || turnsBad) {
+    // What the step showed while it ran (or as it completed) no longer says
+    // what happened: only what the settle itself restates stays.
     const { label: _label, sources: _sources, ...kept } = previous
     return withErrorRule({ ...kept, ...nextFields, status })
   }

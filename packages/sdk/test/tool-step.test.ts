@@ -216,6 +216,60 @@ describe("mergeToolStep", () => {
     expect(merged.error).toEqual({ message: "Tool call did not finish" })
   })
 
+  it("drops the running label and sources on a settle that restates neither", () => {
+    const previous = running({
+      label: "Searching",
+      icon: "search",
+      queries: ["q"],
+      sources: [{ id: "c1:0", kind: "record", title: "A" }],
+      startedAt: 1,
+    })
+
+    const bare = mergeToolStep(previous, running({ status: "completed", settledAt: 2 }), "call")
+    const restated = mergeToolStep(
+      previous,
+      running({
+        status: "completed",
+        label: "Searched",
+        sources: [{ id: "c1:1", kind: "record", title: "B" }],
+      }),
+      "call",
+    )
+
+    expect(bare).toEqual({
+      v: 1,
+      toolCallId: "c1",
+      kind: "server",
+      status: "completed",
+      icon: "search",
+      queries: ["q"],
+      startedAt: 1,
+      settledAt: 2,
+    })
+    expect(restated.label).toBe("Searched")
+    expect(restated.sources).toEqual([{ id: "c1:1", kind: "record", title: "B" }])
+  })
+
+  it("takes no fields from a running write once the step has settled", () => {
+    const done = running({ status: "completed", label: "Done" })
+    const late = running({ label: "Late", icon: "mail", queries: ["q"], startedAt: 9 })
+
+    expect(mergeToolStep(done, late, "call")).toEqual(done)
+    expect(mergeToolStep(done, late, "message")).toEqual(done)
+  })
+
+  it("lets a different bad status from the call replace a completed step", () => {
+    const done = running({ status: "completed", label: "Refunded" })
+
+    const denied = mergeToolStep(
+      done,
+      running({ status: "denied", label: "Blocked", decision: "deny" }),
+      "call",
+    )
+
+    expect(denied).toMatchObject({ status: "denied", label: "Blocked", decision: "deny" })
+  })
+
   it("starts from next when there is no previous step", () => {
     expect(mergeToolStep(undefined, running(), "call")).toEqual(running())
   })

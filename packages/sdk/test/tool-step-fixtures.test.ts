@@ -25,6 +25,8 @@ describe("tool-step fixture corpus", () => {
       "restart-reopens-cancelled-step",
       "late-result-keeps-cancelled",
       "held-step-dropped-at-run-end",
+      "completed-without-label-drops-running-label",
+      "late-running-adds-nothing-to-settled",
     ])
   })
 

@@ -123,9 +123,10 @@ export function sameToolStep(a: ToolStep, b: ToolStep): boolean {
 /**
  * Folds one `b4.step` update into a tool step by the contract's merge rules
  * (`mergeToolStep`): `failed` wins; `completed`, `denied` and `cancelled`
- * settle an unfailed step; `running` only lifts an unsettled one; a
- * `"message"` source (the call's result) beats a `"call"` source; failed,
- * denied and cancelled drop the running label and sources. The view keeps its
+ * settle an unfailed step; `running` only lifts an unsettled one and adds
+ * nothing to a settled one; a `"message"` source (the call's result) beats a
+ * `"call"` source; a settle out of running drops the running label and
+ * sources unless it restates them. The view keeps its
  * own clock: a step that settles here takes `at` unless it already settled.
  * `error` is kept only when a producer sent one. Returns `step` itself when
  * nothing it shows changed.
