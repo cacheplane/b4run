@@ -43,7 +43,7 @@ describe("robots policy", () => {
     for (const rule of metadata.rules) {
       expect(Object.keys(rule).sort()).toEqual(["allow", "disallow", "userAgent"])
       expect(normalize(rule.allow)).toEqual(["/"])
-      expect(normalize(rule.disallow)).toEqual(["/api/"])
+      expect(normalize(rule.disallow)).toEqual(["/api/", "/ingest/"])
     }
   })
 })

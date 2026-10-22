@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import { useEffect, useId, useRef, useState } from "react"
+import type { CtaId } from "../lib/analytics/events"
 import { MobileDocsNav } from "./docs/MobileDocsNav"
 import headerStyles from "./homepage/header.module.css"
 import { NAVLOG_DEMO_URL } from "./site-links"
@@ -14,14 +15,15 @@ interface MenuLink {
   readonly label: string
   readonly href: string
   readonly download?: boolean
+  readonly ctaId?: CtaId
 }
 
 const SITE_LINKS: readonly MenuLink[] = [
-  { label: "Docs", href: "/docs/getting-started" },
-  { label: "Blog", href: "/blog" },
-  { label: "Demo", href: NAVLOG_DEMO_URL },
+  { label: "Docs", href: "/docs/getting-started", ctaId: "header_get_started" },
+  { label: "Blog", href: "/blog", ctaId: "header_blog" },
+  { label: "Demo", href: NAVLOG_DEMO_URL, ctaId: "header_live_demo" },
   { label: "Download brand kit", href: "/brand/b4-run-brand-assets.zip", download: true },
-  { label: "GitHub", href: "https://github.com/cacheplane/b4run" },
+  { label: "GitHub", href: "https://github.com/cacheplane/b4run", ctaId: "header_github" },
 ]
 
 /**
@@ -112,6 +114,7 @@ export function MobileMenu() {
           setIsOpen(false)
         }}
         onClose={() => setIsOpen(false)}
+        data-signal-surface="mobile_nav"
         className="md:hidden fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none border-0 bg-page p-0"
       >
         <div className="h-full overflow-y-auto">
@@ -140,6 +143,7 @@ export function MobileMenu() {
                   <SiteLink
                     href={link.href}
                     {...(link.download ? { download: true } : {})}
+                    {...(link.ctaId !== undefined ? { "data-cta-id": link.ctaId } : {})}
                     onClick={() => setIsOpen(false)}
                     className="block text-base px-3 py-2.5 text-ink-muted hover:text-ink hover:bg-surface transition-colors"
                   >
@@ -149,7 +153,7 @@ export function MobileMenu() {
               ))}
             </ul>
             <div className="mt-5 px-3">
-              <CopyCommand command="npm create b4-app@latest my-agent" />
+              <CopyCommand command="npm create b4-app@latest my-agent" surface="mobile_nav" />
             </div>
           </div>
 

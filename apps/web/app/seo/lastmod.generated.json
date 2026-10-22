@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-10-20T01:23:40.000Z",
-      "sourceDigest": "02c8628bd1d243bdc875f2f531b6792bb3a40139b5290fbf4d607c545bd88a8c",
-      "recordDigest": "bbc53f28a14a24c3a450c60320046a145237cf928dd180fb9942583db97c987d"
+      "lastModified": "2026-10-21T16:39:44.000Z",
+      "sourceDigest": "a9615cfa1ed70915e82c9d2add6129bc05a015e9f967e0f615254ce835078968",
+      "recordDigest": "ec1d248f2713f0e887cc455cd43cf1b010a7d0b2594bdc98850881628fe2084e"
     },
     "/blog": {
       "lastModified": "2026-10-20T01:48:58.000Z",
@@ -347,9 +347,9 @@
       "recordDigest": "c9570f9f413b83a0ea8459574c90bc3df616f486a77285ed13c2ca72d018a2bb"
     },
     "/docs/recipes/software-factory": {
-      "lastModified": "2026-10-21T23:12:59.556Z",
+      "lastModified": "2026-10-21T23:29:31.000Z",
       "sourceDigest": "3aa1ac7cbfeb2a5a8d5280471353fedac0e8e670d490e2057726334e0297a998",
-      "recordDigest": "0cee2c6c929058de473ad00e58e7101136e672556ff92951ddfc99e565006afd"
+      "recordDigest": "80f8430b0541ebd5be4129a55661b8ae676da90f8a93953b06b776b0eb44df6a"
     },
     "/docs/recipes/stream-output": {
       "lastModified": "2026-10-04T23:15:09.000Z",
@@ -445,6 +445,11 @@
       "lastModified": "2026-10-08T23:13:19.000Z",
       "sourceDigest": "dbaec8642471bcc981046eaa982cebf32debdfd73db53c98dc3e76ce0db3699e",
       "recordDigest": "90a2ce6f7143e3d62b70acbe5c8e8199d9c9f885a9eeb8b0962a96b0e2113c9a"
+    },
+    "/privacy": {
+      "lastModified": "2026-10-21T16:02:02.000Z",
+      "sourceDigest": "e20914c82379584aa68346b848497f5440701a3f72fd2902fc05f32458ca8b08",
+      "recordDigest": "375209415f84bb9dc9e29151b0d5d56c41c86de85bea811a7060337a9990f414"
     }
   }
 }

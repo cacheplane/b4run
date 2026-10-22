@@ -2,9 +2,12 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { track } from "../../lib/analytics/client"
 import { DocsSearch, DocsSearchTrigger } from "./DocsSearch"
 import { openDocsSearch, resetDocsSearchIndex } from "./docs-search-events"
 import type { DocsSearchEntry } from "./search-index"
+
+vi.mock("../../lib/analytics/client", () => ({ track: vi.fn() }))
 
 const push = vi.fn()
 vi.mock("next/navigation", () => ({
@@ -53,6 +56,7 @@ const fetchMock = vi.fn()
 beforeEach(() => {
   resetDocsSearchIndex()
   push.mockReset()
+  vi.mocked(track).mockClear()
   fetchMock.mockReset()
   fetchMock.mockResolvedValue(new Response(JSON.stringify(INDEX)))
   vi.stubGlobal("fetch", fetchMock)
@@ -161,6 +165,17 @@ describe("docs search dialog", () => {
     expect(dialog()?.open).toBe(false)
   })
 
+  it("choosing a search result reports docs:search_result_click without the query", async () => {
+    const container = await render()
+    await openFromTrigger(container)
+    vi.mocked(track).mockClear()
+    await type("backoff")
+    await key(input() as HTMLInputElement, { key: "Enter" })
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(track).toHaveBeenCalledWith("docs:search_result_click")
+    expect(JSON.stringify(vi.mocked(track).mock.calls)).not.toContain("backoff")
+  })
+
   it("names the export an API page matched through", async () => {
     const container = await render()
     await openFromTrigger(container)
@@ -205,6 +220,14 @@ describe("docs search dialog", () => {
     document.body.append(textarea)
     await key(textarea, { key: "/" })
     expect(dialog()?.open).toBe(false)
+  })
+
+  it("reports docs:search_open exactly once for a Cmd/Ctrl-K keydown", async () => {
+    await render()
+    await key(window, { key: "k", metaKey: true })
+    expect(dialog()?.open).toBe(true)
+    expect(track).toHaveBeenCalledTimes(1)
+    expect(track).toHaveBeenCalledWith("docs:search_open")
   })
 
   it("opens from another trigger via the open event and returns focus to it", async () => {

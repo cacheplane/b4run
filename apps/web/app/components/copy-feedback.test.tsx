@@ -2,11 +2,15 @@
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { track } from "../lib/analytics/client"
 import { writeClipboard } from "./copy-feedback"
 import { CopyCommand } from "./ui/CopyCommand"
 
+vi.mock("../lib/analytics/client", () => ({ track: vi.fn() }))
+
 const roots: ReturnType<typeof createRoot>[] = []
 afterEach(async () => {
+  vi.mocked(track).mockClear()
   for (const root of roots) await act(async () => root.unmount())
   roots.length = 0
   document.body.innerHTML = ""
@@ -47,5 +51,33 @@ describe("copy feedback", () => {
     })
     await act(async () => buttons[0]?.click())
     expect(statusEl?.textContent).toBe("Copy failed")
+  })
+
+  async function renderChip(surface?: "blog") {
+    clipboard(async () => {})
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    roots.push(root)
+    await act(async () =>
+      root.render(
+        <CopyCommand
+          command="npm create b4-app@latest my-agent"
+          {...(surface ? { surface } : {})}
+        />,
+      ),
+    )
+    await act(async () => container.querySelector("button")?.click())
+  }
+
+  it("reports an install command copy with the surface and never the command", async () => {
+    await renderChip("blog")
+    expect(track).toHaveBeenCalledWith("site:install_command_copied", { surface: "blog" })
+    expect(JSON.stringify(vi.mocked(track).mock.calls)).not.toContain("npm create")
+  })
+
+  it("a CopyCommand without a surface reports nothing", async () => {
+    await renderChip()
+    expect(track).not.toHaveBeenCalled()
   })
 })

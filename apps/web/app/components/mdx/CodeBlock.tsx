@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { copyCodeEventFor, track } from "../../lib/analytics/client"
 import { CopyStatus, useCopyFeedback } from "../copy-feedback"
 import { Icon } from "../ui/Icon"
 
@@ -82,7 +83,12 @@ export function Pre({ children, className, ...rest }: PreProps) {
     <div data-code-frame className="relative my-6 overflow-hidden">
       <CodeHeaderRow
         left={<TabPill label={label} active />}
-        right={<CopyButton getText={() => ref.current?.textContent ?? ""} />}
+        right={
+          <CopyButton
+            getText={() => ref.current?.textContent ?? ""}
+            {...(language ? { language } : {})}
+          />
+        }
       />
       <ScrollFade scrollerRef={ref}>
         <pre ref={ref} className={`overflow-x-auto pl-3 pr-4 py-3 ${className ?? ""}`} {...rest}>
@@ -176,7 +182,13 @@ export function TabPill({
  * The `after:` inset grows the 28px button's hit area to 44px (it is measured
  * from the padding box, inside the 1px border).
  */
-export function CopyButton({ getText }: { readonly getText: () => string }) {
+export function CopyButton({
+  getText,
+  language,
+}: {
+  readonly getText: () => string
+  readonly language?: string
+}) {
   const { state, copy } = useCopyFeedback()
   const copied = state === "copied"
   return (
@@ -184,7 +196,11 @@ export function CopyButton({ getText }: { readonly getText: () => string }) {
       <CopyStatus state={state} className="text-xs text-ink-muted" />
       <button
         type="button"
-        onClick={() => void copy(getText())}
+        onClick={() => {
+          void copy(getText())
+          const event = copyCodeEventFor(window.location.pathname)
+          if (event) track(event, { ...(language ? { code_lang: language } : {}) })
+        }}
         aria-label="Copy code"
         data-copied={copied}
         className={`relative p-1.5 border transition-colors after:absolute after:-inset-[9px] after:content-[''] ${
@@ -338,13 +354,25 @@ export function RehypeFigure({
 
   return (
     <figure data-code-frame {...rest} className="relative my-6 overflow-hidden">
-      <RehypeFigureHeader label={label} preChild={preChild} />
+      <RehypeFigureHeader
+        label={label}
+        preChild={preChild}
+        {...(preLanguage ? { language: preLanguage } : {})}
+      />
       <HeadlessPreContext.Provider value={true}>{preChild}</HeadlessPreContext.Provider>
     </figure>
   )
 }
 
-function RehypeFigureHeader({ label, preChild }: { label: string; preChild: ReactNode }) {
+function RehypeFigureHeader({
+  label,
+  preChild,
+  language,
+}: {
+  label: string
+  preChild: ReactNode
+  language?: string
+}) {
   const ref = useRef<HTMLSpanElement>(null)
   // The DOM <pre> is the next sibling of this header; resolve via the
   // wrapping figure to find it.
@@ -355,7 +383,7 @@ function RehypeFigureHeader({ label, preChild }: { label: string; preChild: Reac
     <span ref={ref}>
       <CodeHeaderRow
         left={<TabPill label={label} active />}
-        right={<CopyButton getText={text} />}
+        right={<CopyButton getText={text} {...(language ? { language } : {})} />}
       />
     </span>
   )

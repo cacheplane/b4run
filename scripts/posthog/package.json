@@ -1,0 +1,5 @@
+{
+  "name": "@b4run/posthog-tools",
+  "private": true,
+  "type": "module"
+}

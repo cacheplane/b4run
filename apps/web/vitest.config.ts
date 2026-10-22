@@ -1,10 +1,24 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { defineConfig } from "vitest/config"
+import { compile } from "@mdx-js/mdx"
+import { defineConfig, type Plugin } from "vitest/config"
+
+// Pages import `content/*.mdx` as components; Next compiles those through
+// `@next/mdx`, so tests need the same step. Element mapping is not applied.
+const mdx: Plugin = {
+  name: "web-mdx",
+  enforce: "pre",
+  async transform(code, id) {
+    if (!id.endsWith(".mdx")) return null
+    const file = await compile({ value: code, path: id })
+    return { code: String(file), map: null }
+  },
+}
 
 const webRoot = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  plugins: [mdx],
   // `next.config.ts` keeps JSX in `preserve` for Next to compile; tests render
   // components themselves, so they need the automatic runtime.
   //

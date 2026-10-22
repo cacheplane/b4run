@@ -99,11 +99,14 @@ export function buildSeoPageInventory(
 ): readonly SeoPage[] {
   const home = resolveStaticSeoPage("/")
   if (!home) throw new Error("Homepage SEO page is not registered")
+  const privacy = resolveStaticSeoPage("/privacy")
+  if (!privacy) throw new Error("Privacy SEO page is not registered")
   const visiblePosts = selectVisiblePosts(posts, currentDate)
 
   return [
     home,
     resolveBlogIndexSeoPage(),
+    privacy,
     ...Object.values(DOCS_SEO_PAGES),
     ...visiblePosts.map(resolveBlogSeoPage),
     ...collectPostTags(visiblePosts).map((tag) =>

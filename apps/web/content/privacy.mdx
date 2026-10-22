@@ -1,0 +1,48 @@
+# Privacy
+
+B4.run is built by Cacheplane. This page explains what the B4.run website and the `b4` CLI record, what happens when you give us your email, who processes that data on our behalf, and how to opt out or ask us to delete it.
+
+## What the website records
+
+When you browse b4.run we record anonymous signals about how the site is used: pageviews, clicks on calls to action, use of copy buttons, when search is opened, and how long a page stays visible. These signals are tied to a random identifier stored in your browser, not to your name or email. There are no accounts on this site.
+
+We use these signals to see which pages help and which don't, so we can improve the docs.
+
+## What the `b4` CLI will report
+
+Once CLI reporting ships, the `b4` command will send a small anonymous event when you run it: the command name, the CLI version, your operating system, and whether the command succeeded or failed. It will not send your code, file names, prompts, or environment values.
+
+To opt out, set either of these environment variables:
+
+```sh
+B4_TELEMETRY_DISABLED=1
+DO_NOT_TRACK=1
+```
+
+Nothing is reported by `create-b4-app` or by an app you build and run with B4.run.
+
+## If you give us your email
+
+If you subscribe, we will use your address to send occasional product updates and, sometimes, a personal note from Brian. Every message includes a one-click unsubscribe link. Your email address is stored with our email provider and is never sent to PostHog.
+
+## Who processes this data
+
+We use these subprocessors:
+
+- Vercel hosts the website.
+- Neon hosts the database that holds our contact list.
+- PostHog (United States region) receives the anonymous website and CLI signals.
+- Resend delivers email.
+- Google Calendar handles scheduling when you book time with us.
+
+## How long we keep it
+
+Contacts are kept until you unsubscribe or ask us to delete them. Anonymous signals are kept for the retention period configured in our PostHog project.
+
+## Who is responsible
+
+The data controller is Cacheplane, 2843 NW Lolo Dr, Bend, OR.
+
+To ask us to delete your data, or with any other privacy question, email [brian@b4.run](mailto:brian@b4.run).
+
+Last updated: October 21, 2026.

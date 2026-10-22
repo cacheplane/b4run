@@ -73,8 +73,16 @@ export function resolveServePort(
   if (trimmed === "") {
     return DEFAULT_SERVE_PORT
   }
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) ? parsed : DEFAULT_SERVE_PORT
+  // Only accept a purely decimal integer spelling (digits only), no sign,
+  // no fraction, no exponent, no hex. Then ensure it's within 0..65535.
+  if (!/^\d+$/.test(trimmed)) {
+    return DEFAULT_SERVE_PORT
+  }
+  const port = Number(trimmed)
+  if (!Number.isFinite(port) || port < 0 || port > 65535) {
+    return DEFAULT_SERVE_PORT
+  }
+  return port
 }
 
 /**

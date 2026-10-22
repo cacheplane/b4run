@@ -181,6 +181,35 @@ describe("dockerExec", () => {
         exitCode: 128,
       },
     },
+    {
+      // runc's own init process aborts while joining the saturated cgroup, so
+      // Docker relays the Go runtime's crash dump without an OCI wrapper.
+      name: "runc init aborting on thread creation in stderr",
+      first: {
+        stdout: "",
+        stderr: [
+          "runtime/cgo: pthread_create failed: Resource temporarily unavailable",
+          "SIGABRT: abort",
+          "goroutine 1 gp=0x29c810f8e1e0 m=nil [chan receive, locked to thread]:",
+          "github.com/opencontainers/runc/libcontainer.(*linuxSetnsInit).Init(0x29c810fbb9c0)",
+          "\tgithub.com/opencontainers/runc/libcontainer/setns_init_linux.go:132 +0x5af",
+        ].join("\n"),
+        exitCode: 2,
+      },
+    },
+    {
+      name: "runc init failing to create an OS thread in stderr",
+      first: {
+        stdout: "",
+        stderr: [
+          "runtime: failed to create new OS thread (have 5 already; errno=11)",
+          "runtime: may need to increase max user processes (ulimit -u)",
+          "fatal error: newosproc",
+          "github.com/opencontainers/runc/libcontainer.Init()",
+        ].join("\n"),
+        exitCode: 2,
+      },
+    },
   ])("recovers and retries after $name", async ({ first }) => {
     const activeCtx = { signal: new AbortController().signal, workspaceRoot: "/workspace" }
     const second = { stdout: "recovered", stderr: "warning", exitCode: 0 }
@@ -235,6 +264,16 @@ describe("dockerExec", () => {
     {
       name: "command-level fork failure",
       result: { stdout: "", stderr: "sh: Cannot fork", exitCode: 1 },
+      timeoutMs: undefined,
+    },
+    {
+      name: "a command's own Go runtime abort outside runc",
+      result: {
+        stdout: "",
+        stderr:
+          "runtime/cgo: pthread_create failed: Resource temporarily unavailable\nSIGABRT: abort",
+        exitCode: 2,
+      },
       timeoutMs: undefined,
     },
     {
