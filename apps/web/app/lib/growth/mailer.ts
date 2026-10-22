@@ -5,6 +5,10 @@ export const SENDER = "Brian at B4.run <brian@b4.run>"
 const RESEND_URL = "https://api.resend.com/emails"
 const DEFAULT_TIMEOUT_MS = 5000
 
+/** Resend's Idempotency-Key for one sequence step; also the unique key of its `growth_sends` row. */
+export const sendIdempotencyKey = (contactId: string, step: SequenceStep) =>
+  `seq:v1:${contactId}:step:${step}`
+
 export interface OutgoingEmail {
   readonly from: string
   readonly to: string
@@ -53,7 +57,7 @@ export function composeSequenceEmail(input: {
       { name: "kind", value: "sequence" },
       { name: "step", value: String(input.step) },
     ],
-    idempotencyKey: `seq:v1:${input.contactId}:step:${input.step}`,
+    idempotencyKey: sendIdempotencyKey(input.contactId, input.step),
   }
 }
 
