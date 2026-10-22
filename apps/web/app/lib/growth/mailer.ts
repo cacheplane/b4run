@@ -2,6 +2,12 @@ import { type SequenceStep, sequenceDraft } from "./sequence-copy"
 
 export const SENDER = "Brian at B4.run <brian@b4.run>"
 
+/**
+ * Marks every email B4 composes. The Resend account is shared with other products, so the
+ * webhook acts only on events whose email carries this tag.
+ */
+export const B4_APP_TAG = { name: "app", value: "b4" } as const
+
 const RESEND_URL = "https://api.resend.com/emails"
 const DEFAULT_TIMEOUT_MS = 5000
 
@@ -53,6 +59,7 @@ export function composeSequenceEmail(input: {
       "X-B4-Send-ID": input.sendId,
     },
     tags: [
+      B4_APP_TAG,
       { name: "environment", value: input.environment },
       { name: "kind", value: "sequence" },
       { name: "step", value: String(input.step) },
@@ -75,6 +82,7 @@ export function composeDigestEmail(input: {
     text: input.text,
     headers: {},
     tags: [
+      B4_APP_TAG,
       { name: "environment", value: input.environment },
       { name: "kind", value: "digest" },
     ],

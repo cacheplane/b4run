@@ -18,7 +18,14 @@ const NOW = new Date("2026-10-21T00:00:00Z")
 const PAYLOAD = {
   type: "email.delivered",
   created_at: "2026-10-21T10:00:00.000Z",
-  data: { email_id: "em_1", to: ["ada@example.com"] },
+  data: {
+    email_id: "em_1",
+    to: ["ada@example.com"],
+    tags: [
+      { name: "app", value: "b4" },
+      { name: "environment", value: "production" },
+    ],
+  },
 }
 
 function deps(overrides: Partial<ResendWebhookRouteDeps> = {}): ResendWebhookRouteDeps {
@@ -126,6 +133,13 @@ describe("resend webhook route", () => {
       emailHmacSecret: "s",
       now: NOW,
     })
+  })
+
+  it("returns 200 with ignored_app for another product's event", async () => {
+    process_.mockResolvedValue("ignored_app")
+    const res = await handleResendWebhook(post(PAYLOAD), deps())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ outcome: "ignored_app" })
   })
 
   it("returns 202 ignored_type for a verified but unsupported event", async () => {

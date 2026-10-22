@@ -46,6 +46,7 @@ describe("composeSequenceEmail", () => {
       "X-B4-Send-ID": "send-1",
     })
     expect(out.tags).toEqual([
+      { name: "app", value: "b4" },
       { name: "environment", value: "production" },
       { name: "kind", value: "sequence" },
       { name: "step", value: "2" },
@@ -70,7 +71,11 @@ describe("composeDigestEmail", () => {
     expect(out.bcc).toBeUndefined()
     expect("bcc" in out).toBe(false)
     expect(out.headers["List-Unsubscribe"]).toBeUndefined()
-    expect(out.tags).toContainEqual({ name: "kind", value: "digest" })
+    expect(out.tags).toEqual([
+      { name: "app", value: "b4" },
+      { name: "environment", value: "production" },
+      { name: "kind", value: "digest" },
+    ])
     expect(out.idempotencyKey).toBe("digest:production:2026-10-22")
     expect(out.text).toBe("digest")
   })

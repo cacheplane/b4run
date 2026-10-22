@@ -75,7 +75,7 @@ describe("processResendEvent for the founder digest", () => {
     occurredAt: new Date("2026-10-21T10:00:00.000Z"),
     providerEmailId: "em_digest",
     to: ["founder@example.com"],
-    tags: { environment: "production", kind: "digest" },
+    tags: { app: "b4", environment: "production", kind: "digest" },
     bounceType: "permanent",
     ...overrides,
   })
@@ -100,12 +100,59 @@ describe("processResendEvent for the founder digest", () => {
   it("still ignores another environment's digest event as an environment mismatch", async () => {
     const { executor, calls } = recordingExecutor()
     const outcome = await processResendEvent(executor, {
-      event: digestEvent({ tags: { environment: "preview", kind: "digest" } }),
+      event: digestEvent({ tags: { app: "b4", environment: "preview", kind: "digest" } }),
       environment: "production",
       emailHmacSecret: "s",
       now: new Date("2026-10-21T11:00:00.000Z"),
     })
     expect(outcome).toBe("ignored_environment")
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe("processResendEvent for another product's mail", () => {
+  // The Resend account is shared, so its webhooks carry events for mail B4 never sent.
+  const foreignEvent = (overrides: Partial<ParsedResendEvent>): ParsedResendEvent => ({
+    type: "email.bounced",
+    occurredAt: new Date("2026-10-21T10:00:00.000Z"),
+    providerEmailId: "em_foreign",
+    to: ["ada@example.com"],
+    tags: {},
+    bounceType: "permanent",
+    ...overrides,
+  })
+
+  const cases = (
+    ["email.bounced", "email.complained", "email.suppressed", "email.delivered"] as const
+  ).flatMap((type) => [
+    { label: `untagged ${type}`, event: foreignEvent({ type }) },
+    {
+      label: `app=threadplane ${type}`,
+      event: foreignEvent({ type, tags: { app: "threadplane", environment: "production" } }),
+    },
+  ])
+
+  it.each(cases)("ignores an $label event before any database lookup", async ({ event }) => {
+    const { executor, calls } = recordingExecutor()
+    const outcome = await processResendEvent(executor, {
+      event,
+      environment: "production",
+      emailHmacSecret: "s",
+      now: new Date("2026-10-21T11:00:00.000Z"),
+    })
+    expect(outcome).toBe("ignored_app")
+    expect(calls).toHaveLength(0)
+  })
+
+  it("checks the app before the environment", async () => {
+    const { executor, calls } = recordingExecutor()
+    const outcome = await processResendEvent(executor, {
+      event: foreignEvent({ tags: { environment: "preview" } }),
+      environment: "production",
+      emailHmacSecret: "s",
+      now: new Date("2026-10-21T11:00:00.000Z"),
+    })
+    expect(outcome).toBe("ignored_app")
     expect(calls).toHaveLength(0)
   })
 })
