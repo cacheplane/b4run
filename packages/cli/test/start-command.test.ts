@@ -71,7 +71,7 @@ describe("b4 start", () => {
 
     await expect(runStartCommand({ port: "-1" }, io)).rejects.toThrow(CliError)
     await expect(runStartCommand({ port: "not-a-number" }, io)).rejects.toThrow(
-      "Invalid port: not-a-number",
+      "Invalid port: not-a-number (expected an integer from 0 to 65535)",
     )
   })
 
