@@ -38,6 +38,7 @@ describe("createPosthogServerClient", () => {
       host: "https://us.i.posthog.com",
       flushAt: 1,
       flushInterval: 0,
+      requestTimeout: 3000,
     })
     expect(state.capture).toHaveBeenCalledWith({
       distinctId: "d1",

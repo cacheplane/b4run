@@ -14,6 +14,7 @@ export function createPosthogServerClient(key: string): ServerSignalClient {
     host: "https://us.i.posthog.com",
     flushAt: 1,
     flushInterval: 0,
+    requestTimeout: 3000,
   })
   return {
     async capture({ distinctId, event, properties }) {
