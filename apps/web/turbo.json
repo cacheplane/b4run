@@ -1,0 +1,15 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "env": [
+        "B4_CALL_URL",
+        "GROWTH_DATABASE_URL",
+        "GROWTH_EMAIL_HMAC_SECRET",
+        "GROWTH_TOKEN_SECRET",
+        "GROWTH_ENVIRONMENT"
+      ]
+    }
+  }
+}
