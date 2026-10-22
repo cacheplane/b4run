@@ -104,8 +104,9 @@ secrets (`POSTHOG_PERSONAL_API_KEY_READONLY`, `POSTHOG_PROJECT_ID`).
 - `approved_at` is the only send-authorisation field.
 - A stop clears it and is never reversed by a later form.
 - Reapproval is the founder command only.
-- Tagged Resend events must match `GROWTH_ENVIRONMENT`; an event whose environment tag differs is ignored.
-- Untagged Resend events are processed only when `GROWTH_ENVIRONMENT` is `production`.
+- Every email B4 sends carries the Resend tag `app=b4`. The Resend account is shared with other products, and Resend delivers every event in the account to every webhook endpoint, so the webhook ignores any event without `app=b4` before it reads the database. Another product's bounce or complaint never stops a B4 contact, even when the recipient address matches.
+- Resend events tagged with an environment must match `GROWTH_ENVIRONMENT`; an event whose environment tag differs is ignored.
+- Events without an environment tag are processed only when `GROWTH_ENVIRONMENT` is `production`.
 - Deletion keeps only the email HMAC, the stop, and the deletion timestamp.
 
 ## Founder sequence

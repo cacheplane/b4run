@@ -40,7 +40,7 @@ function event(overrides: Partial<ParsedResendEvent> = {}): ParsedResendEvent {
     occurredAt: T1,
     providerEmailId: "em_1",
     to: ["ada@example.com"],
-    tags: { environment: "production" },
+    tags: { app: "b4", environment: "production" },
     bounceType: "permanent",
     ...overrides,
   }
@@ -75,7 +75,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth resend webhook", () => {
     await withMigratedDatabase(async (executor) => {
       const id = await contact(executor)
       await send(executor, id, "em_1")
-      const outcome = await run(executor, event({ tags: { environment: "preview" } }))
+      const outcome = await run(executor, event({ tags: { app: "b4", environment: "preview" } }))
       expect(outcome).toBe("ignored_environment")
       expect(await deliveryStatus(executor, "em_1")).toBe("submitted")
       const kinds = (await contactJourney(executor, id)).map((entry) => entry.kind)
@@ -83,12 +83,14 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth resend webhook", () => {
     })
   }, 120_000)
 
-  it("processes an untagged event only in production", async () => {
+  it("processes an event without an environment tag only in production", async () => {
     await withMigratedDatabase(async (executor) => {
       const id = await contact(executor)
       await send(executor, id, "em_1")
-      expect(await run(executor, event({ tags: {} }), "preview")).toBe("ignored_environment")
-      expect(await run(executor, event({ tags: {} }))).toBe("stopped")
+      expect(await run(executor, event({ tags: { app: "b4" } }), "preview")).toBe(
+        "ignored_environment",
+      )
+      expect(await run(executor, event({ tags: { app: "b4" } }))).toBe("stopped")
     })
   }, 120_000)
 
@@ -142,6 +144,27 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth resend webhook", () => {
     })
   }, 120_000)
 
+  it("never stops a contact on another product's complaint, even when the recipient matches", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const id = await contact(executor)
+      for (const tags of [{}, { app: "threadplane", environment: "production" }]) {
+        expect(
+          await run(
+            executor,
+            event({ type: "email.complained", providerEmailId: "em_other_product", tags }),
+          ),
+        ).toBe("ignored_app")
+      }
+      const kinds = (await contactJourney(executor, id)).map((entry) => entry.kind)
+      expect(kinds.some((kind) => kind.startsWith("stop."))).toBe(false)
+      const stopped = await executor.query<{ stopped_at: Date | null }>(
+        "select stopped_at from growth_contacts where id = $1",
+        [id],
+      )
+      expect(stopped.rows[0]?.stopped_at).toBeNull()
+    })
+  }, 120_000)
+
   it("never stops a contact on a digest bounce, complaint or suppression, even when the recipient matches", async () => {
     await withMigratedDatabase(async (executor) => {
       const id = await contact(executor, "founder@example.com")
@@ -153,7 +176,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth resend webhook", () => {
               type,
               providerEmailId: `em_digest_${type}`,
               to: ["founder@example.com"],
-              tags: { environment: "production", kind: "digest" },
+              tags: { app: "b4", environment: "production", kind: "digest" },
             }),
           ),
         ).toBe("ignored_type")

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { describe, expect, it, vi } from "vitest"
 import nextConfig from "../next.config"
+import { UPDATES_FORM_REQUIRED_ENV } from "./lib/growth/updates-enabled"
 
 interface TypeScriptConfig {
   readonly extends?: string
@@ -155,5 +156,19 @@ describe("Vercel cron schedule", () => {
     }
 
     expect(config.crons).toEqual([{ path: "/api/growth/tick", schedule: "*/10 * * * *" }])
+  })
+})
+
+describe("build-time environment", () => {
+  // Turborepo's strict env mode hides any variable a task does not declare, so a
+  // build-time read of an undeclared variable silently sees nothing on Vercel.
+  it("declares every variable the web build reads in apps/web/turbo.json", () => {
+    const config = JSON.parse(readFileSync(new URL("../turbo.json", import.meta.url), "utf8")) as {
+      readonly tasks?: { readonly build?: { readonly env?: readonly string[] } }
+    }
+
+    expect(config.tasks?.build?.env).toEqual(
+      expect.arrayContaining([...UPDATES_FORM_REQUIRED_ENV, "B4_CALL_URL"]),
+    )
   })
 })

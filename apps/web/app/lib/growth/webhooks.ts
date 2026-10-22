@@ -1,6 +1,7 @@
 import { findContactByEmail, type StopInput, stopContact } from "./contacts"
 import type { SqlExecutor } from "./database"
 import type { GrowthEnv } from "./env"
+import { B4_APP_TAG } from "./mailer"
 
 export const RESEND_EVENT_TYPES = [
   "email.sent",
@@ -24,6 +25,7 @@ export interface ParsedResendEvent {
 }
 
 export type WebhookOutcome =
+  | "ignored_app"
   | "ignored_environment"
   | "ignored_type"
   | "updated_delivery"
@@ -124,6 +126,10 @@ export async function processResendEvent(
   },
 ): Promise<WebhookOutcome> {
   const { event } = input
+  // The Resend account is shared with other products, and Resend delivers every event in the
+  // account to every endpoint. Act only on mail B4 composed: without this, another product's
+  // bounce or complaint could stop a B4 contact through the recipient-address fallback below.
+  if (event.tags[B4_APP_TAG.name] !== B4_APP_TAG.value) return "ignored_app"
   const tagged = event.tags.environment
   if (tagged !== undefined ? tagged !== input.environment : input.environment !== "production") {
     return "ignored_environment"
