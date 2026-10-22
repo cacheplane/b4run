@@ -187,6 +187,11 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  *   `RUN_ERROR`: they never cross runs.
  * - The settle time is `event.timestamp ?? 0`. Real reducers use the current
  *   time where this reference fold uses 0; every fixture supplies timestamps.
+ * - A `TOOL_CALL_RESULT` for a call with no step gives it the frames' step,
+ *   `{ v: 1, kind: "server", status: "completed" }` (`failed`, with the
+ *   result's error, when it carries one). A step that arrives later merges
+ *   onto it by the usual rules: `running` cannot lift it, a different bad
+ *   status replaces it.
  * - A call with no step at all becomes `{ v: 1, kind: "server", status }`.
  * - `toolCallId` is the record key, so it is left off the stored steps.
  *
@@ -216,7 +221,13 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         // result carries an error, and completes otherwise. Either way its
         // running label no longer says what happened.
         const open = fold.steps[id]
-        if (open?.status === "running") {
+        if (open === undefined) {
+          // No step yet: the frames' step, which a later step merges onto.
+          fold.steps[id] =
+            typeof event.error === "string" && event.error !== ""
+              ? { v: 1, kind: "server", status: "failed", error: { message: event.error } }
+              : { v: 1, kind: "server", status: "completed" }
+        } else if (open.status === "running") {
           const { label: _label, ...rest } = open
           if (typeof event.error === "string" && event.error !== "") {
             const { sources: _sources, ...bare } = rest

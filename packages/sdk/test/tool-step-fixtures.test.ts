@@ -27,6 +27,8 @@ describe("tool-step fixture corpus", () => {
       "held-step-dropped-at-run-end",
       "completed-without-label-drops-running-label",
       "late-running-adds-nothing-to-settled",
+      "running-after-frame-result-stays-completed",
+      "denied-after-frame-result-is-denied",
     ])
   })
 

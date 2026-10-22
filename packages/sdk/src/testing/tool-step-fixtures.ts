@@ -903,4 +903,55 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       },
     },
   },
+  {
+    name: "running-after-frame-result-stays-completed",
+    events: [
+      start("c1"),
+      end("c1"),
+      result("c1"),
+      // The step arrives after a RESULT that carried none.
+      custom({
+        v: 1,
+        toolCallId: "c1",
+        kind: "server",
+        status: "running",
+        label: "Looking up order",
+        startedAt: 20000,
+      }),
+    ],
+    expected: {
+      steps: {
+        c1: { v: 1, kind: "server", status: "completed" },
+      },
+    },
+  },
+  {
+    name: "denied-after-frame-result-is-denied",
+    events: [
+      start("c1"),
+      end("c1"),
+      result("c1"),
+      custom({
+        v: 1,
+        toolCallId: "c1",
+        kind: "server",
+        status: "denied",
+        label: "Refund blocked by policy",
+        decision: "deny",
+        settledAt: 21000,
+      }),
+    ],
+    expected: {
+      steps: {
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "denied",
+          label: "Refund blocked by policy",
+          decision: "deny",
+          settledAt: 21000,
+        },
+      },
+    },
+  },
 ]
