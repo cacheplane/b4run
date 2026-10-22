@@ -320,8 +320,8 @@ function sourceDocsInventory() {
   const records = journey.flatMap((record) =>
     record.path === "/docs/api" ? [record, ...api] : [record],
   )
-  if (records.length !== 81)
-    throw new Error(`Expected 81 ALL_DOCS_PAGES source entries; found ${records.length}`)
+  if (records.length !== 82)
+    throw new Error(`Expected 82 ALL_DOCS_PAGES source entries; found ${records.length}`)
   if (new Set(records.map((record) => record.path)).size !== records.length) {
     throw new Error("Duplicate docs path in independent source inventory")
   }
