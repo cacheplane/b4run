@@ -75,17 +75,36 @@ describe("action tokens", () => {
       }),
     ],
     ["malformed (no dot)", () => ({ token: "abcdef" })],
+    [
+      "unknown key id",
+      () => ({
+        token: forge({ v: 1, k: 2, c: contactId, p: "unsubscribe", i: 1767225600 }),
+      }),
+    ],
+    [
+      "missing key id",
+      () => ({
+        token: forge({ v: 1, c: contactId, p: "unsubscribe", i: 1767225600 }),
+      }),
+    ],
+    [
+      "characters outside the base64url alphabet",
+      () => {
+        const [body, sig] = make().split(".") as [string, string]
+        return { token: `${body}<.${sig}` }
+      },
+    ],
     ["payload not JSON", () => ({ token: forge("not json") })],
     [
       "non-uuid contact",
       () => ({
-        token: forge({ v: 1, c: "x", p: "unsubscribe", i: 1767225600 }),
+        token: forge({ v: 1, k: 1, c: "x", p: "unsubscribe", i: 1767225600 }),
       }),
     ],
     [
       "wrong version",
       () => ({
-        token: forge({ v: 2, c: contactId, p: "unsubscribe", i: 1767225600 }),
+        token: forge({ v: 2, k: 1, c: contactId, p: "unsubscribe", i: 1767225600 }),
       }),
     ],
   ]

@@ -14,6 +14,7 @@
 - The driver is `pg` over Neon's pooled URL rather than `@neondatabase/serverless`, so the same code runs against a local Postgres in tests. Neon's pooled endpoint speaks plain Postgres.
 - The spec's `growth_sends` table is created now (phase 3 needs it and stops must cancel pending sends), but nothing enqueues into it in this phase.
 - The form appears on its own page `/updates` and is linked from the footer and the blog CTA band; embedding the form inline at the end of every blog post and the Getting Started doc is left for a later polish pass.
+- The action token carries a numeric key id `k` (always 1 today) in place of the spec's `key_version` name, so secret rotation can be added without changing the format.
 - `/call` redirects to `B4_CALL_URL` read at build time; when unset it redirects to `/updates`, so the link in phase 3's emails is never dead.
 
 ## Global Constraints

@@ -8,6 +8,7 @@ export const TOKEN_MAX_AGE_SECONDS: Readonly<Record<ActionTokenPurpose, number>>
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const TOKEN_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 const ORIGIN_ERROR = "GROWTH_PUBLIC_ORIGIN must be a bare https origin"
 
 function sign(secret: string, payload: Buffer): Buffer {
@@ -23,6 +24,7 @@ export function createActionToken(input: {
   const payload = Buffer.from(
     JSON.stringify({
       v: 1,
+      k: 1,
       c: input.contactId,
       p: input.purpose,
       i: Math.floor(input.issuedAt.getTime() / 1000),
@@ -38,6 +40,7 @@ export function verifyActionToken(input: {
   now: Date
 }): { ok: true; contactId: string } | { ok: false } {
   const fail = { ok: false } as const
+  if (!TOKEN_SHAPE.test(input.token)) return fail
   const parts = input.token.split(".")
   if (parts.length !== 2) return fail
   const [encodedPayload, encodedSignature] = parts as [string, string]
@@ -54,8 +57,8 @@ export function verifyActionToken(input: {
     return fail
   }
   if (typeof claims !== "object" || claims === null) return fail
-  const { v, c, p, i } = claims as Record<string, unknown>
-  if (v !== 1 || p !== input.purpose) return fail
+  const { v, k, c, p, i } = claims as Record<string, unknown>
+  if (v !== 1 || k !== 1 || p !== input.purpose) return fail
   if (typeof c !== "string" || !UUID_PATTERN.test(c)) return fail
   if (typeof i !== "number" || !Number.isFinite(i)) return fail
   const nowSeconds = Math.floor(input.now.getTime() / 1000)
