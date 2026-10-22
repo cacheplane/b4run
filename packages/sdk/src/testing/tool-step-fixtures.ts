@@ -954,4 +954,24 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       },
     },
   },
+  {
+    name: "v2-step-is-ignored",
+    events: [
+      start("c1", {
+        v: 2,
+        kind: "provider",
+        status: "running",
+        label: "A step from a future major version",
+      }),
+      end("c1"),
+      custom({ v: 2, toolCallId: "c1", kind: "provider", status: "failed" }),
+      result("c1"),
+    ],
+    expected: {
+      steps: {
+        // No v1 step arrived, so the frames decide, and a frame step is a server step.
+        c1: { v: 1, kind: "server", status: "completed" },
+      },
+    },
+  },
 ]

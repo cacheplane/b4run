@@ -107,6 +107,15 @@ describe("readToolStep", () => {
     expect(accepts(B4_TOOL_STEP_JSON_SCHEMA, step as never)).toBe(true)
   })
 
+  it("returns undefined for any version other than 1, and reads a value without one as legacy", () => {
+    expect(readToolStep({ v: 2, kind: "server", status: "running" })).toBeUndefined()
+    expect(readToolStep({ v: 0, kind: "server", status: "running" })).toBeUndefined()
+    expect(readToolStep({ v: "1", kind: "server", status: "running" })).toBeUndefined()
+    expect(readToolStepUpdate({ v: 2, status: "completed" })).toBeUndefined()
+    expect(readToolStep({ v: 1, kind: "server", status: "running" })?.status).toBe("running")
+    expect(readToolStep({ status: "running" })).toEqual({ v: 1, kind: "server", status: "running" })
+  })
+
   it("drops error unless the step failed", () => {
     expect(readToolStep({ status: "running", error: { message: "no" } })?.error).toBeUndefined()
     expect(readToolStep({ status: "failed", error: { message: "no", code: "E" } })?.error).toEqual({

@@ -178,9 +178,11 @@ function readSources(value: unknown, idPrefix: string): readonly B4StepSource[] 
 
 /**
  * Reads a v1 step, a legacy `B4StepEventValue` or a legacy `PersistedStep`
- * into the v1 shape. Returns `undefined` for a non-record or a value with no
- * string `status`. An unknown status string yields a step without `status`.
- * Unknown fields are ignored. `toolCallId` is the fallback id for the step.
+ * into the v1 shape. Returns `undefined` for a non-record, a value with no
+ * string `status`, or a `v` other than 1 (another major version is no step; a
+ * value with no `v` is legacy). An unknown status string yields a step
+ * without `status`. Unknown fields are ignored. `toolCallId` is the fallback
+ * id for the step.
  */
 export function readToolStep(value: unknown, toolCallId?: string): B4ToolStepRead | undefined {
   const update = readToolStepUpdate(value, toolCallId)
@@ -191,12 +193,15 @@ export function readToolStep(value: unknown, toolCallId?: string): B4ToolStepRea
  * Like {@link readToolStep}, but leaves `kind` out when the source states
  * none. Use it for the `next` argument of {@link mergeToolStep}, so a sparse
  * legacy value cannot turn a stored `provider` step into a `server` one.
+ * Like {@link readToolStep}, it returns `undefined` for a `v` other than 1.
  */
 export function readToolStepUpdate(
   value: unknown,
   toolCallId?: string,
 ): B4ToolStepUpdate | undefined {
   if (!isRecord(value)) return undefined
+  // Another major version travels under its own key; it is no v1 step.
+  if (value.v !== undefined && value.v !== B4_STEP_VERSION) return undefined
   if (typeof value.status !== "string") return undefined
   const status = STATUSES.includes(value.status) ? (value.status as B4ToolStepStatus) : undefined
   const id = str(value.toolCallId) ?? toolCallId
