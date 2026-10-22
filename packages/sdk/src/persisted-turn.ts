@@ -14,6 +14,8 @@ export type GateDecision = "once" | "always" | "deny"
  * The step a ToolMessage carries for a restored thread (spec §2.1). Times are
  * ISO strings. `denied` is a call a gate blocked, persisted on a `success`
  * ToolMessage: not a failure, never a success label.
+ *
+ * @deprecated Use `B4ToolStep` and read it with `readToolStep`.
  */
 export interface PersistedStep {
   readonly status: "completed" | "failed" | "denied"
@@ -65,7 +67,11 @@ function readSources(value: unknown): readonly ToolDisplaySource[] | undefined {
   return sources
 }
 
-/** A `b4_step` stamp, or undefined when its identity fields are missing. Invalid optional fields are dropped. */
+/**
+ * A `b4_step` stamp, or undefined when its identity fields are missing. Invalid optional fields are dropped.
+ *
+ * @deprecated Use `readToolStep`, which also reads this shape.
+ */
 export function readPersistedStep(value: unknown): PersistedStep | undefined {
   if (!isRecord(value)) return undefined
   if (value.status !== "completed" && value.status !== "failed" && value.status !== "denied") {

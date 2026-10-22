@@ -59,6 +59,7 @@ it("exports the framework-free view surface", () => {
     "subagentRowState",
     "subagentSettledText",
     "summaryLine",
+    "toContractSteps",
     "toResumeEntries",
     "todoStatusLabel",
     "toggleDisclosure",

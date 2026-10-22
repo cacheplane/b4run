@@ -1,4 +1,5 @@
 import {
+  B4_STEP_EVENT_NAME,
   TOOL_DISPLAY_LABEL_MAX,
   type ToolDisplay,
   type ToolDisplayIcon,
@@ -7,8 +8,8 @@ import {
 import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import type { RunnableConfig } from "@langchain/core/runnables"
 
-/** The name of the AG-UI `CUSTOM` event (and the LangChain custom event) a step travels as. */
-export const B4_STEP_EVENT_NAME = "b4.step"
+/** The name of the AG-UI `CUSTOM` event (and the LangChain custom event) a step travels as; owned by `@b4run/sdk`. */
+export { B4_STEP_EVENT_NAME }
 
 /** What one `b4.step` dispatch carries, before the adapter adds identity. */
 export interface StepPayload {
@@ -17,6 +18,7 @@ export interface StepPayload {
   readonly sources?: readonly ToolDisplaySource[]
 }
 
+// Slice 2 changes the emitters to the camelCase `B4ToolStep` shape; until then this snake_case shape stays.
 /** The converter sets `tool_call_id` and `status`; this module only produces the payload. */
 export interface StepEventData extends StepPayload {
   readonly tool_call_id: string

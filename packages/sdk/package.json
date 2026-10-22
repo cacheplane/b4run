@@ -41,14 +41,16 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
-    }
+    },
+    "./tool-step.schema.json": "./dist/tool-step.schema.json",
+    "./answer.schema.json": "./dist/answer.schema.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json tsconfig.contracts.json tsconfig.test.json vitest.config.ts",
+    "build": "tsc -b tsconfig.json && node scripts/write-schema.mjs",
+    "lint": "biome check --config-path ../config-biome/biome.json package.json src test scripts tsconfig.json tsconfig.contracts.json tsconfig.test.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.contracts.json && tsc -p tsconfig.test.json"
   },

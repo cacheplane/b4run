@@ -166,6 +166,29 @@ export {
   TOOL_DISPLAY_ICONS,
   TOOL_DISPLAY_LABEL_MAX,
 } from "./tool-display.js"
+export type {
+  B4AnswerAnnotations,
+  B4StepSource,
+  B4ToolStep,
+  B4ToolStepRead,
+  B4ToolStepStatus,
+  B4ToolStepUpdate,
+} from "./tool-step.js"
+export {
+  B4_ANSWER_JSON_SCHEMA,
+  B4_ANSWER_METADATA_KEY,
+  B4_BUILTIN_TOOLS,
+  B4_STEP_EVENT_NAME,
+  B4_STEP_METADATA_KEY,
+  B4_STEP_VERSION,
+  B4_TOOL_STEP_JSON_SCHEMA,
+  B4_TOOL_STEP_STATUSES,
+  mergeToolStep,
+  readAnswerAnnotations,
+  readToolStep,
+  readToolStepUpdate,
+  settleOpenSteps,
+} from "./tool-step.js"
 export type { Prettify } from "./types.js"
 export type { ModelIdValidation } from "./validate-model-id.js"
 export { validateModelId } from "./validate-model-id.js"

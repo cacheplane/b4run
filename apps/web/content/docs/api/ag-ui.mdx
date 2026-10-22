@@ -142,17 +142,17 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `TurnsView` | The thread id and its turns. |
 | `TurnView` | One turn: its run id, status, timing, steps, prose, unattached approvals, error and failure count (nested subagents included). |
 | `StepView` | A tool, plan, reasoning or subagent step. |
-| `ToolStep` | One tool call with its streamed args, result text, non-text result `parts` (an image a tool rendered, live or restored), `b4.step` icon, label and sources, timing and approval. |
+| `ToolStep` | One tool call with its streamed args, result text, non-text result `parts` (an image a tool rendered, live or restored), `b4.step` icon, label, sources and contract fields (`toolKind`, `builtin`, `provider`, `queries`, `error`, `decision`), timing and approval. |
 | `PlanStep` | The plan as its latest snapshot of todos. |
 | `ReasoningStep` | One reasoning span and its text, streaming or done. |
 | `SubagentStep` | A subagent invocation holding its nested turn. |
 | `ApprovalView` | A parked interrupt as a chat shows it: kind, detail, message, the grant to echo on resume, and whether "Always allow" is offered. |
-| `StepSource` | A source a step cites; an alias of the SDK's `ToolDisplaySource`, as `b4.step` carries it. |
-| `StepStatus` | `pending`, `running`, `done`, `failed` or `awaiting`. |
+| `StepSource` | A source a step cites: the SDK's `ToolDisplaySource`, plus the `b4.step` contract's source fields (`id`, `kind`, `cited`, …) when the step carried them. |
+| `StepStatus` | `pending`, `running`, `done`, `failed`, `denied`, `cancelled` or `awaiting`. |
 | `TurnStatus` | `working`, `awaiting`, `done`, `failed` or `stopped`. |
 | `ReduceTurnsOptions` | Inject the clock, name tools whose frames the view drops, and say whether a same-thread run resumes the awaiting turn (`resuming`). |
 | `stepLabel` | The sentence for a tool step: the app's override for that tool, else the server's `b4.step` label, else "Using X…"/"Used X"/"X failed"; never throws, never echoes raw arguments, at most 120 characters. |
-| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label: the app's `group` override, else the built-in wording, else one phrased from the steps' own labels (`phraseGroupLabel`), else "Used X n times"; pending, running, failed and awaiting steps never join, nor do `task` and `writeTodos`. |
+| `groupSteps` | Fold two or more consecutive done calls of one tool into a group with a summary label: the app's `group` override, else the built-in wording, else one phrased from the steps' own labels (`phraseGroupLabel`), else "Used X n times"; pending, running, failed, denied, cancelled and awaiting steps never join, nor do `task` and `writeTodos`. |
 | `phraseGroupLabel` | A group label phrased from its steps' labels when they share leading words and differ in a short trailing name: "Looked up KSTP" and "Looked up KRST" read "Looked up KSTP and KRST", three name all three, more name two and count the rest ("and 2 more"). A trailing parenthetical is dropped; a subject over four words or 32 characters, or holding `,`, `;` or `:`, is not a name, and the result is undefined. |
 | `StepLabelOverride` | Client-side wording for one tool: reword, localize, label a group, or name its argument keys (`fields`) for the approval card and step detail rows. |
 | `StepLabelOverrides` | Overrides keyed by tool name. |
@@ -160,10 +160,11 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `GroupedStep` | A step or a group. |
 | `BUILT_IN_GROUP_LABELS` | Group wording for B4.run's built-in tools; apps extend it through overrides. |
 | `B4_STEP_EVENT_NAME` | The AG-UI `CUSTOM` event name a tool call's human-readable step travels as (`b4.step`). |
-| `B4_STEP_STATUSES` | The statuses a step can carry; the one source for every validator. |
-| `B4StepEventValue` | A `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
-| `B4StepStatus` | `running`, `completed`, `failed` or `denied`. |
-| `readStepEvent` | The `b4.step` value an event carries, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
+| `B4_STEP_STATUSES` | Deprecated: use `B4_TOOL_STEP_STATUSES` from `@b4run/sdk`. The legacy statuses a step can carry. |
+| `B4StepEventValue` | Deprecated: use `B4ToolStep` from `@b4run/sdk`. A legacy `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
+| `B4StepStatus` | Deprecated: use `B4ToolStepStatus` from `@b4run/sdk`. `running`, `completed`, `failed` or `denied`. |
+| `readStepEvent` | Deprecated: use `readToolStep` from `@b4run/sdk`. The `b4.step` value an event carries in the legacy shape, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
+| `toContractSteps` | Every tool step of a `TurnsView` as a `b4.step` contract `B4ToolStep`, keyed by tool call id, nested subagent turns included. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
 | `turnForToolCalls` | The turn that owns any of these tool call ids, nested subagent calls included. |
 | `reasoningInActivity` | Whether a reasoning message or span already shows as a reasoning step in its turn's activity: the turn has a tool or subagent step, nested subagent reasoning included. A chat's reasoning-message slot renders nothing when it is true. |

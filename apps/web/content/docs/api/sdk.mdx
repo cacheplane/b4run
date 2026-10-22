@@ -23,6 +23,8 @@ import { scenarios } from "@b4run/sdk/testing"
 | `@b4run/sdk` | edge-safe | not-claimed | application | supported |
 | `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
 | `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
+| `@b4run/sdk/tool-step.schema.json` | package metadata | n/a | integration | supported |
+| `@b4run/sdk/answer.schema.json` | package metadata | n/a | integration | supported |
 
 `@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`. It's not the `@b4run/testing` package, which provides a programmatic agent harness.
 
@@ -182,14 +184,33 @@ import { scenarios } from "@b4run/sdk/testing"
 | `TOOL_DENIAL` | Name the symbol key that brands a denied tool call's result. |
 | `toolDenial` | Brand a denial reason as a tool result; the model still reads the reason as plain text. |
 | `isToolDenial` | Tell a denied tool call's result from a successful one. |
+| `B4ToolStep` | The versioned `b4.step` contract for one tool call: `v: 1`, `kind`, `status`, label, icon, queries, sources, start and settle times, error and gate decision. |
+| `B4ToolStepStatus` | Name a step status: `running`, `completed`, `failed`, `denied` or `cancelled`. |
+| `B4ToolStepRead` | A step read from the wire, whose `status` is absent when the producer sent one this reader does not know. |
+| `B4ToolStepUpdate` | A partial step for `mergeToolStep`; `status` and `kind` may be absent. |
+| `B4StepSource` | A file, URL, document or record a step or answer drew on, with a stable id. |
+| `B4AnswerAnnotations` | The `b4.answer` annotations on a final answer: citations, uncited sources, attribution. |
+| `B4_STEP_METADATA_KEY` | The message-metadata key a tool call's step travels under (`b4.step`). |
+| `B4_ANSWER_METADATA_KEY` | The message-metadata key a final answer's annotations travel under (`b4.answer`). |
+| `B4_STEP_EVENT_NAME` | The AG-UI `CUSTOM` event name a live step travels as (`b4.step`). |
+| `B4_STEP_VERSION` | The contract's major version (`1`). Additive changes never bump it. |
+| `B4_TOOL_STEP_STATUSES` | List every step status. |
+| `B4_BUILTIN_TOOLS` | List the recommended `builtin` values for provider tools; the field stays an open string. |
+| `B4_TOOL_STEP_JSON_SCHEMA` | The JSON Schema for a `b4.step` value. |
+| `B4_ANSWER_JSON_SCHEMA` | The JSON Schema for `b4.answer` annotations. |
+| `readToolStep` | Normalize a `b4.step` value (legacy shapes included) to a step; an unknown status is dropped, and an unusable value returns undefined. |
+| `readToolStepUpdate` | Like `readToolStep`, but `kind` stays absent when the source did not state it, so a merge keeps the stored kind. |
+| `readAnswerAnnotations` | Normalize `b4.answer` annotations. |
+| `mergeToolStep` | Merge a step from a call or a message into the stored step by the contract's rules. |
+| `settleOpenSteps` | Settle running steps at a run's end: `failed` after an error, `cancelled` after a cancel or interrupt, sparing the interrupt's open calls. |
 | `B4_STEP_KEY` | The `additional_kwargs` key under which every ToolMessage persists its step (`b4_step`). |
 | `B4_SUBAGENT_KEY` | The `additional_kwargs` key under which a `task` ToolMessage persists the subagent it launched (`b4_subagent`). |
 | `B4_TURN_METADATA_KEY` | The checkpoint-metadata key under which the runtime stamps how a turn ended (`b4:turn`). |
 | `GateDecision` | How a permission gate was answered: `once`, `always` or `deny`. |
-| `PersistedStep` | The step a ToolMessage persists: status (`completed`, `failed` or `denied`), icon, label, sources, start and settle times, and the gate decision. |
+| `PersistedStep` | Deprecated: use `B4ToolStep`. The step a ToolMessage persists: status (`completed`, `failed` or `denied`), icon, label, sources, start and settle times, and the gate decision. |
 | `PersistedSubagent` | The subagent a `task` call launched: name, route, description, depth, child checkpoint namespace, outcome and error. |
 | `PersistedTurnEnd` | How and when a turn ended, stamped on the head checkpoint's metadata. |
-| `readPersistedStep` | Validate a `b4_step` value; invalid optional fields are dropped, a missing identity returns undefined. |
+| `readPersistedStep` | Deprecated: use `readToolStep`. Validate a `b4_step` value; invalid optional fields are dropped, a missing identity returns undefined. |
 | `readPersistedSubagent` | Validate a `b4_subagent` value. |
 | `readPersistedTurnEnd` | Validate a `b4:turn` value. |
 
@@ -210,6 +231,11 @@ import { scenarios } from "@b4run/sdk/testing"
 
 | Export | Responsibility |
 |---|---|
+| `TOOL_STEP_FIXTURES` | List the `b4.step` fixture corpus: named event sequences with the steps and answers they must fold to. |
+| `ToolStepFixture` | Describe one fixture: its name, events and expected result. |
+| `ToolStepFixtureEvent` | Describe one AG-UI event in a fixture. |
+| `ToolStepFolded` | Describe the steps and answers a fold produces. |
+| `foldToolStepEvents` | Fold fixture events into steps and answers; a reference implementation for a client's own reducer. |
 | `RouteScenarioMap` | Receive generated route-to-tool augmentation. |
 | `RuntimeErrorExpectation` | Describe an expected scenario error. |
 | `RuntimeExecutionBaseResult` | Share fields across scenario execution results. |
@@ -233,6 +259,14 @@ import { scenarios } from "@b4run/sdk/testing"
 | `isScenarioSuite` | Test whether a value is a scenario suite. |
 | `readScenarioSuite` | Read a scenario suite descriptor. |
 | `scenarios` | Start a typed scenario suite for a route. |
+
+### `@b4run/sdk/tool-step.schema.json`
+
+The JSON Schema of a `b4.step` value, as data for tooling and for producers in other languages. It is the same schema as `B4_TOOL_STEP_JSON_SCHEMA`. It has no TypeScript exports, runtime classification, or purity claim. Don't execute it as application code.
+
+### `@b4run/sdk/answer.schema.json`
+
+The JSON Schema of `b4.answer` annotations, as data for tooling and for producers in other languages. It is the same schema as `B4_ANSWER_JSON_SCHEMA`. It has no TypeScript exports, runtime classification, or purity claim. Don't execute it as application code.
 
 ## Key contracts
 

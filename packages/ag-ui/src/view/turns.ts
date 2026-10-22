@@ -1,6 +1,7 @@
 import type {
   ActivitySnapshotEvent,
   BaseEvent,
+  CustomEvent,
   Interrupt,
   ReasoningEndEvent,
   ReasoningMessageContentEvent,
@@ -18,17 +19,41 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
-import { type B4MediaPart, isContentPart, type ToolDisplaySource } from "@b4run/sdk"
+import {
+  B4_STEP_EVENT_NAME,
+  B4_STEP_METADATA_KEY,
+  type B4MediaPart,
+  type B4StepSource,
+  type B4ToolStep,
+  type B4ToolStepUpdate,
+  isContentPart,
+  readToolStepUpdate,
+  type ToolDisplaySource,
+} from "@b4run/sdk"
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
-import type { B4StepEventValue } from "../step.js"
 import { readPlan } from "./plan.js"
-import { readStepEvent } from "./step.js"
+import { isSettledStatus, mergeIntoToolStep, sameToolStep } from "./tool-steps.js"
 
-export type StepStatus = "pending" | "running" | "done" | "failed" | "denied" | "awaiting"
+/**
+ * A tool step's status. `cancelled` is a call the run stopped before it
+ * finished (a cancelled run, or an interrupt that parked other calls); like
+ * `denied`, it is not a failure.
+ */
+export type StepStatus =
+  | "pending"
+  | "running"
+  | "done"
+  | "failed"
+  | "denied"
+  | "cancelled"
+  | "awaiting"
 export type TurnStatus = "working" | "awaiting" | "done" | "failed" | "stopped"
 
-/** A source a step cites: the SDK's `ToolDisplaySource`, as `b4.step` carries it. */
-export type StepSource = ToolDisplaySource
+/**
+ * A source a step cites: the SDK's `ToolDisplaySource`, plus the `b4.step`
+ * contract's source fields (`id`, `kind`, `cited`, …) when the step carried them.
+ */
+export type StepSource = ToolDisplaySource & Partial<Omit<B4StepSource, "title" | "href">>
 
 /** A parked interrupt, as a chat shows it. */
 export interface ApprovalView {
@@ -61,6 +86,18 @@ export interface ToolStep {
   /** The server's `b4.step` label, when one arrived; a client falls back on the tool name. */
   readonly label?: string
   readonly sources?: readonly StepSource[]
+  /** `provider` when the model provider ran the call (a built-in web search); absent for the agent's own tools. */
+  readonly toolKind?: B4ToolStep["kind"]
+  /** The provider built-in the call is (`web_search`, …), from `b4.step`. */
+  readonly builtin?: string
+  /** The model provider that ran a `provider` call (`openai`, …), from `b4.step`. */
+  readonly provider?: string
+  /** The queries the call ran, from `b4.step`. */
+  readonly queries?: readonly string[]
+  /** The producer's error for a failed step, when it sent one. */
+  readonly error?: NonNullable<B4ToolStep["error"]>
+  /** The approval decision that settled the call, from `b4.step`. */
+  readonly decision?: B4ToolStep["decision"]
   readonly startedAt: number
   readonly settledAt?: number
   readonly approval?: ApprovalView
@@ -131,6 +168,12 @@ export interface TurnView {
   readonly error?: string
   /** How many steps failed, nested subagents included. */
   readonly failed: number
+  /**
+   * Internal: `b4.step` updates for calls this turn has not seen start, keyed
+   * by tool call id and applied in order at the call's `TOOL_CALL_START`.
+   * Renderers should ignore it.
+   */
+  readonly pendingSteps?: Readonly<Record<string, readonly B4ToolStepUpdate[]>>
 }
 
 export interface TurnsView {
@@ -261,10 +304,14 @@ function containsOwner(turn: TurnView, owner: string): boolean {
  * was answered elsewhere), when the next turn is glued onto the old one; a
  * connector that knows better passes `resuming: false`.
  *
- * A deny: the gated call is never re-executed, so no result arrives and the
- * step settles as `failed` at `RUN_FINISHED`. A B4 permission deny instead
- * returns the denial text as the call's result, so that step reads `done`
- * (a dedicated label for it is a server-side follow-up).
+ * A call the interrupt cancelled stays cancelled here; when the resumed run
+ * presents it again, `TOOL_CALL_START` reopens it.
+ *
+ * A deny: the gated call is never re-executed, so no result arrives; a
+ * successful `RUN_FINISHED` settles no open call (the `b4.step` contract), so
+ * the step stays `running` unless a `denied` step names it. A B4 permission
+ * deny instead returns the denial text as the call's result, so that step
+ * reads `done` (a dedicated label for it is a server-side follow-up).
  */
 function resumeTurn(turn: TurnView, runId: string): TurnView {
   const steps = turn.steps.map((step): StepView => {
@@ -344,23 +391,43 @@ function approvalOf(value: unknown): ApprovalView | undefined {
   }
 }
 
+/** How a turn's end settles its open tool calls; `undefined` leaves them open. */
+type ToolOutcome = "failed" | "cancelled" | undefined
+
 /**
- * Running or pending work never settles on its own: the turn ending settles
- * it as failed — except the calls in `keepOpen`, which the client itself still
- * owes a result for (`pendingToolCallIds`) and which stay as they are. An open
- * subagent's nested turn ends failed too, carrying `error` when there is one.
+ * An open (pending or running) tool call settled as `outcome`, the way the
+ * contract's `settleOpenSteps` does: the running label and sources go, since
+ * the call never did what they said.
+ */
+function settleTool(step: ToolStep, outcome: "failed" | "cancelled", at: number): ToolStep {
+  const { label: _label, sources: _sources, ...rest } = step
+  return { ...rest, status: outcome, settledAt: at }
+}
+
+const isOpenTool = (step: ToolStep, keepOpen: ReadonlySet<string>): boolean =>
+  (step.status === "running" || step.status === "pending") && !keepOpen.has(step.id)
+
+/**
+ * The turn ending settles its open work: open tool calls as `tools` (`failed`
+ * at a run error, `cancelled` at a cancelled run; a successful run leaves
+ * them, per the `b4.step` contract) — except the calls in `keepOpen`, which
+ * the client itself still owes a result for (`pendingToolCallIds`) and which
+ * stay as they are. Streaming reasoning ends. An open subagent's nested turn
+ * ends failed, its open calls settled as `tools` (`failed` when the run left
+ * them open), carrying `error` when there is one.
  */
 function settleOpen(
   turn: TurnView,
   at: number,
   keepOpen: ReadonlySet<string>,
+  tools: ToolOutcome,
   error?: string,
 ): TurnView {
   const steps = turn.steps.map((step): StepView => {
     switch (step.kind) {
       case "tool":
-        return (step.status === "running" || step.status === "pending") && !keepOpen.has(step.id)
-          ? { ...step, status: "failed", settledAt: at }
+        return tools !== undefined && isOpenTool(step, keepOpen)
+          ? settleTool(step, tools, at)
           : step
       case "reasoning":
         return step.status === "streaming" ? { ...step, status: "done", settledAt: at } : step
@@ -371,14 +438,37 @@ function settleOpen(
               status: "failed",
               settledAt: at,
               ...(error !== undefined ? { error } : {}),
-              turn: failTurn(step.turn, at, keepOpen, error),
+              turn: failTurn(step.turn, at, keepOpen, error, tools ?? "failed"),
             }
           : step
       default:
         return step
     }
   })
-  return { ...turn, steps, failed: countFailed(steps) }
+  // A step still held for a call that never started has nothing left to annotate.
+  const { pendingSteps: _pendingSteps, ...ended } = turn
+  return { ...ended, steps, failed: countFailed(steps) }
+}
+
+/**
+ * Settles every open tool call as `cancelled`, nested subagent turns included,
+ * except the calls in `keepOpen`; nothing else changes. Unchanged turns keep
+ * their identity.
+ */
+function cancelOpenTools(turn: TurnView, at: number, keepOpen: ReadonlySet<string>): TurnView {
+  let changed = false
+  const steps = turn.steps.map((step): StepView => {
+    if (step.kind === "tool" && isOpenTool(step, keepOpen)) {
+      changed = true
+      return settleTool(step, "cancelled", at)
+    }
+    if (step.kind !== "subagent") return step
+    const nested = cancelOpenTools(step.turn, at, keepOpen)
+    if (nested === step.turn) return step
+    changed = true
+    return { ...step, turn: nested }
+  })
+  return changed ? { ...turn, steps } : turn
 }
 
 /** A turn ended by failure: its open work settled, status failed, with the error when known. */
@@ -387,9 +477,10 @@ function failTurn(
   at: number,
   keepOpen: ReadonlySet<string>,
   error?: string,
+  tools: "failed" | "cancelled" = "failed",
 ): TurnView {
   return {
-    ...settleOpen(turn, at, keepOpen, error),
+    ...settleOpen(turn, at, keepOpen, tools, error),
     status: "failed",
     endedAt: at,
     ...(error !== undefined ? { error } : {}),
@@ -418,9 +509,21 @@ function withFailedCount(turn: TurnView): TurnView {
  * that answers the last turn's interrupts continues that turn; a `RUN_STARTED`
  * for a run already shown (a replay from the start) resets that turn in place.
  *
+ * Tool steps follow the `b4.step` contract (`@b4run/sdk`): a step arrives as
+ * `b4.step` metadata on `TOOL_CALL_START`, `_END` and `_RESULT` (the result's
+ * beats the call's) or as a `CUSTOM` `b4.step` event, v1 or legacy, and merges
+ * by `mergeToolStep`; a step for a call not yet started is held until its
+ * `TOOL_CALL_START` (never across runs). A result ends a call still open,
+ * dropping its running label: failed when the result carries `error`, else
+ * done. A `TOOL_CALL_START` reopens a cancelled call. A run error fails
+ * the open calls, a cancelled run cancels them, and an interrupt cancels all
+ * but the calls it parks; a successful run settles none.
+ *
  * A call's `b4.step` and `TOOL_CALL_RESULT` may arrive in either order: a
  * `completed` or `failed` step never reverts to running, a later result never
- * erases a done label, and re-applying a settled call's `completed` step and
+ * erases a done label (unless it carries a top-level `error`, which fails the
+ * call even after a `completed` step), and re-applying a settled call's
+ * `completed` step and
  * identical result changes nothing. An event that changes nothing returns
  * `state` itself.
  */
@@ -463,20 +566,25 @@ export function reduceTurns(
         state,
         updateOwner(state.turns, undefined, (turn) => {
           if (outcome?.type === "interrupt") {
+            // The parked calls stay open for the resume; every other open
+            // call stopped with the run (the `b4.step` contract).
             let next: TurnView = { ...turn, status: "awaiting" }
             const interrupts: readonly unknown[] = Array.isArray(outcome.interrupts)
               ? outcome.interrupts
               : []
             for (const interrupt of interrupts) next = attachInterrupt(next, interrupt)
-            return next
+            // Steps held for calls this run never started do not cross into the resume.
+            return dropHeldSteps(cancelOpenTools(next, at, parkedCalls(interrupts, outcome)))
           }
+          if (outcome?.type === "cancelled") {
+            return { ...settleOpen(turn, at, NONE, "cancelled"), status: "stopped", endedAt: at }
+          }
+          // A successful run settles no open call: a call still running after
+          // it (a background job) keeps running, per the `b4.step` contract.
           const pending = outcome?.type === "success" ? outcome.pendingToolCallIds : undefined
-          const keepOpen = Array.isArray(pending)
-            ? new Set(pending.filter((id): id is string => typeof id === "string"))
-            : NONE
           return {
-            ...settleOpen(turn, at, keepOpen),
-            status: outcome?.type === "cancelled" ? "stopped" : "done",
+            ...settleOpen(turn, at, stringSet(pending), undefined),
+            status: "done",
             endedAt: at,
           }
         }),
@@ -533,10 +641,14 @@ export function reduceTurns(
             status: suspended ? "paused" : "done",
             ...(finished.result !== undefined ? { result: finished.result } : {}),
             ...(suspended
-              ? {}
+              ? { turn: dropHeldSteps(step.turn) }
               : {
                   settledAt: at,
-                  turn: { ...settleOpen(step.turn, at, NONE), status: "done", endedAt: at },
+                  turn: {
+                    ...settleOpen(step.turn, at, NONE, "failed"),
+                    status: "done",
+                    endedAt: at,
+                  },
                 }),
           })),
         ),
@@ -562,18 +674,28 @@ export function reduceTurns(
       break
   }
 
-  const step = readStepEvent(event)
-  if (step !== undefined) {
-    return withTurns(
-      state,
-      updateOwner(state.turns, owner, (turn) => applyStep(turn, step, now())),
-    )
-  }
-
   switch (event.type) {
+    case EventType.CUSTOM: {
+      const { name, value } = event as CustomEvent
+      if (name !== B4_STEP_EVENT_NAME) return state
+      // A v1 step or a legacy `B4StepEventValue`; `kind` stays unstated when
+      // the value states none, so it never overwrites a stored `provider`.
+      const update = readToolStepUpdate(value)
+      const id = update?.toolCallId
+      if (update === undefined || id === undefined) return state
+      return withTurns(
+        state,
+        updateOwner(state.turns, owner, (turn) =>
+          turn.steps.some((s) => s.kind === "tool" && s.id === id)
+            ? applyStep(turn, id, update, "call", now())
+            : holdStep(turn, id, update),
+        ),
+      )
+    }
     case EventType.TOOL_CALL_START: {
       const { toolCallId, toolCallName } = event as ToolCallStartEvent
       if (options.hiddenTools?.includes(toolCallName)) return state
+      const update = stepMetadata(event, toolCallId)
       const at = now()
       return withTurns(
         state,
@@ -596,11 +718,6 @@ export function reduceTurns(
             }
             return { ...turn, steps: [...turn.steps, plan] }
           }
-          if (turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)) {
-            // The resumed run re-presents a gated call under the same id and
-            // streams its arguments again: start them over, keep the rest.
-            return mapStep(turn, toolCallId, (s) => (s.args === "" ? s : { ...s, args: "" }))
-          }
           const tool: ToolStep = {
             kind: "tool",
             id: toolCallId,
@@ -609,7 +726,17 @@ export function reduceTurns(
             args: "",
             startedAt: at,
           }
-          return { ...turn, steps: [...turn.steps, tool] }
+          // The resumed run re-presents a gated call under the same id and
+          // streams its arguments again: start them over, keep the rest. A
+          // call the interrupt cancelled runs again, so it reopens.
+          const framed = turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)
+            ? mapStep(turn, toolCallId, (s) =>
+                s.status === "cancelled" ? reopenTool(s) : s.args === "" ? s : { ...s, args: "" },
+              )
+            : { ...turn, steps: [...turn.steps, tool] }
+          // Steps that arrived before the call apply now, then its own metadata.
+          const started = releaseHeldSteps(framed, toolCallId, at)
+          return update === undefined ? started : applyStep(started, toolCallId, update, "call", at)
         }),
       )
     }
@@ -625,13 +752,15 @@ export function reduceTurns(
     }
     case EventType.TOOL_CALL_END: {
       const { toolCallId } = event as ToolCallEndEvent
+      const update = stepMetadata(event, toolCallId)
       return withTurns(
         state,
-        updateOwner(state.turns, owner, (turn) =>
-          mapStep(turn, toolCallId, (s) =>
+        updateOwner(state.turns, owner, (turn) => {
+          const ended = mapStep(turn, toolCallId, (s) =>
             s.status === "pending" ? { ...s, status: "running" } : s,
-          ),
-        ),
+          )
+          return update === undefined ? ended : applyStep(ended, toolCallId, update, "call", now())
+        }),
       )
     }
     case EventType.TOOL_CALL_RESULT: {
@@ -651,34 +780,48 @@ export function reduceTurns(
       const media = list.filter(
         (part): part is B4MediaPart => isContentPart(part) && part.type !== "text",
       )
+      // The result message's own step beats the call's (`"message"`).
+      const update = stepMetadata(event, toolCallId)
+      const { error } = event as { error?: unknown }
+      const failure = typeof error === "string" && error !== "" ? error : undefined
       const at = now()
       return withTurns(
         state,
         updateOwner(state.turns, owner, (turn) =>
-          mapStep(turn, toolCallId, (s) => {
-            const sameParts =
-              media.length === 0
-                ? s.parts === undefined
-                : JSON.stringify(s.parts) === JSON.stringify(media)
-            if (
-              s.result === result &&
-              sameParts &&
-              (s.status === "done" || s.status === "failed" || s.status === "denied")
-            ) {
-              return s
-            }
-            const { parts: _parts, ...rest } = s
-            const withResult: ToolStep = {
-              ...rest,
-              result,
-              ...(media.length > 0 ? { parts: media } : {}),
-            }
-            // A `failed` or `denied` step already said how this ended; a
-            // `completed` one already settled it, so its time stands.
-            return s.status === "failed" || s.status === "denied"
-              ? withResult
-              : { ...withResult, status: "done", settledAt: s.settledAt ?? at }
-          }),
+          withFailedCount(
+            mapStep(turn, toolCallId, (s) => {
+              const sameParts =
+                media.length === 0
+                  ? s.parts === undefined
+                  : JSON.stringify(s.parts) === JSON.stringify(media)
+              const { parts: _parts, ...rest } = s
+              const withResult: ToolStep = {
+                ...rest,
+                result,
+                ...(media.length > 0 ? { parts: media } : {}),
+              }
+              const merged =
+                update === undefined
+                  ? withResult
+                  : mergeIntoToolStep(withResult, update, "message", at)
+              // A result flagged as an error fails the call whatever its step
+              // said (failed wins). Otherwise it ends a call still open as
+              // done, and the running label no longer says what happened. A
+              // settled step already said how it ended; its time stands.
+              const settled: ToolStep =
+                failure !== undefined
+                  ? mergeIntoToolStep(
+                      merged,
+                      { v: 1, status: "failed", error: { message: failure } },
+                      "message",
+                      at,
+                    )
+                  : isSettledStatus(merged.status)
+                    ? merged
+                    : endOpenTool(merged, at)
+              return s.result === result && sameParts && sameToolStep(s, settled) ? s : settled
+            }),
+          ),
         ),
       )
     }
@@ -824,58 +967,92 @@ function openReasoning(turn: TurnView, id: string, at: number): TurnView {
 }
 
 /**
- * Merge a `b4.step` into its tool step. `running` only lifts a pending step;
- * `completed` and `denied` settle it (the result, before or after, keeps that
- * time); `failed` wins over everything. Labels, icons and sources always take
- * the newest value, whatever the status — except that `denied` drops the
- * running label and sources it does not replace: a call a gate blocked never
- * did what "Searching the corpus…" says, and the server sends no done label
- * for it. A denial is not a failure: the policy or the user answered, nothing
- * threw, so it never counts toward `turn.failed`. A step for a call this turn
- * never saw framed (e.g. frames suppressed upstream) has nothing to annotate.
- * A step that changes nothing keeps the tool step's identity.
+ * Merge a `b4.step` update into the tool step `id` by the contract's rules
+ * (`mergeIntoToolStep`), recounting failures. A denial or a cancellation is
+ * not a failure: the policy, the user or the run answered, nothing threw, so
+ * neither counts toward `turn.failed`. A step that changes nothing keeps the
+ * turn's identity.
  */
-function applyStep(turn: TurnView, step: B4StepEventValue, at: number): TurnView {
-  const next = mapStep(turn, step.toolCallId, (s) => {
-    const status: StepStatus =
-      step.status === "failed"
-        ? "failed"
-        : step.status === "completed" || step.status === "denied"
-          ? s.status === "failed"
-            ? s.status
-            : step.status === "denied"
-              ? "denied"
-              : "done"
-          : s.status === "pending"
-            ? "running"
-            : s.status
-    const settles = status === "done" || status === "failed" || status === "denied"
-    // A denied or failed call drops its running label: the call did not do
-    // what that sentence said, so the step reads its own label or the
-    // client's fallback, as a restored thread does.
-    const { label: _label, sources: _sources, ...bare } = s
-    const base: ToolStep = step.status === "denied" || step.status === "failed" ? bare : s
-    const patched: ToolStep = {
-      ...base,
-      ...(step.icon !== undefined ? { icon: step.icon } : {}),
-      ...(step.label !== undefined ? { label: step.label } : {}),
-      ...(step.sources !== undefined ? { sources: step.sources } : {}),
-      status,
-      ...(settles ? { settledAt: s.settledAt ?? at } : {}),
-    }
-    return sameToolStep(s, patched) ? s : patched
-  })
-  return step.status === "failed" ? withFailedCount(next) : next
+function applyStep(
+  turn: TurnView,
+  id: string,
+  update: B4ToolStepUpdate,
+  source: "call" | "message",
+  at: number,
+): TurnView {
+  const next = mapStep(turn, id, (s) => mergeIntoToolStep(s, update, source, at))
+  return next === turn ? turn : withFailedCount(next)
 }
 
-function sameToolStep(a: ToolStep, b: ToolStep): boolean {
-  return (
-    a.status === b.status &&
-    a.settledAt === b.settledAt &&
-    a.icon === b.icon &&
-    a.label === b.label &&
-    a.sources === b.sources
+/** An open call its result ended without an error: `done`, dropping the running label and keeping the sources. */
+function endOpenTool(step: ToolStep, at: number): ToolStep {
+  const { label: _label, ...rest } = step
+  return { ...rest, status: "done", settledAt: step.settledAt ?? at }
+}
+
+/** A cancelled call presented again (the resume runs it): back to the frames, no label, no settle time. */
+function reopenTool(step: ToolStep): ToolStep {
+  const { label: _label, settledAt: _settledAt, ...rest } = step
+  return { ...rest, status: "pending", args: "" }
+}
+
+/** The turn without held steps, nested subagent turns included; unchanged turns keep identity. */
+function dropHeldSteps(turn: TurnView): TurnView {
+  let changed = false
+  const steps = turn.steps.map((step): StepView => {
+    if (step.kind !== "subagent") return step
+    const nested = dropHeldSteps(step.turn)
+    if (nested === step.turn) return step
+    changed = true
+    return { ...step, turn: nested }
+  })
+  if (!changed && turn.pendingSteps === undefined) return turn
+  const { pendingSteps: _pendingSteps, ...rest } = turn
+  return { ...rest, steps }
+}
+
+/** Holds a `b4.step` for a call this turn has not seen start, until its `TOOL_CALL_START`. */
+function holdStep(turn: TurnView, id: string, update: B4ToolStepUpdate): TurnView {
+  const held = turn.pendingSteps ?? {}
+  const earlier = Object.hasOwn(held, id) ? (held[id] ?? []) : []
+  return { ...turn, pendingSteps: { ...held, [id]: [...earlier, update] } }
+}
+
+/** Applies, in order, the steps held for `id`, and forgets them. */
+function releaseHeldSteps(turn: TurnView, id: string, at: number): TurnView {
+  const held = turn.pendingSteps
+  if (held === undefined || !Object.hasOwn(held, id)) return turn
+  const { [id]: updates = [], ...rest } = held
+  const { pendingSteps: _pendingSteps, ...bare } = turn
+  const base: TurnView = Object.keys(rest).length > 0 ? { ...bare, pendingSteps: rest } : bare
+  return updates.reduce((next, update) => applyStep(next, id, update, "call", at), base)
+}
+
+/** The `b4.step` a tool-call frame or result carries in its metadata, if any. */
+function stepMetadata(event: BaseEvent, toolCallId: string): B4ToolStepUpdate | undefined {
+  const { metadata } = event as { metadata?: unknown }
+  return isRecord(metadata)
+    ? readToolStepUpdate(metadata[B4_STEP_METADATA_KEY], toolCallId)
+    : undefined
+}
+
+/** The string entries of a list off the wire, as a set. */
+function stringSet(value: unknown): ReadonlySet<string> {
+  return Array.isArray(value)
+    ? new Set(value.filter((id): id is string => typeof id === "string"))
+    : NONE
+}
+
+/**
+ * The calls an interrupt parks, which stay open for the resume: the ones its
+ * interrupts name, plus any `pendingToolCallIds` the outcome lists.
+ */
+function parkedCalls(interrupts: readonly unknown[], outcome: object): ReadonlySet<string> {
+  const named = interrupts.flatMap((entry) =>
+    isRecord(entry) && typeof entry.toolCallId === "string" ? [entry.toolCallId] : [],
   )
+  const pending = (outcome as { pendingToolCallIds?: unknown }).pendingToolCallIds
+  return new Set([...named, ...stringSet(pending)])
 }
 
 /** Put an interrupt on the step it names (pausing the subagents above it), or on the turn. */
