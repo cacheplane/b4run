@@ -137,7 +137,11 @@ export async function processResendEvent(
   ])
   const send = sendRows.rows[0]
 
-  const target = STATUS_FOR_EVENT[event.type]
+  // Only a permanent bounce is a delivery failure; transient and unknown bounces leave the status alone.
+  const target =
+    event.type === "email.bounced" && event.bounceType !== "permanent"
+      ? undefined
+      : STATUS_FOR_EVENT[event.type]
   if (send !== undefined && target !== undefined) {
     const current = RANK[send.delivery_status] ?? -1
     if ((RANK[target] ?? -1) > current) {
