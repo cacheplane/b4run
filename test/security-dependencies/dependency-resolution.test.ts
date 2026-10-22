@@ -457,8 +457,8 @@ function rootImporterPathsToVersion(
 function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
   const failures: string[] = []
   for (const [name, floors] of [
-    ["hono", { 4: "4.12.34" }],
-    ["@hono/node-server", { 1: "1.19.15", 2: "2.0.10" }],
+    ["hono", { 4: "4.13.11" }],
+    ["@hono/node-server", { 1: "1.19.15", 2: "2.1.3" }],
   ] as const) {
     for (const version of packageVersions(workspace, name)) {
       const floor = floors[versionTuple(version)[0] as keyof typeof floors]
@@ -1076,7 +1076,7 @@ describe("dependency security graph invariants", () => {
       packages: { "hono@4.12.33": {} },
       snapshots: { "hono@4.12.33": {} },
     }
-    expect(patchedFloorFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.12.34"])
+    expect(patchedFloorFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.13.11"])
   })
 
   it("reports an orphan provider-utils peer identity independently", () => {
