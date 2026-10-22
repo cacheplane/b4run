@@ -1,4 +1,5 @@
 import type { CtaId } from "../lib/analytics/events"
+import { UPDATES_FORM_ENABLED } from "../lib/growth/updates-enabled"
 import { BrandLogo } from "./BrandLogo"
 import headerStyles from "./homepage/header.module.css"
 import { NAVLOG_DEMO_URL } from "./site-links"
@@ -27,7 +28,9 @@ const COLUMNS: readonly Column[] = [
       { label: "Examples", href: "https://github.com/cacheplane/b4run/tree/main/examples" },
       { label: "Live demo", href: NAVLOG_DEMO_URL, ctaId: "footer_live_demo" },
       { label: "Blog", href: "/blog" },
-      { label: "Updates", href: "/updates", ctaId: "footer_updates" },
+      ...(UPDATES_FORM_ENABLED
+        ? [{ label: "Updates", href: "/updates", ctaId: "footer_updates" } as const]
+        : []),
     ],
   },
   {

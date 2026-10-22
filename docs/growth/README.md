@@ -70,6 +70,8 @@ read-only key and never applies changes.
 | `B4_CALL_URL` | the `/call` redirect in `next.config.ts` | Booking page; when unset the redirect goes to `/updates`. |
 | `B4_TEST_GROWTH_DB` | `test:growth-db` | Set to `1` by the script to enable the gated database tests. |
 
+The `/updates` form and its links (footer, blog call to action) appear only once `GROWTH_DATABASE_URL`, `GROWTH_EMAIL_HMAC_SECRET`, `GROWTH_TOKEN_SECRET` and `GROWTH_ENVIRONMENT` are all set at build; until then `/updates` says it is not open yet.
+
 There is no root `.env.example`; set these in your shell or in the Actions
 secrets (`POSTHOG_PERSONAL_API_KEY_READONLY`, `POSTHOG_PROJECT_ID`).
 
@@ -78,6 +80,8 @@ secrets (`POSTHOG_PERSONAL_API_KEY_READONLY`, `POSTHOG_PROJECT_ID`).
 - `approved_at` is the only send-authorisation field.
 - A stop clears it and is never reversed by a later form.
 - Reapproval is the founder command only.
+- Tagged Resend events must match `GROWTH_ENVIRONMENT`; an event whose environment tag differs is ignored.
+- Untagged Resend events are processed only when `GROWTH_ENVIRONMENT` is `production`.
 - Deletion keeps only the email HMAC, the stop, and the deletion timestamp.
 
 ## Measurement limits

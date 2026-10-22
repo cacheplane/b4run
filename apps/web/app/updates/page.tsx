@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Updates from "../../content/updates.mdx"
+import { UPDATES_FORM_ENABLED } from "../lib/growth/updates-enabled"
 import { resolveStaticSeoPage, toMetadata } from "../seo/resolve"
 import { FounderUpdatesForm } from "./FounderUpdatesForm"
 
@@ -15,7 +16,11 @@ export default function Page() {
       <article className="prose-b4">
         <Updates />
       </article>
-      <FounderUpdatesForm />
+      {UPDATES_FORM_ENABLED ? (
+        <FounderUpdatesForm />
+      ) : (
+        <p>Updates are not open yet. Check back soon.</p>
+      )}
     </main>
   )
 }

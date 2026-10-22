@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react"
 import { createRoot } from "react-dom/client"
+import { renderToStaticMarkup } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { track } from "../lib/analytics/client"
 import { DISCLOSURE_VERSION, FOUNDER_UPDATES_DISCLOSURE } from "../lib/growth/disclosure"
@@ -153,5 +154,28 @@ describe("founder updates form", () => {
     expect(trap?.tabIndex).toBe(-1)
     expect(trap?.getAttribute("autocomplete")).toBe("off")
     expect(container.querySelector("textarea")?.getAttribute("maxlength")).toBe("1000")
+  })
+})
+
+describe("updates page", () => {
+  async function loadPage(enabled: boolean) {
+    vi.resetModules()
+    vi.doMock("../lib/growth/updates-enabled", () => ({ UPDATES_FORM_ENABLED: enabled }))
+    return (await import("./page")).default
+  }
+  afterEach(() => vi.doUnmock("../lib/growth/updates-enabled"))
+
+  it("renders the form when the backend is configured", async () => {
+    const Page = await loadPage(true)
+    const html = renderToStaticMarkup(<Page />)
+    expect(html).toContain("<form")
+    expect(html).not.toContain("Updates are not open yet.")
+  })
+
+  it("renders a notice and no form when it is not", async () => {
+    const Page = await loadPage(false)
+    const html = renderToStaticMarkup(<Page />)
+    expect(html).not.toContain("<form")
+    expect(html).toContain("Updates are not open yet. Check back soon.")
   })
 })
