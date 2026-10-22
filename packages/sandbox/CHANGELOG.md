@@ -1,5 +1,15 @@
 # @dawn-ai/sandbox
 
+## 0.15.0
+
+### Patch Changes
+
+- 9d02a3a: `dockerSandbox` now recognizes a `runc init` that aborts on thread creation while joining a full pids cgroup (`runtime/cgo: pthread_create failed` or `failed to create new OS thread`, with runc frames in the dump) as a PID-exhaustion admission failure. Before, that unwrapped Go crash dump came back as the command's own exit 2, and the keeper was never recycled.
+- Updated dependencies [6e1ab4a]
+- Updated dependencies [319eec9]
+  - @b4run/sdk@0.15.0
+  - @b4run/workspace@0.15.0
+
 ## 0.14.0
 
 ### Patch Changes

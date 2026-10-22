@@ -1,5 +1,49 @@
 # create-dawn-ai-app
 
+## 0.15.0
+
+### Patch Changes
+
+- 8c40afb: The `@b4run/ag-ui` README now documents `B4HttpAgent`'s `responseSchema`, `forwardIdentity`, `B4Activity`'s `renderInChat` and its one-slot caveats (one interrupt slot, no `useDefaultRenderTool()`, `approvals.grants: "off"` only), `useB4ActivityContext`, and `mergeTurnMessages`. The navlog template's CopilotKit notes are verified against `@copilotkit/react-core` 1.77.1, whose `CopilotKit` wrapper no longer defaults `useSingleEndpoint` to `true`.
+- 6e1ab4a: The navlog template's tools word their failures ("Couldn't find KXYZ"), its flight-plan approval card names the ICAO items ("7 Aircraft ID") instead of `item7`, and the planner asks once for a UTC time when the pilot gives only a part of the day ("tomorrow morning") instead of failing to resolve it.
+- 2684e5c: A structure pass on the navlog template.
+  - **Layout:** `WorkbenchLayout` keeps the state both layouts share and renders `DesktopWorkbench` or `PhoneWorkbench`; one `useElementHeight` hook replaces two.
+  - **Shell:** `AppShell` composes hooks in `app/lib/` (server status, run errors, drop notices, thread switch, thread titles), and `MemoryPanel` reads its data through `useMemoryCandidates`.
+  - **Styles:** `app/theme.css` is now the entry for one stylesheet per part of the app in `app/styles/`, with the palette in `styles/tokens.css`.
+  - **Removed:** the markdown planning-brief fallback (pre-structured-answer threads still render in the chat), test-only exports, and unused POH distance helpers.
+  - **Lib:** the advisories and winds parsers move out of `weather-selectors.ts`, verdict types live in `verdict.ts`, the eval's scripted runs move to `navlog-quality.fixtures.ts`, and the server's flight category moves to `src/lib/`.
+- 73ee0fd: A readability pass on the navlog template, the example new apps start from.
+  - **READMEs:** they now describe the current layout, request flow, structured answer and tests. AGENTS.md gains a navlog section.
+  - **Memory schema:** its text describes navlog's facts.
+  - **Removed:** the unused `state.ts`.
+  - **Map:** the marker and label helpers move out of `RouteMap`, and the label priorities are named.
+  - **`ThreadWorkbench`:** now has its own file.
+  - **Comments and props:**
+    - Comments describe the code as it is.
+    - Props that both said "brief" now say `weatherBrief` and `planningAnswer`.
+- 0d45ab3: The navlog template computes its weather facts in code. `computeNavlog` no longer takes winds: it times each leg, takes the winds-aloft forecast for the time that leg is flown, and returns a `forecast` block with each airport's category now and when you are there, the advisories and their relevance, whether the forecasts reach the flight, and the verdict floor. The weather subagent is retired: the coordinator narrates the computed facts, and the Workbench renders them instead of parsing prose.
+- 75c37ef: The navlog template's weather rules (forecast coverage, flight category at a time, advisory relevance and the verdict floor) move into tested pure functions under `server/src/lib/forecast/`, with a winds-aloft station table built by `server/scripts/build-winds-stations.mjs`. The weather tools behave as before.
+- d6f294b: The navlog template's route map helpers live together in `web/app/lib/map/`: marker icons (`markers.ts`), label placement (`labels.ts`, `label-dom.ts`), the Leaflet layers `RouteMap` draws (`layers.ts`) and the draft rules (`draft.ts`). `RouteMap` lists its effects in order and only decides when each layer is drawn. `sheet-control.ts` and the button classes (now `buttons.ts`) move from `app/components/` to `app/lib/`. No behavior changes.
+- 9065cc4: The navlog template's route bar reorders waypoints: drag a pill along the bar (hold it first on a touch screen), or focus its identifier and press the arrow keys, Home or End. The map previews the new order while you drag, an insertion line marks where the pill lands, a pill held near either end scrolls a long route, Escape cancels, and a live region announces each move.
+- 4d96847: The navlog template's en-route weather stays on the route. `findRouteStations` holds a wider corridor to 40 nm and `max` to 8, after a model asked for a 100 nm corridor and listed airports two valleys over as en route. The coordinator now hands the weather subagent the route's legs and its en-route stations as separate, labelled lists, and the subagent fetches winds aloft once per leg and advisories at the route's own waypoints, never per station.
+- d6f294b: The navlog template forgets a remembered thread the server no longer serves to this visitor. The sidebar's list lives in browser storage and ownership in the visitor cookie, so clearing the cookie left rows that opened empty and failed on the first message. Before a titled thread opens, the page asks the new guarded `GET /api/threads/:id` route (204 or 404, no thread data), and a 404 removes the thread and opens the next one. The web README explains how to reproduce it locally.
+- Updated dependencies [8c40afb]
+- Updated dependencies [a99153a]
+- Updated dependencies [6e1ab4a]
+- Updated dependencies [2684e5c]
+- Updated dependencies [73ee0fd]
+- Updated dependencies [0d45ab3]
+- Updated dependencies [75c37ef]
+- Updated dependencies [d6f294b]
+- Updated dependencies [6357657]
+- Updated dependencies [c97a074]
+- Updated dependencies [9065cc4]
+- Updated dependencies [f610118]
+- Updated dependencies [53d3bbc]
+- Updated dependencies [4d96847]
+- Updated dependencies [d6f294b]
+  - @b4run/devkit@0.15.0
+
 ## 0.14.0
 
 ### Patch Changes
