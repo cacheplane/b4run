@@ -7,7 +7,7 @@ vi.mock("../webhooks", async (importOriginal) => ({
   processResendEvent: process_,
 }))
 
-import { Webhook } from "svix"
+import { Webhook } from "standardwebhooks"
 import {
   defaultResendWebhookDeps,
   handleResendWebhook,
@@ -142,7 +142,7 @@ describe("resend webhook route", () => {
     expect(await res.json()).toEqual({ error: "unavailable" })
   })
 
-  it("verifies real svix signatures through the default deps", async () => {
+  it("verifies real Standard Webhooks signatures through the default deps", async () => {
     const secret = `whsec_${Buffer.from("test-secret-bytes").toString("base64")}`
     const body = JSON.stringify(PAYLOAD)
     const timestamp = new Date()

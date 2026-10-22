@@ -1,4 +1,4 @@
-import { Webhook } from "svix"
+import { Webhook } from "standardwebhooks"
 import type { SqlExecutor } from "../database"
 import { type GrowthEnv, loadGrowthEnv } from "../env"
 import { parseResendEvent, processResendEvent } from "../webhooks"
@@ -38,7 +38,7 @@ export async function handleResendWebhook(
     const signature = request.headers.get("svix-signature")
     if (!id || !timestamp || !signature) return unverified()
 
-    // svix signs the exact bytes received, so verify the raw text before any parsing.
+    // The signature covers the exact bytes received, so verify the raw text before any parsing.
     const payload = await request.text()
     if (new TextEncoder().encode(payload).byteLength > MAX_BODY_BYTES) {
       return json(413, { error: "too_large" })
@@ -83,10 +83,11 @@ export function defaultResendWebhookDeps(): ResendWebhookRouteDeps {
     loadEnv: () => loadGrowthEnv(),
     createExecutor: getSharedExecutor,
     verify: ({ payload, headers, secret }) =>
+      // Resend sends Svix-named headers; standardwebhooks reads the same values under webhook-* names.
       new Webhook(secret).verify(payload, {
-        "svix-id": headers.id,
-        "svix-timestamp": headers.timestamp,
-        "svix-signature": headers.signature,
+        "webhook-id": headers.id,
+        "webhook-timestamp": headers.timestamp,
+        "webhook-signature": headers.signature,
       }),
     now: () => new Date(),
   }
