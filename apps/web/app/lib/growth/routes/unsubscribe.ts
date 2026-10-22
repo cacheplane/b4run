@@ -65,7 +65,7 @@ export async function handleUnsubscribeGet(
   try {
     const verified = verifyActionToken({
       token,
-      secret: deps.loadEnv().tokenSecret,
+      keyring: deps.loadEnv().tokenKeyring,
       purpose: "unsubscribe",
       now: deps.now(),
     })
@@ -95,7 +95,7 @@ export async function handleUnsubscribePost(
     const now = deps.now()
     const verified = verifyActionToken({
       token,
-      secret: env.tokenSecret,
+      keyring: env.tokenKeyring,
       purpose: "unsubscribe",
       now,
     })

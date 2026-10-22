@@ -11,13 +11,13 @@ import {
   type UnsubscribeRouteDeps,
 } from "./unsubscribe"
 
-const SECRET = "token-secret"
+const KEYRING = { active: { id: 1, secret: "token-secret" }, previous: [] }
 const CONTACT_ID = "7d9f3b0e-2c1a-4f6e-9a55-0b1d2c3e4f50"
 const NOW = new Date("2026-10-21T00:00:00Z")
 const URL_BASE = "http://localhost/api/growth/unsubscribe"
 const token = (purpose: "unsubscribe" | "founder_stop" = "unsubscribe") =>
   createActionToken({
-    secret: SECRET,
+    keyring: KEYRING,
     contactId: CONTACT_ID,
     purpose,
     issuedAt: NOW,
@@ -28,7 +28,7 @@ function deps(): UnsubscribeRouteDeps {
     loadEnv: () => ({
       databaseUrl: "postgres://x",
       emailHmacSecret: "s",
-      tokenSecret: SECRET,
+      tokenKeyring: KEYRING,
       environment: "test",
       publicOrigin: "https://b4.run",
     }),

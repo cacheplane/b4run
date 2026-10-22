@@ -33,7 +33,7 @@ function setup(overrides: Partial<FounderUpdatesRouteDeps> = {}) {
     loadEnv: () => ({
       databaseUrl: "postgres://x",
       emailHmacSecret: "s",
-      tokenSecret: "t",
+      tokenKeyring: { active: { id: 1, secret: "t" }, previous: [] },
       environment: "test",
       publicOrigin: "https://b4.run",
       posthogKey: "k",

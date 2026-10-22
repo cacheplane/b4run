@@ -57,7 +57,7 @@ export async function runControl(
 
   if (args.command === "status") {
     const token = createActionToken({
-      secret: env.tokenSecret,
+      keyring: env.tokenKeyring,
       contactId: contact.id,
       purpose: "unsubscribe",
       issuedAt: args.now,

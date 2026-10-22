@@ -8,7 +8,7 @@ import { GROWTH_DB_TESTS_ENABLED, withMigratedDatabase } from "./test-support/po
 const env: GrowthEnv = {
   databaseUrl: "postgres://unused",
   emailHmacSecret: "hmac-secret-value",
-  tokenSecret: "token-secret-value",
+  tokenKeyring: { active: { id: 1, secret: "token-secret-value" }, previous: [] },
   environment: "test",
   publicOrigin: "https://b4.run",
 }
@@ -95,7 +95,7 @@ describe("growth control and report (recorded SQL)", () => {
     })
     expect(output).toContain("https://b4.run/api/growth/unsubscribe?token=")
     expect(output).not.toContain(env.emailHmacSecret)
-    expect(output).not.toContain(env.tokenSecret)
+    expect(output).not.toContain(env.tokenKeyring.active.secret)
   })
 })
 
