@@ -59,8 +59,6 @@ type FrameStatus = "running" | "completed"
 interface Fold {
   readonly steps: Record<string, B4ToolStep>
   readonly frame: Record<string, FrameStatus>
-  /** Ids whose step status came from the frames, not from a producer. */
-  readonly derived: Set<string>
   /** Updates held for ids whose START has not arrived. */
   readonly held: Record<string, B4ToolStepUpdate[]>
   readonly answers: Record<string, B4AnswerAnnotations>
@@ -83,8 +81,6 @@ function applyUpdate(
     previous === undefined && update.status === undefined ? { ...update, status: frame } : update
   const merged = stripId(mergeToolStep(previous, seeded, source))
   fold.steps[id] = merged
-  if (update.status !== undefined) fold.derived.delete(id)
-  else if (previous === undefined) fold.derived.add(id)
 }
 
 function applyMetadata(
@@ -111,7 +107,6 @@ function startCall(fold: Fold, id: string, presented: boolean): void {
     const { label: _label, settledAt: _settledAt, ...rest } = step
     fold.steps[id] = { ...rest, status: "running" }
     fold.frame[id] = "running"
-    fold.derived.add(id)
   }
   for (const held of fold.held[id] ?? []) applyUpdate(fold, id, held, "call")
   delete fold.held[id]
@@ -122,7 +117,6 @@ function materialize(fold: Fold): void {
   for (const [id, frame] of Object.entries(fold.frame)) {
     if (fold.steps[id] === undefined) {
       fold.steps[id] = { v: 1, kind: "server", status: frame }
-      fold.derived.add(id)
     }
   }
 }
@@ -135,10 +129,7 @@ function settle(
 ): void {
   materialize(fold)
   const settled = settleOpenSteps(fold.steps, outcome, keepOpen, at)
-  for (const [id, step] of Object.entries(settled)) {
-    fold.steps[id] = step
-    if (step.status !== "running") fold.derived.delete(id)
-  }
+  for (const [id, step] of Object.entries(settled)) fold.steps[id] = step
 }
 
 function dropHeld(fold: Fold): void {
@@ -201,7 +192,7 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  * Pure: it does not mutate its input.
  */
 export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): ToolStepFolded {
-  const fold: Fold = { steps: {}, frame: {}, derived: new Set(), held: {}, answers: {} }
+  const fold: Fold = { steps: {}, frame: {}, held: {}, answers: {} }
 
   for (const event of events) {
     const id = event.toolCallId
@@ -235,7 +226,6 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
           // RESULT means it ended: the running label no longer says what happened.
           const { label: _label, ...rest } = open
           fold.steps[id] = { ...rest, status: "completed" }
-          fold.derived.delete(id)
         }
         break
       }

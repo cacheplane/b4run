@@ -24,6 +24,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
 | `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
 | `@b4run/sdk/tool-step.schema.json` | package metadata | n/a | integration | supported |
+| `@b4run/sdk/answer.schema.json` | package metadata | n/a | integration | supported |
 
 `@b4run/sdk/testing` is the route-scoped scenario API used by `b4 test`. It's not the `@b4run/testing` package, which provides a programmatic agent harness.
 
@@ -262,6 +263,10 @@ import { scenarios } from "@b4run/sdk/testing"
 ### `@b4run/sdk/tool-step.schema.json`
 
 The JSON Schema of a `b4.step` value, as data for tooling and for producers in other languages. It is the same schema as `B4_TOOL_STEP_JSON_SCHEMA`. It has no TypeScript exports, runtime classification, or purity claim. Don't execute it as application code.
+
+### `@b4run/sdk/answer.schema.json`
+
+The JSON Schema of `b4.answer` annotations, as data for tooling and for producers in other languages. It is the same schema as `B4_ANSWER_JSON_SCHEMA`. It has no TypeScript exports, runtime classification, or purity claim. Don't execute it as application code.
 
 ## Key contracts
 

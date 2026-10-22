@@ -60,6 +60,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/sdk", "./pure"],
   ["@b4run/sdk", "./testing"],
   ["@b4run/sdk", "./tool-step.schema.json"],
+  ["@b4run/sdk", "./answer.schema.json"],
   ["@b4run/cli", "."],
   ["@b4run/cli", "./fetch"],
   ["@b4run/cli", "./runtime"],
@@ -720,7 +721,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(53)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(54)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,

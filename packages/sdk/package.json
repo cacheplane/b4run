@@ -42,7 +42,8 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
-    "./tool-step.schema.json": "./dist/tool-step.schema.json"
+    "./tool-step.schema.json": "./dist/tool-step.schema.json",
+    "./answer.schema.json": "./dist/answer.schema.json"
   },
   "publishConfig": {
     "access": "public"

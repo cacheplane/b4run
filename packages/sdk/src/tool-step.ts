@@ -18,6 +18,12 @@ export const B4_TOOL_STEP_STATUSES = [
   "cancelled",
 ] as const
 
+/**
+ * A step's status: `running` until it settles as `completed`, `failed`,
+ * `denied` (a gate or policy refused it) or `cancelled` (the run stopped it
+ * first). Readers tolerate a status they do not know by leaving `status` out
+ * and using the lifecycle the events give.
+ */
 export type B4ToolStepStatus = (typeof B4_TOOL_STEP_STATUSES)[number]
 
 /** Recommended `builtin` values. The field itself stays an open string. */
