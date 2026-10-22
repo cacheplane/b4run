@@ -1,4 +1,5 @@
 import crypto from "node:crypto"
+import { GrowthConfigError } from "./errors"
 
 export type ActionTokenPurpose = "unsubscribe" | "founder_stop"
 
@@ -95,13 +96,17 @@ export function unsubscribeUrl(publicOrigin: string, token: string): string {
   return `${publicOrigin}/api/growth/unsubscribe?token=${token}`
 }
 
+export function founderStopUrl(publicOrigin: string, token: string): string {
+  return `${publicOrigin}/api/growth/founder-stop?token=${token}`
+}
+
 export function normalizePublicOrigin(value: string): string {
-  if (value.includes("?") || value.includes("#")) throw new Error(ORIGIN_ERROR)
+  if (value.includes("?") || value.includes("#")) throw new GrowthConfigError(ORIGIN_ERROR)
   let url: URL
   try {
     url = new URL(value)
   } catch {
-    throw new Error(ORIGIN_ERROR)
+    throw new GrowthConfigError(ORIGIN_ERROR)
   }
   if (
     url.protocol !== "https:" ||
@@ -110,7 +115,7 @@ export function normalizePublicOrigin(value: string): string {
     url.password !== "" ||
     url.host === ""
   ) {
-    throw new Error(ORIGIN_ERROR)
+    throw new GrowthConfigError(ORIGIN_ERROR)
   }
   return url.origin
 }

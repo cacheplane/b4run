@@ -1,4 +1,5 @@
-import { type GrowthEnv, loadGrowthEnv } from "./env"
+import { type GrowthEnv, loadGrowthEnv, optional } from "./env"
+import { GrowthConfigError } from "./errors"
 
 export interface SequenceEnv extends GrowthEnv {
   readonly sequenceEnabled: boolean
@@ -13,17 +14,12 @@ export interface SequenceEnv extends GrowthEnv {
 
 const DEFAULT_FOUNDER_EMAIL = "brian@b4.run"
 
-function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const value = env[name]?.trim()
-  return value ? value : undefined
-}
-
 const START_AT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/
 
 function parseStartAt(value: string | undefined): Date {
-  if (value === undefined) throw new Error("GROWTH_SEQUENCE_START_AT is not set")
-  const invalid = new Error(
+  if (value === undefined) throw new GrowthConfigError("GROWTH_SEQUENCE_START_AT is not set")
+  const invalid = new GrowthConfigError(
     "GROWTH_SEQUENCE_START_AT must be an ISO date-time with a UTC offset, in the form YYYY-MM-DDTHH:MM:SS+HH:MM or ending in Z",
   )
   const match = START_AT_PATTERN.exec(value)
@@ -62,7 +58,7 @@ export function loadSequenceEnv(env: NodeJS.ProcessEnv = process.env): SequenceE
     : undefined
   const resendApiKey = optional(env, "RESEND_API_KEY")
   if (deliveryEnabled && resendApiKey === undefined) {
-    throw new Error("RESEND_API_KEY is not set")
+    throw new GrowthConfigError("RESEND_API_KEY is not set")
   }
   const cronSecret = optional(env, "CRON_SECRET")
   return {

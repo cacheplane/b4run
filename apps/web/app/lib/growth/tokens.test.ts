@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createActionToken,
+  founderStopUrl,
   normalizePublicOrigin,
   TOKEN_MAX_AGE_SECONDS,
   unsubscribeUrl,
@@ -239,6 +240,12 @@ describe("normalizePublicOrigin", () => {
   it("builds the unsubscribe url", () => {
     expect(unsubscribeUrl("https://b4.run", "t.k")).toBe(
       "https://b4.run/api/growth/unsubscribe?token=t.k",
+    )
+  })
+
+  it("builds the founder-stop url", () => {
+    expect(founderStopUrl("https://b4.run", "abc.def")).toBe(
+      "https://b4.run/api/growth/founder-stop?token=abc.def",
     )
   })
 })

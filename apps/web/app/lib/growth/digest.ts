@@ -1,10 +1,10 @@
 import type { SqlExecutor } from "./database"
+import { safeErrorCode } from "./errors"
 import { composeDigestEmail, type Mailer } from "./mailer"
 import { isSendWindow, pacificCalendarDate, pacificMorningOf, SEQUENCE_TIME_ZONE } from "./schedule"
-import { safeErrorCode } from "./sequence"
 import type { SequenceStep } from "./sequence-copy"
 import type { SequenceEnv } from "./sequence-env"
-import { createActionToken } from "./tokens"
+import { createActionToken, founderStopUrl } from "./tokens"
 
 export interface DigestData {
   readonly date: string
@@ -28,10 +28,6 @@ export const DIGEST_KIND = "digest.sent"
 const DEFAULT_LOOKBACK_MS = 24 * 3600 * 1000
 
 export const digestEventKey = (date: string) => `digest:${date}`
-
-export function founderStopUrl(publicOrigin: string, token: string): string {
-  return `${publicOrigin}/api/growth/founder-stop?token=${token}`
-}
 
 const pacificFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: SEQUENCE_TIME_ZONE,

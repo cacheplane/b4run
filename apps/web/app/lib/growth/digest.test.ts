@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { type DigestData, founderStopUrl, renderDigestText } from "./digest"
+import { type DigestData, renderDigestText } from "./digest"
 
 const ADA = "7d9f3b0e-2c1a-4f6e-9a55-0b1d2c3e4f50"
 const GRACE = "0b1d2c3e-4f50-4f6e-9a55-7d9f3b0e2c1a"
@@ -62,13 +62,5 @@ describe("renderDigestText", () => {
       ],
     }
     expect(renderDigestText(data, stopUrlFor)).toBe(renderDigestText(data, stopUrlFor))
-  })
-})
-
-describe("founderStopUrl", () => {
-  it("points at the founder-stop route on the public origin", () => {
-    expect(founderStopUrl("https://b4.run", "abc.def")).toBe(
-      "https://b4.run/api/growth/founder-stop?token=abc.def",
-    )
   })
 })

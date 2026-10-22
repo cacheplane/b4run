@@ -1,5 +1,6 @@
 import { recordActivity } from "./contacts"
 import type { SqlExecutor, SqlTransaction } from "./database"
+import { safeErrorCode } from "./errors"
 import { composeSequenceEmail, type Mailer, sendIdempotencyKey } from "./mailer"
 import { businessMorningAfter, STEP_DELAY_BUSINESS_DAYS } from "./schedule"
 import type { SequenceStep } from "./sequence-copy"
@@ -40,13 +41,6 @@ export type SendOutcome =
   | "retry_later"
   | "failed_attempts"
   | "lease_lost"
-
-const ERROR_CODE_PATTERN = /^[a-z0-9_]{1,64}$/
-
-/** Stores only short machine codes, so nothing a provider echoes back (an address, say) is kept. */
-export function safeErrorCode(code: string): string {
-  return ERROR_CODE_PATTERN.test(code) ? code : "unclassified"
-}
 
 const enrolledEventKey = (contactId: string) => `enrolled:v1:${contactId}`
 const submittedEventKey = (sendId: string) => `submitted:${sendId}`

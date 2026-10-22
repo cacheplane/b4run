@@ -1,6 +1,7 @@
 import { stopContact } from "../contacts"
 import type { SqlExecutor } from "../database"
 import { type GrowthEnv, loadGrowthEnv } from "../env"
+import { errorLogCode } from "../errors"
 import { verifyActionToken } from "../tokens"
 import {
   renderConfirmPage,
@@ -11,7 +12,6 @@ import {
 } from "../unsubscribe-page"
 import {
   declaresOversizeBody,
-  errorLogCode,
   getSharedExecutor,
   privateHtml,
   queryToken,

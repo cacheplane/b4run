@@ -22,6 +22,7 @@ vi.mock("../sequence", async (importOriginal) => ({
 vi.mock("../digest", () => ({ sendDailyDigest: engine.digest }))
 
 import { SEND_BATCH, SEND_PACING_MS } from "../sequence"
+import { loadSequenceEnv } from "../sequence-env"
 import { handleTick, type TickDeps } from "./tick"
 
 const SECRET = "cron-secret-value"
@@ -195,14 +196,25 @@ describe("growth tick route", () => {
     expect(await res.json()).toMatchObject({ leased: 0, delivery: "disabled" })
   })
 
-  it("leases nothing when delivery is on but the Resend key is missing", async () => {
+  it("fails with config_invalid when delivery is on but the Resend key is missing", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
     queueBatches(2)
-    const h = harness({}, { omit: ["resendApiKey"] })
+    const h = harness()
+    h.deps.loadEnv = () =>
+      loadSequenceEnv({
+        GROWTH_DATABASE_URL: "postgres://x",
+        GROWTH_EMAIL_HMAC_SECRET: "s",
+        GROWTH_TOKEN_SECRET: "t",
+        GROWTH_ENVIRONMENT: "test",
+        GROWTH_DELIVERY_ENABLED: "true",
+      } as unknown as NodeJS.ProcessEnv)
     const res = await handleTick(authorised(), h.deps)
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: "tick_failed" })
     expect(engine.lease).not.toHaveBeenCalled()
     expect(engine.digest).not.toHaveBeenCalled()
-    expect(await res.json()).toMatchObject({ leased: 0, delivery: "missing_api_key" })
+    const logged = stderr.mock.calls.map((call) => String(call[0])).join("")
+    expect(logged).toBe("growth tick failed: config_invalid\n")
   })
 
   it("sends only inside the Pacific window", async () => {

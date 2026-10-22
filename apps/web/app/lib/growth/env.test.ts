@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { type GrowthEnv, loadGrowthEnv as load } from "./env"
+import { GrowthConfigError } from "./errors"
 
 const loadGrowthEnv = (env: Record<string, string | undefined>): GrowthEnv =>
   load(env as NodeJS.ProcessEnv)
@@ -102,5 +103,22 @@ describe("loadGrowthEnv", () => {
         loadGrowthEnv({ ...base, GROWTH_TOKEN_KEY_ID: "2", GROWTH_TOKEN_PREVIOUS_KEYS: "2:old" }),
       ).toThrow("GROWTH_TOKEN_PREVIOUS_KEYS")
     })
+  })
+
+  it.each([
+    { GROWTH_DATABASE_URL: "" },
+    { GROWTH_ENVIRONMENT: "prod" },
+    { GROWTH_TOKEN_KEY_ID: "0" },
+    { GROWTH_TOKEN_PREVIOUS_KEYS: "nocolon" },
+    { GROWTH_PUBLIC_ORIGIN: "http://b4.run" },
+  ])("throws a config_invalid GrowthConfigError for %o", (override) => {
+    let thrown: unknown
+    try {
+      loadGrowthEnv({ ...base, ...override })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(GrowthConfigError)
+    expect((thrown as GrowthConfigError).code).toBe("config_invalid")
   })
 })

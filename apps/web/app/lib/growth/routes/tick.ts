@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
 import type { SqlExecutor } from "../database"
 import { sendDailyDigest } from "../digest"
+import { errorLogCode, GrowthConfigError } from "../errors"
 import { createResendMailer, type Mailer } from "../mailer"
 import { isSendWindow } from "../schedule"
 import {
@@ -13,7 +14,7 @@ import {
   type SendOutcome,
 } from "../sequence"
 import { loadSequenceEnv, type SequenceEnv } from "../sequence-env"
-import { errorLogCode, getSharedExecutor } from "./shared"
+import { getSharedExecutor } from "./shared"
 
 /** The tick stops starting sends after this long, leaving room inside the 60-second route limit. */
 export const TICK_SEND_BUDGET_MS = 40_000
@@ -30,7 +31,7 @@ export interface TickDeps {
   sleep(ms: number): Promise<void>
 }
 
-export type TickDelivery = "disabled" | "enabled" | "missing_api_key"
+export type TickDelivery = "disabled" | "enabled"
 
 export interface TickReport {
   readonly enrolled: number
@@ -109,7 +110,9 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
     let enrolled = 0
     if (env.sequenceEnabled) {
       // loadSequenceEnv already refuses this; never enroll without the launch time.
-      if (env.sequenceStartAt === undefined) throw new Error("sequence start time missing")
+      if (env.sequenceStartAt === undefined) {
+        throw new GrowthConfigError("GROWTH_SEQUENCE_START_AT is not set")
+      }
       enrolled = (await enrollApprovedContacts(executor, { startAt: env.sequenceStartAt, now }))
         .enrolled
     }
@@ -120,15 +123,12 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
     let digest = "disabled"
     let delivery: TickDelivery = "disabled"
     if (env.deliveryEnabled) {
-      if (env.resendApiKey === undefined) {
-        delivery = "missing_api_key"
-        digest = "skipped"
-      } else {
-        delivery = "enabled"
-        const mailer = deps.createMailer(env.resendApiKey)
-        if (windowOpen) ({ leased, outcomes } = await runSends(executor, env, mailer, deps))
-        digest = await sendDailyDigest(executor, { env, mailer, now: deps.now() })
-      }
+      // loadSequenceEnv already refuses delivery without a key; this only narrows the type.
+      if (env.resendApiKey === undefined) throw new GrowthConfigError("RESEND_API_KEY is not set")
+      delivery = "enabled"
+      const mailer = deps.createMailer(env.resendApiKey)
+      if (windowOpen) ({ leased, outcomes } = await runSends(executor, env, mailer, deps))
+      digest = await sendDailyDigest(executor, { env, mailer, now: deps.now() })
     }
 
     const report: TickReport = { enrolled, leased, outcomes, digest, windowOpen, delivery }

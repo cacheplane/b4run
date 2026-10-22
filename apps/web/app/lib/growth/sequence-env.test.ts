@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { GrowthConfigError } from "./errors"
 import { loadSequenceEnv as load, type SequenceEnv } from "./sequence-env"
 
 const loadSequenceEnv = (env: Record<string, string | undefined>): SequenceEnv =>
@@ -130,5 +131,21 @@ describe("loadSequenceEnv", () => {
 
   it("still requires the base growth variables", () => {
     expect(() => loadSequenceEnv({})).toThrow(/GROWTH_DATABASE_URL/)
+  })
+
+  it.each([
+    { GROWTH_SEQUENCE_ENABLED: "true" },
+    { GROWTH_SEQUENCE_ENABLED: "true", GROWTH_SEQUENCE_START_AT: "soon" },
+    { GROWTH_DELIVERY_ENABLED: "true" },
+    { GROWTH_TOKEN_SECRET: "" },
+  ])("throws a config_invalid GrowthConfigError for %o", (override) => {
+    let thrown: unknown
+    try {
+      loadSequenceEnv({ ...base, ...override })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(GrowthConfigError)
+    expect((thrown as GrowthConfigError).code).toBe("config_invalid")
   })
 })

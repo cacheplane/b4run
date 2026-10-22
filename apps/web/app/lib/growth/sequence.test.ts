@@ -8,7 +8,6 @@ import {
   RETRY_DELAY_SECONDS,
   SEND_BATCH,
   SEND_PACING_MS,
-  safeErrorCode,
   sendIdempotencyKey,
 } from "./sequence"
 
@@ -39,13 +38,5 @@ describe("founder sequence engine helpers", () => {
     expect(RETRY_DELAY_SECONDS).toBe(600)
     expect(RATE_LIMIT_DELAY_SECONDS).toBe(60)
     expect(IDEMPOTENCY_WINDOW_SECONDS).toBe(23 * 3600)
-  })
-
-  it("keeps only short machine error codes", () => {
-    expect(safeErrorCode("http_500")).toBe("http_500")
-    expect(safeErrorCode("idempotency_mismatch")).toBe("idempotency_mismatch")
-    expect(safeErrorCode("bad ada@example.com")).toBe("unclassified")
-    expect(safeErrorCode("")).toBe("unclassified")
-    expect(safeErrorCode("x".repeat(65))).toBe("unclassified")
   })
 })

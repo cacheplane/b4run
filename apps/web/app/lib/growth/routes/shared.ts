@@ -1,5 +1,4 @@
 import { createPgExecutor, type SqlExecutor } from "../database"
-import { safeErrorCode } from "../sequence"
 
 let executor: { url: string; value: SqlExecutor } | undefined
 
@@ -98,11 +97,4 @@ export async function readPostedToken(request: Request): Promise<string | undefi
   const body = await parseBodyToken(bytes, request.headers.get("content-type") ?? "")
   if (!body.ok) return undefined
   return body.token ?? queryToken(request)
-}
-
-/** A short code for a route's error log: the driver's error code if it has one, never the message. */
-export function errorLogCode(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined
-  return typeof code === "string" ? safeErrorCode(code.toLowerCase()) : "unclassified"
 }
