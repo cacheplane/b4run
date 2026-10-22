@@ -433,7 +433,6 @@ describe("generated documentation bundle", () => {
       file: "recipes/index.md",
     })
     expect(topics).toHaveLength(EXPECTED_DOCS.length)
-    expect(topics).toHaveLength(82)
     expect(topics).toContainEqual({ title: "Thread Access", file: "thread-access.md" })
     expect(topics.slice(apiHubIndex, apiHubIndex + 17).map(({ title }) => title)).toEqual([
       "API Reference",
