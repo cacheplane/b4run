@@ -1,18 +1,25 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { POST } from "./route"
 
 const post = (payload: unknown) =>
   POST(
     new Request("https://b4.run/api/signals/v1/cli", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "user-agent": "b4-cli" },
       body: JSON.stringify(payload),
     }),
   )
 
 describe("POST /api/signals/v1/cli", () => {
+  // Forwarding stays off whatever the developer's shell sets, so no request reaches PostHog.
+  beforeEach(() => {
+    vi.stubEnv("GROWTH_CLI_SIGNALS_ENABLED", "")
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it("accepts a valid CLI signal with 202 and an empty body", async () => {
-    // GROWTH_CLI_SIGNALS_ENABLED is unset under test, so nothing is scheduled or forwarded.
     const response = await post({
       schema: 1,
       usage_id: "11111111-1111-4111-8111-111111111111",

@@ -53,11 +53,18 @@ function harness(env: Record<string, string | undefined> = ENABLED) {
       tasks.push(task)
     },
   })
-  const post = (payload: unknown, init: { contentType?: string; raw?: string } = {}) =>
+  const post = (
+    payload: unknown,
+    init: { contentType?: string; raw?: string; headers?: Record<string, string> } = {},
+  ) =>
     handler(
       new Request("https://b4.run/api/signals/v1/cli", {
         method: "POST",
-        headers: { "content-type": init.contentType ?? "application/json" },
+        headers: {
+          "content-type": init.contentType ?? "application/json",
+          "user-agent": "b4-cli",
+          ...init.headers,
+        },
         body: init.raw ?? JSON.stringify(payload),
       }),
     )
@@ -199,6 +206,30 @@ describe("CLI signals ingest: rejected requests", () => {
     expect(h.tasks).toHaveLength(0)
   })
 
+  it.each([
+    ["an event entry is not an object", body([firstRun(), "cli:command_completed"])],
+    ["an event name is __proto__", body([{ event: "__proto__", properties: {} }])],
+    ["an event name is constructor", body([{ event: "constructor", properties: {} }])],
+  ])("replies 400 when %s", async (_label, payload) => {
+    const h = harness()
+    expect((await h.post(payload)).status).toBe(400)
+    expect(h.tasks).toHaveLength(0)
+  })
+
+  it("replies 400 when the user agent is not the b4 CLI", async () => {
+    for (const agent of ["Mozilla/5.0", "curl/8.7.1", "b4"]) {
+      const h = harness()
+      const response = await h.post(body([firstRun()]), { headers: { "user-agent": agent } })
+      expect(response.status, agent).toBe(400)
+      expect(h.tasks).toHaveLength(0)
+    }
+    const h = harness()
+    const response = await h.post(body([firstRun()]), {
+      headers: { "user-agent": "b4-cli/0.15.0" },
+    })
+    expect(response.status).toBe(202)
+  })
+
   it("replies 400 when the body is not JSON", async () => {
     const h = harness()
     expect((await h.post(undefined, { raw: "{not json" })).status).toBe(400)
@@ -219,6 +250,22 @@ describe("CLI signals ingest: rejected requests", () => {
     expect(await response.text()).toBe("")
     expect(h.tasks).toHaveLength(0)
   })
+
+  it("counts the size cap in bytes, not characters", async () => {
+    const h = harness()
+    // 6,000 euro signs are 6,000 UTF-16 units but 18,000 UTF-8 bytes.
+    const raw = JSON.stringify(body([firstRun({ padding: "\u20ac".repeat(6_000) })]))
+    expect(raw.length).toBeLessThan(CLI_INGEST_MAX_BODY_BYTES)
+    expect((await h.post(undefined, { raw })).status).toBe(413)
+  })
+
+  it("replies 413 when content-length declares an oversized body", async () => {
+    const h = harness()
+    const response = await h.post(body([firstRun()]), {
+      headers: { "content-length": String(CLI_INGEST_MAX_BODY_BYTES + 1) },
+    })
+    expect(response.status).toBe(413)
+  })
 })
 
 describe("CLI signals ingest: event validation", () => {
@@ -232,6 +279,16 @@ describe("CLI signals ingest: event validation", () => {
     ["error_class is not a string", commandCompleted({ error_class: 1006 })],
     ["a required property is missing", commandCompleted({ os: undefined })],
     ["route_kind is out of range", firstRun({ route_kind: "router" })],
+    [
+      "error_class is a user-defined class name",
+      commandCompleted({ error_class: "AcmeProjectError" }),
+    ],
+    ["error_class is free text", commandCompleted({ error_class: "a@example.com" })],
+    ["error_class is a malformed code", commandCompleted({ error_class: "B4_E12" })],
+    ["os is not a Node platform", commandCompleted({ os: "brians-macbook.local" })],
+    ["cli_version is not a version", commandCompleted({ cli_version: "/Users/me/app" })],
+    ["node_major is negative", commandCompleted({ node_major: -1 })],
+    ["node_major is implausibly large", commandCompleted({ node_major: 1000 })],
     ["properties is not an object", { event: "cli:dev_first_run_completed", properties: [] }],
   ])("drops the event when %s", async (_label, event) => {
     const h = harness()
@@ -240,11 +297,38 @@ describe("CLI signals ingest: event validation", () => {
     expect(h.forwarded()[0]?.payload.batch).toHaveLength(1)
   })
 
-  it("accepts a string of exactly 128 characters", async () => {
+  it("accepts a free-text string of exactly 128 characters", async () => {
     const h = harness()
-    await h.post(body([commandCompleted({ os: "x".repeat(128) })]))
+    await h.post(body([commandCompleted({ cli_version: `1.0.0-${"a".repeat(122)}` })]))
     await h.runScheduled()
     expect(h.forwarded()[0]?.payload.batch).toHaveLength(1)
+  })
+
+  it.each([
+    ["a B4 error code", { error_class: "B4_E1006" }],
+    ["a built-in error name", { error_class: "TypeError" }],
+    ["the unknown error class", { error_class: "unknown" }],
+    ["a Windows platform", { os: "win32" }],
+    ["a prerelease version", { cli_version: "0.15.0-next.3" }],
+  ])("accepts %s", async (_label, properties) => {
+    const h = harness()
+    await h.post(body([commandCompleted(properties)]))
+    await h.runScheduled()
+    expect(h.forwarded()[0]?.payload.batch[0]?.properties).toMatchObject(properties)
+  })
+
+  it("ignores a __proto__ property and forwards nothing from it", async () => {
+    const h = harness()
+    const raw = JSON.stringify(body([firstRun()])).replace(
+      '"route_kind"',
+      '"__proto__":{"polluted":true},"route_kind"',
+    )
+    expect((await h.post(undefined, { raw })).status).toBe(202)
+    await h.runScheduled()
+    const properties = h.forwarded()[0]?.payload.batch[0]?.properties ?? {}
+    expect(Object.hasOwn(properties, "__proto__")).toBe(false)
+    expect(properties).not.toHaveProperty("polluted")
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 })
 

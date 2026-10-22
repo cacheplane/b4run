@@ -3,8 +3,10 @@ import { REPORTING_COMMANDS } from "../../../../../packages/cli/src/lib/signals/
 import {
   CLI_EVENT_PROPERTIES,
   durationBucket,
+  KNOWN_ERROR_NAMES,
   MAX_PROPERTY_LENGTH,
 } from "../../../../../packages/cli/src/lib/signals/events"
+import { B4_ERRORS } from "../../../../../packages/sdk/src/errors"
 import { EVENT_CONTRACT } from "../../../../../scripts/posthog/contract"
 import { CLI_INGEST_MAX_STRING_LENGTH, CLI_SIGNAL_RULES } from "./cli-ingest"
 
@@ -19,6 +21,22 @@ describe("CLI ingest rules match the CLI and the PostHog contract", () => {
     for (const [event, properties] of Object.entries(CLI_EVENT_PROPERTIES)) {
       const rules = CLI_SIGNAL_RULES[event as keyof typeof CLI_SIGNAL_RULES]
       expect(Object.keys(rules).sort(), event).toEqual([...properties].sort())
+    }
+  })
+
+  it("allows exactly the PostHog contract's property names for each event", () => {
+    for (const [event, rules] of Object.entries(CLI_SIGNAL_RULES)) {
+      expect(Object.keys(rules).sort(), event).toEqual(
+        [...(EVENT_CONTRACT[event]?.allowedProperties ?? [])].sort(),
+      )
+    }
+  })
+
+  it("accepts every error class the CLI can report", () => {
+    const rule = CLI_SIGNAL_RULES["cli:command_completed"].error_class
+    const reported = [...KNOWN_ERROR_NAMES, "unknown", ...Object.keys(B4_ERRORS)]
+    for (const value of reported) {
+      expect(rule.type === "string" && rule.pattern.test(value), value).toBe(true)
     }
   })
 

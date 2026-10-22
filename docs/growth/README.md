@@ -76,13 +76,20 @@ The CLI sends one event per request today. The contract allows up to ten.
 
 ### Ingest route rules
 
-- Reply 415 unless `Content-Type` is `application/json`, and 413 when the body exceeds 16 KiB.
+- Reply 400 unless `User-Agent` starts with `b4-cli`, 415 unless `Content-Type` is `application/json`, and 413 when the body exceeds 16 KiB (counted in bytes). The user-agent check is not a credential; it keeps crawlers and scanners out of the counts.
 - Accept 1 to 10 events per request.
-- Reject the request with 400 when the body is not JSON, `schema` is not `1`, `usage_id` is not a UUID, or any event name is unknown.
+- Reject the request with 400 when the body is not JSON, `schema` is not `1`, `usage_id` is not a UUID, an event is not an object with a string `event`, or any event name is unknown.
 - Drop properties outside the event's allowlist.
-- Drop an event whose known property has the wrong type or an out-of-range value, or that lacks a required property: `command` must be one of the seven command names, `outcome` one of `ok`, `error`, `cancelled`, `duration_bucket` one of the five buckets, `route_kind` one of the four route kinds, `node_major` an integer, and strings at most 128 characters. The other events in the request are still accepted; a request with no event left is rejected with 400.
-- Forward to PostHog's `/batch/` endpoint after replying, with `distinct_id` set to the lowercased `usage_id`, `timestamp` set to the time the site received the request (the client's `sent_at` is ignored), `$ip` set to `null`, `$geoip_disable` set to `true`, and `$process_person_profile` set to `false`. A failed forward is logged by status only and never changes the reply.
+- Drop an event whose known property has the wrong type or an out-of-range value, or that lacks a required property: `command` must be one of the seven command names, `outcome` one of `ok`, `error`, `cancelled`, `duration_bucket` one of the five buckets, `route_kind` one of the four route kinds, `os` one of Node's `process.platform` values, `cli_version` a version number, `error_class` a `B4_E` code, a built-in error name, or `unknown`, `node_major` an integer from 0 to 999, and strings at most 128 characters. No property accepts free text, so a hand-written request cannot carry a name, path, or email into PostHog. The other events in the request are still accepted; a request with no event left is rejected with 400.
+- Forward to PostHog's `/batch/` endpoint after replying, with `distinct_id` set to the lowercased `usage_id`, `timestamp` set to the time the site received the request (the client's `sent_at` is ignored), `$ip` set to `null`, `$geoip_disable` set to `true`, and `$process_person_profile` set to `false`. A failed forward is logged with the HTTP status or the error class name only, never the usage id or a property, and never changes the reply.
 - Reply 202 with an empty body. No reply echoes the request.
+
+### Turning it on
+
+1. Set `GROWTH_CLI_SIGNALS_ENABLED=true` for the production environment of the `b4-run` Vercel project. `NEXT_PUBLIC_POSTHOG_KEY` is already set there.
+2. Add a Vercel Firewall rate-limit rule for `/api/signals/v1/cli`, for example 60 requests per minute per IP, so a flood cannot run up PostHog usage.
+3. In the `b4run` PostHog project, turn on "Discard client IP data". Events reach PostHog from the Vercel function, so the address PostHog would otherwise record is the function's egress IP, not the developer's; discarding it keeps every signal free of addresses, site events included.
+4. Release the CLI only after the route forwards in production.
 
 ### Environment
 
@@ -100,6 +107,7 @@ The CLI is also inert when a common CI variable is set, before any file write or
   install, never that anyone ran the command.
 - Engaged time is visible seconds: time the tab is visible, not time spent
   reading or understanding.
+- CLI counts can be inflated by anyone. The ingest route takes any well-formed request, and the PostHog capture key is public by design, so CLI events are a signal of activity, not an audit. The route's validation keeps personal data out; it does not prove a request came from a real `b4`.
 - These are counts, not funnels. Events are aggregated per surface, path, or id;
   they are not stitched into per-visitor journeys.
 - The live PostHog project contains PostHog's own starter dashboard and

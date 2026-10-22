@@ -18,10 +18,52 @@ const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type PropertyRule =
-  | { readonly type: "string"; readonly required: boolean; readonly values?: readonly string[] }
-  | { readonly type: "integer"; readonly required: boolean }
+  | {
+      readonly type: "string"
+      readonly required: boolean
+      readonly values?: readonly string[]
+      readonly pattern?: RegExp
+    }
+  | {
+      readonly type: "integer"
+      readonly required: boolean
+      readonly min: number
+      readonly max: number
+    }
 
-const requiredString = { type: "string", required: true } as const
+// Every string property is narrowed to what the CLI can actually produce, so a
+// hand-written request cannot carry free text (a name, a path, an email) into
+// PostHog. Error names mirror `KNOWN_ERROR_NAMES` in the CLI's `events.ts`.
+const ERROR_NAMES = [
+  "Error",
+  "TypeError",
+  "RangeError",
+  "SyntaxError",
+  "ReferenceError",
+  "EvalError",
+  "URIError",
+  "AggregateError",
+  "AbortError",
+  "TimeoutError",
+  "CliError",
+  "CommanderError",
+]
+const ERROR_CLASS = new RegExp(`^(?:B4_E\\d{4}|unknown|${ERROR_NAMES.join("|")})$`)
+const CLI_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const NODE_PLATFORMS = [
+  "aix",
+  "android",
+  "cygwin",
+  "darwin",
+  "freebsd",
+  "haiku",
+  "linux",
+  "netbsd",
+  "openbsd",
+  "sunos",
+  "win32",
+]
+const cliVersion = { type: "string", required: true, pattern: CLI_VERSION } as const
 
 /** The only events and properties the route accepts. Pinned to the CLI by `cli-ingest-contract.test.ts`. */
 export const CLI_SIGNAL_RULES = {
@@ -31,19 +73,19 @@ export const CLI_SIGNAL_RULES = {
       required: true,
       values: ["dev", "build", "add", "check", "typegen", "verify", "eval"],
     },
-    cli_version: requiredString,
-    node_major: { type: "integer", required: true },
-    os: requiredString,
+    cli_version: cliVersion,
+    node_major: { type: "integer", required: true, min: 0, max: 999 },
+    os: { type: "string", required: true, values: NODE_PLATFORMS },
     outcome: { type: "string", required: true, values: ["ok", "error", "cancelled"] },
     duration_bucket: {
       type: "string",
       required: true,
       values: ["under_1s", "1s_to_10s", "10s_to_1m", "1m_to_10m", "over_10m"],
     },
-    error_class: { type: "string", required: false },
+    error_class: { type: "string", required: false, pattern: ERROR_CLASS },
   },
   "cli:dev_first_run_completed": {
-    cli_version: requiredString,
+    cli_version: cliVersion,
     route_kind: { type: "string", required: true, values: ["agent", "chain", "graph", "workflow"] },
   },
 } as const satisfies Record<string, Record<string, PropertyRule>>
@@ -77,6 +119,8 @@ export function createCliSignalsHandler(
   const send = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
 
   return async (request) => {
+    // Not a credential: it keeps crawlers and scanners out of the counts.
+    if (!(request.headers.get("user-agent") ?? "").startsWith("b4-cli")) return empty(400)
     if (!isJsonContentType(request.headers.get("content-type"))) return empty(415)
 
     const declaredLength = Number(request.headers.get("content-length"))
@@ -149,10 +193,12 @@ function acceptProperties(
     }
     if (rule.type === "integer") {
       if (typeof value !== "number" || !Number.isInteger(value)) return null
+      if (value < rule.min || value > rule.max) return null
     } else if (
       typeof value !== "string" ||
       value.length > CLI_INGEST_MAX_STRING_LENGTH ||
-      (rule.values !== undefined && !rule.values.includes(value))
+      (rule.values !== undefined && !rule.values.includes(value)) ||
+      (rule.pattern !== undefined && !rule.pattern.test(value))
     ) {
       return null
     }
