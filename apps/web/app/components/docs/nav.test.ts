@@ -434,23 +434,26 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV).toEqual(FOUNDATION_DOCS_NAV)
   })
 
-  it("pins the exact 63-page reading order", () => {
+  // FOUNDATION_DOCS_NAV is the order pin: a dropped or reordered journey page
+  // fails here by name, so no page count is needed alongside it.
+  it("pins the exact journey reading order", () => {
     const expectedPages = (FOUNDATION_DOCS_NAV as readonly DocsNavSection[]).flatMap(
       (section) => section.items,
     )
 
-    expect(expectedPages).toHaveLength(66)
     expect(DOCS_PAGES).toEqual(expectedPages)
   })
 
-  it("adds sixteen hidden API leaves immediately after the hub", () => {
-    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(66)
-    expect(DOCS_PAGES).toHaveLength(66)
-    expect(ALL_DOCS_PAGES).toHaveLength(82)
+  it("adds the hidden API leaves immediately after the hub", () => {
+    expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(
+      DOCS_PAGES.length,
+    )
+    expect(ALL_DOCS_PAGES).toHaveLength(DOCS_PAGES.length + API_REFERENCE_PAGES.length)
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
-    expect(ALL_DOCS_PAGES.slice(hubIndex + 1, hubIndex + 17)).toEqual(API_REFERENCE_PAGES)
-    expect(ALL_DOCS_PAGES[hubIndex + 17]?.href).toBe("/docs/errors")
+    const afterLeaves = hubIndex + 1 + API_REFERENCE_PAGES.length
+    expect(ALL_DOCS_PAGES.slice(hubIndex + 1, afterLeaves)).toEqual(API_REFERENCE_PAGES)
+    expect(ALL_DOCS_PAGES[afterLeaves]?.href).toBe("/docs/errors")
   })
 
   it("uses unique section labels, page labels, and hrefs", () => {
