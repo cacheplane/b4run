@@ -147,3 +147,13 @@ describe("production response policy", () => {
     }
   })
 })
+
+describe("Vercel cron schedule", () => {
+  it("runs the growth tick every 10 minutes, so retries 10 minutes apart stay inside the morning window", () => {
+    const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")) as {
+      readonly crons?: readonly { path: string; schedule: string }[]
+    }
+
+    expect(config.crons).toEqual([{ path: "/api/growth/tick", schedule: "*/10 * * * *" }])
+  })
+})

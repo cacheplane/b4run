@@ -4,7 +4,11 @@ import posthog from "posthog-js"
 import { type FormEvent, useState } from "react"
 import { track } from "../lib/analytics/client"
 import { SIGNAL_EVENTS } from "../lib/analytics/events"
-import { DISCLOSURE_VERSION, FOUNDER_UPDATES_DISCLOSURE } from "../lib/growth/disclosure"
+import {
+  DISCLOSURE_VERSION,
+  FOUNDER_UPDATES_DISCLOSURE,
+  HONEYPOT_FIELD,
+} from "../lib/growth/disclosure"
 
 const ENDPOINT = "/api/growth/forms/founder-updates"
 
@@ -39,7 +43,7 @@ async function submit(payload: Record<string, unknown>): Promise<string | undefi
 export function FounderUpdatesForm() {
   const [email, setEmail] = useState("")
   const [message, setMessage] = useState("")
-  const [website, setWebsite] = useState("")
+  const [trap, setTrap] = useState("")
   const [state, setState] = useState<"idle" | "sending" | "done" | "failed">("idle")
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -51,7 +55,7 @@ export function FounderUpdatesForm() {
     const failure = await submit({
       email,
       ...(message !== "" ? { message } : {}),
-      website_url: website,
+      [HONEYPOT_FIELD]: trap,
       disclosure_version: DISCLOSURE_VERSION,
       submission_id: crypto.randomUUID(),
       ...(id !== undefined ? { posthog_distinct_id: id } : {}),
@@ -102,12 +106,12 @@ export function FounderUpdatesForm() {
       </label>
       <input
         type="text"
-        name="website_url"
+        name={HONEYPOT_FIELD}
         tabIndex={-1}
         autoComplete="off"
         aria-hidden="true"
-        value={website}
-        onChange={(event) => setWebsite(event.target.value)}
+        value={trap}
+        onChange={(event) => setTrap(event.target.value)}
         style={{ position: "absolute", left: "-10000px", width: 1, height: 1, opacity: 0 }}
       />
       <div className="flex flex-col gap-3">

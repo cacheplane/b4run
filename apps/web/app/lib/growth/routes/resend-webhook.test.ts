@@ -26,7 +26,7 @@ function deps(overrides: Partial<ResendWebhookRouteDeps> = {}): ResendWebhookRou
     loadEnv: () => ({
       databaseUrl: "postgres://x",
       emailHmacSecret: "s",
-      tokenSecret: "t",
+      tokenKeyring: { active: { id: 1, secret: "t" }, previous: [] },
       environment: "production",
       publicOrigin: "https://b4.run",
       resendWebhookSecret: "whsec_x",
@@ -88,7 +88,7 @@ describe("resend webhook route", () => {
         loadEnv: () => ({
           databaseUrl: "postgres://x",
           emailHmacSecret: "s",
-          tokenSecret: "t",
+          tokenKeyring: { active: { id: 1, secret: "t" }, previous: [] },
           environment: "production",
           publicOrigin: "https://b4.run",
         }),

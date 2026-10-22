@@ -141,4 +141,30 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth resend webhook", () => {
       ).toBe("no_contact")
     })
   }, 120_000)
+
+  it("never stops a contact on a digest bounce, complaint or suppression, even when the recipient matches", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const id = await contact(executor, "founder@example.com")
+      for (const type of ["email.bounced", "email.complained", "email.suppressed"] as const) {
+        expect(
+          await run(
+            executor,
+            event({
+              type,
+              providerEmailId: `em_digest_${type}`,
+              to: ["founder@example.com"],
+              tags: { environment: "production", kind: "digest" },
+            }),
+          ),
+        ).toBe("ignored_type")
+      }
+      const kinds = (await contactJourney(executor, id)).map((entry) => entry.kind)
+      expect(kinds.some((kind) => kind.startsWith("stop."))).toBe(false)
+      const stopped = await executor.query<{ stopped_at: Date | null }>(
+        "select stopped_at from growth_contacts where id = $1",
+        [id],
+      )
+      expect(stopped.rows[0]?.stopped_at).toBeNull()
+    })
+  }, 120_000)
 })

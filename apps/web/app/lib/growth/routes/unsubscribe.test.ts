@@ -11,13 +11,13 @@ import {
   type UnsubscribeRouteDeps,
 } from "./unsubscribe"
 
-const SECRET = "token-secret"
+const KEYRING = { active: { id: 1, secret: "token-secret" }, previous: [] }
 const CONTACT_ID = "7d9f3b0e-2c1a-4f6e-9a55-0b1d2c3e4f50"
 const NOW = new Date("2026-10-21T00:00:00Z")
 const URL_BASE = "http://localhost/api/growth/unsubscribe"
 const token = (purpose: "unsubscribe" | "founder_stop" = "unsubscribe") =>
   createActionToken({
-    secret: SECRET,
+    keyring: KEYRING,
     contactId: CONTACT_ID,
     purpose,
     issuedAt: NOW,
@@ -28,7 +28,7 @@ function deps(): UnsubscribeRouteDeps {
     loadEnv: () => ({
       databaseUrl: "postgres://x",
       emailHmacSecret: "s",
-      tokenSecret: SECRET,
+      tokenKeyring: KEYRING,
       environment: "test",
       publicOrigin: "https://b4.run",
     }),
@@ -145,7 +145,7 @@ describe("unsubscribe route", () => {
     expect(stop).not.toHaveBeenCalled()
   })
 
-  it("POST rejects an oversize body, a missing token and unsupported content", async () => {
+  it("POST rejects an oversize body and a missing token", async () => {
     const big = await handleUnsubscribePost(
       new Request(`${URL_BASE}?token=${token()}`, {
         method: "POST",
@@ -164,7 +164,47 @@ describe("unsubscribe route", () => {
       deps(),
     )
     expect(none.status).toBe(400)
-    const text = await handleUnsubscribePost(
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it("POST multipart/form-data (RFC 8058 one-click) uses the query token", async () => {
+    const form = new FormData()
+    form.set("List-Unsubscribe", "One-Click")
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST multipart/form-data reads a token part when present", async () => {
+    const form = new FormData()
+    form.set("token", token())
+    const res = await handleUnsubscribePost(
+      new Request(URL_BASE, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST with malformed JSON is rejected even when the query has a token", async () => {
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      }),
+      deps(),
+    )
+    expect(res.status).toBe(400)
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it("POST with any other content type carries no body token and uses the query token", async () => {
+    const res = await handleUnsubscribePost(
       new Request(`${URL_BASE}?token=${token()}`, {
         method: "POST",
         headers: { "content-type": "text/plain" },
@@ -172,7 +212,18 @@ describe("unsubscribe route", () => {
       }),
       deps(),
     )
-    expect(text.status).toBe(400)
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST with an oversize multipart body is rejected", async () => {
+    const form = new FormData()
+    form.set("pad", "a".repeat(5000))
+    const res = await handleUnsubscribePost(
+      new Request(`${URL_BASE}?token=${token()}`, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.status).toBe(400)
     expect(stop).not.toHaveBeenCalled()
   })
 
@@ -212,7 +263,7 @@ describe("unsubscribe route", () => {
 
   it("POST answers the failure page with headers when the body read aborts", async () => {
     const req = new Request(`${URL_BASE}?token=${token()}`, { method: "POST" })
-    vi.spyOn(req, "text").mockRejectedValue(new Error("aborted"))
+    vi.spyOn(req, "arrayBuffer").mockRejectedValue(new Error("aborted"))
     const res = await handleUnsubscribePost(req, deps())
     expect(res.status).toBe(503)
     expectHeaders(res)
@@ -233,5 +284,31 @@ describe("unsubscribe route", () => {
     const text = await res.text()
     expect(text).toContain("This link is not valid.")
     expect(text).not.toContain("secret-host")
+  })
+
+  it("POST logs only a safe error code, never the error message", async () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const logged = async (error: Error) => {
+      stop.mockRejectedValue(error)
+      write.mockClear()
+      const res = await handleUnsubscribePost(
+        new Request(`${URL_BASE}?token=${token()}`, { method: "POST" }),
+        deps(),
+      )
+      expect(res.status).toBe(503)
+      return write.mock.calls.map((call) => String(call[0])).join("")
+    }
+    try {
+      const plain = await logged(new Error("connection refused secret-host ada@example.com"))
+      expect(plain).toBe("unsubscribe failed: unclassified\n")
+      const coded = await logged(
+        Object.assign(new Error("terminating connection secret-host"), { code: "57P01" }),
+      )
+      expect(coded).toBe("unsubscribe failed: 57p01\n")
+      const odd = await logged(Object.assign(new Error("x"), { code: "ada@example.com" }))
+      expect(odd).toBe("unsubscribe failed: unclassified\n")
+    } finally {
+      write.mockRestore()
+    }
   })
 })

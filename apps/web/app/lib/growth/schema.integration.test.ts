@@ -25,6 +25,11 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth schema", () => {
         executor,
       })
       expect(again.applied).toEqual([])
+
+      const columns = await executor.query<{ data_type: string }>(
+        "select data_type from information_schema.columns where table_name = 'growth_sends' and column_name = 'first_attempted_at'",
+      )
+      expect(columns.rows.map((row) => row.data_type)).toEqual(["timestamp with time zone"])
     })
   }, 120_000)
 

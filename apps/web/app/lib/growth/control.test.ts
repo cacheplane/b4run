@@ -1,19 +1,39 @@
 import { describe, expect, it } from "vitest"
-import { acceptFounderUpdatesForm, DISCLOSURE_VERSION } from "./contacts"
+import { acceptFounderUpdatesForm, DISCLOSURE_VERSION, stopContact } from "./contacts"
 import { runControl, runReport } from "./control"
 import type { GrowthEnv } from "./env"
 import { recordingExecutor } from "./fake-executor"
+import { enrollApprovedContacts } from "./sequence"
 import { GROWTH_DB_TESTS_ENABLED, withMigratedDatabase } from "./test-support/postgres"
 
 const env: GrowthEnv = {
   databaseUrl: "postgres://unused",
   emailHmacSecret: "hmac-secret-value",
-  tokenSecret: "token-secret-value",
+  tokenKeyring: { active: { id: 1, secret: "token-secret-value" }, previous: [] },
   environment: "test",
   publicOrigin: "https://b4.run",
 }
 const NOW = new Date("2026-10-21T10:00:00.000Z")
 const LATER = new Date("2026-10-21T11:00:00.000Z")
+const CONTACT_ID = "11111111-1111-4111-8111-111111111111"
+
+function contactRow(overrides: Record<string, unknown> = {}) {
+  return {
+    rows: [
+      {
+        id: CONTACT_ID,
+        email: "ada@example.com",
+        approved_at: NOW,
+        stopped_at: null,
+        stop_reason: null,
+        deleted_at: null,
+        created_at: NOW,
+        ...overrides,
+      },
+    ],
+    rowCount: 1,
+  }
+}
 
 describe("growth control and report (recorded SQL)", () => {
   it("answers no contact found when the lookup misses", async () => {
@@ -95,7 +115,146 @@ describe("growth control and report (recorded SQL)", () => {
     })
     expect(output).toContain("https://b4.run/api/growth/unsubscribe?token=")
     expect(output).not.toContain(env.emailHmacSecret)
-    expect(output).not.toContain(env.tokenSecret)
+    expect(output).not.toContain(env.tokenKeyring.active.secret)
+  })
+
+  it("status prints a sequence line per step and not enrolled for missing steps", async () => {
+    const { executor, calls } = recordingExecutor([
+      contactRow(),
+      {
+        rows: [
+          {
+            step: 1,
+            status: "completed",
+            delivery_status: "delivered",
+            due_at: new Date("2026-10-22T14:00:00.000Z"),
+          },
+          {
+            step: 2,
+            status: "pending",
+            delivery_status: "not_submitted",
+            due_at: new Date("2026-10-27T14:00:00.000Z"),
+          },
+        ],
+        rowCount: 2,
+      },
+    ])
+    const output = await runControl(executor, env, {
+      command: "status",
+      email: "ada@example.com",
+      now: NOW,
+    })
+    expect(calls[1]?.text).toContain("from growth_sends where contact_id = $1")
+    expect(calls[1]?.params).toEqual([CONTACT_ID])
+    expect(output).toContain("step 1: completed delivered due 2026-10-22T14:00:00.000Z")
+    expect(output).toContain("step 2: pending not_submitted due 2026-10-27T14:00:00.000Z")
+    expect(output).toContain("step 3: not enrolled")
+    expect(output).not.toContain("not re-enrolled")
+  })
+
+  it("status says a contact reapproved after enrollment is not re-enrolled", async () => {
+    const { executor } = recordingExecutor([
+      contactRow({ approved_at: LATER }),
+      {
+        rows: [
+          {
+            step: 1,
+            status: "cancelled",
+            delivery_status: "not_submitted",
+            due_at: new Date("2026-10-22T14:00:00.000Z"),
+          },
+        ],
+        rowCount: 1,
+      },
+      {
+        rows: [
+          { kind: "sequence.enrolled", at: NOW },
+          { kind: "contact.reapproved", at: LATER },
+        ],
+        rowCount: 2,
+      },
+    ])
+    const output = await runControl(executor, env, {
+      command: "status",
+      email: "ada@example.com",
+      now: LATER,
+    })
+    expect(output).toContain("sequence: not re-enrolled (once per contact)")
+  })
+
+  it("approve refuses a contact stopped for a complaint or hard bounce without force", async () => {
+    for (const reason of ["complaint", "hard_bounce"] as const) {
+      const { executor, calls } = recordingExecutor([
+        contactRow({ approved_at: null, stopped_at: NOW, stop_reason: reason }),
+      ])
+      await expect(
+        runControl(executor, env, { command: "approve", email: "ada@example.com", now: LATER }),
+      ).rejects.toThrow(
+        `refusing to reapprove a contact stopped for ${reason}; pass --force to override`,
+      )
+      expect(calls).toHaveLength(1)
+    }
+    const { executor, calls } = recordingExecutor([
+      contactRow({ approved_at: null, stopped_at: NOW, stop_reason: "complaint" }),
+      { rows: [{ id: CONTACT_ID }], rowCount: 1 },
+    ])
+    expect(
+      await runControl(executor, env, {
+        command: "approve",
+        email: "ada@example.com",
+        force: true,
+        now: LATER,
+      }),
+    ).toBe("approved")
+    expect(calls[1]?.text).toContain("update growth_contacts set stopped_at = null")
+  })
+
+  it("approve reapproves other stop reasons without force", async () => {
+    const { executor } = recordingExecutor([
+      contactRow({ approved_at: null, stopped_at: NOW, stop_reason: "unsubscribe" }),
+      { rows: [{ id: CONTACT_ID }], rowCount: 1 },
+    ])
+    expect(
+      await runControl(executor, env, { command: "approve", email: "ada@example.com", now: LATER }),
+    ).toBe("approved")
+  })
+
+  it("reports sends by step and status, by delivery status, and the last digest date", async () => {
+    const { executor, calls } = recordingExecutor([
+      {
+        rows: [
+          { step: 1, status: "completed", total: "4" },
+          { step: 2, status: "pending", total: "1" },
+        ],
+        rowCount: 2,
+      },
+      {
+        rows: [
+          { delivery_status: "delivered", total: "3" },
+          { delivery_status: "not_submitted", total: "2" },
+        ],
+        rowCount: 2,
+      },
+      { rows: [{ date: "2026-10-22" }], rowCount: 1 },
+    ])
+    const output = await runReport(executor, env, { command: "sends" })
+    expect(calls).toHaveLength(3)
+    for (const call of calls) expect(call.text.trimStart().startsWith("select")).toBe(true)
+    expect(calls[0]?.text).toContain("group by step, status")
+    expect(calls[1]?.text).toContain("group by delivery_status")
+    expect(calls[2]?.params).toEqual(["digest.sent"])
+    expect(output).toContain("step 1 completed: 4")
+    expect(output).toContain("step 2 pending: 1")
+    expect(output).toContain("delivery delivered: 3")
+    expect(output).toContain("delivery not_submitted: 2")
+    expect(output).toContain("last digest: 2026-10-22")
+    expect(output).not.toContain("@")
+  })
+
+  it("reports no digest when none has been sent", async () => {
+    const { executor } = recordingExecutor()
+    const output = await runReport(executor, env, { command: "sends" })
+    expect(output).toContain("last digest: none")
   })
 })
 
@@ -144,6 +303,61 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth control and report (database)"
       expect(after).toContain("approved: 0")
       expect(after).toContain("deleted: 1")
       expect(after).toContain("stopped deletion: 1")
+    })
+  }, 120_000)
+  it("guards reapproval and reports sequence progress end to end", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const email = "grace@example.com"
+      const enrolledAt = new Date("2026-10-21T10:30:00.000Z")
+      const { contactId } = await acceptFounderUpdatesForm(executor, env.emailHmacSecret, {
+        email,
+        disclosureVersion: DISCLOSURE_VERSION,
+        submissionId: "sub-2",
+        now: NOW,
+      })
+      expect(await runControl(executor, env, { command: "status", email, now: NOW })).toContain(
+        "step 1: not enrolled",
+      )
+
+      await enrollApprovedContacts(executor, {
+        startAt: new Date("2026-10-20T00:00:00.000Z"),
+        now: enrolledAt,
+      })
+      const enrolled = await runControl(executor, env, { command: "status", email, now: LATER })
+      expect(enrolled).toContain("step 1: pending not_submitted due 2026-10-22T14:00:00.000Z")
+      expect(enrolled).toContain("step 2: not enrolled")
+      expect(enrolled).not.toContain("not re-enrolled")
+
+      await stopContact(executor, {
+        contactId,
+        reason: "complaint",
+        provenance: "test",
+        now: LATER,
+      })
+      const later = new Date("2026-10-21T12:00:00.000Z")
+      await expect(
+        runControl(executor, env, { command: "approve", email, now: later }),
+      ).rejects.toThrow(
+        "refusing to reapprove a contact stopped for complaint; pass --force to override",
+      )
+      expect(
+        await runControl(executor, env, { command: "approve", email, force: true, now: later }),
+      ).toBe("approved")
+
+      const reapproved = await runControl(executor, env, { command: "status", email, now: later })
+      expect(reapproved).toContain("state: approved")
+      expect(reapproved).toContain("step 1: cancelled not_submitted")
+      expect(reapproved).toContain("sequence: not re-enrolled (once per contact)")
+
+      await executor.query(
+        "insert into growth_activity (event_key, contact_id, kind, occurred_at, data) values ($1, null, $2, $3, $4::jsonb)",
+        ["digest:2026-10-22", "digest.sent", later, JSON.stringify({ date: "2026-10-22" })],
+      )
+      const sends = await runReport(executor, env, { command: "sends" })
+      expect(sends).toContain("step 1 cancelled: 1")
+      expect(sends).toContain("delivery not_submitted: 1")
+      expect(sends).toContain("last digest: 2026-10-22")
+      expect(sends).not.toContain(email)
     })
   }, 120_000)
 })

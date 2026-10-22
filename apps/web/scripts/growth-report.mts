@@ -9,8 +9,8 @@ async function main(): Promise<void> {
     options: { email: { type: "string" } },
   })
   const command = positionals[0]
-  if (command !== "journey" && command !== "counts") {
-    throw new Error("usage: growth:report <journey --email <address>|counts>")
+  if (command !== "journey" && command !== "counts" && command !== "sends") {
+    throw new Error("usage: growth:report <journey --email <address>|counts|sends>")
   }
   const env = loadGrowthEnv()
   const executor = createPgExecutor(env.databaseUrl)

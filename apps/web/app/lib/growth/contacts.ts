@@ -61,7 +61,7 @@ export interface ContactRow {
   readonly createdAt: Date
 }
 
-async function recordActivity(
+export async function recordActivity(
   tx: SqlTransaction,
   input: {
     eventKey: string

@@ -1,6 +1,17 @@
 import crypto from "node:crypto"
+import { GrowthConfigError } from "./errors"
 
 export type ActionTokenPurpose = "unsubscribe" | "founder_stop"
+
+export interface TokenKey {
+  readonly id: number
+  readonly secret: string
+}
+
+export interface TokenKeyring {
+  readonly active: TokenKey
+  readonly previous: readonly TokenKey[]
+}
 
 export const TOKEN_MAX_AGE_SECONDS: Readonly<Record<ActionTokenPurpose, number>> = {
   unsubscribe: 157_680_000,
@@ -15,8 +26,19 @@ function sign(secret: string, payload: Buffer): Buffer {
   return crypto.createHmac("sha256", secret).update(payload).digest()
 }
 
+function readKeyId(payload: Buffer): number | undefined {
+  try {
+    const claims: unknown = JSON.parse(payload.toString("utf8"))
+    if (typeof claims !== "object" || claims === null) return undefined
+    const { k } = claims as Record<string, unknown>
+    return typeof k === "number" && Number.isSafeInteger(k) && k > 0 ? k : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function createActionToken(input: {
-  secret: string
+  keyring: TokenKeyring
   contactId: string
   purpose: ActionTokenPurpose
   issuedAt: Date
@@ -24,18 +46,18 @@ export function createActionToken(input: {
   const payload = Buffer.from(
     JSON.stringify({
       v: 1,
-      k: 1,
+      k: input.keyring.active.id,
       c: input.contactId,
       p: input.purpose,
       i: Math.floor(input.issuedAt.getTime() / 1000),
     }),
   )
-  return `${payload.toString("base64url")}.${sign(input.secret, payload).toString("base64url")}`
+  return `${payload.toString("base64url")}.${sign(input.keyring.active.secret, payload).toString("base64url")}`
 }
 
 export function verifyActionToken(input: {
   token: string
-  secret: string
+  keyring: TokenKeyring
   purpose: ActionTokenPurpose
   now: Date
 }): { ok: true; contactId: string } | { ok: false } {
@@ -46,7 +68,11 @@ export function verifyActionToken(input: {
   const [encodedPayload, encodedSignature] = parts as [string, string]
   const payload = Buffer.from(encodedPayload, "base64url")
   const received = Buffer.from(encodedSignature, "base64url")
-  const expected = sign(input.secret, payload)
+  const keyId = readKeyId(payload)
+  if (keyId === undefined) return fail
+  const key = [input.keyring.active, ...input.keyring.previous].find((entry) => entry.id === keyId)
+  if (key === undefined) return fail
+  const expected = sign(key.secret, payload)
   if (received.length !== expected.length) return fail
   if (!crypto.timingSafeEqual(received, expected)) return fail
 
@@ -58,7 +84,7 @@ export function verifyActionToken(input: {
   }
   if (typeof claims !== "object" || claims === null) return fail
   const { v, k, c, p, i } = claims as Record<string, unknown>
-  if (v !== 1 || k !== 1 || p !== input.purpose) return fail
+  if (v !== 1 || k !== keyId || p !== input.purpose) return fail
   if (typeof c !== "string" || !UUID_PATTERN.test(c)) return fail
   if (typeof i !== "number" || !Number.isFinite(i)) return fail
   const nowSeconds = Math.floor(input.now.getTime() / 1000)
@@ -70,13 +96,17 @@ export function unsubscribeUrl(publicOrigin: string, token: string): string {
   return `${publicOrigin}/api/growth/unsubscribe?token=${token}`
 }
 
+export function founderStopUrl(publicOrigin: string, token: string): string {
+  return `${publicOrigin}/api/growth/founder-stop?token=${token}`
+}
+
 export function normalizePublicOrigin(value: string): string {
-  if (value.includes("?") || value.includes("#")) throw new Error(ORIGIN_ERROR)
+  if (value.includes("?") || value.includes("#")) throw new GrowthConfigError(ORIGIN_ERROR)
   let url: URL
   try {
     url = new URL(value)
   } catch {
-    throw new Error(ORIGIN_ERROR)
+    throw new GrowthConfigError(ORIGIN_ERROR)
   }
   if (
     url.protocol !== "https:" ||
@@ -85,7 +115,7 @@ export function normalizePublicOrigin(value: string): string {
     url.password !== "" ||
     url.host === ""
   ) {
-    throw new Error(ORIGIN_ERROR)
+    throw new GrowthConfigError(ORIGIN_ERROR)
   }
   return url.origin
 }

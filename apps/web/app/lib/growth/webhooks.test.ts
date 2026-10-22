@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { parseResendEvent } from "./webhooks"
+import { recordingExecutor } from "./fake-executor"
+import { type ParsedResendEvent, parseResendEvent, processResendEvent } from "./webhooks"
 
 const base = (type: string, data: Record<string, unknown> = {}) => ({
   type,
@@ -65,5 +66,46 @@ describe("parseResendEvent", () => {
     ).toBeUndefined()
     expect(parseResendEvent(null)).toBeUndefined()
     expect(parseResendEvent("x")).toBeUndefined()
+  })
+})
+
+describe("processResendEvent for the founder digest", () => {
+  const digestEvent = (overrides: Partial<ParsedResendEvent>): ParsedResendEvent => ({
+    type: "email.bounced",
+    occurredAt: new Date("2026-10-21T10:00:00.000Z"),
+    providerEmailId: "em_digest",
+    to: ["founder@example.com"],
+    tags: { environment: "production", kind: "digest" },
+    bounceType: "permanent",
+    ...overrides,
+  })
+
+  it.each([
+    digestEvent({}),
+    digestEvent({ type: "email.complained" }),
+    digestEvent({ type: "email.suppressed" }),
+    digestEvent({ type: "email.delivered" }),
+  ])("ignores a digest $type event before any database lookup", async (event) => {
+    const { executor, calls } = recordingExecutor()
+    const outcome = await processResendEvent(executor, {
+      event,
+      environment: "production",
+      emailHmacSecret: "s",
+      now: new Date("2026-10-21T11:00:00.000Z"),
+    })
+    expect(outcome).toBe("ignored_type")
+    expect(calls).toHaveLength(0)
+  })
+
+  it("still ignores another environment's digest event as an environment mismatch", async () => {
+    const { executor, calls } = recordingExecutor()
+    const outcome = await processResendEvent(executor, {
+      event: digestEvent({ tags: { environment: "preview", kind: "digest" } }),
+      environment: "production",
+      emailHmacSecret: "s",
+      now: new Date("2026-10-21T11:00:00.000Z"),
+    })
+    expect(outcome).toBe("ignored_environment")
+    expect(calls).toHaveLength(0)
   })
 })

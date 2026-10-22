@@ -73,10 +73,24 @@ describe("parseFounderUpdatesSubmission", () => {
     })
   })
 
-  it("flags the honeypot", () => {
-    expect(parseFounderUpdatesSubmission({ ...valid, website_url: "http://spam" })).toEqual({
+  it("flags a filled b4_hp honeypot", () => {
+    expect(parseFounderUpdatesSubmission({ ...valid, b4_hp: "http://spam" })).toEqual({
       ok: false,
       error: "honeypot",
     })
+  })
+
+  it("accepts a blank b4_hp and rejects a non-string one", () => {
+    expect(parseFounderUpdatesSubmission({ ...valid, b4_hp: "  " })).toMatchObject({ ok: true })
+    expect(parseFounderUpdatesSubmission({ ...valid, b4_hp: 1 })).toEqual({
+      ok: false,
+      error: "invalid_body",
+    })
+  })
+
+  it("ignores a filled website_url as an unknown field, since autofill fills it", () => {
+    expect(
+      parseFounderUpdatesSubmission({ ...valid, website_url: "https://ada.dev" }),
+    ).toMatchObject({ ok: true, value: { email: "ada@example.com" } })
   })
 })

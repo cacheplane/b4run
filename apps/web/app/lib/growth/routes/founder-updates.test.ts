@@ -33,7 +33,7 @@ function setup(overrides: Partial<FounderUpdatesRouteDeps> = {}) {
     loadEnv: () => ({
       databaseUrl: "postgres://x",
       emailHmacSecret: "s",
-      tokenSecret: "t",
+      tokenKeyring: { active: { id: 1, secret: "t" }, previous: [] },
       environment: "test",
       publicOrigin: "https://b4.run",
       posthogKey: "k",
@@ -88,7 +88,7 @@ describe("handleFounderUpdatesPost", () => {
 
   it("returns 200 and skips the database for a honeypot hit", async () => {
     const { deps, createExecutor, capture } = setup()
-    const response = await handleFounderUpdatesPost(post({ ...body, website_url: "x" }), deps)
+    const response = await handleFounderUpdatesPost(post({ ...body, b4_hp: "x" }), deps)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
     expect(createExecutor).not.toHaveBeenCalled()
