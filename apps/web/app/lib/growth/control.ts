@@ -8,11 +8,15 @@ import {
   stopContact,
 } from "./contacts"
 import type { SqlExecutor } from "./database"
+import { DIGEST_KIND } from "./digest"
 import type { GrowthEnv } from "./env"
 import { createActionToken, unsubscribeUrl } from "./tokens"
 
 const NOT_FOUND = "no contact found for that address"
 const FOUNDER_STOP_REASONS = ["manual_suppression", "reply_received"] as const
+/** Stops that say the address must not be mailed again; reapproving one needs `--force`. */
+const GUARDED_STOP_REASONS: readonly string[] = ["complaint", "hard_bounce"]
+const SEQUENCE_STEPS = [1, 2, 3] as const
 
 type FounderStopReason = (typeof FOUNDER_STOP_REASONS)[number]
 
@@ -38,6 +42,52 @@ function describeContact(contact: ContactRow, includeEmail: boolean): string[] {
   ]
 }
 
+type SendRow = {
+  readonly step: number
+  readonly status: string
+  readonly delivery_status: string
+  readonly due_at: Date
+}
+
+async function describeSequence(executor: SqlExecutor, contact: ContactRow): Promise<string[]> {
+  const sends = await executor.query<SendRow>(
+    "select step, status, delivery_status, due_at from growth_sends where contact_id = $1 order by step",
+    [contact.id],
+  )
+  const lines = SEQUENCE_STEPS.map((step) => {
+    const send = sends.rows.find((row) => Number(row.step) === step)
+    return send === undefined
+      ? `step ${step}: not enrolled`
+      : `step ${step}: ${send.status} ${send.delivery_status} due ${send.due_at.toISOString()}`
+  })
+
+  // Once per contact: enrollment requires that a contact has no send at all, so a contact the
+  // founder reapproved after their enrollment never gets the sequence again. That is the case
+  // here when the contact is currently approved (not stopped, not deleted), has sends, none of
+  // them is still pending or leased, and a `contact.reapproved` activity is later than the
+  // `sequence.enrolled` one. Both times are the logical times recorded by those operations.
+  const open = sends.rows.some((row) => row.status === "pending" || row.status === "leased")
+  const approved =
+    contact.approvedAt !== null && contact.stoppedAt === null && contact.deletedAt === null
+  if (approved && sends.rows.length > 0 && !open) {
+    const activity = await executor.query<{ kind: string; at: Date }>(
+      "select kind, max(occurred_at) as at from growth_activity where contact_id = $1 and kind in ('sequence.enrolled', 'contact.reapproved') group by kind",
+      [contact.id],
+    )
+    const at = (kind: string) => activity.rows.find((row) => row.kind === kind)?.at
+    const enrolledAt = at("sequence.enrolled")
+    const reapprovedAt = at("contact.reapproved")
+    if (
+      enrolledAt !== undefined &&
+      reapprovedAt !== undefined &&
+      reapprovedAt.getTime() > enrolledAt.getTime()
+    ) {
+      lines.push("sequence: not re-enrolled (once per contact)")
+    }
+  }
+  return lines
+}
+
 export async function runControl(
   executor: SqlExecutor,
   env: GrowthEnv,
@@ -45,6 +95,7 @@ export async function runControl(
     command: "status" | "approve" | "stop" | "delete"
     email: string
     reason?: StopReason
+    force?: boolean
     now: Date
   },
 ): Promise<string> {
@@ -65,9 +116,19 @@ export async function runControl(
     return [
       ...describeContact(contact, true),
       `unsubscribe url: ${unsubscribeUrl(env.publicOrigin, token)}`,
+      ...(await describeSequence(executor, contact)),
     ].join("\n")
   }
   if (args.command === "approve") {
+    if (
+      contact.stopReason !== null &&
+      GUARDED_STOP_REASONS.includes(contact.stopReason) &&
+      args.force !== true
+    ) {
+      throw new Error(
+        `refusing to reapprove a contact stopped for ${contact.stopReason}; pass --force to override`,
+      )
+    }
     const { applied } = await reapproveContact(executor, {
       contactId: contact.id,
       provenance: "founder_cli",
@@ -95,7 +156,7 @@ export async function runControl(
 export async function runReport(
   executor: SqlExecutor,
   env: GrowthEnv,
-  args: { command: "journey" | "counts"; email?: string },
+  args: { command: "journey" | "counts" | "sends"; email?: string },
 ): Promise<string> {
   if (args.command === "journey") {
     if (args.email === undefined) throw new Error("--email is required")
@@ -109,6 +170,25 @@ export async function runReport(
         (activity) =>
           `  ${activity.occurredAt.toISOString()} ${activity.kind} ${JSON.stringify(activity.data)}`,
       ),
+    ].join("\n")
+  }
+
+  if (args.command === "sends") {
+    // Counts only: no addresses or contact ids leave this report.
+    const byStep = await executor.query<{ step: number; status: string; total: string }>(
+      "select step, status, count(*) as total from growth_sends group by step, status order by step, status",
+    )
+    const byDelivery = await executor.query<{ delivery_status: string; total: string }>(
+      "select delivery_status, count(*) as total from growth_sends group by delivery_status order by delivery_status",
+    )
+    const digest = await executor.query<{ date: string | null }>(
+      "select data->>'date' as date from growth_activity where kind = $1 order by occurred_at desc limit 1",
+      [DIGEST_KIND],
+    )
+    return [
+      ...byStep.rows.map((row) => `step ${row.step} ${row.status}: ${row.total}`),
+      ...byDelivery.rows.map((row) => `delivery ${row.delivery_status}: ${row.total}`),
+      `last digest: ${digest.rows[0]?.date ?? "none"}`,
     ].join("\n")
   }
 

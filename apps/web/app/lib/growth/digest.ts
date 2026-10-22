@@ -24,7 +24,7 @@ export type DigestOutcome =
   | "outside_window"
   | "failed"
 
-const DIGEST_KIND = "digest.sent"
+export const DIGEST_KIND = "digest.sent"
 const DEFAULT_LOOKBACK_MS = 24 * 3600 * 1000
 
 export const digestEventKey = (date: string) => `digest:${date}`
