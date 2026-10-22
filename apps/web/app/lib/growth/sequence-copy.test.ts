@@ -39,30 +39,44 @@ describe("founder sequence drafts", () => {
     ])
   })
 
+  it("freezes the shipped copy", () => {
+    expect(Object.isFrozen(SEQUENCE_DRAFTS)).toBe(true)
+    for (const step of steps) expect(Object.isFrozen(SEQUENCE_DRAFTS[step])).toBe(true)
+  })
+
   it("throws for a mutated draft", () => {
-    const original = SEQUENCE_DRAFTS[2]
     const mutated = {
-      ...original,
-      body: `${original.body}\nhttps://example.com/x`,
+      ...SEQUENCE_DRAFTS,
+      2: { ...SEQUENCE_DRAFTS[2], body: `${SEQUENCE_DRAFTS[2].body}\nhttps://example.com/x` },
     }
-    ;(SEQUENCE_DRAFTS as Record<number, unknown>)[2] = mutated
-    try {
-      expect(() => sequenceDraft(2)).toThrow(/Invalid sequence draft: .*unapproved link/)
-    } finally {
-      ;(SEQUENCE_DRAFTS as Record<number, unknown>)[2] = original
-    }
+    expect(() => sequenceDraft(2, mutated)).toThrow(
+      /^Invalid sequence draft: .*message contains an unapproved link/,
+    )
   })
 })
 
 describe("draftViolations", () => {
-  it("rejects non-objects and unknown fields", () => {
+  it("rejects a non-object", () => {
     expect(draftViolations(null)).toEqual(["draft must be an object"])
+  })
+
+  it("rejects an unknown field", () => {
     expect(draftViolations({ subject: "a", body: "b", extra: 1 })).toContain(
       "draft contains unknown fields",
     )
   })
 
-  it("rejects bad subjects", () => {
+  it("rejects a non-string subject or body", () => {
+    expect(draftViolations({ subject: 1, body: "b" })).toContain("subject must be a string")
+    expect(draftViolations({ subject: "a", body: 2 })).toContain("body must be a string")
+  })
+
+  it("rejects an empty subject and an empty body", () => {
+    expect(check("ok", "   ")).toContain("subject is empty")
+    expect(check("   ")).toContain("body is empty")
+  })
+
+  it("rejects subject problems", () => {
     expect(check("ok", "x".repeat(81))).toContain("subject exceeds 80 characters")
     expect(check("ok", "a\nb")).toContain("subject contains a newline")
     expect(check("ok", "See https://b4.run/call")).toContain("subject contains a URL")
@@ -72,32 +86,62 @@ describe("draftViolations", () => {
     expect(check("word ".repeat(121))).toContain("body exceeds 120 words")
   })
 
-  it.each([
-    ["two questions", "Would this help? What is blocking you?"],
-    ["two links", "Read https://b4.run/call and https://b4.run/docs/getting-started"],
-    ["an unapproved link", "See https://example.com/guide"],
-    ["HTML", "<p>Hello</p>"],
-    ["a markdown link", "Read [the docs](/docs)"],
-    ["header injection", "Hello\nBcc: victim@example.com"],
-    ["an email address", "Writing to ada@example.com."],
-    ["a calendar host", "Book at https://calendly.com/b4/demo"],
-    ["utm_source", "See https://b4.run/call?utm_source=email"],
-    ["a relative link", "See /docs"],
-    ["an ftp scheme", "See ftp://evil.example/file"],
-    ["I noticed you", "I noticed you reading the docs."],
-    ["surveillance wording", "We are tracking your visits."],
-  ])("rejects %s", (_name, body) => {
-    expect(check(body)).not.toEqual([])
+  it("rejects a body over 1200 characters with few words", () => {
+    const violations = check("a".repeat(1201))
+    expect(violations).toContain("body exceeds 1200 characters")
+    expect(violations).not.toContain("body exceeds 120 words")
   })
 
-  it("names the matching rule", () => {
-    expect(check("We are tracking your visits.")).toContain(
+  it.each([
+    [
+      "two questions",
+      "Would this help? What is blocking you?",
+      "body contains more than one question",
+    ],
+    [
+      "two links",
+      "Read https://b4.run/call and https://b4.run/docs/getting-started",
+      "message contains more than one link",
+    ],
+    ["an unapproved link", "See https://example.com/guide", "message contains an unapproved link"],
+    ["HTML", "<p>Hello</p>", "message contains HTML"],
+    ["a markdown image", "![logo](https://b4.run/call)", "message contains markdown image markup"],
+    [
+      "a markdown link",
+      "Read [the docs](https://b4.run/call)",
+      "message contains markdown link markup",
+    ],
+    ["header injection", "Hello\nBcc: hidden", "message contains an injected mail header"],
+    ["an email address", "Writing to ada@example.com.", "message contains an email"],
+    ["a calendar host", "Book at https://calendly.com/b4/demo", "message contains a calendar link"],
+    [
+      "utm_source",
+      "See https://b4.run/call?utm_source=email",
+      "message contains a pixel, beacon, or click-wrapper link",
+    ],
+    [
+      "pixel wording",
+      "Open the pixel here.",
+      "message contains a pixel, beacon, or click-wrapper link",
+    ],
+    [
+      "beacon wording",
+      "A beacon fires on open.",
+      "message contains a pixel, beacon, or click-wrapper link",
+    ],
+    ["a protocol-relative link", "See //b4.run/call", "message contains a protocol-relative link"],
+    ["a dot-relative link", "See ./x", "message contains a dot-relative link"],
+    ["a parent-relative link", "See ../x", "message contains a dot-relative link"],
+    ["a relative link", "See /docs", "message contains a relative link"],
+    ["an ftp scheme", "See ftp://evil.example/file", "message contains an unsupported URL scheme"],
+    ["I noticed you", "I noticed you reading the docs.", "message contains surveillance language"],
+    [
+      "surveillance wording",
+      "We are tracking your visits.",
       "message contains surveillance language",
-    )
-    expect(check("See ftp://evil.example/file")).toContain(
-      "message contains an unsupported URL scheme",
-    )
-    expect(check("See /docs")).toContain("message contains a relative link")
+    ],
+  ])("rejects %s", (_name, body, message) => {
+    expect(check(body)).toContain(message)
   })
 
   it("does not treat ordinary prose containing a colon as a URL scheme", () => {

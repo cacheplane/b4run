@@ -109,16 +109,16 @@ export function draftViolations(candidate: unknown): string[] {
   return [...new Set(violations)]
 }
 
-export const SEQUENCE_DRAFTS: Readonly<Record<SequenceStep, Draft>> = {
-  1: {
+export const SEQUENCE_DRAFTS: Readonly<Record<SequenceStep, Draft>> = Object.freeze({
+  1: Object.freeze({
     subject: "Engineer to engineer",
     body: `I saw that you signed up for B4.run updates, so I wanted to introduce myself. I'm the founder.
 
 I offer short engineer-to-engineer sessions to help you get your agent running. No sales, just working through whatever is in the way.
 
 Reply if that would help.`,
-  },
-  2: {
+  }),
+  2: Object.freeze({
     subject: "Get your agent into production",
     body: `Even with agents writing a lot of our code, teams still get stuck.
 
@@ -128,8 +128,8 @@ No sales. Just the founder and your engineering team.
 
 Book a time with me:
 ${BOOKING_URL}`,
-  },
-  3: {
+  }),
+  3: Object.freeze({
     subject: "One last note from the B4.run founder",
     body: `One last note from me.
 
@@ -141,12 +141,15 @@ Book a time with me:
 ${BOOKING_URL}
 
 This is my last automated follow-up.`,
-  },
-}
+  }),
+})
 
 /** Returns the normalised draft for a step, throwing when the checker finds any violation. */
-export function sequenceDraft(step: SequenceStep): Draft {
-  const draft = SEQUENCE_DRAFTS[step]
+export function sequenceDraft(
+  step: SequenceStep,
+  drafts: Readonly<Record<SequenceStep, Draft>> = SEQUENCE_DRAFTS,
+): Draft {
+  const draft = drafts[step]
   const violations = draftViolations(draft)
   if (violations.length > 0) {
     throw new Error(`Invalid sequence draft: ${violations.join("; ")}`)

@@ -6,8 +6,8 @@ const loadSequenceEnv = (env: Record<string, string | undefined>): SequenceEnv =
 
 const base = {
   GROWTH_DATABASE_URL: "postgres://u:p@localhost/db",
-  GROWTH_EMAIL_HMAC_SECRET: "a",
-  GROWTH_TOKEN_SECRET: "b",
+  GROWTH_EMAIL_HMAC_SECRET: "secret-hmac-XYZ",
+  GROWTH_TOKEN_SECRET: "secret-token-XYZ",
   GROWTH_ENVIRONMENT: "test",
 }
 
@@ -69,13 +69,58 @@ describe("loadSequenceEnv", () => {
   })
 
   it("requires the Resend key when delivery is enabled, without echoing secrets", () => {
+    const secrets = ["secret-hmac-XYZ", "secret-token-XYZ", "re_live_XYZ", "cron-XYZ"]
+    const attempts = [
+      { ...base, GROWTH_DELIVERY_ENABLED: "true", CRON_SECRET: "cron-XYZ" },
+      {
+        ...base,
+        GROWTH_SEQUENCE_ENABLED: "true",
+        GROWTH_SEQUENCE_START_AT: "soon",
+        RESEND_API_KEY: "re_live_XYZ",
+      },
+    ]
+    const messages = attempts.map((env) => {
+      try {
+        loadSequenceEnv(env)
+      } catch (error) {
+        return (error as Error).message
+      }
+      return expect.unreachable()
+    })
+    expect(messages[0]).toMatch(/RESEND_API_KEY/)
+    for (const message of messages) {
+      for (const secret of secrets) expect(message).not.toContain(secret)
+    }
+  })
+
+  it.each([
+    "2026-13-40",
+    "soon",
+    "2026-02-30T07:00:00Z",
+    "2026-11-02T25:00:00Z",
+    "2026-11-02",
+    "2026-11-02T08:00:00",
+    "Nov 2 2026",
+    "1",
+  ])("rejects the start time %s without echoing it", (value) => {
     try {
-      loadSequenceEnv({ ...base, GROWTH_DELIVERY_ENABLED: "true" })
+      loadSequenceEnv({ ...base, GROWTH_SEQUENCE_ENABLED: "true", GROWTH_SEQUENCE_START_AT: value })
       expect.unreachable()
     } catch (error) {
       const message = (error as Error).message
-      expect(message).toMatch(/RESEND_API_KEY/)
-      expect(message).not.toContain(base.GROWTH_TOKEN_SECRET + base.GROWTH_EMAIL_HMAC_SECRET)
+      expect(message).toContain("GROWTH_SEQUENCE_START_AT")
+      expect(message).not.toContain(value)
+    }
+  })
+
+  it("accepts the same instant written in UTC and with an offset", () => {
+    for (const value of ["2026-11-02T15:00:00Z", "2026-11-02T07:00:00-08:00"]) {
+      const env = loadSequenceEnv({
+        ...base,
+        GROWTH_SEQUENCE_ENABLED: "true",
+        GROWTH_SEQUENCE_START_AT: value,
+      })
+      expect(env.sequenceStartAt?.toISOString()).toBe("2026-11-02T15:00:00.000Z")
     }
   })
 
