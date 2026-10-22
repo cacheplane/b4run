@@ -118,6 +118,8 @@ type CloseReason =
 const PLAN_TOOL = "writeTodos"
 /** The built-in tool that launches a subagent; its child checkpoints under its own namespace. */
 const TASK_TOOL = "task"
+/** The `b4.step` contract's default error for a call that never finished. */
+const UNFINISHED_CALL = "Tool call did not finish"
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -372,6 +374,8 @@ function synthesiseNamespace(
 
   let openRun: string | undefined
   let openRunStart = 0
+  /** The calls the open turn announced (their frames went out), in order. */
+  let openRunCalls: string[] = []
 
   /** The `b4:turn` stamp on the turn's own checkpoints (those past its user message, before the next). */
   const endOf = (
@@ -460,6 +464,25 @@ function synthesiseNamespace(
       // No stamp on a turn that is not the running head: the run ended before
       // the stamp existed, or its stamp was lost; the turn still ended, at its
       // last checkpoint.
+      // A call it announced that never got a ToolMessage did not finish: the
+      // turn is over, so it settles failed (a live success settles nothing,
+      // but a restore knows this run ended without the call's result). An
+      // open subagent's task call is closed by its own SUBAGENT_ERROR below.
+      const subagents = new Set(s.open)
+      for (const toolCallId of openRunCalls) {
+        if (answered.has(toolCallId) || subagents.has(toolCallId)) continue
+        push(s, endAt, {
+          type: EventType.CUSTOM,
+          name: B4_STEP_EVENT_NAME,
+          value: {
+            v: 1,
+            toolCallId,
+            kind: "server",
+            status: "failed",
+            error: { message: UNFINISHED_CALL },
+          },
+        } as BaseEvent)
+      }
       closeOpen(s, endAt, { kind: "unterminated" })
       const event = { type: EventType.RUN_FINISHED, threadId, runId, outcome: { type: "success" } }
       push(s, endAt, event as BaseEvent)
@@ -530,6 +553,7 @@ function synthesiseNamespace(
       closeRun(index, false)
       openRun = id
       openRunStart = index
+      openRunCalls = []
       if (!nested) {
         s.turnFloor.at = s.events.reduce((max, e) => Math.max(max, e.at), 0)
         s.turnFloor.runId = id
@@ -639,6 +663,7 @@ function synthesiseNamespace(
           owner,
         )
         push(s, at, { type: EventType.TOOL_CALL_END, toolCallId } as BaseEvent, owner)
+        openRunCalls.push(toolCallId)
         // Live, a parked call's tool streamed its running step before the gate
         // parked it; the interrupt kept that display.
         const running = answered.has(toolCallId) ? undefined : parkedStep(input, toolCallId)

@@ -404,6 +404,30 @@ describe("turnsFromState", () => {
     ).not.toThrow()
   })
 
+  test("a restored turn that ended with an announced call and no ToolMessage settles that call failed, not running", () => {
+    const call = { id: "c1", name: "lookup", args: {}, type: "tool_call" }
+    const history = [
+      ckpt("k0", 0, [human("u1", "one")]),
+      ckpt("k1", 1, [human("u1", "one"), ai("a1", "", [call])]),
+      ckpt("k2", 2, [human("u1", "one"), ai("a1", "", [call]), ai("a2", "Gave up.")], {
+        metadata: { "b4:turn": { status: "done", endedAt: iso(2) } },
+      }),
+    ]
+
+    const stamped = turnsFromState(base(history)).turns
+    const unstamped = turnsFromState(base(history.slice(0, 2))).turns
+
+    for (const view of [stamped, unstamped]) {
+      expect(firstTurn(view).steps[0]).toMatchObject({
+        kind: "tool",
+        id: "c1",
+        status: "failed",
+        error: { message: "Tool call did not finish" },
+      })
+      expect(firstTurn(view).failed).toBe(1)
+    }
+  })
+
   test("a busy head stays working while an earlier unstamped turn still closes", () => {
     const call = { id: "c2", name: "x", args: {}, type: "tool_call" }
     const history = [
