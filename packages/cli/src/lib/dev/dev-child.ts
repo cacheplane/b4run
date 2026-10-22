@@ -6,6 +6,8 @@ import { resolve } from "node:path"
 import type { Command } from "commander"
 
 import { CliError, formatErrorMessage } from "../output.js"
+import { setDevRunListener } from "../signals/dev-run-notifier.js"
+import type { RouteKind } from "../signals/events.js"
 import { startRuntimeServer } from "./runtime-server.js"
 
 interface DevChildCommandOptions {
@@ -27,6 +29,8 @@ export interface SpawnDevChildOptions {
    * stdio fills its buffer and then blocks the child on its next write.
    */
   readonly onStdout?: (chunk: string) => void
+  /** Called with the route kind each time the child reports a finished AG-UI run. */
+  readonly onRunFinished?: (routeKind: RouteKind) => void
 }
 
 export class DevChildStartupError extends Error {
@@ -50,7 +54,30 @@ interface DevChildStartupErrorMessage {
   readonly type: "startup-error"
 }
 
-type DevChildMessage = DevChildReadyMessage | DevChildStartupErrorMessage
+export interface DevChildRunFinishedMessage {
+  readonly type: "run-finished"
+  readonly routeKind: RouteKind
+}
+
+const ROUTE_KINDS: ReadonlySet<string> = new Set<RouteKind>(["agent", "chain", "graph", "workflow"])
+
+/** A `run-finished` message whose `routeKind` is one of the four route kinds. */
+export function isDevChildRunFinishedMessage(value: unknown): value is DevChildRunFinishedMessage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "run-finished" &&
+    "routeKind" in value &&
+    typeof value.routeKind === "string" &&
+    ROUTE_KINDS.has(value.routeKind)
+  )
+}
+
+type DevChildMessage =
+  | DevChildReadyMessage
+  | DevChildRunFinishedMessage
+  | DevChildStartupErrorMessage
 
 export interface SpawnedDevChild {
   readonly stderr: () => string
@@ -171,6 +198,18 @@ export async function runDevChildCommand(options: DevChildCommandOptions): Promi
     url: runtimeServer.url,
   } satisfies DevChildReadyMessage)
 
+  setDevRunListener(({ routeKind }) => {
+    // An orphaned child has no channel; the callback keeps a failed send from
+    // surfacing as an unhandled `error` event on process.
+    if (!process.connected) return
+    process.send?.(
+      { type: "run-finished", routeKind } satisfies DevChildRunFinishedMessage,
+      undefined,
+      {},
+      () => {},
+    )
+  })
+
   await closed
 }
 
@@ -236,6 +275,20 @@ export function spawnDevChild(options: SpawnDevChildOptions): SpawnedDevChild {
 
     if (message.type === "startup-error") {
       rejectReady(new DevChildStartupError(message.message, message.code))
+      return
+    }
+
+    // Not a readiness signal: it must never reach the fall-through below.
+    if (message.type === "run-finished") {
+      // Only a known route kind may reach the emitter; anything else is dropped.
+      if (!isDevChildRunFinishedMessage(message)) {
+        return
+      }
+      try {
+        options.onRunFinished?.(message.routeKind)
+      } catch {
+        // Usage reporting never disturbs the dev session.
+      }
       return
     }
 

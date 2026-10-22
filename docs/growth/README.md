@@ -8,7 +8,7 @@ can and cannot tell you. The design lives in
 
 | Piece | Owner | Responsibility |
 |---|---|---|
-| `apps/web/app/lib/analytics/` | the site | Emits the eight typed events to PostHog (US cloud, `b4run` project), behind a production-host gate. |
+| `apps/web/app/lib/analytics/` | the site | Emits the eight typed site events to PostHog (US cloud, `b4run` project), behind a production-host gate. |
 | `scripts/posthog/` | operators | Defines the event contract (`contract.ts`), the insights (`insights/*.json`) and dashboards (`dashboards/*.json`), and the live quality check. |
 | PostHog | the vendor | Stores events and renders dashboards. It measures engagement and nothing else. |
 
@@ -42,6 +42,54 @@ read-only key and never applies changes.
 
 There is no root `.env.example`; set these in your shell or in the Actions
 secrets (`POSTHOG_PERSONAL_API_KEY_READONLY`, `POSTHOG_PROJECT_ID`).
+
+## CLI signals
+
+The `b4` CLI reports two events of its own, `cli:command_completed` and `cli:dev_first_run_completed`, from development-time commands only (`dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`). `b4 start`, the runtime packages, and `create-b4-app` never report. The CLI posts to an ingest route on the site, which forwards to PostHog. That route does not exist yet. Until it does, the CLI gets a 404 and ignores it.
+
+### Request contract
+
+```
+POST https://b4.run/api/signals/v1/cli        (override: B4_SIGNALS_URL)
+Content-Type: application/json
+User-Agent: b4-cli
+No credentials. Timeout 3 s. The CLI ignores the status and the body.
+
+{
+  "schema": 1,
+  "usage_id": "<uuid v4 from ~/.b4/usage-id>",
+  "sent_at": "<ISO 8601 UTC>",
+  "events": [
+    { "event": "cli:command_completed",
+      "properties": { "command": "build", "cli_version": "0.14.0", "node_major": 24,
+                      "os": "darwin", "outcome": "ok", "duration_bucket": "1s_to_10s",
+                      "error_class": "B4_E1006" } },
+    { "event": "cli:dev_first_run_completed",
+      "properties": { "cli_version": "0.14.0", "route_kind": "graph" } }
+  ]
+}
+```
+
+The CLI sends one event per request today. The contract allows up to ten.
+
+### Ingest route rules
+
+- Accept 1 to 10 events per request.
+- Reject the request with 400 when `schema` is not `1`, `usage_id` is not a UUID, or any event name is unknown.
+- Drop properties outside the event's allowlist.
+- Reject an event whose known property has the wrong type or an out-of-range value: `command` must be one of the seven command names, `outcome` one of `ok`, `error`, `cancelled`, `duration_bucket` one of the five buckets, `route_kind` one of the four route kinds, `node_major` an integer, and strings at most 128 characters.
+- Forward to PostHog with `distinct_id` set to `usage_id`, `$ip` set to `null`, and `$process_person_profile` set to `false`.
+- Reply 202 with an empty body.
+
+### Environment
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `B4_TELEMETRY_DISABLED` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. Honoured from the shell before any file write, and from a project `.env` for every send (a project `.env` loads after the command starts, so the first-run id file and notice can still appear). |
+| `DO_NOT_TRACK` | the `b4` CLI | Set to `1` to turn CLI usage reporting off. Honoured from the shell before any file write, and from a project `.env` for every send (a project `.env` loads after the command starts, so the first-run id file and notice can still appear). |
+| `B4_SIGNALS_URL` | the `b4` CLI | Overrides the ingest URL, for example to point at a local test server. Read from the shell environment at startup only, never from a project `.env`. |
+
+The CLI is also inert when a common CI variable is set, before any file write or network call.
 
 ## Measurement limits
 

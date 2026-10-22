@@ -48,6 +48,7 @@ import { registerVerifyCommand } from "./commands/verify.js"
 import { registerDevChildCommand } from "./lib/dev/dev-child.js"
 import { diagnose } from "./lib/diagnostics.js"
 import { CliError, type CommandIo, createNodeIo, writeLine } from "./lib/output.js"
+import { createSignalsEmitter, type SignalsEmitter } from "./lib/signals/emitter.js"
 
 export function renderError(error: unknown): string {
   const diag = diagnose(error)
@@ -55,7 +56,14 @@ export function renderError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function createProgram(io: CommandIo): Command {
+interface RunOptions {
+  readonly signals?: SignalsEmitter
+}
+
+export function createProgram(
+  io: CommandIo,
+  options: { readonly signals?: SignalsEmitter } = {},
+): Command {
   const program = new Command()
 
   program
@@ -79,7 +87,7 @@ export function createProgram(io: CommandIo): Command {
   registerBuildCommand(program, io)
   registerCheckCommand(program, io)
   registerClientToolsCommand(program, io)
-  registerDevCommand(program, io)
+  registerDevCommand(program, io, options.signals)
   registerDocsCommand(program, io)
   registerEvalCommand(program, io)
   registerInspectCommand(program, io)
@@ -99,14 +107,27 @@ export function createProgram(io: CommandIo): Command {
 export async function run(
   argv: readonly string[],
   io: CommandIo = createNodeIo(),
+  options: RunOptions = {},
 ): Promise<number> {
-  const program = createProgram(io)
+  const signals = options.signals ?? createSignalsEmitter({ io })
+  const program = createProgram(io, { signals })
+  program.hook("preAction", (_thisCommand, actionCommand) => {
+    signals.commandStarted(actionCommand.name())
+  })
+  const startedAt = performance.now()
+  const durationMs = (): number => Math.round(performance.now() - startedAt)
 
   try {
     await program.parseAsync([...argv], { from: "user" })
+    signals.commandCompleted({ outcome: "ok", durationMs: durationMs() })
     return 0
   } catch (error) {
     if (error instanceof CliError) {
+      signals.commandCompleted({
+        outcome: error.exitCode === 130 ? "cancelled" : "error",
+        durationMs: durationMs(),
+        error,
+      })
       writeLine(io.stderr, error.message)
       if (error.code !== undefined) {
         const url = errorDocsUrl(error.code)
@@ -119,8 +140,19 @@ export async function run(
       return error.exitCode
     }
 
+    signals.commandCompleted({
+      outcome: error instanceof Error && error.name === "AbortError" ? "cancelled" : "error",
+      durationMs: durationMs(),
+      error,
+    })
     writeLine(io.stderr, renderError(error))
     return 1
+  } finally {
+    try {
+      await signals.flush()
+    } catch {
+      // Usage reporting must never change the command's outcome.
+    }
   }
 }
 

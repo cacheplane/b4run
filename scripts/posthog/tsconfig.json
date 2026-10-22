@@ -5,5 +5,11 @@
     "allowImportingTsExtensions": true,
     "rootDir": "../.."
   },
-  "include": ["*.ts", "../../apps/web/app/lib/analytics/events.ts"]
+  "include": [
+    "*.ts",
+    "../../apps/web/app/lib/analytics/events.ts",
+    "../../packages/cli/src/lib/signals/events.ts",
+    "../../packages/cli/src/lib/signals/env.ts",
+    "../../packages/cli/src/lib/output.ts"
+  ]
 }

@@ -33,6 +33,7 @@ import {
 import type { SandboxManager } from "../runtime/sandbox-manager.js"
 import type { B4StaticModules } from "../runtime/static-modules-core.js"
 import type { StreamChunk } from "../runtime/stream-types.js"
+import { notifyDevRunFinished } from "../signals/dev-run-notifier.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import {
   type ApprovalGrantRuntime,
@@ -1213,6 +1214,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // back into an AP terminal. The finally delivers it once to attachers,
     // without adding a terminal frame to the live turn's digest.
     let terminalChunk: StreamChunk | undefined
+    // Reported once per run to the `b4 dev` parent (a no-op elsewhere).
+    let notifiedRunFinished = false
     // A turn that settled without parking leaves no client call waiting: void
     // any record still outstanding (one whose void failed after a close, or a
     // stray), keeping only a call whose park is still in the checkpoint — a
@@ -1329,6 +1332,16 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : [],
               },
             )) {
+              // A run that parks on an interrupt is a finished run here; per the
+              // spec only a `cancelled` outcome is excluded.
+              if (
+                !notifiedRunFinished &&
+                event.type === "RUN_FINISHED" &&
+                event.outcome?.type !== "cancelled"
+              ) {
+                notifiedRunFinished = true
+                notifyDevRunFinished({ routeKind: route.mode })
+              }
               // The translator catches upstream errors and aborts, so the raw
               // stream may never produce a terminal chunk. Preserve the
               // outcome for AP viewers instead of reporting null success.

@@ -1,0 +1,11 @@
+{
+  "slug": "cli-outcomes-by-outcome",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "CLI outcomes by outcome",
+  "description": "Completed reporting commands by outcome, to show how often commands succeed or fail.",
+  "events": [{ "event": "cli:command_completed" }],
+  "breakdown": "outcome",
+  "interval": "day",
+  "date_from": "-30d"
+}
