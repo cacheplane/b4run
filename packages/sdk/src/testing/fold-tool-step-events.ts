@@ -177,9 +177,12 @@ function outcomeType(event: ToolStepFixtureEvent): string | undefined {
  *   `interrupt` outcome it does the same except calls named by
  *   `interrupts[].toolCallId` or `pendingToolCallIds`. A success outcome, or
  *   none, settles nothing.
- * - A `TOOL_CALL_RESULT` ends a step that is still `running`: `failed` with
- *   `error: { message }` when the result carries `error`, else `completed`.
- *   Either way the running label goes; a completion keeps the sources.
+ * - A `TOOL_CALL_RESULT` that carries a top-level `error` string fails the
+ *   step with `error: { message }`, even one a call-carrier step already
+ *   called `completed` (failed wins; the move drops the label and sources).
+ *   ag-ui-langgraph's bare `"error"` sentinel reads `{ message: "error" }`.
+ * - A `TOOL_CALL_RESULT` without an error completes a step that is still
+ *   `running`; the running label goes and the sources stay.
  * - A `TOOL_CALL_START` for a `cancelled` step (a call the resume re-runs)
  *   reopens it as `running`, without its label or `settledAt`; a late
  *   `TOOL_CALL_RESULT` with no new START leaves it `cancelled`.
@@ -217,24 +220,21 @@ export function foldToolStepEvents(events: readonly ToolStepFixtureEvent[]): Too
         startCall(fold, id, false)
         fold.frame[id] = "completed"
         applyMetadata(fold, id, event.metadata, "message")
-        // RESULT means it ended: a step still running after it fails when the
-        // result carries an error, and completes otherwise. Either way its
-        // running label no longer says what happened.
+        const failure =
+          typeof event.error === "string" && event.error !== "" ? event.error : undefined
         const open = fold.steps[id]
-        if (open === undefined) {
+        if (failure !== undefined) {
+          // A result flagged as an error fails the step, whatever a step said
+          // before it (failed wins). With no step yet this is the frames' step.
+          const failed = { v: 1, status: "failed", error: { message: failure } } as const
+          fold.steps[id] = stripId(mergeToolStep(open, failed, "message"))
+        } else if (open === undefined) {
           // No step yet: the frames' step, which a later step merges onto.
-          fold.steps[id] =
-            typeof event.error === "string" && event.error !== ""
-              ? { v: 1, kind: "server", status: "failed", error: { message: event.error } }
-              : { v: 1, kind: "server", status: "completed" }
+          fold.steps[id] = { v: 1, kind: "server", status: "completed" }
         } else if (open.status === "running") {
+          // RESULT means it ended: the running label no longer says what happened.
           const { label: _label, ...rest } = open
-          if (typeof event.error === "string" && event.error !== "") {
-            const { sources: _sources, ...bare } = rest
-            fold.steps[id] = { ...bare, status: "failed", error: { message: event.error } }
-          } else {
-            fold.steps[id] = { ...rest, status: "completed" }
-          }
+          fold.steps[id] = { ...rest, status: "completed" }
           fold.derived.delete(id)
         }
         break

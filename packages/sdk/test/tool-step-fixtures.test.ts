@@ -30,6 +30,7 @@ describe("tool-step fixture corpus", () => {
       "running-after-frame-result-stays-completed",
       "denied-after-frame-result-is-denied",
       "v2-step-is-ignored",
+      "result-error-after-completed-step-fails",
     ])
   })
 

@@ -974,4 +974,37 @@ export const TOOL_STEP_FIXTURES: readonly ToolStepFixture[] = [
       },
     },
   },
+  {
+    name: "result-error-after-completed-step-fails",
+    events: [
+      start("c1", {
+        v: 1,
+        kind: "server",
+        status: "completed",
+        label: "Emailed the report",
+        icon: "mail",
+        settledAt: 22000,
+      }),
+      end("c1"),
+      { ...result("c1"), content: "", error: "SMTP 550: mailbox unavailable" },
+      start("c2"),
+      end("c2"),
+      // ag-ui-langgraph's bare sentinel.
+      { ...result("c2"), content: "", error: "error" },
+    ],
+    expected: {
+      steps: {
+        // Failed wins: the result's error overrides the call's completed step.
+        c1: {
+          v: 1,
+          kind: "server",
+          status: "failed",
+          icon: "mail",
+          settledAt: 22000,
+          error: { message: "SMTP 550: mailbox unavailable" },
+        },
+        c2: { v: 1, kind: "server", status: "failed", error: { message: "error" } },
+      },
+    },
+  },
 ]

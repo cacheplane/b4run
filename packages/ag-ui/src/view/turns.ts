@@ -521,7 +521,9 @@ function withFailedCount(turn: TurnView): TurnView {
  *
  * A call's `b4.step` and `TOOL_CALL_RESULT` may arrive in either order: a
  * `completed` or `failed` step never reverts to running, a later result never
- * erases a done label, and re-applying a settled call's `completed` step and
+ * erases a done label (unless it carries a top-level `error`, which fails the
+ * call even after a `completed` step), and re-applying a settled call's
+ * `completed` step and
  * identical result changes nothing. An event that changes nothing returns
  * `state` itself.
  */
@@ -802,12 +804,21 @@ export function reduceTurns(
                 update === undefined
                   ? withResult
                   : mergeIntoToolStep(withResult, update, "message", at)
-              // A result ends a call still open: failed when it carries an
-              // error, else done, and the running label no longer says what
-              // happened. A settled step already said how it ended; its time stands.
-              const settled: ToolStep = isSettledStatus(merged.status)
-                ? merged
-                : endOpenTool(merged, failure, at)
+              // A result flagged as an error fails the call whatever its step
+              // said (failed wins). Otherwise it ends a call still open as
+              // done, and the running label no longer says what happened. A
+              // settled step already said how it ended; its time stands.
+              const settled: ToolStep =
+                failure !== undefined
+                  ? mergeIntoToolStep(
+                      merged,
+                      { v: 1, status: "failed", error: { message: failure } },
+                      "message",
+                      at,
+                    )
+                  : isSettledStatus(merged.status)
+                    ? merged
+                    : endOpenTool(merged, at)
               return s.result === result && sameParts && sameToolStep(s, settled) ? s : settled
             }),
           ),
@@ -973,17 +984,10 @@ function applyStep(
   return next === turn ? turn : withFailedCount(next)
 }
 
-/**
- * An open call its result ended: `failed` with the result's error (dropping
- * the running label and sources) or `done` (dropping the running label,
- * keeping the sources).
- */
-function endOpenTool(step: ToolStep, failure: string | undefined, at: number): ToolStep {
+/** An open call its result ended without an error: `done`, dropping the running label and keeping the sources. */
+function endOpenTool(step: ToolStep, at: number): ToolStep {
   const { label: _label, ...rest } = step
-  const settledAt = step.settledAt ?? at
-  if (failure === undefined) return { ...rest, status: "done", settledAt }
-  const { sources: _sources, ...bare } = rest
-  return { ...bare, status: "failed", error: { message: failure }, settledAt }
+  return { ...rest, status: "done", settledAt: step.settledAt ?? at }
 }
 
 /** A cancelled call presented again (the resume runs it): back to the frames, no label, no settle time. */
