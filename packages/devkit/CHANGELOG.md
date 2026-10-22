@@ -1,4 +1,4 @@
-# @dawn-ai/devkit
+# @b4run/devkit
 
 ## 0.15.0
 

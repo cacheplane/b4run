@@ -1,4 +1,4 @@
-# create-dawn-ai-app
+# create-b4-app
 
 ## 0.15.0
 

@@ -1,4 +1,4 @@
-# @dawn-ai/postgres-storage
+# @b4run/postgres-storage
 
 ## 0.15.0
 

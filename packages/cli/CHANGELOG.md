@@ -1,4 +1,4 @@
-# @dawn-ai/cli
+# @b4run/cli
 
 ## 0.15.0
 

@@ -1,4 +1,4 @@
-# @dawn-ai/evals
+# @b4run/evals
 
 ## 0.15.0
 

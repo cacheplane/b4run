@@ -1,4 +1,4 @@
-# @dawn-ai/core
+# @b4run/core
 
 ## 0.15.0
 

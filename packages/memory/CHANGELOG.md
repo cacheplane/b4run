@@ -1,4 +1,4 @@
-# @dawn-ai/memory
+# @b4run/memory
 
 ## 0.15.0
 

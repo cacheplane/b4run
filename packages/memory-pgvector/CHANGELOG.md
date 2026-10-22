@@ -1,4 +1,4 @@
-# @dawn-ai/memory-pgvector
+# @b4run/memory-pgvector
 
 ## 0.15.0
 

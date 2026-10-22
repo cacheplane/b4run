@@ -1,4 +1,4 @@
-# @dawn-ai/permissions
+# @b4run/permissions
 
 ## 0.15.0
 

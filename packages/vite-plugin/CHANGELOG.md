@@ -1,4 +1,4 @@
-# @dawn-ai/vite-plugin
+# @b4run/vite-plugin
 
 ## 0.15.0
 

@@ -1,4 +1,4 @@
-# @dawn-ai/inspector
+# @b4run/inspector
 
 ## 0.15.0
 
