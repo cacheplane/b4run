@@ -76,6 +76,8 @@ describe("founder updates form", () => {
     expect(body.disclosure_version).toBe(DISCLOSURE_VERSION)
     expect(typeof body.submission_id).toBe("string")
     expect(body.posthog_distinct_id).toBe("distinct-1")
+    expect(body.b4_hp).toBe("")
+    expect("website_url" in body).toBe(false)
 
     expect(vi.mocked(track).mock.calls).toEqual([
       ["site:form_submit", { form: "founder_updates" }],
@@ -150,9 +152,15 @@ describe("founder updates form", () => {
 
   it("has a hidden honeypot that keyboards and autofill skip", async () => {
     await render()
-    const trap = container.querySelector<HTMLInputElement>('input[name="website_url"]')
+    expect(container.querySelector('input[name="website_url"]')).toBeNull()
+    const trap = container.querySelector<HTMLInputElement>('input[name="b4_hp"]')
+    expect(trap).not.toBeNull()
     expect(trap?.tabIndex).toBe(-1)
     expect(trap?.getAttribute("autocomplete")).toBe("off")
+    expect(trap?.getAttribute("aria-hidden")).toBe("true")
+    expect(trap?.getAttribute("type")).toBe("text")
+    expect(trap?.style.position).toBe("absolute")
+    expect(trap?.style.opacity).toBe("0")
     expect(container.querySelector("textarea")?.getAttribute("maxlength")).toBe("1000")
   })
 })
