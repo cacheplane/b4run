@@ -591,6 +591,59 @@ jobs:
         # the test file — vitest has no fail-on-skipped flag to do it from here.
         run: B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint
 
+  growth-db-docker:
+    needs: metadata_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
+    runs-on: ubuntu-latest
+    # The growth database tests start a postgres:16-alpine Testcontainers
+    # container, and a cold runner also pulls the image. Not part of
+    # `validate`'s required lanes.
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Node 24 — B4's floor is the active LTS line (node:sqlite
+          # unflagged, npm >= 11 bundled). Matches release.yml and engines.
+          node-version: 24.17.0
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Real-Postgres growth tests
+        run: pnpm --dir apps/web test:growth-db --reporter=json --outputFile.json="$RUNNER_TEMP/growth-db.json"
+
+      - name: Require the integration tests to have run
+        # Vitest exits 0 when a gated suite skips, so green alone does not mean
+        # the Postgres assertions ran. Fail unless every integration file passed
+        # at least one test and none of its tests was skipped.
+        run: |
+          node -e '
+            const report = require(process.env.RUNNER_TEMP + "/growth-db.json");
+            const files = report.testResults.filter((file) => file.name.endsWith(".integration.test.ts"));
+            if (files.length === 0) throw new Error("no integration test files reported");
+            for (const file of files) {
+              const results = file.assertionResults;
+              const passed = results.filter((test) => test.status === "passed").length;
+              const skipped = results.filter((test) => test.status === "skipped" || test.status === "pending").length;
+              if (passed === 0 || skipped > 0) throw new Error(file.name + ": passed " + passed + ", skipped " + skipped);
+            }
+            console.log(files.length + " integration files ran");
+          '
+
   edge-workerd:
     needs: metadata_scope
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}

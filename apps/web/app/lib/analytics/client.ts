@@ -14,6 +14,9 @@ export const SIGNAL_PROPERTY_KEYS = [
   "engaged_seconds",
   "code_lang",
   "source_page",
+  "form",
+  "failure_reason",
+  "email_kind",
 ] as const satisfies readonly (keyof SignalProperties)[]
 
 // Adding a property to SignalProperties without listing it above is a type error.

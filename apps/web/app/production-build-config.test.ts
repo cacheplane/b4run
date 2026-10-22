@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import nextConfig from "../next.config"
 
 interface TypeScriptConfig {
@@ -93,6 +93,23 @@ describe("production response policy", () => {
     expect(existsSync(new URL("./docs/recipes/research-web-ui/page.tsx", import.meta.url))).toBe(
       false,
     )
+  })
+
+  it("redirects /call to /updates when B4_CALL_URL is unset", async () => {
+    const saved = process.env.B4_CALL_URL
+    delete process.env.B4_CALL_URL
+    vi.resetModules()
+    try {
+      const { default: fresh } = await import("../next.config")
+      const redirects = (await fresh.redirects?.()) ?? []
+      expect(redirects).toContainEqual({
+        source: "/call",
+        destination: "/updates",
+        permanent: false,
+      })
+    } finally {
+      if (saved !== undefined) process.env.B4_CALL_URL = saved
+    }
   })
 
   it("sends security headers on every route without a script-blocking CSP", async () => {

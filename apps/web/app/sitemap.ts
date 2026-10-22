@@ -12,6 +12,8 @@ function sitemapPolicy(page: SeoPage): SitemapPolicy {
       return { changeFrequency: "weekly", priority: 0.8 }
     case "legal":
       return { changeFrequency: "yearly", priority: 0.2 }
+    case "page":
+      return { changeFrequency: "monthly", priority: 0.5 }
     case "docs":
       return { changeFrequency: "monthly", priority: 0.7 }
     case "blog-post":

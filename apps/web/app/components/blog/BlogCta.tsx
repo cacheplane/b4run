@@ -1,3 +1,4 @@
+import { UPDATES_FORM_ENABLED } from "../../lib/growth/updates-enabled"
 import { CopyCommand } from "../ui/CopyCommand"
 import styles from "./blog.module.css"
 
@@ -12,6 +13,11 @@ export function BlogCta() {
           <a href="/docs/getting-started" data-cta-id="blog_cta_get_started">
             Read Getting Started
           </a>
+          {UPDATES_FORM_ENABLED ? (
+            <a href="/updates" data-cta-id="blog_cta_updates">
+              Get updates from Brian
+            </a>
+          ) : null}
         </div>
       </div>
     </section>

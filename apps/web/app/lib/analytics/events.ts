@@ -7,6 +7,10 @@ export const SIGNAL_EVENTS = {
   docsSearchResultClick: "docs:search_result_click",
   docsCopyCodeClick: "docs:copy_code_click",
   blogCopyCodeClick: "blog:copy_code_click",
+  siteFormSubmit: "site:form_submit",
+  siteFormSuccess: "site:form_success",
+  siteFormFail: "site:form_fail",
+  siteContactAccepted: "site:contact_accepted",
 } as const
 
 export type SignalEventName = (typeof SIGNAL_EVENTS)[keyof typeof SIGNAL_EVENTS]
@@ -24,11 +28,13 @@ export const CTA_IDS = [
   "footer_npm",
   "footer_live_demo",
   "footer_rss",
+  "footer_updates",
   "home_scaffold",
   "home_get_started",
   "home_github",
   "home_live_demo",
   "blog_cta_get_started",
+  "blog_cta_updates",
   "docs_prompt_copy",
 ] as const
 
@@ -42,4 +48,7 @@ export interface SignalProperties {
   readonly engaged_seconds?: 10 | 30
   readonly code_lang?: string
   readonly source_page?: string
+  readonly form?: "founder_updates"
+  readonly failure_reason?: string
+  readonly email_kind?: "work" | "personal"
 }

@@ -670,6 +670,62 @@
       },
       {
         "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 0,
+        "step": "Checkout",
+        "kind": "step-uses",
+        "value": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 1,
+        "step": "Setup pnpm",
+        "kind": "step-uses",
+        "value": "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 2,
+        "step": "Setup Node.js",
+        "kind": "step-uses",
+        "value": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 3,
+        "step": "Install",
+        "kind": "run",
+        "value": "pnpm install --frozen-lockfile"
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 4,
+        "step": "Build packages",
+        "kind": "run",
+        "value": "pnpm build"
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 5,
+        "step": "Real-Postgres growth tests",
+        "kind": "run",
+        "value": "pnpm --dir apps/web test:growth-db --reporter=json --outputFile.json=\"$RUNNER_TEMP/growth-db.json\""
+      },
+      {
+        "classification": "safe",
+        "job": "growth-db-docker",
+        "stepIndex": 6,
+        "step": "Require the integration tests to have run",
+        "kind": "run",
+        "value": "node -e '\n  const report = require(process.env.RUNNER_TEMP + \"/growth-db.json\");\n  const files = report.testResults.filter((file) => file.name.endsWith(\".integration.test.ts\"));\n  if (files.length === 0) throw new Error(\"no integration test files reported\");\n  for (const file of files) {\n    const results = file.assertionResults;\n    const passed = results.filter((test) => test.status === \"passed\").length;\n    const skipped = results.filter((test) => test.status === \"skipped\" || test.status === \"pending\").length;\n    if (passed === 0 || skipped > 0) throw new Error(file.name + \": passed \" + passed + \", skipped \" + skipped);\n  }\n  console.log(files.length + \" integration files ran\");\n'\n"
+      },
+      {
+        "classification": "safe",
         "job": "edge-workerd",
         "stepIndex": 0,
         "step": "Checkout",

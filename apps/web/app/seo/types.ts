@@ -19,7 +19,7 @@ export interface TechArticleSeoPage extends BaseSeoPage {
 
 export interface WebPageSeoPage extends BaseSeoPage {
   readonly kind: "WebPage"
-  readonly routeKind: "home" | "legal"
+  readonly routeKind: "home" | "legal" | "page"
 }
 
 export interface CollectionPageSeoPage extends BaseSeoPage {
