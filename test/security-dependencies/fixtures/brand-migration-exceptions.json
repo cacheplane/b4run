@@ -12,6 +12,11 @@
       "sha256": "35d29883bd25ec254e0137f665ee086ea90425e0f3e1e6a9029d55b9681feab6"
     },
     {
+      "path": "apps/web/public/brand/identity/usage-sheet-source.svg",
+      "reason": "embedded-font-data",
+      "sha256": "752f0ae13607e4ca95c35121ff676b6bc1ec7710f7d3e13c90a48e088acd9d9d"
+    },
+    {
       "path": "docs/dev/memory-system.md",
       "reason": "archived-design",
       "sha256": "738c29b961e691070c172419308afbcd8e6e04934c9cf0ad9e9fb8cbc64f74ce"
@@ -52,9 +57,19 @@
       "sha256": "e1ebc940e31e59e130fb9648e1e50b503e2ddcb29ca20da0daa36e597796ea0d"
     },
     {
+      "path": "docs/superpowers/audits/2026-09-14-durable-workspace-research.md",
+      "reason": "archived-design",
+      "sha256": "dc39f7977b2331861776a7a43ebb91c0584533ef24d6cccc033543650e80454d"
+    },
+    {
       "path": "docs/superpowers/evidence/2026-09-06-recovery-authority/fresh-repository-authority-observations.json",
       "reason": "archived-design",
       "sha256": "a32c931839de4543ae2f542bcdf0ec4856aae83a1f44fa951698e65430c55e0c"
+    },
+    {
+      "path": "docs/superpowers/evidence/2026-09-14-workspace-recovery-prototype.md",
+      "reason": "frozen-release-evidence",
+      "sha256": "db1ccb3b3b838f04963d9d79fa92816d55a1779277e42b46a9a47b54ba76a9f4"
     },
     {
       "path": "docs/superpowers/notes/2026-08-10-d1-budget-status.md",
@@ -65,6 +80,16 @@
       "path": "docs/superpowers/notes/2026-08-10-voiceover-walkthrough.md",
       "reason": "archived-design",
       "sha256": "aacdb41931f110ccf5c77bdf9c98d0cd0efe9d694a8a738c1e353c4f9bacbbf3"
+    },
+    {
+      "path": "docs/superpowers/notes/2026-08-27-ap-reattach-arc-handoff.md",
+      "reason": "archived-design",
+      "sha256": "61ba7edb278053a334e7efeb4e0d6471e63aa2de9eec17067b8e37f24cec4121"
+    },
+    {
+      "path": "docs/superpowers/notes/2026-09-19-software-factory-arc-handoff.md",
+      "reason": "archived-design",
+      "sha256": "d6ab8fdf67ea4dfa58cf41437d40f5912ba229c2a027f7495dfa49a201f5e208"
     },
     {
       "path": "docs/superpowers/plans/2026-05-15-canonical-chat-example.md",
@@ -687,6 +712,11 @@
       "sha256": "7c8ab6b857180afc3d35322c05632536b4c172dc06848999da6e8505ae9f3e27"
     },
     {
+      "path": "docs/superpowers/plans/2026-09-03-edge-static-marker-files.md",
+      "reason": "archived-design",
+      "sha256": "c6b822bd03d6324492a751e2d86734172b4c60f8bdb7d71cdf3bc20c72cc9a6f"
+    },
+    {
       "path": "docs/superpowers/plans/2026-09-04-postpublication-recovery.md",
       "reason": "archived-design",
       "sha256": "63d1bee08a3c4029450e8d57b8558aa5da4a7aad0a19a9ac27202a8447a17770"
@@ -712,6 +742,76 @@
       "sha256": "79efcfb24e18bcbfb04c5aa8e5423bcd8dd594266df694cff5f455062045ced2"
     },
     {
+      "path": "docs/superpowers/plans/2026-09-14-workspace-recovery-prototype.md",
+      "reason": "archived-design",
+      "sha256": "eb100e14762d32b994dbb7f6ad0088ef809a0418f61ee6845c55523f591f092a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-22-website-design-system.md",
+      "reason": "archived-design",
+      "sha256": "a89a211388a004c5311aff4c44f4ed11a705d6417c291b1b727af12b35f9136a"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-24-homepage-scaffold-hero.md",
+      "reason": "archived-design",
+      "sha256": "980ec3be9c0339b459a6037ab3d24058be54bbb362eec3e02a335094bce16a97"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-25-homepage-files-tour-pr1.md",
+      "reason": "archived-design",
+      "sha256": "980ec3be9c0339b459a6037ab3d24058be54bbb362eec3e02a335094bce16a97"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-25-homepage-files-tour-pr2.md",
+      "reason": "archived-design",
+      "sha256": "bf62f32c2e0a26e6996c32cbed623e42a2178d4e3ad24e6520bf755aa4a029eb"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-25-homepage-files-tour-pr3.md",
+      "reason": "archived-design",
+      "sha256": "06af78ac1226f986bedbb54f540f3bfeb1ed40b7eeb92ca6b2a84bdda1b4e8bd"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-09-28-factory-up-and-run.md",
+      "reason": "archived-design",
+      "sha256": "825c7317efb6627db02d4a8d6a6f3231152e3418e9d523303d42ef538652f481"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-06-activity-adopt-1-replay-runner.md",
+      "reason": "archived-design",
+      "sha256": "6aedf792bf453a006c0766e6aa507e569548645509345086b88ebb1d29618d99"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-06-activity-adopt-2-navlog.md",
+      "reason": "archived-design",
+      "sha256": "220bc4b882c0f667240dcd028ab44ffdcb4e047ce1689f85ba9ed344d25f4e4f"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-08-navlog-lla-layout.md",
+      "reason": "archived-design",
+      "sha256": "6d5a1fe0e8ffc571a4165be601a272671445763c4a42f1d53af8e8070d2525c2"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-08-navlog-lla-look.md",
+      "reason": "archived-design",
+      "sha256": "da8eb29c03f45af2fc267e418e2f3300c240dd20eb15b0e4622a17ce1d32ebc4"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-09-navlog-sheet-pretable.md",
+      "reason": "archived-design",
+      "sha256": "09040afbfed0d89152f6d21d3edfe8b6691bd9b7e3a747e152ac7c9f0aa9f2bc"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-09-navlog-sidebar-memory-mode.md",
+      "reason": "archived-design",
+      "sha256": "cc347d917c7d6438ccbbc7ea2d458d778d59de73baf233cb505576f8c7155b35"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-10-navlog-brief-hashbrown.md",
+      "reason": "archived-design",
+      "sha256": "b16fd083e867e318cf7ee21abb4c6e6fd0ef7659d8e840816b736f4081077700"
+    },
+    {
       "path": "docs/superpowers/runbooks/2026-06-19-memory-live-smoke-runbook.md",
       "reason": "archived-design",
       "sha256": "45fac3bbbfc5f8d1b76172620c83799e103a3cb9ccbc641fc9b6195fb68448fb"
@@ -735,6 +835,11 @@
       "path": "docs/superpowers/runbooks/2026-09-06-v0.8.24-recovery-admission.md",
       "reason": "archived-design",
       "sha256": "6874d61c3bd8ff2e203d163b0865f368f116098e586f4f9fa4af2da55c08b7e1"
+    },
+    {
+      "path": "docs/superpowers/runbooks/2026-09-09-b4-marketing-inventory.md",
+      "reason": "migration-explanation",
+      "sha256": "7001d9661282ad7e0d3c9b6031a25a478ff94b8a9124b1480aebdf1f9b7dc118"
     },
     {
       "path": "docs/superpowers/specs/2026-05-15-canonical-chat-example-design.md",
@@ -1347,6 +1452,21 @@
       "sha256": "df6bf6840462c484349be985bf1004b58e5628740faa4411770556037e538c19"
     },
     {
+      "path": "docs/superpowers/specs/2026-09-14-workspace-recovery-prototype-design.md",
+      "reason": "archived-design",
+      "sha256": "5a45c844250a8339093c1c9c93ff9b571bb576e6aed293287ca3021ef83e98ec"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-19-workbench-browser-gate-design.md",
+      "reason": "archived-design",
+      "sha256": "d09f15415711d98c436736bb16cb789762bdd52e09788d48b13760987e8e60dc"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-20-growth-lifecycle-design.md",
+      "reason": "archived-design",
+      "sha256": "67bb8b4c7fd5f09325a1672853de64ee53e7e257afb77b623a5aa0ce58db5d6b"
+    },
+    {
       "path": "docs/thread-handoff.md",
       "reason": "migration-explanation",
       "sha256": "331fbc8c0fd54f2eaa4b51f42a618c1c617ab92edd34bdedd79065302d073f43"
@@ -1375,6 +1495,11 @@
       "path": "examples/navlog/web/CHANGELOG.md",
       "reason": "historical-changelog",
       "sha256": "43f7faee295d000c11865cad1043a9fb98339fca74f686bf3d764f11f0d92d35"
+    },
+    {
+      "path": "examples/navlog/web/data/waypoints.json",
+      "reason": "reference-data",
+      "sha256": "5205d373ae581c57498726bf20decb4b83f7c5d0c9798cfe4182902a80604da9"
     },
     {
       "path": "packages/ag-ui/CHANGELOG.md",
@@ -1420,6 +1545,11 @@
       "path": "packages/devkit/CHANGELOG.md",
       "reason": "historical-changelog",
       "sha256": "b39509337197f22b4283e78c406f748cad9f4b76b18bc9211a516f494f3ec0e7"
+    },
+    {
+      "path": "packages/devkit/templates/app-navlog/web/data/waypoints.json",
+      "reason": "reference-data",
+      "sha256": "5205d373ae581c57498726bf20decb4b83f7c5d0c9798cfe4182902a80604da9"
     },
     {
       "path": "packages/evals/CHANGELOG.md",
@@ -1747,6 +1877,11 @@
       "sha256": "6cb7f7c15c865ef2a73e2a04751bf97341e80b01221d3cb17d14e4306221e434"
     },
     {
+      "path": "scripts/release/test/postpublication-executor.test.mjs",
+      "reason": "negative-regression-fixture",
+      "sha256": "df9b11667c70b204ceaa2be3104c8ac859a12ac2566a0c862536a6f5ce71ea15"
+    },
+    {
       "path": "scripts/release/test/publisher.test.mjs",
       "reason": "negative-regression-fixture",
       "sha256": "313d254c0b7cd70ed5258be810a0ecb5c0d53d0906efb0ae9bf7d57eeac8b3bb"
@@ -1770,6 +1905,11 @@
       "path": "scripts/release/test/recovery-policy.test.mjs",
       "reason": "migration-explanation",
       "sha256": "4f8b86ae5a32858be23ad52df89a1daf1313b75eb46d9772e07db13916491dd7"
+    },
+    {
+      "path": "scripts/release/test/release-order-history.test.mjs",
+      "reason": "historical-fixture",
+      "sha256": "3d95ba038ba8373309afa4cda7323950918c01e2dab3427872189653503f72a0"
     },
     {
       "path": "scripts/release/test/support/duplicate-draft-consolidation-authorized-delete.mjs",
@@ -1842,9 +1982,24 @@
       "sha256": "c2c9711dc44db229ef8ff0333e91c07e031e356f78a547454ba92cbe1666621c"
     },
     {
+      "path": "test/security-dependencies/dependabot-reconcile.test.ts",
+      "reason": "historical-fixture",
+      "sha256": "b467b868c6338d7a58634461a89a2f727ecaecbe79d90deff79dbf472970af3b"
+    },
+    {
+      "path": "test/security-dependencies/dependency-evidence.test.ts",
+      "reason": "historical-fixture",
+      "sha256": "7ef7ca82c334e6b827e720c538181f034bbf33c578d4fcd1640772ed0db3c2df"
+    },
+    {
       "path": "test/security-dependencies/fixtures/dependabot-baseline.json",
       "reason": "historical-fixture",
       "sha256": "52bc060b557d6a2a297029e64fc1fc23fcb5bc3a293fd39e0eb139ec8c2e0466"
+    },
+    {
+      "path": "test/security-dependencies/github-evidence.test.ts",
+      "reason": "historical-fixture",
+      "sha256": "3f6a4ad1dfeaeeba69db3928cb898fd3494b049b449e7791578231e41076f3a3"
     },
     {
       "path": "test/security-dependencies/publication-containment.test.ts",

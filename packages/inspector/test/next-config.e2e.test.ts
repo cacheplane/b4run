@@ -29,10 +29,8 @@ import "./.next/types/root-params.d.ts";
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
 `
 
-function readManifest(appDir: string): PackageManifest {
-  return JSON.parse(
-    readFileSync(resolve(repoRoot, appDir, "package.json"), "utf8"),
-  ) as PackageManifest
+function readManifest(appDir: string, filename = "package.json"): PackageManifest {
+  return JSON.parse(readFileSync(resolve(repoRoot, appDir, filename), "utf8")) as PackageManifest
 }
 
 async function loadConfig(moduleId: string): Promise<ResolvedNextConfig> {
@@ -41,14 +39,18 @@ async function loadConfig(moduleId: string): Promise<ResolvedNextConfig> {
 }
 
 describe("Next TypeScript CLI configuration", () => {
-  test("pins every Next application to Next 16.3.6", () => {
+  test("pins every Next application to Next 16.4.1", () => {
     for (const [appDir] of nextApps) {
-      expect.soft(readManifest(appDir).dependencies?.next, appDir).toBe("16.3.6")
+      expect.soft(readManifest(appDir).dependencies?.next, appDir).toBe("16.4.1")
     }
+    expect(
+      readManifest("packages/devkit/templates/app-navlog/web", "package.json.template").dependencies
+        ?.next,
+    ).toBe("16.4.1")
   })
 
-  test("pins the docs MDX integration to Next 16.3.0", () => {
-    expect(readManifest("apps/web").dependencies?.["@next/mdx"]).toBe("16.3.0")
+  test("pins the docs MDX integration to Next 16.4.1", () => {
+    expect(readManifest("apps/web").dependencies?.["@next/mdx"]).toBe("16.4.1")
   })
 
   test("enables the TypeScript CLI in every resolved Next configuration", async () => {

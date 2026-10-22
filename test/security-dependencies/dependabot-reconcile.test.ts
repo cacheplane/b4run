@@ -1,3 +1,5 @@
+// These tests exercise frozen incident tools. Keep their repository and chart
+// identities aligned with the original evidence, not the current product name.
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
@@ -209,9 +211,18 @@ describe("Dependabot baseline identities", () => {
     expect(fixture.open.every((alert: any) => alert.dismissal === null)).toBe(true)
   })
 
+  it("rejects the current repository identity in historical evidence", () => {
+    expect(() =>
+      validateDependabotExpectation({
+        ...reconciliationFixture(defaultSha),
+        repository: "cacheplane/b4run",
+      }),
+    ).toThrow(/INVALID_DEPENDABOT_FIXTURE/u)
+  })
+
   it.each([
     {},
-    { schemaVersion: 1, repository: "cacheplane/b4run", defaultSha, open: [] },
+    { schemaVersion: 1, repository: "cacheplane/dawnai", defaultSha, open: [] },
     {
       schemaVersion: 1,
       repository: "cacheplane/other",
@@ -220,7 +231,7 @@ describe("Dependabot baseline identities", () => {
     },
     {
       schemaVersion: 1,
-      repository: "cacheplane/b4run",
+      repository: "cacheplane/dawnai",
       defaultSha,
       open: [normalizedAlert(), normalizedAlert()],
     },
@@ -278,7 +289,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: async () => jsonResponse(fixture.open.map(rawFromNormalized)),
     })
     await expect(
@@ -302,7 +313,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: async () => {
         requests += 1
         return jsonResponse(fixture.open.map(rawFromNormalized))
@@ -356,7 +367,7 @@ describe("complete open-set reader", () => {
           maxAttempts: 61,
           now: () => clock,
           prNumber: 42,
-          repo: "cacheplane/b4run",
+          repo: "cacheplane/dawnai",
           sleep: async () => {},
           timeoutMs: 100,
         }),
@@ -390,7 +401,7 @@ describe("complete open-set reader", () => {
         maxRecords: 100,
         maxRequests: 10,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: async () => jsonResponse(alerts),
     })
     await expect(
@@ -422,7 +433,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -448,7 +459,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => clock++,
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -509,7 +520,7 @@ describe("merged-head reconciliation", () => {
           expectedMainSha: observationSha,
           expectedMergeSha: mergeSha,
           expectedPrNumber: 42,
-          expectedRepository: "cacheplane/b4run",
+          expectedRepository: "cacheplane/dawnai",
           expectedReviewedBaseSha: baseSha,
           expectedReviewedHeadSha: headSha,
           outputDirectory: resolve(sealRoot, "sealed"),
@@ -584,7 +595,7 @@ describe("merged-head reconciliation", () => {
       prNumber: 42,
       publicationAfter: publication,
       publicationBefore: structuredClone(publication),
-      repository: "cacheplane/b4run",
+      repository: "cacheplane/dawnai",
       reviewedBaseSha,
       reviewedHeadSha,
       startedAtMilliseconds: Date.parse("2026-08-10T18:01:00Z"),
@@ -615,7 +626,7 @@ describe("merged-head reconciliation", () => {
           expectedMainSha: mergeSha,
           expectedMergeSha: mergeSha,
           expectedPrNumber: 42,
-          expectedRepository: "cacheplane/b4run",
+          expectedRepository: "cacheplane/dawnai",
           expectedReviewedBaseSha: reviewedBaseSha,
           expectedReviewedHeadSha: reviewedHeadSha,
           outputDirectory: resolve(root, "sealed"),
@@ -651,7 +662,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: async (request: any) => {
         const response = await innerTransport(request)
         if (decodeURIComponent(new URL(request.url).pathname).includes("/actions/workflows/")) {
@@ -674,7 +685,7 @@ describe("merged-head reconciliation", () => {
         github,
         now: () => clock,
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         timeoutMs: 100,
       }),
     ).rejects.toThrow(/UNPROVABLE: DEPENDABOT_RECONCILIATION_TIMEOUT/u)
@@ -689,7 +700,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 30,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -709,7 +720,7 @@ describe("merged-head reconciliation", () => {
         github,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_RECEIPT/u)
   })
@@ -722,7 +733,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -744,7 +755,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -781,7 +792,7 @@ describe("merged-head reconciliation", () => {
           },
         },
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_REQUEST/u)
     expect(requests).toBe(0)
@@ -827,7 +838,7 @@ describe("merged-head reconciliation", () => {
           },
         },
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
       }),
     ).rejects.toThrow(/UNPROVABLE: INVALID_RECONCILIATION_REQUEST/u)
     expect(requests).toBe(0)
@@ -844,7 +855,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -867,7 +878,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         sleep: async () => {},
         timeoutMs: 15 * 60_000,
       }),
@@ -883,7 +894,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
     })
     const receipt = await reconcileDependabot({
@@ -899,7 +910,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     })
@@ -928,7 +939,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
     })
     await expect(
@@ -945,7 +956,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => (clockReads++ < 8 ? 0 : 100),
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         sleep: async () => {},
         timeoutMs: 100,
       }),
@@ -960,7 +971,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -982,7 +993,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 3,
       now: () => clock,
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async (milliseconds) => {
         clock += milliseconds
       },
@@ -999,7 +1010,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 40,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1022,7 +1033,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 3,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async () => {
         sleeps += 1
       },
@@ -1043,7 +1054,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1066,7 +1077,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => clock,
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         sleep: async (milliseconds) => {
           sleeps += 1
           clock += milliseconds
@@ -1111,7 +1122,7 @@ describe("merged-head reconciliation", () => {
         },
         now,
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
       }),
     ).rejects.toThrow(/UNPROVABLE: DEPENDABOT_RECONCILIATION_TIMEOUT/u)
     expect(requests).toBe(0)
@@ -1153,7 +1164,7 @@ describe("merged-head reconciliation", () => {
         maxRecords: 100,
         maxRequests: 20,
       }),
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       transport: reconcileTransport({
         baseSha,
         headSha,
@@ -1176,7 +1187,7 @@ describe("merged-head reconciliation", () => {
         maxAttempts: 61,
         now: () => Date.parse("2026-08-10T18:01:00Z"),
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         sleep: async () => {},
         timeoutMs: 15 * 60_000,
       }),
@@ -1197,7 +1208,7 @@ describe("merged-head reconciliation", () => {
       maxAttempts: 61,
       now: () => Date.parse("2026-08-10T18:01:00Z"),
       prNumber: 42,
-      repo: "cacheplane/b4run",
+      repo: "cacheplane/dawnai",
       sleep: async () => {},
       timeoutMs: 15 * 60_000,
     }
@@ -1208,7 +1219,7 @@ describe("merged-head reconciliation", () => {
           maxRecords: 100,
           maxRequests: 20,
         }),
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         transport: reconcileTransport({ baseSha, headSha, mergeSha, mergedAt }),
       })
     await expect(
@@ -1374,7 +1385,7 @@ describe("offline reconciliation receipt sealing", () => {
         kind: "dependency-security-receipt-uploader",
         observationHead: receipt.observationHead,
         receiptSha256,
-        repository: "cacheplane/b4run",
+        repository: "cacheplane/dawnai",
         runAttempt: 2,
         runId: 31360000000,
         schemaVersion: 1,
@@ -1846,7 +1857,7 @@ function schemaDependabotExpectation() {
   return {
     defaultSha,
     open: [normalizedAlert(), normalizedAlert({ number: 2, package: "second" })],
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
   }
 }
@@ -1929,7 +1940,7 @@ function reconciliationFixture(defaultSha: string) {
   return validateDependabotExpectation({
     defaultSha,
     open: [normalizedAlert(), normalizedAlert({ number: 2, package: "second" })],
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
   })
 }
@@ -1942,7 +1953,7 @@ function reconciliationFixtureWithThree(defaultSha: string) {
       normalizedAlert({ number: 2, package: "second" }),
       normalizedAlert({ number: 3, package: "third" }),
     ],
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
   })
 }
@@ -2005,7 +2016,7 @@ function reconciliationFileInputs(
     dependabot: { defaultSha: baseSha, open: fixture.open },
     kind: "dependency-security-baseline",
     publication: publicationSnapshot(baseSha, "f".repeat(40)),
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
     sourceSha: "f".repeat(40),
   }
@@ -2062,7 +2073,7 @@ function reconcileTransport(options: any) {
       return jsonResponse({ sha })
     }
     const decodedPath = decodeURIComponent(api.pathname)
-    const workflowPrefix = "/repos/cacheplane/b4run/actions/workflows/"
+    const workflowPrefix = "/repos/cacheplane/dawnai/actions/workflows/"
     if (decodedPath.startsWith(workflowPrefix) && decodedPath.endsWith("/runs")) {
       const workflowPath = decodedPath.slice(workflowPrefix.length, -"/runs".length)
       const runId = 31_400_000_000 + verificationReads++
@@ -2221,13 +2232,13 @@ function publicationSnapshot(defaultHead: string, source: string) {
           {
             conclusion: "success",
             digest: "a".repeat(64),
-            name: "publish (b4-app)",
+            name: "publish (dawn-app)",
             noOp: true,
           },
           {
             conclusion: "success",
             digest: "b".repeat(64),
-            name: "publish (b4-sandbox-infra)",
+            name: "publish (dawn-sandbox-infra)",
             noOp: true,
           },
         ],
@@ -2280,7 +2291,7 @@ function publicationSnapshot(defaultHead: string, source: string) {
       })),
       requestCount: 63,
     },
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
     sourceSha: source,
     workflows: {
@@ -2375,7 +2386,7 @@ function completeReconciliationReceipt() {
       reviewedHeadSha,
     },
     publication,
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
     verificationRuns,
   }

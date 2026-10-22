@@ -5,9 +5,15 @@ import { defineConfig } from "vitest/config"
 
 const rootDir = dirname(fileURLToPath(import.meta.url))
 
+export function securityTestIncludes(directory: string): string[] {
+  const root = directory.replaceAll("\\", "/")
+  return [`${root}/**/*.test.ts`, `${root}/**/*.test.tsx`]
+}
+
 export default defineConfig({
   root: resolve(rootDir, "../.."),
   test: {
+    name: "dependency-security",
     environment: "node",
     env: {
       COPILOTKIT_TELEMETRY_DISABLED: "true",
@@ -19,10 +25,7 @@ export default defineConfig({
     },
     fileParallelism: false,
     hookTimeout: 30_000,
-    include: [
-      "test/security-dependencies/**/*.test.ts",
-      "test/security-dependencies/**/*.test.tsx",
-    ],
+    include: securityTestIncludes(rootDir),
     testTimeout: 30_000,
   },
 })

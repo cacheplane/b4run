@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { readdirSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -457,8 +458,22 @@ function rootImporterPathsToVersion(
 function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
   const failures: string[] = []
   for (const [name, floors] of [
-    ["hono", { 4: "4.12.34" }],
-    ["@hono/node-server", { 1: "1.19.15", 2: "2.0.10" }],
+    ["hono", { 4: "4.13.11" }],
+    ["dompurify", { 3: "3.4.17" }],
+    ["proxy-addr", { 2: "2.0.8" }],
+    ["handlebars", { 4: "4.7.10" }],
+    ["tar", { 7: "7.5.22" }],
+    ["fast-uri", { 3: "3.1.8" }],
+    ["js-yaml", { 3: "3.15.2", 4: "4.3.2" }],
+    ["undici", { 6: "6.28.1", 7: "7.29.1", 8: "8.10.2" }],
+    ["axios", { 1: "1.20.0" }],
+    ["@fastify/busboy", { 3: "3.2.2" }],
+    ["source-map-js", { 1: "1.2.2" }],
+    ["@graphql-tools/utils", { 10: "12.0.2", 11: "12.0.2", 12: "12.0.2" }],
+    ["@modelcontextprotocol/sdk", { 1: "1.32.0" }],
+    ["follow-redirects", { 1: "1.16.1" }],
+    ["toml", { 3: "5.0.1", 4: "5.0.1", 5: "5.0.1" }],
+    ["@hono/node-server", { 1: "1.19.15", 2: "2.1.3" }],
   ] as const) {
     for (const version of packageVersions(workspace, name)) {
       const floor = floors[versionTuple(version)[0] as keyof typeof floors]
@@ -590,17 +605,50 @@ function providerUtilsPathFailures(workspace: ParsedWorkspace): string[] {
 }
 
 describe("dependency security graph invariants", () => {
+  it("collects every security test through the root workspace config", () => {
+    const expected = readdirSync(testDirectory)
+      .filter((name) => /\.test\.tsx?$/.test(name))
+      .map((name) => `test/security-dependencies/${name}`)
+      .sort()
+    const listed = execFileSync(
+      process.execPath,
+      [
+        "node_modules/vitest/vitest.mjs",
+        "list",
+        "--config",
+        "vitest.workspace.ts",
+        "test/security-dependencies",
+        "--filesOnly",
+      ],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 20_000 },
+    )
+    const actual = listed
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .trim()
+          .replaceAll("\\", "/")
+          .replace(/^.*?test\/security-dependencies\//, "test/security-dependencies/"),
+      )
+      .filter((line) => /test\/security-dependencies\/.*\.test\.tsx?$/.test(line))
+      .sort()
+    expect(actual).toEqual(expected)
+  })
+
   it("pins the dedicated config boundary, TSX include, and app-local browser mappings", async () => {
-    const vitestConfig = (await import("./vitest.config.ts")).default
-    const config = vitestConfig
+    const { default: config, securityTestIncludes } = await import("./vitest.config.ts")
     const testConfig = requireRecord(config.test, "vitest config test block")
     expect(config.root).toBe(repositoryRoot)
     expect(testConfig.environment).toBe("node")
     expect(testConfig.testTimeout).toBe(30_000)
     expect(testConfig.hookTimeout).toBe(30_000)
     expect(testConfig.include).toEqual([
-      "test/security-dependencies/**/*.test.ts",
-      "test/security-dependencies/**/*.test.tsx",
+      resolve(testDirectory, "**/*.test.ts").replaceAll("\\", "/"),
+      resolve(testDirectory, "**/*.test.tsx").replaceAll("\\", "/"),
+    ])
+    expect(securityTestIncludes(String.raw`D:\a\b4run\b4run\test\security-dependencies`)).toEqual([
+      "D:/a/b4run/b4run/test/security-dependencies/**/*.test.ts",
+      "D:/a/b4run/b4run/test/security-dependencies/**/*.test.tsx",
     ])
     expect(testConfig.env).toEqual({
       COPILOTKIT_TELEMETRY_DISABLED: "true",
@@ -857,11 +905,11 @@ describe("dependency security graph invariants", () => {
       )
       .sort()
 
-    expect(remediatedSelectors).toEqual(["js-yaml@>=4 <4.3.1"])
-    expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.1"]).toBe("4.3.1")
+    expect(remediatedSelectors).toEqual(["js-yaml@>=4 <4.3.2"])
+    expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.2"]).toBe("4.3.2")
   })
 
-  it("contains no Hono, node-server, or UUID package below its patched floor", () => {
+  it("contains no tracked security dependency below its patched floor", () => {
     expect(patchedFloorFailures(readWorkspace())).toEqual([])
   })
 
@@ -1076,7 +1124,7 @@ describe("dependency security graph invariants", () => {
       packages: { "hono@4.12.33": {} },
       snapshots: { "hono@4.12.33": {} },
     }
-    expect(patchedFloorFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.12.34"])
+    expect(patchedFloorFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.13.11"])
   })
 
   it("reports an orphan provider-utils peer identity independently", () => {
