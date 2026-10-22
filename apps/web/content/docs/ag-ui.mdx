@@ -733,14 +733,14 @@ A tool that exports [`display`](/docs/tools#describing-a-call-to-people) tells t
 
 #### The `b4.step` contract
 
-The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). Every value is camelCase and carries `v: 1`. A step travels on two carriers, and a client reads both:
+The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 value is camelCase and carries `v: 1`. It is what B4.run's clients read and what other producers, such as a provider adapter, should write. B4.run's own runtime still emits the legacy `CUSTOM` value (`B4StepEventValue`) and persists the legacy `PersistedStep` in `b4_step`, without `v` and with ISO timestamps; `readToolStep` normalizes both, and B4.run's emitters move to v1 in a later release. The contract defines four carriers:
 
 | Carrier | Key |
 |---|---|
 | Tool-call metadata on `TOOL_CALL_START` and `TOOL_CALL_END` (merges onto the call), and on `TOOL_CALL_RESULT` (lands on the tool message) | `"b4.step"` |
 | `CUSTOM` event, with `value.toolCallId` required | `b4.step` |
-| Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer | `"b4.answer"` |
-| LangChain persistence on a `ToolMessage` | `additional_kwargs.b4_step` |
+| Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer. Only the reference fold in `@b4run/sdk/testing` reads it; B4.run's clients do not | `"b4.answer"` |
+| LangChain persistence on a `ToolMessage` (today the legacy shape) | `additional_kwargs.b4_step` |
 
 | Field | Meaning |
 |---|---|
