@@ -739,7 +739,7 @@ The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 valu
 |---|---|
 | Tool-call metadata on `TOOL_CALL_START` and `TOOL_CALL_END` (merges onto the call), and on `TOOL_CALL_RESULT` (lands on the tool message) | `"b4.step"` |
 | `CUSTOM` event, with `value.toolCallId` required | `b4.step` |
-| Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer. Only the reference fold in `@b4run/sdk/testing` reads it; B4.run's clients do not | `"b4.answer"` |
+| Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer. Read it with `readAnswerAnnotations` from `@b4run/sdk`, a public reader; B4.run's own chat components do not show it yet | `"b4.answer"` |
 | LangChain persistence on a `ToolMessage` (today the legacy shape) | `additional_kwargs.b4_step` |
 
 | Field | Meaning |
@@ -756,19 +756,27 @@ The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 valu
 | `error` | `{ message, code? }`. Present if and only if `status` is `failed`. |
 | `decision` | How a permission gate was answered: `once`, `always` or `deny`. |
 
-A client merges steps with `mergeToolStep` and these rules:
+A client merges steps with `mergeToolStep`, reading each new value with `readToolStepUpdate`. Status follows these rules:
 
-- `failed` wins and stays. A failed step always has an `error`.
+- `failed` wins and stays. A failed step always has an `error`, which defaults to `{ message: "Tool call did not finish" }`.
 - `completed`, `denied` and `cancelled` settle a step that has not failed. `running` only lifts a step that is still open.
-- A step from a `TOOL_CALL_RESULT` beats one from the call.
-- A `TOOL_CALL_RESULT` with no step of its own completes a running step and clears its running label. A result flagged as an error fails it.
-- Moving into a different bad status (`failed`, `denied` or `cancelled`) drops the label and sources and keeps the icon unless the new step gives one. A repeat of the same status keeps what the step shows.
+- A step from a `TOOL_CALL_RESULT` beats one from the call. A `denied` or `cancelled` step from either replaces a `completed` one.
+- A `TOOL_CALL_RESULT` with no step of its own completes a running step and clears its running label; the sources stay.
+- A result flagged as an error fails the step, even one a call-side step already called `completed`. A result is flagged as an error when the `TOOL_CALL_RESULT` carries a top-level `error` string (not part of the AG-UI schema, which tolerates it) or, in a snapshot or stored thread, when the `ToolMessage` has `error`. The error string becomes the step's `error.message`, so ag-ui-langgraph's bare `"error"` reads as `{ message: "error" }`.
+- A step that first arrives after a `TOOL_CALL_RESULT` that carried none merges onto the step the frames imply: `{ v: 1, kind: "server", status: "completed" }`, or `failed` when the result was flagged as an error. A late `running` step can't lift it, and a `denied` step replaces it.
 - A re-presented `TOOL_CALL_START` reopens a `cancelled` step. A resumed run does this for the calls an interrupt cancelled.
-- At `RUN_ERROR`, open steps become `failed`. At a cancelled `RUN_FINISHED`, every open step becomes `cancelled`. At an interrupt `RUN_FINISHED`, open steps become `cancelled`, except the calls named in `interrupts[].toolCallId`, which stay open until the user answers. A successful run settles nothing. A step held for a call the client never saw is dropped when the run ends.
+- At `RUN_ERROR`, open steps become `failed`. At a cancelled `RUN_FINISHED`, every open step becomes `cancelled`. At an interrupt `RUN_FINISHED`, open steps become `cancelled`, except the calls named in `interrupts[].toolCallId` and in `outcome.pendingToolCallIds`, which stay open until the user or the client answers. A successful run settles nothing. A restored thread whose turn ended without a call's result shows that call as `failed`. A step held for a call the client never saw is dropped when the run ends.
 
-Versioning is additive. A new field never bumps `v`, a consumer ignores fields it does not know, and a `status` it does not know falls back to the lifecycle the frames show. Older values still read: a missing `v` is `1`, a missing `kind` is `"server"`, a source without an `id` gets `<toolCallId>:<index>`, a source without a `kind` is `"url"` if it has an `href` and `"record"` otherwise, and ISO timestamps become epoch milliseconds. `readToolStep` applies all of this.
+Fields merge by these rules:
 
-Producers and clients can test against the same corpus: `TOOL_STEP_FIXTURES` and `foldToolStepEvents` from `@b4run/sdk/testing`, and the JSON Schema at `@b4run/sdk/tool-step.schema.json`. See the [SDK reference](/docs/api/sdk).
+- The defined fields of the newer step overlay the stored ones. On a settled step, a step from the `TOOL_CALL_RESULT` beats one from the call.
+- A settle out of `running` drops the running-only `label` and `sources` unless the settling step restates them. `icon`, `startedAt`, `queries`, `kind`, `builtin` and `provider` carry over.
+- Moving into a different bad status (`failed`, `denied` or `cancelled`) from `completed` drops the label and sources too, and keeps the icon unless the new step gives one. A repeat of the same status keeps what the step shows.
+- A `running` step never adds fields to a settled step.
+
+Versioning is additive. A new field never bumps `v`, a consumer ignores fields it does not know, and a `status` it does not know falls back to the lifecycle the frames show. A value whose `v` is anything other than `1` is not a step: the readers return `undefined` and the call keeps the step its frames imply. A breaking version would travel under a new metadata key and `CUSTOM` name, and producers would write both for one release. Older values still read: a missing `v` is the legacy shape and reads as `1`, a missing `kind` is `"server"`, a source without an `id` gets `<toolCallId>:<index>`, a source without a `kind` is `"url"` if it has an `href` and `"record"` otherwise, and ISO timestamps become epoch milliseconds. `readToolStep` applies all of this, and `readAnswerAnnotations` applies the same version rule to `b4.answer`.
+
+Producers and clients can test against the same corpus: `TOOL_STEP_FIXTURES` and `foldToolStepEvents` from `@b4run/sdk/testing`, and the JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`. See the [SDK reference](/docs/api/sdk).
 
 B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload, with its timing and the gate decision, is also stored on the checkpointed tool message as `additional_kwargs.b4_step` (the `task` tool's message carries `b4_subagent` as well), so `GET /threads/:thread_id/turns` rebuilds the labels for a restored thread. `PersistedStep` and `B4StepEventValue` are deprecated in favor of `B4ToolStep`, and `readStepEvent` now drops an empty-string label.
 

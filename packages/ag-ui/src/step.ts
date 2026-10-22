@@ -10,6 +10,11 @@ export { B4_STEP_EVENT_NAME }
  */
 export const B4_STEP_STATUSES = ["running", "completed", "failed", "denied"] as const
 
+/**
+ * A legacy step status: `running`, `completed`, `failed` or `denied`.
+ *
+ * @deprecated Use `B4ToolStepStatus` from `@b4run/sdk`, which adds `cancelled`.
+ */
 export type B4StepStatus = (typeof B4_STEP_STATUSES)[number]
 
 /**
