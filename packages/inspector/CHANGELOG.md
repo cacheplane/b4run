@@ -1,5 +1,14 @@
 # @dawn-ai/inspector
 
+## 0.14.1
+
+### Patch Changes
+
+- 4054f36: Update the Inspector to Next.js 16.4.1, the CLI's minimum Hono version to 4.13.11 and its Node adapter minimum to 2.1.3, and Vite tooling to 6.4.4. These updates include upstream fixes for Next.js cache/image-processing vulnerabilities and static-path access-control issues in Hono and Vite. The documentation site, web examples, and generated navlog applications use the same patched Next.js version.
+- Updated dependencies [3777065]
+  - @b4run/core@0.14.1
+  - @b4run/memory@0.14.1
+
 ## 0.14.0
 
 ### Patch Changes

@@ -1,5 +1,36 @@
 # @dawn-ai/cli
 
+## 0.14.1
+
+### Patch Changes
+
+- 4ee2f09: `b4` reports anonymous usage signals for development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`) after a one-time notice. `b4 start` never reports. Disable with `B4_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1`; CI is silent automatically. Details: https://b4.run/privacy
+- 301bc87: cli: a non-integer or out-of-range `PORT` env var reaches `net.listen` and crashes `b4 start`. Refs #1063.
+- a2d2ca3: `--port` has no upper bound: `b4 start --port 70000` crashes with Node's `ERR_SOCKET_BAD_PORT` instead of `Invalid port`. Refs #1047.
+- 3777065: A client's response schema now travels as AG-UI's own `forwardedProps.responseSchema` instead of a `hashbrown` body key, and the provider-facing schema name is `b4_response` (it was `hashbrown_response`). B4.run no longer reads `hashbrown`. A client that still sends `hashbrown.responseSchema` gets an unconstrained reply until it moves the schema to `forwardedProps`.
+
+  `server.agui.clientForwardedProps` now also takes a per-key allow list: an object mapping a route id, or `"*"` for every route, to `true` or the `forwardedProps` key names it accepts. For example, `{ "/chat": ["responseSchema"] }`. A key the route does not accept is refused with `422 forwarded_props_not_allowed`, and the message names it. The array form keeps its meaning (any key on the listed routes). The setting is now shape-checked at boot, so a malformed value fails on startup instead of reading as closed. A route's `output.structuredOutput` capability is now `true` only where the route accepts `responseSchema`.
+
+- bb8da42: Tool-output offloading now works for sandboxed routes and fails closed. Under a managed sandbox workspace, offloaded outputs are written through the sandbox's filesystem into its own root (`/workspace/tool-outputs/`), so the stub's `tool-outputs/…` path is readable with `readFile`; before, the write targeted the host `workspace/` path, failed at the sandbox's path jail, and the full oversized result went inline into the model context. If an offload write fails for any reason, `offloadToolOutput` now returns a bounded stub (the preview lines, capped at 8,192 chars, plus the sanitized error) instead of the full content, and the runtime warns once per distinct cause. Stub previews are also capped at 8,192 chars, and a tool's string result is previewed by its real lines.
+- af302f0: An invalid `--port` now names the accepted range: `b4 dev` and `b4 inspect` report `Invalid port: <value> (expected an integer from 1 to 65535)`, and `b4 start` reports `0 to 65535`, since it accepts `0` for a kernel-assigned port.
+- 4054f36: Update the Inspector to Next.js 16.4.1, the CLI's minimum Hono version to 4.13.11 and its Node adapter minimum to 2.1.3, and Vite tooling to 6.4.4. These updates include upstream fixes for Next.js cache/image-processing vulnerabilities and static-path access-control issues in Hono and Vite. The documentation site, web examples, and generated navlog applications use the same patched Next.js version.
+- Updated dependencies [6e1ab4a]
+- Updated dependencies [1571d74]
+- Updated dependencies [276524b]
+- Updated dependencies [8c40afb]
+- Updated dependencies [3777065]
+- Updated dependencies [bb8da42]
+- Updated dependencies [319eec9]
+  - @b4run/sdk@0.14.1
+  - @b4run/langchain@0.14.1
+  - @b4run/ag-ui@0.14.1
+  - @b4run/core@0.14.1
+  - @b4run/langgraph@0.14.1
+  - @b4run/permissions@0.14.1
+  - @b4run/sqlite-storage@0.14.1
+  - @b4run/workspace@0.14.1
+  - @b4run/memory@0.14.1
+
 ## 0.14.0
 
 ### Patch Changes
