@@ -1,0 +1,122 @@
+---
+title: "B4.run 0.15: Give each step a contract"
+description: "Learn what B4.run 0.15 changes for tool steps, structured replies, and sandboxed output, with the upgrade details for your agent app."
+date: 2026-10-22
+tags: [typescript, agents]
+type: release
+version: 0.15.0
+author: brian
+---
+
+A tool call can succeed, fail, wait for approval, or stop because the person cancelled the run. If your chat treats all of those as a label and a spinner, you eventually have to decide what that spinner means after the run ends.
+
+I ran into these details building navlog, our flight-planning example. The live chat needs to agree with the thread you restore tomorrow. The tool's result, the permission decision, and the sentence the pilot sees all belong to the same call.
+
+B4.run 0.15 gives that step a versioned contract. It also makes structured replies easier to request, improves the navlog template, and fixes tool-output offloading inside a sandbox.
+
+## One shape for a tool step
+
+The contract lives in `@b4run/sdk`. `B4ToolStep` describes a call's status, label, sources, timing, and optional permission decision. A producer writing the new shape includes `v: 1`:
+
+```ts
+import { readToolStep, type B4ToolStep } from "@b4run/sdk"
+
+const value = {
+  v: 1,
+  kind: "server",
+  toolCallId: "airport-lookup-1",
+  status: "completed",
+  label: "Looked up KBDN",
+} satisfies B4ToolStep
+
+const step = readToolStep(value)
+```
+
+The reader also understands the older shapes. B4.run's runtime still emits and persists those shapes in this release; moving the emitters is separate work. Your existing tools do not need to start writing v1 to keep working.
+
+For a custom producer or client, there are JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`. `@b4run/sdk/testing` includes shared tool-step fixtures and a helper that combines their events into a final step state. The goal is to test the meaning of a sequence of events, including its awkward endings, in one place.
+
+A few details matter when you upgrade:
+
+- A cancelled run settles its open calls as `cancelled`. If you switch exhaustively over the activity kit's `StepStatus`, add that case.
+- An interrupt keeps the calls it parks open and cancels the other open calls.
+- A successful run leaves an open call as it is. A restored turn that ended without that call's result shows it as failed.
+- The reader returns `undefined` for a version other than 1. A value without a version still reads as legacy.
+
+The React and Angular activity kits use the same framework-free view code, so these rules apply to both. See [step events](/docs/ag-ui#step-events) for the full contract.
+
+## Request the answer your UI needs
+
+Some apps render the final answer as a card, a table, or a planning brief. Those apps need a predictable answer shape.
+
+`B4HttpAgent` now takes a `responseSchema`. It sends that schema with every run as AG-UI's `forwardedProps.responseSchema`:
+
+```ts
+import { B4HttpAgent } from "@b4run/ag-ui/client"
+
+const agent = new B4HttpAgent({
+  url: "http://localhost:3000/agui/chat",
+  responseSchema: {
+    type: "object",
+    properties: { summary: { type: "string" } },
+    required: ["summary"],
+    additionalProperties: false,
+  },
+})
+```
+
+The server still decides which client additions a route accepts. Allow just this key on `/chat` in your server config:
+
+```ts
+server: {
+  agui: {
+    clientForwardedProps: { "/chat": ["responseSchema"] },
+  },
+}
+```
+
+This also replaces the old `hashbrown.responseSchema` request field. If you send that field directly, move it to `forwardedProps.responseSchema`; the old field no longer constrains the reply. An unaccepted forwarded key returns `422 forwarded_props_not_allowed`.
+
+See [client-driven structured output](/docs/ag-ui#response-schema) for provider support and the error responses.
+
+## Make failures readable
+
+A tool's `display` can now define `failed(input, error)` as well as its running and completed labels. That lets the chat say "Couldn't find KXYZ" when an airport lookup throws. Without a custom label, it says "searchCorpus failed".
+
+The activity kit also accepts readable argument-field labels. In navlog, the flight-plan approval can say "7 Aircraft ID" instead of `item7`. A settled subagent keeps the sentence it started with, such as "Asked researcher · 5 steps".
+
+Angular gains `B4ActivityReasoningMessageComponent` for CopilotKit's reasoning slot. Like the React connector, it hides reasoning already shown in the turn's activity. See [the CopilotKit integration](/blog/first-class-copilotkit).
+
+## Keep large output in the workspace
+
+Tool-output offloading had a boundary wrong for sandboxed routes: it tried to write through the host workspace path. The sandbox rejected the write, and the oversized result ended up back in the model context.
+
+Offloaded output now goes through the sandbox's filesystem into its own workspace. The agent can read the `tool-outputs/…` path with `readFile`. If the write fails, the runtime returns a bounded preview and a sanitized error. It no longer puts the full oversized result inline as the fallback.
+
+The Docker provider also recognizes a runc-init thread-creation crash in a full PID cgroup as a PID-exhaustion admission failure.
+
+## Navlog computes the weather facts
+
+The navlog template now computes forecast coverage, airport categories, advisory relevance, and the minimum warning level for the briefing in code. `computeNavlog` times each leg and selects the winds-aloft forecast for when that leg is flown. The coordinator narrates those computed facts, and the Workbench renders them.
+
+The weather subagent is retired. The performance subagent remains. This is a useful boundary for this app: tested functions own the weather rules, and the agent explains the result and asks for the information it still needs.
+
+The template also gains waypoint autocomplete and reordering, clearer weather grouping, map-label placement, and cleanup of threads the visitor can no longer open. Try it with:
+
+```sh
+npx create-b4-app@0.15.0 my-planner --template navlog
+```
+
+The repository's [software-factory example](/docs/recipes/software-factory) has also grown: retries, an adoption command for delivered draft PRs, and a model-usage journal with a cost ledger. It remains an example you can inspect and run.
+
+## Patched dependencies in apps and scaffolds
+
+The Inspector, documentation site, web examples, and navlog scaffold now use Next.js 16.4.1. The CLI's test dependencies move to patched Hono and Node-adapter versions, and Vite tooling moves to 6.4.4. These include upstream security fixes. The site, examples, and private development tooling also receive patched transitive dependencies. Updating a running app still means reinstalling and rebuilding it; a new scaffold version does not update an app you already created. Refresh your app's lockfile and audit it after upgrading, since an existing lockfile can retain older transitive versions.
+
+## CLI usage reporting and upgrading
+
+The development CLI now shows a one-time notice before reporting anonymous usage signals for `dev`, `build`, `add`, `check`, `typegen`, `verify`, and `eval`. Set `B4_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in your shell to disable it. CI is silent automatically, and `b4 start`, the runtime packages, and `create-b4-app` never report. The [privacy page](/privacy) explains the details.
+
+Port validation now rejects invalid `PORT` values and out-of-range `--port` arguments before the server starts. Template replacements also preserve literal dollar signs.
+
+To upgrade, pin every `@b4run/*` dependency to `0.15.0`, reinstall, and run `b4 typegen`, `b4 verify`, and your tests. Read the [upgrade guide](/docs/upgrading) for the response-schema migration and the new cancelled status. The [release artifacts and verification evidence](https://github.com/cacheplane/b4run/releases/tag/v0.15.0) identify the exact published candidate.
