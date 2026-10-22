@@ -46,11 +46,23 @@ export function businessMorningAfter(anchor: Date, businessDays: number): Date {
     day.setUTCDate(day.getUTCDate() + 1)
     if (isWeekday(day)) remaining--
   }
+  return morningOfUtcDate(day)
+}
+
+/** 07:00 Pacific on the calendar date held in `day`'s UTC fields. */
+function morningOfUtcDate(day: Date): Date {
+  const morning = new Date(day.getTime())
   // 15:00 UTC is 07:00 or 08:00 Pacific. Resolve the target date's own
   // offset, not the anchor's, so crossing DST preserves the local hour.
-  day.setUTCHours(15)
-  day.setUTCHours(day.getUTCHours() + 7 - parts(day).hour)
-  return day
+  morning.setUTCHours(15)
+  morning.setUTCHours(morning.getUTCHours() + 7 - parts(morning).hour)
+  return morning
+}
+
+/** 07:00 Pacific on `now`'s Pacific calendar date. */
+export function pacificMorningOf(now: Date): Date {
+  const local = parts(now)
+  return morningOfUtcDate(new Date(Date.UTC(local.year, local.month - 1, local.day)))
 }
 
 /** True on a Pacific weekday during local hour 7. */

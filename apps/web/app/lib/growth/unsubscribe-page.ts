@@ -24,22 +24,64 @@ ${body}
 `
 }
 
-export function renderConfirmPage(input: { token: string }): string {
+export interface ConfirmPageCopy {
+  readonly title: string
+  readonly heading: string
+  /** The form's POST target, a same-origin path. */
+  readonly action: string
+  readonly buttonLabel: string
+}
+
+export interface DonePageCopy {
+  readonly title: string
+  readonly heading: string
+  readonly message: string
+}
+
+export const UNSUBSCRIBE_CONFIRM: ConfirmPageCopy = {
+  title: "Unsubscribe",
+  heading: "Unsubscribe from B4.run updates?",
+  action: "/api/growth/unsubscribe",
+  buttonLabel: "Unsubscribe",
+}
+
+export const UNSUBSCRIBE_DONE: DonePageCopy = {
+  title: "Unsubscribed",
+  heading: "You are unsubscribed.",
+  message: "You will not receive further updates from B4.run.",
+}
+
+export const FOUNDER_STOP_CONFIRM: ConfirmPageCopy = {
+  title: "Stop the sequence",
+  heading: "Stop the founder sequence for this contact?",
+  action: "/api/growth/founder-stop",
+  buttonLabel: "Stop the sequence",
+}
+
+export const FOUNDER_STOP_DONE: DonePageCopy = {
+  title: "Sequence stopped",
+  heading: "The sequence is stopped.",
+  message: "This contact will not receive further sequence emails.",
+}
+
+export function renderConfirmPage(input: { token: string } & Partial<ConfirmPageCopy>): string {
+  const copy = { ...UNSUBSCRIBE_CONFIRM, ...input }
   return page(
-    "Unsubscribe",
-    `<h1>Unsubscribe from B4.run updates?</h1>
-<form method="post" action="/api/growth/unsubscribe">
+    escapeHtml(copy.title),
+    `<h1>${escapeHtml(copy.heading)}</h1>
+<form method="post" action="${escapeHtml(copy.action)}">
 <input type="hidden" name="token" value="${escapeHtml(input.token)}">
-<button type="submit">Unsubscribe</button>
+<button type="submit">${escapeHtml(copy.buttonLabel)}</button>
 </form>`,
   )
 }
 
-export function renderDonePage(): string {
+export function renderDonePage(input: Partial<DonePageCopy> = {}): string {
+  const copy = { ...UNSUBSCRIBE_DONE, ...input }
   return page(
-    "Unsubscribed",
-    `<h1>You are unsubscribed.</h1>
-<p>You will not receive further updates from B4.run.</p>`,
+    escapeHtml(copy.title),
+    `<h1>${escapeHtml(copy.heading)}</h1>
+<p>${escapeHtml(copy.message)}</p>`,
   )
 }
 

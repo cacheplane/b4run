@@ -3,6 +3,7 @@ import {
   businessMorningAfter,
   isSendWindow,
   pacificCalendarDate,
+  pacificMorningOf,
   SEQUENCE_TIME_ZONE,
   STEP_DELAY_BUSINESS_DAYS,
 } from "./schedule"
@@ -66,5 +67,25 @@ describe("founder sequence schedule", () => {
       date: "2026-10-20",
       weekday: true,
     })
+  })
+
+  it("returns 07:00 Pacific on the Pacific date, in either offset and across a DST change day", () => {
+    expect(pacificMorningOf(at("2026-10-22T14:35:00Z")).toISOString()).toBe(
+      "2026-10-22T14:00:00.000Z",
+    )
+    // 23:30 PDT on Wednesday is still Wednesday in Pacific time.
+    expect(pacificMorningOf(at("2026-10-22T06:30:00Z")).toISOString()).toBe(
+      "2026-10-21T14:00:00.000Z",
+    )
+    expect(pacificMorningOf(at("2026-11-03T15:20:00Z")).toISOString()).toBe(
+      "2026-11-03T15:00:00.000Z",
+    )
+    // DST starts 2027-03-14 and ends 2026-11-01: both days still resolve to local 07:00.
+    expect(pacificMorningOf(at("2027-03-14T20:00:00Z")).toISOString()).toBe(
+      "2027-03-14T14:00:00.000Z",
+    )
+    expect(pacificMorningOf(at("2026-11-01T20:00:00Z")).toISOString()).toBe(
+      "2026-11-01T15:00:00.000Z",
+    )
   })
 })
