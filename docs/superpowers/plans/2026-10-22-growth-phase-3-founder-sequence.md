@@ -16,8 +16,10 @@
 - **No Resend SDK.** `resend` 6.x depends on `svix` 1.88.0, which pulls `uuid@10`, which the repo's dependency-security test forbids (and forbids overriding). The sender calls `POST https://api.resend.com/emails` with `fetch`.
 - **`CRON_SECRET`, not `GROWTH_CRON_SECRET`.** Vercel attaches `Authorization: Bearer <value>` to cron requests only from a variable named `CRON_SECRET`.
 - **No form nudge.** Step 1 is due at 07:00 Pacific on the next weekday, so a tick within 30 minutes of the form adds nothing; the cron alone drives enrollment.
-- **Batch of 10, not 20.** A route has 60 seconds; ten sends with a 5-second request timeout each, plus a 45-second elapsed guard, stay inside it.
+- **Batches of 10, looped.** A route has 60 seconds; the tick leases ten at a time and keeps going until nothing is due or 40 seconds have passed, pacing sends 600 ms apart for Resend's rate limit.
 - **Digest sends only when there is something to report** (new contacts or in-flight sequences), once per Pacific weekday.
+- **Once per contact.** Enrollment requires that the contact has no `growth_sends` row, so a contact who was stopped and later reapproved by the founder is not re-enrolled (the spec's "once per contact"); `growth:control status` says so.
+- **Byte-identical retries.** Every token embedded in an email is minted from a stable time (a send's `created_at`; a digest's Pacific date at 07:00), so a retry under the same `Idempotency-Key` carries the same body and Resend can reconcile it instead of answering 409.
 
 ## Global Constraints
 
@@ -165,8 +167,8 @@ Unsubscribe links in sent mail live five years, so the signing secret must be ro
   export function composeDigestEmail(input: { to: string; date: string; text: string; environment: string }): OutgoingEmail   // subject `B4.run founder digest {date}`, no BCC, tags kind=digest, idempotencyKey `digest:{date}`
   export type SendResult =
     | { kind: "accepted"; providerEmailId: string }
-    | { kind: "rejected"; code: string }      // 4xx other than 409/429: permanent, do not retry
-    | { kind: "retryable"; code: string }     // 409 idempotency-in-progress, 429, 5xx, network error, timeout
+    | { kind: "rejected"; code: string }      // 4xx other than 429 and the concurrent-request 409, including 409 invalid_idempotent_request (code "idempotency_mismatch"): permanent, do not retry
+    | { kind: "retryable"; code: string }     // 409 concurrent_idempotent_requests, 429 (code "http_429"), 5xx, network error, timeout
   export interface Mailer { send(email: OutgoingEmail): Promise<SendResult> }
   export function createResendMailer(apiKey: string, fetchImpl?: typeof fetch, timeoutMs?: number): Mailer   // default timeout 5000
   ```
@@ -178,7 +180,8 @@ Unsubscribe links in sent mail live five years, so the signing secret must be ro
 it("composes step 2 with the checked draft, footer, headers, tags, and idempotency key", ...)
 // text = draft.body + "\n\n--\nUnsubscribe with one click: <url>"; headers List-Unsubscribe "<url>", List-Unsubscribe-Post "List-Unsubscribe=One-Click", X-B4-Send-ID sendId; tags environment/kind=sequence/step=2; idempotencyKey "seq:v1:<contactId>:step:2"; from and replyTo SENDER; bcc founderEmail
 it("posts to Resend with the bearer key and Idempotency-Key and returns the provider id", ...)  // stub fetch; assert URL, method, headers, JSON body shape
-it.each([[422,"rejected"],[400,"rejected"],[409,"retryable"],[429,"retryable"],[500,"retryable"]])("maps HTTP %s to %s", ...)
+it.each([[422,"rejected"],[400,"rejected"],[429,"retryable"],[500,"retryable"]])("maps HTTP %s to %s", ...)
+it("maps a 409 concurrent_idempotent_requests to retryable and a 409 invalid_idempotent_request to rejected idempotency_mismatch", ...)  // read the JSON error body's `name`
 it("maps a timeout and a thrown fetch to retryable", ...)
 it("never includes the recipient address in a result code", ...)
 ```
@@ -204,18 +207,20 @@ it("never includes the recipient address in a result code", ...)
   export function enrollApprovedContacts(executor: SqlExecutor, input: { startAt: Date; now: Date }): Promise<{ enrolled: number }>
   // inserts step 1 (status 'pending', due_at = businessMorningAfter(approved_at, 1)) for contacts with approved_at >= startAt, approved_at not null, stopped_at null, deleted_at null, and no growth_sends row; key sendIdempotencyKey(id, 1) with on conflict do nothing; records activity 'sequence.enrolled' event_key `enrolled:v1:{contactId}`
   export function leaseDueSends(executor: SqlExecutor, input: { now: Date; limit: number; leaseToken: string }): Promise<readonly LeasedSend[]>
-  // one statement: pending and due, or leased with lease_until <= now; attempts < MAX_ATTEMPTS; order by due_at, id; for update skip locked; sets status 'leased', lease_token, lease_until = now + LEASE_SECONDS, attempts + 1
+  // first marks expired leases with attempts >= MAX_ATTEMPTS as status 'failed', delivery_status 'unknown', last_error_code 'lease_expired' (so a crash on the last attempt is not stranded); then one statement: pending and due, or leased with lease_until <= now; attempts < MAX_ATTEMPTS; order by due_at, id; for update skip locked; sets status 'leased', lease_token, lease_until = now + LEASE_SECONDS, attempts + 1
+  export const SEND_PACING_MS = 600   // the tick waits this long between sends (Resend's default limit is about 2 requests per second)
   export interface LeasedSend { readonly id: string; readonly contactId: string; readonly step: SequenceStep; readonly attempts: number; readonly leaseToken: string }
   export type SendOutcome = "sent" | "cancelled_not_authorised" | "rejected" | "retry_later" | "failed_attempts" | "lease_lost"
   export function authoriseAndSend(executor: SqlExecutor, input: { send: LeasedSend; env: SequenceEnv; mailer: Mailer; now: Date }): Promise<SendOutcome>
   ```
-  `authoriseAndSend` algorithm (one transaction, so a concurrent stop waits for it and then cancels anything it inserted):
-  1. `select … from growth_sends where id = $1 and lease_token = $2 for update` — none → `lease_lost`.
-  2. `select email, approved_at, stopped_at, deleted_at from growth_contacts where id = $1 for update`; if not (`approved_at` not null and `stopped_at` null and `deleted_at` null and `email` not null) → set the send `cancelled`, clear the lease → `cancelled_not_authorised`.
-  3. Build the unsubscribe URL with a fresh `unsubscribe` token (`keyring: env.tokenKeyring`, `issuedAt: now`) and compose; call `mailer.send`.
-  4. `accepted` → send `status='submitted'`, `delivery_status='submitted'`, `provider_email_id`, clear the lease, `last_error_code=null`; activity `send.submitted` key `submitted:{sendId}`; if step < 3 insert step+1 `pending` with `due_at = businessMorningAfter(now, STEP_DELAY_BUSINESS_DAYS[step+1])`, key `sendIdempotencyKey(contactId, step+1)`, `on conflict (idempotency_key) do nothing` → `sent`.
-  5. `rejected` → `status='failed'`, `last_error_code=code` → `rejected`.
-  6. `retryable` → if `attempts >= MAX_ATTEMPTS`: `status='failed'`, `delivery_status='unknown'`, `last_error_code=code` → `failed_attempts`; else back to `pending` with the lease cleared and `last_error_code=code` → `retry_later` (the same idempotency key on retry makes a Resend-side duplicate impossible within Resend's 24-hour window).
+  `authoriseAndSend` algorithm (one transaction, so a concurrent stop waits for it and then cancels anything it inserted). Lock order is contact first, then send — the same order `stopContact` uses (it updates the contact, then cancels sends) — so the two can never deadlock:
+  1. `select email, approved_at, stopped_at, deleted_at from growth_contacts where id = $1 for update`.
+  2. `select … from growth_sends where id = $1 and lease_token = $2 for update` — none → `lease_lost` (this is also what a stop that committed after leasing produces, since `stopContact` cancels leased sends and clears the token).
+  3. If not (`approved_at` not null and `stopped_at` null and `deleted_at` null and `email` not null) → set the send `cancelled`, clear the lease → `cancelled_not_authorised`.
+  4. Build the unsubscribe URL with an `unsubscribe` token minted with `keyring: env.tokenKeyring` and `issuedAt: send.created_at` (stable across retries, well inside the 5-year max age) and compose; call `mailer.send`.
+  5. `accepted` → send `status='submitted'`, `delivery_status='submitted'`, `provider_email_id`, clear the lease, `last_error_code=null`; activity `send.submitted` key `submitted:{sendId}`; if step < 3 insert step+1 `pending` with `due_at = businessMorningAfter(now, STEP_DELAY_BUSINESS_DAYS[step+1])`, key `sendIdempotencyKey(contactId, step+1)`, `on conflict (idempotency_key) do nothing` → `sent`.
+  6. `rejected` → `status='failed'`, `last_error_code=code` → `rejected`.
+  7. `retryable` with code `http_429` → back to `pending` with the lease cleared and `attempts = attempts - 1` (a rate limit never consumes an attempt) → `retry_later`. Any other `retryable` → if `attempts >= MAX_ATTEMPTS`: `status='failed'`, `delivery_status='unknown'`, `last_error_code=code` → `failed_attempts`; else back to `pending` with the lease cleared and `last_error_code=code` → `retry_later` (the same idempotency key on retry makes a Resend-side duplicate impossible within Resend's 24-hour window).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -226,12 +231,15 @@ it("enrolls an approved contact once with step 1 due the next business morning",
 it("never enrolls a contact approved before the start time", ...)                 // Review Focus 5
 it("never enrolls a stopped or deleted contact", ...)
 it("leases each due send once even when two ticks lease concurrently", ...)      // Review Focus 2: Promise.all of two leaseDueSends → disjoint sets
-it("reclaims an expired lease and stops after MAX_ATTEMPTS", ...)
+it("reclaims an expired lease and marks an exhausted expired lease failed", ...)
+it("a 429 returns the send to pending without consuming an attempt", ...)
+it("never re-enrolls a contact who was stopped and reapproved", ...)
 it("sends step 1, records the provider id, and schedules step 2 three business days later", ...)
 it("schedules step 3 five business days after step 2 and nothing after step 3", ...)
 it("cancels instead of sending when the contact was stopped after leasing", ...)
-it("a stop that races a send leaves no pending next step", ...)                  // Review Focus 1: start authoriseAndSend with a mailer that waits on a promise, issue stopContact concurrently, release; assert stop applied after, next step cancelled, at most one mailer call
-it("a retryable failure returns the send to pending with the same idempotency key", ...) // Review Focus 3: second attempt's email.idempotencyKey equals the first's; next step inserted once
+it("a stop that races a send leaves no pending next step and never deadlocks", ...) // Review Focus 1: start authoriseAndSend with a mailer that waits on a promise, issue stopContact concurrently, release; assert neither rejects (no 40P01), the stop applied, the next step cancelled, at most one mailer call
+it("a stop that commits between leasing and sending yields lease_lost and no mail", ...)
+it("a retryable failure retries with the same idempotency key and a byte-identical email", ...) // Review Focus 3: second attempt's OutgoingEmail deep-equals the first's; next step inserted once
 it("a rejected send fails permanently and schedules nothing", ...)
 it("never puts an address in last_error_code", ...)
 ```
@@ -247,6 +255,7 @@ it("never puts an address in last_error_code", ...)
 - Create: `apps/web/app/lib/growth/routes/founder-stop.ts`
 - Create: `apps/web/app/api/growth/founder-stop/route.ts`
 - Modify: `apps/web/app/lib/growth/unsubscribe-page.ts` (renderers take the form `action` path and the button label, so both routes share them; the unsubscribe route passes its current values)
+- Modify: `apps/web/app/lib/growth/webhooks.ts` (an event whose `kind` tag is `digest` returns `ignored_type` before any contact lookup, so a bounce of the founder's own digest can never stop the founder's contact record) and its tests
 - Test: `apps/web/app/lib/growth/digest.test.ts`, `apps/web/app/lib/growth/digest.integration.test.ts` (gated), `apps/web/app/lib/growth/routes/founder-stop.test.ts`, extend `unsubscribe-page.test.ts`
 
 **Interfaces:**
@@ -258,7 +267,7 @@ it("never puts an address in last_error_code", ...)
   export function readDigestData(executor: SqlExecutor, input: { now: Date; since: Date }): Promise<DigestData>
   export function renderDigestText(data: DigestData, stopUrlFor: (contactId: string) => string): string   // plain text: counts, one line per new contact, one line per in-flight contact with its next step, due time in Pacific, and its stop URL
   export function sendDailyDigest(executor: SqlExecutor, input: { env: SequenceEnv; mailer: Mailer; now: Date }): Promise<"sent" | "nothing_to_report" | "already_sent" | "outside_window" | "failed">
-  // only inside isSendWindow; claims the day by inserting activity 'digest.sent' event_key `digest:{date}` (on conflict do nothing → already_sent) in the same transaction that sends; since = the previous digest activity's occurred_at or now - 24h; nothing to report → no send and no claim
+  // stop tokens minted with issuedAt = the digest date at 07:00 Pacific, so a retry is byte-identical; only inside isSendWindow; claims the day by inserting activity 'digest.sent' event_key `digest:{date}` (on conflict do nothing → already_sent) in the same transaction that sends; since = the previous digest activity's occurred_at or now - 24h; nothing to report → no send and no claim
   // routes/founder-stop.ts — same shape as routes/unsubscribe.ts
   export function handleFounderStopGet(request: Request, deps: FounderStopRouteDeps): Promise<Response>
   export function handleFounderStopPost(request: Request, deps: FounderStopRouteDeps): Promise<Response>
@@ -269,6 +278,7 @@ it("never puts an address in last_error_code", ...)
 
 `digest.test.ts`: `renderDigestText` lists counts, each new contact, each in-flight contact with step and a Pacific due time, and a stop URL per in-flight contact; empty sections say `none`.
 `digest.integration.test.ts`: sends once per Pacific date (second call `already_sent`); `nothing_to_report` sends and claims nothing; `outside_window` outside hour 7; `since` advances to the previous digest.
+`webhooks.test.ts` / gated: a `kind=digest` bounce, complaint, or suppression returns `ignored_type` and stops nothing even when `to` matches a contact.
 `founder-stop.test.ts`: mirrors the unsubscribe route tests for the founder-stop purpose; an `unsubscribe` token is rejected here and a `founder_stop` token is rejected by the unsubscribe route; all three privacy headers asserted.
 
 - [ ] **Step 2: Run red** — [ ] **Step 3: Implement** — [ ] **Step 4: Green (unit + gated), typecheck, lint, build; commit** `feat(growth): daily founder digest with one-click founder stop links`
@@ -291,7 +301,7 @@ it("never puts an address in last_error_code", ...)
   export interface TickReport { readonly enrolled: number; readonly leased: number; readonly outcomes: Readonly<Partial<Record<SendOutcome, number>>>; readonly digest: string; readonly windowOpen: boolean }
   export function handleTick(request: Request, deps: TickDeps): Promise<Response>
   ```
-  Behaviour: missing or wrong `Authorization: Bearer {CRON_SECRET}` → 401 (also when `CRON_SECRET` is unset); compare in constant time. Then: enroll when `sequenceEnabled`; when `deliveryEnabled` and `isSendWindow(now)`: lease up to `SEND_BATCH` and run `authoriseAndSend` sequentially, stopping (leaving remaining leases to expire) once `elapsedMs() > 45_000`; when `deliveryEnabled`, call `sendDailyDigest`. Respond 200 with the `TickReport` (counts only, no ids or addresses). An exception → 500 `{ error: "tick_failed" }`, message to stderr.
+  Behaviour: missing or wrong `Authorization: Bearer {CRON_SECRET}` → 401 (also when `CRON_SECRET` is unset); compare in constant time. Then: enroll when `sequenceEnabled`; when `deliveryEnabled` and `isSendWindow(now)`: repeatedly lease up to `SEND_BATCH` and run `authoriseAndSend` sequentially, waiting `SEND_PACING_MS` between sends, until nothing is due or `elapsedMs() > 40_000` before starting the next send (remaining leases expire and are reclaimed); when `deliveryEnabled`, call `sendDailyDigest`. Respond 200 with the `TickReport` (counts only, no ids or addresses). An exception → 500 `{ error: "tick_failed" }`, message to stderr.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -300,7 +310,8 @@ it("rejects a missing, wrong, or unconfigured cron secret with 401", ...)
 it("enrolls only when the sequence switch is on", ...)
 it("leases and sends nothing when delivery is off", ...)                      // spec: GROWTH_DELIVERY_ENABLED=false leases nothing
 it("sends only inside the Pacific window", ...)
-it("stops starting sends after 45 seconds", ...)                              // elapsedMs stub crosses 45_000 after the first send
+it("keeps leasing batches until nothing is due", ...)
+it("stops starting sends after 40 seconds", ...)                              // elapsedMs stub crosses 40_000 after the first send
 it("reports counts and never addresses", ...)
 ```
 plus the `vercel.json` cron assertion.
@@ -316,6 +327,7 @@ plus the `vercel.json` cron assertion.
 - Test: `apps/web/app/lib/growth/control.test.ts`
 
 **Interfaces:**
+- `status` prints `not re-enrolled (once per contact)` for a reapproved contact that already has sends.
 - `runControl` `approve` refuses a contact whose `stop_reason` is `complaint` or `hard_bounce` unless `force: true` (`--force`), with message `refusing to reapprove a contact stopped for <reason>; pass --force to override`.
 - `status` gains a sequence line per step: `step N: <status> <delivery_status> due <ISO>` (or `not enrolled`).
 - `runReport` gains `sends`: counts by step × status and by delivery status, plus the date of the last digest.
