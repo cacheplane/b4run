@@ -564,7 +564,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
     })
   }, 120_000)
 
-  it("a retryable failure retries with the same idempotency key and a byte-identical email", async () => {
+  it("a retryable failure retries with the same idempotency key and the same email body", async () => {
     await withMigratedDatabase(async (executor) => {
       const contactId = await enrolledContact(executor)
       const mailer = recordingMailer([{ kind: "retryable", code: "timeout" }, ACCEPTED])
