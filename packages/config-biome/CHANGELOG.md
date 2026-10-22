@@ -1,4 +1,6 @@
-# @dawn-ai/config-biome
+# @b4run/config-biome
+
+## 0.15.0
 
 ## 0.14.0
 

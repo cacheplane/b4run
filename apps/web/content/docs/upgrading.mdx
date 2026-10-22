@@ -12,7 +12,7 @@ The two Helm charts (`b4-sandbox-infra`, `b4-app`) track the same version throug
 
 Each release is built from the changeset entries merged since the previous one. A changeset is a short Markdown file that says what changed and why. You can read them in two places:
 
-- **GitHub Releases:** [github.com/cacheplane/b4run/releases](https://github.com/cacheplane/b4run/releases) lists every published version with its changeset entries rolled up into release notes. It's the fastest way to scan what changed between two versions.
+- **GitHub Releases:** [github.com/cacheplane/b4run/releases](https://github.com/cacheplane/b4run/releases) lists every published version with its candidate commit, package artifacts, and verification evidence. Read the per-package changelogs for the changeset entries.
 - **Per-package `CHANGELOG.md`:** each package under `packages/*/CHANGELOG.md` has its own changelog, generated from the same entries but scoped to that package.
 
 <Callout type="info" title="Read the entries between your current and target version">
@@ -54,9 +54,37 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### Refresh application dependencies
+
+The 0.15.0 repository production audit has no critical or high findings. Refresh and audit your application lockfile separately; a framework update alone does not replace it. The Hono updates cover CLI test dependencies.
+
+### Client response schemas use `forwardedProps.responseSchema`
+
+Landed in **0.15.0**. Action required if your client sends `hashbrown.responseSchema`.
+
+Move the schema to AG-UI's `forwardedProps.responseSchema`. The old `hashbrown` body key is no longer read, so leaving it in place produces an unconstrained reply. `B4HttpAgent` now accepts `responseSchema` in its constructor and forwards it on every run. The provider-facing schema name is `b4_response`.
+
+Allow the key for the route in your server config:
+
+```ts
+server: {
+  agui: {
+    clientForwardedProps: { "/chat": ["responseSchema"] },
+  },
+}
+```
+
+The object form accepts `true` or an array of allowed keys for each route (or `"*"` for all routes). The existing array form still permits any key on its listed routes. An unaccepted key returns `422 forwarded_props_not_allowed`; malformed settings fail at startup. See [AG-UI](/docs/ag-ui#inbound-input).
+
+### Development-time CLI usage reporting
+
+Landed in **0.15.0**. No API migration is required. The CLI displays a one-time notice before reporting anonymous usage signals for `dev`, `build`, `add`, `check`, `typegen`, `verify`, and `eval`.
+
+Set `B4_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in your shell before running the CLI to disable reporting, the notice, and the usage-id file. A project `.env` also disables sends, but loads after the first-run notice and id-file setup. CI is silent automatically; `b4 start`, runtime packages, and `create-b4-app` never report. See [Privacy](/privacy).
+
 ### `b4.step` is a versioned contract
 
-Landed in **0.14.1**. Action required only if you switch exhaustively over `StepStatus` from `@b4run/ag-ui/view`. Everything you already send and read keeps working.
+Landed in **0.15.0**. Action required only if you switch exhaustively over `StepStatus` from `@b4run/ag-ui/view`. Everything you already send and read keeps working.
 
 A tool call's step now has a versioned contract, `B4ToolStep` from `@b4run/sdk` (`v: 1`, camelCase), with `readToolStep`, `mergeToolStep`, JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`, and a fixture corpus in `@b4run/sdk/testing`. `PersistedStep`, `readPersistedStep`, `B4StepEventValue`, `B4StepStatus`, `B4_STEP_STATUSES` and `readStepEvent` stay exported and are deprecated; the old shapes still read, and the runtime still emits and persists them until its emitters move to v1. These behaviors changed:
 

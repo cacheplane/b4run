@@ -99,6 +99,31 @@ Treat these lanes as distinct: package tests prove package behavior, harness lan
 - **Final-owner reachability defines the script hash set.** `scripts/release/test/fixtures/release-script-hashes.json` must contain exactly the repository files reachable from the final release-owner workflows. The suite derives the entrypoints from literal `scripts/...` paths in workflow `run:` bodies and action `with:` inputs, plus one-level `pnpm` package-script expansion, then closes that set transitively over each entrypoint's repository-local module loads: static `import`/`export ... from`, dynamic `import()` with a literal specifier, and `new URL("./sibling.mjs", import.meta.url)` — the form `scripts/release/cli.mjs` hands to its injected loader for most of its sibling graph. Bare and `node:` specifiers are skipped as non-repository files. A specifier that cannot be resolved statically, or a repository-relative one that does not resolve to a regular file, fails closed rather than being dropped from the set; the audited exceptions are listed in `REVIEWED_DYNAMIC_IMPORT_SEAMS`. Files a pinned module reads off disk rather than importing — `scripts/release/controller-schema.json`, which selects the npm trusted-publisher and abandonment environments, and `scripts/release/recovery/policy.json`, which defines recovery admission and verification — are declared in `RELEASE_DATA_FILES` and must still be named by a module in the closure, so a data pin cannot outlive its reader. An unpinned reachable file, stale pin, or command that cannot be followed fails closed. Editing a reachable file also fails until its SHA256 is updated in the same commit, so both the command-line and content changes receive release-integrity review.
 - **In-repo scripts generally are not pinned.** Everything else under `scripts/` — including `check-docs.mjs`, `check-changesets.mjs`, and `prime-kind-cache.sh`, which run in CI rather than in the release — is covered by branch protection and review, not by a content hash.
 
+### Cutting a pre-1.0 minor release
+
+Use an owned `blove/` release branch from current main. Run `pnpm run version`
+to consume the pending patch changesets and synchronize the charts, then retarget
+only the lines added by that command to the requested minor version. A blind
+replacement can corrupt historical changelog sections. A `minor` changeset can
+escalate this fixed group to 1.0.0 through its exact peer dependencies.
+
+Check all 21 publishable package versions, both chart `appVersion` fields, every
+consumed changeset's generated note, and the TypeScript tooling pack smoke on the
+unpublished release version. Keep upgrade docs aligned with the actual release.
+If discarding generated metadata, start again from fresh main and reapply only
+authored note corrections. Reverting generation re-adds changeset files and can
+make the revert appear as their introducing commit in generated notes.
+Never hand-edit `changeset-release/main`: the bot force-pushes it on main updates.
+Close its stale version PR after the owned release PR merges.
+
+The release workflow owns tags, npm publication, five smoke receipts, independent
+audit, and immutable GitHub publication. Avoid overlapping reconciliation
+dispatches and do not rerun failed publisher attempts with `gh run rerun`.
+For an npm-complete verifier failure, use the reviewed-main handoff described in
+[the postpublication runbook](docs/superpowers/runbooks/2026-09-12-postpublication-handoff.md).
+The [0.15.0 release record](docs/superpowers/runbooks/2026-10-22-release-0-15.md)
+contains the preparation checklist and the current release's evidence.
+
 ### Kubernetes compatibility
 
 For ordinary local compatibility verification against the cluster already
