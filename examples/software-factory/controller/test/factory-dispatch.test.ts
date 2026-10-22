@@ -189,12 +189,34 @@ describe("create and dispatch", () => {
       "thread_created:",
       "transition:dispatch_committed",
       "transition:run_started",
+      // One line per model call the stream reported, in the order the builder made them.
+      "model_usage:",
+      "model_usage:",
       "transition:turn_ended_with_workspace",
       "candidate_assembled:",
       "receipt_issued:",
       "bundle_frozen:",
       "transition:receipt_passed",
     ])
+    const usage = factory.events(created.id).filter((e) => e.type === "model_usage")
+    expect(usage[0]?.payload).toEqual({
+      phase: "build",
+      provider: "openai",
+      model: "gpt-5-mini",
+      inputTokens: 1200,
+      outputTokens: 80,
+      cachedInputTokens: 1000,
+      reasoningTokens: 30,
+      totalTokens: 1280,
+    })
+    // Details the provider left out read as zero, and a missing total is the sum.
+    expect(usage[1]?.payload).toMatchObject({
+      inputTokens: 2500,
+      outputTokens: 400,
+      cachedInputTokens: 0,
+      reasoningTokens: 0,
+      totalTokens: 2900,
+    })
     expect(reader.reads).toEqual([dispatched.workerThreadId])
     expect(fake.requests.at(-1)?.body).toMatchObject({
       route: "/build#agent",

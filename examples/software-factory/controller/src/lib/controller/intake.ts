@@ -9,7 +9,7 @@ import { proveOracle } from "../intake/oracle.js"
 import { intakePrompt } from "../prompts.js"
 import { relativePath } from "../targets/catalog.js"
 import { loadPolicy } from "../verification/policy.js"
-import { classifyDone, type StreamFrame } from "../worker/wire.js"
+import { classifyDone, modelUsagePayload, type StreamFrame } from "../worker/wire.js"
 import { WorkspaceRootMissingError, workspaceReadFailure } from "../worker/workspace-reader.js"
 import type { ControllerContext } from "./context.js"
 import { bindingMoved, prepareWorkOrderImage } from "./images.js"
@@ -200,6 +200,9 @@ export async function observeIntakeTurn(
     // `consumeTurn` calls this at most once per stream.
     onFirstFrame: async () => {
       ctx.recordEvent(id, "intake_run_started", { ...(reattached ? { reattached: true } : {}) })
+    },
+    onUsage: async (frame) => {
+      ctx.recordEvent(id, "model_usage", { phase: "intake", ...modelUsagePayload(frame) })
     },
     onInterrupt: async (frame) => {
       if (!isIntake(ctx.mustGet(id).state)) return
