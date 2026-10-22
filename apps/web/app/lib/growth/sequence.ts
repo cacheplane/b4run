@@ -131,6 +131,24 @@ export async function leaseDueSends(
     }))
 }
 
+/**
+ * Returns leased sends this tick never started to `pending` and gives back the attempt the
+ * lease took. Only rows still held under `leaseToken` change, so a send another tick has
+ * reclaimed is never touched. A row left with no attempts also loses its first-attempt time,
+ * which keeps the idempotency-window guard tied to real attempts.
+ */
+export async function releaseLeases(
+  executor: SqlExecutor,
+  input: { leaseToken: string; ids: readonly string[] },
+): Promise<{ released: number }> {
+  if (input.ids.length === 0) return { released: 0 }
+  const result = await executor.query(
+    "update growth_sends set status = 'pending', lease_until = null, lease_token = null, attempts = attempts - 1, first_attempted_at = case when attempts - 1 = 0 then null else first_attempted_at end where id = any($1::uuid[]) and status = 'leased' and lease_token = $2",
+    [[...input.ids], input.leaseToken],
+  )
+  return { released: result.rowCount }
+}
+
 const CLEAR_LEASE = "lease_until = null, lease_token = null"
 
 const retryAt = (now: Date, seconds: number) => new Date(now.getTime() + seconds * 1000)

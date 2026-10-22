@@ -19,6 +19,7 @@ import {
   MAX_ATTEMPTS,
   RATE_LIMIT_DELAY_SECONDS,
   RETRY_DELAY_SECONDS,
+  releaseLeases,
   sendIdempotencyKey,
 } from "./sequence"
 import type { SequenceEnv } from "./sequence-env"
@@ -325,6 +326,70 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
         lease_token: null,
         lease_until: null,
       })
+    })
+  }, 120_000)
+
+  it("releases unstarted leases back to pending and gives back the attempt", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const a = await enrolledContact(executor, "ra@example.com")
+      const b = await enrolledContact(executor, "rb@example.com")
+      const c = await enrolledContact(executor, "rc@example.com")
+      const leaseToken = crypto.randomUUID()
+      const held = await lease(executor, SEND1_NOW, 10, leaseToken)
+      expect(held).toHaveLength(3)
+      const byContact = new Map(held.map((send) => [send.contactId, send.id]))
+
+      // Another token never releases this tick's rows.
+      expect(
+        await releaseLeases(executor, {
+          leaseToken: crypto.randomUUID(),
+          ids: [byContact.get(a) as string],
+        }),
+      ).toEqual({ released: 0 })
+
+      expect(
+        await releaseLeases(executor, {
+          leaseToken,
+          ids: [byContact.get(a) as string, byContact.get(b) as string],
+        }),
+      ).toEqual({ released: 2 })
+      for (const contactId of [a, b]) {
+        const [row] = await sendsFor(executor, contactId)
+        expect(row).toMatchObject({
+          status: "pending",
+          attempts: 0,
+          lease_token: null,
+          lease_until: null,
+          first_attempted_at: null,
+          due_at: STEP1_DUE,
+        })
+      }
+      const [untouched] = await sendsFor(executor, c)
+      expect(untouched).toMatchObject({ status: "leased", attempts: 1, lease_token: leaseToken })
+
+      // Released rows are due again on the next lease.
+      const again = await lease(executor, SEND1_NOW)
+      expect(again.map((send) => send.contactId).sort()).toEqual([a, b].sort())
+      expect(again.every((send) => send.attempts === 1)).toBe(true)
+    })
+  }, 120_000)
+
+  it("keeps the first attempt time when a released send was attempted before", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const contactId = await enrolledContact(executor)
+      const first = await leaseOne(executor, SEND1_NOW)
+      const expired = after(SEND1_NOW, LEASE_SECONDS)
+      const second = await leaseOne(executor, expired)
+      expect(second.attempts).toBe(2)
+      // The first tick's token no longer holds the row another tick reclaimed.
+      expect(
+        await releaseLeases(executor, { leaseToken: first.leaseToken, ids: [first.id] }),
+      ).toEqual({ released: 0 })
+      expect(
+        await releaseLeases(executor, { leaseToken: second.leaseToken, ids: [second.id] }),
+      ).toEqual({ released: 1 })
+      const [row] = await sendsFor(executor, contactId)
+      expect(row).toMatchObject({ status: "pending", attempts: 1, first_attempted_at: SEND1_NOW })
     })
   }, 120_000)
 

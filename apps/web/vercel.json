@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter='./packages/*' --filter='!@b4run/inspector' --filter=@b4run/web",
-  "ignoreCommand": "bash scripts/vercel-ignore-build.sh"
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
+  "crons": [
+    {
+      "path": "/api/growth/tick",
+      "schedule": "*/30 * * * *"
+    }
+  ]
 }
