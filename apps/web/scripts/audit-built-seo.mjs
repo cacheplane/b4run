@@ -10,8 +10,6 @@ const scriptFile = realpathSync(fileURLToPath(import.meta.url))
 const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
-const currentInventoryDate = "2026-08-26"
-const currentInventoryCount = 95
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
@@ -320,14 +318,23 @@ function sourceDocsInventory() {
   const records = journey.flatMap((record) =>
     record.path === "/docs/api" ? [record, ...api] : [record],
   )
-  if (records.length !== 82)
-    throw new Error(`Expected 82 ALL_DOCS_PAGES source entries; found ${records.length}`)
   if (new Set(records.map((record) => record.path)).size !== records.length) {
     throw new Error("Duplicate docs path in independent source inventory")
   }
   for (const record of records) {
     record.sourcePath = docsSourcePath(record.path)
     readFileSync(record.sourcePath, "utf8")
+  }
+  // The authored MDX tree is a second, independent inventory: a nav entry the
+  // extraction patterns above fail to match leaves its page file unclaimed.
+  const contentDirectory = join(appRoot, "content", "docs")
+  const claimed = new Set(records.map((record) => record.sourcePath))
+  const unclaimed = readdirSync(contentDirectory, { recursive: true })
+    .filter((file) => file.endsWith(".mdx"))
+    .map((file) => join(contentDirectory, file))
+    .filter((file) => !claimed.has(file))
+  if (unclaimed.length > 0) {
+    throw new Error(`Docs pages missing from the source inventory: ${unclaimed.join(", ")}`)
   }
   return records
 }
@@ -388,11 +395,6 @@ function sourceInventory(asOf) {
     ...blog.tags.map((tag) => `/blog/tags/${tag}`),
   ]
   if (new Set(paths).size !== paths.length) throw new Error("Duplicate URL in source inventory")
-  if (asOf === currentInventoryDate && paths.length !== currentInventoryCount) {
-    throw new Error(
-      `Expected ${currentInventoryCount} source URLs as of ${currentInventoryDate}; found ${paths.length}`,
-    )
-  }
   return { ...blog, docs, paths }
 }
 
