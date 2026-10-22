@@ -611,7 +611,10 @@ describe("dependency security graph invariants", () => {
     const actual = listed
       .split(/\r?\n/)
       .map((line) =>
-        line.trim().replace(/^.*?test\/security-dependencies\//, "test/security-dependencies/"),
+        line
+          .trim()
+          .replaceAll("\\", "/")
+          .replace(/^.*?test\/security-dependencies\//, "test/security-dependencies/"),
       )
       .filter((line) => /test\/security-dependencies\/.*\.test\.tsx?$/.test(line))
       .sort()
@@ -619,16 +622,19 @@ describe("dependency security graph invariants", () => {
   })
 
   it("pins the dedicated config boundary, TSX include, and app-local browser mappings", async () => {
-    const vitestConfig = (await import("./vitest.config.ts")).default
-    const config = vitestConfig
+    const { default: config, securityTestIncludes } = await import("./vitest.config.ts")
     const testConfig = requireRecord(config.test, "vitest config test block")
     expect(config.root).toBe(repositoryRoot)
     expect(testConfig.environment).toBe("node")
     expect(testConfig.testTimeout).toBe(30_000)
     expect(testConfig.hookTimeout).toBe(30_000)
     expect(testConfig.include).toEqual([
-      resolve(testDirectory, "**/*.test.ts"),
-      resolve(testDirectory, "**/*.test.tsx"),
+      resolve(testDirectory, "**/*.test.ts").replaceAll("\\", "/"),
+      resolve(testDirectory, "**/*.test.tsx").replaceAll("\\", "/"),
+    ])
+    expect(securityTestIncludes(String.raw`D:\a\b4run\b4run\test\security-dependencies`)).toEqual([
+      "D:/a/b4run/b4run/test/security-dependencies/**/*.test.ts",
+      "D:/a/b4run/b4run/test/security-dependencies/**/*.test.tsx",
     ])
     expect(testConfig.env).toEqual({
       COPILOTKIT_TELEMETRY_DISABLED: "true",

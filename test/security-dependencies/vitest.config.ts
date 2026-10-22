@@ -5,6 +5,11 @@ import { defineConfig } from "vitest/config"
 
 const rootDir = dirname(fileURLToPath(import.meta.url))
 
+export function securityTestIncludes(directory: string): string[] {
+  const root = directory.replaceAll("\\", "/")
+  return [`${root}/**/*.test.ts`, `${root}/**/*.test.tsx`]
+}
+
 export default defineConfig({
   root: resolve(rootDir, "../.."),
   test: {
@@ -20,7 +25,7 @@ export default defineConfig({
     },
     fileParallelism: false,
     hookTimeout: 30_000,
-    include: [resolve(rootDir, "**/*.test.ts"), resolve(rootDir, "**/*.test.tsx")],
+    include: securityTestIncludes(rootDir),
     testTimeout: 30_000,
   },
 })
