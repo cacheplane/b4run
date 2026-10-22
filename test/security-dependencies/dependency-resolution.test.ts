@@ -459,6 +459,10 @@ function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
   const failures: string[] = []
   for (const [name, floors] of [
     ["hono", { 4: "4.13.11" }],
+    ["dompurify", { 3: "3.4.17" }],
+    ["proxy-addr", { 2: "2.0.8" }],
+    ["handlebars", { 4: "4.7.10" }],
+    ["tar", { 7: "7.5.22" }],
     ["@hono/node-server", { 1: "1.19.15", 2: "2.1.3" }],
   ] as const) {
     for (const version of packageVersions(workspace, name)) {
@@ -889,7 +893,7 @@ describe("dependency security graph invariants", () => {
     expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.1"]).toBe("4.3.1")
   })
 
-  it("contains no Hono, node-server, or UUID package below its patched floor", () => {
+  it("contains no tracked security dependency below its patched floor", () => {
     expect(patchedFloorFailures(readWorkspace())).toEqual([])
   })
 
