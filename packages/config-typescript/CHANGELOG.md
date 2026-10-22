@@ -1,4 +1,6 @@
-# @dawn-ai/config-typescript
+# @b4run/config-typescript
+
+## 0.15.0
 
 ## 0.14.0
 

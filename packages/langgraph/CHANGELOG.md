@@ -1,4 +1,12 @@
-# @dawn-ai/langgraph
+# @b4run/langgraph
+
+## 0.15.0
+
+### Patch Changes
+
+- Updated dependencies [6e1ab4a]
+- Updated dependencies [319eec9]
+  - @b4run/sdk@0.15.0
 
 ## 0.14.0
 

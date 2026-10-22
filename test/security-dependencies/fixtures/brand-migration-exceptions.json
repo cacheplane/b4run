@@ -1504,12 +1504,12 @@
     {
       "path": "packages/ag-ui/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "76aa3cca87b6766c40a490318416e29d1eed00913285241d1281eff252fc9eeb"
+      "sha256": "b3d83d5e6ecce8b52a0382dee116fb5dd6c2d418f9804ee4e2f664172886c82a"
     },
     {
       "path": "packages/cli/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "1283a548135952f665c9fd7ad191705fa9c4a978a1dfe961a91cf53c29faa77a"
+      "sha256": "dc3025fb75223f49bb1b02e539a880d4ff8d879759f1270994a191893a595836"
     },
     {
       "path": "packages/cli/test/b4-state-contract.test.ts",
@@ -1519,17 +1519,17 @@
     {
       "path": "packages/config-biome/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "0801bf622eb840038193ce0f4100d5e6110ce2831a22c46974e71b84278124b7"
+      "sha256": "2085022e16f7092d546ed2b8501d0863bffe7011a6b90a12f8662378ec0346aa"
     },
     {
       "path": "packages/config-typescript/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "4e24717560e4bf7a903fca96eaeeef67d8d5275c7543d20e43b033c1a21cf7a8"
+      "sha256": "321fe579d4991bee90ad4a2df91a4965300a8b73d11ee7bbc77dc08caf6aa1a5"
     },
     {
       "path": "packages/core/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "a4f949157ed1202bb96c1d5e4efb55aaeecef9daa5626967a429737a5c5dc01b"
+      "sha256": "634b47b75797badab304b93426fbc6bdeca1dcb3fe7677e373ccc0a4f97ddac5"
     },
     {
       "path": "packages/core/test/b4-config-contract.test.ts",
@@ -1539,12 +1539,12 @@
     {
       "path": "packages/create-b4-app/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "e058b513be2180df57ecac290341dd5788cf475d2a66131145d4ff522fcd05f7"
+      "sha256": "99b3b0c2acd30136c00b2af78e2ef2a879247aa234ca6c5178565c2fabf780b8"
     },
     {
       "path": "packages/devkit/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "b39509337197f22b4283e78c406f748cad9f4b76b18bc9211a516f494f3ec0e7"
+      "sha256": "02406e78d2f128b63253f3f1aa0e0ce1a081857d7c330f9b1ffd5558575a3c95"
     },
     {
       "path": "packages/devkit/templates/app-navlog/web/data/waypoints.json",
@@ -1554,72 +1554,72 @@
     {
       "path": "packages/evals/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "772d89ef503e6541233ca56a2481d51d875b39b4321f1cadbbcaae9e9f462932"
+      "sha256": "db4cd330c211aa7742ab2e9c3a399c8bda02f215c88c16ac0ccf68a66079dc94"
     },
     {
       "path": "packages/inspector/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "6e30f2cd4076f880c5f85edfe48299c3c25b76051d8370d1466ef5f3dc09e1d2"
+      "sha256": "6605b1aec6a9727d07472ed311549d4f224dcd5bd65a8e5ab34c31082048283c"
     },
     {
       "path": "packages/langchain/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "46ac395fee48e403b3be1ea26ed98485ccb0654f54b47b494975ee7747252f88"
+      "sha256": "c5f4d57852a8b2113159b2bce8fa055bd43057dc5e915e6f8f055514d99bdd95"
     },
     {
       "path": "packages/langgraph/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "4477cbb8f446b244281c8de535de65977e993936098b4ef47189c7d381841ca3"
+      "sha256": "ae1d2495f32dd28fa65f9d6a42ec6c55183d85179187ca8423c1e5f5edd76784"
     },
     {
       "path": "packages/memory-pgvector/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "b15d5dd64cf1fb201c7ed64f84cad85c55bf2cebc4edd43bc43f8b33f5f0bcf5"
+      "sha256": "bd7a10fb41ef49bd79f647ea7d44d5c404b18909d3c834e85cd8c41c852e72a8"
     },
     {
       "path": "packages/memory/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "d32b7e70c59b1bc0b084307e919a69e269c6810e624706a11fd41daf64276e11"
+      "sha256": "06a0873a8e63fdc4a023677d5e224f507dcd4629c7d8c3a90d8c77568fbf72a4"
     },
     {
       "path": "packages/permissions/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "923306a8f512a7a3e833d22866950ef0a45903d34854be23db55a2ed5c8bcc0d"
+      "sha256": "c37e76cbaeeb494d2187d577f8956ea35401d92dc406ca487ae95dd311a21c5e"
     },
     {
       "path": "packages/postgres-storage/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "eb9f387da07623cb4171c12e0c52c7c53c88c70ba7a76058e727714d287444ce"
+      "sha256": "527a1980525a8215d02f61063713beb5e6045de211026fb8a826f83ff11b8273"
     },
     {
       "path": "packages/sandbox/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "ef69e6c0092ecbabe367014635173318aa4ca8d3258c13d24ec5c15095e54783"
+      "sha256": "a9d353d14f5e3a9ee377880213cf78ee9f27ce084f7fcc86f1f3a0f7eb721a65"
     },
     {
       "path": "packages/sdk/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "831cc9746ab5a2c86ad462e7bca24a4f6596d582e689ac3e74d5b61284c8037e"
+      "sha256": "e3928516a23a7a07e3313a53b3b2a752988b3bb834179c52245f593e2599d787"
     },
     {
       "path": "packages/sqlite-storage/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "1cc99320c1e8e211cdef54de3836e538fe67fe4a2b932c238ae3475088359b92"
+      "sha256": "faa5a44b660c72879c1f9640d6132ebdb641092fc8887913a749d25d8a73540a"
     },
     {
       "path": "packages/testing/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "63298a50aca1068f5b8d6f494af8a0eccac4261dadf9293ec955c6b6f9c83fe3"
+      "sha256": "6f638568591db8292150ea1a3e7dfe3db881423f20aa31dc1dfb4a696891524b"
     },
     {
       "path": "packages/vite-plugin/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "a33ed919243f964dcba73c01118cf11e0e2d4d3f2ab4e8341c6217f6e6620742"
+      "sha256": "80bc0fdbc72eab4ef5d10680b292bc4d9778308feb15a5344b7c315e55e2e7d6"
     },
     {
       "path": "packages/workspace/CHANGELOG.md",
       "reason": "historical-changelog",
-      "sha256": "6c8e4212b37e0773e1bcd7b81d2cad8de54bd5f37e6a4db6cdd12fb8026d4dcf"
+      "sha256": "57503726bebd7e8e46e701897693adb740e1b3e07700d2a575216411e409c99c"
     },
     {
       "path": "scripts/check-docs.mjs",
