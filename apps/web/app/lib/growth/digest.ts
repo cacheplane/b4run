@@ -177,8 +177,17 @@ export async function sendDailyDigest(
       )
       if (claim.rowCount === 0) return "already_sent"
       const result = await mailer.send(email)
-      if (result.kind !== "accepted") throw new DigestNotAccepted(safeErrorCode(result.code))
-      return "sent"
+      if (result.kind === "accepted") return "sent"
+      // Resend holds a different body under this key only if an earlier attempt was
+      // accepted, so the founder already has today's digest.
+      if (result.kind === "rejected" && result.code === "idempotency_mismatch") {
+        await tx.query(
+          "update growth_activity set data = data || '{\"reconciled\": true}'::jsonb where event_key = $1",
+          [eventKey],
+        )
+        return "sent"
+      }
+      throw new DigestNotAccepted(safeErrorCode(result.code))
     })
   } catch (error) {
     if (!(error instanceof DigestNotAccepted)) throw error

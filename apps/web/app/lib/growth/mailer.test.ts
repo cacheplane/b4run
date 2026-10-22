@@ -71,7 +71,7 @@ describe("composeDigestEmail", () => {
     expect("bcc" in out).toBe(false)
     expect(out.headers["List-Unsubscribe"]).toBeUndefined()
     expect(out.tags).toContainEqual({ name: "kind", value: "digest" })
-    expect(out.idempotencyKey).toBe("digest:2026-10-22")
+    expect(out.idempotencyKey).toBe("digest:production:2026-10-22")
     expect(out.text).toBe("digest")
   })
 })

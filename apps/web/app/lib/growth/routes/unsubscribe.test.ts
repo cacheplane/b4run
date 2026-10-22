@@ -234,4 +234,30 @@ describe("unsubscribe route", () => {
     expect(text).toContain("This link is not valid.")
     expect(text).not.toContain("secret-host")
   })
+
+  it("POST logs only a safe error code, never the error message", async () => {
+    const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const logged = async (error: Error) => {
+      stop.mockRejectedValue(error)
+      write.mockClear()
+      const res = await handleUnsubscribePost(
+        new Request(`${URL_BASE}?token=${token()}`, { method: "POST" }),
+        deps(),
+      )
+      expect(res.status).toBe(503)
+      return write.mock.calls.map((call) => String(call[0])).join("")
+    }
+    try {
+      const plain = await logged(new Error("connection refused secret-host ada@example.com"))
+      expect(plain).toBe("unsubscribe failed: unclassified\n")
+      const coded = await logged(
+        Object.assign(new Error("terminating connection secret-host"), { code: "57P01" }),
+      )
+      expect(coded).toBe("unsubscribe failed: 57p01\n")
+      const odd = await logged(Object.assign(new Error("x"), { code: "ada@example.com" }))
+      expect(odd).toBe("unsubscribe failed: unclassified\n")
+    } finally {
+      write.mockRestore()
+    }
+  })
 })

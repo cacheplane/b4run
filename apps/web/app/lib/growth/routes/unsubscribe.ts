@@ -11,6 +11,7 @@ import {
 } from "../unsubscribe-page"
 import {
   declaresOversizeBody,
+  errorLogCode,
   getSharedExecutor,
   privateHtml,
   queryToken,
@@ -73,9 +74,7 @@ export async function handleUnsubscribePost(
     // Already-stopped contacts get the same answer.
     return privateHtml(200, renderDonePage(UNSUBSCRIBE_DONE))
   } catch (error) {
-    process.stderr.write(
-      `unsubscribe failed: ${error instanceof Error ? error.message : "unknown error"}\n`,
-    )
+    process.stderr.write(`unsubscribe failed: ${errorLogCode(error)}\n`)
     return privateHtml(503, renderFailurePage())
   }
 }

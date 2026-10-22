@@ -11,6 +11,7 @@ import {
 } from "../unsubscribe-page"
 import {
   declaresOversizeBody,
+  errorLogCode,
   getSharedExecutor,
   privateHtml,
   queryToken,
@@ -73,9 +74,7 @@ export async function handleFounderStopPost(
     // Already-stopped contacts get the same answer.
     return privateHtml(200, renderDonePage(FOUNDER_STOP_DONE))
   } catch (error) {
-    process.stderr.write(
-      `founder stop failed: ${error instanceof Error ? error.message : "unknown error"}\n`,
-    )
+    process.stderr.write(`founder stop failed: ${errorLogCode(error)}\n`)
     return privateHtml(503, renderFailurePage())
   }
 }

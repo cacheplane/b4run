@@ -78,7 +78,8 @@ export function composeDigestEmail(input: {
       { name: "environment", value: input.environment },
       { name: "kind", value: "digest" },
     ],
-    idempotencyKey: `digest:${input.date}`,
+    // Per environment, so a preview and production sharing one Resend account never collide.
+    idempotencyKey: `digest:${input.environment}:${input.date}`,
   }
 }
 

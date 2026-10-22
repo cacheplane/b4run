@@ -90,7 +90,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder digest", () => {
       const email = mailer.calls[0] as OutgoingEmail
       expect(email.to).toBe("founder@example.com")
       expect(email.bcc).toBeUndefined()
-      expect(email.idempotencyKey).toBe("digest:2026-10-22")
+      expect(email.idempotencyKey).toBe("digest:test:2026-10-22")
       expect(email.text).toContain("ada@example.com")
       expect(email.text).toContain("step 1 due Thu 2026-10-22 07:00 PDT")
       const token = stopTokenIn(email.text)
@@ -186,11 +186,39 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder digest", () => {
 
       expect(await sendDailyDigest(executor, { env, mailer, now: FRIDAY })).toBe("sent")
       const friday = mailer.calls[1] as OutgoingEmail
-      expect(friday.idempotencyKey).toBe("digest:2026-10-23")
+      expect(friday.idempotencyKey).toBe("digest:test:2026-10-23")
       expect(friday.text).toContain("New contacts since the last digest: 1")
       expect(friday.text).toContain("- grace@example.com, approved")
       expect(friday.text).not.toContain("- ada@example.com, approved")
       expect(friday.text).toContain("- ada@example.com: step 1 due")
+    })
+  }, 120_000)
+
+  it("treats an idempotency mismatch as the earlier attempt delivered, and records the claim as reconciled", async () => {
+    await withMigratedDatabase(async (executor) => {
+      await approve(executor, "ada@example.com", APPROVED)
+      await enrollApprovedContacts(executor, { startAt: START_AT, now: APPROVED })
+      const mailer = recordingMailer([{ kind: "rejected", code: "idempotency_mismatch" }])
+
+      expect(await sendDailyDigest(executor, { env, mailer, now: THURSDAY })).toBe("sent")
+      const activity = await digestActivity(executor)
+      expect(activity).toHaveLength(1)
+      expect(activity[0]?.event_key).toBe("digest:2026-10-22")
+      expect(activity[0]?.data).toMatchObject({ reconciled: true })
+      expect(await sendDailyDigest(executor, { env, mailer, now: THURSDAY_LATER })).toBe(
+        "already_sent",
+      )
+      expect(mailer.calls).toHaveLength(1)
+    })
+  }, 120_000)
+
+  it("still fails on any other rejection, leaving no claim", async () => {
+    await withMigratedDatabase(async (executor) => {
+      await approve(executor, "ada@example.com", APPROVED)
+      await enrollApprovedContacts(executor, { startAt: START_AT, now: APPROVED })
+      const mailer = recordingMailer([{ kind: "rejected", code: "http_422" }])
+      expect(await sendDailyDigest(executor, { env, mailer, now: THURSDAY })).toBe("failed")
+      expect(await digestActivity(executor)).toHaveLength(0)
     })
   }, 120_000)
 })
