@@ -73,6 +73,7 @@ function harness(
       elapsed = fn
     },
     deps: {
+      cronSecret: () => merged.cronSecret as string | undefined,
       loadEnv: () => merged as unknown as SequenceEnv,
       createExecutor: () => executor,
       createMailer: (apiKey) => {
@@ -152,6 +153,17 @@ describe("growth tick route", () => {
     expect(engine.enroll).not.toHaveBeenCalled()
     expect(engine.lease).not.toHaveBeenCalled()
     expect(engine.digest).not.toHaveBeenCalled()
+  })
+
+  it("rejects an unauthenticated call before reading the configuration", async () => {
+    const h = harness()
+    const loadEnv = vi.fn(() => {
+      throw new Error("GROWTH_SEQUENCE_START_AT is not set")
+    })
+    h.deps.loadEnv = loadEnv
+    expect((await handleTick(new Request(URL_BASE), h.deps)).status).toBe(401)
+    expect((await handleTick(authorised("wrong"), h.deps)).status).toBe(401)
+    expect(loadEnv).not.toHaveBeenCalled()
   })
 
   it("enrolls only when the sequence switch is on", async () => {
@@ -273,6 +285,22 @@ describe("growth tick route", () => {
       ids: ["b0-1", "b0-2", "b0-3"],
     })
     expect(await res.json()).toMatchObject({ leased: 4, outcomes: { sent: 1 } })
+  })
+
+  it("starts no send once the budget passes during the pacing wait", async () => {
+    queueBatches(3)
+    const h = harness()
+    h.setElapsed(() => (h.sleeps.length >= 1 ? 40_001 : 0))
+    const res = await handleTick(authorised(), h.deps)
+    expect(engine.send).toHaveBeenCalledTimes(1)
+    expect(h.sleeps).toEqual([SEND_PACING_MS])
+    const [firstLease] = engine.lease.mock.calls
+    const token = (firstLease?.[1] as { leaseToken: string } | undefined)?.leaseToken
+    expect(engine.release).toHaveBeenCalledWith(executor, {
+      leaseToken: token,
+      ids: ["b0-1", "b0-2"],
+    })
+    expect(await res.json()).toMatchObject({ leased: 3, outcomes: { sent: 1 } })
   })
 
   it("does not lease another batch once 40 seconds have passed", async () => {

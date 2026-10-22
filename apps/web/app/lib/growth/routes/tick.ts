@@ -19,6 +19,8 @@ import { errorLogCode, getSharedExecutor } from "./shared"
 export const TICK_SEND_BUDGET_MS = 40_000
 
 export interface TickDeps {
+  /** Read before anything else, so an unauthenticated call never parses the configuration. */
+  cronSecret(): string | undefined
   loadEnv(): SequenceEnv
   createExecutor(url: string): SqlExecutor
   createMailer(apiKey: string): Mailer
@@ -75,6 +77,8 @@ async function runSends(
     if (batch.length === 0) break
     leased += batch.length
     for (const [index, send] of batch.entries()) {
+      if (started > 0) await deps.sleep(SEND_PACING_MS)
+      // Checked after the pacing wait, so no send starts once the budget is spent.
       if (overBudget()) {
         // Hand the rest back now rather than leaving them until their leases expire.
         await releaseLeases(executor, {
@@ -83,7 +87,6 @@ async function runSends(
         })
         return { leased, outcomes }
       }
-      if (started > 0) await deps.sleep(SEND_PACING_MS)
       started += 1
       const outcome = await authoriseAndSend(executor, { send, env, mailer, now: deps.now() })
       outcomes[outcome] = (outcomes[outcome] ?? 0) + 1
@@ -98,8 +101,8 @@ async function runSends(
  */
 export async function handleTick(request: Request, deps: TickDeps): Promise<Response> {
   try {
+    if (!isAuthorised(request, deps.cronSecret())) return json(401, { error: "unauthorized" })
     const env = deps.loadEnv()
-    if (!isAuthorised(request, env.cronSecret)) return json(401, { error: "unauthorized" })
 
     const executor = deps.createExecutor(env.databaseUrl)
     const now = deps.now()
@@ -139,6 +142,7 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
 export function defaultTickDeps(): TickDeps {
   const startedAt = performance.now()
   return {
+    cronSecret: () => process.env.CRON_SECRET?.trim() || undefined,
     loadEnv: () => loadSequenceEnv(),
     createExecutor: getSharedExecutor,
     createMailer: (apiKey) => createResendMailer(apiKey),
