@@ -463,6 +463,16 @@ function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
     ["proxy-addr", { 2: "2.0.8" }],
     ["handlebars", { 4: "4.7.10" }],
     ["tar", { 7: "7.5.22" }],
+    ["fast-uri", { 3: "3.1.8" }],
+    ["js-yaml", { 3: "3.15.2", 4: "4.3.2" }],
+    ["undici", { 6: "6.28.1", 7: "7.29.1", 8: "8.10.2" }],
+    ["axios", { 1: "1.20.0" }],
+    ["@fastify/busboy", { 3: "3.2.2" }],
+    ["source-map-js", { 1: "1.2.2" }],
+    ["@graphql-tools/utils", { 10: "12.0.2", 11: "12.0.2", 12: "12.0.2" }],
+    ["@modelcontextprotocol/sdk", { 1: "1.32.0" }],
+    ["follow-redirects", { 1: "1.16.1" }],
+    ["toml", { 3: "5.0.1", 4: "5.0.1", 5: "5.0.1" }],
     ["@hono/node-server", { 1: "1.19.15", 2: "2.1.3" }],
   ] as const) {
     for (const version of packageVersions(workspace, name)) {
@@ -895,8 +905,8 @@ describe("dependency security graph invariants", () => {
       )
       .sort()
 
-    expect(remediatedSelectors).toEqual(["js-yaml@>=4 <4.3.1"])
-    expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.1"]).toBe("4.3.1")
+    expect(remediatedSelectors).toEqual(["js-yaml@>=4 <4.3.2"])
+    expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.2"]).toBe("4.3.2")
   })
 
   it("contains no tracked security dependency below its patched floor", () => {
