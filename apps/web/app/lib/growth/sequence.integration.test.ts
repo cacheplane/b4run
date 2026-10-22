@@ -12,10 +12,13 @@ import type { Mailer, OutgoingEmail, SendResult } from "./mailer"
 import {
   authoriseAndSend,
   enrollApprovedContacts,
+  IDEMPOTENCY_WINDOW_SECONDS,
   LEASE_SECONDS,
   type LeasedSend,
   leaseDueSends,
   MAX_ATTEMPTS,
+  RATE_LIMIT_DELAY_SECONDS,
+  RETRY_DELAY_SECONDS,
   sendIdempotencyKey,
 } from "./sequence"
 import type { SequenceEnv } from "./sequence-env"
@@ -107,15 +110,18 @@ interface SendRow extends Record<string, unknown> {
   delivery_status: string
   last_error_code: string | null
   idempotency_key: string
+  first_attempted_at: Date | null
 }
 
 async function sendsFor(executor: SqlExecutor, contactId: string) {
   const result = await executor.query<SendRow>(
-    "select id, step, status, due_at, attempts, lease_token, lease_until, provider_email_id, delivery_status, last_error_code, idempotency_key from growth_sends where contact_id = $1 order by step",
+    "select id, step, status, due_at, attempts, lease_token, lease_until, provider_email_id, delivery_status, last_error_code, idempotency_key, first_attempted_at from growth_sends where contact_id = $1 order by step",
     [contactId],
   )
   return result.rows
 }
+
+const after = (base: Date, seconds: number) => new Date(base.getTime() + seconds * 1000)
 
 const lease = (executor: SqlExecutor, now: Date, limit = 10, leaseToken = crypto.randomUUID()) =>
   leaseDueSends(executor, { now, limit, leaseToken })
@@ -326,8 +332,14 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
     await withMigratedDatabase(async (executor) => {
       const contactId = await enrolledContact(executor)
       const mailer = recordingMailer({ kind: "retryable", code: "http_429" })
+      let now = SEND1_NOW
       for (let round = 0; round < MAX_ATTEMPTS + 2; round++) {
-        expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("retry_later")
+        expect(await sendStep(executor, now, mailer)).toBe("retry_later")
+        const [row] = await sendsFor(executor, contactId)
+        expect(row?.due_at.toISOString()).toBe(after(now, RATE_LIMIT_DELAY_SECONDS).toISOString())
+        expect(await lease(executor, now)).toEqual([])
+        expect(await lease(executor, after(now, RATE_LIMIT_DELAY_SECONDS - 1))).toEqual([])
+        now = after(now, RATE_LIMIT_DELAY_SECONDS)
       }
       const [row] = await sendsFor(executor, contactId)
       expect(row).toMatchObject({
@@ -499,6 +511,13 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
         last_error_code: "timeout",
         lease_token: null,
       })
+      expect(afterFailure?.due_at.toISOString()).toBe(
+        after(SEND1_NOW, RETRY_DELAY_SECONDS).toISOString(),
+      )
+      expect(afterFailure?.first_attempted_at?.toISOString()).toBe(SEND1_NOW.toISOString())
+      // The same tick loop cannot burn the next attempt straight away.
+      expect(await lease(executor, SEND1_NOW)).toEqual([])
+      expect(await lease(executor, after(SEND1_NOW, RETRY_DELAY_SECONDS - 1))).toEqual([])
       // A later tick, with a different clock, retries the same send.
       expect(await sendStep(executor, new Date(SEND1_NOW.getTime() + 30 * 60_000), mailer)).toBe(
         "sent",
@@ -516,10 +535,12 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
     await withMigratedDatabase(async (executor) => {
       const contactId = await enrolledContact(executor)
       const mailer = recordingMailer({ kind: "retryable", code: "http_503" })
+      let now = SEND1_NOW
       for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
-        expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("retry_later")
+        expect(await sendStep(executor, now, mailer)).toBe("retry_later")
+        now = after(now, RETRY_DELAY_SECONDS)
       }
-      expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("failed_attempts")
+      expect(await sendStep(executor, now, mailer)).toBe("failed_attempts")
       const rows = await sendsFor(executor, contactId)
       expect(rows).toHaveLength(1)
       expect(rows[0]).toMatchObject({
@@ -530,6 +551,45 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
         lease_token: null,
       })
       expect(await lease(executor, SEND2_NOW)).toEqual([])
+    })
+  }, 120_000)
+
+  it("fails a retry once Resend's idempotency window may have closed, without mailing", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const contactId = await enrolledContact(executor)
+      const mailer = recordingMailer([{ kind: "retryable", code: "timeout" }, ACCEPTED])
+      expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("retry_later")
+      const late = after(SEND1_NOW, IDEMPOTENCY_WINDOW_SECONDS)
+      const send = await leaseOne(executor, late)
+      expect(send.attempts).toBe(2)
+      expect(await authoriseAndSend(executor, { send, env, mailer, now: late })).toBe(
+        "failed_attempts",
+      )
+      expect(mailer.calls).toHaveLength(1)
+      const rows = await sendsFor(executor, contactId)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        status: "failed",
+        delivery_status: "unknown",
+        last_error_code: "idempotency_window_expired",
+        lease_token: null,
+        lease_until: null,
+      })
+      // The first attempt's time is kept across leases.
+      expect(rows[0]?.first_attempted_at?.toISOString()).toBe(SEND1_NOW.toISOString())
+    })
+  }, 120_000)
+
+  it("retries normally while still inside the idempotency window", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const contactId = await enrolledContact(executor)
+      const mailer = recordingMailer([{ kind: "retryable", code: "timeout" }, ACCEPTED])
+      expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("retry_later")
+      expect(await sendStep(executor, after(SEND1_NOW, 22 * 3600), mailer)).toBe("sent")
+      expect(mailer.calls).toHaveLength(2)
+      const rows = await sendsFor(executor, contactId)
+      expect(rows[0]).toMatchObject({ status: "submitted" })
+      expect(rows[0]?.first_attempted_at?.toISOString()).toBe(SEND1_NOW.toISOString())
     })
   }, 120_000)
 

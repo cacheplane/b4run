@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { composeSequenceEmail } from "./mailer"
 import {
+  IDEMPOTENCY_WINDOW_SECONDS,
   LEASE_SECONDS,
   MAX_ATTEMPTS,
+  RATE_LIMIT_DELAY_SECONDS,
+  RETRY_DELAY_SECONDS,
   SEND_BATCH,
   SEND_PACING_MS,
   safeErrorCode,
@@ -33,6 +36,9 @@ describe("founder sequence engine helpers", () => {
     expect(LEASE_SECONDS).toBe(300)
     expect(MAX_ATTEMPTS).toBe(3)
     expect(SEND_PACING_MS).toBe(600)
+    expect(RETRY_DELAY_SECONDS).toBe(600)
+    expect(RATE_LIMIT_DELAY_SECONDS).toBe(60)
+    expect(IDEMPOTENCY_WINDOW_SECONDS).toBe(23 * 3600)
   })
 
   it("keeps only short machine error codes", () => {

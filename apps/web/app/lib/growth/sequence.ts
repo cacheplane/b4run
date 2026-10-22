@@ -13,6 +13,12 @@ export const LEASE_SECONDS = 300
 export const MAX_ATTEMPTS = 3
 /** The tick waits this long between sends (Resend's default limit is about 2 requests per second). */
 export const SEND_PACING_MS = 600
+/** A retryable failure waits this long, so one short outage cannot use up every attempt. */
+export const RETRY_DELAY_SECONDS = 600
+/** A rate-limited send waits this long; it never consumes an attempt. */
+export const RATE_LIMIT_DELAY_SECONDS = 60
+/** Resend keeps an Idempotency-Key for 24 hours; retries stop an hour short of that. */
+export const IDEMPOTENCY_WINDOW_SECONDS = 23 * 3600
 
 export interface LeasedSend {
   readonly id: string
@@ -111,7 +117,7 @@ export async function leaseDueSends(
     lease_token: string
     due_at: Date
   }>(
-    "with due as (select id from growth_sends where ((status = 'pending' and due_at <= $1) or (status = 'leased' and lease_until <= $1)) and attempts < $2 order by due_at, id limit $3 for update skip locked) update growth_sends s set status = 'leased', lease_token = $4, lease_until = $1::timestamptz + make_interval(secs => $5::int), attempts = s.attempts + 1 from due where s.id = due.id returning s.id, s.contact_id, s.step, s.attempts, s.lease_token, s.due_at",
+    "with due as (select id from growth_sends where ((status = 'pending' and due_at <= $1) or (status = 'leased' and lease_until <= $1)) and attempts < $2 order by due_at, id limit $3 for update skip locked) update growth_sends s set status = 'leased', lease_token = $4, lease_until = $1::timestamptz + make_interval(secs => $5::int), attempts = s.attempts + 1, first_attempted_at = coalesce(s.first_attempted_at, $1::timestamptz) from due where s.id = due.id returning s.id, s.contact_id, s.step, s.attempts, s.lease_token, s.due_at",
     [input.now, MAX_ATTEMPTS, input.limit, input.leaseToken, LEASE_SECONDS],
   )
   return [...result.rows]
@@ -126,6 +132,8 @@ export async function leaseDueSends(
 }
 
 const CLEAR_LEASE = "lease_until = null, lease_token = null"
+
+const retryAt = (now: Date, seconds: number) => new Date(now.getTime() + seconds * 1000)
 
 async function scheduleNextStep(
   tx: SqlTransaction,
@@ -172,11 +180,13 @@ export function authoriseAndSend(
       step: number
       attempts: number
       created_at: Date
+      first_attempted_at: Date | null
     }>(
-      "select id, contact_id, step, attempts, created_at from growth_sends where id = $1 and lease_token = $2 and status = 'leased' for update",
+      "select id, contact_id, step, attempts, created_at, first_attempted_at from growth_sends where id = $1 and lease_token = $2 and status = 'leased' for update",
       [send.id, send.leaseToken],
     )
     const row = sends.rows[0]
+    // A mismatch is unreachable from current callers; the row stays leased and is reclaimed on expiry.
     if (row === undefined || row.contact_id !== send.contactId) return "lease_lost"
 
     const contact = contacts.rows[0]
@@ -191,6 +201,20 @@ export function authoriseAndSend(
         row.id,
       ])
       return "cancelled_not_authorised"
+    }
+
+    // An earlier attempt may have been accepted; once Resend could have forgotten its
+    // Idempotency-Key, a retry might send twice, so give up instead.
+    if (
+      row.attempts > 1 &&
+      row.first_attempted_at !== null &&
+      row.first_attempted_at.getTime() <= now.getTime() - IDEMPOTENCY_WINDOW_SECONDS * 1000
+    ) {
+      await tx.query(
+        `update growth_sends set status = 'failed', delivery_status = 'unknown', last_error_code = 'idempotency_window_expired', ${CLEAR_LEASE} where id = $1`,
+        [row.id],
+      )
+      return "failed_attempts"
     }
 
     const step = row.step as SequenceStep
@@ -239,8 +263,8 @@ export function authoriseAndSend(
     if (result.code === "http_429") {
       // A rate limit never consumes an attempt.
       await tx.query(
-        `update growth_sends set status = 'pending', attempts = attempts - 1, last_error_code = $2, ${CLEAR_LEASE} where id = $1`,
-        [row.id, code],
+        `update growth_sends set status = 'pending', attempts = attempts - 1, last_error_code = $2, due_at = $3, ${CLEAR_LEASE} where id = $1`,
+        [row.id, code, retryAt(now, RATE_LIMIT_DELAY_SECONDS)],
       )
       return "retry_later"
     }
@@ -252,8 +276,8 @@ export function authoriseAndSend(
       return "failed_attempts"
     }
     await tx.query(
-      `update growth_sends set status = 'pending', last_error_code = $2, ${CLEAR_LEASE} where id = $1`,
-      [row.id, code],
+      `update growth_sends set status = 'pending', last_error_code = $2, due_at = $3, ${CLEAR_LEASE} where id = $1`,
+      [row.id, code, retryAt(now, RETRY_DELAY_SECONDS)],
     )
     return "retry_later"
   })
