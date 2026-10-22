@@ -133,6 +133,11 @@ memory, planning, and flight-plan filing behind approval. Scaffold it with
   historical defect, repairs it in an isolated workspace, verifies the patch
   independently, and asks before exporting it
   ([code walkthrough](./examples/code-fixer/server/WALKTHROUGH.md))
+- [Software factory](./examples/software-factory/README.md): a work-order
+  controller that turns a GitHub issue into a merged fix with a person at two
+  gates, a sandboxed builder that never sees the independent check, and a
+  confined GitHub App that opens the draft PR
+  ([overview](https://b4.run/docs/recipes/software-factory))
 - [Flight planner example source](./examples/navlog/README.md)
 - [Chat and workspace assistant](./examples/chat/README.md)
 - [Memory-backed agent](./examples/memory/README.md)

@@ -116,6 +116,7 @@ export const DOCS_NAV = [
       { label: "Retry Transient Model Calls", href: "/docs/recipes/retry-flaky-tools" },
       { label: "Dispatch from a Route", href: "/docs/recipes/dispatch-from-route" },
       { label: "Navlog Example App", href: "/docs/recipes/navlog" },
+      { label: "Software Factory Example", href: "/docs/recipes/software-factory" },
       { label: "Build a Flight Planner", href: "/docs/recipes/flight-planner" },
       { label: "Flight Planner Web UI", href: "/docs/recipes/flight-planner-web-ui" },
       { label: "Blueprints", href: "/docs/blueprints" },
