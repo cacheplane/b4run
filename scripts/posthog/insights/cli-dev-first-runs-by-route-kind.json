@@ -1,0 +1,11 @@
+{
+  "slug": "cli-dev-first-runs-by-route-kind",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "CLI dev first runs by route kind",
+  "description": "Activation: the first completed run in each b4 dev process, by route kind; it fires once per process.",
+  "events": [{ "event": "cli:dev_first_run_completed" }],
+  "breakdown": "route_kind",
+  "interval": "day",
+  "date_from": "-30d"
+}

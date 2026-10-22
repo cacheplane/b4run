@@ -294,6 +294,7 @@ function runProcess(options) {
   const result = spawnSync(options.command, options.args, {
     cwd: repoRoot,
     encoding: "utf8",
+    env: { ...process.env, B4_TELEMETRY_DISABLED: "1" },
     maxBuffer,
     shell: process.platform === "win32",
   })

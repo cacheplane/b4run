@@ -10,9 +10,9 @@ The site honours your browser's Do Not Track setting and records nothing when it
 
 We use these signals to see which pages help and which don't, so we can improve the docs.
 
-## What the `b4` CLI will report
+## What the `b4` CLI reports
 
-Once CLI reporting ships, the `b4` command will send a small anonymous event when you run it: the command name, the CLI version, your operating system, and whether the command succeeded or failed. It will not send your code, file names, prompts, or environment values.
+The development-time commands `dev`, `build`, `add`, `check`, `typegen`, `verify`, and `eval` send a small anonymous event when they finish: the command name, the CLI version, the Node major version, your operating system, whether the command succeeded, failed, or was cancelled, a coarse duration bucket, and, on failure, an error class such as an error code. `b4 dev` also sends one activation event when the first AG-UI run finishes in a session, with only the CLI version and the route kind. The events are tied to a random id stored in `~/.b4/usage-id`, not to your name or email. They never include your code, file names, paths, prompts, model names, error messages, or environment values. The first time a command reports, it prints a short notice. Nothing is reported in CI.
 
 To opt out, set either of these environment variables:
 

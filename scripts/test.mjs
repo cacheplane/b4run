@@ -20,6 +20,7 @@ export function runTests({ args = process.argv.slice(2), spawnSyncImpl = spawnSy
   for (const [command, commandArgs] of commands) {
     const result = spawnSyncImpl(command, commandArgs, {
       cwd: repoRoot,
+      env: { ...process.env, B4_TELEMETRY_DISABLED: "1" },
       shell: process.platform === "win32",
       stdio: "inherit",
     })

@@ -20,9 +20,9 @@ const insights = load("insights", (json) => InsightLocal.parse(json))
 const dashboards = load("dashboards", (json) => DashboardLocal.parse(json))
 
 describe("insight and dashboard definitions", () => {
-  it("defines seven insights and one dashboard", () => {
-    expect(insights).toHaveLength(7)
-    expect(dashboards).toHaveLength(1)
+  it("defines eleven insights and two dashboards", () => {
+    expect(insights).toHaveLength(11)
+    expect(dashboards).toHaveLength(2)
   })
 
   it("names the file after the slug", () => {

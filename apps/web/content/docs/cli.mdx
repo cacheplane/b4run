@@ -10,6 +10,8 @@ Always run B4.run through the `b4` **bin**: `npx b4 <command>`, `pnpm exec b4 <c
   In an npm/pnpm-hoisted monorepo, `@b4run/cli` usually hoists to the workspace root, so a hardcoded path like `node node_modules/@b4run/cli/dist/index.js` from a sub-package fails to resolve. Run `pnpm exec b4 …` instead. It finds the bin through the workspace's `node_modules/.bin`.
 </Callout>
 
+The development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verify`, `eval`) report an anonymous usage signal when they finish: the command name, CLI version, Node major version, operating system, outcome, a coarse duration bucket, and an error class on failure. `b4 dev` also reports one activation signal the first time an AG-UI run finishes in a session. `b4 start` and the runtime never report, and nothing about your routes, models, prompts, paths, or identity is sent. The first reporting command prints a one-time notice. Set `B4_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` to turn it off; CI environments are silent automatically. Turborepo filters the environment of its tasks, so list `B4_TELEMETRY_DISABLED` and `DO_NOT_TRACK` in `globalPassThroughEnv` (or a task's `passThroughEnv`) in `turbo.json` for your shell opt-out to reach `b4`. See the [privacy page](/privacy) for details.
+
 ## `b4 check`
 
 `b4 check` validates the app structure and configuration.

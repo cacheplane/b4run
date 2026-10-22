@@ -1,4 +1,4 @@
-// Standalone source of truth for the events the site sends to PostHog.
+// Standalone source of truth for the events the site and the CLI send to PostHog.
 // contract.test.ts pins this to SIGNAL_EVENTS in apps/web; do not import from apps/web here.
 
 export const FORBIDDEN_PROPERTIES = [
@@ -11,7 +11,6 @@ export const FORBIDDEN_PROPERTIES = [
   "runId",
   "query",
   "text",
-  "command",
 ] as const
 
 export interface EventContract {
@@ -87,5 +86,38 @@ export const EVENT_CONTRACT: Readonly<Record<string, EventContract>> = {
     requiredProperties: ["form", "email_kind"],
     allowedProperties: ["form", "email_kind", "failure_reason", "source_page"],
     allowedBreakdowns: ["form", "email_kind"],
+  },
+  "cli:command_completed": {
+    requiredProperties: [
+      "command",
+      "cli_version",
+      "node_major",
+      "os",
+      "outcome",
+      "duration_bucket",
+    ],
+    allowedProperties: [
+      "command",
+      "cli_version",
+      "node_major",
+      "os",
+      "outcome",
+      "duration_bucket",
+      "error_class",
+    ],
+    allowedBreakdowns: [
+      "command",
+      "outcome",
+      "os",
+      "node_major",
+      "cli_version",
+      "duration_bucket",
+      "error_class",
+    ],
+  },
+  "cli:dev_first_run_completed": {
+    requiredProperties: ["cli_version", "route_kind"],
+    allowedProperties: ["cli_version", "route_kind"],
+    allowedBreakdowns: ["cli_version", "route_kind"],
   },
 }

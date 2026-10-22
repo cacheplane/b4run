@@ -1,0 +1,11 @@
+{
+  "slug": "cli-versions",
+  "posthog_id": null,
+  "kind": "trends",
+  "name": "CLI versions",
+  "description": "Completed reporting commands by CLI version, to show which releases are in use.",
+  "events": [{ "event": "cli:command_completed" }],
+  "breakdown": "cli_version",
+  "interval": "day",
+  "date_from": "-30d"
+}

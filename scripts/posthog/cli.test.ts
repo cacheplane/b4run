@@ -21,7 +21,8 @@ describe("cli", () => {
     expect(await run(["plan"], io)).toBe(0)
     const text = out.join("\n")
     expect(text).toContain("[create] dashboard site-and-docs-engagement")
-    expect(text.match(/\[create\] insight/g)).toHaveLength(7)
+    expect(text).toContain("[create] dashboard cli-usage-and-activation")
+    expect(text.match(/\[create\] insight/g)).toHaveLength(11)
   })
 
   it("plan prints nothing to do when every bucket is empty", async () => {
