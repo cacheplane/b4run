@@ -1027,6 +1027,30 @@ esac
     expect(JSON.parse((await first).stdout)).toMatchObject({ ok: true, state: "exported" })
   }, 90_000)
 
+  it("ledger reports a work order's phases, attempts, tokens and estimated cost from the journal", async () => {
+    const { cli, spawn } = await boot({}, { verifier: createFakeVerifier({ verdict: "pass" }) })
+    const { json: created } = await cli("create", "--task", "cli-flags")
+    const id = created.row.id as string
+    await cli("dispatch", id)
+    const { json: rows } = await cli("ledger", id, "--json")
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id,
+      origin: "task cli-flags",
+      // A catalog task's row carries no target id: the task names it.
+      targetId: null,
+      state: "awaiting_approval",
+      candidateAttempts: 1,
+      gates: { drafts: 0, bundles: 1 },
+      usage: { total: { calls: 2, inputTokens: 3700, outputTokens: 480, cachedInputTokens: 1000 } },
+    })
+    // 2.7k uncached input at $0.25/M, 1k cached at $0.025/M, 480 output at $2/M.
+    expect(rows[0].estimatedUsd).toBeCloseTo((2700 * 0.25 + 1000 * 0.025 + 480 * 2) / 1_000_000, 9)
+    expect(rows[0].ms.build).toBeGreaterThan(0)
+    const { stdout } = await spawn("ledger").promise
+    expect(stdout).toContain("estimated cost per accepted change")
+  }, 60_000)
+
   it("follows the row past a timed-out intake, with the intake's exit code", async () => {
     const { env } = await boot(
       {},

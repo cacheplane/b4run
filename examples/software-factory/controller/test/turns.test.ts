@@ -107,3 +107,22 @@ describe("consumeTurn", () => {
     expect(result.error).toMatch(/handler exploded/)
   })
 })
+
+describe("consumeTurn and usage frames", () => {
+  it("hands a usage frame to onUsage, and counts one that is not a usage as malformed", async () => {
+    const seen: number[] = []
+    const result = await consumeTurn(
+      frames([
+        {
+          event: "usage",
+          data: { model: "gpt-5-mini", usage_metadata: { input_tokens: 10, output_tokens: 2 } },
+        },
+        { event: "usage", data: { usage_metadata: { input_tokens: "ten" } } },
+        { event: "done", data: { output: {} } },
+      ]),
+      { onUsage: async (frame) => void seen.push(frame.usage_metadata.input_tokens) },
+    )
+    expect(seen).toEqual([10])
+    expect(result).toEqual({ ended: "done", interrupts: [], malformed: 1 })
+  })
+})

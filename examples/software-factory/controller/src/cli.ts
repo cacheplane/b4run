@@ -34,6 +34,8 @@ import {
   factoryConfigPath,
   loadFactoryConfig,
 } from "./lib/operator/factory-config.js"
+import { ledgerRow, renderLedger, renderLedgerMarkdown } from "./lib/operator/ledger.js"
+import { priceTable } from "./lib/operator/prices.js"
 import {
   approvalStartedSinceParked,
   chooseWorkOrder,
@@ -77,6 +79,7 @@ const USAGE = `factory <command> [options]
   events    <workOrderId>
   evidence  <workOrderId>
   adopt     <workOrderId> [--branch <name>] [--no-pr] [--no-close]   (the person's hand-off of a delivered draft PR)
+  ledger    [<workOrderId>...] [--json] [--md <path>]   (time, attempts, tokens and estimated cost per work order)
   list
   run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--deliver local|draft-pr] [--new] [--allow-missing-evidence]
   run       --task <id> [--new] [--allow-missing-evidence]
@@ -126,6 +129,13 @@ origin/<base>, cherry-picks the delivered commit, adds a changeset for the targe
 it), commits that as the person's own commit, pushes, opens the person's PR with gh (FACTORY_GH)
 closing the issue, and comments on and closes the factory's draft. --no-pr stops at the pushed
 branch; --no-close leaves the draft open. Nothing runs locally: the person's PR runs every lane.
+
+ledger prints one row per work order from the journal alone: attempts, minutes per phase
+(intake, image builds, builder turns, verifications, delivery, time parked at a gate), the
+tokens each phase's model calls reported (journalled as model_usage while the turn ran), and
+the cost estimated from a price table (FACTORY_PRICES_JSON overrides it; every figure is an
+estimate, the provider's invoice is the authority). --json prints the rows; --md <path> writes
+a Markdown table. A run journalled before the ledger existed shows n/a for tokens and cost.
 
 intake runs the drafter turn and the oracle proof and waits for them, like dispatch. The draft
 it parks is a task directory under <FACTORY_STATE_DIR>/tasks/<workOrderId>/ (task.json, spec.md,
@@ -1737,6 +1747,8 @@ async function main(argv: string[]): Promise<number> {
       branch: { type: "string" },
       "no-pr": { type: "boolean", default: false },
       "no-close": { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+      md: { type: "string" },
       new: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },
@@ -1949,6 +1961,24 @@ async function main(argv: string[]): Promise<number> {
       case "evidence":
         print(read((reader) => reader.evidence(needId())))
         return 0
+      case "ledger": {
+        const ids = positionals.slice(1)
+        const prices = priceTable()
+        const rows = read((reader) => {
+          const wanted = ids.length > 0 ? ids.map((id) => reader.show(id)) : reader.list()
+          return wanted.map((row, index) => {
+            if (!row) throw new Error(`Unknown work order ${ids[index]}`)
+            return ledgerRow(row, reader.events(row.id), prices)
+          })
+        })
+        if (values.md !== undefined) {
+          writeFileSync(values.md, renderLedgerMarkdown(rows), "utf8")
+          process.stderr.write(`factory ledger: wrote ${rows.length} row(s) to ${values.md}\n`)
+        }
+        if (values.json) print(rows)
+        else process.stdout.write(`${renderLedger(rows)}\n`)
+        return 0
+      }
       case "adopt": {
         const outcome = await adoptCommand(needId(), {
           ...(values.branch !== undefined ? { branch: values.branch } : {}),

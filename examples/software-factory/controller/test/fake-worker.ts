@@ -231,8 +231,25 @@ export async function createFakeWorker(options: FakeWorkerOptions): Promise<Fake
       return finishRun(thread, sse)
     }
     if (kind === "edits_only") {
+      // The runtime forwards each finished model call's counts as a `usage` frame.
+      sse.frame("usage", {
+        provider: "openai",
+        model: "gpt-5-mini",
+        usage_metadata: {
+          input_tokens: 1200,
+          output_tokens: 80,
+          total_tokens: 1280,
+          input_token_details: { audio: 0, cache_read: 1000 },
+          output_token_details: { audio: 0, reasoning: 30 },
+        },
+      })
       sse.frame("tool_result", { id: "call-1", name: "readFile", output: "TASK.md contents" })
       if (await sleepOrAbort(delay)) return
+      sse.frame("usage", {
+        provider: "openai",
+        model: "gpt-5-mini",
+        usage_metadata: { input_tokens: 2500, output_tokens: 400, total_tokens: 2900 },
+      })
       sse.frame("tool_result", { id: "call-2", name: "writeFile", output: "written" })
       if (await sleepOrAbort(delay)) return
       sse.frame("chunk", "Repair written.")
