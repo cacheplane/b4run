@@ -11,7 +11,7 @@ const scriptDirectory = dirname(scriptFile)
 const appRoot = resolve(scriptDirectory, "..")
 const productionOrigin = "https://b4.run"
 const currentInventoryDate = "2026-08-26"
-const currentInventoryCount = 94
+const currentInventoryCount = 95
 const approvedRobotsAgents = [
   "*",
   "GPTBot",
