@@ -1024,6 +1024,8 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/sdk:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./pure", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sdk:./tool-step.schema.json", "detailed", "surfaceKind", "metadata"],
+  ["import:@b4run/sdk:./answer.schema.json", "detailed", "surfaceKind", "metadata"],
   ["import:@b4run/cli:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
@@ -4283,15 +4285,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 56 || new Set(artifactAddresses).size !== 56) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 56 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 58 || new Set(artifactAddresses).size !== 58) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 58 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 52 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 54 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 52 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 54 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

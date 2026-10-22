@@ -54,6 +54,20 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 Newest first. Each change names the release it landed in, and the two that need no action say so.
 
+### `b4.step` is a versioned contract
+
+Landed in **0.14.1**. Action required only if you switch exhaustively over `StepStatus` from `@b4run/ag-ui/view`. Everything you already send and read keeps working.
+
+A tool call's step now has a versioned contract, `B4ToolStep` from `@b4run/sdk` (`v: 1`, camelCase), with `readToolStep`, `mergeToolStep`, JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`, and a fixture corpus in `@b4run/sdk/testing`. `PersistedStep`, `readPersistedStep`, `B4StepEventValue`, `B4StepStatus`, `B4_STEP_STATUSES` and `readStepEvent` stay exported and are deprecated; the old shapes still read, and the runtime still emits and persists them until its emitters move to v1. These behaviors changed:
+
+- `StepStatus` gains `cancelled`. A `switch` over it that TypeScript checks for exhaustiveness needs a `cancelled` case.
+- A cancelled run settles its open steps as `cancelled` instead of `failed`, so a row that showed "failed" after a cancel now shows as cancelled. An interrupt cancels the open calls it doesn't park; the calls it names, and any `pendingToolCallIds`, stay open.
+- A successful run no longer fails the calls it left open. A restored thread whose turn ended without a call's result still shows that call as failed.
+- A `TOOL_CALL_RESULT` with no step of its own completes a running step and clears its running label. A result with a top-level `error` fails the step, even after a `completed` step.
+- `readToolStep` returns `undefined` for a `v` other than 1, and `readStepEvent` drops an empty-string `label`.
+
+See [Step events](/docs/ag-ui#step-events).
+
 ### `@b4run/ag-ui` has one folder per framework; the stylesheet is `@b4run/ag-ui/styles.css`
 
 Landed in **0.14.0**. Action required if you import the activity stylesheet, or the CopilotKit connector from a pre-release build.

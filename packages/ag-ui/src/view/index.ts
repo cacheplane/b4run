@@ -98,6 +98,7 @@ export {
   toResumeEntries,
 } from "./resume.js"
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, readStepEvent } from "./step.js"
+export { toContractSteps } from "./tool-steps.js"
 export {
   type ApprovalView,
   EMPTY_TURNS,

@@ -145,13 +145,14 @@ export function nestedSummaryLine(
 }
 
 /**
- * A tool step's muted tail: awaiting approval, denied, or failed with no
+ * A tool step's muted tail: awaiting approval, denied, cancelled, or failed with no
  * error text to open — unless its sentence already says it failed (the
  * "X failed" fallback). Pass the same `labels` the step's sentence uses.
  */
 export function stepMeta(step: ToolStep, labels?: StepLabelOverrides | undefined): string {
   if (step.status === "awaiting") return "· awaiting approval"
   if (step.status === "denied") return "· denied"
+  if (step.status === "cancelled") return "· cancelled"
   if (step.status === "failed" && step.result === undefined) {
     return stepLabel(step, labels) === failedFallback(step.name) ? "" : "· failed"
   }

@@ -207,3 +207,7 @@ export type {
   RuntimeExecutionSuccessResult,
   RuntimeExecutionTiming,
 } from "../runtime-result.js"
+export type { ToolStepFixtureEvent, ToolStepFolded } from "./fold-tool-step-events.js"
+export { foldToolStepEvents } from "./fold-tool-step-events.js"
+export type { ToolStepFixture } from "./tool-step-fixtures.js"
+export { TOOL_STEP_FIXTURES } from "./tool-step-fixtures.js"
