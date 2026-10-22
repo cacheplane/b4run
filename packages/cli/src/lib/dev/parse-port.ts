@@ -12,16 +12,12 @@ export function parsePort(rawPort: string | undefined): number | undefined {
     return undefined
   }
 
-  // Require a purely decimal integer spelling to avoid hex/exponential forms
-  // (e.g. 0x1f90 or 1e3) being accepted by Number().
-  if (!/^\d+$/.test(rawPort)) {
-    throw new CliError(`Invalid port: ${rawPort}`, 2)
-  }
-
   const port = Number(rawPort)
 
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new CliError(`Invalid port: ${rawPort}`, 2)
+  // Digits only: Number() alone would also accept hex (0x1f90), exponent (1e3),
+  // signed, and whitespace-padded spellings.
+  if (!/^\d+$/.test(rawPort) || port <= 0 || port > 65535) {
+    throw new CliError(`Invalid port: ${rawPort} (expected an integer from 1 to 65535)`, 2)
   }
 
   return port

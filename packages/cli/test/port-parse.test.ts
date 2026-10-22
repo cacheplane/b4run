@@ -20,7 +20,7 @@ test('A1: parsePort rejects non-decimal or out-of-range inputs ("65536", "70000"
     () => parsePort("65536"),
     (err) => {
       assert.ok(err instanceof CliError)
-      assert.equal(err.message, "Invalid port: 65536")
+      assert.equal(err.message, "Invalid port: 65536 (expected an integer from 1 to 65535)")
       assert.equal(err.exitCode, 2)
       return true
     },
@@ -30,7 +30,18 @@ test('A1: parsePort rejects non-decimal or out-of-range inputs ("65536", "70000"
     () => parsePort("70000"),
     (err) => {
       assert.ok(err instanceof CliError)
-      assert.equal(err.message, "Invalid port: 70000")
+      assert.equal(err.message, "Invalid port: 70000 (expected an integer from 1 to 65535)")
+      assert.equal(err.exitCode, 2)
+      return true
+    },
+  )
+
+  // 0 is invalid here (dev and inspect allocate their own port); start accepts it
+  assert.throws(
+    () => parsePort("0"),
+    (err) => {
+      assert.ok(err instanceof CliError)
+      assert.equal(err.message, "Invalid port: 0 (expected an integer from 1 to 65535)")
       assert.equal(err.exitCode, 2)
       return true
     },
@@ -41,7 +52,7 @@ test('A1: parsePort rejects non-decimal or out-of-range inputs ("65536", "70000"
     () => parsePort("1e3"),
     (err) => {
       assert.ok(err instanceof CliError)
-      assert.equal(err.message, "Invalid port: 1e3")
+      assert.equal(err.message, "Invalid port: 1e3 (expected an integer from 1 to 65535)")
       assert.equal(err.exitCode, 2)
       return true
     },
@@ -51,14 +62,14 @@ test('A1: parsePort rejects non-decimal or out-of-range inputs ("65536", "70000"
     () => parsePort("0x1f90"),
     (err) => {
       assert.ok(err instanceof CliError)
-      assert.equal(err.message, "Invalid port: 0x1f90")
+      assert.equal(err.message, "Invalid port: 0x1f90 (expected an integer from 1 to 65535)")
       assert.equal(err.exitCode, 2)
       return true
     },
   )
 })
 
-test('A2: runStartCommand rejects an invalid --port by rejecting with a CliError whose message is "Invalid port: 70000" and exitCode 2', async () => {
+test("A2: runStartCommand rejects an invalid --port by rejecting with a CliError whose message names the 0–65535 range and exitCode 2", async () => {
   const io = { stdout: (_: string) => {}, stderr: (_: string) => {} }
 
   await assert.rejects(
@@ -67,7 +78,7 @@ test('A2: runStartCommand rejects an invalid --port by rejecting with a CliError
     },
     (err) => {
       assert.ok(err instanceof CliError)
-      assert.equal(err.message, "Invalid port: 70000")
+      assert.equal(err.message, "Invalid port: 70000 (expected an integer from 0 to 65535)")
       assert.equal(err.exitCode, 2)
       return true
     },
