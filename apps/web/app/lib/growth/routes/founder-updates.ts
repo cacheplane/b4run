@@ -34,12 +34,14 @@ export async function handleFounderUpdatesPost(
   request: Request,
   deps: FounderUpdatesRouteDeps,
 ): Promise<Response> {
-  const text = await request.text()
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    return json(400, { error: "invalid_body" })
-  }
+  const declared = Number(request.headers.get("content-length") ?? "0")
+  if (declared > MAX_BODY_BYTES) return json(400, { error: "invalid_body" })
   let body: unknown
   try {
+    const text = await request.text()
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+      return json(400, { error: "invalid_body" })
+    }
     body = JSON.parse(text)
   } catch {
     return json(400, { error: "invalid_body" })

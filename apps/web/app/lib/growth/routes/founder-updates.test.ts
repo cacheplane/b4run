@@ -156,6 +156,25 @@ describe("handleFounderUpdatesPost", () => {
     expect(await response.json()).toEqual({ error: "invalid_body" })
   })
 
+  it("rejects a declared content-length over 4 KiB before reading", async () => {
+    const { deps } = setup()
+    const request = post(body, { "content-length": "4097" })
+    const spy = vi.spyOn(request, "text")
+    const response = await handleFounderUpdatesPost(request, deps)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "invalid_body" })
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 when reading the body is aborted", async () => {
+    const { deps } = setup()
+    const request = post(body)
+    vi.spyOn(request, "text").mockRejectedValue(new TypeError("terminated"))
+    const response = await handleFounderUpdatesPost(request, deps)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "invalid_body" })
+  })
+
   it("rejects non-JSON", async () => {
     const { deps } = setup()
     const response = await handleFounderUpdatesPost(post("not json"), deps)
