@@ -13,7 +13,12 @@ export const LEASE_SECONDS = 300
 export const MAX_ATTEMPTS = 3
 /** The tick waits this long between sends (Resend's default limit is about 2 requests per second). */
 export const SEND_PACING_MS = 600
-/** A retryable failure waits this long, so one short outage cannot use up every attempt. */
+/**
+ * A retryable failure waits this long, so one short outage cannot use up every attempt.
+ * Coupled to the 10-minute cron in `apps/web/vercel.json`: a failure at 07:00 retries at the
+ * 07:10 and 07:20 ticks, so all three attempts land inside the 07:00–07:59 send window.
+ * Lengthen the cron interval or this delay and later attempts slip to the next morning.
+ */
 export const RETRY_DELAY_SECONDS = 600
 /** A rate-limited send waits this long; it never consumes an attempt. */
 export const RATE_LIMIT_DELAY_SECONDS = 60
@@ -265,6 +270,24 @@ export function authoriseAndSend(
         kind: "send.submitted",
         occurredAt: now,
         data: { send_id: row.id, step },
+      })
+      await scheduleNextStep(tx, row.contact_id, step, now)
+      return "sent"
+    }
+
+    // Resend holds a different body under this key only if an earlier attempt was accepted,
+    // so the contact already has this step: record it as submitted and move on.
+    if (result.kind === "rejected" && result.code === "idempotency_mismatch") {
+      await tx.query(
+        `update growth_sends set status = 'submitted', delivery_status = 'unknown', last_error_code = 'idempotency_mismatch', ${CLEAR_LEASE} where id = $1`,
+        [row.id],
+      )
+      await recordActivity(tx, {
+        eventKey: submittedEventKey(row.id),
+        contactId: row.contact_id,
+        kind: "send.submitted",
+        occurredAt: now,
+        data: { send_id: row.id, step, reconciled: true },
       })
       await scheduleNextStep(tx, row.contact_id, step, now)
       return "sent"

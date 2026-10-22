@@ -167,7 +167,7 @@ describe("founder-stop route", () => {
     expect(stop).not.toHaveBeenCalled()
   })
 
-  it("POST rejects an oversize body, a missing token and unsupported content", async () => {
+  it("POST rejects an oversize body and a missing token", async () => {
     const big = await handleFounderStopPost(
       new Request(`${URL_BASE}?token=${token()}`, {
         method: "POST",
@@ -186,7 +186,47 @@ describe("founder-stop route", () => {
       deps(),
     )
     expect(none.status).toBe(400)
-    const text = await handleFounderStopPost(
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it("POST multipart/form-data (RFC 8058 one-click) uses the query token", async () => {
+    const form = new FormData()
+    form.set("List-Unsubscribe", "One-Click")
+    const res = await handleFounderStopPost(
+      new Request(`${URL_BASE}?token=${token()}`, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST multipart/form-data reads a token part when present", async () => {
+    const form = new FormData()
+    form.set("token", token())
+    const res = await handleFounderStopPost(
+      new Request(URL_BASE, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST with malformed JSON is rejected even when the query has a token", async () => {
+    const res = await handleFounderStopPost(
+      new Request(`${URL_BASE}?token=${token()}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      }),
+      deps(),
+    )
+    expect(res.status).toBe(400)
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it("POST with any other content type carries no body token and uses the query token", async () => {
+    const res = await handleFounderStopPost(
       new Request(`${URL_BASE}?token=${token()}`, {
         method: "POST",
         headers: { "content-type": "text/plain" },
@@ -194,7 +234,18 @@ describe("founder-stop route", () => {
       }),
       deps(),
     )
-    expect(text.status).toBe(400)
+    expect(res.status).toBe(200)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it("POST with an oversize multipart body is rejected", async () => {
+    const form = new FormData()
+    form.set("pad", "a".repeat(5000))
+    const res = await handleFounderStopPost(
+      new Request(`${URL_BASE}?token=${token()}`, { method: "POST", body: form }),
+      deps(),
+    )
+    expect(res.status).toBe(400)
     expect(stop).not.toHaveBeenCalled()
   })
 
@@ -234,7 +285,7 @@ describe("founder-stop route", () => {
 
   it("POST answers the failure page with headers when the body read aborts", async () => {
     const req = new Request(`${URL_BASE}?token=${token()}`, { method: "POST" })
-    vi.spyOn(req, "text").mockRejectedValue(new Error("aborted"))
+    vi.spyOn(req, "arrayBuffer").mockRejectedValue(new Error("aborted"))
     const res = await handleFounderStopPost(req, deps())
     expect(res.status).toBe(503)
     expectHeaders(res)

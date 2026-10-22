@@ -675,6 +675,36 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
     })
   }, 120_000)
 
+  it("reconciles an idempotency mismatch as an earlier accepted send and schedules the next step", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const contactId = await enrolledContact(executor)
+      const mailer = recordingMailer({ kind: "rejected", code: "idempotency_mismatch" })
+      expect(await sendStep(executor, SEND1_NOW, mailer)).toBe("sent")
+
+      const [step1, step2] = await sendsFor(executor, contactId)
+      expect(step1).toMatchObject({
+        status: "submitted",
+        delivery_status: "unknown",
+        last_error_code: "idempotency_mismatch",
+        provider_email_id: null,
+        lease_token: null,
+        lease_until: null,
+      })
+      expect(step2).toMatchObject({ step: 2, status: "pending" })
+      expect(step2?.due_at.toISOString()).toBe(STEP2_DUE.toISOString())
+
+      const activity = await executor.query<{ event_key: string; data: unknown }>(
+        "select event_key, data from growth_activity where kind = 'send.submitted'",
+      )
+      expect(activity.rows).toEqual([
+        {
+          event_key: `submitted:${step1?.id}`,
+          data: { send_id: step1?.id, step: 1, reconciled: true },
+        },
+      ])
+    })
+  }, 120_000)
+
   it("never puts an address in last_error_code", async () => {
     await withMigratedDatabase(async (executor) => {
       const rejected = await enrolledContact(executor, "rejected@example.com")

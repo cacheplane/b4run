@@ -96,7 +96,7 @@ async function runSends(
 }
 
 /**
- * The 30-minute cron: enrolls newly approved contacts, sends what is due inside the Pacific
+ * The 10-minute cron: enrolls newly approved contacts, sends what is due inside the Pacific
  * window, then the founder digest. The report carries counts only, never ids or addresses.
  */
 export async function handleTick(request: Request, deps: TickDeps): Promise<Response> {
