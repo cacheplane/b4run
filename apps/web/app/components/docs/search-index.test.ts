@@ -388,8 +388,9 @@ Deeper text is part of the H2 section.
     // Guard against indexing whole sections by accident: the lazily fetched
     // index was ~100 KB gzipped when body text was added, ~126 KB once the
     // Angular entries of @b4run/ag-ui added three export surfaces and their aliases,
-    // ~131 KB once the Upgrading page covered 0.9 through 0.14.
-    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(135_000)
+    // ~131 KB once the Upgrading page covered 0.9 through 0.14, and
+    // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes.
+    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(136_000)
   })
 })
 
