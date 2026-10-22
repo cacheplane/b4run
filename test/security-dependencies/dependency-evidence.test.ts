@@ -1,3 +1,5 @@
+// These tests exercise frozen incident tools. Keep their repository and chart
+// identities aligned with the original evidence, not the current product name.
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
@@ -622,7 +624,7 @@ describe("dependency evidence CLI", () => {
       fixture,
       open: fixture.open,
       publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-      repository: "cacheplane/b4run",
+      repository: "cacheplane/dawnai",
       sourceSha,
     })
     expect(receipt.dependabot.open).toHaveLength(59)
@@ -637,7 +639,7 @@ describe("dependency evidence CLI", () => {
         fixture: wrongFixture,
         open: fixture.open,
         publication: publicationReceiptFixture(fixture.defaultSha, sourceSha),
-        repository: "cacheplane/b4run",
+        repository: "cacheplane/dawnai",
         sourceSha,
       }),
     ).toThrow(/UNPROVABLE/u)
@@ -649,7 +651,7 @@ describe("dependency evidence CLI", () => {
       "baseline",
       [
         "--repo",
-        "cacheplane/b4run",
+        "cacheplane/dawnai",
         "--inventory-ref",
         "HEAD",
         "--source-sha",
@@ -672,7 +674,7 @@ describe("dependency evidence CLI", () => {
       "reconcile",
       [
         "--repo",
-        "cacheplane/b4run",
+        "cacheplane/dawnai",
         "--pr",
         "42",
         "--reviewed-base-sha",
@@ -926,7 +928,7 @@ describe("dependency evidence CLI", () => {
           argv: [
             "baseline",
             "--repo",
-            "cacheplane/b4run",
+            "cacheplane/dawnai",
             "--inventory-ref",
             "HEAD",
             "--source-sha",
@@ -994,7 +996,7 @@ describe("dependency evidence CLI", () => {
         argv: [
           "reconcile",
           "--repo",
-          "cacheplane/b4run",
+          "cacheplane/dawnai",
           "--pr",
           "42",
           "--reviewed-base-sha",
@@ -1062,7 +1064,7 @@ describe("dependency evidence CLI", () => {
         intervalMs: 15_000,
         maxAttempts: 61,
         prNumber: 42,
-        repo: "cacheplane/b4run",
+        repo: "cacheplane/dawnai",
         timeoutMs: 900_000,
       })
       expect(inventoryRef).toBe(observationHeadSha)
@@ -1397,13 +1399,13 @@ function publicationReceiptFixture(defaultSha: string, sourceSha: string) {
           {
             conclusion: "success",
             digest: "a".repeat(64),
-            name: "publish (b4-app)",
+            name: "publish (dawn-app)",
             noOp: true,
           },
           {
             conclusion: "success",
             digest: "b".repeat(64),
-            name: "publish (b4-sandbox-infra)",
+            name: "publish (dawn-sandbox-infra)",
             noOp: true,
           },
         ],
@@ -1456,7 +1458,7 @@ function publicationReceiptFixture(defaultSha: string, sourceSha: string) {
       })),
       requestCount: 63,
     },
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
     sourceSha,
     workflows: {
@@ -1500,7 +1502,7 @@ function reconcileCliArguments(overrides: Record<string, string> = {}) {
     output: resolve(testDir, ".unused-reconciliation.json"),
     "poll-interval-ms": "15000",
     pr: "42",
-    repo: "cacheplane/b4run",
+    repo: "cacheplane/dawnai",
     "reviewed-base-sha": "a".repeat(40),
     "reviewed-head-sha": "b".repeat(40),
     "target-version": "0.8.22",
@@ -1578,7 +1580,7 @@ function sealableReconciliationReceipt(baselineOpen: any[]) {
       reviewedHeadSha,
     },
     publication,
-    repository: "cacheplane/b4run",
+    repository: "cacheplane/dawnai",
     schemaVersion: 1,
     verificationRuns: [
       ".github/workflows/ci.yml",

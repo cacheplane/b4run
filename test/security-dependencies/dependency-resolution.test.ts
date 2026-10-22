@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { readdirSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -590,6 +591,33 @@ function providerUtilsPathFailures(workspace: ParsedWorkspace): string[] {
 }
 
 describe("dependency security graph invariants", () => {
+  it("collects every security test through the root workspace config", () => {
+    const expected = readdirSync(testDirectory)
+      .filter((name) => /\.test\.tsx?$/.test(name))
+      .map((name) => `test/security-dependencies/${name}`)
+      .sort()
+    const listed = execFileSync(
+      process.execPath,
+      [
+        "node_modules/vitest/vitest.mjs",
+        "list",
+        "--config",
+        "vitest.workspace.ts",
+        "test/security-dependencies",
+        "--filesOnly",
+      ],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 20_000 },
+    )
+    const actual = listed
+      .split(/\r?\n/)
+      .map((line) =>
+        line.trim().replace(/^.*?test\/security-dependencies\//, "test/security-dependencies/"),
+      )
+      .filter((line) => /test\/security-dependencies\/.*\.test\.tsx?$/.test(line))
+      .sort()
+    expect(actual).toEqual(expected)
+  })
+
   it("pins the dedicated config boundary, TSX include, and app-local browser mappings", async () => {
     const vitestConfig = (await import("./vitest.config.ts")).default
     const config = vitestConfig
@@ -599,8 +627,8 @@ describe("dependency security graph invariants", () => {
     expect(testConfig.testTimeout).toBe(30_000)
     expect(testConfig.hookTimeout).toBe(30_000)
     expect(testConfig.include).toEqual([
-      "test/security-dependencies/**/*.test.ts",
-      "test/security-dependencies/**/*.test.tsx",
+      resolve(testDirectory, "**/*.test.ts"),
+      resolve(testDirectory, "**/*.test.tsx"),
     ])
     expect(testConfig.env).toEqual({
       COPILOTKIT_TELEMETRY_DISABLED: "true",

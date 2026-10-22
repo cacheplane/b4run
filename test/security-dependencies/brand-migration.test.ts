@@ -10,6 +10,8 @@ const gatePath = "test/security-dependencies/brand-migration.test.ts"
 const inventoryPath = "test/security-dependencies/fixtures/brand-migration-exceptions.json"
 
 const reasons = {
+  "reference-data": "Real airport names retain their published spelling.",
+  "embedded-font-data": "Embedded font bytes contain incidental text matches, not product names.",
   "historical-changelog": "Published release notes retain the names of the released artifacts.",
   "archived-design": "Dated designs and developer analyses describe their original implementation.",
   "migration-explanation": "Migration decisions explain the original identity without enabling it.",

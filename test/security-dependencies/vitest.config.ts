@@ -8,6 +8,7 @@ const rootDir = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   root: resolve(rootDir, "../.."),
   test: {
+    name: "dependency-security",
     environment: "node",
     env: {
       COPILOTKIT_TELEMETRY_DISABLED: "true",
@@ -19,10 +20,7 @@ export default defineConfig({
     },
     fileParallelism: false,
     hookTimeout: 30_000,
-    include: [
-      "test/security-dependencies/**/*.test.ts",
-      "test/security-dependencies/**/*.test.tsx",
-    ],
+    include: [resolve(rootDir, "**/*.test.ts"), resolve(rootDir, "**/*.test.tsx")],
     testTimeout: 30_000,
   },
 })

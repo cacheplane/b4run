@@ -77,16 +77,31 @@ template suite passes 12 tests, release integrity passes 33, and scoped lint,
 documentation and whitespace checks pass. Independent review found no blocking
 dependency/lock-graph defect and confirmed zero unresolved snapshot references.
 
-The complete standalone security suite initially reported 300 passing, 75 failing
-and one skipped test. Review found inherited repository-identity contradictions,
-28 brand paths identical to base, and a stale exact package-script assertion.
-Two audit-CLI cases additionally require a clean committed lockfile and must be
-rerun after commit. Do not classify those two as inherited failures based on a
-dirty-tree run, or claim the complete security suite passed. The workspace is
-configured to include these tests, so collection must be reconciled with hosted
-source logs before claiming comprehensive CI health. Preserve historical
-fixtures and evidence authority; no gate or production policy is weakened here.
+## Historical security suite repair
 
-Hosted merge gates and the clean-tree rerun remain to be recorded on the
-prerequisite PR before merge. This note is neither a completed release nor a
-clean audit of every dependency advisory.
+The clean committed prerequisite initially reported 302 passing, 73 failing and
+one skipped test. The normal workspace source lane silently omitted all nine
+security files: Vitest's file-project loading overrides the configured root,
+so the relative include glob resolved beneath the test directory twice.
+Absolute include globs now preserve both standalone and workspace discovery.
+A regression invokes real Vitest workspace discovery and compares the collected
+files with every security test file on disk.
+
+The September repository rename changed positive historical test identities
+while deliberately preserving the incident tools. The disabled receipt workflow
+explicitly requires a separately reviewed B4.run pipeline before re-enabling it.
+The repair restores the original repository and chart identities in those tests,
+adds rejection coverage for the current repository identity, and leaves all
+production validators, original fixtures, version bounds and workflow authority
+unchanged. Exact hashed brand exceptions cover these historical tests, archived
+paths and evidence, real airport names, embedded font bytes, and negative
+identity tests. The brand guard remains active for all other lines and files.
+The Mermaid typecheck contract now includes the existing PostHog typecheck.
+
+The repaired standalone suite passes 377 tests with one platform-specific skip;
+the real workspace collection regression passes. Security typechecking and the
+33 release-integrity checks pass. The two audit-CLI tests require a committed
+lockfile. Hosted merge gates and the
+complete clean-tree suite must pass after the repair commit before merging this
+prerequisite or proceeding with 0.15.0. This note is neither a completed release
+nor a clean audit of every dependency advisory.

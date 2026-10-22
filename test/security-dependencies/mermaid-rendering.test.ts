@@ -436,7 +436,8 @@ describe("local Mermaid UI compatibility harness", () => {
       "turbo run typecheck && tsc -p test/tsconfig.json --noEmit " +
         "&& tsc -p test/security-dependencies/tsconfig.json --noEmit " +
         "&& tsc -p test/k8s-compat/tsconfig.json --noEmit " +
-        "&& tsc -p test/code-fixer/tsconfig.json --noEmit",
+        "&& tsc -p test/code-fixer/tsconfig.json --noEmit " +
+        "&& tsc -p scripts/posthog/tsconfig.json --noEmit",
     )
   })
 
