@@ -13,6 +13,7 @@ import {
   parseInboundEvent,
   RAW_MAX_BYTES,
   type ReceivedEmail,
+  selfAddressesFor,
 } from "./inbound"
 import { B4_APP_TAG, type Mailer, SENDER } from "./mailer"
 
@@ -94,11 +95,19 @@ describe("parseInboundEvent", () => {
     expect(
       parseInboundEvent({ ...payload, data: { ...payload.data, to: ["hello@b4.run"] } }),
     ).toMatchObject({ admitted: false })
-    for (const from of ["Brian at B4.run <brian@b4.run>", "BRIAN@cacheplane.ai"]) {
-      expect(parseInboundEvent({ ...payload, data: { ...payload.data, from } })).toMatchObject({
-        selfSent: true,
-      })
-    }
+    expect(
+      parseInboundEvent({
+        ...payload,
+        data: { ...payload.data, from: "Brian at B4.run <BRIAN@b4.run>" },
+      }),
+    ).toMatchObject({ selfSent: true })
+    // The founder's personal mailbox is not one of B4's senders unless configured as founder.
+    const personal = { ...payload, data: { ...payload.data, from: "brian@cacheplane.ai" } }
+    expect(parseInboundEvent(personal)).toMatchObject({ selfSent: false })
+    expect(
+      parseInboundEvent(personal, selfAddressesFor({ founderEmail: "Brian@Cacheplane.ai" })),
+    ).toMatchObject({ selfSent: true })
+    expect(selfAddressesFor({})).toEqual(["brian@b4.run"])
   })
 
   it("rejects other types, bad ids, and missing times", () => {

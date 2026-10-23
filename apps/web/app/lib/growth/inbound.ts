@@ -8,11 +8,21 @@ import { IDEMPOTENCY_WINDOW_SECONDS } from "./sequence"
 export const INBOUND_ADDRESS = "brian@b4.run"
 /** Fixed forwarding destination; a received message can never choose where it goes. */
 export const INBOUND_FORWARD_TO = "brian@cacheplane.ai"
+/** The default founder (digest and BCC) address, as `GROWTH_FOUNDER_EMAIL` defaults. */
+const DEFAULT_FOUNDER_EMAIL = "brian@b4.run"
+
 /**
- * B4's own addresses. Mail from one of them (the digest, the BCC copy of a sequence send, the
- * founder writing from his own mailbox) is never a contact's reply.
+ * B4's own senders: the address every B4 email is From (`brian@b4.run`) and the configured
+ * founder address. Mail from one of them (the digest, the BCC copy of a sequence send) is never a
+ * contact's reply. Any other sender, the founder's personal mailbox included, goes through
+ * normal matching, where a stop still needs the sender to be the matched contact.
  */
-export const SELF_ADDRESSES: readonly string[] = [INBOUND_ADDRESS, INBOUND_FORWARD_TO]
+export function selfAddressesFor(env: { readonly founderEmail?: string }): readonly string[] {
+  const founder = parseAddress(env.founderEmail ?? DEFAULT_FOUNDER_EMAIL)
+  return [...new Set([INBOUND_ADDRESS, ...(founder !== undefined ? [founder] : [])])]
+}
+
+const DEFAULT_SELF_ADDRESSES: readonly string[] = [INBOUND_ADDRESS]
 
 /** The largest original message attached to a forward. */
 export const RAW_MAX_BYTES = 20 * 1024 * 1024
@@ -66,10 +76,13 @@ export function parseAddress(value: unknown): string | undefined {
 
 export const isInboundAddress = (value: unknown): boolean => parseAddress(value) === INBOUND_ADDRESS
 
-/** True when `from` is one of B4's own addresses. */
-export function isSelfSent(from: unknown): boolean {
+/** True when `from` is one of B4's own senders. */
+export function isSelfSent(
+  from: unknown,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
+): boolean {
   const address = parseAddress(from)
-  return address !== undefined && SELF_ADDRESSES.includes(address)
+  return address !== undefined && selfAddresses.includes(address)
 }
 
 /**
@@ -108,7 +121,10 @@ function parseDate(value: unknown): Date | undefined {
 }
 
 /** Parses a verified `email.received` webhook payload; undefined for any other shape. */
-export function parseInboundEvent(payload: unknown): ParsedInboundEvent | undefined {
+export function parseInboundEvent(
+  payload: unknown,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
+): ParsedInboundEvent | undefined {
   if (!isRecord(payload) || payload.type !== "email.received") return undefined
   const data = payload.data
   if (!isRecord(data)) return undefined
@@ -121,7 +137,7 @@ export function parseInboundEvent(payload: unknown): ParsedInboundEvent | undefi
     id: data.email_id,
     receivedAt,
     admitted: isAdmitted(data),
-    selfSent: isSelfSent(data.from),
+    selfSent: isSelfSent(data.from, selfAddresses),
   }
 }
 
@@ -146,6 +162,7 @@ export function createReceivingClient(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
   wait: (ms: number) => Promise<void> = defaultWait,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
 ): ReceivingClient {
   if (apiKey === "" || /[\r\n]/.test(apiKey)) throw new InboundError("receiving_key_invalid")
 
@@ -210,7 +227,12 @@ export function createReceivingClient(
           if (seen.has(id)) throw new InboundError("receiving_repeated_cursor")
           seen.add(id)
           last = id
-          yield { id, receivedAt, admitted: isAdmitted(item), selfSent: isSelfSent(item.from) }
+          yield {
+            id,
+            receivedAt,
+            admitted: isAdmitted(item),
+            selfSent: isSelfSent(item.from, selfAddresses),
+          }
         }
         if (!body.has_more) return
         if (last === undefined) throw new InboundError("receiving_malformed")
@@ -525,6 +547,8 @@ export interface InboundRuntime extends ForwardDeps {
   getSent(id: string): Promise<SentEmail>
   /** The contact lookup secret, so a reply's sender is compared the way the form stores it. */
   readonly emailHmacSecret: string
+  /** B4's own senders; see `selfAddressesFor`. */
+  readonly selfAddresses: readonly string[]
 }
 
 /**
@@ -616,16 +640,21 @@ export function createInboundRuntime(input: {
   sendApiKey: string
   environment: GrowthEnv["environment"]
   emailHmacSecret: string
+  founderEmail?: string
   fetchImpl?: typeof fetch
 }): InboundRuntime {
   const fetchImpl = input.fetchImpl ?? fetch
-  const client = createReceivingClient(input.receivingApiKey, fetchImpl)
+  const selfAddresses = selfAddressesFor(
+    input.founderEmail !== undefined ? { founderEmail: input.founderEmail } : {},
+  )
+  const client = createReceivingClient(input.receivingApiKey, fetchImpl, defaultWait, selfAddresses)
   return {
     environment: input.environment,
     getReceived: (id) => client.getReceived(id),
     listReceived: () => client.listReceived(),
     getSent: (id) => client.getSent(id),
     emailHmacSecret: input.emailHmacSecret,
+    selfAddresses,
     downloadRaw: (url) => downloadRaw(url, fetchImpl),
     mailer: createResendMailer(input.sendApiKey, fetchImpl, FORWARD_SEND_TIMEOUT_MS),
     now: () => new Date(),
@@ -643,5 +672,6 @@ export function inboundRuntimeFor(
     sendApiKey: env.resendApiKey ?? env.resendReceivingApiKey,
     environment: env.environment,
     emailHmacSecret: env.emailHmacSecret,
+    ...(env.founderEmail !== undefined ? { founderEmail: env.founderEmail } : {}),
   })
 }

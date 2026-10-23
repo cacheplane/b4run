@@ -9,6 +9,7 @@ import {
   forwardInboundReceipt,
   inboundRuntimeFor,
   parseInboundEvent,
+  selfAddressesFor,
 } from "../inbound"
 import { processInboundReply, type ReplyDeps, type ReplyResult } from "../replies"
 import { getSharedExecutor } from "./shared"
@@ -88,7 +89,7 @@ export async function handleResendInbound(
       return unverified()
     }
 
-    const event = parseInboundEvent(verified)
+    const event = parseInboundEvent(verified, selfAddressesFor(env))
     if (event === undefined) return json(202, { outcome: "ignored_type" })
     if (!event.admitted) return json(200, { outcome: "ignored_recipient" })
 

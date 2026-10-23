@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { emailLookupHmac } from "./email"
 import { recordingExecutor } from "./fake-executor"
 import { InboundError, type ReceivedEmail } from "./inbound"
@@ -7,9 +7,13 @@ import {
   DIRECT_REFERENCES_MAX,
   parseReplyHeaders,
   processInboundReply,
+  processPendingReplies,
   REFERENCES_MAX,
+  REPLY_MAX_AGE_SECONDS,
+  REPLY_MAX_ATTEMPTS,
   type ReplyDeps,
   rfcMessageId,
+  settleReceiptByFounder,
 } from "./replies"
 
 const ID = "56761188-7520-42d8-8898-ff6fc54ce618"
@@ -36,10 +40,12 @@ const deps = (email: ReceivedEmail | Error = reply()): ReplyDeps => ({
     return email
   },
   emailHmacSecret: SECRET,
+  selfAddresses: ["brian@b4.run"],
   now: () => NOW,
 })
 
-const PENDING = { rows: [{ reply_status: "pending" }], rowCount: 1 }
+// Admitted more than an hour ago, so a 404 is final.
+const PENDING = { rows: [{ reply_status: "pending", source_grace_over: true }], rowCount: 1 }
 const NONE = { rows: [], rowCount: 0 }
 
 describe("rfcMessageId", () => {
@@ -135,19 +141,23 @@ describe("bindOutboundMessageId", () => {
     expect(calls[0]?.params).toEqual(["em_1", STEP1])
   })
 
-  it("reports a conflict when the send already holds a different id", async () => {
-    const { executor } = recordingExecutor([NONE, { rows: [{ found: 1 }], rowCount: 1 }])
+  it("reports a conflict and notes it on a send that has no binding", async () => {
+    const { executor, calls } = recordingExecutor([NONE, { rows: [{ found: 1 }], rowCount: 1 }])
     expect(
       await bindOutboundMessageId(executor, { providerEmailId: "em_1", messageId: STEP1 }),
     ).toBe("conflict")
+    expect(calls[2]?.text).toContain("set binding_error_code = $2")
+    expect(calls[2]?.text).toContain("rfc_message_id is null")
+    expect(calls[2]?.params).toEqual(["em_1", "binding_conflict"])
   })
 
-  it("refuses an invalid id without touching the database", async () => {
+  it("refuses an invalid id, only noting the refusal", async () => {
     const { executor, calls } = recordingExecutor()
     expect(
       await bindOutboundMessageId(executor, { providerEmailId: "em_1", messageId: "nope" }),
     ).toBe("invalid_message_id")
-    expect(calls).toHaveLength(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.params).toEqual(["em_1", "binding_invalid"])
   })
 })
 
@@ -158,7 +168,10 @@ describe("processInboundReply (recorded SQL)", () => {
   it("stops the contact and marks the receipt matched in one transaction", async () => {
     const { executor, calls } = recordingExecutor([
       PENDING,
-      { rows: [{ id: SEND, contact_id: CONTACT, rfc_message_id: STEP1 }], rowCount: 1 },
+      {
+        rows: [{ id: SEND, contact_id: CONTACT, rfc_message_id: STEP1, from_contact: true }],
+        rowCount: 1,
+      },
       {
         rows: [{ email_hmac: emailLookupHmac(SECRET, "ada@example.com"), deleted_at: null }],
         rowCount: 1,
@@ -167,7 +180,7 @@ describe("processInboundReply (recorded SQL)", () => {
       { rows: [{ id: CONTACT }], rowCount: 1 },
     ])
     expect(await processInboundReply(executor, ID, deps())).toEqual({ outcome: "matched" })
-    expect(calls[1]?.params).toEqual([[STEP1]])
+    expect(calls[1]?.params).toEqual([[STEP1], emailLookupHmac(SECRET, "ada@example.com")])
     expect(calls[2]?.text).toContain("from growth_contacts where id = $1 for update")
     expect(calls[3]?.text).toContain("from growth_inbound_receipts where id = $1 for update")
     expect(calls[4]?.params).toEqual([CONTACT, NOW, "reply_received"])
@@ -181,7 +194,10 @@ describe("processInboundReply (recorded SQL)", () => {
   it("never stops anyone when the sender is not the matched contact", async () => {
     const { executor, calls } = recordingExecutor([
       PENDING,
-      { rows: [{ id: SEND, contact_id: CONTACT, rfc_message_id: STEP1 }], rowCount: 1 },
+      {
+        rows: [{ id: SEND, contact_id: CONTACT, rfc_message_id: STEP1, from_contact: false }],
+        rowCount: 1,
+      },
       {
         rows: [{ email_hmac: emailLookupHmac(SECRET, "someone@else.com"), deleted_at: null }],
         rowCount: 1,
@@ -201,8 +217,8 @@ describe("processInboundReply (recorded SQL)", () => {
       PENDING,
       {
         rows: [
-          { id: SEND, contact_id: CONTACT, rfc_message_id: STEP1 },
-          { id: "s2", contact_id: OTHER, rfc_message_id: other },
+          { id: SEND, contact_id: CONTACT, rfc_message_id: STEP1, from_contact: true },
+          { id: "s2", contact_id: OTHER, rfc_message_id: other, from_contact: false },
         ],
         rowCount: 2,
       },
@@ -222,8 +238,8 @@ describe("processInboundReply (recorded SQL)", () => {
       PENDING,
       {
         rows: [
-          { id: SEND, contact_id: CONTACT, rfc_message_id: STEP1 },
-          { id: "s2", contact_id: OTHER, rfc_message_id: other },
+          { id: SEND, contact_id: CONTACT, rfc_message_id: STEP1, from_contact: false },
+          { id: "s2", contact_id: OTHER, rfc_message_id: other, from_contact: false },
         ],
         rowCount: 2,
       },
@@ -237,10 +253,34 @@ describe("processInboundReply (recorded SQL)", () => {
     expect(stopped(ambiguous.calls)).toBe(false)
   })
 
+  it("narrows references to several contacts down to the sender's own send", async () => {
+    const other = "<other@email.amazonses.com>"
+    const { executor, calls } = recordingExecutor([
+      PENDING,
+      {
+        rows: [
+          { id: "s2", contact_id: OTHER, rfc_message_id: other, from_contact: false },
+          { id: SEND, contact_id: CONTACT, rfc_message_id: STEP1, from_contact: true },
+        ],
+        rowCount: 2,
+      },
+      {
+        rows: [{ email_hmac: emailLookupHmac(SECRET, "ada@example.com"), deleted_at: null }],
+        rowCount: 1,
+      },
+      PENDING,
+      { rows: [{ id: CONTACT }], rowCount: 1 },
+    ])
+    const refsOnly = reply({ headers: { references: `${other} ${STEP1}` } })
+    expect(await processInboundReply(executor, ID, deps(refsOnly))).toEqual({ outcome: "matched" })
+    expect(calls[1]?.params).toEqual([[other, STEP1], emailLookupHmac(SECRET, "ada@example.com")])
+    expect(calls.at(-1)?.params).toEqual([ID, CONTACT, SEND])
+  })
+
   it("ignores B4's own mail, forwards, and mail for other recipients", async () => {
     const cases: [ReceivedEmail, string][] = [
       [reply({ from: "Brian at B4.run <brian@b4.run>" }), "self_mail"],
-      [reply({ from: "brian@cacheplane.ai" }), "self_mail"],
+      [reply({ from: "Brian <Brian@B4.run>" }), "self_mail"],
       [reply({ headers: { "X-B4-Forwarded": "x", "in-reply-to": STEP1 } }), "forward_loop"],
       [reply({ to: ["hello@b4.run"] }), "recipient_mismatch"],
     ]
@@ -253,6 +293,31 @@ describe("processInboundReply (recorded SQL)", () => {
       expect(stopped(calls)).toBe(false)
       expect(calls.some((call) => call.text.includes("from growth_sends"))).toBe(false)
     }
+  })
+
+  it("ignores mail from the configured founder address, but not from other founder mailboxes", async () => {
+    const founder = recordingExecutor([PENDING, PENDING])
+    expect(
+      await processInboundReply(founder.executor, ID, {
+        ...deps(reply({ from: "founder@example.org" })),
+        selfAddresses: ["brian@b4.run", "founder@example.org"],
+      }),
+    ).toEqual({ outcome: "ignored", code: "self_mail" })
+
+    // brian@cacheplane.ai is not one of B4's senders: it goes through normal matching.
+    const personal = recordingExecutor([
+      PENDING,
+      NONE,
+      { rows: [{ bindable: 0, unbound: 0 }], rowCount: 1 },
+      PENDING,
+    ])
+    expect(
+      await processInboundReply(
+        personal.executor,
+        ID,
+        deps(reply({ from: "brian@cacheplane.ai" })),
+      ),
+    ).toEqual({ outcome: "unmatched", code: "no_match" })
   })
 
   it("settles a message without references as unmatched, whatever its subject", async () => {
@@ -269,22 +334,39 @@ describe("processInboundReply (recorded SQL)", () => {
     const { executor, calls } = recordingExecutor([
       PENDING,
       NONE,
-      { rows: [{ bindable: 1, unbindable: 0 }], rowCount: 1 },
+      { rows: [{ bindable: 1, unbound: 1 }], rowCount: 1 },
       PENDING,
     ])
     expect(await processInboundReply(executor, ID, deps())).toEqual({
       outcome: "pending",
       code: "binding_pending",
     })
-    expect(calls[2]?.params).toEqual([emailLookupHmac(SECRET, "ada@example.com")])
+    expect(calls[2]?.params).toEqual([
+      emailLookupHmac(SECRET, "ada@example.com"),
+      new Date(NOW.getTime() - 24 * 3600 * 1000),
+    ])
     expect(calls.at(-1)?.text).toContain("reply_attempts = reply_attempts + 1")
+    expect(calls.at(-1)?.params[4]).toBe("binding_unavailable")
+  })
+
+  it("settles as binding_unavailable when the sender's unbound send can never be bound", async () => {
+    const { executor } = recordingExecutor([
+      PENDING,
+      NONE,
+      { rows: [{ bindable: 0, unbound: 1 }], rowCount: 1 },
+      PENDING,
+    ])
+    expect(await processInboundReply(executor, ID, deps())).toEqual({
+      outcome: "unmatched",
+      code: "binding_unavailable",
+    })
   })
 
   it("settles as unmatched when no send matches and nothing is waiting for a binding", async () => {
     const { executor } = recordingExecutor([
       PENDING,
       NONE,
-      { rows: [{ bindable: 0, unbindable: 0 }], rowCount: 1 },
+      { rows: [{ bindable: 0, unbound: 0 }], rowCount: 1 },
       PENDING,
     ])
     expect(await processInboundReply(executor, ID, deps())).toEqual({
@@ -298,14 +380,49 @@ describe("processInboundReply (recorded SQL)", () => {
     expect(
       await processInboundReply(executor, ID, deps(new InboundError("receiving_timeout"))),
     ).toEqual({ outcome: "pending", code: "receiving_timeout" })
-    expect(calls[1]?.params).toEqual([ID, "receiving_timeout"])
+    expect(calls[1]?.params).toEqual([
+      ID,
+      "receiving_timeout",
+      REPLY_MAX_ATTEMPTS,
+      REPLY_MAX_AGE_SECONDS,
+      "reply_unreadable",
+    ])
   })
 
-  it("settles a message Resend no longer holds", async () => {
+  it("settles a receipt that has used its attempts or is a day old", async () => {
+    for (const error of [
+      new InboundError("receiving_http_403"),
+      new InboundError("receiving_malformed"),
+    ]) {
+      const { executor, calls } = recordingExecutor([
+        PENDING,
+        {
+          rows: [{ reply_status: "unmatched", reply_error_code: "reply_unreadable" }],
+          rowCount: 1,
+        },
+      ])
+      expect(await processInboundReply(executor, ID, deps(error))).toEqual({
+        outcome: "unmatched",
+        code: "reply_unreadable",
+      })
+      expect(calls[1]?.text).toContain(
+        "reply_attempts + 1 >= $3 or created_at <= now() - make_interval(secs => $4::int)",
+      )
+    }
+  })
+
+  it("settles a message Resend no longer holds, after an hour's grace", async () => {
     const { executor } = recordingExecutor([PENDING, PENDING])
     expect(
       await processInboundReply(executor, ID, deps(new InboundError("receiving_http_404"))),
     ).toEqual({ outcome: "unmatched", code: "source_missing" })
+
+    const fresh = recordingExecutor([
+      { rows: [{ reply_status: "pending", source_grace_over: false }], rowCount: 1 },
+    ])
+    expect(
+      await processInboundReply(fresh.executor, ID, deps(new InboundError("receiving_http_404"))),
+    ).toEqual({ outcome: "pending", code: "receiving_http_404" })
   })
 
   it("does nothing for an already processed or unknown receipt", async () => {
@@ -324,7 +441,7 @@ describe("processInboundReply (recorded SQL)", () => {
     const { executor, calls } = recordingExecutor([
       PENDING,
       NONE,
-      { rows: [{ bindable: 0, unbindable: 0 }], rowCount: 1 },
+      { rows: [{ bindable: 0, unbound: 0 }], rowCount: 1 },
       PENDING,
     ])
     await processInboundReply(executor, ID, deps())
@@ -332,5 +449,59 @@ describe("processInboundReply (recorded SQL)", () => {
     expect(JSON.stringify(writes.map((call) => call.params))).not.toMatch(
       /@|Secret|amazonses|example/,
     )
+  })
+})
+
+describe("processPendingReplies", () => {
+  it("keeps going when one receipt throws, keeping it pending with a code", async () => {
+    let call = 0
+    const executor = {
+      async query(text: string) {
+        call += 1
+        if (text.startsWith("select id from growth_inbound_receipts")) {
+          return { rows: [{ id: "bad" }, { id: "good" }], rowCount: 2 }
+        }
+        if (text.startsWith("select reply_status, created_at <=") && call === 2) {
+          throw Object.assign(new Error("boom ada@example.com"), { code: "ECONNRESET" })
+        }
+        if (text.startsWith("select reply_status"))
+          return { rows: [{ reply_status: "matched" }], rowCount: 1 }
+        return { rows: [], rowCount: 0 }
+      },
+      transaction: async () => {
+        throw new Error("unused")
+      },
+      end: async () => undefined,
+    }
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const counts = await processPendingReplies(executor as never, {
+      ...deps(),
+      canContinue: () => true,
+    })
+    expect(counts.pending).toBe(1)
+    expect(stderr.mock.calls.map((entry) => String(entry[0])).join("")).toBe(
+      "growth reply processing failed: econnreset\n",
+    )
+    stderr.mockRestore()
+  })
+})
+
+describe("settleReceiptByFounder", () => {
+  it("settles only a pending receipt, with founder_settled and an activity record", async () => {
+    const { executor, calls } = recordingExecutor([PENDING])
+    expect(await settleReceiptByFounder(executor, { id: ID, as: "ignored", now: NOW })).toBe(
+      "settled",
+    )
+    expect(calls[0]?.text).toContain("for update")
+    expect(calls[1]?.params).toEqual([ID, "ignored", "founder_settled"])
+    expect(calls[2]?.text).toContain("inbound.reply_settled")
+    expect(calls[2]?.params?.[2]).toBe(
+      JSON.stringify({ receipt_id: ID, settled_as: "ignored", provenance: "founder_cli" }),
+    )
+    const done = recordingExecutor([{ rows: [{ reply_status: "matched" }], rowCount: 1 }])
+    expect(await settleReceiptByFounder(done.executor, { id: ID, as: "unmatched", now: NOW })).toBe(
+      "not_pending",
+    )
+    expect(done.calls).toHaveLength(1)
   })
 })

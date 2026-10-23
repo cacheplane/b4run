@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { acceptFounderUpdatesForm, DISCLOSURE_VERSION } from "./contacts"
+import { runReplySettle } from "./control"
 import type { SqlExecutor } from "./database"
-import { admitInboundReceipt, type ReceivedEmail, type SentEmail } from "./inbound"
+import { admitInboundReceipt, InboundError, type ReceivedEmail, type SentEmail } from "./inbound"
 import type { Mailer, OutgoingEmail } from "./mailer"
 import {
   backfillOutboundBindings,
   bindOutboundMessageId,
   processInboundReply,
   processPendingReplies,
+  REPLY_MAX_ATTEMPTS,
   type ReplyDeps,
 } from "./replies"
 import {
@@ -25,8 +27,8 @@ const START_AT = new Date("2026-10-20T00:00:00.000Z")
 const APPROVED = new Date("2026-10-21T10:00:00.000Z")
 // Thursday 07:05 PDT: step 1 is due.
 const SEND1_NOW = new Date("2026-10-22T14:05:00.000Z")
-// Friday: the reply arrives.
-const REPLY_AT = new Date("2026-10-23T18:00:00.000Z")
+// Thursday afternoon, inside step 1's binding grace: the reply arrives.
+const REPLY_AT = new Date("2026-10-22T20:00:00.000Z")
 // Tuesday 07:05 PDT: step 2 is due.
 const SEND2_NOW = new Date("2026-10-27T14:05:00.000Z")
 const RECEIPT = "rcv_reply_1"
@@ -69,6 +71,7 @@ const reply = (overrides: Record<string, unknown> = {}): ReceivedEmail => ({
 const replyDeps = (email: ReceivedEmail = reply()): ReplyDeps => ({
   getReceived: async () => email,
   emailHmacSecret: SECRET,
+  selfAddresses: ["brian@b4.run"],
   now: () => REPLY_AT,
 })
 
@@ -180,6 +183,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth reply detection", () => {
           return { messageId: STEP1_MESSAGE_ID }
         },
         canContinue: () => true,
+        now: () => REPLY_AT,
       })
       expect(bindings).toEqual({ bound: 1, waiting: 0, failed: 0 })
       expect(reads).toEqual(["em_1"])
@@ -312,25 +316,184 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth reply detection", () => {
     })
   }, 120_000)
 
-  it("holds the next step until the previous send's Message-ID is bound", async () => {
+  it("holds the next step while the previous send's binding is in its grace, then releases it", async () => {
     await withMigratedDatabase(async (executor) => {
       const { mailer, sent } = countingMailer()
       const contactId = await contactAfterStep1(executor, mailer)
-      const [send] = await leaseDueSends(executor, {
-        now: SEND2_NOW,
-        limit: 1,
-        leaseToken: crypto.randomUUID(),
-      })
-      if (send === undefined) throw new Error("step 2 was not due")
-      expect(await authoriseAndSend(executor, { send, env, mailer, now: SEND2_NOW })).toBe(
-        "held_for_reply",
+      // As if step 1 had first gone out an hour before step 2 fell due.
+      await executor.query(
+        "update growth_sends set first_attempted_at = $2 where contact_id = $1 and step = 1",
+        [contactId, new Date(SEND2_NOW.getTime() - 3600_000)],
       )
+      const leaseAt = async (now: Date) => {
+        const [send] = await leaseDueSends(executor, {
+          now,
+          limit: 1,
+          leaseToken: crypto.randomUUID(),
+        })
+        if (send === undefined) throw new Error("step 2 was not due")
+        return authoriseAndSend(executor, { send, env, mailer, now })
+      }
+      expect(await leaseAt(SEND2_NOW)).toBe("held_for_reply")
       expect((await state(executor, contactId)).sends[1]).toMatchObject({
         status: "pending",
         attempts: 0,
         last_error_code: "reply_binding_pending",
       })
       expect(sent).toHaveLength(1)
+
+      // A refused binding is noted, but still holds until the grace ends.
+      expect(
+        await bindOutboundMessageId(executor, { providerEmailId: "em_1", messageId: "garbage" }),
+      ).toBe("invalid_message_id")
+      expect(await leaseAt(new Date(SEND2_NOW.getTime() + 600_000))).toBe("held_for_reply")
+
+      // A day after step 1 went out, a binding that never came stops holding.
+      expect(await leaseAt(new Date(SEND2_NOW.getTime() + 23 * 3600_000 + 60_000))).toBe("sent")
+      expect(sent).toHaveLength(2)
+    })
+  }, 120_000)
+
+  it("the backfill marks a send unbindable a day after it went out, and rotates failures", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const { mailer } = countingMailer()
+      await contactAfterStep1(executor, mailer)
+      await contactAfterStep1(executor, mailer, "grace@example.com")
+      const reads: string[] = []
+      const failing = {
+        getSent: async (id: string): Promise<SentEmail> => {
+          reads.push(id)
+          return { messageId: null }
+        },
+        canContinue: () => true,
+        batch: 1,
+      }
+      // Inside the grace: nothing is marked, and the two sends take turns at the head.
+      await backfillOutboundBindings(executor, { ...failing, now: () => REPLY_AT })
+      await backfillOutboundBindings(executor, {
+        ...failing,
+        now: () => new Date(REPLY_AT.getTime() + 600_000),
+      })
+      expect([...reads].sort()).toEqual(["em_1", "em_2"])
+      // Past it: marked, and never read again.
+      const late = () => new Date(SEND1_NOW.getTime() + 25 * 3600_000)
+      expect(
+        await backfillOutboundBindings(executor, { ...failing, batch: 10, now: late }),
+      ).toEqual({ bound: 0, waiting: 0, failed: 2 })
+      const codes = await executor.query<{ binding_error_code: string | null }>(
+        "select binding_error_code from growth_sends where status = 'submitted'",
+      )
+      expect(codes.rows.map((row) => row.binding_error_code)).toEqual([
+        "message_id_unavailable",
+        "message_id_unavailable",
+      ])
+      reads.length = 0
+      await backfillOutboundBindings(executor, { ...failing, batch: 10, now: late })
+      expect(reads).toEqual([])
+    })
+  }, 120_000)
+
+  it("a receipt that cannot be read settles after its attempts or a day, and stops holding sends", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const { mailer, sent } = countingMailer()
+      const contactId = await contactAfterStep1(executor, mailer)
+      await bindOutboundMessageId(executor, {
+        providerEmailId: "em_1",
+        messageId: STEP1_MESSAGE_ID,
+      })
+      await admitInboundReceipt(executor, { id: RECEIPT, receivedAt: REPLY_AT })
+      await admitInboundReceipt(executor, { id: "rcv_old", receivedAt: REPLY_AT })
+      const unreadable: ReplyDeps = {
+        ...replyDeps(),
+        getReceived: async () => {
+          throw new InboundError("receiving_http_403")
+        },
+      }
+      expect(await processInboundReply(executor, RECEIPT, unreadable)).toEqual({
+        outcome: "pending",
+        code: "receiving_http_403",
+      })
+      await executor.query("update growth_inbound_receipts set reply_attempts = $2 where id = $1", [
+        RECEIPT,
+        REPLY_MAX_ATTEMPTS - 1,
+      ])
+      expect(await processInboundReply(executor, RECEIPT, unreadable)).toEqual({
+        outcome: "unmatched",
+        code: "reply_unreadable",
+      })
+      await executor.query(
+        "update growth_inbound_receipts set created_at = now() - interval '25 hours' where id = $1",
+        ["rcv_old"],
+      )
+      expect(await processInboundReply(executor, "rcv_old", unreadable)).toEqual({
+        outcome: "unmatched",
+        code: "reply_unreadable",
+      })
+
+      const [send] = await leaseDueSends(executor, {
+        now: SEND2_NOW,
+        limit: 1,
+        leaseToken: crypto.randomUUID(),
+      })
+      if (send === undefined) throw new Error("step 2 was not due")
+      expect(await authoriseAndSend(executor, { send, env, mailer, now: SEND2_NOW })).toBe("sent")
+      expect(sent).toHaveLength(2)
+      expect((await state(executor, contactId)).contact?.stop_reason).toBeNull()
+    })
+  }, 120_000)
+
+  it("the founder can settle a pending receipt, which releases held sends", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const { mailer } = countingMailer()
+      const contactId = await contactAfterStep1(executor, mailer)
+      await bindOutboundMessageId(executor, {
+        providerEmailId: "em_1",
+        messageId: STEP1_MESSAGE_ID,
+      })
+      await admitInboundReceipt(executor, { id: RECEIPT, receivedAt: REPLY_AT })
+      expect(await runReplySettle(executor, { id: RECEIPT, as: "ignored", now: SEND2_NOW })).toBe(
+        "settled as ignored (founder_settled)",
+      )
+      expect((await state(executor, contactId)).receipt).toMatchObject({
+        reply_status: "ignored",
+        reply_error_code: "founder_settled",
+      })
+      expect(await runReplySettle(executor, { id: RECEIPT, as: "unmatched", now: SEND2_NOW })).toBe(
+        "not pending; nothing changed",
+      )
+      await expect(
+        runReplySettle(executor, { id: "rcv_none", as: "ignored", now: SEND2_NOW }),
+      ).rejects.toThrow("no inbound receipt with that id")
+      const activity = await executor.query<{ data: unknown }>(
+        "select data from growth_activity where kind = 'inbound.reply_settled'",
+      )
+      expect(activity.rows).toEqual([
+        { data: { receipt_id: RECEIPT, settled_as: "ignored", provenance: "founder_cli" } },
+      ])
+      const [send] = await leaseDueSends(executor, {
+        now: SEND2_NOW,
+        limit: 1,
+        leaseToken: crypto.randomUUID(),
+      })
+      if (send === undefined) throw new Error("step 2 was not due")
+      expect(await authoriseAndSend(executor, { send, env, mailer, now: SEND2_NOW })).toBe("sent")
+    })
+  }, 120_000)
+
+  it("a contact at the founder's personal mailbox is stopped by their reply", async () => {
+    await withMigratedDatabase(async (executor) => {
+      const { mailer } = countingMailer()
+      const contactId = await contactAfterStep1(executor, mailer, "brian@cacheplane.ai")
+      await bindOutboundMessageId(executor, {
+        providerEmailId: "em_1",
+        messageId: STEP1_MESSAGE_ID,
+      })
+      await admitInboundReceipt(executor, { id: RECEIPT, receivedAt: REPLY_AT })
+      const fromFounder = reply({ from: "Brian Love <brian@cacheplane.ai>" })
+      expect(await processInboundReply(executor, RECEIPT, replyDeps(fromFounder))).toEqual({
+        outcome: "matched",
+      })
+      expect((await state(executor, contactId)).contact?.stop_reason).toBe("reply_received")
     })
   }, 120_000)
 

@@ -204,6 +204,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth inbound forwarding", () => {
         },
         getSent: async () => ({ messageId: null }),
         emailHmacSecret: "unused",
+        selfAddresses: ["brian@b4.run"],
       }
       const report = await recoverInbound(executor, { ...runtime, canContinue: () => true })
       expect(report).toEqual({

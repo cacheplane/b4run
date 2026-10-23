@@ -272,9 +272,10 @@ describe("growth control and report (recorded SQL)", () => {
         ],
         rowCount: 2,
       },
+      { rows: [{ id: "rcv_1", reply_error_code: "receiving_timeout" }], rowCount: 1 },
     ])
     const output = await runReport(executor, env, { command: "sends" })
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     for (const call of calls) expect(call.text.trimStart().startsWith("select")).toBe(true)
     expect(calls[0]?.text).toContain("group by step, status")
     expect(calls[1]?.text).toContain("group by delivery_status")
@@ -288,6 +289,7 @@ describe("growth control and report (recorded SQL)", () => {
     expect(output).toContain("submitted without message id: 1")
     expect(output).toContain("inbound reply matched: 2")
     expect(output).toContain("inbound reply pending: 1")
+    expect(output).toContain("pending reply receipt: rcv_1 (receiving_timeout)")
     expect(output).not.toContain("@")
   })
 

@@ -1,8 +1,14 @@
 -- Reply detection. A sequence send records the RFC Message-ID Resend gave it, so a reply's
 -- In-Reply-To or References can be matched to it. Receipts record the outcome of reply
 -- processing as ids and codes only: never a subject, body, sender address, or header value.
-alter table growth_sends add column rfc_message_id text unique
-  check (rfc_message_id ~ '^<[^<>[:space:]@]+@[a-z0-9.-]+>$' and length(rfc_message_id) <= 998);
+alter table growth_sends
+  add column rfc_message_id text unique
+    check (rfc_message_id ~ '^<[^<>[:space:]@]+@[a-z0-9.-]+>$' and length(rfc_message_id) <= 998),
+  -- Set when a binding can never be made (refused, or no Message-ID a day after the send); the
+  -- backfill then stops reading that send.
+  add column binding_error_code text,
+  -- The backfill's last read, so a send that keeps failing rotates to the back.
+  add column binding_attempted_at timestamptz;
 
 -- Receipts admitted before this migration start as pending too, so the next tick processes them.
 alter table growth_inbound_receipts
@@ -16,5 +22,5 @@ alter table growth_inbound_receipts
 create index growth_inbound_receipts_reply_pending on growth_inbound_receipts (updated_at, id)
   where reply_status = 'pending';
 
-create index growth_sends_unbound on growth_sends (updated_at, id)
-  where status = 'submitted' and rfc_message_id is null;
+create index growth_sends_unbound on growth_sends (binding_attempted_at nulls first, created_at, id)
+  where status = 'submitted' and rfc_message_id is null and binding_error_code is null;

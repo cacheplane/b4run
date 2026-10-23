@@ -10,7 +10,7 @@ import {
 import type { SqlExecutor } from "./database"
 import { DIGEST_KIND } from "./digest"
 import type { GrowthEnv } from "./env"
-import { REPLY_PROVENANCE } from "./replies"
+import { REPLY_PROVENANCE, settleReceiptByFounder } from "./replies"
 import { createActionToken, unsubscribeUrl } from "./tokens"
 
 const NOT_FOUND = "no contact found for that address"
@@ -171,6 +171,21 @@ export async function runControl(
     : "already deleted; nothing changed"
 }
 
+/** `growth:control reply-settle`: releases one pending receipt that holds sends. */
+export async function runReplySettle(
+  executor: SqlExecutor,
+  args: { id: string; as: string; now: Date },
+): Promise<string> {
+  if (args.as !== "unmatched" && args.as !== "ignored") {
+    throw new Error("--as must be unmatched or ignored")
+  }
+  const result = await settleReceiptByFounder(executor, { id: args.id, as: args.as, now: args.now })
+  if (result === "unknown_receipt") throw new Error("no inbound receipt with that id")
+  return result === "settled"
+    ? `settled as ${args.as} (founder_settled)`
+    : "not pending; nothing changed"
+}
+
 export async function runReport(
   executor: SqlExecutor,
   env: GrowthEnv,
@@ -209,11 +224,19 @@ export async function runReport(
     const replies = await executor.query<{ reply_status: string; total: string }>(
       "select reply_status, count(*) as total from growth_inbound_receipts group by reply_status order by reply_status",
     )
+    // Receipt ids and codes only, so the founder can look each one up in Resend or settle it.
+    const pendingReceipts = await executor.query<{ id: string; reply_error_code: string | null }>(
+      "select id, reply_error_code from growth_inbound_receipts where reply_status = 'pending' order by created_at, id limit 20",
+    )
     return [
       ...byStep.rows.map((row) => `step ${row.step} ${row.status}: ${row.total}`),
       ...byDelivery.rows.map((row) => `delivery ${row.delivery_status}: ${row.total}`),
       `submitted without message id: ${unbound.rows[0]?.total ?? "0"}`,
       ...replies.rows.map((row) => `inbound reply ${row.reply_status}: ${row.total}`),
+      ...pendingReceipts.rows.map(
+        (row) =>
+          `pending reply receipt: ${row.id} (${row.reply_error_code ?? "not yet processed"})`,
+      ),
       `last digest: ${digest.rows[0]?.date ?? "none"}`,
     ].join("\n")
   }
