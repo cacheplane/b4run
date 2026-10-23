@@ -544,6 +544,11 @@ async function installTemplateTypegenDependencies(appRoot: string): Promise<void
         "",
       ].join("\n"),
     ),
+    // Template tsconfigs extend this package before Vite loads b4.config.ts.
+    linkDirectory(
+      join(repoRoot, "packages", "config-typescript"),
+      join(modulesDir, "@b4run", "config-typescript"),
+    ),
     linkDirectory(
       join(repoRoot, "packages", "core", "node_modules", "zod"),
       join(modulesDir, "zod"),
