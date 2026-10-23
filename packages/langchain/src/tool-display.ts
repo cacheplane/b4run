@@ -1,5 +1,6 @@
 import {
   B4_STEP_EVENT_NAME,
+  type B4ToolStep,
   TOOL_DISPLAY_LABEL_MAX,
   type ToolDisplay,
   type ToolDisplayIcon,
@@ -18,12 +19,8 @@ export interface StepPayload {
   readonly sources?: readonly ToolDisplaySource[]
 }
 
-// Slice 2 changes the emitters to the camelCase `B4ToolStep` shape; until then this snake_case shape stays.
-/** The converter sets `tool_call_id` and `status`; this module only produces the payload. */
-export interface StepEventData extends StepPayload {
-  readonly tool_call_id: string
-  readonly status: "running" | "completed" | "denied"
-}
+/** The versioned live step, including the call identity required by CUSTOM events. */
+export type StepEventData = B4ToolStep & { readonly toolCallId: string }
 
 const warned = new Set<string>()
 
@@ -89,7 +86,7 @@ export function describeRunning(
   display: ToolDisplay,
   input: unknown,
   toolName: string,
-): StepPayload {
+): Omit<StepPayload, "sources"> {
   const fn = display.running
   const label = fn ? readLabel(toolName, "running", () => fn(input)) : undefined
   return {

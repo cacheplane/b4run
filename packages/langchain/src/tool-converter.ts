@@ -15,11 +15,12 @@ import {
   B4_STEP_KEY,
   type B4ContentPart,
   type B4Principal,
+  type B4ToolStep,
   type BuiltInModelProviderId,
   contentPartsText,
   type GateDecision,
   isToolDenial,
-  type PersistedStep,
+  readToolStep,
   type ToolDisplay,
   type ToolDisplayIcon,
 } from "@b4run/sdk"
@@ -50,6 +51,8 @@ import {
 import { unwrapToolResult } from "./unwrap-tool-result.js"
 
 interface B4ToolDefinition {
+  /** Internal: a permission wrapper reports execution after all checks pass. */
+  readonly b4ExecutionGated?: true
   readonly description?: string
   readonly name: string
   readonly run: (
@@ -74,6 +77,8 @@ interface B4ToolDefinition {
        * call's step. Absent outside the runtime's converter.
        */
       readonly onGateDecision?: (decision: GateDecision) => void
+      /** Internal execution signal, awaited after policy checks and before the tool body. */
+      readonly onExecutionStart?: () => Promise<void>
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown
@@ -157,12 +162,21 @@ export function convertToolToLangChain(
       // A step is only worth streaming when a client can attach it to a call.
       const display = toolCallId !== "" ? tool.display : undefined
       const running = display !== undefined ? describeRunning(display, input, tool.name) : undefined
-      if (running !== undefined) {
-        await dispatchStep(liveConfig, { tool_call_id: toolCallId, status: "running", ...running })
+      let startedAt: number | undefined
+      const onExecutionStart = async (): Promise<void> => {
+        if (startedAt !== undefined || tool.clientTool === true) return
+        startedAt = Date.now()
+        if (toolCallId !== "") {
+          await dispatchStep(liveConfig, {
+            v: 1,
+            kind: "server",
+            toolCallId,
+            status: "running",
+            startedAt,
+            ...running,
+          })
+        }
       }
-      // The converter's own clock bounds the call; both ends ride on the
-      // persisted step so a restored thread knows how long the tool took.
-      const startedAt = new Date().toISOString()
       let decision: GateDecision | undefined
       const context = {
         ...(middlewareContext ? { middleware: middlewareContext } : {}),
@@ -174,20 +188,34 @@ export function convertToolToLangChain(
         // A gate that parks this call keeps its running display on the
         // interrupt: a parked call has no ToolMessage to stamp.
         ...(running !== undefined && Object.keys(running).length > 0 ? { step: running } : {}),
+        onExecutionStart,
         onGateDecision: (reported: GateDecision) => {
           decision = reported
         },
       }
-      const persisted = (status: PersistedStep["status"], payload: StepPayload): PersistedStep => ({
-        status,
-        ...payload,
-        startedAt,
-        settledAt: new Date().toISOString(),
-        ...(decision !== undefined ? { decision } : {}),
-      })
+      const persisted = (status: B4ToolStep["status"], payload: StepPayload): B4ToolStep => {
+        const normalized = readToolStep({ status, ...payload }, toolCallId || undefined)
+        const { sources: _sources, ...displayPayload } = payload
+        return {
+          v: 1,
+          kind: "server",
+          status,
+          ...displayPayload,
+          ...(normalized?.sources !== undefined ? { sources: normalized.sources } : {}),
+          ...(startedAt !== undefined ? { startedAt } : {}),
+          settledAt: Date.now(),
+          ...(decision !== undefined ? { decision } : {}),
+        }
+      }
+      const emitSettled = async (step: B4ToolStep): Promise<void> => {
+        if (toolCallId !== "" && tool.clientTool !== true) {
+          await dispatchStep(liveConfig, { ...step, toolCallId })
+        }
+      }
       const body = async () => {
         let rawResult: unknown
         try {
+          if (tool.b4ExecutionGated !== true) await onExecutionStart()
           rawResult = await tool.run(input, context)
         } catch (error) {
           // A park or an abort is not a failure and must keep propagating.
@@ -197,13 +225,18 @@ export function convertToolToLangChain(
           if (isGraphInterrupt(error) || signal.aborted) throw error
           const failed = toolErrorMessage(error, tool.name, toolCallId)
           const reason = error instanceof Error ? error.message : String(error)
+          const failedStep: B4ToolStep = {
+            ...persisted("failed", describeFailed(display, input, reason, tool.name)),
+            error: { message: reason || "Tool call did not finish" },
+          }
+          await emitSettled(failedStep)
           return new ToolMessage({
             tool_call_id: toolCallId,
             name: tool.name,
             status: "error",
             content: failed.content,
             additional_kwargs: {
-              [B4_STEP_KEY]: persisted("failed", describeFailed(display, input, reason, tool.name)),
+              [B4_STEP_KEY]: failedStep,
             },
           })
         }
@@ -262,6 +295,7 @@ export function convertToolToLangChain(
         // would have set it had it wrapped a string. A denial keeps `success`:
         // an `error` status would make the live translator append a `failed`
         // step after the result, and `failed` wins over `denied` in the reducer.
+        const settledStep = persisted(denied ? "denied" : "completed", step)
         const toolMessage = (): ToolMessage =>
           new ToolMessage({
             tool_call_id: toolCallId,
@@ -269,7 +303,7 @@ export function convertToolToLangChain(
             status: "success",
             additional_kwargs: {
               ...(partsForUi !== undefined ? { [B4_CONTENT_PARTS_KEY]: partsForUi } : {}),
-              [B4_STEP_KEY]: persisted(denied ? "denied" : "completed", step),
+              [B4_STEP_KEY]: settledStep,
             },
             // Blocks go in as `content:` with the v1 mark (see `V1_RESPONSE_METADATA`).
             ...(typeof finalContent === "string"
@@ -306,13 +340,7 @@ export function convertToolToLangChain(
           }
         }
 
-        if (display !== undefined) {
-          await dispatchStep(liveConfig, {
-            tool_call_id: toolCallId,
-            status: denied ? "denied" : "completed",
-            ...step,
-          })
-        }
+        await emitSettled(settledStep)
 
         return convertedResult
       }

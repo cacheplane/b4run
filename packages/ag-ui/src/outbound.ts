@@ -23,12 +23,20 @@ import type {
   ToolCallStartEvent,
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
-import { B4_STEP_KEY, isContentPartArray, readPersistedStep } from "@b4run/sdk"
+import {
+  B4_STEP_KEY,
+  B4_STEP_METADATA_KEY,
+  type B4ToolStep,
+  type B4ToolStepUpdate,
+  isContentPartArray,
+  mergeToolStep,
+  readToolStep,
+} from "@b4run/sdk"
 import { createB4ActivityProjector } from "./activities.js"
 import { createDefaultIdFactory, type IdFactory } from "./ids.js"
 import { toAguiInterrupt } from "./interrupts.js"
 import { createOrchestrationLedger } from "./orchestration-ledger.js"
-import { B4_STEP_EVENT_NAME, type B4StepEventValue } from "./step.js"
+import { B4_STEP_EVENT_NAME } from "./step.js"
 import { asSubagentEndData, asSubagentStartData, unwrapSubagentChunk } from "./subagent-chunks.js"
 import {
   asStepData,
@@ -98,6 +106,10 @@ interface OwnerState {
    * how the announce closes one.
    */
   readonly openStreamedToolCalls: Map<string, string>
+  /** Current contract steps, including updates held before their call frames. */
+  readonly steps: Map<string, B4ToolStep>
+  /** Distinguishes a resumed call from a step held before its first START. */
+  readonly announcedToolCallIds: Set<string>
   readonly pendingFallbackToolCallIds: Map<string, string[]>
   /**
    * Every model invocation's AG-UI message id, kept after its text ends: the
@@ -202,15 +214,25 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function readToolMessageFields(
   value: unknown,
+  toolCallId?: string,
 ):
-  | { readonly content: unknown; readonly status: unknown; readonly additionalKwargs: unknown }
+  | {
+      readonly toolCallId: string
+      readonly content: unknown
+      readonly status: unknown
+      readonly additionalKwargs: unknown
+      readonly error: unknown
+    }
   | undefined {
   if (!isPlainObject(value)) return undefined
   const fields = isPlainObject(value.kwargs) ? value.kwargs : value
   if (typeof fields.tool_call_id !== "string") return undefined
+  if (toolCallId !== undefined && fields.tool_call_id !== toolCallId) return undefined
   return {
+    toolCallId: fields.tool_call_id,
     content: fields.content,
     status: fields.status,
+    error: fields.error,
     additionalKwargs: fields.additional_kwargs,
   }
 }
@@ -220,9 +242,12 @@ function readToolMessageFields(
  * ToolMessage persists — the same stamp a restored thread reads, so the live
  * step and the restored one say the same thing.
  */
-function failedStep(fields: { readonly additionalKwargs: unknown }): ToolResultView["failedStep"] {
+function failedStep(fields: {
+  readonly additionalKwargs: unknown
+  readonly toolCallId: string
+}): ToolResultView["failedStep"] {
   if (!isPlainObject(fields.additionalKwargs)) return undefined
-  const step = readPersistedStep(fields.additionalKwargs[B4_STEP_KEY])
+  const step = readToolStep(fields.additionalKwargs[B4_STEP_KEY], fields.toolCallId)
   if (step?.status !== "failed") return undefined
   return {
     ...(step.icon !== undefined ? { icon: step.icon } : {}),
@@ -231,13 +256,27 @@ function failedStep(fields: { readonly additionalKwargs: unknown }): ToolResultV
 }
 
 function viewOf(fields: {
+  readonly toolCallId: string
+  readonly error: unknown
   readonly content: unknown
   readonly status: unknown
   readonly additionalKwargs: unknown
 }): ToolResultView {
-  const failed = fields.status === "error"
+  const persisted = isPlainObject(fields.additionalKwargs)
+    ? readToolStep(fields.additionalKwargs[B4_STEP_KEY], fields.toolCallId)
+    : undefined
+  const toolStep =
+    persisted === undefined ? undefined : mergeToolStep(undefined, persisted, "message")
+  const error = typeof fields.error === "string" && fields.error !== "" ? fields.error : undefined
+  const failed = fields.status === "error" || toolStep?.status === "failed" || error !== undefined
   const step = failed ? failedStep(fields) : undefined
-  return { content: contentText(fields.content), failed, ...(step ? { failedStep: step } : {}) }
+  return {
+    content: contentText(fields.content),
+    failed,
+    ...(step ? { failedStep: step } : {}),
+    ...(toolStep !== undefined ? { step: toolStep } : {}),
+    ...(error !== undefined ? { error } : {}),
+  }
 }
 
 /** A ToolMessage's text: a string as-is, content parts joined by their text parts. */
@@ -258,8 +297,12 @@ function contentText(content: unknown): string {
 export interface ToolResultView {
   readonly content: string
   readonly failed: boolean
+  /** A stored ToolMessage error, when its producer carried one. */
+  readonly error?: string
+  /** The normalized persisted step when the ToolMessage carries one. */
+  readonly step?: B4ToolStep
   /** A failed call's persisted icon and `failed` label, when it has them. */
-  readonly failedStep?: Pick<B4StepEventValue, "icon" | "label"> | undefined
+  readonly failedStep?: Pick<B4ToolStep, "icon" | "label"> | undefined
 }
 
 /**
@@ -269,9 +312,9 @@ export interface ToolResultView {
  * tool that threw. The protocol wants the tool's output, so unwrap all three;
  * a bare value (tests, third-party producers) is serialized as before.
  */
-export function toolResultView(output: unknown): ToolResultView {
+export function toolResultView(output: unknown, toolCallId?: string): ToolResultView {
   try {
-    const direct = readToolMessageFields(output)
+    const direct = readToolMessageFields(output, toolCallId)
     if (direct !== undefined) return viewOf(direct)
     if (
       isPlainObject(output) &&
@@ -280,7 +323,7 @@ export function toolResultView(output: unknown): ToolResultView {
     ) {
       const messages = output.update.messages
       for (let index = messages.length - 1; index >= 0; index--) {
-        const fields = readToolMessageFields(messages[index])
+        const fields = readToolMessageFields(messages[index], toolCallId)
         if (fields !== undefined) return viewOf(fields)
       }
     }
@@ -347,6 +390,8 @@ function newOwnerState(): OwnerState {
     openReasoning: null,
     identifiedReasoning: new Map(),
     openStreamedToolCalls: new Map(),
+    steps: new Map(),
+    announcedToolCallIds: new Set(),
     pendingFallbackToolCallIds: new Map(),
     modelMessages: new Map(),
     endedModelText: new Set(),
@@ -359,7 +404,7 @@ function tag<E extends AguiOutboundEvent>(owner: Owner, event: E): E {
   return owner === undefined ? event : { ...event, subagentRunId: owner }
 }
 
-function stepEvent(owner: Owner, value: B4StepEventValue): CustomEvent {
+function stepEvent(owner: Owner, value: B4ToolStep & { readonly toolCallId: string }): CustomEvent {
   return tag(owner, { type: EventType.CUSTOM, name: B4_STEP_EVENT_NAME, value })
 }
 
@@ -396,6 +441,34 @@ export async function* toAguiEvents(
       owners.set(owner, state)
     }
     return state
+  }
+
+  /** Metadata omits the call id: the carrying frame already names it. */
+  function stepMetadata(state: OwnerState, toolCallId: string) {
+    const step = state.steps.get(toolCallId)
+    return step === undefined ? {} : { metadata: { [B4_STEP_METADATA_KEY]: step } }
+  }
+
+  /** A repeated START reopens cancellation; first START still applies held steps. */
+  function announceToolStep(state: OwnerState, toolCallId: string): void {
+    const held = state.steps.get(toolCallId)
+    if (state.announcedToolCallIds.has(toolCallId) && held?.status === "cancelled") {
+      const { label: _label, settledAt: _settledAt, ...rest } = held
+      state.steps.set(toolCallId, { ...rest, status: "running" })
+    }
+    state.announcedToolCallIds.add(toolCallId)
+  }
+
+  function storeStep(
+    state: OwnerState,
+    toolCallId: string,
+    update: B4ToolStepUpdate,
+    source: "call" | "message",
+  ) {
+    const { toolCallId: _id, ...withoutId } = update
+    const step = mergeToolStep(state.steps.get(toolCallId), withoutId, source)
+    state.steps.set(toolCallId, step)
+    return step
   }
 
   function* emit(owner: Owner, event: AguiOutboundEvent): Generator<AguiOutboundEvent> {
@@ -494,7 +567,11 @@ export async function* toAguiEvents(
   function* closeStreamedToolCalls(owner: Owner): Generator<AguiOutboundEvent> {
     const state = stateFor(owner)
     for (const toolCallId of state.openStreamedToolCalls.keys()) {
-      yield* emit(owner, { type: EventType.TOOL_CALL_END, toolCallId })
+      yield* emit(owner, {
+        type: EventType.TOOL_CALL_END,
+        toolCallId,
+        ...stepMetadata(state, toolCallId),
+      })
     }
     state.openStreamedToolCalls.clear()
   }
@@ -690,11 +767,13 @@ export async function* toAguiEvents(
         if (sent === undefined) {
           yield* flushText(owner)
           state.openStreamedToolCalls.set(fragment.id, "")
+          announceToolStep(state, fragment.id)
           yield* emit(owner, {
             type: EventType.TOOL_CALL_START,
             toolCallId: fragment.id,
             toolCallName: fragment.name,
             parentMessageId: modelMessageId(state, fragment.messageId),
+            ...stepMetadata(state, fragment.id),
           })
         }
         if (fragment.delta.length === 0) break
@@ -726,7 +805,11 @@ export async function* toAguiEvents(
               delta: full.slice(sent.length),
             })
           }
-          yield* emit(owner, { type: EventType.TOOL_CALL_END, toolCallId: tc.id })
+          yield* emit(owner, {
+            type: EventType.TOOL_CALL_END,
+            toolCallId: tc.id,
+            ...stepMetadata(state, tc.id),
+          })
           break
         }
         const toolCallId = tc.id ?? nextId("toolCall")
@@ -738,19 +821,25 @@ export async function* toAguiEvents(
             state.pendingFallbackToolCallIds.set(tc.name, [toolCallId])
           }
         }
+        announceToolStep(state, toolCallId)
         const frames: AguiOutboundEvent[] = [
           tag(owner, {
             type: EventType.TOOL_CALL_START,
             toolCallId,
             toolCallName: tc.name,
             parentMessageId: modelMessageId(state, tc.messageId),
+            ...stepMetadata(state, toolCallId),
           }),
           tag(owner, {
             type: EventType.TOOL_CALL_ARGS,
             toolCallId,
             delta: stringifyArgs(tc.input),
           }),
-          tag(owner, { type: EventType.TOOL_CALL_END, toolCallId }),
+          tag(owner, {
+            type: EventType.TOOL_CALL_END,
+            toolCallId,
+            ...stepMetadata(state, toolCallId),
+          }),
         ]
         if (owner === undefined) {
           yield* ledger.onToolCall(tc.id, tc.name, frames)
@@ -770,21 +859,58 @@ export async function* toAguiEvents(
           tr.id === undefined ? state.pendingFallbackToolCallIds.get(tr.name) : undefined
         const toolCallId = tr.id ?? pending?.shift() ?? nextId("toolCall")
         if (pending?.length === 0) state.pendingFallbackToolCallIds.delete(tr.name)
-        const view = toolResultView(tr.output)
+        const view = toolResultView(tr.output, tr.id)
+        const previous = state.steps.get(toolCallId)
+        if (view.step !== undefined) storeStep(state, toolCallId, view.step, "message")
+        if (view.failed) {
+          storeStep(
+            state,
+            toolCallId,
+            {
+              v: 1,
+              kind: view.step?.kind ?? previous?.kind ?? "server",
+              status: "failed",
+              ...(view.failedStep ?? {}),
+              error: view.step?.error ?? {
+                message: view.error ?? (view.content || "Tool call did not finish"),
+              },
+            },
+            "message",
+          )
+        } else if (state.steps.get(toolCallId)?.status === "running") {
+          // Frame-only completion clears the running label, but retains sources.
+          const held = state.steps.get(toolCallId)
+          storeStep(
+            state,
+            toolCallId,
+            {
+              v: 1,
+              status: "completed",
+              ...(held?.sources !== undefined ? { sources: held.sources } : {}),
+            },
+            "message",
+          )
+        }
+        const finalStep = state.steps.get(toolCallId)
         const resultEvent: ToolCallResultEvent = tag(owner, {
           type: EventType.TOOL_CALL_RESULT,
           messageId: nextId("toolResult"),
           toolCallId,
           content: toResultContent(tr.output, tr.id, view),
+          ...stepMetadata(state, toolCallId),
+          ...(finalStep?.status === "failed"
+            ? { error: finalStep.error?.message ?? "Tool call did not finish" }
+            : {}),
         })
+        if (finalStep === undefined) {
+          state.steps.set(toolCallId, { v: 1, kind: "server", status: "completed" })
+        }
         // A tool that threw: say so on the step, since the result's text alone
         // cannot tell an error from an answer. The step shares the result's
         // fate in the ledger (a suppressed result suppresses it too).
         const events: AguiOutboundEvent[] = [
           resultEvent,
-          ...(view.failed
-            ? [stepEvent(owner, { toolCallId, status: "failed", ...view.failedStep })]
-            : []),
+          ...(view.failed ? [stepEvent(owner, { ...(finalStep as B4ToolStep), toolCallId })] : []),
         ]
         if (owner === undefined) {
           yield* ledger.onToolResult(tr.id, tr.name, events)
@@ -797,16 +923,11 @@ export async function* toAguiEvents(
         // No flushText, unlike `content_parts_dropped`: a step describes a call the text already yielded to.
         const step = asStepData(chunk.data)
         if (!step) break
-        const event = stepEvent(owner, {
-          toolCallId: step.tool_call_id,
-          status: step.status,
-          ...(step.icon !== undefined ? { icon: step.icon } : {}),
-          ...(step.label !== undefined ? { label: step.label } : {}),
-          ...(step.sources !== undefined ? { sources: step.sources } : {}),
-        })
+        const merged = storeStep(state, step.toolCallId, step, "call")
+        const event = stepEvent(owner, { ...merged, toolCallId: step.toolCallId })
         // A root step shares its call's fate in the ledger; a child's never waits.
         yield* owner === undefined
-          ? ledger.onToolStep(step.tool_call_id, event)
+          ? ledger.onToolStep(step.toolCallId, event)
           : ledger.onPassthrough(event)
         break
       }

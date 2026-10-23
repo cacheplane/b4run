@@ -1,5 +1,4 @@
-import { isToolDisplayIcon, type ToolDisplayIcon, type ToolDisplaySource } from "@b4run/sdk"
-import { B4_STEP_STATUSES, type B4StepStatus } from "./step.js"
+import { type B4ToolStepUpdate, readToolStepUpdate } from "@b4run/sdk"
 
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
@@ -117,37 +116,18 @@ export function asToolResultData(data: unknown): B4ToolResultData | null {
   }
 }
 
-/** The `step` chunk the langchain adapter forwards from a `b4.step` custom event. */
-export interface B4StepData {
-  readonly tool_call_id: string
-  readonly status: B4StepStatus
-  readonly icon?: ToolDisplayIcon | undefined
-  readonly label?: string | undefined
-  readonly sources?: ReadonlyArray<ToolDisplaySource> | undefined
+/** A normalized versioned step update, accepting legacy input at the boundary. */
+export interface B4StepData extends B4ToolStepUpdate {
+  readonly toolCallId: string
 }
 
-const STEP_STATUSES: ReadonlySet<string> = new Set<string>(B4_STEP_STATUSES)
-
-/** Validates and narrows a `step` chunk's `data`. Returns null if malformed. */
+/** Validates and normalizes a `step` chunk with the shared contract reader. */
 export function asStepData(data: unknown): B4StepData | null {
   if (!isRecord(data)) return null
-  if (typeof data.tool_call_id !== "string" || data.tool_call_id === "") return null
-  if (typeof data.status !== "string" || !STEP_STATUSES.has(data.status)) return null
-  const sources = Array.isArray(data.sources)
-    ? data.sources.flatMap((entry) => {
-        if (!isRecord(entry) || typeof entry.title !== "string" || entry.title === "") return []
-        return [
-          { title: entry.title, ...(typeof entry.href === "string" ? { href: entry.href } : {}) },
-        ]
-      })
-    : undefined
-  return {
-    tool_call_id: data.tool_call_id,
-    status: data.status as B4StepData["status"],
-    ...(isToolDisplayIcon(data.icon) ? { icon: data.icon } : {}),
-    ...(typeof data.label === "string" && data.label !== "" ? { label: data.label } : {}),
-    ...(sources !== undefined ? { sources } : {}),
-  }
+  const toolCallId = data.toolCallId ?? data.tool_call_id
+  if (typeof toolCallId !== "string" || toolCallId === "") return null
+  const step = readToolStepUpdate({ ...data, toolCallId })
+  return step === undefined ? null : { ...step, toolCallId }
 }
 
 /** Validates and narrows a `usage` chunk's `data`. Returns null if malformed. */

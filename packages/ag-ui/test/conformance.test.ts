@@ -400,17 +400,21 @@ it("a full turn passes 1.0 enforcement with nothing stripped", async () => {
   const steps = custom.filter((event) => event.name === "b4.step")
   expect(steps.map((event) => event.value)).toEqual([
     {
+      v: 1,
+      kind: "server",
       toolCallId: ORDINARY_TOOL_CALL_ID,
       status: "running",
       icon: "search",
       label: "Searching the corpus for “agents”",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: ORDINARY_TOOL_CALL_ID,
       status: "completed",
       icon: "search",
       label: "Searched the corpus for “agents”",
-      sources: [{ title: "corpus/a.md" }],
+      sources: [{ id: `${ORDINARY_TOOL_CALL_ID}:0`, kind: "record", title: "corpus/a.md" }],
     },
   ])
   for (const step of steps) expect(step).not.toHaveProperty("subagentRunId")

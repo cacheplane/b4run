@@ -168,11 +168,11 @@ describe("describeRunning / describeDone", () => {
   it("dispatchStep resolves when dispatching rejects", async () => {
     dispatchCustomEvent.mockRejectedValue(new Error("no run"))
     await expect(
-      dispatchStep(undefined, { tool_call_id: "c1", status: "running" }),
+      dispatchStep(undefined, { v: 1, kind: "server", toolCallId: "c1", status: "running" }),
     ).resolves.toBeUndefined()
     expect(dispatchCustomEvent).toHaveBeenCalledWith(
       "b4.step",
-      { tool_call_id: "c1", status: "running" },
+      { v: 1, kind: "server", toolCallId: "c1", status: "running" },
       undefined,
     )
   })

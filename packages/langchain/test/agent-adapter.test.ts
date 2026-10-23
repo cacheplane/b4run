@@ -1919,6 +1919,17 @@ describe("b4.step custom events", () => {
     }
   }
 
+  test("forwards versioned CUSTOM steps and ignores unsupported versions", async () => {
+    const step = { v: 1, kind: "server", toolCallId: "call_v1", status: "running", startedAt: 42 }
+
+    const chunks = await collectChunksFromEvents([
+      { event: "on_custom_event", run_id: "custom-v1", name: "b4.step", data: step },
+      { event: "on_custom_event", run_id: "custom-v2", name: "b4.step", data: { ...step, v: 2 } },
+    ])
+
+    expect(chunks.filter((chunk) => chunk.type === "step")).toEqual([{ type: "step", data: step }])
+  })
+
   test("becomes a root `step` chunk with its tool_call_id intact", async () => {
     const chunks = await collectChunksFromEvents([
       {

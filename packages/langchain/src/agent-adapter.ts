@@ -14,6 +14,7 @@ import {
   CLIENT_TOOL_RECORDER_KEY,
   isB4Agent,
   isContentPart,
+  readToolStep,
 } from "@b4run/sdk"
 import {
   type BaseMessageLike,
@@ -1027,12 +1028,14 @@ function classifyStreamEvent(
     case "on_custom_event": {
       if (event.name === B4_STEP_EVENT_NAME) {
         // A step names the call it describes. Unlike `childData`, a child's
-        // step KEEPS its tool_call_id: since #914 a child's tool frames are
+        // step KEEPS its call identity: since #914 a child's tool frames are
         // public (tagged `subagentRunId`), so the id is the one the client
         // already has for that call. `childData` still strips ids from
         // capability events on purpose; don't route steps through it or relax
         // it there.
-        if (!isRecord(event.data) || typeof event.data.tool_call_id !== "string") break
+        if (!isRecord(event.data)) break
+        const callId = event.data.toolCallId ?? event.data.tool_call_id
+        if (typeof callId !== "string" || callId === "" || !readToolStep(event.data, callId)) break
         return {
           capturesFinalOutput: false,
           child,

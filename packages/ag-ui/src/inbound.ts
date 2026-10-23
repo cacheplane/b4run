@@ -1,5 +1,10 @@
 import type { Message, RunAgentInput } from "@ag-ui/core"
-import { type B4MessageContent, isContentPart } from "@b4run/sdk"
+import {
+  B4_STEP_METADATA_KEY,
+  type B4MessageContent,
+  isContentPart,
+  readToolStep,
+} from "@b4run/sdk"
 import { type B4ResumeRequest, fromAguiResume } from "./interrupts.js"
 
 export interface B4Message {
@@ -73,6 +78,11 @@ function toB4Message(message: Message): B4Message | null {
   }
 }
 
+/** Whether a call or result carries the provider-only replay marker. */
+function hasProviderStep(value: { readonly metadata?: Record<string, unknown> }): boolean {
+  return readToolStep(value.metadata?.[B4_STEP_METADATA_KEY])?.kind === "provider"
+}
+
 /**
  * Map an AG-UI `RunAgentInput` to a B4.run run input. Messages are translated
  * structurally (`reasoning`/`activity` history is dropped, not replayed as
@@ -81,7 +91,21 @@ function toB4Message(message: Message): B4Message | null {
  * interpreted in v1 - reach them via `raw`.
  */
 export function fromRunAgentInput(input: RunAgentInput): B4RunInput {
+  // Calls themselves are already omitted by the structural message mapping.
+  // Their provider marker also excludes results that carry no metadata of their own.
+  const providerCallIds = new Set(
+    input.messages.flatMap((message) =>
+      message.role === "assistant"
+        ? (message.toolCalls ?? []).filter(hasProviderStep).map((call) => call.id)
+        : [],
+    ),
+  )
   const messages = input.messages.flatMap((message) => {
+    if (
+      message.role === "tool" &&
+      (hasProviderStep(message) || providerCallIds.has(message.toolCallId))
+    )
+      return []
     const mapped = toB4Message(message)
     return mapped === null ? [] : [mapped]
   })

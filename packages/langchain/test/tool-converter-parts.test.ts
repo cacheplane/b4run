@@ -51,11 +51,13 @@ describe("tool results with content parts", () => {
     const out = (await converted.invoke({}, config)) as ToolMessage
     expect(out.additional_kwargs[B4_CONTENT_PARTS_KEY]).toEqual(parts)
     expect(out.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "read",
       label: "Read it",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -79,7 +81,9 @@ describe("tool results with content parts", () => {
       { type: "text", text: "here" },
       png,
     ])
-    expect(dispatchCustomEvent).not.toHaveBeenCalled()
+    expect(
+      vi.mocked(dispatchCustomEvent).mock.calls.filter((call) => call[0] === "b4.capability"),
+    ).toEqual([])
   })
 
   it("keeps media out of the model's view when the profile refuses it, and announces the drop", async () => {

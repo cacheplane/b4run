@@ -203,7 +203,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `readAnswerAnnotations` | Normalize `b4.answer` annotations. |
 | `mergeToolStep` | Merge a step from a call or a message into the stored step by the contract's rules. |
 | `settleOpenSteps` | Settle running steps at a run's end: `failed` after an error, `cancelled` after a cancel or interrupt, sparing the interrupt's open calls. |
-| `B4_STEP_KEY` | The `additional_kwargs` key under which every ToolMessage persists its step (`b4_step`). |
+| `B4_STEP_KEY` | The `additional_kwargs` key under which every ToolMessage persists its v1 `B4ToolStep` (`b4_step`); read old and new values with `readToolStep`. |
 | `B4_SUBAGENT_KEY` | The `additional_kwargs` key under which a `task` ToolMessage persists the subagent it launched (`b4_subagent`). |
 | `B4_TURN_METADATA_KEY` | The checkpoint-metadata key under which the runtime stamps how a turn ended (`b4:turn`). |
 | `GateDecision` | How a permission gate was answered: `once`, `always` or `deny`. |

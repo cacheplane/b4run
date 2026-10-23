@@ -19,7 +19,7 @@ import {
   StateGraph,
 } from "@langchain/langgraph"
 import { ToolNode } from "@langchain/langgraph/prebuilt"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, test, vi } from "vitest"
 import { z } from "zod"
 import {
   convertSubagentTaskToLangChain,
@@ -734,23 +734,33 @@ describe("convertSubagentTaskToLangChain — the tool-call record", () => {
       expect(order).toEqual(["step:running", "child", "step:completed"])
       expect(steps).toEqual([
         {
-          tool_call_id: "task-step",
+          v: 1,
+          kind: "server",
+          toolCallId: "task-step",
           status: "running",
+          startedAt: expect.any(Number),
           icon: "agent",
           label: "Asking researcher to summarize ReAct",
         },
         {
-          tool_call_id: "task-step",
+          v: 1,
+          kind: "server",
+          toolCallId: "task-step",
           status: "completed",
+          startedAt: expect.any(Number),
+          settledAt: expect.any(Number),
           icon: "agent",
           label: "Heard back from researcher",
         },
       ])
     })
 
-    it("dispatches nothing without a display", async () => {
+    it("dispatches execution steps without a display", async () => {
       const { steps } = await runTask(taskPlaceholder)
-      expect(steps).toEqual([])
+      expect(steps).toMatchObject([
+        { v: 1, status: "running" },
+        { v: 1, status: "completed" },
+      ])
     })
   })
 })
@@ -814,11 +824,13 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
       expect(result.status).toBe("success")
       expect(result.content).toBe("Done: ReAct interleaves…")
       expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+        v: 1,
+        kind: "server",
         status: "completed",
         icon: "agent",
         label: "Heard back from researcher",
-        startedAt: "2026-10-05T00:00:00.000Z",
-        settledAt: "2026-10-05T00:00:02.000Z",
+        startedAt: Date.parse("2026-10-05T00:00:00.000Z"),
+        settledAt: Date.parse("2026-10-05T00:00:02.000Z"),
       })
       expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toEqual({
         name: "researcher",
@@ -863,10 +875,13 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
     expect(result.status).toBe("error")
     expect(result.content).toBe("subagent_failed: boom")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "failed",
+      error: { message: result.content },
       icon: "agent",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
     expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toEqual({
       name: "researcher",
@@ -892,10 +907,12 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
     expect(result.status).toBe("error")
     expect(result.content).toBe("[B4_E5003] No subagent named ghost")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "failed",
+      error: { message: result.content },
       icon: "agent",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      settledAt: expect.any(Number),
     })
     expect(result.additional_kwargs).not.toHaveProperty(B4_SUBAGENT_KEY)
 
@@ -912,6 +929,7 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
     expect(tooDeep.content).toMatch(/^\[B4_E5003\] Cannot dispatch 'researcher' at depth 4/)
     expect(tooDeep.additional_kwargs[B4_STEP_KEY]).toMatchObject({
       status: "failed",
+      error: { message: tooDeep.content },
       icon: "agent",
     })
     expect(tooDeep.additional_kwargs).not.toHaveProperty(B4_SUBAGENT_KEY)
@@ -929,9 +947,11 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
     )) as ToolMessage
     expect(result.content).toBe("plain")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
     expect(result.additional_kwargs[B4_SUBAGENT_KEY]).toMatchObject({ outcome: "done" })
   })
@@ -984,6 +1004,42 @@ describe("task bridge persists the subagent on its ToolMessage", () => {
       return seen
     }
     expect(await steps(childGraphReplying("ok"))).toEqual(["running", "completed"])
-    expect(await steps(childGraphThrowing(new Error("boom")))).toEqual(["running"])
+    expect(await steps(childGraphThrowing(new Error("boom")))).toEqual(["running", "failed"])
   })
+})
+
+test("a subagent permission park emits no execution step", async () => {
+  const tool = convertSubagentTaskToLangChain(taskPlaceholder, async () => {
+    interrupt({ type: "permission-request" })
+    throw new Error("unreachable")
+  })
+  const graph = new StateGraph(Annotation.Root({ messages: Annotation<unknown[]>() }))
+    .addNode("tools", new ToolNode([tool]))
+    .addEdge(START, "tools")
+    .addEdge("tools", END)
+    .compile({ checkpointer: new MemorySaver() })
+  const steps: unknown[] = []
+
+  for await (const event of graph.streamEvents(
+    {
+      messages: [
+        new AIMessage({
+          content: "",
+          tool_calls: [
+            {
+              name: "task",
+              id: "task-park",
+              args: { subagent: "researcher", input: "x" },
+              type: "tool_call",
+            },
+          ],
+        }),
+      ],
+    },
+    { version: "v2", configurable: { thread_id: "task-park" } },
+  )) {
+    if (event.event === "on_custom_event" && event.name === "b4.step") steps.push(event.data)
+  }
+
+  expect(steps).toEqual([])
 })

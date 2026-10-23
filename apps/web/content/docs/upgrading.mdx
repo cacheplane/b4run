@@ -52,7 +52,13 @@ Pin `@b4run/*` packages to a single version (no `^` or `~` ranges) until the pro
 
 ## Changes by version
 
-Newest first. Each change names the release it landed in, and the two that need no action say so.
+Newest first. Released changes name their version; unreleased entries describe the next release.
+
+### Versioned tool-step emission and restore
+
+**Unreleased.** Action required if you read raw `b4.step` CUSTOM events or persisted `additional_kwargs.b4_step` directly. The runtime now writes `B4ToolStep`: `v: 1`, `kind: "server"`, camelCase `toolCallId` on CUSTOM only, epoch-millisecond timestamps, stable source ids, and an error on failed steps. Read with `readToolStep` rather than the deprecated `readPersistedStep`; the new reader accepts both old and new stored values. Types and deprecated exports remain available.
+
+START/END retain any known step metadata without buffering the call. Actual execution-start CUSTOM events follow permission and constraint approval, including after resume. Denied calls never claim they executed. RESULT metadata, replayed `/events`, and `/turns` retain failure outcomes, display fields and producer timing. `/state` remains raw LangChain checkpoint data; it is not an AG-UI message snapshot. Provider tool results are not replayed as client tool results. See [Step events](/docs/ag-ui#step-events).
 
 ### Refresh application dependencies
 
@@ -86,7 +92,7 @@ Set `B4_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in your shell before running t
 
 Landed in **0.15.0**. Action required only if you switch exhaustively over `StepStatus` from `@b4run/ag-ui/view`. Everything you already send and read keeps working.
 
-A tool call's step now has a versioned contract, `B4ToolStep` from `@b4run/sdk` (`v: 1`, camelCase), with `readToolStep`, `mergeToolStep`, JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`, and a fixture corpus in `@b4run/sdk/testing`. `PersistedStep`, `readPersistedStep`, `B4StepEventValue`, `B4StepStatus`, `B4_STEP_STATUSES` and `readStepEvent` stay exported and are deprecated; the old shapes still read, and the runtime still emits and persists them until its emitters move to v1. These behaviors changed:
+A tool call's step now has a versioned contract, `B4ToolStep` from `@b4run/sdk` (`v: 1`, camelCase), with `readToolStep`, `mergeToolStep`, JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`, and a fixture corpus in `@b4run/sdk/testing`. `PersistedStep`, `readPersistedStep`, `B4StepEventValue`, `B4StepStatus`, `B4_STEP_STATUSES` and `readStepEvent` stay exported and are deprecated; the old shapes still read. That release retained legacy emitters; the unreleased emission/restore update above moves the runtime to v1. These behaviors changed:
 
 - `StepStatus` gains `cancelled`. A `switch` over it that TypeScript checks for exhaustiveness needs a `cancelled` case.
 - A cancelled run settles its open steps as `cancelled` instead of `failed`, so a row that showed "failed" after a cancel now shows as cancelled. An interrupt cancels the open calls it doesn't park; the calls it names, and any `pendingToolCallIds`, stay open.
