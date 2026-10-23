@@ -1,4 +1,4 @@
-import { wrapToolWithApproval } from "@b4run/core"
+import { wrapToolWithApproval, wrapToolWithConstraint } from "@b4run/core"
 import { B4_STEP_KEY, toolDenial } from "@b4run/sdk"
 import { ToolMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
@@ -46,9 +46,11 @@ describe("converter persists a complete b4_step", () => {
     expect(message.content).toBe('"3 hits"')
     expect(message.status).toBe("success")
     expect(message.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
-      startedAt: "2026-10-05T00:00:00.000Z",
-      settledAt: "2026-10-05T00:00:01.500Z",
+      startedAt: Date.parse("2026-10-05T00:00:00.000Z"),
+      settledAt: Date.parse("2026-10-05T00:00:01.500Z"),
     })
   })
 
@@ -67,12 +69,14 @@ describe("converter persists a complete b4_step", () => {
     )) as ToolMessage
     expect(result).toBeInstanceOf(ToolMessage)
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "read",
       label: "Read a.md",
-      sources: [{ title: "a.md" }],
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      sources: [{ id: "call_1:0", kind: "record", title: "a.md" }],
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -104,9 +108,11 @@ describe("converter persists a complete b4_step", () => {
     expect(result.status).toBe("success")
     expect(result.content).toBe("Blocked: nope")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "denied",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -119,6 +125,8 @@ describe("converter persists a complete b4_step", () => {
       },
     })) as ToolMessage
     expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      v: 1,
+      kind: "server",
       status: "completed",
       decision: "always",
     })
@@ -154,10 +162,13 @@ describe("converter persists a complete b4_step", () => {
     expect(result.content).toBe("Error: ENOENT\n Please fix your mistakes.")
     // The icon only: `done` is never asked to describe an error.
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "failed",
       icon: "read",
-      startedAt: "2026-10-05T00:00:00.000Z",
-      settledAt: "2026-10-05T00:00:00.250Z",
+      startedAt: Date.parse("2026-10-05T00:00:00.000Z"),
+      settledAt: Date.parse("2026-10-05T00:00:00.250Z"),
+      error: { message: "ENOENT" },
     })
   })
 
@@ -173,6 +184,8 @@ describe("converter persists a complete b4_step", () => {
       },
     })) as ToolMessage
     expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      v: 1,
+      kind: "server",
       status: "failed",
       icon: "read",
       label: "Couldn't read it: ENOENT",
@@ -231,28 +244,57 @@ describe("converter persists a complete b4_step", () => {
     expect(result.content).toBe('"v"')
     // No display without a call to attach it to, so the persisted step is bare.
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
     expect(spy).not.toHaveBeenCalled()
   })
 
-  test("the streamed steps are unchanged: running, then completed on success, denied on a denial, nothing on a throw", async () => {
+  test("streams versioned running and settled steps", async () => {
     const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
     const spy = vi.fn()
     vi.mocked(dispatchCustomEvent).mockImplementation(spy)
     const display = { icon: "search" as const, done: () => "Searched" }
     await run({ name: "s", display, run: async () => "hits" })
     expect(spy.mock.calls.map((call) => call[1])).toEqual([
-      { tool_call_id: "call_1", status: "running", icon: "search" },
-      { tool_call_id: "call_1", status: "completed", icon: "search", label: "Searched" },
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "running",
+        icon: "search",
+        startedAt: expect.any(Number),
+      }),
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "completed",
+        icon: "search",
+        label: "Searched",
+      }),
     ])
     spy.mockClear()
     await run({ name: "s", display, run: async () => toolDenial("no") })
     expect(spy.mock.calls.map((call) => call[1])).toEqual([
-      { tool_call_id: "call_1", status: "running", icon: "search" },
-      { tool_call_id: "call_1", status: "denied", icon: "search" },
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "running",
+        icon: "search",
+        startedAt: expect.any(Number),
+      }),
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "denied",
+        icon: "search",
+      }),
     ])
     spy.mockClear()
     await run({
@@ -263,7 +305,21 @@ describe("converter persists a complete b4_step", () => {
       },
     })
     expect(spy.mock.calls.map((call) => call[1])).toEqual([
-      { tool_call_id: "call_1", status: "running", icon: "search" },
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "running",
+        icon: "search",
+        startedAt: expect.any(Number),
+      }),
+      expect.objectContaining({
+        v: 1,
+        kind: "server",
+        toolCallId: "call_1",
+        status: "failed",
+        error: { message: "x" },
+      }),
     ])
   })
 })
@@ -317,6 +373,8 @@ describe("the approval gate's answer reaches the persisted step", () => {
     expect(result.status).toBe("success")
     expect(result.content).toBe('"deployed"')
     expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "run",
       label: "Deployed",
@@ -335,3 +393,131 @@ describe("the approval gate's answer reaches the persisted step", () => {
 })
 
 vi.mock("@langchain/core/callbacks/dispatch/web", () => ({ dispatchCustomEvent: vi.fn() }))
+
+test("approval waiting emits no running step and execution begins only after resume", async () => {
+  const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
+  const events = vi.fn()
+  vi.mocked(dispatchCustomEvent).mockImplementation(events)
+  const converted = convertToolToLangChain(
+    wrapToolWithApproval(
+      {
+        name: "deploy",
+        display: { icon: "run" as const, running: () => "Deploying" },
+        run: async () => "done",
+      },
+      {
+        mode: "interactive",
+        match: () => "unknown",
+        load: async () => {},
+        addAllow: async () => {},
+      },
+    ),
+  )
+  const State = Annotation.Root({ result: Annotation<ToolMessage | undefined>() })
+  const graph = new StateGraph(State)
+    .addNode("tools", async (_state, graphConfig: RunnableConfig) => ({
+      result: (await converted.func({}, undefined, {
+        ...graphConfig,
+        toolCall: { id: "gate", name: "deploy", args: {} },
+      } as never)) as ToolMessage,
+    }))
+    .addEdge(START, "tools")
+    .addEdge("tools", END)
+    .compile({ checkpointer: new MemorySaver() })
+  const graphConfig = { configurable: { thread_id: "timing" } }
+
+  await graph.invoke({}, graphConfig)
+
+  expect(events).not.toHaveBeenCalled()
+  const parked = await graph.getState(graphConfig)
+  expect(parked.tasks[0]?.interrupts[0]?.value).toMatchObject({
+    step: { icon: "run", label: "Deploying" },
+  })
+  const resumedAt = Date.now()
+  const resumed = await graph.invoke(new Command({ resume: "once" }), graphConfig)
+  expect(events.mock.calls[0]?.[1]).toMatchObject({
+    v: 1,
+    kind: "server",
+    toolCallId: "gate",
+    status: "running",
+  })
+  expect((resumed.result as ToolMessage).additional_kwargs[B4_STEP_KEY]).toMatchObject({
+    startedAt: expect.any(Number),
+    decision: "once",
+  })
+  expect(
+    ((resumed.result as ToolMessage).additional_kwargs[B4_STEP_KEY] as { startedAt: number })
+      .startedAt,
+  ).toBeGreaterThanOrEqual(resumedAt)
+})
+
+test("display-less server calls emit running while client stubs do not", async () => {
+  const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
+  const events = vi.fn()
+  vi.mocked(dispatchCustomEvent).mockImplementation(events)
+
+  await run({ name: "plain", run: async () => "ok" })
+
+  expect(events.mock.calls[0]?.[1]).toMatchObject({
+    v: 1,
+    kind: "server",
+    toolCallId: "call_1",
+    status: "running",
+  })
+  events.mockClear()
+  await run({ name: "client", clientTool: true, run: async () => "ok" })
+  expect(events).not.toHaveBeenCalled()
+})
+
+test("nested policy wrappers never report execution for a denied inner constraint", async () => {
+  const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
+  const events = vi.fn()
+  vi.mocked(dispatchCustomEvent).mockImplementation(events)
+  const execute = vi.fn(async () => "done")
+  const constrained = wrapToolWithConstraint(
+    { name: "deploy", run: execute },
+    () => "blocked",
+    undefined,
+    "/test",
+  )
+  const approved = wrapToolWithApproval(constrained, {
+    mode: "interactive",
+    match: () => "allow",
+    load: async () => {},
+    addAllow: async () => {},
+  })
+
+  const result = (await run(approved)) as ToolMessage
+
+  expect(execute).not.toHaveBeenCalled()
+  expect(events.mock.calls.map((call) => call[1])).toEqual([
+    expect.objectContaining({ v: 1, kind: "server", status: "denied" }),
+  ])
+  expect(result.additional_kwargs[B4_STEP_KEY]).not.toHaveProperty("startedAt")
+  expect(result.additional_kwargs[B4_STEP_KEY]).not.toHaveProperty("toolCallId")
+})
+
+test("nested allowed policies announce execution exactly once", async () => {
+  const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
+  const events = vi.fn()
+  vi.mocked(dispatchCustomEvent).mockImplementation(events)
+  const constrained = wrapToolWithConstraint(
+    { name: "deploy", run: async () => "done" },
+    () => true,
+    undefined,
+    "/test",
+  )
+  const approved = wrapToolWithApproval(constrained, {
+    mode: "interactive",
+    match: () => "allow",
+    load: async () => {},
+    addAllow: async () => {},
+  })
+
+  await run(approved)
+
+  expect(events.mock.calls.map((call) => (call[1] as { status: string }).status)).toEqual([
+    "running",
+    "completed",
+  ])
+})

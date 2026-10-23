@@ -326,7 +326,7 @@ describe("eventsFromState", () => {
     await expect(verified(events)).resolves.toHaveLength(events.length)
   })
 
-  it("replays a parked call's running step from its interrupt, inside the subagent, verifier-clean", async () => {
+  it("keeps a parked call's display on its interrupt without emitting execution-start, verifier-clean", async () => {
     const state = parkedChild()
     const [pending] = state.pendingInterrupts
     const value = { ...(pending?.value as object), step: { icon: "run", label: "Run ls" } }
@@ -335,15 +335,21 @@ describe("eventsFromState", () => {
       pendingInterrupts: [{ interruptId: "perm-2", value }],
     })
     expect(warnings).toEqual([])
-    const end = events.findIndex(
-      (e) =>
-        e.type === EventType.TOOL_CALL_END && (e as { toolCallId?: string }).toolCallId === "n1",
-    )
-    expect(events[end + 1]).toMatchObject({
-      type: EventType.CUSTOM,
-      name: "b4.step",
-      value: { toolCallId: "n1", status: "running", icon: "run", label: "Run ls" },
-      subagentRunId: "ct",
+    expect(
+      events.filter(
+        (event) =>
+          event.type === EventType.CUSTOM && (event as { name?: string }).name === "b4.step",
+      ),
+    ).toEqual([])
+    const { turns } = turnsFromState({
+      ...state,
+      pendingInterrupts: [{ interruptId: "perm-2", value }],
+    })
+    const subagent = turns.turns[0]?.steps.find((step) => step.kind === "subagent") as SubagentStep
+    expect(subagent.turn.steps.find((step) => step.kind === "tool")).toMatchObject({
+      status: "awaiting",
+      icon: "run",
+      label: "Run ls",
     })
     const outcome = (events.at(-1) as BaseEvent & { outcome: { interrupts: unknown[] } }).outcome
     expect(outcome.interrupts[0]).toMatchObject({ metadata: { step: { label: "Run ls" } } })

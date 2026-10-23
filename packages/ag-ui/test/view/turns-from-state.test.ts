@@ -991,7 +991,22 @@ describe("turnsFromState", () => {
       ],
       [
         3,
-        { type: EventType.TOOL_CALL_RESULT, toolCallId: "c1", messageId: "tr-c1", content: "boom" },
+        {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: "c1",
+          messageId: "tr-c1",
+          content: "boom",
+          error: "Tool call did not finish",
+          metadata: {
+            "b4.step": {
+              v: 1,
+              kind: "server",
+              status: "failed",
+              icon: "run",
+              error: { message: "Tool call did not finish" },
+            },
+          },
+        },
       ],
       [
         3,

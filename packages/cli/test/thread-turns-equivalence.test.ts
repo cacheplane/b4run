@@ -20,8 +20,8 @@
 //   `thread-turns-endpoint.test.ts`).
 //
 // An AWAITING step is NOT normalised: live shows the `running` label and icon
-// the runtime streamed as `b4.step` before the gate parked the call, and the
-// gate keeps that display on the checkpointed interrupt (`step`), so the
+// carried by the approval interrupt; this display does not mark execution
+// as started. The checkpointed interrupt keeps the same display, so the
 // restored awaiting step carries the same label and icon.
 //
 // Everything else — statuses, names, args, results, labels, icons, sources,
@@ -33,7 +33,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import type { BaseEvent } from "@ag-ui/core"
 import { reduceTurns, type TurnsView } from "@b4run/ag-ui/view"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, test } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { script } from "../../testing/dist/fixture-builder.js"
 import { createRuntimeFetchHandler } from "../src/lib/dev/runtime-fetch-handler.js"
@@ -102,7 +102,7 @@ const SEARCH_TOOL = [
   "",
 ].join("\n")
 
-async function fixtureApp(): Promise<string> {
+async function fixtureApp(overrides: Record<string, string> = {}): Promise<string> {
   const appRoot = await mkdtemp(join(tmpdir(), "b4-thread-turns-eq-"))
   cleanup.push(() => rm(appRoot, { force: true, maxRetries: 5, recursive: true, retryDelay: 100 }))
   const files: Record<string, string> = {
@@ -112,6 +112,7 @@ async function fixtureApp(): Promise<string> {
     "src/app/park/tools/deployProd.ts": DEPLOY_TOOL,
     "src/app/search/index.ts": SEARCH_ROUTE,
     "src/app/search/tools/searchCorpus.ts": SEARCH_TOOL,
+    ...overrides,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -318,6 +319,11 @@ describe("a thread restored through GET /threads/:id/turns equals its live AG-UI
       outcome: { type: "interrupt" },
       type: "RUN_FINISHED",
     })
+    expect(
+      parkEvents.filter(
+        (event) => event.type === "CUSTOM" && (event as { name?: string }).name === "b4.step",
+      ),
+    ).toEqual([])
     const liveParked = fold({ turns: [] }, parkEvents)
 
     const restoredParked = await readTurns(handler, "t-eq-park")
@@ -334,7 +340,7 @@ describe("a thread restored through GET /threads/:id/turns equals its live AG-UI
         status: "awaiting",
       })
     }
-    // Both carry the running display on the parked call: restored reads it off the interrupt.
+    // Both carry the approval display from the interrupt without marking execution as started.
     for (const view of [liveParked, restoredParked.turns]) {
       expect(toolStep(view)).toMatchObject({ icon: "run", label: "Deploying to staging…" })
     }
@@ -361,6 +367,14 @@ describe("a thread restored through GET /threads/:id/turns equals its live AG-UI
     const restoredDone = await readTurns(handler, "t-eq-park")
     expect(restoredDone.status).toBe("idle")
     expect(restoredDone.warnings).toEqual([])
+    const resumedResult = resumeEvents.find(
+      (event) => event.type === "TOOL_CALL_RESULT",
+    ) as BaseEvent & {
+      metadata: { "b4.step": { startedAt: number; settledAt: number; decision: string } }
+    }
+    expect(resumedResult.metadata["b4.step"].decision).toBe("once")
+    expect(toolStep(restoredDone.turns).startedAt).toBe(resumedResult.metadata["b4.step"].startedAt)
+    expect(toolStep(restoredDone.turns).settledAt).toBe(resumedResult.metadata["b4.step"].settledAt)
 
     for (const view of [liveDone, restoredDone.turns]) {
       expect(view.turns).toHaveLength(1)
@@ -378,3 +392,102 @@ describe("a thread restored through GET /threads/:id/turns equals its live AG-UI
     expect(normalised(restoredDone.turns)).toEqual(normalised(liveDone))
   }, 90_000)
 })
+
+for (const outcome of ["completed", "failed", "denied", "displayless"] as const) {
+  test(`real runtime ${outcome} step preserves v1 metadata, error and producer timing through state, events and turns`, async () => {
+    const denied = outcome === "denied"
+    const toolName = denied ? "deployProd" : "searchCorpus"
+    await withAimock(
+      script()
+        .user("work")
+        .callsTool(toolName, denied ? { env: "staging" } : { query: "x" })
+        .replies("Finished.")
+        .build(),
+    )
+    const replacement =
+      outcome === "failed"
+        ? SEARCH_TOOL.replace("return '3 hits'", "throw new Error('Corpus unavailable')")
+        : outcome === "displayless"
+          ? (SEARCH_TOOL.split("export const display:")[0] ?? SEARCH_TOOL)
+          : SEARCH_TOOL
+    const handler = await createHandler(
+      await fixtureApp({ "src/app/search/tools/searchCorpus.ts": replacement }),
+    )
+    const threadId = `t-v1-${outcome}`
+    const options = {
+      threadId,
+      runId: `run-${outcome}`,
+      route: denied ? "/park#agent" : "/search#agent",
+      message: "work",
+    }
+
+    const initial = await aguiRun(handler, options)
+    let liveEvents = initial
+    if (denied) {
+      const interruptId = toolStep(fold({ turns: [] }, initial)).approval?.interruptId
+      expect(interruptId).toBeTypeOf("string")
+      const resumed = await aguiRun(handler, {
+        ...options,
+        runId: "run-deny-resume",
+        resume: [{ interruptId, payload: "deny", status: "resolved" }],
+      })
+      liveEvents = [...initial, ...resumed]
+    }
+    const result = liveEvents.find((event) => event.type === "TOOL_CALL_RESULT") as BaseEvent & {
+      error?: string
+      metadata?: Record<string, unknown>
+    }
+    const step = result?.metadata?.["b4.step"] as Record<string, unknown>
+    const replayResponse = await handler.fetch(
+      new Request(`http://localhost/threads/${threadId}/events`),
+    )
+    const replay = (await replayResponse.json()) as {
+      events: (BaseEvent & { error?: string; metadata?: Record<string, unknown> })[]
+      warnings: string[]
+    }
+    const replayResult = replay.events.find((event) => event.type === "TOOL_CALL_RESULT")
+    const restored = await readTurns(handler, threadId)
+    const stateResponse = await handler.fetch(
+      new Request(`http://localhost/threads/${threadId}/state`),
+    )
+    const state = (await stateResponse.json()) as {
+      values: {
+        messages: {
+          kwargs: {
+            tool_call_id?: string
+            status?: string
+            additional_kwargs?: { b4_step?: unknown }
+          }
+        }[]
+      }
+    }
+    const stored = state.values.messages.find(
+      (message) => message.kwargs.tool_call_id !== undefined,
+    )?.kwargs
+
+    expect(replay.warnings).toEqual([])
+    expect(restored.warnings).toEqual([])
+    expect(step).toMatchObject({
+      v: 1,
+      kind: "server",
+      status: outcome === "displayless" ? "completed" : outcome,
+    })
+    expect(step).not.toHaveProperty("toolCallId")
+    expect(stored?.additional_kwargs?.b4_step).toEqual(step)
+    expect(replayResult?.metadata?.["b4.step"]).toEqual(step)
+    if (denied) expect(step).not.toHaveProperty("startedAt")
+    else expect(toolStep(restored.turns).startedAt).toEqual(step.startedAt)
+    expect(toolStep(restored.turns).settledAt).toEqual(step.settledAt)
+    if (outcome === "failed") {
+      expect(stored?.status).toBe("error")
+      expect(result.error).toContain("Corpus unavailable")
+      expect(replayResult?.error).toBe(result.error)
+      expect(toolStep(restored.turns).error).toEqual(step.error)
+    }
+    if (denied) expect(step.decision).toBe("deny")
+    const live = denied
+      ? fold(fold({ turns: [] }, initial), liveEvents.slice(initial.length))
+      : fold({ turns: [] }, liveEvents)
+    expect(normalised(restored.turns)).toEqual(normalised(live))
+  }, 90_000)
+}

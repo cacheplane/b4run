@@ -128,11 +128,13 @@ describe("convertToolToLangChain — runtime invoke path (ToolNode-style)", () =
     expect(message.tool_call_id).toBe("call_read_9")
     expect(message.content).toBe('"# Title"')
     expect(message.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "read",
       label: "Read corpus/a.md",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 })

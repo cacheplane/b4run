@@ -682,8 +682,8 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `token` | `TEXT_MESSAGE_START` once, then `TEXT_MESSAGE_CONTENT` per delta |
 | `tool_call` | close open text, then `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`; `TOOL_CALL_START` carries `parentMessageId`, the id of the model message that announced the call (see [Tool calls and their message](#tool-calls-and-their-message)) |
 | `tool_result` | close open text, then `TOOL_CALL_RESULT` |
-| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with `content` set to the error text the model receives (a `b4.step` event with `status: "failed"` follows it; see [Step events](#step-events)) |
-| `step` (from a tool's `display`) | `CUSTOM { name: "b4.step", value: { toolCallId, status: "running" \| "completed" \| "denied", icon?, label?, sources? } }`, `running` as the call starts and `completed` as it returns (`denied`, with `icon` only, when a permission or argument constraint blocked it), both before the call's `TOOL_CALL_RESULT` (`failed` comes from the `tool_result` row above); a child's step is tagged `subagentRunId` |
+| `tool_result` for a tool that threw | `TOOL_CALL_RESULT` under the same `toolCallId`, with readable error `content`, failure `metadata["b4.step"]`, and an error string; a v1 failed CUSTOM step also carries the failure (see [Step events](#step-events)) |
+| `step` (server tool execution) | `CUSTOM { name: "b4.step", value: B4ToolStep }`, with `toolCallId` and `v: 1`; actual execution starts after approval/constraint gates allow it; a child's step is tagged `subagentRunId` |
 | `tool_call` and `tool_result` for a `writeTodos` call whose plan activity was emitted | none (the activity is the whole presentation) |
 | `plan_update` | replacement `ACTIVITY_SNAPSHOT` with activity type `b4.plan` — `b4:plan:${runId}` for the root agent, `b4:plan:${call_id}` tagged `subagentRunId` for a subagent's plan |
 | `subagent.start` | `SUBAGENT_STARTED { subagentRunId: call_id, name, description?, parentToolCallId: call_id, parentSubagentRunId? }` |
@@ -729,18 +729,20 @@ Root events never carry `subagentRunId`, and `RUN_STARTED`, `RUN_FINISHED` and `
 
 ### Step events
 
-A tool that exports [`display`](/docs/tools#describing-a-call-to-people) tells the chat what each call means. The runtime emits one `CUSTOM` event named `b4.step` as the call starts (`status: "running"`, with `icon` and the running `label`) and one as it returns, just before its `TOOL_CALL_RESULT` (`status: "completed"`, with the done `label` and any `sources`). A tool that threw gets a `status: "failed"` step after its `TOOL_CALL_RESULT`, whether or not it has a `display`. A call that a permission or argument constraint denied gets a `status: "denied"` step in place of `completed`, with `icon` only: no `label` and no `sources`, because the denial text the model receives is not something the tool did. B4.run's own chat components show it as "Denied searchCorpus" and never count it as a failure. Every step names its call in `value.toolCallId`; a subagent's step carries `subagentRunId`.
+Every identifiable server tool call emits a versioned `CUSTOM` event named `b4.step` when execution starts (`status: "running"`), including tools without a display. A tool's [`display`](/docs/tools#describing-a-call-to-people) supplies its icon, running/done/failed labels and sources. A call waiting for permission keeps its display on the approval interrupt; the runtime emits the execution-start event only after every approval and argument constraint allows the body to run. A denied call has `status: "denied"`, with no success label or sources, and no execution start time if it never ran.
+
+Settled updates and the final `TOOL_CALL_RESULT.metadata["b4.step"]` carry the outcome. Failures also carry `error: { message, code? }` inside the step and readable error text in the result, so clients and models both see the failure. Every CUSTOM step names its call in `value.toolCallId`; metadata and persisted steps omit that id because their carrier names it. A subagent's step carries `subagentRunId`.
 
 #### The `b4.step` contract
 
-The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 value is camelCase and carries `v: 1`. It is what B4.run's clients read and what other producers, such as a provider adapter, should write. B4.run's own runtime still emits the legacy `CUSTOM` value (`B4StepEventValue`) and persists the legacy `PersistedStep` in `b4_step`, without `v` and with ISO timestamps; `readToolStep` normalizes both, and B4.run's emitters move to v1 in a later release. The contract defines four carriers:
+The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 value is camelCase and carries `v: 1`. It is what B4.run's clients read and what other producers, such as a provider adapter, should write. B4.run emits and persists this v1 shape, with epoch-millisecond times and stable source ids. `readToolStep` also reads the legacy CUSTOM and persisted shapes, including ISO timestamps, so existing stored threads remain readable. START and END carry the current step when one already exists. They are streamed immediately even when execution has not started; the mapper does not fabricate execution timing or wait for approval before announcing the call. RESULT carries the final persisted step. The contract defines four carriers:
 
 | Carrier | Key |
 |---|---|
 | Tool-call metadata on `TOOL_CALL_START` and `TOOL_CALL_END` (merges onto the call), and on `TOOL_CALL_RESULT` (lands on the tool message) | `"b4.step"` |
 | `CUSTOM` event, with `value.toolCallId` required | `b4.step` |
 | Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer. Read it with `readAnswerAnnotations` from `@b4run/sdk`, a public reader; B4.run's own chat components do not show it yet | `"b4.answer"` |
-| LangChain persistence on a `ToolMessage` (today the legacy shape) | `additional_kwargs.b4_step` |
+| LangChain persistence on a `ToolMessage` | `additional_kwargs.b4_step` |
 
 | Field | Meaning |
 |---|---|
@@ -778,7 +780,7 @@ Versioning is additive. A new field never bumps `v`, a consumer ignores fields i
 
 Producers and clients can test against the same corpus: `TOOL_STEP_FIXTURES` and `foldToolStepEvents` from `@b4run/sdk/testing`, and the JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`. See the [SDK reference](/docs/api/sdk).
 
-B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload, with its timing and the gate decision, is also stored on the checkpointed tool message as `additional_kwargs.b4_step` (the `task` tool's message carries `b4_subagent` as well), so `GET /threads/:thread_id/turns` rebuilds the labels for a restored thread. `PersistedStep` and `B4StepEventValue` are deprecated in favor of `B4ToolStep`, and `readStepEvent` now drops an empty-string label.
+B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload, with its timing and the gate decision, is also stored on the checkpointed tool message as `additional_kwargs.b4_step` (the `task` tool's message carries `b4_subagent` as well), so `GET /threads/:thread_id/turns` rebuilds its labels, sources, outcomes and timing. `/state` retains the raw LangChain `additional_kwargs.b4_step` and `status`; `/events` projects the same step into AG-UI RESULT metadata and exposes failures through the result error. Inbound provider tool results, whether marked directly or through their assistant call, are excluded from model input. `PersistedStep` and `B4StepEventValue` are deprecated in favor of `B4ToolStep`, and `readStepEvent` now drops an empty-string label.
 
 ### Canonical orchestration presentation
 

@@ -27,6 +27,7 @@ import {
   type B4ToolStep,
   type B4ToolStepUpdate,
   isContentPart,
+  isToolDisplayIcon,
   readToolStepUpdate,
   type ToolDisplaySource,
 } from "@b4run/sdk"
@@ -1062,12 +1063,23 @@ function attachInterrupt(turn: TurnView, entry: unknown): TurnView {
   const interrupt = entry as Interrupt
   const owner = typeof interrupt.subagentRunId === "string" ? interrupt.subagentRunId : undefined
   const toolCallId = typeof interrupt.toolCallId === "string" ? interrupt.toolCallId : undefined
+  const metadata = isRecord(interrupt.metadata) ? interrupt.metadata : {}
+  const display = isRecord(metadata.step) ? metadata.step : {}
+  const parkedDisplay = {
+    ...(isToolDisplayIcon(display.icon) ? { icon: display.icon } : {}),
+    ...(typeof display.label === "string" && display.label !== "" ? { label: display.label } : {}),
+  }
   const place = (target: TurnView): TurnView => {
     if (
       toolCallId !== undefined &&
       target.steps.some((s) => s.kind === "tool" && s.id === toolCallId)
     ) {
-      return mapStep(target, toolCallId, (s) => ({ ...s, status: "awaiting", approval }))
+      return mapStep(target, toolCallId, (s) => ({
+        ...s,
+        ...parkedDisplay,
+        status: "awaiting",
+        approval,
+      }))
     }
     return { ...target, approvals: [...target.approvals, approval] }
   }

@@ -343,6 +343,8 @@ export interface CapabilityMarkerContext {
 }
 
 export interface B4ToolDefinition {
+  /** Internal: permission wrappers defer execution-start reporting until their checks pass. */
+  readonly b4ExecutionGated?: true
   readonly description?: string
   readonly name: string
   readonly run: (
@@ -369,7 +371,7 @@ export interface B4ToolDefinition {
       readonly toolCallId?: string
       /**
        * How this call reads while it runs — its tool's `display.icon` and
-       * `display.running` label, as the runtime streamed them. A permission
+       * `display.running` label, prepared before permission checks. A permission
        * gate that parks the call puts it on the interrupt, so a thread
        * restored from the checkpoint shows the same label. Absent when the
        * tool has no display or the call has no `toolCallId`.
@@ -384,6 +386,8 @@ export interface B4ToolDefinition {
        * call's step. Absent outside the runtime's converter.
        */
       readonly onGateDecision?: (decision: GateDecision) => void
+      /** Internal runtime signal, awaited after permission checks and before actual execution. */
+      readonly onExecutionStart?: () => Promise<void>
     },
   ) => Promise<unknown> | unknown
   readonly schema?: unknown

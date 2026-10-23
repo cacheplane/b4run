@@ -107,6 +107,7 @@ const json = (value: unknown): string | undefined =>
 export function sameToolStep(a: ToolStep, b: ToolStep): boolean {
   return (
     a.status === b.status &&
+    a.startedAt === b.startedAt &&
     a.settledAt === b.settledAt &&
     a.icon === b.icon &&
     a.label === b.label &&
@@ -126,8 +127,8 @@ export function sameToolStep(a: ToolStep, b: ToolStep): boolean {
  * settle an unfailed step; `running` only lifts an unsettled one and adds
  * nothing to a settled one; a `"message"` source (the call's result) beats a
  * `"call"` source; a settle out of running drops the running label and
- * sources unless it restates them. The view keeps its
- * own clock: a step that settles here takes `at` unless it already settled.
+ * sources unless it restates them. Producer timestamps take precedence;
+ * carrying-event time is the fallback when the producer supplied none.
  * `error` is kept only when a producer sent one. Returns `step` itself when
  * nothing it shows changed.
  */
@@ -165,7 +166,8 @@ export function mergeIntoToolStep(
     ...(producerError && merged.error !== undefined ? { error: merged.error } : {}),
     ...(merged.decision !== undefined ? { decision: merged.decision } : {}),
     status,
-    ...(SETTLED.has(status) ? { settledAt: step.settledAt ?? at } : {}),
+    startedAt: merged.startedAt ?? step.startedAt,
+    ...(SETTLED.has(status) ? { settledAt: merged.settledAt ?? step.settledAt ?? at } : {}),
   }
   return sameToolStep(step, patched) ? step : patched
 }

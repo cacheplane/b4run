@@ -421,6 +421,7 @@ export function wrapToolWithApproval<
 ): T {
   return {
     ...tool,
+    b4ExecutionGated: true,
     run: async (input: unknown, context: C) => {
       const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
         ...opts,
@@ -428,9 +429,16 @@ export function wrapToolWithApproval<
       })
       reportGateDecision(context, gate)
       if (!gate.allowed) return toolDenial(codedReason(gate))
+      await reportExecutionStart(tool, context)
       return tool.run(input, context)
     },
   }
+}
+
+/** Report actual execution only after the innermost policy wrapper allows the call. */
+async function reportExecutionStart(tool: unknown, context: unknown): Promise<void> {
+  if ((tool as { readonly b4ExecutionGated?: true }).b4ExecutionGated === true) return
+  await (context as { readonly onExecutionStart?: () => Promise<void> }).onExecutionStart?.()
 }
 
 /**
@@ -477,6 +485,7 @@ export function wrapToolWithConstraint<
 ): T {
   return {
     ...tool,
+    b4ExecutionGated: true,
     run: async (input: unknown, context: C) => {
       const ctx: ConstraintContext = {
         toolName: tool.name,
@@ -491,7 +500,10 @@ export function wrapToolWithConstraint<
       } catch {
         return toolDenial(CONSTRAINT_FAILED_REASON)
       }
-      if (verdict === true) return tool.run(input, context)
+      if (verdict === true) {
+        await reportExecutionStart(tool, context)
+        return tool.run(input, context)
+      }
       if (typeof verdict === "string") return toolDenial(verdict)
       // Escalate to HITL ONLY on a genuine { approve: true } verdict.
       if (
@@ -507,6 +519,7 @@ export function wrapToolWithConstraint<
         )
         reportGateDecision(context, gate)
         if (!gate.allowed) return toolDenial(codedReason(gate))
+        await reportExecutionStart(tool, context)
         return tool.run(input, context)
       }
       // Any other value (false, undefined, { approve: false }, a number, …) is
@@ -594,7 +607,7 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
     // task call, `toolCallId` the child's call).
     ...("toolCallId" in args && args.toolCallId ? { toolCallId: args.toolCallId } : {}),
     // How the gated call reads while it runs (its tool's `display.running`
-    // label and icon). The runtime streamed it as the call's `running` step;
+    // label and icon), prepared before the gate without signaling execution;
     // it rides on the checkpointed interrupt because a parked call has no
     // ToolMessage to stamp yet, so a restored thread shows the same label.
     ...("step" in args && args.step !== undefined ? { step: args.step } : {}),

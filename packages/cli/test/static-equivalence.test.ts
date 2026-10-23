@@ -353,7 +353,7 @@ function parseSseEvents(text: string): unknown[] {
 //   - Step clocks: every tool call persists `additional_kwargs.b4_step`
 //     ({ status, startedAt, settledAt, icon?, label?, sources?, decision? })
 //     on its ToolMessage, and a settled turn stamps `b4:turn.endedAt` in the
-//     checkpoint metadata. ONLY the ISO clock fields inside those two objects
+//     checkpoint metadata. ONLY the epoch/ISO clock fields on these steps and turns
 //     are replaced with "<ts>"; status, decision, label, icon and sources stay
 //     byte-compared — a static path that persisted a different stamp still
 //     fails.
@@ -380,13 +380,14 @@ const ID_KEYS = new Set([
 const TIMESTAMP_KEYS = new Set(["created", "created_at", "timestamp", "ts", "updated_at"])
 
 /**
- * Objects whose ISO clock fields are scrubbed, and ONLY those fields: the tool
+ * Objects whose clock fields are scrubbed, and ONLY those fields: the tool
  * call's persisted `b4_step` stamp and the turn's `b4:turn` checkpoint metadata.
  * The keys are scoped to these objects so a same-named field anywhere else
  * would still be compared verbatim.
  */
 const CLOCK_SCOPES: Readonly<Record<string, ReadonlySet<string>>> = {
   b4_step: new Set(["settledAt", "startedAt"]),
+  "b4.step": new Set(["settledAt", "startedAt"]),
   "b4:turn": new Set(["endedAt"]),
 }
 
@@ -403,13 +404,18 @@ function normalizeTranscript(transcript: ConversationTranscript): unknown {
           if (TIMESTAMP_KEYS.has(key) && (typeof entry === "string" || typeof entry === "number")) {
             return [key, "<ts>"]
           }
-          const clockKeys = CLOCK_SCOPES[key]
+          const clockKeys =
+            CLOCK_SCOPES[key] ??
+            (key === "value" && "name" in value && value.name === "b4.step"
+              ? CLOCK_SCOPES["b4.step"]
+              : undefined)
           if (clockKeys && entry && typeof entry === "object" && !Array.isArray(entry)) {
             return [
               key,
               Object.fromEntries(
                 Object.entries(entry).map(([field, fieldValue]) =>
-                  clockKeys.has(field) && typeof fieldValue === "string"
+                  clockKeys.has(field) &&
+                  (typeof fieldValue === "string" || typeof fieldValue === "number")
                     ? [field, "<ts>"]
                     : [field, normalizeValue(fieldValue)],
                 ),

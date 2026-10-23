@@ -28,7 +28,7 @@ describe("convertToolToLangChain", () => {
     const runManager = { runId: "execution-run-1", getChild: vi.fn(() => childCallbacks) }
     let transformerInput: StreamTransformerInput | undefined
     dispatchCustomEvent.mockImplementation(async (_name, payload) => {
-      order.push(`dispatch:${payload.event}`)
+      if (_name === "b4.capability") order.push(`dispatch:${payload.event}`)
     })
     const converted = convertToolToLangChain(
       {
@@ -63,7 +63,7 @@ describe("convertToolToLangChain", () => {
     // so match on the live-config fields we actually care about rather than
     // exact identity with the raw `config` object.
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
-      1,
+      2,
       "b4.capability",
       { event: "first", data: { index: 1 } },
       expect.objectContaining({
@@ -74,7 +74,7 @@ describe("convertToolToLangChain", () => {
       }),
     )
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
-      2,
+      3,
       "b4.capability",
       { event: "second", data: { index: 2 } },
       expect.objectContaining({
@@ -898,7 +898,10 @@ describe("convertToolToLangChain — the tool-call record", () => {
       1,
       "b4.step",
       {
-        tool_call_id: "call_search_1",
+        v: 1,
+        kind: "server",
+        toolCallId: "call_search_1",
+        startedAt: expect.any(Number),
         status: "running",
         icon: "search",
         label: "Searching the corpus for “agents”",
@@ -909,11 +912,15 @@ describe("convertToolToLangChain — the tool-call record", () => {
       2,
       "b4.step",
       {
-        tool_call_id: "call_search_1",
+        v: 1,
+        kind: "server",
+        toolCallId: "call_search_1",
+        startedAt: expect.any(Number),
         status: "completed",
+        settledAt: expect.any(Number),
         icon: "search",
         label: "Searched the corpus for “agents” (1 hits)",
-        sources: [{ title: "corpus/a.md" }],
+        sources: [{ id: "call_search_1:0", kind: "record", title: "corpus/a.md" }],
       },
       expect.anything(),
     )
@@ -946,7 +953,10 @@ describe("convertToolToLangChain — the tool-call record", () => {
       1,
       "b4.step",
       {
-        tool_call_id: "call_search_denied",
+        v: 1,
+        kind: "server",
+        toolCallId: "call_search_denied",
+        startedAt: expect.any(Number),
         status: "running",
         icon: "search",
         label: "Searching the corpus for “agents”",
@@ -956,17 +966,27 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
-      { tool_call_id: "call_search_denied", status: "denied", icon: "search" },
+      {
+        v: 1,
+        kind: "server",
+        toolCallId: "call_search_denied",
+        startedAt: expect.any(Number),
+        status: "denied",
+        settledAt: expect.any(Number),
+        icon: "search",
+      },
       expect.anything(),
     )
     expect(result).toBeInstanceOf(ToolMessage)
     expect(result.status).toBe("success")
     expect(result.content).toBe(reason)
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "denied",
       icon: "search",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -982,21 +1002,36 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       1,
       "b4.step",
-      { tool_call_id: "call_deploy_denied", status: "running" },
+      {
+        v: 1,
+        kind: "server",
+        toolCallId: "call_deploy_denied",
+        startedAt: expect.any(Number),
+        status: "running",
+      },
       expect.anything(),
     )
     expect(dispatchCustomEvent).toHaveBeenNthCalledWith(
       2,
       "b4.step",
-      { tool_call_id: "call_deploy_denied", status: "denied" },
+      {
+        v: 1,
+        kind: "server",
+        toolCallId: "call_deploy_denied",
+        startedAt: expect.any(Number),
+        status: "denied",
+        settledAt: expect.any(Number),
+      },
       expect.anything(),
     )
     expect(result.status).toBe("success")
     expect(result.content).toBe("Permission denied by user: tool deployProd")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "denied",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -1013,10 +1048,10 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(result.status).toBe("success")
     expect(result.content).toBe("Blocked: nope")
     expect(result.additional_kwargs[B4_STEP_KEY]).toMatchObject({ status: "denied" })
-    expect(dispatchCustomEvent).not.toHaveBeenCalled()
+    expect(dispatchCustomEvent).toHaveBeenCalledTimes(2)
   })
 
-  test("a tool without display dispatches no step and still persists a bare completed one", async () => {
+  test("a tool without display dispatches steps and persists a bare completed one", async () => {
     const converted = convertToolToLangChain({ name: "plain", run: async () => "ok" })
     const result = (await converted.func({}, undefined, {
       configurable: {},
@@ -1027,11 +1062,13 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(result.tool_call_id).toBe("c1")
     expect(result.content).toBe('"ok"')
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
-    expect(dispatchCustomEvent).not.toHaveBeenCalled()
+    expect(dispatchCustomEvent).toHaveBeenCalledTimes(2)
   })
 
   test("a tool with display returns a ToolMessage carrying the step in additional_kwargs", async () => {
@@ -1051,11 +1088,13 @@ describe("convertToolToLangChain — the tool-call record", () => {
     expect(result.content).toBe('{"content":"# Title"}')
     expect(result.tool_call_id).toBe("call_read_1")
     expect(result.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "read",
       label: "Read corpus/a.md",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 
@@ -1074,11 +1113,13 @@ describe("convertToolToLangChain — the tool-call record", () => {
       messages: { additional_kwargs: Record<string, unknown> }[]
     }
     expect(update.messages[0]?.additional_kwargs[B4_STEP_KEY]).toEqual({
+      v: 1,
+      kind: "server",
       status: "completed",
       icon: "plan",
       label: "Updated the plan",
-      startedAt: expect.any(String),
-      settledAt: expect.any(String),
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
     })
   })
 

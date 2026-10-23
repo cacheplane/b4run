@@ -136,6 +136,15 @@ describe("toAguiEvents", () => {
       messageId: "tr-1",
       toolCallId: "call_stmt_1",
       content: "Error: kaboom\n Please fix your mistakes.",
+      error: "Error: kaboom\n Please fix your mistakes.",
+      metadata: {
+        "b4.step": {
+          v: 1,
+          kind: "server",
+          status: "failed",
+          error: { message: "Error: kaboom\n Please fix your mistakes." },
+        },
+      },
     })
   })
 
@@ -2269,6 +2278,8 @@ describe("toolResultView", () => {
         type: EventType.CUSTOM,
         name: "b4.step",
         value: {
+          v: 1,
+          kind: "server",
           toolCallId: "call_s_1",
           status: "running",
           icon: "search",
@@ -2279,18 +2290,26 @@ describe("toolResultView", () => {
         type: EventType.CUSTOM,
         name: "b4.step",
         value: {
+          v: 1,
+          kind: "server",
           toolCallId: "call_s_1",
           status: "completed",
           icon: "search",
           label: "Searched for “a”",
-          sources: [{ title: "corpus/a.md" }],
+          sources: [{ id: "call_s_1:0", kind: "record", title: "corpus/a.md" }],
         },
       },
       {
         type: EventType.CUSTOM,
         name: "b4.step",
         subagentRunId: CHILD.call_id,
-        value: { toolCallId: "child_1", status: "running", label: "Reading a.md" },
+        value: {
+          v: 1,
+          kind: "server",
+          toolCallId: "child_1",
+          status: "running",
+          label: "Reading a.md",
+        },
       },
     ])
     const runningAt = events.findIndex(
@@ -2350,7 +2369,13 @@ describe("toolResultView", () => {
     expect(events[resultIndex + 1]).toEqual({
       type: EventType.CUSTOM,
       name: "b4.step",
-      value: { toolCallId: "call_e_1", status: "failed" },
+      value: {
+        v: 1,
+        kind: "server",
+        toolCallId: "call_e_1",
+        status: "failed",
+        error: { message: "ENOENT: corpus/x.md" },
+      },
     })
   })
 
@@ -2386,6 +2411,11 @@ describe("toolResultView", () => {
       type: EventType.CUSTOM,
       name: "b4.step",
       value: {
+        v: 1,
+        kind: "server",
+        startedAt: Date.parse("2026-10-19T00:00:00.000Z"),
+        settledAt: Date.parse("2026-10-19T00:00:01.000Z"),
+        error: { message: "Tool call did not finish" },
         toolCallId: "call_e_2",
         status: "failed",
         icon: "read",
@@ -2402,7 +2432,7 @@ describe("toolResultView", () => {
     expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
   })
 
-  test("an unknown icon is dropped but the step survives", async () => {
+  test("an unknown icon is retained as an open contract value", async () => {
     const events = await collect([
       {
         type: "step",
@@ -2414,17 +2444,30 @@ describe("toolResultView", () => {
     expect(step).toEqual({
       type: EventType.CUSTOM,
       name: "b4.step",
-      value: { toolCallId: "c", status: "running", label: "Working" },
+      value: {
+        v: 1,
+        kind: "server",
+        toolCallId: "c",
+        status: "running",
+        label: "Working",
+        icon: "sparkle",
+      },
     })
-    expect((step as { value: object }).value).not.toHaveProperty("icon")
+    expect((step as { value: object }).value).toHaveProperty("icon", "sparkle")
   })
 
-  test("a malformed step chunk is ignored", async () => {
+  test("a malformed step is ignored and an unknown status uses the frame lifecycle", async () => {
     const events = await collect([
       { type: "step", data: { status: "running" } },
       { type: "step", data: { tool_call_id: "c", status: "exploded" } },
       { type: "done", data: {} },
     ])
-    expect(events.some((event) => event.type === EventType.CUSTOM)).toBe(false)
+    expect(events.filter((event) => event.type === EventType.CUSTOM)).toEqual([
+      {
+        type: EventType.CUSTOM,
+        name: "b4.step",
+        value: { v: 1, kind: "server", toolCallId: "c", status: "running" },
+      },
+    ])
   })
 })

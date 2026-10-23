@@ -1,8 +1,9 @@
 import {
   B4_STEP_KEY,
   B4_SUBAGENT_KEY,
-  type PersistedStep,
+  type B4ToolStep,
   type PersistedSubagent,
+  readToolStep,
   type ToolDisplay,
 } from "@b4run/sdk"
 
@@ -86,32 +87,32 @@ export function convertSubagentTaskToLangChain(
       // including the entry it is about to push for its own child.
       const origin = readCallOrigin(liveConfig)
       const display = providerCallId !== undefined ? tool.display : undefined
-      if (display !== undefined && providerCallId !== undefined) {
-        await dispatchStep(liveConfig, {
-          tool_call_id: providerCallId,
-          status: "running",
-          ...describeRunning(display, input, tool.name),
-        })
-      }
+      let startedAt: number | undefined
       // Every path returns a ToolMessage carrying the step, and — once a child
       // was resolved — the subagent it launched, with the LangGraph namespace
       // the child checkpointed under (`childConfig` spreads `liveConfig`, so it
       // is this task's own `checkpoint_ns`, `tools:<task id>`). A restored
       // thread reads both off the checkpointed message.
-      const startedAt = new Date().toISOString()
       const checkpointNs =
         typeof liveConfig.configurable?.checkpoint_ns === "string"
           ? liveConfig.configurable.checkpoint_ns
           : ""
-      const persisted = (status: PersistedStep["status"], payload: StepPayload): PersistedStep => ({
-        status,
-        ...payload,
-        startedAt,
-        settledAt: new Date().toISOString(),
-      })
+      const persisted = (status: B4ToolStep["status"], payload: StepPayload): B4ToolStep => {
+        const { sources: _sources, ...fields } = payload
+        const sources = readToolStep({ status, ...payload }, providerCallId)?.sources
+        return {
+          v: 1,
+          kind: "server",
+          status,
+          ...fields,
+          ...(sources !== undefined ? { sources } : {}),
+          ...(startedAt !== undefined ? { startedAt } : {}),
+          settledAt: Date.now(),
+        }
+      }
       const toolMessage = (
         content: string,
-        step: PersistedStep,
+        step: B4ToolStep,
         subagent: PersistedSubagent | undefined,
         failed: boolean,
       ): ToolMessage =>
@@ -121,7 +122,7 @@ export function convertSubagentTaskToLangChain(
           content,
           status: failed ? "error" : "success",
           additional_kwargs: {
-            [B4_STEP_KEY]: step,
+            [B4_STEP_KEY]: failed ? { ...step, error: { message: content } } : step,
             ...(subagent !== undefined ? { [B4_SUBAGENT_KEY]: subagent } : {}),
           },
         })
@@ -162,6 +163,17 @@ export function convertSubagentTaskToLangChain(
               undefined,
               true,
             )
+          }
+          startedAt = Date.now()
+          if (providerCallId !== undefined) {
+            await dispatchStep(liveConfig, {
+              v: 1,
+              kind: "server",
+              toolCallId: providerCallId,
+              startedAt,
+              status: "running",
+              ...(display !== undefined ? describeRunning(display, input, tool.name) : {}),
+            })
           }
           // `outcome: "suspended"` is never written here: a child that parks
           // rethrows its GraphInterrupt (below) and the parent parks with no
@@ -255,13 +267,10 @@ export function convertSubagentTaskToLangChain(
           )
         },
       )
-      // `completed` streams only for a child that finished; the translator
-      // derives the `failed` step from the error-status result.
-      if (display !== undefined && providerCallId !== undefined && result.status !== "error") {
+      if (providerCallId !== undefined) {
         await dispatchStep(liveConfig, {
-          tool_call_id: providerCallId,
-          status: "completed",
-          ...describeDone(display, input, result.content, tool.name),
+          ...(result.additional_kwargs[B4_STEP_KEY] as B4ToolStep),
+          toolCallId: providerCallId,
         })
       }
       return result

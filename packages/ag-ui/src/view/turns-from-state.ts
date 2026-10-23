@@ -2,14 +2,14 @@ import type { BaseEvent } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import {
   B4_STEP_KEY,
+  B4_STEP_METADATA_KEY,
   B4_SUBAGENT_KEY,
   B4_TURN_METADATA_KEY,
-  isToolDisplayIcon,
-  type PersistedStep,
+  mergeToolStep,
   type PersistedTurnEnd,
-  readPersistedStep,
   readPersistedSubagent,
   readPersistedTurnEnd,
+  readToolStep,
 } from "@b4run/sdk"
 import { B4_PLAN_ACTIVITY_TYPE, type B4PlanActivityContent } from "../activities.js"
 import { toAguiInterrupt } from "../interrupts.js"
@@ -131,9 +131,14 @@ function envelope(value: unknown): Envelope | undefined {
   return typeof cls === "string" ? { cls, kwargs: value.kwargs } : undefined
 }
 
-/** Epoch ms of an ISO string, or 0 when it does not parse (the view then shows the epoch, not NaN). */
+/** Epoch ms of a numeric or ISO timestamp, or 0 when it does not parse. */
 function ms(iso: unknown): number {
-  const t = typeof iso === "string" ? Date.parse(iso) : Number.NaN
+  const t =
+    typeof iso === "number" && Number.isFinite(iso)
+      ? iso
+      : typeof iso === "string"
+        ? Date.parse(iso)
+        : Number.NaN
   return Number.isNaN(t) ? 0 : t
 }
 
@@ -149,35 +154,6 @@ function textOf(content: unknown): string {
   return content
     .map((b) => (isRecord(b) && b.type === "text" && typeof b.text === "string" ? b.text : ""))
     .join("")
-}
-
-/**
- * The `running` step of a parked call: the running display (`step`) its
- * permission interrupt carries, which the runtime streamed live as the call's
- * `b4.step` before the gate parked it. A parked call has no ToolMessage to
- * stamp, so the interrupt is where the checkpoint keeps it. Undefined when the
- * thread is not parked on this call or the interrupt carries no display.
- */
-function parkedStep(input: Normalised, toolCallId: string): BaseEvent | undefined {
-  if (input.status !== "interrupted") return undefined
-  for (const pending of input.pendingInterrupts) {
-    const interrupt = toAguiInterrupt(pending.value)
-    if (interrupt?.toolCallId !== toolCallId) continue
-    const step = isRecord(interrupt.metadata) ? interrupt.metadata.step : undefined
-    if (!isRecord(step)) return undefined
-    const { icon, label } = step
-    const display = {
-      ...(isToolDisplayIcon(icon) ? { icon } : {}),
-      ...(typeof label === "string" && label !== "" ? { label } : {}),
-    }
-    if (Object.keys(display).length === 0) return undefined
-    return {
-      type: EventType.CUSTOM,
-      name: B4_STEP_EVENT_NAME,
-      value: { toolCallId, status: "running", ...display },
-    } as BaseEvent
-  }
-  return undefined
 }
 
 /** Reasoning text of a message's content blocks (`thinking`/`reasoning`), joined. */
@@ -295,8 +271,8 @@ function planChanges(history: readonly CheckpointForTurns[]): PlanChange[] {
       for (const value of messages.slice(previousCount)) {
         const message = envelope(value)
         if (message?.cls !== "ToolMessage" || message.kwargs.name !== PLAN_TOOL) continue
-        const step = readPersistedStep(stampOf(message.kwargs, B4_STEP_KEY))
-        if (step !== undefined) at = Math.max(ms(step.settledAt), previousTs)
+        const step = readToolStep(stampOf(message.kwargs, B4_STEP_KEY))
+        if (step?.settledAt !== undefined) at = Math.max(step.settledAt, previousTs)
         break
       }
       changes.push({ at, todos, beforeMessage: previousCount })
@@ -664,10 +640,6 @@ function synthesiseNamespace(
         )
         push(s, at, { type: EventType.TOOL_CALL_END, toolCallId } as BaseEvent, owner)
         openRunCalls.push(toolCallId)
-        // Live, a parked call's tool streamed its running step before the gate
-        // parked it; the interrupt kept that display.
-        const running = answered.has(toolCallId) ? undefined : parkedStep(input, toolCallId)
-        if (running !== undefined) push(s, at, running, owner)
         if (call.name === TASK_TOOL && !answered.has(toolCallId)) {
           // The bridge writes the task's ToolMessage only when the child ends:
           // a running or parked child has a namespace but no message yet. The
@@ -702,16 +674,38 @@ function synthesiseNamespace(
         continue
       }
       const stampValue = stampOf(kwargs, B4_STEP_KEY)
-      const step = readPersistedStep(stampValue)
+      const read = readToolStep(stampValue, toolCallId)
+      const step = read === undefined ? undefined : mergeToolStep(undefined, read, "message")
       if (step === undefined) {
         ;(stampValue === undefined ? s.unstamped.missing : s.unstamped.malformed).push(toolCallId)
       }
-      const failed = step?.status === "failed" || kwargs.status === "error"
-      // Stamp clocks never run ahead of the model checkpoint that announced the call.
+      const storedError =
+        typeof kwargs.error === "string" && kwargs.error !== "" ? kwargs.error : undefined
+      const failed =
+        step?.status === "failed" || kwargs.status === "error" || storedError !== undefined
+      const error = failed
+        ? (read?.error?.message ??
+          storedError ??
+          step?.error?.message ??
+          (textOf(kwargs.content) || UNFINISHED_CALL))
+        : undefined
+      // Stamp clocks never precede the model checkpoint that announced the call.
       const announced = announcedAt.get(toolCallId) ?? floor
-      const startedAt = step ? Math.max(ms(step.startedAt), announced) : at
-      const settledAt = step ? Math.max(ms(step.settledAt), startedAt) : at
-      if (step && (ms(step.startedAt) < announced || ms(step.settledAt) < startedAt)) {
+      const startedAt =
+        step?.startedAt !== undefined
+          ? Math.max(step.startedAt, announced)
+          : step?.settledAt !== undefined
+            ? announced
+            : at
+      const settledAt =
+        step?.settledAt !== undefined
+          ? Math.max(step.settledAt, startedAt)
+          : Math.max(at, startedAt)
+      if (
+        step &&
+        ((step.startedAt !== undefined && step.startedAt < announced) ||
+          (step.settledAt !== undefined && step.settledAt < startedAt))
+      ) {
         s.warnings.push(
           `clamped ${B4_STEP_KEY} clocks on tool call ${toolCallId} to the checkpoint that announced it`,
         )
@@ -767,33 +761,48 @@ function synthesiseNamespace(
         continue
       }
 
-      const stepEvent = (status: PersistedStep["status"]): BaseEvent =>
+      // RESULT is the durable message carrier. CUSTOM keeps the live/replay
+      // ordering, while the same full value reaches snapshot-compatible clients.
+      const finalStep =
+        step !== undefined || failed
+          ? mergeToolStep(
+              undefined,
+              {
+                ...(step ?? { v: 1, kind: "server" }),
+                status: failed
+                  ? "failed"
+                  : step?.status === "running"
+                    ? "completed"
+                    : (step?.status ?? "completed"),
+                ...(step?.startedAt !== undefined ? { startedAt } : {}),
+                ...(step?.settledAt !== undefined ? { settledAt } : {}),
+                ...(error !== undefined ? { error: { ...step?.error, message: error } } : {}),
+              },
+              "message",
+            )
+          : undefined
+      const storedStep =
+        finalStep === undefined ? undefined : (({ toolCallId: _id, ...value }) => value)(finalStep)
+      const stepEvent = (): BaseEvent =>
         ({
           type: EventType.CUSTOM,
           name: B4_STEP_EVENT_NAME,
-          value: {
-            toolCallId,
-            status,
-            ...(step?.icon !== undefined ? { icon: step.icon } : {}),
-            ...(step?.label !== undefined ? { label: step.label } : {}),
-            ...(step?.sources !== undefined ? { sources: step.sources } : {}),
-          },
+          value: { ...storedStep, toolCallId },
         }) as BaseEvent
-      // Live order: a `completed` (or `denied`) step precedes its result; a
-      // `failed` step follows it. A denial is not a failure (#946).
-      if (step !== undefined && !failed) {
-        push(s, settledAt, stepEvent(step.status === "denied" ? "denied" : "completed"), owner)
-      }
+      // A denial or cancellation is not a failure.
+      if (storedStep !== undefined && !failed) push(s, settledAt, stepEvent(), owner)
       const result = {
         type: EventType.TOOL_CALL_RESULT,
         toolCallId,
         messageId: `tr:${id}`,
         // Live `toResultContent` (outbound.ts) sends the parts a ToolMessage
         // kept for the UI as the content, else the text the model saw.
-        content: keptToolParts(kwargs) ?? textOf(kwargs.content),
+        content: keptToolParts(kwargs) ?? (textOf(kwargs.content) || error || ""),
+        ...(storedStep !== undefined ? { metadata: { [B4_STEP_METADATA_KEY]: storedStep } } : {}),
+        ...(error !== undefined ? { error } : {}),
       }
       push(s, settledAt, result as BaseEvent, owner)
-      if (failed) push(s, settledAt, stepEvent("failed"), owner)
+      if (failed) push(s, settledAt, stepEvent(), owner)
     }
     // System/developer envelopes are prompt plumbing.
   }
