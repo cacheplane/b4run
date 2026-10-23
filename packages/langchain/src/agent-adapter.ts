@@ -45,6 +45,7 @@ import {
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
+import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
 import { withRetry } from "./retry.js"
 import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
 import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagent-tool-bridge.js"
@@ -215,6 +216,9 @@ async function materializeAgent(
     model: descriptor.model,
     provider,
     maxRetries: providerMaxRetries(retry),
+    ...(descriptor.maxOutputTokens !== undefined
+      ? { maxOutputTokens: descriptor.maxOutputTokens }
+      : {}),
     ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
@@ -421,6 +425,7 @@ interface ToolProjectionState {
  * exactly as root's are, so the AG-UI mapper can frame them identically.
  */
 interface OwnerToolStates {
+  readonly checkpointedToolCalls: ReadonlySet<string>
   readonly root: ToolProjectionState
   readonly children: Map<string, ToolProjectionState>
 }
@@ -618,6 +623,32 @@ function readOutputMessages(output: unknown): readonly unknown[] {
   } catch {
     return []
   }
+}
+
+/** Collect logical calls already present in a root or nested checkpoint snapshot. */
+function checkpointedToolCallIds(snapshot: unknown): Set<string> {
+  const ids = new Set<string>()
+  const visited = new Set<object>()
+  const pending = [snapshot]
+  while (pending.length > 0) {
+    const state = pending.pop()
+    if (!isRecord(state) || visited.has(state)) continue
+    visited.add(state)
+    for (const message of readOutputMessages(state.values)) {
+      if (!isRecord(message)) continue
+      const fields = isRecord(message.kwargs) ? message.kwargs : message
+      if (!Array.isArray(fields.tool_calls)) continue
+      for (const call of fields.tool_calls) {
+        if (isRecord(call) && typeof call.id === "string") ids.add(call.id)
+      }
+    }
+    if (Array.isArray(state.tasks)) {
+      for (const task of state.tasks) {
+        if (isRecord(task)) pending.push(task.state)
+      }
+    }
+  }
+  return ids
 }
 
 /**
@@ -1011,7 +1042,15 @@ function classifyStreamEvent(
       const chunks: AgentStreamChunk[] = []
       if (!tools.announcedToolCallIds.has(id) && (held !== undefined || logicalId !== undefined)) {
         tools.announcedToolCallIds.add(id)
-        chunks.push({ type: "tool_call", data: { id, name: event.name, input: held?.input } })
+        chunks.push({
+          type: "tool_call",
+          data: {
+            id,
+            name: event.name,
+            input: held?.input,
+            ...(owners.checkpointedToolCalls.has(id) ? { replayed: true } : {}),
+          },
+        })
       }
       chunks.push({
         type: "tool_result",
@@ -1435,8 +1474,13 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
     // `maxRetries` and B4's capacity-429 middleware), never to the whole run.
     const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
     const checkpointWrites = trackCheckpointWrites(options.checkpointer)
-    yield* streamFromRunnable(materializedAgent, runnableInput, config, undefined, () =>
-      checkpointWrites.settled(),
+    yield* streamFromRunnable(
+      materializedAgent,
+      runnableInput,
+      config,
+      undefined,
+      () => checkpointWrites.settled(),
+      options.checkpointer,
     )
     return
   }
@@ -1473,7 +1517,14 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
     yield droppedPartsChunk(RAW_RUNNABLE_MODALITY, extracted.dropped)
   }
   const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
-  yield* streamFromRunnable(options.entry, runnableInput, config, options.retry)
+  yield* streamFromRunnable(
+    options.entry,
+    runnableInput,
+    config,
+    options.retry,
+    undefined,
+    options.checkpointer,
+  )
 }
 
 function prepareAgentCall(options: AgentOptions): {
@@ -1530,8 +1581,10 @@ async function* streamFromRunnable(
   retryConfig?: RetryConfig,
   /** Awaited before a failure propagates, so the turn has stopped writing. */
   drainWrites?: () => Promise<void>,
+  checkpointer?: BaseCheckpointSaver,
 ): AsyncGenerator<AgentStreamChunk> {
   const streamable = runnable as AgentLike & {
+    getState?: (config: Record<string, unknown>, options: { subgraphs: true }) => Promise<unknown>
     streamEvents?: (
       input: unknown,
       options: Record<string, unknown>,
@@ -1559,6 +1612,49 @@ async function* streamFromRunnable(
   // Pregel.streamEvents reads `this.config?.recursionLimit`, so calling it
   // unbound throws "Cannot read properties of undefined (reading 'config')".
   const streamEventsFn = streamable.streamEvents.bind(streamable)
+  const priorCalls =
+    input instanceof Command && typeof streamable.getState === "function"
+      ? checkpointedToolCallIds(await streamable.getState(config, { subgraphs: true }))
+      : new Set<string>()
+  if (input instanceof Command && checkpointer) {
+    const configurable = isRecord(config.configurable) ? config.configurable : {}
+    const reads = new Map<string, Promise<void>>()
+    config = {
+      ...config,
+      configurable: {
+        ...configurable,
+        [REPLAY_CHECKPOINT_READER]: async (
+          childConfig: import("@langchain/core/runnables").RunnableConfig,
+        ) => {
+          const namespace = childConfig.configurable?.checkpoint_ns ?? ""
+          let read = reads.get(namespace)
+          if (!read) {
+            // A ToolNode can invoke several children under one task. LangGraph
+            // numbers their namespaces |1, |2, etc. The checkpointed calls bound
+            // their count; read across gaps left by a child that failed to save.
+            const siblingBound = Math.max(1, priorCalls.size)
+            read = (async () => {
+              for (let index = 0; index < siblingBound; index++) {
+                const tuple = await checkpointer.getTuple({
+                  configurable: {
+                    thread_id: childConfig.configurable?.thread_id,
+                    checkpoint_ns: index === 0 ? namespace : `${namespace}|${index}`,
+                  },
+                })
+                for (const id of checkpointedToolCallIds({
+                  values: tuple?.checkpoint.channel_values,
+                })) {
+                  priorCalls.add(id)
+                }
+              }
+            })()
+            reads.set(namespace, read)
+          }
+          await read
+        },
+      },
+    }
+  }
 
   interface PassResult {
     readonly finalOutput: unknown
@@ -1578,7 +1674,11 @@ async function* streamFromRunnable(
     let capturedInterrupts: readonly RawInterruptEntry[] = []
     const emittedInterruptIds = new Set<string>()
     const subagentToolRuns: SubagentToolRunContexts = { contextsByToolRunId: new Map() }
-    const owners: OwnerToolStates = { root: newToolProjectionState(), children: new Map() }
+    const owners: OwnerToolStates = {
+      checkpointedToolCalls: priorCalls,
+      root: newToolProjectionState(),
+      children: new Map(),
+    }
 
     try {
       for await (const event of streamEventsFn(invocationInput, {

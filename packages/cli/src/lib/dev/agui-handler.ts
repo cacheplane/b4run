@@ -306,6 +306,7 @@ async function* normalizeB4Stream(
             ...(toolCall.id ? { id: toolCall.id } : {}),
             name: toolCall.name,
             input: toolCall.input,
+            ...(toolCall.replayed === true ? { replayed: true } : {}),
             ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
           },
         }

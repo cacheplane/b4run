@@ -38,6 +38,12 @@ export interface B4ToolCallData {
   readonly name: string
   readonly input: unknown
   /**
+   * A checkpointed call re-presented during resume. Its original parent and
+   * arguments already belong to the client's history and must not be replaced
+   * or appended again. The result still streams under the same tool-call id.
+   */
+  readonly replayed?: boolean
+  /**
    * The model invocation that announced the call — the same identity its
    * text tokens carry as `messageId`. Omitted by legacy producers and for a
    * call no model turn announced (a resumed call re-presented on resume).
@@ -85,6 +91,7 @@ export function asToolCallData(data: unknown): B4ToolCallData | null {
     id: typeof data.id === "string" ? data.id : undefined,
     name: data.name,
     input: data.input,
+    ...(data.replayed === true ? { replayed: true } : {}),
     ...(typeof data.messageId === "string" && data.messageId !== ""
       ? { messageId: data.messageId }
       : {}),

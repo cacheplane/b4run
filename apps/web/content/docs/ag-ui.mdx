@@ -699,7 +699,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 
 ### Tool calls and their message
 
-Every `TOOL_CALL_START` carries `parentMessageId`: the id of the model message that announced the call. When that message also streamed text, it is the id its `TEXT_MESSAGE_*` events used, so a client that builds its message list from events keeps the text and the calls in one assistant message; when the model only called tools, no `TEXT_MESSAGE_START` names the id, and the client creates an assistant message for the calls. A subagent's call names the subagent's own message, tagged with its `subagentRunId`. A thread restored with `GET /threads/:id/events` files every call under the same message as the live stream did. A call re-presented when a parked run resumes names a fresh id; a client that already holds the call keeps it where it was.
+`TOOL_CALL_START` carries `parentMessageId` when this stream observed the model message that announced the call. When that message also streamed text, it is the id its `TEXT_MESSAGE_*` events used, so a client that builds its message list from events keeps the text and the calls in one assistant message; when the model only called tools, no `TEXT_MESSAGE_START` names the id, and the client creates an assistant message for the calls. A subagent's call names the subagent's own message, tagged with its `subagentRunId`. A thread restored with `GET /threads/:id/events` files every call under the same message as the live stream did. A checkpointed call re-presented when a parked run resumes keeps its tool-call id and omits `parentMessageId` and argument deltas. The client retains its original parent and arguments; the result still streams under the same tool-call id.
 
 ### Token usage
 

@@ -1,4 +1,4 @@
-import { MemorySaver } from "@langchain/langgraph"
+import { Command, MemorySaver } from "@langchain/langgraph"
 import { expect, test } from "vitest"
 import { streamAgent } from "../src/agent-adapter.ts"
 
@@ -160,4 +160,77 @@ test("a chunk with several text blocks joins them in order", async () => {
     { type: "reasoning", messageId: "a", data: "…" },
     { type: "token", messageId: "a", data: "one two" },
   ])
+})
+
+test("resuming a checkpoint marks re-presented tool calls as replayed", async () => {
+  const entry = {
+    invoke: async () => ({}),
+    getState: async () => ({ values: { messages: [{ tool_calls: [{ id: "original-call" }] }] } }),
+    async *streamEvents() {
+      yield {
+        event: "on_tool_start",
+        run_id: "execution",
+        name: "findAircraft",
+        data: { input: {} },
+      }
+      yield {
+        event: "on_tool_end",
+        run_id: "execution",
+        name: "findAircraft",
+        data: { output: { tool_call_id: "original-call", content: "found" } },
+      }
+    },
+  }
+  const chunks = []
+
+  for await (const chunk of streamAgent({
+    entry,
+    checkpointer: new MemorySaver(),
+    input: new Command({ resume: "found" }),
+    tools: [],
+    routeParamNames: [],
+    signal: new AbortController().signal,
+  })) {
+    chunks.push(chunk)
+  }
+
+  expect(chunks.find((chunk) => chunk.type === "tool_call")?.data).toMatchObject({
+    id: "original-call",
+    replayed: true,
+  })
+})
+
+test("a new direct tool invocation after resume is not a checkpoint replay", async () => {
+  const entry = {
+    invoke: async () => ({}),
+    getState: async () => ({ values: { messages: [{ tool_calls: [{ id: "old-call" }] }] } }),
+    async *streamEvents() {
+      yield {
+        event: "on_tool_start",
+        run_id: "new-execution",
+        name: "findAircraft",
+        data: { input: { area: "pnw" } },
+      }
+      yield {
+        event: "on_tool_end",
+        run_id: "new-execution",
+        name: "findAircraft",
+        data: { output: { tool_call_id: "new-call", content: "found" } },
+      }
+    },
+  }
+  const chunks = []
+
+  for await (const chunk of streamAgent({
+    entry,
+    checkpointer: new MemorySaver(),
+    input: new Command({ resume: "go" }),
+    tools: [],
+    routeParamNames: [],
+    signal: new AbortController().signal,
+  })) {
+    chunks.push(chunk)
+  }
+
+  expect(chunks.find((chunk) => chunk.type === "tool_call")?.data).not.toHaveProperty("replayed")
 })

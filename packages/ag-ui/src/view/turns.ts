@@ -732,7 +732,9 @@ export function reduceTurns(
           // call the interrupt cancelled runs again, so it reopens.
           const framed = turn.steps.some((s) => s.kind === "tool" && s.id === toolCallId)
             ? mapStep(turn, toolCallId, (s) =>
-                s.status === "cancelled" ? reopenTool(s) : s.args === "" ? s : { ...s, args: "" },
+                (event as ToolCallStartEvent).parentMessageId === undefined
+                  ? s
+                  : s.status === "cancelled" ? reopenTool(s) : s.args === "" ? s : { ...s, args: "" },
               )
             : { ...turn, steps: [...turn.steps, tool] }
           // Steps that arrived before the call apply now, then its own metadata.

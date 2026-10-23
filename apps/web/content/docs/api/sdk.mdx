@@ -286,6 +286,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
   readonly description?: string
   readonly model: KnownModelId
   readonly provider?: ModelProviderId
+  readonly maxOutputTokens?: number
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   readonly recursionLimit?: number
@@ -302,6 +303,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 | `readonly description` | `string` | no | Describe the agent for selection. |
 | `readonly model` | `KnownModelId` | yes | Select the model. |
 | `readonly provider` | `ModelProviderId` | no | Override provider inference. |
+| `readonly maxOutputTokens` | `number` | no | Cap output per model call with a positive safe integer, including provider-counted reasoning tokens. |
 | `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning per provider. |
 | `readonly retry` | `RetryConfig` | no | Tune transient retry behavior. |
 | `readonly recursionLimit` | `number` | no | Cap LangGraph super-steps. |

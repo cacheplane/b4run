@@ -377,6 +377,8 @@ function bindResponseFormat(
 export async function createChatModel(options: {
   readonly model: string
   readonly provider: BuiltInModelProviderId
+  /** Positive safe integer output budget for each provider call, when configured. */
+  readonly maxOutputTokens?: number
   readonly reasoning?: ReasoningConfig
   readonly importer?: Importer
   /**
@@ -392,6 +394,12 @@ export async function createChatModel(options: {
    */
   readonly maxRetries?: number
 }): Promise<unknown> {
+  if (
+    options.maxOutputTokens !== undefined &&
+    (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens <= 0)
+  ) {
+    throw new Error("agent() maxOutputTokens must be a positive safe integer.")
+  }
   if (options.responseFormat && !supportsJsonSchemaResponseFormat(options.provider)) {
     throw new Error(unsupportedResponseFormatMessage(options.provider))
   }
@@ -420,6 +428,15 @@ export async function createChatModel(options: {
   }
 
   const constructorOptions: Record<string, unknown> = { model: options.model }
+  if (options.maxOutputTokens !== undefined) {
+    const key =
+      options.provider === "google"
+        ? "maxOutputTokens"
+        : options.provider === "ollama"
+          ? "numPredict"
+          : "maxTokens"
+    constructorOptions[key] = options.maxOutputTokens
+  }
   if (options.maxRetries !== undefined) constructorOptions.maxRetries = options.maxRetries
   // ChatOpenAI's constructor reads `reasoning` (`reasoningEffort` is only a
   // per-call option) and streams a summary only on the Responses API;

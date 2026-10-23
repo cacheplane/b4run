@@ -184,6 +184,8 @@ export interface B4Agent<Subagents extends SubagentMap = SubagentMap> {
   readonly description?: string
   readonly model: string
   readonly provider?: ModelProviderId
+  /** Maximum output tokens per model call, including provider-counted reasoning tokens. */
+  readonly maxOutputTokens?: number
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   readonly recursionLimit?: number
@@ -198,6 +200,12 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
   readonly description?: string
   readonly model: KnownModelId
   readonly provider?: ModelProviderId
+  /**
+   * Maximum output tokens for each model call, including provider-counted
+   * reasoning tokens. Must be a positive safe integer. When omitted, the
+   * provider's default applies. Independent of the graph's recursion limit.
+   */
+  readonly maxOutputTokens?: number
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   /**
@@ -216,11 +224,18 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 export function agent<const Subagents extends SubagentMap = {}>(
   config: AgentConfig<Subagents>,
 ): B4Agent<Subagents> {
+  if (
+    config.maxOutputTokens !== undefined &&
+    (!Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens <= 0)
+  ) {
+    throw new Error("agent() maxOutputTokens must be a positive safe integer.")
+  }
   return {
     [B4_AGENT]: true,
     model: config.model,
     ...(config.delegation !== undefined ? { delegation: config.delegation } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
+    ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
     ...(config.reasoning ? { reasoning: config.reasoning } : {}),
     ...(config.retry ? { retry: config.retry } : {}),
     ...(config.recursionLimit !== undefined ? { recursionLimit: config.recursionLimit } : {}),
