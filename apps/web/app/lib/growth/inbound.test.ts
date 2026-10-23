@@ -89,10 +89,16 @@ describe("parseInboundEvent", () => {
       id: ID,
       receivedAt: new Date("2026-10-22T10:00:00.000Z"),
       admitted: true,
+      selfSent: false,
     })
     expect(
       parseInboundEvent({ ...payload, data: { ...payload.data, to: ["hello@b4.run"] } }),
     ).toMatchObject({ admitted: false })
+    for (const from of ["Brian at B4.run <brian@b4.run>", "BRIAN@cacheplane.ai"]) {
+      expect(parseInboundEvent({ ...payload, data: { ...payload.data, from } })).toMatchObject({
+        selfSent: true,
+      })
+    }
   })
 
   it("rejects other types, bad ids, and missing times", () => {
@@ -289,6 +295,37 @@ describe("createReceivingClient", () => {
       "https://api.resend.com/emails/receiving?limit=100",
       "https://api.resend.com/emails/receiving?limit=100&after=b",
     ])
+  })
+
+  it("reads a sent email's Message-ID", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(json(200, { id: "em_1", message_id: "<abc@email.example.com>" }))
+      .mockResolvedValueOnce(json(200, { id: "em_2", message_id: null }))
+      .mockResolvedValueOnce(json(200, { id: "em_other", message_id: "<x@example.com>" }))
+    const client = createReceivingClient("re_full", fetchImpl as unknown as typeof fetch)
+    expect(await client.getSent("em_1")).toEqual({ messageId: "<abc@email.example.com>" })
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("https://api.resend.com/emails/em_1")
+    expect(await client.getSent("em_2")).toEqual({ messageId: null })
+    await expect(client.getSent("em_3")).rejects.toMatchObject({ code: "sent_malformed" })
+  })
+
+  it("treats more pages than recovery reads as a failed listing", async () => {
+    let page = 0
+    const fetchImpl = vi.fn(async () => {
+      page += 1
+      return json(200, {
+        has_more: true,
+        data: [{ id: `p${page}`, to: [], created_at: "2026-10-22T10:00:00.000Z" }],
+      })
+    })
+    const client = createReceivingClient("re_full", fetchImpl as unknown as typeof fetch)
+    const read = async () => {
+      for await (const _ of client.listReceived()) {
+        // drain
+      }
+    }
+    await expect(read()).rejects.toMatchObject({ code: "receiving_page_limit" })
   })
 })
 

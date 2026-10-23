@@ -10,6 +10,7 @@ import {
 import type { SqlExecutor } from "./database"
 import { DIGEST_KIND } from "./digest"
 import type { GrowthEnv } from "./env"
+import { REPLY_PROVENANCE } from "./replies"
 import { createActionToken, unsubscribeUrl } from "./tokens"
 
 const NOT_FOUND = "no contact found for that address"
@@ -88,6 +89,22 @@ async function describeSequence(executor: SqlExecutor, contact: ContactRow): Pro
   return lines
 }
 
+/** Says what stopped a stopped contact: a reply to the sequence, the founder CLI, a webhook. */
+async function describeStop(executor: SqlExecutor, contact: ContactRow): Promise<string[]> {
+  if (contact.stoppedAt === null) return []
+  const stop = await executor.query<{ provenance: string | null }>(
+    "select data->>'provenance' as provenance from growth_activity where contact_id = $1 and kind like 'stop.%' order by occurred_at desc, id desc limit 1",
+    [contact.id],
+  )
+  const provenance = stop.rows[0]?.provenance ?? null
+  if (provenance === null) return []
+  return [
+    provenance === REPLY_PROVENANCE
+      ? "stopped by: their reply to the sequence"
+      : `stopped by: ${provenance}`,
+  ]
+}
+
 export async function runControl(
   executor: SqlExecutor,
   env: GrowthEnv,
@@ -115,6 +132,7 @@ export async function runControl(
     })
     return [
       ...describeContact(contact, true),
+      ...(await describeStop(executor, contact)),
       `unsubscribe url: ${unsubscribeUrl(env.publicOrigin, token)}`,
       ...(await describeSequence(executor, contact)),
     ].join("\n")
@@ -185,9 +203,17 @@ export async function runReport(
       "select data->>'date' as date from growth_activity where kind = $1 order by occurred_at desc limit 1",
       [DIGEST_KIND],
     )
+    const unbound = await executor.query<{ total: string }>(
+      "select count(*) as total from growth_sends where status = 'submitted' and rfc_message_id is null",
+    )
+    const replies = await executor.query<{ reply_status: string; total: string }>(
+      "select reply_status, count(*) as total from growth_inbound_receipts group by reply_status order by reply_status",
+    )
     return [
       ...byStep.rows.map((row) => `step ${row.step} ${row.status}: ${row.total}`),
       ...byDelivery.rows.map((row) => `delivery ${row.delivery_status}: ${row.total}`),
+      `submitted without message id: ${unbound.rows[0]?.total ?? "0"}`,
+      ...replies.rows.map((row) => `inbound reply ${row.reply_status}: ${row.total}`),
       `last digest: ${digest.rows[0]?.date ?? "none"}`,
     ].join("\n")
   }

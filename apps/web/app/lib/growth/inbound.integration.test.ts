@@ -177,9 +177,24 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth inbound forwarding", () => {
     await withMigratedDatabase(async (executor) => {
       const now = new Date("2026-10-22T12:00:00.000Z")
       const listing: ReceivedReference[] = [
-        { id: "missed", receivedAt: new Date("2026-10-22T11:00:00.000Z"), admitted: true },
-        { id: "hello", receivedAt: new Date("2026-10-22T10:00:00.000Z"), admitted: false },
-        { id: "stale", receivedAt: new Date("2026-10-18T10:00:00.000Z"), admitted: true },
+        {
+          id: "missed",
+          receivedAt: new Date("2026-10-22T11:00:00.000Z"),
+          admitted: true,
+          selfSent: false,
+        },
+        {
+          id: "hello",
+          receivedAt: new Date("2026-10-22T10:00:00.000Z"),
+          admitted: false,
+          selfSent: false,
+        },
+        {
+          id: "stale",
+          receivedAt: new Date("2026-10-18T10:00:00.000Z"),
+          admitted: true,
+          selfSent: false,
+        },
       ]
       const { mailer, sent } = countingMailer()
       const runtime: InboundRuntime = {
@@ -187,9 +202,17 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth inbound forwarding", () => {
         async *listReceived() {
           yield* listing
         },
+        getSent: async () => ({ messageId: null }),
+        emailHmacSecret: "unused",
       }
       const report = await recoverInbound(executor, { ...runtime, canContinue: () => true })
-      expect(report).toEqual({ admitted: 1, forwarded: 1, failed: 0, retrying: 0 })
+      expect(report).toEqual({
+        admitted: 1,
+        listing: "complete",
+        forwarded: 1,
+        failed: 0,
+        retrying: 0,
+      })
       expect(sent.map((email) => email.headers["X-B4-Forwarded"])).toEqual(["missed"])
       const ids = await executor.query<{ id: string }>(
         "select id from growth_inbound_receipts order by id",
@@ -200,6 +223,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth inbound forwarding", () => {
       // A second pass finds nothing new and sends nothing.
       expect(await recoverInbound(executor, { ...runtime, canContinue: () => true })).toEqual({
         admitted: 0,
+        listing: "complete",
         forwarded: 0,
         failed: 0,
         retrying: 0,
@@ -226,6 +250,11 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth inbound forwarding", () => {
         "last_error_code",
         "created_at",
         "updated_at",
+        "reply_status",
+        "contact_id",
+        "matched_send_id",
+        "reply_attempts",
+        "reply_error_code",
       ])
       const rows = await executor.query("select * from growth_inbound_receipts")
       const dump = JSON.stringify(rows.rows)

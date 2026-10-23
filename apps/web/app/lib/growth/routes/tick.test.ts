@@ -10,7 +10,8 @@ const engine = vi.hoisted(() => ({
   send: vi.fn(),
   release: vi.fn(),
   digest: vi.fn(),
-  recover: vi.fn(),
+  replies: vi.fn(),
+  forwards: vi.fn(),
 }))
 
 vi.mock("../sequence", async (importOriginal) => ({
@@ -23,13 +24,17 @@ vi.mock("../sequence", async (importOriginal) => ({
 vi.mock("../digest", () => ({ sendDailyDigest: engine.digest }))
 vi.mock("../inbound", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../inbound")>()),
-  recoverInbound: engine.recover,
+  retryForwards: engine.forwards,
+}))
+vi.mock("../replies", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../replies")>()),
+  recoverReplies: engine.replies,
 }))
 
 import type { InboundRuntime } from "../inbound"
 import { SEND_BATCH, SEND_PACING_MS } from "../sequence"
 import { loadSequenceEnv } from "../sequence-env"
-import { handleTick, TICK_INBOUND_BUDGET_MS, type TickDeps } from "./tick"
+import { handleTick, TICK_INBOUND_BUDGET_MS, TICK_REPLY_BUDGET_MS, type TickDeps } from "./tick"
 
 const SECRET = "cron-secret-value"
 const URL_BASE = "http://localhost/api/growth/tick"
@@ -54,6 +59,12 @@ const baseEnv: SequenceEnv = {
 }
 
 const executor = {} as SqlExecutor
+const REPLY_PASS = {
+  admitted: 1,
+  listing: "complete",
+  bindings: { bound: 2, waiting: 0, failed: 0 },
+  replies: { matched: 1, unmatched: 0, ignored: 0, pending: 0 },
+}
 const mailer: Mailer = { send: async () => ({ kind: "accepted", providerEmailId: "em" }) }
 
 interface Harness {
@@ -133,7 +144,8 @@ describe("growth tick route", () => {
     engine.send.mockResolvedValue("sent" satisfies SendOutcome)
     engine.release.mockResolvedValue({ released: 0 })
     engine.digest.mockResolvedValue("nothing_to_report")
-    engine.recover.mockResolvedValue({ admitted: 0, forwarded: 0, failed: 0, retrying: 0 })
+    engine.replies.mockResolvedValue(REPLY_PASS)
+    engine.forwards.mockResolvedValue({ forwarded: 0, failed: 0, retrying: 0 })
   })
 
   afterEach(() => {
@@ -387,54 +399,105 @@ describe("growth tick route", () => {
 
     it("reports disabled and recovers nothing without a receiving key", async () => {
       const res = await handleTick(authorised(), harness().deps)
-      expect(engine.recover).not.toHaveBeenCalled()
+      expect(engine.replies).not.toHaveBeenCalled()
+      expect(engine.forwards).not.toHaveBeenCalled()
       expect(await res.json()).toMatchObject({ inbound: "disabled" })
     })
 
-    it("runs after the digest, with both switches off, and reports counts only", async () => {
+    it("runs the reply pass before sends and forward retries last, reporting counts only", async () => {
       const order: string[] = []
-      engine.recover.mockImplementation(async () => {
-        order.push("recover")
-        return { admitted: 1, forwarded: 1, failed: 0, retrying: 2 }
+      queueBatches(1)
+      engine.replies.mockImplementation(async () => {
+        order.push("replies")
+        return REPLY_PASS
+      })
+      engine.send.mockImplementation(async () => {
+        order.push("send")
+        return "sent"
       })
       engine.digest.mockImplementation(async () => {
         order.push("digest")
         return "sent"
       })
+      engine.forwards.mockImplementation(async () => {
+        order.push("forwards")
+        return { forwarded: 1, failed: 0, retrying: 2 }
+      })
       const on = harness()
       on.deps.inboundRuntime = () => runtime
       const res = await handleTick(authorised(), on.deps)
-      expect(order).toEqual(["digest", "recover"])
-      expect(engine.recover).toHaveBeenCalledWith(
+      expect(order).toEqual(["replies", "send", "digest", "forwards"])
+      expect(engine.replies).toHaveBeenCalledWith(
         executor,
         expect.objectContaining({ environment: "test" }),
       )
-      expect(await res.json()).toMatchObject({
-        inbound: { admitted: 1, forwarded: 1, failed: 0, retrying: 2 },
+      const body = await res.json()
+      expect(body).toMatchObject({
+        inbound: {
+          mailbox: "ok",
+          listing: "complete",
+          admitted: 1,
+          bindings: { bound: 2, waiting: 0, failed: 0 },
+          replies: { matched: 1, unmatched: 0, ignored: 0, pending: 0 },
+          forwarded: 1,
+          failed: 0,
+          retrying: 2,
+        },
       })
+      expect(body).not.toHaveProperty("sendsHeld")
 
-      engine.recover.mockClear()
+      engine.replies.mockClear()
       const off = harness(
         { sequenceEnabled: false, deliveryEnabled: false },
         { omit: ["sequenceStartAt", "resendApiKey"] },
       )
       off.deps.inboundRuntime = () => runtime
       const offRes = await handleTick(authorised(), off.deps)
-      expect(engine.recover).toHaveBeenCalledTimes(1)
+      expect(engine.replies).toHaveBeenCalledTimes(1)
       expect(await offRes.json()).toMatchObject({ delivery: "disabled" })
     })
 
-    it("stops starting inbound work once the inbound budget is spent", async () => {
+    it("holds every send when the mailbox listing did not complete", async () => {
+      for (const listing of ["failed", "partial"]) {
+        engine.lease.mockClear()
+        engine.digest.mockClear()
+        engine.replies.mockResolvedValue({ ...REPLY_PASS, listing })
+        const h = harness()
+        h.deps.inboundRuntime = () => runtime
+        const res = await handleTick(authorised(), h.deps)
+        expect(engine.lease).not.toHaveBeenCalled()
+        expect(engine.digest).toHaveBeenCalledTimes(1)
+        expect(await res.json()).toMatchObject({
+          leased: 0,
+          sendsHeld: "mailbox_recovery_required",
+          inbound: { mailbox: "recovery_required", listing },
+        })
+      }
+    })
+
+    it("bounds the reply pass and the forward retries by their own budgets", async () => {
       const h = harness()
       h.deps.inboundRuntime = () => runtime
       let elapsed = 0
       h.setElapsed(() => elapsed)
       await handleTick(authorised(), h.deps)
-      const [call] = engine.recover.mock.calls
-      const { canContinue } = (call as unknown[])[1] as { canContinue(): boolean }
-      expect(canContinue()).toBe(true)
+      const replyContinue = (
+        (engine.replies.mock.calls[0] as unknown[])[1] as {
+          canContinue(): boolean
+        }
+      ).canContinue
+      const forwardContinue = (
+        (engine.forwards.mock.calls[0] as unknown[])[1] as {
+          canContinue(): boolean
+        }
+      ).canContinue
+      expect(replyContinue()).toBe(true)
+      expect(forwardContinue()).toBe(true)
+      elapsed = TICK_REPLY_BUDGET_MS
+      expect(replyContinue()).toBe(false)
+      expect(forwardContinue()).toBe(true)
       elapsed = TICK_INBOUND_BUDGET_MS
-      expect(canContinue()).toBe(false)
+      expect(forwardContinue()).toBe(false)
     })
   })
 })

@@ -1,5 +1,5 @@
 import { recordActivity } from "./contacts"
-import type { SqlExecutor, SqlTransaction } from "./database"
+import { REPLY_GATE_SHARED_LOCK, type SqlExecutor, type SqlTransaction } from "./database"
 import { safeErrorCode } from "./errors"
 import { composeSequenceEmail, type Mailer, sendIdempotencyKey } from "./mailer"
 import { businessMorningAfter, STEP_DELAY_BUSINESS_DAYS } from "./schedule"
@@ -23,6 +23,11 @@ export const SEND_PACING_MS = 600
 export const RETRY_DELAY_SECONDS = 600
 /** A rate-limited send waits this long; it never consumes an attempt. */
 export const RATE_LIMIT_DELAY_SECONDS = 60
+/**
+ * A send held for reply processing waits this long; it never consumes an attempt. The tick runs
+ * every 10 minutes, so in practice it goes out on the next tick once the hold clears.
+ */
+export const REPLY_HOLD_DELAY_SECONDS = 60
 /** Resend keeps an Idempotency-Key for 24 hours; retries stop an hour short of that. */
 export const IDEMPOTENCY_WINDOW_SECONDS = 23 * 3600
 
@@ -39,6 +44,7 @@ export type SendOutcome =
   | "cancelled_not_authorised"
   | "rejected"
   | "retry_later"
+  | "held_for_reply"
   | "failed_attempts"
   | "lease_lost"
 
@@ -218,6 +224,28 @@ export function authoriseAndSend(
         row.id,
       ])
       return "cancelled_not_authorised"
+    }
+
+    // A contact must not get the next step while a reply could still be unprocessed: hold it,
+    // without consuming an attempt, until every earlier send of theirs has a bound Message-ID
+    // and no receipt anywhere is waiting for reply processing. The shared lock orders this check
+    // after any receipt admission that committed first.
+    await tx.query(REPLY_GATE_SHARED_LOCK)
+    const gate = await tx.query<{ binding_pending: boolean; reply_pending: boolean }>(
+      "select exists (select 1 from growth_sends where contact_id = $1 and step < $2 and status = 'submitted' and rfc_message_id is null) as binding_pending, exists (select 1 from growth_inbound_receipts where reply_status = 'pending') as reply_pending",
+      [row.contact_id, row.step],
+    )
+    const held = gate.rows[0]?.binding_pending
+      ? "reply_binding_pending"
+      : gate.rows[0]?.reply_pending
+        ? "reply_processing_pending"
+        : undefined
+    if (held !== undefined) {
+      await tx.query(
+        `update growth_sends set status = 'pending', attempts = attempts - 1, first_attempted_at = case when attempts - 1 = 0 then null else first_attempted_at end, last_error_code = $2, due_at = $3, ${CLEAR_LEASE} where id = $1`,
+        [row.id, held, retryAt(now, REPLY_HOLD_DELAY_SECONDS)],
+      )
+      return "held_for_reply"
     }
 
     // An earlier attempt may have been accepted; once Resend could have forgotten its

@@ -151,6 +151,13 @@ async function sendStep(
   return authoriseAndSend(executor, { send, env, mailer, now })
 }
 
+/** Gives every submitted send a Message-ID, as the delivery webhook or the tick backfill would. */
+async function bindSubmitted(executor: SqlExecutor) {
+  await executor.query(
+    "update growth_sends set rfc_message_id = '<' || id::text || '@email.example.com>' where status = 'submitted' and rfc_message_id is null",
+  )
+}
+
 /** An executor bound to one open transaction, so its row locks stay held until the caller ends it. */
 function transactionExecutor(tx: SqlTransaction): SqlExecutor {
   return {
@@ -468,8 +475,10 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth founder sequence engine", () =
     await withMigratedDatabase(async (executor) => {
       const contactId = await enrolledContact(executor)
       expect(await sendStep(executor, SEND1_NOW)).toBe("sent")
+      await bindSubmitted(executor)
       expect(await lease(executor, new Date(STEP2_DUE.getTime() - 1))).toEqual([])
       expect(await sendStep(executor, SEND2_NOW)).toBe("sent")
+      await bindSubmitted(executor)
       const afterTwo = await sendsFor(executor, contactId)
       expect(afterTwo[2]?.step).toBe(3)
       expect(afterTwo[2]?.due_at.toISOString()).toBe(STEP3_DUE.toISOString())
