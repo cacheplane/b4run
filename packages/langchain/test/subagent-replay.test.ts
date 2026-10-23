@@ -12,8 +12,8 @@ import {
 import { ToolNode } from "@langchain/langgraph/prebuilt"
 import { expect, test } from "vitest"
 import { z } from "zod"
-import { streamAgent } from "../src/agent-adapter.js"
-import { convertSubagentTaskToLangChain } from "../src/subagent-tool-bridge.js"
+import { streamAgent } from "../src/agent-adapter.ts"
+import { convertSubagentTaskToLangChain } from "../src/subagent-tool-bridge.ts"
 
 test("parallel dynamically invoked children retain their checkpointed tool identities", async () => {
   const state = Annotation.Root({ messages: Annotation<unknown[]>() })
