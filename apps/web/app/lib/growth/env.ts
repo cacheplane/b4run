@@ -14,6 +14,8 @@ export interface GrowthEnv {
   readonly resendReceivingApiKey?: string
   readonly resendInboundWebhookSecret?: string
   readonly posthogKey?: string
+  /** `GROWTH_FOUNDER_EMAIL` when set: the digest and BCC address, and one of B4's own senders. */
+  readonly founderEmail?: string
 }
 
 const ENVIRONMENTS = ["production", "preview", "test"] as const
@@ -80,6 +82,7 @@ export function loadGrowthEnv(env: NodeJS.ProcessEnv = process.env): GrowthEnv {
   const resendReceivingApiKey = optional(env, "RESEND_RECEIVING_API_KEY")
   const resendInboundWebhookSecret = optional(env, "RESEND_INBOUND_WEBHOOK_SECRET")
   const posthogKey = optional(env, "NEXT_PUBLIC_POSTHOG_KEY")
+  const founderEmail = optional(env, "GROWTH_FOUNDER_EMAIL")
   return {
     databaseUrl,
     emailHmacSecret,
@@ -91,5 +94,6 @@ export function loadGrowthEnv(env: NodeJS.ProcessEnv = process.env): GrowthEnv {
     ...(resendReceivingApiKey !== undefined ? { resendReceivingApiKey } : {}),
     ...(resendInboundWebhookSecret !== undefined ? { resendInboundWebhookSecret } : {}),
     ...(posthogKey !== undefined ? { posthogKey } : {}),
+    ...(founderEmail !== undefined ? { founderEmail } : {}),
   }
 }

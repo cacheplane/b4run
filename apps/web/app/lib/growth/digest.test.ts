@@ -48,6 +48,24 @@ describe("renderDigestText", () => {
     expect(text).toContain("Sequences in flight: 0\nnone")
   })
 
+  it("adds a counts-only line when reply processing holds sends, and none otherwise", () => {
+    const held = renderDigestText(
+      {
+        date: "2026-10-22",
+        newContacts: [],
+        inFlight: [],
+        held: { pendingReplies: 2, unboundSends: 1 },
+      },
+      stopUrlFor,
+    )
+    expect(held).toContain(
+      "Held for reply processing: 2 pending reply receipts, 1 submitted sends without a Message-ID. See growth:report sends.",
+    )
+    expect(
+      renderDigestText({ date: "2026-10-22", newContacts: [], inFlight: [] }, stopUrlFor),
+    ).not.toContain("Held for reply processing")
+  })
+
   it("renders identically on every call for the same data", () => {
     const data: DigestData = {
       date: "2026-10-22",

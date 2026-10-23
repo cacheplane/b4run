@@ -9,7 +9,9 @@ import {
   forwardInboundReceipt,
   inboundRuntimeFor,
   parseInboundEvent,
+  selfAddressesFor,
 } from "../inbound"
+import { processInboundReply, type ReplyDeps, type ReplyResult } from "../replies"
 import { getSharedExecutor } from "./shared"
 
 // An `email.received` event carries metadata only; the content is fetched from Resend.
@@ -24,8 +26,9 @@ export interface ResendInboundRouteDeps {
     secret: string
   }): unknown
   /** Undefined when receiving is not configured. */
-  forwardDeps(env: GrowthEnv): ForwardDeps | undefined
+  forwardDeps(env: GrowthEnv): (ForwardDeps & ReplyDeps) | undefined
   forward(executor: SqlExecutor, id: string, deps: ForwardDeps): Promise<ForwardResult>
+  processReply(executor: SqlExecutor, id: string, deps: ReplyDeps): Promise<ReplyResult>
 }
 
 const json = (status: number, body: Record<string, string>) =>
@@ -58,7 +61,7 @@ export async function handleResendInbound(
   if (!id || !timestamp || !signature) return unverified()
 
   let env: GrowthEnv
-  let forwardDeps: ForwardDeps | undefined
+  let forwardDeps: (ForwardDeps & ReplyDeps) | undefined
   try {
     env = deps.loadEnv()
     forwardDeps = deps.forwardDeps(env)
@@ -86,13 +89,27 @@ export async function handleResendInbound(
       return unverified()
     }
 
-    const event = parseInboundEvent(verified)
+    const event = parseInboundEvent(verified, selfAddressesFor(env))
     if (event === undefined) return json(202, { outcome: "ignored_type" })
     if (!event.admitted) return json(200, { outcome: "ignored_recipient" })
 
     const executor = deps.createExecutor(env.databaseUrl)
     await admitInboundReceipt(executor, event)
-    const result = await deps.forward(executor, event.id, forwardDeps)
+    let result: ForwardResult
+    try {
+      result = await deps.forward(executor, event.id, forwardDeps)
+    } finally {
+      // Independent of forwarding: a failed forward never skips reply processing, and a
+      // failed reply pass never blocks the forward. A pending reply is retried by the tick.
+      try {
+        const reply = await deps.processReply(executor, event.id, forwardDeps)
+        if (reply.outcome === "pending") {
+          process.stderr.write(`resend inbound reply pending: ${reply.code}\n`)
+        }
+      } catch (error) {
+        process.stderr.write(`resend inbound reply failed: ${errorLogCode(error)}\n`)
+      }
+    }
     if (result.outcome === "retry") {
       // Resend retries a failed delivery, and the tick's recovery retries too.
       process.stderr.write(`resend inbound forward failed: ${result.code}\n`)
@@ -118,5 +135,6 @@ export function defaultResendInboundDeps(): ResendInboundRouteDeps {
       }),
     forwardDeps: (env) => inboundRuntimeFor(env),
     forward: forwardInboundReceipt,
+    processReply: processInboundReply,
   }
 }

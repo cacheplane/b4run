@@ -4,6 +4,7 @@ import type { GrowthEnv } from "../env"
 import { GrowthConfigError } from "../errors"
 import { recordingExecutor } from "../fake-executor"
 import type { ForwardDeps, ForwardResult } from "../inbound"
+import type { ReplyDeps, ReplyResult } from "../replies"
 import {
   defaultResendInboundDeps,
   handleResendInbound,
@@ -33,23 +34,31 @@ const ENV: GrowthEnv = {
   resendReceivingApiKey: "re_full",
 }
 
-const forwardDeps = { environment: "production" } as unknown as ForwardDeps
+const forwardDeps = { environment: "production" } as unknown as ForwardDeps & ReplyDeps
 
 function harness(
   overrides: Partial<ResendInboundRouteDeps> = {},
   result: ForwardResult = { outcome: "forwarded" },
 ) {
-  const recording = recordingExecutor([{ rows: [{ id: ID }], rowCount: 1 }])
+  // The reply-gate lock, then the insert.
+  const recording = recordingExecutor([
+    { rows: [], rowCount: 0 },
+    { rows: [{ id: ID }], rowCount: 1 },
+  ])
   const forward = vi.fn(async () => result)
+  const processReply = vi.fn(
+    async (): Promise<ReplyResult> => ({ outcome: "unmatched", code: "no_references" }),
+  )
   const deps: ResendInboundRouteDeps = {
     loadEnv: () => ENV,
     createExecutor: () => recording.executor,
     verify: ({ payload }) => JSON.parse(payload),
     forwardDeps: () => forwardDeps,
     forward,
+    processReply,
     ...overrides,
   }
-  return { deps, forward, calls: recording.calls }
+  return { deps, forward, processReply, calls: recording.calls }
 }
 
 const svixHeaders = { "svix-id": "msg_1", "svix-timestamp": "1", "svix-signature": "v1,abc" }
@@ -154,11 +163,43 @@ describe("resend inbound route", () => {
     const res = await handleResendInbound(post(PAYLOAD), h.deps)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ outcome: "forwarded" })
-    expect(h.calls).toHaveLength(1)
-    expect(h.calls[0]?.text).toContain("insert into growth_inbound_receipts (id, received_at)")
-    expect(h.calls[0]?.text).toContain("on conflict (id) do nothing")
-    expect(h.calls[0]?.params).toEqual([ID, new Date("2026-10-22T10:00:00.000Z")])
+    expect(h.calls).toHaveLength(2)
+    expect(h.calls[0]?.text).toContain("pg_advisory_xact_lock(")
+    expect(h.calls[1]?.text).toContain("insert into growth_inbound_receipts (id, received_at")
+    expect(h.calls[1]?.text).toContain("on conflict (id) do nothing")
+    expect(h.calls[1]?.params).toEqual([ID, new Date("2026-10-22T10:00:00.000Z"), "pending", null])
     expect(h.forward).toHaveBeenCalledWith(expect.anything(), ID, forwardDeps)
+    expect(h.processReply).toHaveBeenCalledWith(expect.anything(), ID, forwardDeps)
+  })
+
+  it("admits B4's own mail as needing no reply processing", async () => {
+    const h = harness()
+    const self = { ...PAYLOAD, data: { ...PAYLOAD.data, from: "Brian at B4.run <brian@b4.run>" } }
+    expect((await handleResendInbound(post(self), h.deps)).status).toBe(200)
+    expect(h.calls[1]?.params).toEqual([
+      ID,
+      new Date("2026-10-22T10:00:00.000Z"),
+      "ignored",
+      "self_mail",
+    ])
+  })
+
+  it("processes the reply even when forwarding fails, and forwards when reply processing fails", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
+    const failingForward = harness({}, { outcome: "retry", code: "http_503" })
+    await handleResendInbound(post(PAYLOAD), failingForward.deps)
+    expect(failingForward.processReply).toHaveBeenCalledTimes(1)
+
+    const failingReply = harness({
+      processReply: async () => {
+        throw Object.assign(new Error("ada@example.com"), { code: "ECONNRESET" })
+      },
+    })
+    const res = await handleResendInbound(post(PAYLOAD), failingReply.deps)
+    expect(res.status).toBe(200)
+    expect(failingReply.forward).toHaveBeenCalledTimes(1)
+    expect(logged(stderr)).toContain("resend inbound reply failed: econnreset\n")
+    expect(logged(stderr)).not.toMatch(/@/)
   })
 
   it("answers 200 for an already forwarded or settled receipt", async () => {

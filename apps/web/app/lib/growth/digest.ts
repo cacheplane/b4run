@@ -2,6 +2,7 @@ import type { SqlExecutor } from "./database"
 import { safeErrorCode } from "./errors"
 import { composeDigestEmail, type Mailer } from "./mailer"
 import { isSendWindow, pacificCalendarDate, pacificMorningOf, SEQUENCE_TIME_ZONE } from "./schedule"
+import { BINDING_GRACE_SECONDS } from "./sequence"
 import type { SequenceStep } from "./sequence-copy"
 import type { SequenceEnv } from "./sequence-env"
 import { createActionToken, founderStopUrl } from "./tokens"
@@ -15,6 +16,8 @@ export interface DigestData {
     nextStep: SequenceStep
     dueAt: Date
   }[]
+  /** What reply processing is holding, as counts; omitted or zero when nothing is held. */
+  readonly held?: { readonly pendingReplies: number; readonly unboundSends: number }
 }
 
 export type DigestOutcome =
@@ -66,8 +69,17 @@ export async function readDigestData(
   }>(
     "select s.contact_id, c.email, s.step, s.due_at from growth_sends s join growth_contacts c on c.id = s.contact_id where s.status in ('pending', 'leased') and c.stopped_at is null and c.deleted_at is null and c.email is not null order by s.due_at, s.id",
   )
+  // Counts only: receipts waiting for reply processing, and sends whose Message-ID could still be
+  // bound, which are what hold later steps.
+  const held = await executor.query<{ pending_replies: number; unbound_sends: number }>(
+    "select (select count(*)::int from growth_inbound_receipts where reply_status = 'pending') as pending_replies, (select count(*)::int from growth_sends where status = 'submitted' and rfc_message_id is null and coalesce(first_attempted_at, created_at) > $1) as unbound_sends",
+    [new Date(input.now.getTime() - BINDING_GRACE_SECONDS * 1000)],
+  )
+  const pendingReplies = held.rows[0]?.pending_replies ?? 0
+  const unboundSends = held.rows[0]?.unbound_sends ?? 0
   return {
     date: pacificCalendarDate(input.now).date,
+    ...(pendingReplies > 0 || unboundSends > 0 ? { held: { pendingReplies, unboundSends } } : {}),
     newContacts: contacts.rows.map((row) => ({ email: row.email, approvedAt: row.approved_at })),
     inFlight: sends.rows.map((row) => ({
       contactId: row.contact_id,
@@ -97,6 +109,12 @@ export function renderDigestText(
     "",
     `Sequences in flight: ${data.inFlight.length}`,
     inFlightLines.length > 0 ? inFlightLines.join("\n") : "none",
+    ...(data.held !== undefined
+      ? [
+          "",
+          `Held for reply processing: ${data.held.pendingReplies} pending reply receipts, ${data.held.unboundSends} submitted sends without a Message-ID. See growth:report sends.`,
+        ]
+      : []),
     "",
     "A stop link ends that contact's sequence; it expires after seven days.",
   ].join("\n")
@@ -134,7 +152,9 @@ export async function sendDailyDigest(
   )
   const since = previous.rows[0]?.occurred_at ?? new Date(now.getTime() - DEFAULT_LOOKBACK_MS)
   const data = await readDigestData(executor, { now, since })
-  if (data.newContacts.length === 0 && data.inFlight.length === 0) return "nothing_to_report"
+  if (data.newContacts.length === 0 && data.inFlight.length === 0 && data.held === undefined) {
+    return "nothing_to_report"
+  }
 
   // Minted from the digest date's 07:00, so every retry that day carries the same links.
   const issuedAt = pacificMorningOf(now)

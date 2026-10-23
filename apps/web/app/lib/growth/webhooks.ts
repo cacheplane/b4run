@@ -2,6 +2,7 @@ import { findContactByEmail, type StopInput, stopContact } from "./contacts"
 import type { SqlExecutor } from "./database"
 import type { GrowthEnv } from "./env"
 import { B4_APP_TAG } from "./mailer"
+import { bindOutboundMessageId } from "./replies"
 
 export const RESEND_EVENT_TYPES = [
   "email.sent",
@@ -22,6 +23,8 @@ export interface ParsedResendEvent {
   readonly to: readonly string[]
   readonly tags: Readonly<Record<string, string>>
   readonly bounceType?: "permanent" | "transient" | "unknown"
+  /** The RFC Message-ID Resend gave the email, as the event carries it; validated on binding. */
+  readonly messageId?: string
 }
 
 export type WebhookOutcome =
@@ -80,6 +83,7 @@ export function parseResendEvent(payload: unknown): ParsedResendEvent | undefine
     to: data.to as string[],
     tags: parseTags(data.tags),
     ...(type === "email.bounced" ? { bounceType: parseBounceType(data) } : {}),
+    ...(typeof data.message_id === "string" ? { messageId: data.message_id } : {}),
   }
 }
 
@@ -137,6 +141,22 @@ export async function processResendEvent(
   // The founder's own digest and inbound forwards are never a contact's mail: a bounce of
   // either must not stop anyone.
   if (event.tags.kind === "digest" || event.tags.kind === "forward") return "ignored_type"
+
+  // Sent and delivered events carry the Message-ID a reply will reference. Bind it once; a
+  // conflicting id changes nothing.
+  if (
+    (event.type === "email.sent" || event.type === "email.delivered") &&
+    event.tags.kind === "sequence" &&
+    event.messageId !== undefined
+  ) {
+    const bound = await bindOutboundMessageId(executor, {
+      providerEmailId: event.providerEmailId,
+      messageId: event.messageId,
+    })
+    if (bound === "conflict" || bound === "invalid_message_id") {
+      process.stderr.write(`resend webhook binding refused: ${bound}\n`)
+    }
+  }
 
   const sendRows = await executor.query<{
     contact_id: string

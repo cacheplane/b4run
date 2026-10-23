@@ -17,6 +17,27 @@ export interface SqlExecutor extends SqlTransaction {
   end(): Promise<void>
 }
 
+/**
+ * An executor bound to one open transaction, so a helper that opens its own transaction (such as
+ * `stopContact`) joins the caller's instead.
+ */
+export function nestedExecutor(tx: SqlTransaction): SqlExecutor {
+  return {
+    query: (text, params) => tx.query(text, params),
+    transaction: (fn) => fn(tx),
+    end: async () => undefined,
+  }
+}
+
+/**
+ * Serialises admitting an inbound receipt with the final authorisation of a sequence send.
+ * Admission takes it exclusively; a send takes it shared, so sends never wait on each other,
+ * and a receipt admitted before a send's check is always visible to that check.
+ */
+export const REPLY_GATE_LOCK = "select pg_advisory_xact_lock(hashtext('b4-growth-reply-gate'))"
+export const REPLY_GATE_SHARED_LOCK =
+  "select pg_advisory_xact_lock_shared(hashtext('b4-growth-reply-gate'))"
+
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
 
 export function createPgExecutor(databaseUrl: string): SqlExecutor {

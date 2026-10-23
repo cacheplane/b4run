@@ -1,4 +1,4 @@
-import type { SqlExecutor } from "./database"
+import { REPLY_GATE_LOCK, type SqlExecutor } from "./database"
 import type { GrowthEnv } from "./env"
 import { errorLogCode, safeErrorCode } from "./errors"
 import { B4_APP_TAG, createResendMailer, type Mailer, type OutgoingEmail, SENDER } from "./mailer"
@@ -8,6 +8,21 @@ import { IDEMPOTENCY_WINDOW_SECONDS } from "./sequence"
 export const INBOUND_ADDRESS = "brian@b4.run"
 /** Fixed forwarding destination; a received message can never choose where it goes. */
 export const INBOUND_FORWARD_TO = "brian@cacheplane.ai"
+/** The default founder (digest and BCC) address, as `GROWTH_FOUNDER_EMAIL` defaults. */
+const DEFAULT_FOUNDER_EMAIL = "brian@b4.run"
+
+/**
+ * B4's own senders: the address every B4 email is From (`brian@b4.run`) and the configured
+ * founder address. Mail from one of them (the digest, the BCC copy of a sequence send) is never a
+ * contact's reply. Any other sender, the founder's personal mailbox included, goes through
+ * normal matching, where a stop still needs the sender to be the matched contact.
+ */
+export function selfAddressesFor(env: { readonly founderEmail?: string }): readonly string[] {
+  const founder = parseAddress(env.founderEmail ?? DEFAULT_FOUNDER_EMAIL)
+  return [...new Set([INBOUND_ADDRESS, ...(founder !== undefined ? [founder] : [])])]
+}
+
+const DEFAULT_SELF_ADDRESSES: readonly string[] = [INBOUND_ADDRESS]
 
 /** The largest original message attached to a forward. */
 export const RAW_MAX_BYTES = 20 * 1024 * 1024
@@ -61,6 +76,15 @@ export function parseAddress(value: unknown): string | undefined {
 
 export const isInboundAddress = (value: unknown): boolean => parseAddress(value) === INBOUND_ADDRESS
 
+/** True when `from` is one of B4's own senders. */
+export function isSelfSent(
+  from: unknown,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
+): boolean {
+  const address = parseAddress(from)
+  return address !== undefined && selfAddresses.includes(address)
+}
+
 /**
  * True when brian@b4.run is among the message's recipients (`to`, `cc`, `bcc`, or the envelope
  * `received_for`). One predicate serves the webhook, recovery, and the authoritative re-check.
@@ -79,12 +103,15 @@ export interface ReceivedReference {
   readonly id: string
   readonly receivedAt: Date
   readonly admitted: boolean
+  /** From one of B4's own addresses, so never a contact's reply. */
+  readonly selfSent: boolean
 }
 
 export interface ParsedInboundEvent {
   readonly id: string
   readonly receivedAt: Date
   readonly admitted: boolean
+  readonly selfSent: boolean
 }
 
 function parseDate(value: unknown): Date | undefined {
@@ -94,7 +121,10 @@ function parseDate(value: unknown): Date | undefined {
 }
 
 /** Parses a verified `email.received` webhook payload; undefined for any other shape. */
-export function parseInboundEvent(payload: unknown): ParsedInboundEvent | undefined {
+export function parseInboundEvent(
+  payload: unknown,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
+): ParsedInboundEvent | undefined {
   if (!isRecord(payload) || payload.type !== "email.received") return undefined
   const data = payload.data
   if (!isRecord(data)) return undefined
@@ -103,12 +133,24 @@ export function parseInboundEvent(payload: unknown): ParsedInboundEvent | undefi
   }
   const receivedAt = parseDate(data.created_at) ?? parseDate(payload.created_at)
   if (receivedAt === undefined) return undefined
-  return { id: data.email_id, receivedAt, admitted: isAdmitted(data) }
+  return {
+    id: data.email_id,
+    receivedAt,
+    admitted: isAdmitted(data),
+    selfSent: isSelfSent(data.from, selfAddresses),
+  }
+}
+
+export interface SentEmail {
+  /** The RFC Message-ID Resend gave the email, or null while it has none. */
+  readonly messageId: string | null
 }
 
 export interface ReceivingClient {
   getReceived(id: string): Promise<ReceivedEmail>
   listReceived(): AsyncGenerator<ReceivedReference>
+  /** Reads a sent email's metadata; needs the full-access key, like receiving. */
+  getSent(id: string): Promise<SentEmail>
 }
 
 const defaultWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -120,6 +162,7 @@ export function createReceivingClient(
   apiKey: string,
   fetchImpl: typeof fetch = fetch,
   wait: (ms: number) => Promise<void> = defaultWait,
+  selfAddresses: readonly string[] = DEFAULT_SELF_ADDRESSES,
 ): ReceivingClient {
   if (apiKey === "" || /[\r\n]/.test(apiKey)) throw new InboundError("receiving_key_invalid")
 
@@ -184,12 +227,28 @@ export function createReceivingClient(
           if (seen.has(id)) throw new InboundError("receiving_repeated_cursor")
           seen.add(id)
           last = id
-          yield { id, receivedAt, admitted: isAdmitted(item) }
+          yield {
+            id,
+            receivedAt,
+            admitted: isAdmitted(item),
+            selfSent: isSelfSent(item.from, selfAddresses),
+          }
         }
         if (!body.has_more) return
         if (last === undefined) throw new InboundError("receiving_malformed")
         after = last
       }
+      // More pages than recovery reads: the listing is incomplete, never silently complete.
+      throw new InboundError("receiving_page_limit")
+    },
+    async getSent(id) {
+      const body = await get(`/emails/${inboundProviderId(id)}`)
+      if (!isRecord(body) || body.id !== id) throw new InboundError("sent_malformed")
+      const messageId = body.message_id
+      if (messageId !== undefined && messageId !== null && typeof messageId !== "string") {
+        throw new InboundError("sent_malformed")
+      }
+      return { messageId: typeof messageId === "string" && messageId !== "" ? messageId : null }
     },
   }
 }
@@ -302,22 +361,32 @@ export function composeInboundForward(
 }
 
 /** True when the received message is itself one of B4's forwards. */
-function isForward(headers: unknown): boolean {
+export function isForward(headers: unknown): boolean {
   return (
     isRecord(headers) && Object.keys(headers).some((name) => name.toLowerCase() === FORWARD_MARKER)
   )
 }
 
-/** Records an admitted message; a repeat (webhook retry, recovery) changes nothing. */
-export async function admitInboundReceipt(
+/**
+ * Records an admitted message; a repeat (webhook retry, recovery) changes nothing. Mail from
+ * B4's own addresses needs no reply processing; everything else waits for it, and holds sequence
+ * sends until it is processed. Admission takes the reply-gate lock, so a send authorised after
+ * this commits sees the pending receipt.
+ */
+export function admitInboundReceipt(
   executor: SqlExecutor,
-  input: { id: string; receivedAt: Date },
+  input: { id: string; receivedAt: Date; selfSent?: boolean },
 ): Promise<boolean> {
-  const inserted = await executor.query(
-    "insert into growth_inbound_receipts (id, received_at) values ($1, $2) on conflict (id) do nothing returning id",
-    [inboundProviderId(input.id), input.receivedAt],
-  )
-  return inserted.rowCount > 0
+  const id = inboundProviderId(input.id)
+  const self = input.selfSent === true
+  return executor.transaction(async (tx) => {
+    await tx.query(REPLY_GATE_LOCK)
+    const inserted = await tx.query(
+      "insert into growth_inbound_receipts (id, received_at, reply_status, reply_error_code) values ($1, $2, $3, $4) on conflict (id) do nothing returning id",
+      [id, input.receivedAt, self ? "ignored" : "pending", self ? "self_mail" : null],
+    )
+    return inserted.rowCount > 0
+  })
 }
 
 export interface ForwardDeps {
@@ -475,40 +544,63 @@ export async function forwardInboundReceipt(
 
 export interface InboundRuntime extends ForwardDeps {
   listReceived(): AsyncIterable<ReceivedReference>
+  getSent(id: string): Promise<SentEmail>
+  /** The contact lookup secret, so a reply's sender is compared the way the form stores it. */
+  readonly emailHmacSecret: string
+  /** B4's own senders; see `selfAddressesFor`. */
+  readonly selfAddresses: readonly string[]
 }
+
+/**
+ * How far the listing got: `complete` reached the end or the three-day horizon, `partial` ran
+ * out of budget first, `failed` hit a provider error. Only a complete listing proves that every
+ * recent message is admitted.
+ */
+export type ListingResult = "complete" | "partial" | "failed"
 
 export interface InboundReport {
   readonly admitted: number
+  readonly listing: ListingResult
   readonly forwarded: number
   readonly failed: number
   readonly retrying: number
 }
 
-/**
- * Catches mail the webhook missed: admits brian@b4.run messages from the last three days of
- * received mail, newest first, then retries unforwarded receipts while `canContinue` allows.
- */
-export async function recoverInbound(
+/** Admits brian@b4.run messages from the last three days of received mail, newest first. */
+export async function admitRecentInbound(
   executor: SqlExecutor,
-  deps: InboundRuntime & { canContinue(): boolean; batch?: number },
-): Promise<InboundReport> {
+  deps: {
+    listReceived(): AsyncIterable<ReceivedReference>
+    now(): Date
+    canContinue(): boolean
+  },
+): Promise<{ admitted: number; listing: ListingResult }> {
   let admitted = 0
-  let forwarded = 0
-  let failed = 0
-  let retrying = 0
   const horizon = deps.now().getTime() - INBOUND_RECOVERY_DAYS * 86_400_000
   try {
     for await (const item of deps.listReceived()) {
-      if (item.receivedAt.getTime() < horizon || !deps.canContinue()) break
+      if (item.receivedAt.getTime() < horizon) return { admitted, listing: "complete" }
+      if (!deps.canContinue()) return { admitted, listing: "partial" }
       if (!item.admitted) continue
       if (await admitInboundReceipt(executor, item)) admitted++
     }
   } catch (error) {
-    // A listing failure still lets already-admitted receipts retry below.
+    // A listing failure still lets already-admitted receipts retry.
     if (!(error instanceof InboundError)) throw error
     process.stderr.write(`growth inbound listing failed: ${errorLogCode(error)}\n`)
+    return { admitted, listing: "failed" }
   }
+  return { admitted, listing: "complete" }
+}
 
+/** Retries unforwarded receipts while `canContinue` allows. */
+export async function retryForwards(
+  executor: SqlExecutor,
+  deps: ForwardDeps & { canContinue(): boolean; batch?: number },
+): Promise<{ forwarded: number; failed: number; retrying: number }> {
+  let forwarded = 0
+  let failed = 0
+  let retrying = 0
   const pending = await executor.query<{ id: string }>(
     "select id from growth_inbound_receipts where status = 'pending' and forward_provider_id is null order by updated_at, id limit $1",
     [deps.batch ?? INBOUND_RECOVERY_BATCH],
@@ -520,7 +612,23 @@ export async function recoverInbound(
     else if (result.outcome === "failed") failed++
     else if (result.outcome === "retry") retrying++
   }
-  return { admitted, forwarded, failed, retrying }
+  return { forwarded, failed, retrying }
+}
+
+/**
+ * Catches mail the webhook missed: admits recent brian@b4.run messages, then retries
+ * unforwarded receipts while `canContinue` allows.
+ */
+export async function recoverInbound(
+  executor: SqlExecutor,
+  deps: ForwardDeps & {
+    listReceived(): AsyncIterable<ReceivedReference>
+    canContinue(): boolean
+    batch?: number
+  },
+): Promise<InboundReport> {
+  const { admitted, listing } = await admitRecentInbound(executor, deps)
+  return { admitted, listing, ...(await retryForwards(executor, deps)) }
 }
 
 /**
@@ -531,14 +639,22 @@ export function createInboundRuntime(input: {
   receivingApiKey: string
   sendApiKey: string
   environment: GrowthEnv["environment"]
+  emailHmacSecret: string
+  founderEmail?: string
   fetchImpl?: typeof fetch
 }): InboundRuntime {
   const fetchImpl = input.fetchImpl ?? fetch
-  const client = createReceivingClient(input.receivingApiKey, fetchImpl)
+  const selfAddresses = selfAddressesFor(
+    input.founderEmail !== undefined ? { founderEmail: input.founderEmail } : {},
+  )
+  const client = createReceivingClient(input.receivingApiKey, fetchImpl, defaultWait, selfAddresses)
   return {
     environment: input.environment,
     getReceived: (id) => client.getReceived(id),
     listReceived: () => client.listReceived(),
+    getSent: (id) => client.getSent(id),
+    emailHmacSecret: input.emailHmacSecret,
+    selfAddresses,
     downloadRaw: (url) => downloadRaw(url, fetchImpl),
     mailer: createResendMailer(input.sendApiKey, fetchImpl, FORWARD_SEND_TIMEOUT_MS),
     now: () => new Date(),
@@ -555,5 +671,7 @@ export function inboundRuntimeFor(
     receivingApiKey: env.resendReceivingApiKey,
     sendApiKey: env.resendApiKey ?? env.resendReceivingApiKey,
     environment: env.environment,
+    emailHmacSecret: env.emailHmacSecret,
+    ...(env.founderEmail !== undefined ? { founderEmail: env.founderEmail } : {}),
   })
 }

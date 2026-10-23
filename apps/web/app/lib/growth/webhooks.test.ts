@@ -187,3 +187,50 @@ describe("processResendEvent for another product's mail", () => {
     expect(calls).toHaveLength(0)
   })
 })
+
+describe("processResendEvent binding outbound Message-IDs", () => {
+  const sent = (overrides: Partial<ParsedResendEvent> = {}): ParsedResendEvent => ({
+    type: "email.sent",
+    occurredAt: new Date("2026-10-21T10:00:00.000Z"),
+    providerEmailId: "em_1",
+    to: ["ada@example.com"],
+    tags: { app: "b4", environment: "production", kind: "sequence", step: "1" },
+    messageId: "<abc@Email.Example.com>",
+    ...overrides,
+  })
+  const input = (event: ParsedResendEvent) => ({
+    event,
+    environment: "production" as const,
+    emailHmacSecret: "s",
+    now: new Date("2026-10-21T10:00:00.000Z"),
+  })
+
+  it("parses the message id a sent or delivered event carries", () => {
+    expect(
+      parseResendEvent(base("email.sent", { message_id: "<abc@example.com>" }))?.messageId,
+    ).toBe("<abc@example.com>")
+    expect(parseResendEvent(base("email.sent"))).not.toHaveProperty("messageId")
+  })
+
+  it("binds a sequence send once, conflict-safe", async () => {
+    for (const type of ["email.sent", "email.delivered"] as const) {
+      const { executor, calls } = recordingExecutor([{ rows: [{ id: "s1" }], rowCount: 1 }])
+      await processResendEvent(executor, input(sent({ type })))
+      expect(calls[0]?.text).toContain("update growth_sends set rfc_message_id = $2")
+      expect(calls[0]?.params).toEqual(["em_1", "<abc@email.example.com>"])
+    }
+  })
+
+  it("never binds the digest, a forward, another product's mail, or a bounce", async () => {
+    for (const event of [
+      sent({ tags: { app: "b4", environment: "production", kind: "digest" } }),
+      sent({ tags: { app: "b4", environment: "production", kind: "forward" } }),
+      sent({ tags: { app: "other", environment: "production", kind: "sequence" } }),
+      sent({ type: "email.bounced", bounceType: "transient" }),
+    ]) {
+      const { executor, calls } = recordingExecutor()
+      await processResendEvent(executor, input(event))
+      expect(calls.some((call) => call.text.includes("rfc_message_id"))).toBe(false)
+    }
+  })
+})

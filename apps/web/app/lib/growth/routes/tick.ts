@@ -3,12 +3,13 @@ import type { SqlExecutor } from "../database"
 import { sendDailyDigest } from "../digest"
 import { errorLogCode, GrowthConfigError } from "../errors"
 import {
-  type InboundReport,
   type InboundRuntime,
   inboundRuntimeFor,
-  recoverInbound,
+  type ListingResult,
+  retryForwards,
 } from "../inbound"
 import { createResendMailer, type Mailer } from "../mailer"
+import { type BindingReport, type RepliesReport, recoverReplies } from "../replies"
 import { isSendWindow } from "../schedule"
 import {
   authoriseAndSend,
@@ -25,7 +26,13 @@ import { getSharedExecutor } from "./shared"
 /** The tick stops starting sends after this long, leaving room inside the 60-second route limit. */
 export const TICK_SEND_BUDGET_MS = 40_000
 /**
- * Inbound recovery starts no list page or forward after this long. A forward's worst case
+ * The reply pass (listing, binding backfill, reply processing) runs before any send and starts
+ * no new provider read after this long. Each read is bounded at about 5 seconds, plus at most
+ * two short rate-limit waits, so sends still get most of their budget.
+ */
+export const TICK_REPLY_BUDGET_MS = 15_000
+/**
+ * Forward retries run last and start no forward after this long. A forward's worst case
  * (receiving read, raw download, send) is about 25 seconds, so it still ends inside the limit.
  */
 export const TICK_INBOUND_BUDGET_MS = 30_000
@@ -46,6 +53,21 @@ export interface TickDeps {
 
 export type TickDelivery = "disabled" | "enabled"
 
+/**
+ * The inbound part of the report, counts only. `mailbox` is `recovery_required` when the
+ * listing did not complete, which holds every send this tick.
+ */
+export interface InboundTickReport {
+  readonly mailbox: "ok" | "recovery_required"
+  readonly listing: ListingResult
+  readonly admitted: number
+  readonly bindings: BindingReport
+  readonly replies: RepliesReport
+  readonly forwarded: number
+  readonly failed: number
+  readonly retrying: number
+}
+
 export interface TickReport {
   readonly enrolled: number
   readonly leased: number
@@ -53,7 +75,9 @@ export interface TickReport {
   readonly digest: string
   readonly windowOpen: boolean
   readonly delivery: TickDelivery
-  readonly inbound: InboundReport | "disabled"
+  readonly inbound: InboundTickReport | "disabled"
+  /** Set when sends were held for the whole tick. */
+  readonly sendsHeld?: "mailbox_recovery_required"
 }
 
 const json = (status: number, body: unknown) =>
@@ -111,9 +135,10 @@ async function runSends(
 }
 
 /**
- * The 10-minute cron: enrolls newly approved contacts, sends what is due inside the Pacific
- * window, then the founder digest, then recovers inbound mail for brian@b4.run. The report
- * carries counts only, never ids or addresses.
+ * The 10-minute cron: enrolls newly approved contacts, runs the reply pass (admit missed mail
+ * for brian@b4.run, bind outbound Message-IDs, process pending replies), sends what is due
+ * inside the Pacific window unless the mailbox listing failed, then the founder digest, then
+ * retries unforwarded mail. The report carries counts only, never ids or addresses.
  */
 export async function handleTick(request: Request, deps: TickDeps): Promise<Response> {
   try {
@@ -132,6 +157,18 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
         .enrolled
     }
 
+    // Replies first, so a contact who answered is stopped before their next step is leased.
+    const runtime = deps.inboundRuntime(env)
+    let replyPass: Awaited<ReturnType<typeof recoverReplies>> | undefined
+    if (runtime !== undefined) {
+      replyPass = await recoverReplies(executor, {
+        ...runtime,
+        now: deps.now,
+        canContinue: () => deps.elapsedMs() < TICK_REPLY_BUDGET_MS,
+      })
+    }
+    const mailboxHealthy = replyPass === undefined || replyPass.listing === "complete"
+
     const windowOpen = isSendWindow(now)
     let leased = 0
     let outcomes: Partial<Record<SendOutcome, number>> = {}
@@ -142,19 +179,29 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
       if (env.resendApiKey === undefined) throw new GrowthConfigError("RESEND_API_KEY is not set")
       delivery = "enabled"
       const mailer = deps.createMailer(env.resendApiKey)
-      if (windowOpen) ({ leased, outcomes } = await runSends(executor, env, mailer, deps))
+      // A mailbox listing that did not complete may have missed a reply: send nothing.
+      if (windowOpen && mailboxHealthy) {
+        ;({ leased, outcomes } = await runSends(executor, env, mailer, deps))
+      }
       digest = await sendDailyDigest(executor, { env, mailer, now: deps.now() })
     }
 
     // Independent of both switches: forwarding the founder's mail is not a send to contacts.
-    let inbound: InboundReport | "disabled" = "disabled"
-    const runtime = deps.inboundRuntime(env)
-    if (runtime !== undefined) {
-      inbound = await recoverInbound(executor, {
+    let inbound: InboundTickReport | "disabled" = "disabled"
+    if (runtime !== undefined && replyPass !== undefined) {
+      const forwards = await retryForwards(executor, {
         ...runtime,
         now: deps.now,
         canContinue: () => deps.elapsedMs() < TICK_INBOUND_BUDGET_MS,
       })
+      inbound = {
+        mailbox: mailboxHealthy ? "ok" : "recovery_required",
+        listing: replyPass.listing,
+        admitted: replyPass.admitted,
+        bindings: replyPass.bindings,
+        replies: replyPass.replies,
+        ...forwards,
+      }
     }
 
     const report: TickReport = {
@@ -165,6 +212,9 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
       windowOpen,
       delivery,
       inbound,
+      ...(delivery === "enabled" && windowOpen && !mailboxHealthy
+        ? { sendsHeld: "mailbox_recovery_required" as const }
+        : {}),
     }
     return json(200, report)
   } catch (error) {

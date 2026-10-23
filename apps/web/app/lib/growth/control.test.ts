@@ -152,6 +152,34 @@ describe("growth control and report (recorded SQL)", () => {
     expect(output).not.toContain("not re-enrolled")
   })
 
+  it("status says when a contact was stopped by their reply", async () => {
+    const { executor, calls } = recordingExecutor([
+      contactRow({ approved_at: null, stopped_at: LATER, stop_reason: "reply_received" }),
+      { rows: [{ provenance: "mailbox_reply" }], rowCount: 1 },
+    ])
+    const output = await runControl(executor, env, {
+      command: "status",
+      email: "ada@example.com",
+      now: LATER,
+    })
+    expect(calls[1]?.text).toContain("kind like 'stop.%'")
+    expect(calls[1]?.params).toEqual([CONTACT_ID])
+    expect(output).toContain("state: stopped: reply_received")
+    expect(output).toContain("stopped by: their reply to the sequence")
+
+    const manual = recordingExecutor([
+      contactRow({ approved_at: null, stopped_at: LATER, stop_reason: "manual_suppression" }),
+      { rows: [{ provenance: "founder_cli" }], rowCount: 1 },
+    ])
+    expect(
+      await runControl(manual.executor, env, {
+        command: "status",
+        email: "ada@example.com",
+        now: LATER,
+      }),
+    ).toContain("stopped by: founder_cli")
+  })
+
   it("status says a contact reapproved after enrollment is not re-enrolled", async () => {
     const { executor } = recordingExecutor([
       contactRow({ approved_at: LATER }),
@@ -236,9 +264,18 @@ describe("growth control and report (recorded SQL)", () => {
         rowCount: 2,
       },
       { rows: [{ date: "2026-10-22" }], rowCount: 1 },
+      { rows: [{ total: "1" }], rowCount: 1 },
+      {
+        rows: [
+          { reply_status: "matched", total: "2" },
+          { reply_status: "pending", total: "1" },
+        ],
+        rowCount: 2,
+      },
+      { rows: [{ id: "rcv_1", reply_error_code: "receiving_timeout" }], rowCount: 1 },
     ])
     const output = await runReport(executor, env, { command: "sends" })
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(6)
     for (const call of calls) expect(call.text.trimStart().startsWith("select")).toBe(true)
     expect(calls[0]?.text).toContain("group by step, status")
     expect(calls[1]?.text).toContain("group by delivery_status")
@@ -248,6 +285,11 @@ describe("growth control and report (recorded SQL)", () => {
     expect(output).toContain("delivery delivered: 3")
     expect(output).toContain("delivery not_submitted: 2")
     expect(output).toContain("last digest: 2026-10-22")
+    expect(calls[4]?.text).toContain("group by reply_status")
+    expect(output).toContain("submitted without message id: 1")
+    expect(output).toContain("inbound reply matched: 2")
+    expect(output).toContain("inbound reply pending: 1")
+    expect(output).toContain("pending reply receipt: rcv_1 (receiving_timeout)")
     expect(output).not.toContain("@")
   })
 
