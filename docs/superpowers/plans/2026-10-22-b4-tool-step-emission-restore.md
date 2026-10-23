@@ -45,9 +45,9 @@ Files: `packages/ag-ui/src/view/turns-from-state.ts`, `inbound.ts`; CLI thread-t
 
 - [x] Add/extend a real graph integration test covering live and restored success, failure, denial, approval/resume and display-less tools. Compare contract fields through the shared view consumer; no live API or recording required.
 - [x] Update AG-UI docs, SDK docs/upgrading where behavior changes, add patch changeset for affected published packages. Retain deprecated reader/type exports.
-- [ ] Run focused checks first, then `pnpm ci:validate`; report infrastructure failures and warnings accurately. Do not add dependencies or print keys.
+- [x] Run focused checks first, then `pnpm ci:validate`; report infrastructure failures and warnings accurately. Do not add dependencies or print keys.
 - [x] Request independent spec/correctness review and address findings. Commit code/docs, then regenerate site lastmod using `pnpm --dir apps/web seo:lastmod` after the content commit.
-- [ ] Prepare a PR if authorized; merging and release require separate user approval. Preserve all unrelated worktrees and changes.
+- [x] Prepare a PR if authorized; merging and release require separate user approval. Preserve all unrelated worktrees and changes.
 
 ## Implementation notes
 
@@ -55,3 +55,10 @@ Files: `packages/ag-ui/src/view/turns-from-state.ts`, `inbound.ts`; CLI thread-t
 - Approval display is applied from the interrupt to the awaiting view; restore emits no fake execution-start CUSTOM for it.
 - Existing raw checkpoint storage remains LangChain-shaped. The existing `/events` replay and `/turns` projections carry the final v1 metadata and errors; no snapshot endpoint was added.
 - Independent review added regressions for legacy source identity, ToolMessage.error precedence, absent settledAt fallback, cancelled-call restarts, and late-running updates after frame-only results.
+
+## Validation record
+
+- Full workspace lint (31 tasks), build (29 tasks), and typecheck (59 tasks) pass. All 1,932 source tests in the changed runtime packages pass.
+- The broad source run finished with 12,421 passed, 345 skipped, and seven failures: three CLI fixture expectations corrected and verified separately, plus four unchanged timeout cases. Vercel/watcher cases pass in isolation; the sandbox cases pass diagnostically with a longer timeout. No timeout changes are included.
+- Release integrity/inventory/controller, chart-version, docs, package checks, TypeScript tooling pack, harness self-tests, runtime parity and smoke harness pass. The framework harness exposed one stale Navlog v1 expectation; the exact assertions were updated, including matching CUSTOM/RESULT metadata and producer timing. The full focused Navlog npm/build/server/browser activation lifecycle then passed.
+- PR: https://github.com/cacheplane/b4run/pull/1086. Merging and release remain subject to user approval.

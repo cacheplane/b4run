@@ -899,14 +899,21 @@ function assertSafeResearchJourney(
   expect(childSteps.every((event) => event.subagentRunId === "call_task_0_2")).toBe(true)
   expect(childSteps.map((event) => event.value)).toEqual([
     {
+      v: 1,
+      kind: "server",
       toolCallId: childReadDocId,
       status: "running",
+      startedAt: expect.any(Number),
       icon: "read",
       label: "Reading poh/cruise-performance.md",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: childReadDocId,
       status: "completed",
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
       icon: "read",
       label: "Read poh/cruise-performance.md",
       sources: [],
@@ -915,55 +922,91 @@ function assertSafeResearchJourney(
   const rootSteps = customEvents.filter((event) => event.subagentRunId === undefined)
   expect(rootSteps.map((event) => event.value)).toEqual([
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("recall"),
       status: "running",
+      startedAt: expect.any(Number),
       icon: "memory",
       label: "Recalling “pilot aircraft overrides and preferences”",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("recall"),
       status: "completed",
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
       icon: "memory",
       label: "Checked memory, nothing relevant",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: "call_task_0_2",
       status: "running",
+      startedAt: expect.any(Number),
       icon: "agent",
       label: `Asking performance to ${PERF_INPUT}`,
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: "call_task_0_2",
       status: "completed",
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
       icon: "agent",
       label: "Heard back from performance",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("computeNavlog"),
       status: "running",
+      startedAt: expect.any(Number),
       icon: "tool",
       label: "Computing the navlog and forecast for 1 leg",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("computeNavlog"),
       status: "completed",
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
       icon: "tool",
       // The stub's MSP 320/20 winds; the brand demo pins the same totals.
       label: "Computed the navlog and forecast: 66 nm, 33 min, 5.5 gal, reserve 380 min, GO floor",
       sources: [
-        { title: "Figure 5-6 (poh/time-fuel-distance-to-climb.md)" },
-        { title: "Figure 5-7 (poh/cruise-performance.md)" },
+        {
+          id: `${rootCallId("computeNavlog")}:0`,
+          kind: "record",
+          title: "Figure 5-6 (poh/time-fuel-distance-to-climb.md)",
+        },
+        {
+          id: `${rootCallId("computeNavlog")}:1`,
+          kind: "record",
+          title: "Figure 5-7 (poh/cruise-performance.md)",
+        },
       ],
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("writeFile"),
       status: "running",
+      startedAt: expect.any(Number),
       icon: "write",
       label: "Saving reports/KSTP-KRST.md",
     },
     {
+      v: 1,
+      kind: "server",
       toolCallId: rootCallId("writeFile"),
       status: "completed",
+      startedAt: expect.any(Number),
+      settledAt: expect.any(Number),
       icon: "write",
       label: "Saved reports/KSTP-KRST.md",
     },
@@ -971,11 +1014,26 @@ function assertSafeResearchJourney(
   for (const completed of customEvents.filter(
     (event) => (event.value as { status?: unknown }).status === "completed",
   )) {
-    const toolCallId = (completed.value as { toolCallId: unknown }).toolCallId
+    const { toolCallId, ...storedStep } = completed.value as {
+      toolCallId: unknown
+      startedAt: number
+      settledAt: number
+    }
+    const running = customEvents.find((event) => {
+      const value = event.value as { toolCallId?: unknown; status?: unknown }
+      return value.toolCallId === toolCallId && value.status === "running"
+    })
+    expect(storedStep.startedAt).toBe(
+      (running?.value as { startedAt?: number } | undefined)?.startedAt,
+    )
+    expect(storedStep.settledAt).toBeGreaterThanOrEqual(storedStep.startedAt)
     const resultIndex = events.findIndex(
       (event) => event.type === "TOOL_CALL_RESULT" && event.toolCallId === toolCallId,
     )
     expect(resultIndex).toBeGreaterThan(events.indexOf(completed))
+    expect(
+      (events[resultIndex]?.metadata as Record<string, unknown> | undefined)?.["b4.step"],
+    ).toEqual(storedStep)
   }
   const kinds = events.map((event) => event.type)
   expect(kinds).not.toContain("ACTIVITY_DELTA")
