@@ -55,7 +55,7 @@ Run a tick by hand with the cron secret:
 curl -H "Authorization: Bearer $CRON_SECRET" https://<host>/api/growth/tick
 ```
 
-The reply is JSON with counts only: `enrolled`, `leased`, `outcomes`, `digest`, `windowOpen`, and `delivery` (`disabled` or `enabled`). Without the header, or with the wrong secret, it replies 401. When the configuration is invalid (for example `GROWTH_DELIVERY_ENABLED=true` without `RESEND_API_KEY`) it replies 500 `tick_failed` and logs `growth tick failed: config_invalid`; the log never carries the message.
+The reply is JSON with counts only: `enrolled`, `leased`, `outcomes`, `digest`, `windowOpen`, `delivery` (`disabled` or `enabled`), and `inbound` (`disabled`, or `admitted`, `forwarded`, `failed` and `retrying` counts; see [Inbound mail](#inbound-mail)). Without the header, or with the wrong secret, it replies 401. When the configuration is invalid (for example `GROWTH_DELIVERY_ENABLED=true` without `RESEND_API_KEY`) it replies 500 `tick_failed` and logs `growth tick failed: config_invalid`; the log never carries the message.
 
 The `growth-db-docker` CI job runs `test:growth-db` and fails unless every
 `*.integration.test.ts` file passed at least one test and skipped none. It is
@@ -85,10 +85,12 @@ read-only key and never applies changes.
 | `GROWTH_ENVIRONMENT` | same as above | One of `production`, `preview`, `test`. Required. |
 | `GROWTH_PUBLIC_ORIGIN` | same as above | Origin used in links. Defaults to `https://b4.run`. |
 | `RESEND_WEBHOOK_SECRET` | the Resend webhook route | Verifies webhook signatures. |
+| `RESEND_INBOUND_WEBHOOK_SECRET` | the Resend inbound route | Verifies `email.received` webhook signatures. Separate from `RESEND_WEBHOOK_SECRET`. Without it the inbound route answers 503. |
+| `RESEND_RECEIVING_API_KEY` | the Resend inbound route, the tick route | Full-access Resend key, used to read received mail. Without it the inbound route answers 503 and the tick reports `inbound: disabled`. Independent of both switches. |
 | `GROWTH_SEQUENCE_ENABLED` | the tick route | Exactly `true` turns enrollment on. Any other value leaves it off. |
 | `GROWTH_SEQUENCE_START_AT` | the tick route | Required when the sequence is enabled; the tick fails without it. An ISO date-time with a UTC offset, such as `2026-10-23T07:00:00-07:00` or ending in `Z`. Only contacts approved at or after it are enrolled. |
 | `GROWTH_DELIVERY_ENABLED` | the tick route | Exactly `true` lets mail leave. Any other value sends nothing. |
-| `RESEND_API_KEY` | the tick route | Resend sending key. Required when delivery is enabled; without it the tick fails with `config_invalid`. |
+| `RESEND_API_KEY` | the tick route, the Resend inbound route | Resend sending key. Required when delivery is enabled; without it the tick fails with `config_invalid`. Inbound forwards use it when set, and otherwise `RESEND_RECEIVING_API_KEY`. |
 | `CRON_SECRET` | the tick route | Vercel sends it as a Bearer token on each cron call. Without it every call is refused with 401. |
 | `GROWTH_FOUNDER_EMAIL` | the tick route | Receives the digest and a BCC of each sequence email. Defaults to `brian@b4.run`. |
 | `B4_CALL_URL` | the `/call` redirect in `next.config.ts` | Booking page; when unset the redirect goes to `/updates`. |
@@ -124,7 +126,7 @@ Three plain-text emails go to each approved contact, from `Brian at B4.run <bria
 
 ### Migrations
 
-Run `pnpm --dir apps/web growth:migrate` against each database. Migration `0002` adds `growth_sends.first_attempted_at`, which the tick reads when it leases and sends. Deploying before migrating is safe while `GROWTH_DELIVERY_ENABLED` is off; with delivery on, ticks inside the send window fail until the migration runs.
+Run `pnpm --dir apps/web growth:migrate` against each database. Migration `0002` adds `growth_sends.first_attempted_at`, which the tick reads when it leases and sends. Migration `0003` adds `growth_inbound_receipts`; run it before setting `RESEND_RECEIVING_API_KEY`, or the inbound route and the tick's recovery fail. Deploying before migrating is safe while `GROWTH_DELIVERY_ENABLED` is off; with delivery on, ticks inside the send window fail until the migration runs.
 
 ### Rotating the token key
 
@@ -145,6 +147,25 @@ This order mails only the founder until the last step. Every environment change 
 5. Set `GROWTH_SEQUENCE_ENABLED=false` and redeploy, so no other signup is enrolled during the test. Check that `growth:report sends` shows exactly one send, `step 1 pending: 1`.
 6. Set `GROWTH_DELIVERY_ENABLED=true` and redeploy. Receive step 1 at 07:00 Pacific on the next weekday. Check the BCC, the `List-Unsubscribe` header and the footer link, the Resend webhook updating the delivery status, and the digest with its stop link. Steps 2 and 3 follow over about eight business days.
 7. Set `GROWTH_SEQUENCE_START_AT` to the launch time and `GROWTH_SEQUENCE_ENABLED=true`, and redeploy. The launch time must be later than the test: moving it earlier would enroll every contact approved before the launch.
+
+## Inbound mail
+
+Resend receives mail for the `b4.run` root domain. Mail to exactly `brian@b4.run` is forwarded to the fixed address `brian@cacheplane.ai`; no message can choose another destination. Mail to any other address is ignored: it is never stored, forwarded, or retried. Nothing is matched against contacts and nothing stops a contact automatically; stops stay manual, through the digest's founder-stop links.
+
+- **Admission.** A message is admitted when `brian@b4.run` appears, case-insensitively and with or without a display name, in its `to`, `cc`, `bcc` or `received_for` recipients. `hello@b4.run`, `brian@sub.b4.run` and every other address are not. The same check runs on the webhook payload, on recovery's listing, and again on the full message fetched from Resend before the forward is sent.
+- **Webhook.** In Resend, add an endpoint `https://b4.run/api/growth/webhooks/resend-inbound` subscribed to `email.received`, and put its signing secret in `RESEND_INBOUND_WEBHOOK_SECRET`. An unsigned or wrongly signed call gets 401; another event type gets 202 `ignored_type`; another recipient gets 200 `ignored_recipient` with no database write. An admitted message is recorded, then forwarded: 200 when it is forwarded (or already was, or can never be), 500 when forwarding failed in a way a retry can fix, so Resend retries. Missing configuration answers 503 and logs `resend inbound unavailable: inbound_disabled` or `config_invalid`.
+- **The forward.** From `Brian at B4.run <brian@b4.run>` to `brian@cacheplane.ai`, Reply-To the original sender, subject `Fwd: <original subject>` (or `(no subject)`), the original text and HTML bodies, and the raw message attached as `original.eml`. It carries `Auto-Submitted: auto-generated`, `X-B4-Forwarded: <received id>`, and the Resend tags `app=b4`, `environment`, and `kind=forward`; the delivery webhook ignores `kind=forward` events, so a bounce of a forward never stops a contact. The raw download is HTTPS only, follows no redirect, and is capped at 20 MiB; a larger original is forwarded without the attachment, with a note. A received message that is itself a B4 forward is ignored.
+- **Once only.** The Idempotency-Key is `b4:<environment>:inbound-forward:<received id>`. The first-attempt time is committed before the send, and the send runs under the receipt's row lock, so a webhook and a recovery racing on one message send once. Retries stop 23 hours after the first attempt; the receipt then ends `failed` with `idempotency_window_expired`. A rejection by Resend also ends it `failed`.
+- **Recovery.** Each tick, when `RESEND_RECEIVING_API_KEY` is set, lists received mail newest first, stops at messages older than three days, records any `brian@b4.run` message the webhook missed, then retries up to five unforwarded receipts. It runs after sends and the digest, independent of `GROWTH_SEQUENCE_ENABLED` and `GROWTH_DELIVERY_ENABLED`, and starts no new work after 30 seconds. The tick reply reports counts only.
+- **Privacy.** `growth_inbound_receipts` holds the Resend received-email id, the received time, status (`pending`, `forwarded`, `failed`, `ignored`), attempt count, first-attempt time, the forward's provider id, and a short error code. It never stores an address, subject, or body; the forward is rebuilt from Resend's copy on each attempt. Logs carry codes only.
+
+### Turning on inbound mail
+
+1. Run `pnpm --dir apps/web growth:migrate` so `0003` is applied.
+2. In Resend, enable receiving on the `b4.run` domain and add the receiving MX record it shows to DNS. Create a full-access API key for `RESEND_RECEIVING_API_KEY`; keep the sending-only key in `RESEND_API_KEY`.
+3. Add the inbound webhook endpoint for `email.received` and copy its signing secret.
+4. Set `RESEND_RECEIVING_API_KEY` and `RESEND_INBOUND_WEBHOOK_SECRET` in Vercel Production and redeploy.
+5. Send a test message to `brian@b4.run` and one to another `b4.run` address. The first arrives at `brian@cacheplane.ai` with `original.eml`; the second does not. The next tick reports `inbound` counts instead of `disabled`.
 
 ## CLI signals
 

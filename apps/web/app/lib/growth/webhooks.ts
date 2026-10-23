@@ -134,8 +134,9 @@ export async function processResendEvent(
   if (tagged !== undefined ? tagged !== input.environment : input.environment !== "production") {
     return "ignored_environment"
   }
-  // The founder's own digest is never a contact's mail: a bounce of it must not stop anyone.
-  if (event.tags.kind === "digest") return "ignored_type"
+  // The founder's own digest and inbound forwards are never a contact's mail: a bounce of
+  // either must not stop anyone.
+  if (event.tags.kind === "digest" || event.tags.kind === "forward") return "ignored_type"
 
   const sendRows = await executor.query<{
     contact_id: string

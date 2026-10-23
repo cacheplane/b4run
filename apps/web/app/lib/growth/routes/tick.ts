@@ -2,6 +2,12 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
 import type { SqlExecutor } from "../database"
 import { sendDailyDigest } from "../digest"
 import { errorLogCode, GrowthConfigError } from "../errors"
+import {
+  type InboundReport,
+  type InboundRuntime,
+  inboundRuntimeFor,
+  recoverInbound,
+} from "../inbound"
 import { createResendMailer, type Mailer } from "../mailer"
 import { isSendWindow } from "../schedule"
 import {
@@ -18,6 +24,11 @@ import { getSharedExecutor } from "./shared"
 
 /** The tick stops starting sends after this long, leaving room inside the 60-second route limit. */
 export const TICK_SEND_BUDGET_MS = 40_000
+/**
+ * Inbound recovery starts no list page or forward after this long. A forward's worst case
+ * (receiving read, raw download, send) is about 25 seconds, so it still ends inside the limit.
+ */
+export const TICK_INBOUND_BUDGET_MS = 30_000
 
 export interface TickDeps {
   /** Read before anything else, so an unauthenticated call never parses the configuration. */
@@ -25,6 +36,8 @@ export interface TickDeps {
   loadEnv(): SequenceEnv
   createExecutor(url: string): SqlExecutor
   createMailer(apiKey: string): Mailer
+  /** Undefined when receiving is not configured. */
+  inboundRuntime(env: SequenceEnv): InboundRuntime | undefined
   now(): Date
   randomUUID(): string
   elapsedMs(): number
@@ -40,6 +53,7 @@ export interface TickReport {
   readonly digest: string
   readonly windowOpen: boolean
   readonly delivery: TickDelivery
+  readonly inbound: InboundReport | "disabled"
 }
 
 const json = (status: number, body: unknown) =>
@@ -98,7 +112,8 @@ async function runSends(
 
 /**
  * The 10-minute cron: enrolls newly approved contacts, sends what is due inside the Pacific
- * window, then the founder digest. The report carries counts only, never ids or addresses.
+ * window, then the founder digest, then recovers inbound mail for brian@b4.run. The report
+ * carries counts only, never ids or addresses.
  */
 export async function handleTick(request: Request, deps: TickDeps): Promise<Response> {
   try {
@@ -131,7 +146,26 @@ export async function handleTick(request: Request, deps: TickDeps): Promise<Resp
       digest = await sendDailyDigest(executor, { env, mailer, now: deps.now() })
     }
 
-    const report: TickReport = { enrolled, leased, outcomes, digest, windowOpen, delivery }
+    // Independent of both switches: forwarding the founder's mail is not a send to contacts.
+    let inbound: InboundReport | "disabled" = "disabled"
+    const runtime = deps.inboundRuntime(env)
+    if (runtime !== undefined) {
+      inbound = await recoverInbound(executor, {
+        ...runtime,
+        now: deps.now,
+        canContinue: () => deps.elapsedMs() < TICK_INBOUND_BUDGET_MS,
+      })
+    }
+
+    const report: TickReport = {
+      enrolled,
+      leased,
+      outcomes,
+      digest,
+      windowOpen,
+      delivery,
+      inbound,
+    }
     return json(200, report)
   } catch (error) {
     process.stderr.write(`growth tick failed: ${errorLogCode(error)}\n`)
@@ -146,6 +180,7 @@ export function defaultTickDeps(): TickDeps {
     loadEnv: () => loadSequenceEnv(),
     createExecutor: getSharedExecutor,
     createMailer: (apiKey) => createResendMailer(apiKey),
+    inboundRuntime: (env) => inboundRuntimeFor(env),
     now: () => new Date(),
     randomUUID: () => randomUUID(),
     elapsedMs: () => performance.now() - startedAt,

@@ -8,6 +8,11 @@ export interface GrowthEnv {
   readonly environment: "production" | "preview" | "test"
   readonly publicOrigin: string
   readonly resendWebhookSecret?: string
+  /** Resend sending key; the inbound forward prefers it over the receiving key. */
+  readonly resendApiKey?: string
+  /** Full-access Resend key for the receiving API. Inbound forwarding is off without it. */
+  readonly resendReceivingApiKey?: string
+  readonly resendInboundWebhookSecret?: string
   readonly posthogKey?: string
 }
 
@@ -71,6 +76,9 @@ export function loadGrowthEnv(env: NodeJS.ProcessEnv = process.env): GrowthEnv {
     throw new GrowthConfigError("GROWTH_ENVIRONMENT must be one of production, preview, test")
   }
   const resendWebhookSecret = optional(env, "RESEND_WEBHOOK_SECRET")
+  const resendApiKey = optional(env, "RESEND_API_KEY")
+  const resendReceivingApiKey = optional(env, "RESEND_RECEIVING_API_KEY")
+  const resendInboundWebhookSecret = optional(env, "RESEND_INBOUND_WEBHOOK_SECRET")
   const posthogKey = optional(env, "NEXT_PUBLIC_POSTHOG_KEY")
   return {
     databaseUrl,
@@ -79,6 +87,9 @@ export function loadGrowthEnv(env: NodeJS.ProcessEnv = process.env): GrowthEnv {
     environment: environment as GrowthEnv["environment"],
     publicOrigin: normalizePublicOrigin(optional(env, "GROWTH_PUBLIC_ORIGIN") ?? "https://b4.run"),
     ...(resendWebhookSecret !== undefined ? { resendWebhookSecret } : {}),
+    ...(resendApiKey !== undefined ? { resendApiKey } : {}),
+    ...(resendReceivingApiKey !== undefined ? { resendReceivingApiKey } : {}),
+    ...(resendInboundWebhookSecret !== undefined ? { resendInboundWebhookSecret } : {}),
     ...(posthogKey !== undefined ? { posthogKey } : {}),
   }
 }

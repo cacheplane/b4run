@@ -115,6 +115,29 @@ describe("createResendMailer", () => {
     expect("bcc" in JSON.parse(init.body as string)).toBe(false)
   })
 
+  it("sends html and attachments only when set, and omits reply_to when none is set", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { id: "re_1" }))
+    const mailer = createResendMailer("k", fetchImpl as unknown as typeof fetch)
+    const { replyTo: _replyTo, ...noReplyTo } = email
+    await mailer.send({
+      ...noReplyTo,
+      html: "<p>Body</p>",
+      attachments: [{ filename: "original.eml", content: "YQ==" }],
+    })
+    await mailer.send(email)
+    const bodies = fetchImpl.mock.calls.map((call) =>
+      JSON.parse((call as unknown as [string, RequestInit])[1].body as string),
+    )
+    expect(bodies[0]).toMatchObject({
+      html: "<p>Body</p>",
+      attachments: [{ filename: "original.eml", content: "YQ==" }],
+    })
+    expect("reply_to" in bodies[0]).toBe(false)
+    expect("html" in bodies[1]).toBe(false)
+    expect("attachments" in bodies[1]).toBe(false)
+    expect(bodies[1].reply_to).toBe(SENDER)
+  })
+
   it("treats a 200 without an id as retryable malformed_response", async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(200, {}))
     const result = await createResendMailer("k", fetchImpl as unknown as typeof fetch).send(email)
