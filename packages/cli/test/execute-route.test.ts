@@ -205,18 +205,22 @@ export default async (_input: unknown, ctx: B4ToolContext) => ctx.fs.readFile("n
     expect(toolMessage.name).toBe("read-live")
     expect(toolMessage.status).toBe("success")
     // Every tool call persists its b4_step stamp on the ToolMessage; the clocks
-    // are ISO strings from the converter's clock, everything else is exact.
+    // are epoch milliseconds from the converter's clock, everything else is exact.
     expect(toolMessage.additional_kwargs).toEqual({
       b4_step: expect.objectContaining({
-        settledAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
-        startedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        v: 1,
+        kind: "server",
+        settledAt: expect.any(Number),
+        startedAt: expect.any(Number),
         status: "completed",
       }),
     })
     expect(Object.keys(toolMessage.additional_kwargs.b4_step as object).sort()).toEqual([
+      "kind",
       "settledAt",
       "startedAt",
       "status",
+      "v",
     ])
     expect(seenContexts.length).toBeGreaterThan(0)
     expect(seenContexts.every((context) => context.signal === liveSignal)).toBe(true)
