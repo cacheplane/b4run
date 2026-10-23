@@ -10,6 +10,7 @@ const engine = vi.hoisted(() => ({
   send: vi.fn(),
   release: vi.fn(),
   digest: vi.fn(),
+  recover: vi.fn(),
 }))
 
 vi.mock("../sequence", async (importOriginal) => ({
@@ -20,10 +21,15 @@ vi.mock("../sequence", async (importOriginal) => ({
   releaseLeases: engine.release,
 }))
 vi.mock("../digest", () => ({ sendDailyDigest: engine.digest }))
+vi.mock("../inbound", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../inbound")>()),
+  recoverInbound: engine.recover,
+}))
 
+import type { InboundRuntime } from "../inbound"
 import { SEND_BATCH, SEND_PACING_MS } from "../sequence"
 import { loadSequenceEnv } from "../sequence-env"
-import { handleTick, type TickDeps } from "./tick"
+import { handleTick, TICK_INBOUND_BUDGET_MS, type TickDeps } from "./tick"
 
 const SECRET = "cron-secret-value"
 const URL_BASE = "http://localhost/api/growth/tick"
@@ -81,6 +87,7 @@ function harness(
         apiKeys.push(apiKey)
         return mailer
       },
+      inboundRuntime: () => undefined,
       now: () => options.now ?? IN_WINDOW,
       randomUUID: () => {
         uuid += 1
@@ -126,6 +133,7 @@ describe("growth tick route", () => {
     engine.send.mockResolvedValue("sent" satisfies SendOutcome)
     engine.release.mockResolvedValue({ released: 0 })
     engine.digest.mockResolvedValue("nothing_to_report")
+    engine.recover.mockResolvedValue({ admitted: 0, forwarded: 0, failed: 0, retrying: 0 })
   })
 
   afterEach(() => {
@@ -274,6 +282,7 @@ describe("growth tick route", () => {
       digest: "sent",
       windowOpen: true,
       delivery: "enabled",
+      inbound: "disabled",
     })
   })
 
@@ -344,6 +353,7 @@ describe("growth tick route", () => {
       digest: "nothing_to_report",
       windowOpen: true,
       delivery: "enabled",
+      inbound: "disabled",
     })
     expect(text).not.toMatch(/@|contact-|b0-|re_test_key|00000000-/)
   })
@@ -370,5 +380,61 @@ describe("growth tick route", () => {
     const res = await handleTick(authorised(), h.deps)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: "tick_failed" })
+  })
+
+  describe("inbound recovery", () => {
+    const runtime = { environment: "test" } as unknown as InboundRuntime
+
+    it("reports disabled and recovers nothing without a receiving key", async () => {
+      const res = await handleTick(authorised(), harness().deps)
+      expect(engine.recover).not.toHaveBeenCalled()
+      expect(await res.json()).toMatchObject({ inbound: "disabled" })
+    })
+
+    it("runs after the digest, with both switches off, and reports counts only", async () => {
+      const order: string[] = []
+      engine.recover.mockImplementation(async () => {
+        order.push("recover")
+        return { admitted: 1, forwarded: 1, failed: 0, retrying: 2 }
+      })
+      engine.digest.mockImplementation(async () => {
+        order.push("digest")
+        return "sent"
+      })
+      const on = harness()
+      on.deps.inboundRuntime = () => runtime
+      const res = await handleTick(authorised(), on.deps)
+      expect(order).toEqual(["digest", "recover"])
+      expect(engine.recover).toHaveBeenCalledWith(
+        executor,
+        expect.objectContaining({ environment: "test" }),
+      )
+      expect(await res.json()).toMatchObject({
+        inbound: { admitted: 1, forwarded: 1, failed: 0, retrying: 2 },
+      })
+
+      engine.recover.mockClear()
+      const off = harness(
+        { sequenceEnabled: false, deliveryEnabled: false },
+        { omit: ["sequenceStartAt", "resendApiKey"] },
+      )
+      off.deps.inboundRuntime = () => runtime
+      const offRes = await handleTick(authorised(), off.deps)
+      expect(engine.recover).toHaveBeenCalledTimes(1)
+      expect(await offRes.json()).toMatchObject({ delivery: "disabled" })
+    })
+
+    it("stops starting inbound work once the inbound budget is spent", async () => {
+      const h = harness()
+      h.deps.inboundRuntime = () => runtime
+      let elapsed = 0
+      h.setElapsed(() => elapsed)
+      await handleTick(authorised(), h.deps)
+      const [call] = engine.recover.mock.calls
+      const { canContinue } = (call as unknown[])[1] as { canContinue(): boolean }
+      expect(canContinue()).toBe(true)
+      elapsed = TICK_INBOUND_BUDGET_MS
+      expect(canContinue()).toBe(false)
+    })
   })
 })

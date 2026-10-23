@@ -15,13 +15,21 @@ const DEFAULT_TIMEOUT_MS = 5000
 export const sendIdempotencyKey = (contactId: string, step: SequenceStep) =>
   `seq:v1:${contactId}:step:${step}`
 
+export interface OutgoingAttachment {
+  readonly filename: string
+  /** Base64 content. */
+  readonly content: string
+}
+
 export interface OutgoingEmail {
   readonly from: string
   readonly to: string
-  readonly replyTo: string
+  readonly replyTo?: string
   readonly bcc?: string
   readonly subject: string
   readonly text: string
+  readonly html?: string
+  readonly attachments?: readonly OutgoingAttachment[]
   readonly headers: Readonly<Record<string, string>>
   readonly tags: readonly { name: string; value: string }[]
   readonly idempotencyKey: string
@@ -136,10 +144,12 @@ export function createResendMailer(
       const payload = {
         from: email.from,
         to: [email.to],
-        reply_to: email.replyTo,
+        ...(email.replyTo !== undefined ? { reply_to: email.replyTo } : {}),
         ...(email.bcc !== undefined ? { bcc: [email.bcc] } : {}),
         subject: email.subject,
         text: email.text,
+        ...(email.html !== undefined ? { html: email.html } : {}),
+        ...(email.attachments !== undefined ? { attachments: email.attachments } : {}),
         headers: email.headers,
         tags: email.tags,
       }

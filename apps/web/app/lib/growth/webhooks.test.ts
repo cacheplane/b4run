@@ -110,6 +110,37 @@ describe("processResendEvent for the founder digest", () => {
   })
 })
 
+describe("processResendEvent for an inbound forward", () => {
+  // A forward goes to the founder's own mailbox; a bounce of it must never stop a contact,
+  // even when the original sender is one.
+  const forwardEvent = (overrides: Partial<ParsedResendEvent>): ParsedResendEvent => ({
+    type: "email.bounced",
+    occurredAt: new Date("2026-10-21T10:00:00.000Z"),
+    providerEmailId: "em_forward",
+    to: ["ada@example.com"],
+    tags: { app: "b4", environment: "production", kind: "forward" },
+    bounceType: "permanent",
+    ...overrides,
+  })
+
+  it.each([
+    forwardEvent({}),
+    forwardEvent({ type: "email.complained" }),
+    forwardEvent({ type: "email.suppressed" }),
+    forwardEvent({ type: "email.delivered" }),
+  ])("ignores a forward $type event before any database lookup", async (event) => {
+    const { executor, calls } = recordingExecutor()
+    const outcome = await processResendEvent(executor, {
+      event,
+      environment: "production",
+      emailHmacSecret: "s",
+      now: new Date("2026-10-21T11:00:00.000Z"),
+    })
+    expect(outcome).toBe("ignored_type")
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe("processResendEvent for another product's mail", () => {
   // The Resend account is shared, so its webhooks carry events for mail B4 never sent.
   const foreignEvent = (overrides: Partial<ParsedResendEvent>): ParsedResendEvent => ({

@@ -4,7 +4,7 @@ import { applyMigrations } from "./migrations"
 import { GROWTH_DB_TESTS_ENABLED, withMigratedDatabase } from "./test-support/postgres"
 
 describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth schema", () => {
-  it("creates exactly the three growth tables, the ledger, and the citext extension", async () => {
+  it("creates exactly the four growth tables, the ledger, and the citext extension", async () => {
     await withMigratedDatabase(async (executor) => {
       const tables = await executor.query<{ table_name: string }>(
         "select table_name from information_schema.tables where table_schema = 'public' and table_name like 'growth_%' order by table_name",
@@ -12,6 +12,7 @@ describe.skipIf(!GROWTH_DB_TESTS_ENABLED)("growth schema", () => {
       expect(tables.rows.map((row) => row.table_name)).toEqual([
         "growth_activity",
         "growth_contacts",
+        "growth_inbound_receipts",
         "growth_schema_migrations",
         "growth_sends",
       ])

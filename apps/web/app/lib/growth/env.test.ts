@@ -27,11 +27,17 @@ describe("loadGrowthEnv", () => {
     const env = loadGrowthEnv({
       ...base,
       RESEND_WEBHOOK_SECRET: "w",
+      RESEND_API_KEY: "send",
+      RESEND_RECEIVING_API_KEY: "receive",
+      RESEND_INBOUND_WEBHOOK_SECRET: "inbound",
       NEXT_PUBLIC_POSTHOG_KEY: "k",
       GROWTH_PUBLIC_ORIGIN: "https://preview.b4.run/",
     })
     expect(env).toMatchObject({
       resendWebhookSecret: "w",
+      resendApiKey: "send",
+      resendReceivingApiKey: "receive",
+      resendInboundWebhookSecret: "inbound",
       posthogKey: "k",
       publicOrigin: "https://preview.b4.run",
     })
