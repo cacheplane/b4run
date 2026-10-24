@@ -2248,7 +2248,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Probe the live server",
-                "run": "for attempt in 1 2 3 4 5 6; do\n  if curl --fail --silent --show-error --max-time 10 https://navlog-server-production.up.railway.app/healthz; then\n    echo\n    exit 0\n  fi\n  sleep 10\ndone\necho \"::error::navlog-server did not answer /healthz after the rollout\" >&2\nexit 1\n"
+                "run": "for attempt in 1 2 3 4 5 6; do\n  if curl --fail --silent --show-error --max-time 10 https://b4-navlog-server.up.railway.app/healthz; then\n    echo\n    exit 0\n  fi\n  sleep 10\ndone\necho \"::error::navlog-server did not answer /healthz after the rollout\" >&2\nexit 1\n"
               }
             }
           ]
