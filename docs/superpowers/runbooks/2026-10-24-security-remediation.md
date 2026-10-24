@@ -3,14 +3,16 @@
 The owner's answer to the pending audit question arrived after 0.15.1 had
 already become immutable. Publication proceeded while that question remained
 unanswered; it should have waited. The published tag and bytes cannot be replaced.
-This branch prepares remediation for a follow-up patch. **Keep the next package
-publication on hold until the fresh production audit has zero high and critical
-findings and the exact release gates pass.** Do not infer a waiver from an
-unanswered question or a passing CI run.
+The follow-up patch was held for remediation and exact release qualification.
+Those conditions were met: 0.15.2 is now public and immutable with the six named
+high production findings remediated. See the
+[final release record](2026-10-24-release-0-15-2.md). An unanswered question or a
+passing CI run alone does not waive a requested release decision.
 
 ## Verified inputs
 
-Main `fe8c0a012a74ae3d70ae480b51e0bcef6e5d3cff` has six high production findings:
+At initial inspection, main
+`fe8c0a012a74ae3d70ae480b51e0bcef6e5d3cff` had six high production findings:
 three Zod versions (4.4.3, 3.25.75 and 3.25.76), body-parser 2.3.0, MSAL Node
 5.1.5 and Undici 8.10.2. GitHub advisory pages re-read October 24 identify:
 
@@ -69,8 +71,8 @@ pass all five cases. The affected CLI/Core suites pass 336 tests with one skip
 through the prescribed `pnpm test` workspace runner. Direct Vitest invocations
 that omitted that workspace config had three temporary SDK-resolution failures;
 no source, assertions or deadlines changed to obtain the corrected-run pass.
-Hosted release gates remain pending. A fresh production audit of the experimental
-resolved graph reports zero high and critical, 12 moderate and three low findings.
+The corrected exact-head hosted release gates subsequently passed. A fresh
+production audit of the final resolved graph reports zero high and critical, 12 moderate and three low findings.
 This is a workspace production selection, not a blanket exploitability assertion.
 The final production audit JSON SHA-256 is
 `de9f800e4587dc71496b35256e6719a6e1e8106463f09a994f6ca059d1092bee`.
@@ -79,8 +81,8 @@ The full audit including development dependencies still reports zero critical,
 `b8f2222b6cbf436859b99276b6dcdb6c86aeda89d3df8098634637994d11c9af`.
 Those additional development findings are not claimed remediated by resolving
 the six production findings named in the owner's question. No audit suppression
-or ignored advisory was introduced. Record independent review, final validation,
-hosted gates and publication outcome before lifting the follow-up release hold.
+or ignored advisory was introduced. Independent review, final validation, hosted
+gates and the publication outcome are recorded below and in the release record.
 
 The initial bounded Undici selectors unexpectedly chose 6.29.1 for OpenAI 7's
 broad optional peer. A parent-specific policy now preserves its previous major
@@ -110,5 +112,32 @@ repair. That defect is not changed as part of dependency remediation. The
 combined probe and workflow-contract unit checks pass 331 tests, and the real
 TypeScript tooling fresh-install/runtime/compiler smoke passes using Zod 4.6.6.
 Independent review found no blockers in the final dependency graph or these
-fixture corrections. Full controller/generated-app validation and a fresh
-corrected-head hosted run remain required before merge and publication.
+fixture corrections. Complete controller and generated-app validation then passed,
+along with all 23 jobs in corrected exact-head CI 40112705120 before merge.
+
+## Published remediation outcome
+
+[PR #1093](https://github.com/cacheplane/b4run/pull/1093) merged as exact package
+candidate `de0fdca77bf92cb8efaafb4c43c6d9d6630f0d59`. All 23 exact-head CI
+jobs passed, and exact-main CI completed with 21 successes and two expected
+skips. The generated-app lifecycle checks pass all five cases; complete
+controller qualification passed 4,021 tests at that candidate.
+
+The subsequent release-controller transport repair in
+[PR #1097](https://github.com/cacheplane/b4run/pull/1097) passed all 23 hosted
+jobs, including 4,033 complete controller tests. It changes bounded metadata
+transport capacity and preserves the package candidate and publication authority.
+The release record retains the initially blocked controller observation and the
+ordinary automatic trigger that later created the exact tag.
+
+[B4 v0.15.2](https://github.com/cacheplane/b4run/releases/tag/v0.15.2) became
+immutable and public at 2026-10-24T19:04:47Z, release ID `422917912`.
+All 21 npm packages are published and independently verified against the sealed
+manifest; all 52 GitHub asset bytes, 22 signed subjects, five real smoke receipts,
+independent audit and both chart digests were verified. The final public manifest
+matches the captured private escrow bytes, SHA-256
+`441821e6be656ffcdbfa172059a485db1570bd5c4c9833348a6f5e2e7a590dce`.
+Fresh production advisory checks before merge and during private escrow retain
+zero high and critical findings. Remaining lower-production and development
+advisories and the private-integration compatibility limits above are unchanged
+in scope; no broader vulnerability-free claim is made.
