@@ -50,8 +50,9 @@ test("packed ui exports executable helpers and public TypeScript signatures", {
     await writeFile(
       script,
       `
-import { emitToolStep } from "@b4run/langgraph/ui";
+import { emitToolStep, toolStepMiddleware } from "@b4run/langgraph/ui";
 import { RunnableLambda } from "@langchain/core/runnables";
+if (typeof toolStepMiddleware().wrapToolCall !== "function") throw Error("no packed middleware");
 const step = { v: 1, kind: "server", status: "running", toolCallId: "packed" };
 const runnable = RunnableLambda.from(async (_, config) => { await emitToolStep(config, step); return "ok"; });
 const events = [];
@@ -63,7 +64,7 @@ if (events.find(event => event.event === "on_custom_event")?.data.toolCallId !==
     await writeFile(
       types,
       `
-import { emitToolStep } from "@b4run/langgraph/ui";
+import { emitToolStep, toolStepMiddleware, type ToolStepDisplay, type ToolStepMiddlewareOptions } from "@b4run/langgraph/ui";
 import type { B4ToolStep } from "@b4run/sdk";
 import type { RunnableConfig } from "@langchain/core/runnables";
 const step: B4ToolStep & { toolCallId: string } = { v: 1, kind: "server", status: "running", toolCallId: "typed" };
@@ -71,6 +72,16 @@ const config: RunnableConfig = {};
 const emitted: Promise<void> = emitToolStep(config, step);
 // @ts-expect-error CUSTOM producers must supply identity
 emitToolStep(config, { v: 1, kind: "server", status: "running" });
+const display: ToolStepDisplay = {
+  running: args => String(args.query),
+  done: (_args, message) => String(message.content),
+  failed: (_args, errorText) => errorText,
+  sources: message => [{ id: message.tool_call_id, kind: "url", title: "Source", href: "https://example.com" }],
+  icon: "app-icon",
+};
+const options: ToolStepMiddlewareOptions = { display: { lookup: display } };
+const middleware = toolStepMiddleware(options);
+void middleware;
 void emitted;
 `,
     )
