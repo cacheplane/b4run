@@ -1,10 +1,14 @@
 {
   "slug": "engaged-time",
-  "posthog_id": null,
+  "posthog_id": 13246716,
   "kind": "trends",
   "name": "Engaged time",
   "description": "Visible seconds reached on a page (10 and 30 second marks). Not session length, and background tabs do not count.",
-  "events": [{ "event": "site:engaged_time" }],
+  "events": [
+    {
+      "event": "site:engaged_time"
+    }
+  ],
   "breakdown": "engaged_seconds",
   "interval": "day",
   "date_from": "-30d"
