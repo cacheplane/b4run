@@ -1,6 +1,6 @@
 {
   "name": "@b4run/inspector",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -69,6 +69,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "7.0.2",
     "vitest": "4.1.11",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   }
 }

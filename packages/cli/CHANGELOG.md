@@ -1,5 +1,24 @@
 # @b4run/cli
 
+## 0.15.2
+
+### Patch Changes
+
+- 877b58f: Require patched Zod 4 releases in package, scaffold and example dependencies.
+  Refresh body-parser and Undici resolutions and constrain private integration
+  paths to patched Zod and MSAL versions, with downstream schema, authentication
+  and CopilotKit compatibility coverage.
+- Updated dependencies [877b58f]
+  - @b4run/ag-ui@0.15.2
+  - @b4run/core@0.15.2
+  - @b4run/langchain@0.15.2
+  - @b4run/sdk@0.15.2
+  - @b4run/langgraph@0.15.2
+  - @b4run/permissions@0.15.2
+  - @b4run/sqlite-storage@0.15.2
+  - @b4run/workspace@0.15.2
+  - @b4run/memory@0.15.2
+
 ## 0.15.1
 
 ### Patch Changes

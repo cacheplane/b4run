@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/chat-web",
   "private": true,
-  "version": "0.0.26",
+  "version": "0.0.27",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3000",
@@ -19,7 +19,7 @@
     "next": "16.4.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",

@@ -1,6 +1,6 @@
 {
   "name": "@b4run/core",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -61,7 +61,7 @@
     "@typescript/old": "npm:typescript@6.0.2",
     "tsx": "^4.23.5",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "@langchain/langgraph-checkpoint": "^1.1.5"

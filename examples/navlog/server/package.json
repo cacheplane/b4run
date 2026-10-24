@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/navlog-server",
   "private": true,
-  "version": "0.0.35",
+  "version": "0.0.36",
   "type": "module",
   "scripts": {
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3002",
@@ -24,7 +24,7 @@
     "@b4run/postgres-storage": "workspace:*",
     "@b4run/sdk": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",

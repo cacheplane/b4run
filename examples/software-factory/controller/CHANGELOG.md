@@ -1,5 +1,15 @@
 # @b4-example/software-factory-controller
 
+## 0.0.11
+
+### Patch Changes
+
+- Updated dependencies [877b58f]
+  - @b4run/cli@0.15.2
+  - @b4run/sdk@0.15.2
+  - @b4run/sandbox@0.15.2
+  - @b4run/workspace@0.15.2
+
 ## 0.0.10
 
 ### Patch Changes

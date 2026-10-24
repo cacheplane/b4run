@@ -1,5 +1,13 @@
 # @dawn-example/research-web
 
+## 0.0.27
+
+### Patch Changes
+
+- Updated dependencies [877b58f]
+  - @b4run/ag-ui@0.15.2
+  - @b4run/sdk@0.15.2
+
 ## 0.0.26
 
 ### Patch Changes

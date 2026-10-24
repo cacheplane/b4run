@@ -112,7 +112,7 @@ describe("b4 memory", () => {
     await writeFile(join(routeDir, "index.ts"), "export const agent = {}\n")
     await mkdir(join(appRoot, "node_modules"), { recursive: true })
     await symlink(
-      join(repoRoot, "node_modules", ".pnpm", "zod@4.4.3", "node_modules", "zod"),
+      join(repoRoot, "node_modules", ".pnpm", "zod@4.6.6", "node_modules", "zod"),
       join(appRoot, "node_modules", "zod"),
       "dir",
     )

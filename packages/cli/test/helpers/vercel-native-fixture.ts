@@ -615,7 +615,7 @@ export function renderNativeFixtureManifest(
       "@neondatabase/serverless": "1.1.0",
       hono: "4.12.28",
       pg: "8.22.0",
-      zod: "4.4.3",
+      zod: "4.6.6",
     },
   }
 }

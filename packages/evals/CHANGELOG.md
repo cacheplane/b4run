@@ -1,5 +1,12 @@
 # @b4run/evals
 
+## 0.15.2
+
+### Patch Changes
+
+- Updated dependencies [877b58f]
+  - @b4run/testing@0.15.2
+
 ## 0.15.1
 
 ### Patch Changes

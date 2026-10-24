@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/navlog-web",
   "private": true,
-  "version": "0.0.26",
+  "version": "0.0.27",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3010",
@@ -31,7 +31,7 @@
     "react-dom": "19.2.8",
     "rxjs": "7.8.1",
     "tailwindcss": "^4.3.3",
-    "zod": "4.4.3"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

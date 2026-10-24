@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/code-fixer-server",
   "private": true,
-  "version": "0.0.16",
+  "version": "0.0.17",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -20,7 +20,7 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "diff": "9.0.0"
   },
   "devDependencies": {

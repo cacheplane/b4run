@@ -15,7 +15,7 @@
       "@b4run/cli": "latest",
       "@b4run/langchain": "latest",
       "@b4run/sdk": "latest",
-      "zod": "^4.0.0"
+      "zod": "^4.6.6"
     },
     "devDependencies": {
       "@b4run/config-typescript": "latest",

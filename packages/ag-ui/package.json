@@ -1,6 +1,6 @@
 {
   "name": "@b4run/ag-ui",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -86,7 +86,7 @@
     "@ag-ui/encoder": "1.0.2",
     "@b4run/sdk": "workspace:*",
     "rxjs": "^7.8.1",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "@ag-ui/client": ">=1.0.1 <2.0.0",

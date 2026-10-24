@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/chat-server",
   "private": true,
-  "version": "0.0.53",
+  "version": "0.0.54",
   "type": "module",
   "scripts": {
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3001",
@@ -16,7 +16,7 @@
     "@b4run/core": "workspace:*",
     "@b4run/langchain": "workspace:*",
     "@b4run/sdk": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
