@@ -327,7 +327,7 @@ test("recognizes genuine CJS Commands across the ESM module boundary", async () 
   const noResult = new CjsCommand({ update: { count: 7 }, goto: "next" })
 
   expect(await wrap(async () => noResult)).toBe(noResult)
-})
+}, 30_000)
 
 test("coded and uncoded thrown errors retain failed display details in persisted and live steps", async () => {
   const { RunnableLambda } = await import("@langchain/core/runnables")

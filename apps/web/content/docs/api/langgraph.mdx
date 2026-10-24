@@ -24,8 +24,9 @@ Use `@b4run/langgraph/define-entry` for the smallest entry-validation import and
 | `@b4run/langgraph` | edge-safe | dependency-free | integration | supported |
 | `@b4run/langgraph/define-entry` | edge-safe | dependency-free | integration | supported |
 | `@b4run/langgraph/route-module` | edge-safe | dependency-free | integration | supported |
+| `@b4run/langgraph/ui` | node-only | not-claimed | application | supported |
 
-All three runtime surfaces bundle without third-party runtime dependencies or Node globals. That covers importing and running these adapters. It says nothing about a graph, workflow, or tool your application supplies.
+The three route surfaces bundle without third-party runtime dependencies or Node globals. That covers importing and running these adapters. It says nothing about a graph, workflow, or tool your application supplies.
 
 ## Public exports
 
@@ -175,3 +176,191 @@ console.log(normalized.kind) // workflow
 ```
 
 Continue with [Routes](/docs/routes), [SDK API](/docs/api/sdk), and [CLI API](/docs/api/cli).
+
+
+## Plain LangGraph tool activity
+
+`@b4run/langgraph/ui` is a Node server producer API for plain LangChain/LangGraph.
+It needs no B4 agent, CLI, filesystem route or B4 runtime. The root and route entry
+points stay edge-safe and do not load optional LangChain peers. Install those
+peers only when importing `/ui`:
+
+```bash
+npm install @b4run/langgraph @langchain/core@1.2.12 langchain@1.5.12 @langchain/langgraph@1.4.17
+```
+
+### `@b4run/langgraph/ui`
+
+| Export | Responsibility |
+|---|---|
+| `emitToolStep` | Dispatch a normalized v1 `b4.step` custom event. |
+| `toolStepMiddleware` | Wrap tool execution and persist its settled step. |
+| `ToolStepDisplay` | Describe optional labels, icon and sources. |
+| `ToolStepMiddlewareOptions` | Map tool names to display callbacks. |
+
+```ts api-contract="@b4run/langgraph#./ui:emitToolStep"
+export declare function emitToolStep(config: RunnableConfig | undefined, step: B4ToolStep & {
+  readonly toolCallId: string;
+}): Promise<void>;
+```
+
+```ts api-contract="@b4run/langgraph#./ui:toolStepMiddleware"
+export declare function toolStepMiddleware(options?: ToolStepMiddlewareOptions): AgentMiddleware;
+```
+
+```ts api-contract="@b4run/langgraph#./ui:ToolStepDisplay"
+export interface ToolStepDisplay {
+  readonly icon?: string;
+  readonly running?: (args: Readonly<Record<string, unknown>>) => string;
+  readonly done?: (args: Readonly<Record<string, unknown>>, message: ToolMessage) => string;
+  readonly failed?: (args: Readonly<Record<string, unknown>>, errorText: string) => string;
+  readonly sources?: (message: ToolMessage) => readonly B4StepSource[];
+}
+```
+
+**Fields: `@b4run/langgraph#./ui:ToolStepDisplay`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly icon` | `string` | no | Open icon name interpreted by the client. |
+| `readonly running` | `(args: Readonly<Record<string, unknown>>) => string` | no | Label immediately before execution. |
+| `readonly done` | `(args: Readonly<Record<string, unknown>>, message: ToolMessage) => string` | no | Success label from the actual matching ToolMessage. |
+| `readonly failed` | `(args: Readonly<Record<string, unknown>>, errorText: string) => string` | no | Failure label from readable error text. |
+| `readonly sources` | `(message: ToolMessage) => readonly B4StepSource[]` | no | Stable source identities from the actual matching ToolMessage. |
+
+```ts api-contract="@b4run/langgraph#./ui:ToolStepMiddlewareOptions"
+export interface ToolStepMiddlewareOptions {
+  readonly display?: Readonly<Record<string, ToolStepDisplay>>;
+}
+```
+
+**Fields: `@b4run/langgraph#./ui:ToolStepMiddlewareOptions`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly display` | `Readonly<Record<string, ToolStepDisplay>>` | no | Display behavior keyed by tool name; omitted tools emit bare server steps. |
+
+### Plain agent and manual node
+
+Supply your application's model instance (for example, configured for `gpt-5-mini`)
+and approval middleware. Wrappers run in array order, outermost first: put the
+step wrapper inside approval gates so running means actual execution has started.
+The following is the executable `packages/langgraph/examples/plain-agent.ts` recipe:
+
+```ts
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
+import { tool } from "@langchain/core/tools"
+import { createAgent, type AgentMiddleware } from "langchain"
+import { toolStepMiddleware } from "@b4run/langgraph/ui"
+
+/** Build a plain agent with an application-supplied model (for example gpt-5-mini). */
+export function createLookupAgent(model: BaseChatModel, approvalGate: AgentMiddleware) {
+  const lookup = tool(async () => "Found record", {
+    name: "lookup",
+    description: "Look up a record",
+    schema: { type: "object", properties: {}, additionalProperties: false } as const,
+  })
+  return createAgent({
+    model,
+    tools: [lookup],
+    middleware: [approvalGate, toolStepMiddleware({ display: {
+      lookup: {
+        icon: "search",
+        running: () => "Looking up record",
+        done: (_args, message) => typeof message.content === "string" ? message.content : "Found record",
+        sources: (message) => [{ id: message.tool_call_id, kind: "record", title: "Lookup result" }],
+      },
+    } })],
+  })
+}
+```
+
+Callbacks receive the actual returned matching LangChain `ToolMessage`, including
+its content and artifacts; they do not receive the raw tool return value. Unknown
+tool names still produce a bare server step. Display callback failures fall back
+to bare fields without replacing execution output. Labels use at most 120 Unicode
+code points. Error-status messages and ordinary thrown errors settle as failed
+with readable errors. Existing denial, cancellation and failure survive. Graph
+interrupts propagate without false settlement; aborts remain cancelled and preserve
+control flow. Commands preserve unrelated updates, graph/goto/resume and object or
+tuple update forms. A Command without one unambiguous matching ToolMessage passes
+through without a fabricated completion.
+
+An ordinary graph node can pass its runnable config explicitly. Append this returned
+ToolMessage to the graph's messages state so the checkpointer can save it:
+
+```ts
+import type { RunnableConfig } from "@langchain/core/runnables"
+import { ToolMessage } from "@langchain/core/messages"
+import { emitToolStep } from "@b4run/langgraph/ui"
+
+/** Run approved work in a graph node and return a message to append to state.messages. */
+export async function lookupWithSteps(config: RunnableConfig, toolCallId: string) {
+  const running = { v: 1, kind: "server", status: "running", startedAt: Date.now() } as const
+  await emitToolStep(config, { ...running, toolCallId })
+  const content = "Found record"
+  const step = { ...running, status: "completed", settledAt: Date.now(), label: content } as const
+  await emitToolStep(config, { ...step, toolCallId })
+  return new ToolMessage({ content, tool_call_id: toolCallId, additional_kwargs: { b4_step: step } })
+}
+```
+
+`emitToolStep(undefined, step)` uses Node's active runnable config. Invalid producer
+identity, version, kind or status throws `TypeError`; failure of awaited callback
+dispatch is isolated. Both `awaitHandlers: true` and `raiseError: true` are required
+for callback rejection to reach that promise. LangChain's default handlers can log
+and swallow errors; detached/background callbacks retain upstream error policy.
+The helper does not replace callback managers or change their global settings.
+Outside a streamed runnable, or without a listener, there is no live event.
+It never emits standard START/ARGS/END/RESULT frames: the AG-UI bridge owns them.
+
+### Python producer and checkpoint restore
+
+There is no B4 Python package to install. The source recipe
+[`python_tool_steps.py`](https://github.com/cacheplane/b4run/blob/main/packages/langgraph/examples/python_tool_steps.py)
+uses `adispatch_custom_event("b4.step", value, config=config)` and saves a settled
+step on `ToolMessage.additional_kwargs["b4_step"]`. Its producer values follow
+[`@b4run/sdk/tool-step.schema.json`](/docs/api/sdk). CUSTOM requires `toolCallId`;
+stored steps omit it because the ToolMessage supplies `tool_call_id`.
+
+The recipe's `StepLangGraphAgent` overrides the **public**
+`get_state_and_messages_snapshots` hook in `ag-ui-langgraph` 0.0.47. It reads a
+checkpoint, requires its durable `checkpoint_id`, then pins the parent's read to
+that exact checkpoint. It decorates the parent's MESSAGES_SNAPSHOT by unambiguous
+root `tool_call_id`, preserving parent IDs, existing metadata and subagent processing.
+Child or duplicate identities are skipped. The owned v1 projection ignores unknown
+fields and versions, accepts missing-v legacy data, and never mutates inputs.
+Unknown statuses leave lifecycle inference to clients. Failed steps project readable
+text into `ToolMessage.error` as well as `metadata["b4.step"]`.
+
+Host the subclass through the bridge's standard FastAPI endpoint:
+
+```python
+from fastapi import FastAPI
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+from python_tool_steps import StepLangGraphAgent
+
+app = FastAPI()
+# graph must be compiled with your durable server checkpointer.
+agent = StepLangGraphAgent(name="lookup", graph=graph)
+add_langgraph_fastapi_endpoint(app, agent, path="/agent")
+```
+
+The executable integration test was verified with `ag-ui-langgraph` 0.0.47,
+`ag-ui-protocol` 1.0.0, `langchain` 1.4.7, `langchain-core` 1.7.0,
+`langgraph` 1.2.17 and `pydantic` 2.14.1. It uses MemorySaver solely for tests;
+production restore requires a durable server checkpointer. With those Python
+packages already installed, run:
+
+```bash
+B4_LANGGRAPH_PYTHON=/path/to/python pnpm --filter @b4run/langgraph test
+```
+
+Normal CI typechecks the TypeScript recipes; external Python integration is optional
+and is skipped unless that executable is configured. No model is called.
+
+CUSTOM is live-only and does not checkpoint arbitrary progress. Stock converters
+can drop checkpoint step metadata and reduce failures to generic errors. Client
+canonical transcript persistence is separate from server checkpoint persistence.
+A custom JavaScript AG-UI bridge has the same projection obligation; the current
+JavaScript bridge snapshot implementation is private, so this Python subclass is
+not a public JavaScript override recipe. Check extension points when upgrading
+bridge versions. See [Step events](/docs/ag-ui#step-events) for carrier and merge rules.
