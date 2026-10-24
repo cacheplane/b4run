@@ -3,9 +3,7 @@
   "posthog_id": 2254718,
   "name": "Growth · Site and docs engagement",
   "description": "Event counts for the website and docs. A copied install command is intent, not an install; engaged time is visible seconds, not session length.",
-  "tags": [
-    "growth"
-  ],
+  "tags": ["growth"],
   "tiles": [
     {
       "insight": "pageviews-by-path"
