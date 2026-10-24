@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/navlog-web",
   "private": true,
-  "version": "0.0.25",
+  "version": "0.0.26",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3010",
