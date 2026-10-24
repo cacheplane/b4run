@@ -20,7 +20,7 @@ import {
 
 export const TYPESCRIPT_VERSION = "7.0.2"
 export const TSX_VERSION = "4.23.0"
-export const ZOD_VERSION = "4.4.3"
+export const ZOD_VERSION = "4.6.6"
 
 /**
  * The packed set must be CLOSED over workspace dependencies — see

@@ -2176,7 +2176,7 @@ describe("published TypeScript tooling smoke", () => {
       "--package-lock=false",
       "typescript@7.0.2",
       "tsx@4.23.0",
-      "zod@4.4.3",
+      "zod@4.6.6",
     ])
     assert.equal(
       typescriptToolingInstallArgs().some((arg) => arg.startsWith("@b4run/")),
@@ -2195,7 +2195,7 @@ describe("published TypeScript tooling smoke", () => {
         await Promise.all([
           writeResolutionPackage(join(root, "node_modules", "typescript"), "typescript", "7.0.2"),
           writeResolutionPackage(join(root, "node_modules", "tsx"), "tsx", "4.23.0"),
-          writeResolutionPackage(join(root, "node_modules", "zod"), "zod", "4.4.3"),
+          writeResolutionPackage(join(root, "node_modules", "zod"), "zod", "4.6.6"),
         ])
         return { stderr: "", stdout: "" }
       },
@@ -2216,7 +2216,7 @@ describe("published TypeScript tooling smoke", () => {
           return { stderr: "", stdout: "" }
         },
       }),
-      /zod installed identity zod@4\.4\.2, expected zod@4\.4\.3/,
+      /zod installed identity zod@4\.4\.2, expected zod@4\.6\.6/,
     )
   })
 

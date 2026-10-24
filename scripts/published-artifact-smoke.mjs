@@ -32,7 +32,7 @@ const REQUIRED_PGVECTOR_PACKAGES = new Set(["@b4run/memory-pgvector", "@b4run/la
 
 export const TYPESCRIPT_VERSION = "7.0.2"
 export const TSX_VERSION = "4.23.0"
-export const ZOD_VERSION = "4.4.3"
+export const ZOD_VERSION = "4.6.6"
 
 export function shouldRunOpenAiSmoke({ enabled, env = process.env }) {
   if (!enabled) {

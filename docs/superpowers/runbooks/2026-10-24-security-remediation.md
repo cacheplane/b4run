@@ -62,8 +62,14 @@ also run against the local B4.run HTTP boundary.
 
 Dependency-floor coverage was observed failing against old versions before the
 updates. The final focused graph, owner compatibility and CopilotKit route suites
-pass 34 tests. Initial full build passed 29 tasks; final clean validation and
-hosted release gates remain pending. A fresh production audit of the experimental
+pass 34 tests. Full build passes 29 tasks and final typecheck passes 59 tasks plus root test
+projects. Lint passes, release integrity passes 33 tests, the complete security
+suite passes 380 tests with one platform-specific skip, and browser regressions
+pass all five cases. The affected CLI/Core suites pass 336 tests with one skip
+through the prescribed `pnpm test` workspace runner. Direct Vitest invocations
+that omitted that workspace config had three temporary SDK-resolution failures;
+no source, assertions or deadlines changed to obtain the corrected-run pass.
+Hosted release gates remain pending. A fresh production audit of the experimental
 resolved graph reports zero high and critical, 12 moderate and three low findings.
 This is a workspace production selection, not a blanket exploitability assertion.
 The final production audit JSON SHA-256 is
@@ -83,3 +89,26 @@ Tool-schema compatibility also checks CopilotKit's real Standard JSON Schema
 adapter, including required fields, string length and constrained array items;
 calling the legacy converter directly with a Zod 4 schema would lose those
 constraints and is not the tested owner path.
+
+## Fixture corrections discovered by validation
+
+Initial hosted run
+[40110718636](https://github.com/cacheplane/b4run/actions/runs/40110718636)
+caught an unsynchronized standalone code-fixer npm lock. Its manifest requested
+Zod 4.6.6 while the lock still held 4.4.3. Local tooling-pack verification also
+caught two probe constants still installing 4.4.3 against the SDK's new peer
+minimum. The standalone lock is regenerated (only Zod metadata changes), both
+consumer probes now use 4.6.6, and the two generated-app manifest expectations
+match the new scaffold floor. Exact smoke expectations are updated, including
+the wrong-installed-version negative case. The pinned published smoke script's
+SHA-256 and its fixture digest snapshot change in the same commit; no release
+checks or workflow authority are weakened.
+
+The corrected standalone fixture passes `npm ci`; its test suite still exposes
+the intentionally historical nullable-input defect the code-fixer is meant to
+repair. That defect is not changed as part of dependency remediation. The
+combined probe and workflow-contract unit checks pass 331 tests, and the real
+TypeScript tooling fresh-install/runtime/compiler smoke passes using Zod 4.6.6.
+Independent review found no blockers in the final dependency graph or these
+fixture corrections. Full controller/generated-app validation and a fresh
+corrected-head hosted run remain required before merge and publication.
