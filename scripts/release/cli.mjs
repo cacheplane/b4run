@@ -47,6 +47,9 @@ const COMMANDS = Object.freeze({
 })
 const MAX_JSON_BYTES = 1024 * 1024
 const MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+// Complete historical inventories span several pages; individual requests keep
+// the adapter's existing 15-second cap and the workflow retains its own deadline.
+const GITHUB_PAGINATION_TIMEOUT_MS = 60_000
 const MAX_PATH_BYTES = 4_096
 const DECIMAL_ID_PATTERN = /^[1-9][0-9]*$/u
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
@@ -2038,6 +2041,7 @@ async function requireGitHub(runtime) {
   )({
     owner: "cacheplane",
     repo: "b4run",
+    paginationTimeoutMs: GITHUB_PAGINATION_TIMEOUT_MS,
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),
@@ -2106,6 +2110,7 @@ async function requireProductionGitHub(runtime) {
   )({
     owner: "cacheplane",
     repo: "b4run",
+    paginationTimeoutMs: GITHUB_PAGINATION_TIMEOUT_MS,
     ...(runtime.environment.GITHUB_REPOSITORY_ID === undefined
       ? {}
       : { repositoryId: runtime.environment.GITHUB_REPOSITORY_ID }),

@@ -887,6 +887,176 @@ test("GitHub pagination rejects a repeated next-page URL as ambiguous", async ()
   })
 })
 
+for (const operation of ["getCommitCheckRuns", "listReleases"]) {
+  test(`GitHub ${operation} completes eight pages within its dedicated pagination budget`, async () => {
+    let clock = 0
+    let calls = 0
+    const endpoint = operation === "getCommitCheckRuns" ? `/commits/${SHA}/check-runs` : "/releases"
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      paginationTimeoutMs: 60_000,
+      now: () => clock,
+      fetchImpl: async () => {
+        calls += 1
+        clock += 3_000
+        const items = [{ id: calls }]
+        const body = operation === "getCommitCheckRuns" ? { check_runs: items } : items
+        return jsonResponse(
+          body,
+          200,
+          calls < 8 ? linkHeader(`${BASE}${endpoint}?per_page=100&page=${calls + 1}`) : {},
+        )
+      },
+    })
+    const result = await github[operation]({ commitSha: SHA })
+    assert.equal(result.status, "PRESENT", JSON.stringify(result))
+    assert.equal(calls, 8)
+    assert.deepEqual(
+      result.value.map(({ id }) => id),
+      [1, 2, 3, 4, 5, 6, 7, 8],
+    )
+    assert.equal(clock, 24_000)
+  })
+}
+
+test("GitHub dedicated pagination budget still expires before another page", async () => {
+  let clock = 0
+  let calls = 0
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    paginationTimeoutMs: 60_000,
+    now: () => clock,
+    fetchImpl: async () => {
+      calls += 1
+      clock += 10_000
+      return jsonResponse(
+        [{ id: calls }],
+        200,
+        linkHeader(`${BASE}/releases?per_page=100&page=${calls + 1}`),
+      )
+    },
+  })
+  const result = await github.listReleases()
+  assert.equal(result.code, "TIMEOUT")
+  assert.equal(calls, 6)
+})
+
+test("GitHub dedicated pagination budget does not extend one HTTP request", async () => {
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    timeoutMs: 5,
+    paginationTimeoutMs: 60_000,
+    fetchImpl: async (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        )
+      }),
+  })
+  const result = await github.listReleases()
+  assert.equal(result.status, "AMBIGUOUS")
+  assert.equal(result.code, "TIMEOUT")
+})
+
+test("GitHub validates dedicated pagination timeout bounds", () => {
+  for (const paginationTimeoutMs of [
+    0,
+    -1,
+    300_001,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "60000",
+  ]) {
+    assert.throws(
+      () => createGitHubReader({ owner: OWNER, repo: REPO, paginationTimeoutMs }),
+      /pagination.*timeout/u,
+    )
+  }
+})
+
+test("GitHub explicit recovery deadline caps the dedicated pagination budget", async () => {
+  let clock = 0
+  let calls = 0
+  const github = createGitHubReader({
+    owner: OWNER,
+    repo: REPO,
+    paginationTimeoutMs: 60_000,
+    now: () => clock,
+    fetchImpl: async () => {
+      calls += 1
+      clock += 12
+      return jsonResponse(
+        {
+          total_count: 101,
+          jobs: Array.from({ length: 100 }, (_, id) => ({ id: id + 1 })),
+        },
+        200,
+        linkHeader(`${BASE}/actions/runs/55/jobs?filter=all&per_page=100&page=2`),
+      )
+    },
+  })
+  const result = await github.listActionsRunJobsComplete({ runId: 55 }, { timeoutMs: 12 })
+  assert.equal(result.status, "AMBIGUOUS")
+  assert.equal(result.code, "TIMEOUT")
+  assert.equal(calls, 1)
+})
+
+for (const { name, options, body, next, code } of [
+  {
+    name: "foreign next link",
+    options: {},
+    body: [{ id: 1 }],
+    next: "https://example.com/releases?page=2",
+    code: "UNSAFE_PAGINATION_URL",
+  },
+  {
+    name: "pagination loop",
+    options: {},
+    body: [{ id: 1 }],
+    next: `${BASE}/releases?per_page=100&page=2`,
+    code: "PAGINATION_LOOP",
+  },
+  {
+    name: "page bound",
+    options: { maxPages: 1 },
+    body: [{ id: 1 }],
+    next: `${BASE}/releases?per_page=100&page=2`,
+    code: "PAGE_LIMIT_EXCEEDED",
+  },
+  {
+    name: "record bound",
+    options: { maxRecords: 1 },
+    body: [{ id: 1 }, { id: 2 }],
+    next: null,
+    code: "RECORD_LIMIT_EXCEEDED",
+  },
+  {
+    name: "byte bound",
+    options: { maxResponseBytes: 10 },
+    body: [{ id: 1, note: "too large" }],
+    next: null,
+    code: "OPERATION_TOO_LARGE",
+  },
+]) {
+  test(`GitHub dedicated pagination budget preserves ${name} rejection`, async () => {
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      paginationTimeoutMs: 60_000,
+      ...options,
+      fetchImpl: async () => jsonResponse(body, 200, next === null ? {} : linkHeader(next)),
+    })
+    const result = await github.listReleases()
+    assert.equal(result.status, "ERROR")
+    assert.equal(result.code, code)
+  })
+}
+
 test("GitHub pagination shares one cumulative byte and wall-clock budget", async () => {
   const next = `${BASE}/git/matching-refs/tags/?per_page=100&page=2`
   const note = "x".repeat(45)

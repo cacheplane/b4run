@@ -141,8 +141,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // of the inline README video.
 // Repinned for the forecast-facts demo: readme-contracts.mjs pins its GitHub-hosted copy.
 // Repinned for the patched Zod version used by published consumer probes.
+// Repinned for separate bounded pagination and HTTP request deadlines.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "1d1430ed09b5be76df39aa5ffeab2edb14802f102025c4dc6b8b1ecee1308eec"
+  "bce0db827754b6076f5d3747617c846edd6d4a14d88910624dc43db5cd54ad51"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
