@@ -42,6 +42,18 @@ def test_legacy_source_ids_are_scoped_to_calls():
     assert "id" not in legacy["sources"][0]
 
 
+def test_timestamp_projection_keeps_finite_numbers_and_ignores_invalid_values():
+    step = {"status": "completed"}
+
+    zero = project_step({**step, "startedAt": 0, "settledAt": 1.25})
+    invalid = [True, False, float("inf"), float("nan"), "not a date", "2024-99-02T03:04:05Z", "2024-01-02T03:04:05+25:00"]
+    ignored = [project_step({**step, "startedAt": value, "settledAt": value}) for value in invalid]
+
+    assert zero["startedAt"] == 0
+    assert zero["settledAt"] == 1.25
+    assert all("startedAt" not in value and "settledAt" not in value for value in ignored)
+
+
 async def test_producer():
     events = []
     class Handler(AsyncCallbackHandler):
@@ -73,7 +85,7 @@ async def test_producer():
 
 
 async def test_actual_bridge():
-    step = {"v": 1, "kind": "server", "status": "failed", "label": "Lookup failed", "error": {"message": "offline"}}
+    step = {"status": "failed", "label": "Lookup failed", "startedAt": "2024-01-02T03:04:05.678Z", "settledAt": "2024-01-02T05:04:06.789999+02:00", "error": {"message": "offline"}}
     def lookup(_state):
         return {"messages": [ToolMessage(id="checkpoint-result", tool_call_id="call", content="offline", status="error", additional_kwargs={"b4_step": step})]}
     graph = StateGraph(MessagesState).add_node("lookup", lookup).add_edge(START, "lookup").add_edge("lookup", END).compile(checkpointer=InMemorySaver())
@@ -99,7 +111,7 @@ async def test_actual_bridge():
     assert reads[1]["configurable"]["checkpoint_id"] == checkpoint.config["configurable"]["checkpoint_id"]
     assert message.id == "checkpoint-result"
     assert message.content == "offline"
-    assert message.metadata["b4.step"] == step
+    assert message.metadata["b4.step"] == {**step, "v": 1, "kind": "server", "startedAt": 1704164645678, "settledAt": 1704164646789}
     assert message.error == "offline"
     assert checkpoint.values["messages"][-1].additional_kwargs == {"b4_step": step}
 
@@ -144,6 +156,7 @@ async def test_ambiguous_child_unknown_and_parent_fields():
 if __name__ == "__main__":
     test_owned_projection()
     test_legacy_source_ids_are_scoped_to_calls()
+    test_timestamp_projection_keeps_finite_numbers_and_ignores_invalid_values()
     asyncio.run(test_producer())
     asyncio.run(test_actual_bridge())
     asyncio.run(test_ambiguous_child_unknown_and_parent_fields())

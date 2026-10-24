@@ -5,11 +5,33 @@ values with the published @b4run/sdk/tool-step.schema.json v1 schema. This reade
 owns known fields, accepts legacy missing-v values, and ignores unknown versions.
 """
 from collections import Counter
+from datetime import datetime, timezone
 from math import isfinite
+from re import fullmatch
 from time import time
 from ag_ui_langgraph import LangGraphAgent
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import ToolMessage
+
+
+def _epoch_ms(value):
+    """Read finite epoch milliseconds or legacy ISO text without float drift."""
+    if type(value) is int:
+        return value
+    if type(value) is float:
+        return value if isfinite(value) else None
+    if not isinstance(value, str) or not fullmatch(r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?", value):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        delta = parsed.astimezone(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        # Date.parse truncates ISO fractional seconds to milliseconds. Integer
+        # timedelta arithmetic also avoids binary-float microsecond rounding.
+        return delta.days * 86_400_000 + delta.seconds * 1000 + delta.microseconds // 1000
+    except (ValueError, OverflowError):
+        return None
 
 
 def project_step(value, tool_call_id=None):
@@ -25,8 +47,9 @@ def project_step(value, tool_call_id=None):
     if isinstance(value.get("label"), str) and value["label"].strip():
         result["label"] = value["label"][:120]
     for key in ("startedAt", "settledAt"):
-        if type(value.get(key)) in (int, float) and isfinite(value[key]):
-            result[key] = value[key]
+        timestamp = _epoch_ms(value.get(key))
+        if timestamp is not None:
+            result[key] = timestamp
     if value.get("decision") in ("once", "always", "deny"):
         result["decision"] = value["decision"]
     if isinstance(value.get("queries"), list):
