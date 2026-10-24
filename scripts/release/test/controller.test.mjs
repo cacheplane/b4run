@@ -1741,6 +1741,7 @@ test("GitHub-mutating routes lazily construct the production boundary from the e
   assert.deepEqual(readerCall, {
     owner: "cacheplane",
     repo: "b4run",
+    paginationTimeoutMs: 60_000,
     repositoryId: "1210070282",
     token: "exact-test-token",
   })

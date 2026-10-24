@@ -47,7 +47,7 @@
       "sha256": "e74dd868c5bac7852763380ae34e826b8e01d289d1f3e526e76b2fb40c686c60"
     },
     "scripts/release/adapters/github.mjs": {
-      "sha256": "164bc43767aebc9c89b2a0b8ccdb36d8e626a4b1f31ea4b47ffee889c2ad080e"
+      "sha256": "0d77508c3d6c588c6395cfa4674b326fc0def479eda6f3773de0823e8f396b9d"
     },
     "scripts/release/adapters/http.mjs": {
       "sha256": "6d5306c5b091e32a201f2fc548e9c9544d99598d58f66c1617908782582146cb"
@@ -68,7 +68,7 @@
       "sha256": "143a3e535fa07f8da74a66ae624661422add8c9974dc0b46603762d4b86ed815"
     },
     "scripts/release/cli.mjs": {
-      "sha256": "69e86ec9b67fcbff4101dd979298c9772955f50767893f4faed2b6e5d3b4e6aa"
+      "sha256": "ec29fc314b01b372a7b9edb4f41f389658bb3ffdd5a9626905ee7af01b9c7a6e"
     },
     "scripts/release/conflicts.mjs": {
       "sha256": "9fb3ff5154dab04d975b56baf29255493ece213824801e3504fad534ae81db7f"

@@ -3619,6 +3619,60 @@ test("observe CLI selects the first-publication reader only from the explicit bo
   }
 })
 
+test("observe CLI gives paginated history its own bounded transport budget", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-pagination-"))
+  try {
+    const eventPath = path.join(directory, "event.json")
+    const outputPath = path.join(directory, "github-output")
+    await writeFile(outputPath, "")
+    await writeFile(
+      eventPath,
+      JSON.stringify({ inputs: { version: VERSION, commitSha: COMMIT_SHA } }),
+    )
+    const dependencies = cliCandidateDependencies(directory)
+    const reader = dependencies.githubReader
+    delete dependencies.githubReader
+    dependencies.environment = {
+      GITHUB_TOKEN: "test-reader-token",
+      GITHUB_REPOSITORY_ID: "1210070282",
+    }
+    const calls = []
+    dependencies.importModule = async (specifier) => {
+      const module = await import(specifier)
+      if (!specifier.endsWith("/adapters/github.mjs")) return module
+      return {
+        ...module,
+        createGitHubReader: (options) => {
+          calls.push(options)
+          return reader
+        },
+      }
+    }
+    await runReleaseCli(
+      [
+        "observe",
+        "--event",
+        eventPath,
+        "--report",
+        path.join(directory, "report.json"),
+        "--github-output",
+        outputPath,
+      ],
+      dependencies,
+    )
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].paginationTimeoutMs, 60_000)
+    assert.equal(
+      calls[0].timeoutMs,
+      undefined,
+      "individual HTTP requests retain the existing default",
+    )
+    assert.equal(calls[0].repositoryId, "1210070282")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("observe CLI resolves checkout HEAD once and pins both candidate calls despite HEAD movement", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-head-"))
   try {

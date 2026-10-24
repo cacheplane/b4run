@@ -45,6 +45,7 @@ export function createGitHubReader({
   apiOrigin = API_ORIGIN,
   fetchImpl = fetch,
   timeoutMs,
+  paginationTimeoutMs = timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS,
   maxResponseBytes,
   maxPages = DEFAULT_GITHUB_MAX_PAGES,
   maxRecords = DEFAULT_GITHUB_MAX_RECORDS,
@@ -63,6 +64,7 @@ export function createGitHubReader({
   }
   assertBoundedInteger(maxPages, 1, MAX_GITHUB_PAGES, "GitHub maximum pages")
   assertBoundedInteger(maxRecords, 1, MAX_GITHUB_RECORDS, "GitHub maximum records")
+  assertBoundedInteger(paginationTimeoutMs, 1, MAX_HTTP_READ_TIMEOUT, "GitHub pagination timeout")
   if (typeof now !== "function") throw new TypeError("Invalid GitHub clock")
   const normalizedApiOrigin = normalizeApiOrigin(apiOrigin)
   if (token !== undefined && normalizedApiOrigin !== API_ORIGIN) {
@@ -84,6 +86,7 @@ export function createGitHubReader({
     http,
     token: token ?? null,
     timeoutMs: timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS,
+    paginationTimeoutMs,
     maxResponseBytes: maxResponseBytes ?? DEFAULT_HTTP_MAX_RESPONSE_BYTES,
     maxPages,
     maxRecords,
@@ -470,7 +473,11 @@ async function readPaginated(
   const records = []
   let total = null
   const ids = new Set()
-  const budget = createOperationBudget(context)
+  const budget = createOperationBudget(
+    context,
+    context.maxResponseBytes,
+    context.paginationTimeoutMs,
+  )
   let url = initialUrl
   const seenUrls = new Set([new URL(initialUrl).href])
   let prefetched = []
@@ -743,9 +750,14 @@ async function readBinary(context, { url, operation, maximumBytes, accept }) {
     : classification
 }
 
-function createOperationBudget(context, maximumBytes = context.maxResponseBytes) {
+function createOperationBudget(
+  context,
+  maximumBytes = context.maxResponseBytes,
+  timeoutMs = context.timeoutMs,
+) {
   return {
-    deadline: context.now() + context.timeoutMs,
+    deadline: context.now() + timeoutMs,
+    requestTimeoutMs: context.timeoutMs,
     remainingBytes: maximumBytes,
     now: context.now,
   }
@@ -762,7 +774,10 @@ function normalizeReadLimit(value, maximum) {
 function remainingRequestBudget(budget) {
   const timeoutMs = budget.deadline - budget.now()
   return timeoutMs > 0
-    ? { timeoutMs: Math.min(timeoutMs, 300_000), maxResponseBytes: budget.remainingBytes }
+    ? {
+        timeoutMs: Math.min(timeoutMs, budget.requestTimeoutMs, 300_000),
+        maxResponseBytes: budget.remainingBytes,
+      }
     : null
 }
 
@@ -1303,7 +1318,16 @@ function readOptions(context, options) {
 }
 const MAX_HTTP_READ_TIMEOUT = 300_000
 function recoveryContext(context, options) {
-  return { ...context, ...readOptions(context, options), apiVersion: "2026-03-10" }
+  const limits = readOptions(context, options)
+  return {
+    ...context,
+    ...limits,
+    paginationTimeoutMs: Math.min(
+      context.paginationTimeoutMs,
+      options.timeoutMs ?? context.paginationTimeoutMs,
+    ),
+    apiVersion: "2026-03-10",
+  }
 }
 
 function strictPaginationLinks(header, initialUrl, page, context, total = null) {
