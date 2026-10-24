@@ -40,12 +40,21 @@ export const REPLY_GATE_SHARED_LOCK =
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
 
+/** Creates the growth pool, preserving full verification for legacy SSL-mode aliases. */
 export function createPgExecutor(databaseUrl: string): SqlExecutor {
-  const { hostname } = new URL(databaseUrl)
+  const url = new URL(databaseUrl)
+  const mode = url.searchParams.get("sslmode")
+  const legacyVerification =
+    mode !== null &&
+    ["prefer", "require", "verify-ca"].includes(mode) &&
+    url.searchParams.get("uselibpqcompat") !== "true"
+  // pg currently treats these modes as verify-full; make that policy explicit
+  // before its next major version changes their meaning to libpq semantics.
+  if (legacyVerification) url.searchParams.set("sslmode", "verify-full")
   const pool = new Pool({
-    connectionString: databaseUrl,
+    connectionString: legacyVerification ? url.toString() : databaseUrl,
     max: 3,
-    ...(LOCAL_HOSTS.has(hostname) ? {} : { ssl: { rejectUnauthorized: true } }),
+    ...(LOCAL_HOSTS.has(url.hostname) ? {} : { ssl: { rejectUnauthorized: true } }),
   })
 
   // An idle client that loses its connection emits "error" on the pool; unhandled, that
