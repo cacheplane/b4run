@@ -70,6 +70,15 @@ The three route surfaces bundle without third-party runtime dependencies or Node
 
 The route-module subpath exposes only its published normalization and route-module contracts.
 
+### `@b4run/langgraph/ui`
+
+| Export | Responsibility |
+|---|---|
+| `emitToolStep` | Dispatch a normalized v1 `b4.step` custom event. |
+| `toolStepMiddleware` | Wrap tool execution and persist its settled step. |
+| `ToolStepDisplay` | Describe optional labels, icon and sources. |
+| `ToolStepMiddlewareOptions` | Map tool names to display callbacks. |
+
 ## Key contracts
 
 ```ts api-contract="@b4run/langgraph#./define-entry:defineEntry"
@@ -140,6 +149,48 @@ export declare function assertExactlyOneEntry<TEntry>(
 ): asserts module is RouteModule<TEntry>
 ```
 
+### Tool activity contracts
+
+```ts api-contract="@b4run/langgraph#./ui:emitToolStep"
+export declare function emitToolStep(config: RunnableConfig | undefined, step: B4ToolStep & {
+  readonly toolCallId: string;
+}): Promise<void>;
+```
+
+```ts api-contract="@b4run/langgraph#./ui:toolStepMiddleware"
+export declare function toolStepMiddleware(options?: ToolStepMiddlewareOptions): AgentMiddleware;
+```
+
+```ts api-contract="@b4run/langgraph#./ui:ToolStepDisplay"
+export interface ToolStepDisplay {
+  readonly icon?: string;
+  readonly running?: (args: Readonly<Record<string, unknown>>) => string;
+  readonly done?: (args: Readonly<Record<string, unknown>>, message: ToolMessage) => string;
+  readonly failed?: (args: Readonly<Record<string, unknown>>, errorText: string) => string;
+  readonly sources?: (message: ToolMessage) => readonly B4StepSource[];
+}
+```
+
+**Fields: `@b4run/langgraph#./ui:ToolStepDisplay`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly icon` | `string` | no | Open icon name interpreted by the client. |
+| `readonly running` | `(args: Readonly<Record<string, unknown>>) => string` | no | Label immediately before execution. |
+| `readonly done` | `(args: Readonly<Record<string, unknown>>, message: ToolMessage) => string` | no | Success label from the actual matching ToolMessage. |
+| `readonly failed` | `(args: Readonly<Record<string, unknown>>, errorText: string) => string` | no | Failure label from readable error text. |
+| `readonly sources` | `(message: ToolMessage) => readonly B4StepSource[]` | no | Stable source identities from the actual matching ToolMessage. |
+
+```ts api-contract="@b4run/langgraph#./ui:ToolStepMiddlewareOptions"
+export interface ToolStepMiddlewareOptions {
+  readonly display?: Readonly<Record<string, ToolStepDisplay>>;
+}
+```
+
+**Fields: `@b4run/langgraph#./ui:ToolStepMiddlewareOptions`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `readonly display` | `Readonly<Record<string, ToolStepDisplay>>` | no | Display behavior keyed by tool name; omitted tools emit bare server steps. |
+
 ### Behavior contracts
 
 #### Behavior contract `langgraph.entry.exclusive`
@@ -188,55 +239,6 @@ peers only when importing `/ui`:
 ```bash
 npm install @b4run/langgraph @langchain/core@1.2.12 langchain@1.5.12 @langchain/langgraph@1.4.17
 ```
-
-### `@b4run/langgraph/ui`
-
-| Export | Responsibility |
-|---|---|
-| `emitToolStep` | Dispatch a normalized v1 `b4.step` custom event. |
-| `toolStepMiddleware` | Wrap tool execution and persist its settled step. |
-| `ToolStepDisplay` | Describe optional labels, icon and sources. |
-| `ToolStepMiddlewareOptions` | Map tool names to display callbacks. |
-
-```ts api-contract="@b4run/langgraph#./ui:emitToolStep"
-export declare function emitToolStep(config: RunnableConfig | undefined, step: B4ToolStep & {
-  readonly toolCallId: string;
-}): Promise<void>;
-```
-
-```ts api-contract="@b4run/langgraph#./ui:toolStepMiddleware"
-export declare function toolStepMiddleware(options?: ToolStepMiddlewareOptions): AgentMiddleware;
-```
-
-```ts api-contract="@b4run/langgraph#./ui:ToolStepDisplay"
-export interface ToolStepDisplay {
-  readonly icon?: string;
-  readonly running?: (args: Readonly<Record<string, unknown>>) => string;
-  readonly done?: (args: Readonly<Record<string, unknown>>, message: ToolMessage) => string;
-  readonly failed?: (args: Readonly<Record<string, unknown>>, errorText: string) => string;
-  readonly sources?: (message: ToolMessage) => readonly B4StepSource[];
-}
-```
-
-**Fields: `@b4run/langgraph#./ui:ToolStepDisplay`**
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `readonly icon` | `string` | no | Open icon name interpreted by the client. |
-| `readonly running` | `(args: Readonly<Record<string, unknown>>) => string` | no | Label immediately before execution. |
-| `readonly done` | `(args: Readonly<Record<string, unknown>>, message: ToolMessage) => string` | no | Success label from the actual matching ToolMessage. |
-| `readonly failed` | `(args: Readonly<Record<string, unknown>>, errorText: string) => string` | no | Failure label from readable error text. |
-| `readonly sources` | `(message: ToolMessage) => readonly B4StepSource[]` | no | Stable source identities from the actual matching ToolMessage. |
-
-```ts api-contract="@b4run/langgraph#./ui:ToolStepMiddlewareOptions"
-export interface ToolStepMiddlewareOptions {
-  readonly display?: Readonly<Record<string, ToolStepDisplay>>;
-}
-```
-
-**Fields: `@b4run/langgraph#./ui:ToolStepMiddlewareOptions`**
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `readonly display` | `Readonly<Record<string, ToolStepDisplay>>` | no | Display behavior keyed by tool name; omitted tools emit bare server steps. |
 
 ### Plain agent and manual node
 
