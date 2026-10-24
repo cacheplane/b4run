@@ -229,7 +229,7 @@ console.log(normalized.kind) // workflow
 Continue with [Routes](/docs/routes), [SDK API](/docs/api/sdk), and [CLI API](/docs/api/cli).
 
 
-## Plain LangGraph tool activity
+### Plain LangGraph tool activity
 
 `@b4run/langgraph/ui` is a Node server producer API for plain LangChain/LangGraph.
 It needs no B4 agent, CLI, filesystem route or B4 runtime. The root and route entry
@@ -240,7 +240,7 @@ peers only when importing `/ui`:
 npm install @b4run/langgraph @langchain/core@1.2.12 langchain@1.5.12 @langchain/langgraph@1.4.17
 ```
 
-### Plain agent and manual node
+#### Plain agent and manual node
 
 Supply your application's model instance (for example, configured for `gpt-5-mini`)
 and approval middleware. Wrappers run in array order, outermost first: put the
@@ -314,7 +314,7 @@ The helper does not replace callback managers or change their global settings.
 Outside a streamed runnable, or without a listener, there is no live event.
 It never emits standard START/ARGS/END/RESULT frames: the AG-UI bridge owns them.
 
-### Python producer and checkpoint restore
+#### Python producer and checkpoint restore
 
 There is no B4 Python package to install. The source recipe
 [`python_tool_steps.py`](https://github.com/cacheplane/b4run/blob/main/packages/langgraph/examples/python_tool_steps.py)
