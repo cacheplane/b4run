@@ -1,5 +1,14 @@
 # @b4run/devkit
 
+## 0.15.2
+
+### Patch Changes
+
+- 877b58f: Require patched Zod 4 releases in package, scaffold and example dependencies.
+  Refresh body-parser and Undici resolutions and constrain private integration
+  paths to patched Zod and MSAL versions, with downstream schema, authentication
+  and CopilotKit compatibility coverage.
+
 ## 0.15.1
 
 ## 0.15.0
