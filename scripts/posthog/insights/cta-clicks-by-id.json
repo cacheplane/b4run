@@ -1,10 +1,14 @@
 {
   "slug": "cta-clicks-by-id",
-  "posthog_id": null,
+  "posthog_id": 13246714,
   "kind": "trends",
   "name": "CTA clicks by id",
   "description": "Clicks on calls to action across the site. A click is intent, not a signup or an install.",
-  "events": [{ "event": "site:cta_click" }],
+  "events": [
+    {
+      "event": "site:cta_click"
+    }
+  ],
   "breakdown": "cta_id",
   "interval": "day",
   "date_from": "-30d"

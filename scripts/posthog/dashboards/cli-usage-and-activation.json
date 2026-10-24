@@ -1,13 +1,23 @@
 {
   "slug": "cli-usage-and-activation",
-  "posthog_id": null,
+  "posthog_id": 2254717,
   "name": "Growth · CLI usage and activation",
   "description": "Event counts for the b4 CLI. An anonymous id is one machine, not one person. A reporting command run in CI, under DO_NOT_TRACK, or with the opt-out set is invisible. cli:dev_first_run_completed is the activation signal and fires once per b4 dev process.",
-  "tags": ["growth"],
+  "tags": [
+    "growth"
+  ],
   "tiles": [
-    { "insight": "cli-commands-by-command" },
-    { "insight": "cli-outcomes-by-outcome" },
-    { "insight": "cli-dev-first-runs-by-route-kind" },
-    { "insight": "cli-versions" }
+    {
+      "insight": "cli-commands-by-command"
+    },
+    {
+      "insight": "cli-outcomes-by-outcome"
+    },
+    {
+      "insight": "cli-dev-first-runs-by-route-kind"
+    },
+    {
+      "insight": "cli-versions"
+    }
   ]
 }
