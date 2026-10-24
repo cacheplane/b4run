@@ -1,5 +1,14 @@
 # @b4-example/code-fixer-server
 
+## 0.0.16
+
+### Patch Changes
+
+- @b4run/cli@0.15.1
+- @b4run/sandbox@0.15.1
+- @b4run/sdk@0.15.1
+- @b4run/workspace@0.15.1
+
 ## 0.0.15
 
 ### Patch Changes

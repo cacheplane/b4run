@@ -1,5 +1,13 @@
 # @b4run/inspector
 
+## 0.15.1
+
+### Patch Changes
+
+- Updated dependencies [d5b7efd]
+  - @b4run/core@0.15.1
+  - @b4run/memory@0.15.1
+
 ## 0.15.0
 
 ### Patch Changes

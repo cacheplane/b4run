@@ -1,5 +1,12 @@
 # @b4run/ag-ui
 
+## 0.15.1
+
+### Patch Changes
+
+- d5b7efd: Emit and persist versioned tool steps with epoch timestamps, stable source ids, and explicit failures. Start execution updates only after permission and argument gates allow the tool body. Carry final steps in AG-UI result metadata, restore v1 and legacy steps with producer timing, and exclude provider tool results from inbound conversation.
+  - @b4run/sdk@0.15.1
+
 ## 0.15.0
 
 ### Patch Changes
