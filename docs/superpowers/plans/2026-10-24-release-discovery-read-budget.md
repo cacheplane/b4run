@@ -32,11 +32,11 @@ overlapping invocation or publisher rerun is authorized by this repair.
   `scripts/release/adapters/github.mjs`; preserve the per-request timeout cap.
 - [x] Configure the production CLI reader in `scripts/release/cli.mjs` and test
   its factory boundary in `scripts/release/test/observe-production.test.mjs`.
-- [ ] Run the focused adapter/production/controller tests and required integrity
+- [x] Run the focused adapter/production/controller tests and required integrity
   checks. Update content pins and the digest snapshot in the same commit.
-- [ ] Run a complete read-only production discovery with the fix, retaining
+- [x] Run a complete read-only production discovery with the fix, retaining
   actual output and timing before any further reconciliation.
-- [ ] Independently review the exact change; create a PR and pass exact-head CI,
+- [x] Independently review the exact change; create a PR and pass exact-head CI,
   then merge without changing the frozen package candidate.
-- [ ] Follow the ordinary supported controller, verify the immutable release,
+- [x] Follow the ordinary supported controller, verify the immutable release,
   all package bytes/signatures/smokes/audit and charts, then save final evidence.
