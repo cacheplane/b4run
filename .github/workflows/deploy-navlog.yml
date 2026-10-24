@@ -109,7 +109,7 @@ jobs:
       - name: Probe the live server
         run: |
           for attempt in 1 2 3 4 5 6; do
-            if curl --fail --silent --show-error --max-time 10 https://navlog-server-production.up.railway.app/healthz; then
+            if curl --fail --silent --show-error --max-time 10 https://b4-navlog-server.up.railway.app/healthz; then
               echo
               exit 0
             fi
