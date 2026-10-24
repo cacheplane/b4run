@@ -55,7 +55,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.contracts.json && tsc -p tsconfig.test.json"
   },
   "peerDependencies": {
-    "zod": "^4.0.0"
+    "zod": "^4.6.6"
   },
   "peerDependenciesMeta": {
     "zod": {
@@ -65,6 +65,6 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   }
 }

@@ -12,6 +12,6 @@
     "@b4run/langchain": "*",
     "@b4run/sandbox": "*",
     "@b4run/sdk": "*",
-    "zod": "^4.0.0"
+    "zod": "^4.6.6"
   }
 }

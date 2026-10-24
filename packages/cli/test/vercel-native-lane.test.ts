@@ -415,7 +415,7 @@ async function makeModelFreeNativeFixture(
       "@neondatabase/serverless": "1.1.0",
       hono: "4.12.28",
       pg: "8.22.0",
-      zod: "4.4.3",
+      zod: "4.6.6",
     },
   }
   const fixtureFiles = {
@@ -1186,7 +1186,7 @@ describe("fixture package closure", () => {
         "@neondatabase/serverless": "1.1.0",
         hono: "4.12.28",
         pg: "8.22.0",
-        zod: "4.4.3",
+        zod: "4.6.6",
       },
     })
     expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()

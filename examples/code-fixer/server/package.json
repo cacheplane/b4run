@@ -20,7 +20,7 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "diff": "9.0.0"
   },
   "devDependencies": {

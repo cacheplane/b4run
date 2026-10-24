@@ -16,7 +16,7 @@
     "@b4run/core": "workspace:*",
     "@b4run/langchain": "workspace:*",
     "@b4run/sdk": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",

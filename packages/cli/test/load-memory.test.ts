@@ -24,7 +24,7 @@ async function makeRouteDir(): Promise<string> {
 
   // Symlink zod so the memory.ts file can import from @b4run/sdk's re-exports.
   await symlink(
-    join(repoRoot, "node_modules", ".pnpm", "zod@4.4.3", "node_modules", "zod"),
+    join(repoRoot, "node_modules", ".pnpm", "zod@4.6.6", "node_modules", "zod"),
     join(root, "node_modules", "zod"),
     "dir",
   )

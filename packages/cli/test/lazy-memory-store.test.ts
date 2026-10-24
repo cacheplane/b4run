@@ -71,7 +71,7 @@ async function memoryAgentFixtureApp(): Promise<string> {
   // load-memory.test.ts does for loadRouteMemory's own fixtures.
   await mkdir(join(appRoot, "node_modules"), { recursive: true })
   await symlink(
-    join(repoRoot, "node_modules", ".pnpm", "zod@4.4.3", "node_modules", "zod"),
+    join(repoRoot, "node_modules", ".pnpm", "zod@4.6.6", "node_modules", "zod"),
     join(appRoot, "node_modules", "zod"),
     "dir",
   )

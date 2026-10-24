@@ -21,7 +21,7 @@
     "@b4run/memory-pgvector": "{{b4MemoryPgvectorSpecifier}}",
     "@b4run/sdk": "{{b4SdkSpecifier}}",
     "@b4run/workspace": "{{b4WorkspaceSpecifier}}",
-    "zod": "^4.0.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@b4run/config-typescript": "{{b4ConfigTypescriptSpecifier}}",
