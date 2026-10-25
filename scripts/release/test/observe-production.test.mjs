@@ -34,6 +34,12 @@ import {
 import { canonicalTerminalRecordBytes } from "../terminal-record-store.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { auditExecutorFixture } from "./support/audit-executor-fixture.mjs"
+import {
+  TAGGED_COMMIT,
+  TAGGED_OBJECT,
+  TAGGED_VERSION,
+  tagged0153Record,
+} from "./support/tagged-0153-record-fixture.mjs"
 import { record as terminalRecordFixture } from "./support/terminal-record-fixture.mjs"
 
 const VERSION = "0.8.22"
@@ -6493,4 +6499,122 @@ test("inventory reuse includes terminal callbacks while external evidence remain
     },
     { git, github: githubReader(), npm: npmReader(), attestations: attestationVerifier([]) },
   )
+})
+
+function taggedObservationFixture(overrides = {}) {
+  const remap = (value) =>
+    JSON.parse(
+      JSON.stringify(value)
+        .replaceAll(COMMIT_SHA, TAGGED_COMMIT)
+        .replaceAll(TAG_SHA, TAGGED_OBJECT)
+        .replaceAll(VERSION, TAGGED_VERSION),
+    )
+  const github = Object.fromEntries(
+    Object.entries(githubReader()).map(([name, method]) => [
+      name,
+      async (...args) => remap(await method(...args)),
+    ]),
+  )
+  return {
+    terminalRecordRef: "HEAD",
+    candidate: { ...candidate(), version: TAGGED_VERSION, commitSha: TAGGED_COMMIT },
+    inventory: remap(inventory()),
+    marker: MARKER,
+    git: {
+      ...gitReader(),
+      resolveTag: async () => TAGGED_COMMIT,
+      listTree: async () => "scripts/release/terminal-records/v0.15.3.json\n",
+      showFile: async () => canonicalTerminalRecordBytes(tagged0153Record()).toString("utf8"),
+    },
+    github: { ...github, ...overrides },
+    npm: npmReader(),
+  }
+}
+
+test("production observation treats the exact git-only record as terminal with no Release", async () => {
+  const f = taggedObservationFixture()
+
+  const { observation, diagnostics } = await observeProductionCandidate(f)
+  const plan = planRelease({ candidate: f.candidate, observation, mode: "controller" })
+
+  assert.deepEqual(diagnostics, [])
+  assert.equal(plan.state, "ABANDONED_PREPUBLICATION")
+  assert.equal(plan.disposition, "noop")
+})
+
+test("production observation rejects a changed annotated tag object for the git-only record", async () => {
+  const f = taggedObservationFixture({
+    listTagRefs: async () =>
+      present("tag-refs", [
+        { ref: "refs/tags/v0.15.3", object: { type: "tag", sha: "9".repeat(40) } },
+      ]),
+  })
+
+  const { observation, diagnostics } = await observeProductionCandidate(f)
+  const plan = planRelease({ candidate: f.candidate, observation, mode: "controller" })
+
+  assert.equal(plan.disposition, "blocked")
+  assert.ok(diagnostics.some((entry) => entry.code === "TERMINAL_RECORD_TAG_MISMATCH"))
+})
+
+test("production observation blocks any visible Release for a git-only record", async () => {
+  const f = taggedObservationFixture({
+    listReleases: async () =>
+      present("releases", [
+        { id: 100, tag_name: "v0.15.3", name: "unmanaged title", draft: true, immutable: false },
+      ]),
+  })
+
+  const { observation, diagnostics } = await observeProductionCandidate(f)
+  const plan = planRelease({ candidate: f.candidate, observation, mode: "controller" })
+
+  assert.equal(plan.disposition, "blocked")
+  assert.ok(diagnostics.some((entry) => entry.code === "TERMINAL_RECORD_RELEASE_MISMATCH"))
+})
+
+test("the exact 0.15.3 candidate is held before actionable resolution for push, schedule and dispatch", async () => {
+  const events = [
+    { ref: "refs/heads/main", after: TAGGED_COMMIT },
+    { schedule: "17 7 * * *" },
+    { inputs: { version: TAGGED_VERSION, commitSha: TAGGED_COMMIT } },
+  ]
+  for (const event of events) {
+    const f = taggedObservationFixture()
+    const selected = {
+      candidate: f.candidate,
+      state: "CANDIDATE_TAGGED",
+      disposition: "selected",
+      tag: "v0.15.3",
+      conflicts: [],
+    }
+    const discovery = {
+      discoverManagedCandidate: async () => selected,
+      discoverScheduledCandidate: async () => selected,
+    }
+
+    const result = await resolveProductionCandidate({
+      ...f,
+      event,
+      inventory: { read: async () => f.inventory },
+      git: { ...f.git, listTree: async () => "" },
+      discovery,
+    })
+
+    assert.equal(result.disposition, "blocked")
+    assert.equal(result.state, "CANDIDATE_TAGGED")
+    assert.deepEqual(result.conflicts, ["tagged-0153-recovery-pending"])
+  }
+})
+
+test("direct observation cannot prepare the held incident without its committed git-only record", async () => {
+  const f = taggedObservationFixture()
+
+  const { observation, diagnostics } = await observeProductionCandidate({
+    ...f,
+    git: { ...f.git, listTree: async () => "" },
+  })
+  const plan = planRelease({ candidate: f.candidate, observation, mode: "controller" })
+
+  assert.equal(plan.disposition, "blocked")
+  assert.ok(diagnostics.some((entry) => entry.code === "TAGGED_0153_RECOVERY_PENDING"))
 })

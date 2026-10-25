@@ -9,6 +9,7 @@ import {
   readTerminalRecord,
   terminalRecordPath,
 } from "../terminal-record-store.mjs"
+import { tagged0153Record } from "./support/tagged-0153-record-fixture.mjs"
 import {
   attestationSet,
   COMMIT_SHA,
@@ -407,5 +408,105 @@ test("readTerminalRecord rejects a record filed under another version's path", a
   await assert.rejects(
     readTerminalRecord({ git, ref: "HEAD", version: "0.8.23" }),
     /names another version/u,
+  )
+})
+
+test("accepts only the incident-pinned tag-only schema-2 record", () => {
+  const value = tagged0153Record()
+
+  const parsed = parseOperatorRecoveryRecord(canonicalTerminalRecordBytes(value))
+
+  assert.equal(parsed.schemaVersion, 2)
+  assert.equal(parsed.predecessor.state, "CANDIDATE_TAGGED")
+  assert.equal(parsed.predecessor.marker, null)
+  assert.ok(Object.isFrozen(parsed.evidence.npm.observations))
+  for (const changed of [
+    { version: "0.15.4", tag: { ...value.tag, name: "v0.15.4" } },
+    { commitSha: "9".repeat(40), tag: { ...value.tag, commitSha: "9".repeat(40) } },
+    { tag: { ...value.tag, objectSha: "9".repeat(40) } },
+    { schemaVersion: 3 },
+  ])
+    assert.throws(() =>
+      parseOperatorRecoveryRecord(canonicalTerminalRecordBytes({ ...value, ...changed })),
+    )
+})
+
+test("tag-only records reject escrow, duplicate-recovery, publication and malformed absence evidence", () => {
+  const value = tagged0153Record()
+  const cases = [
+    { predecessor: { ...value.predecessor, releaseId: 1 } },
+    { predecessor: { ...value.predecessor, releaseStatus: "draft" } },
+    { predecessor: { ...value.predecessor, marker: {} } },
+    { predecessor: { ...value.predecessor, artifact: {} } },
+    { predecessor: { ...value.predecessor, state: "CANDIDATE_ESCROWED" } },
+    { evidence: { ...value.evidence, escrowAssets: [{}] } },
+    { evidence: { ...value.evidence, duplicateRecovery: {} } },
+    {
+      evidence: {
+        ...value.evidence,
+        releaseRuns: [{ ...value.evidence.releaseRuns[0], publishJobStarted: true }],
+      },
+    },
+    { evidence: { ...value.evidence, releaseRuns: [] } },
+    {
+      evidence: {
+        ...value.evidence,
+        npm: {
+          observations: value.evidence.npm.observations.map((o) => ({
+            ...o,
+            packages: o.packages.slice(1),
+          })),
+        },
+      },
+    },
+    {
+      evidence: {
+        ...value.evidence,
+        npm: {
+          observations: [
+            value.evidence.npm.observations[0],
+            { ...value.evidence.npm.observations[1], observedAt: "2026-10-25T16:00:30.000Z" },
+          ],
+        },
+      },
+    },
+  ]
+
+  for (const changed of cases) {
+    assert.throws(() =>
+      parseOperatorRecoveryRecord(canonicalTerminalRecordBytes({ ...value, ...changed })),
+    )
+  }
+})
+
+test("git-only records require every run attempt in canonical order and retain the fifteen-minute capture bound", () => {
+  const value = tagged0153Record()
+  const run = value.evidence.releaseRuns[0]
+  for (const releaseRuns of [
+    [{ ...run, runAttempt: 2 }],
+    [run, { ...run, runAttempt: 3 }],
+    [{ ...run, workflowRunId: run.workflowRunId + 1 }, run],
+  ]) {
+    assert.throws(
+      () =>
+        parseOperatorRecoveryRecord(
+          canonicalTerminalRecordBytes({ ...value, evidence: { ...value.evidence, releaseRuns } }),
+        ),
+      /attempts/iu,
+    )
+  }
+  assert.throws(
+    () =>
+      parseOperatorRecoveryRecord(
+        canonicalTerminalRecordBytes({
+          ...value,
+          authority: { ...value.authority, capturedAt: "2026-10-25T16:20:00.000Z" },
+        }),
+      ),
+    /fifteen/iu,
+  )
+  assert.throws(
+    () => parseOperatorRecoveryRecord(canonicalTerminalRecordBytes({ ...value, schemaVersion: 1 })),
+    /predecessor/iu,
   )
 })

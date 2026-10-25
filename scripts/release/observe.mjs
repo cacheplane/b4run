@@ -47,7 +47,7 @@ import {
   REQUIRED_RELEASE_SMOKE_LANES,
 } from "./smoke-result.mjs"
 import { ReleaseState } from "./state.mjs"
-import { readTerminalRecord } from "./terminal-record-store.mjs"
+import { readTerminalRecord, TAGGED_0153_RECOVERY } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -318,6 +318,20 @@ export async function resolveProductionCandidate({
       normalized.candidate?.commitSha !== invocation.ref)
   ) {
     throw new Error("Production dispatch inputs do not match the discovered candidate")
+  }
+  if (isTagged0153Candidate(normalized.candidate)) {
+    const record = await readTerminalRecord({
+      git,
+      ref: terminalRecordRef,
+      version: TAGGED_0153_RECOVERY.version,
+    })
+    if (record?.schemaVersion !== 2) {
+      return deepFreeze({
+        ...normalized,
+        disposition: "blocked",
+        conflicts: [...new Set([...normalized.conflicts, "tagged-0153-recovery-pending"])],
+      })
+    }
   }
   // Only the built-in global discovery has already independently routed this
   // selected recovery candidate. Exact fallbacks and injected discovery still route.
@@ -592,6 +606,17 @@ export async function observeProductionCandidate({
       error instanceof TypeError ? "TERMINAL_RECORD_INVALID" : "TERMINAL_RECORD_UNREADABLE",
     )
   }
+  if (isTagged0153Candidate(identity) && committedTerminalRecord?.schemaVersion !== 2) {
+    committedTerminalRecord = null
+    terminalRecordUnusable = true
+    addDiagnostic(
+      diagnostics,
+      "git",
+      "terminal-record",
+      "AMBIGUOUS",
+      "TAGGED_0153_RECOVERY_PENDING",
+    )
+  }
   let smokeAdjudication = null
   try {
     smokeAdjudication = await readSmokeAdjudication({
@@ -680,6 +705,42 @@ export async function observeProductionCandidate({
       ),
     ])
 
+  if (committedTerminalRecord?.schemaVersion === 2) {
+    const refs =
+      tagRefsResult.status === "PRESENT" && Array.isArray(tagRefsResult.value)
+        ? tagRefsResult.value.filter(
+            (ref) => ref?.ref === `refs/tags/${committedTerminalRecord.tag.name}`,
+          )
+        : []
+    if (
+      refs.length !== 1 ||
+      refs[0].object?.type !== "tag" ||
+      refs[0].object?.sha !== committedTerminalRecord.tag.objectSha
+    ) {
+      terminalRecordMismatch = true
+      addDiagnostic(
+        diagnostics,
+        "github",
+        "terminal-record",
+        "AMBIGUOUS",
+        "TERMINAL_RECORD_TAG_MISMATCH",
+      )
+    }
+    if (
+      releasesResult.status !== "PRESENT" ||
+      !Array.isArray(releasesResult.value) ||
+      releasesResult.value.some((release) => release?.tag_name === committedTerminalRecord.tag.name)
+    ) {
+      terminalRecordMismatch = true
+      addDiagnostic(
+        diagnostics,
+        "github",
+        "terminal-record",
+        "AMBIGUOUS",
+        "TERMINAL_RECORD_RELEASE_MISMATCH",
+      )
+    }
+  }
   const latestCi = mapCi(ciResult, ciWorkflowResult, identity, diagnostics)
   const preparedArtifactState = await mapProductionArtifacts({
     result: artifactResult,
@@ -2713,6 +2774,13 @@ function assertTerminalRecordRef(value) {
 }
 
 /** The record must name exactly this candidate: version, commit, and its own self-consistent tag. */
+function isTagged0153Candidate(candidate) {
+  return (
+    candidate?.version === TAGGED_0153_RECOVERY.version &&
+    candidate?.commitSha === TAGGED_0153_RECOVERY.commitSha
+  )
+}
+
 function terminalRecordBindsCandidate(record, identity) {
   return (
     record.version === identity.version &&
@@ -2730,6 +2798,7 @@ function terminalRecordBindsCandidate(record, identity) {
  * The numeric Release ID is not part of the observation; the apply command verifies it.
  */
 function terminalRecordMatchesRelease(record, release) {
+  if (record.schemaVersion === 2) return release.status === "absent"
   // An already-ambiguous release means GitHub itself was unreadable, not that the draft
   // contradicts the record; that path carries its own AMBIGUOUS diagnostic, so the committed
   // record still stands alone here rather than being reported as a mismatch.

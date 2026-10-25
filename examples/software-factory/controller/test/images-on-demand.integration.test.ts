@@ -9,6 +9,8 @@ import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import {
   configureCatalog,
   environmentIdentity,
+  ImageSchema,
+  idTagFor,
   loadTargetRecipe,
   resetCatalogForTests,
 } from "../src/lib/targets/catalog.ts"
@@ -27,8 +29,9 @@ import { TEST_WORKER_TOKEN } from "./worker-token-fixture.ts"
 /**
  * An image built when a work order first needs it, against the real daemon: an intake at a
  * devkit pin this controller's registry has never built builds it at the fit step and binds
- * it, and the identity it records is the one `target:prepare` records for the same recipe in
- * a registry of its own (Docker's build cache makes an identical rebuild the same image).
+ * it. An independent `target:prepare` build must have the same recipe and runtime contents;
+ * each build retains its own immutable image and environment identity. BuildKit attestations
+ * can change the OCI index id even when the runtime image is cached.
  * The drafter, the builder and the verifier are fakes: the build is what is under test.
  *
  * Requires Docker. Runs only under `test:sandbox`.
@@ -93,7 +96,7 @@ afterAll(async () => {
 })
 
 describe("an image built when a work order first needs it", () => {
-  it("intake at an unprepared devkit pin builds it at the fit step, and the identity equals the script's", async () => {
+  it("intake builds an unprepared pin and retains its image after independent script preparation", async () => {
     const recipe = loadTargetRecipe("devkit", { pin: SECOND_PIN })
     expect(images.recorded(recipe)).toBeUndefined()
     const { id } = await factory.createFromIssue({
@@ -126,14 +129,48 @@ describe("an image built when a work order first needs it", () => {
     ).trim()
     expect(onDaemon).toBe(bound.image.localId)
 
-    // The script, on a registry of its own, records the same image for the same recipe.
+    // The script uses an independent registry. Provenance can give a cached rebuild a new
+    // OCI index id, so compare runtime contents and retain both immutable build identities.
     const script = prepareDevkitSecondPin()
     try {
-      expect(script.printed.key).toBe(bound.key)
-      expect(script.printed.localId).toBe(bound.image.localId)
-      expect(script.printed.identity).toBe(
-        environmentIdentity({ image: bound.image, pin: SECOND_PIN }),
-      )
+      const { key, tag, pin, built, identity, ...scriptImageInputs } = script.printed
+      const scriptImage = ImageSchema.parse(scriptImageInputs)
+      const { localId: boundLocalId, ...recipeInputs } = bound.image
+      expect({ key, tag, pin, built }).toEqual({
+        key: bound.key,
+        tag: bound.tag,
+        pin: SECOND_PIN,
+        built: true,
+      })
+      expect(scriptImage).toMatchObject(recipeInputs)
+      expect(identity).toBe(environmentIdentity({ image: scriptImage, pin: SECOND_PIN }))
+      const runtimeContents = (localId: string) => {
+        const [image] = JSON.parse(
+          execFileSync("docker", ["image", "inspect", localId], { encoding: "utf8" }),
+        )
+        return {
+          config: image.Config,
+          rootfs: image.RootFS,
+          os: image.Os,
+          architecture: image.Architecture,
+          variant: image.Variant ?? null,
+        }
+      }
+      expect(runtimeContents(scriptImage.localId)).toEqual(runtimeContents(boundLocalId))
+      expect(
+        execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", bound.tag], {
+          encoding: "utf8",
+        }).trim(),
+      ).toBe(scriptImage.localId)
+      expect(images.recorded(recipe)?.image).toEqual(bound.image)
+      for (const localId of [boundLocalId, scriptImage.localId]) {
+        const immutableTag = idTagFor("devkit", SECOND_PIN, bound.key, localId)
+        expect(
+          execFileSync("docker", ["image", "inspect", "--format", "{{.Id}}", immutableTag], {
+            encoding: "utf8",
+          }).trim(),
+        ).toBe(localId)
+      }
     } finally {
       script.cleanup()
     }

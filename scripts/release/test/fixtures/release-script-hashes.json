@@ -26,7 +26,7 @@
       "sha256": "88cabf205ab7dc3ae7a604258256be3d7c5c14f3e3da6e94e672ada396d1704c"
     },
     "scripts/release/abandonment.mjs": {
-      "sha256": "42bbcc540e602e495091caa8d3b1d3461f47fa4400db24eabed1c4fdb2e762d8"
+      "sha256": "2f5b1375536622a21a750fdd2e906a840f1bf7bb8df28ba895e73d6b490f00d1"
     },
     "scripts/release/adapter-normalize.mjs": {
       "sha256": "5a6cde2b3487302ed3ebee749019e36e06d3bb382e14d0022046551a420b1671"
@@ -65,7 +65,7 @@
       "sha256": "29c5d3cb5f9981a5f15bbbbd14ca816ecc2a1f40a26e56cfdaa702ae6b4e35cc"
     },
     "scripts/release/candidate.mjs": {
-      "sha256": "143a3e535fa07f8da74a66ae624661422add8c9974dc0b46603762d4b86ed815"
+      "sha256": "663eff10b89caf05f730de721f0c7ce64c28ee784bdb51b5346567ee34ad1037"
     },
     "scripts/release/cli.mjs": {
       "sha256": "ec29fc314b01b372a7b9edb4f41f389658bb3ffdd5a9626905ee7af01b9c7a6e"
@@ -116,7 +116,7 @@
       "sha256": "af7d96c07b54fed86de038f7fb51d910577227910f819bce64253ca752f24efb"
     },
     "scripts/release/observe.mjs": {
-      "sha256": "3e3fa7683731dcb6302969314da308140e4e531a515d08339b0f7e3f42f86aa6"
+      "sha256": "6ca62582350ffbba62b8d3cb9af552470334a9c6a12b731921976415f0026591"
     },
     "scripts/release/planner.mjs": {
       "sha256": "2e09281ff952da69e985de7802307b849b76525e838e4cab49516a3d05793433"
@@ -260,7 +260,7 @@
       "sha256": "b03fa68167e7297458ca19a26b9deeaebea04bb90b0566e461896e8b645c0e15"
     },
     "scripts/release/terminal-record-store.mjs": {
-      "sha256": "8315d7b5b2a4590ad0afe75eb8140fe59a48d201f97bb3be590d04d10b8760c6"
+      "sha256": "d66e92eedb5b061c7d59c05014a98809c6da49acc1ad3bdbc35b085cc2471c55"
     },
     "scripts/release/terminal-records.mjs": {
       "sha256": "17151da8acf77431decd76ea3b78af41243b7e5a92cb572427c8aa8196af61d1"

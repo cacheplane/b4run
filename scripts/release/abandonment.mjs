@@ -104,6 +104,8 @@ export async function evaluateAbandonment(input) {
 
 export function canonicalAbandonmentBytes(value) {
   const source = snapshotJson(value)
+  if (source?.schemaVersion === 2)
+    throw new TypeError("Schema-2 terminal records are git-only, never Release tombstones")
   if (!isRecord(source)) {
     throw new TypeError("Canonical abandonment input is invalid")
   }
@@ -1066,6 +1068,8 @@ function parseCanonicalAbandonmentBytes(bytes) {
  */
 export function parseAnyAbandonmentRecord(value) {
   const source = snapshotJson(value)
+  if (source?.schemaVersion === 2)
+    throw new TypeError("Schema-2 terminal records are git-only, never Release tombstones")
   if (
     isRecord(source) &&
     isRecord(source.authority) &&

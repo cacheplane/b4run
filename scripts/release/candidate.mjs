@@ -546,6 +546,14 @@ async function inspectManagedReleases({
       return assetReads.get(key)
     },
   }
+  for (const [tag, terminal] of recorded) {
+    if (
+      terminal.schemaVersion === 2 &&
+      records.some((release) => release?.tag_name === tag || isManagedReleaseForTag(release, tag))
+    ) {
+      throw new Error(`A git-only terminal record cannot coexist with a visible Release for ${tag}`)
+    }
+  }
   const routingRecords = records.filter((release) => {
     let tag = release.tag_name
     try {

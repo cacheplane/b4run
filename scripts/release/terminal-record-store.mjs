@@ -9,6 +9,16 @@ export const TERMINAL_RECORD_DIRECTORY = "scripts/release/terminal-records"
 export const MAX_TERMINAL_RECORD_BYTES = 512 * 1024
 export const OPERATOR_RECOVERY_MODE = "operator-recovery"
 
+/** The only tag-only candidate authorized by schema-2 git-resident recovery. */
+export const TAGGED_0153_RECOVERY = Object.freeze({
+  repository: "cacheplane/b4run",
+  repositoryId: 1210070282,
+  version: "0.15.3",
+  commitSha: "2ef24c2453b031e068e99ced4cc57355f49e63d6",
+  tag: "v0.15.3",
+  tagObjectSha: "8221db88b2936394254847bcf220bcacb474cff7",
+})
+
 const RECORD_FIELDS = Object.freeze([
   "schemaVersion",
   "kind",
@@ -106,7 +116,9 @@ export function parseOperatorRecoveryRecord(bytes) {
   }
   const record = snapshotJson(value)
   assertExactFields(record, RECORD_FIELDS, "terminal record")
-  if (record.schemaVersion !== 1) throw new TypeError("Terminal record schemaVersion is invalid")
+  if (record.schemaVersion !== 1 && record.schemaVersion !== 2) {
+    throw new TypeError("Terminal record schemaVersion is invalid")
+  }
   if (record.kind !== "abandoned-prepublication") {
     throw new TypeError("Terminal record kind is invalid")
   }
@@ -123,8 +135,12 @@ export function parseOperatorRecoveryRecord(bytes) {
   if (!isBoundedText(record.reason, MAX_REASON_BYTES)) {
     throw new TypeError("Terminal record reason is invalid")
   }
-  const marker = validatePredecessor(record.predecessor, record)
-  validateEvidence(record.evidence, record, marker)
+  if (record.schemaVersion === 2) {
+    validateTagged0153Record(record)
+  } else {
+    const marker = validatePredecessor(record.predecessor, record)
+    validateEvidence(record.evidence, record, marker)
+  }
   validateAuthority(record.authority)
   const [first, second] = record.evidence.npm.observations
   if (Date.parse(record.authority.capturedAt) < Date.parse(second.observedAt)) {
@@ -166,6 +182,53 @@ export async function readTerminalRecord({ git, ref, version }) {
     throw new TypeError(`Terminal record ${path} names another version`)
   }
   return parsed
+}
+
+function validateTagged0153Record(record) {
+  const policy = TAGGED_0153_RECOVERY
+  if (
+    record.version !== policy.version ||
+    record.commitSha !== policy.commitSha ||
+    record.tag.objectSha !== policy.tagObjectSha
+  ) {
+    throw new TypeError("Tag-only terminal record does not match the pinned 0.15.3 incident")
+  }
+  const predecessor = record.predecessor
+  assertExactFields(predecessor, PREDECESSOR_FIELDS, "tag-only terminal predecessor")
+  if (
+    predecessor.state !== "CANDIDATE_TAGGED" ||
+    predecessor.releaseStatus !== "absent" ||
+    [predecessor.releaseId, predecessor.bodySha256, predecessor.marker, predecessor.artifact].some(
+      (value) => value !== null,
+    )
+  ) {
+    throw new TypeError("Tag-only terminal predecessor must have no Release or escrow")
+  }
+  const evidence = record.evidence
+  assertExactFields(evidence, EVIDENCE_FIELDS, "tag-only terminal evidence")
+  if (
+    !Array.isArray(evidence.escrowAssets) ||
+    evidence.escrowAssets.length !== 0 ||
+    evidence.duplicateRecovery !== null
+  ) {
+    throw new TypeError("Tag-only terminal evidence cannot contain escrow or duplicate recovery")
+  }
+  validateNpmEvidence(evidence.npm, record)
+  validateReleaseRuns(evidence.releaseRuns)
+  let previousRun = 0
+  let previousAttempt = 0
+  for (const run of evidence.releaseRuns) {
+    if (
+      run.workflowRunId < previousRun ||
+      (run.workflowRunId === previousRun
+        ? run.runAttempt !== previousAttempt + 1
+        : run.runAttempt !== 1)
+    ) {
+      throw new TypeError("Tag-only terminal run attempts must be complete and canonical")
+    }
+    previousRun = run.workflowRunId
+    previousAttempt = run.runAttempt
+  }
 }
 
 function validatePredecessor(value, record) {
@@ -241,9 +304,10 @@ function validateEscrowAssets(escrowAssets, marker) {
 function validateNpmEvidence(value, record) {
   // Evidence written before the rename names the original package family, so
   // either canonical 21-package family is accepted here.
-  const expectedPackageNames = matchesFamily(value, PACKAGE_NAMES)
-    ? PACKAGE_NAMES
-    : HISTORICAL_PACKAGE_NAMES
+  const expectedPackageNames =
+    record.schemaVersion === 2 || matchesFamily(value, PACKAGE_NAMES)
+      ? PACKAGE_NAMES
+      : HISTORICAL_PACKAGE_NAMES
   assertExactFields(value, NPM_EVIDENCE_FIELDS, "terminal record npm evidence")
   if (!Array.isArray(value.observations) || value.observations.length !== 2) {
     throw new TypeError("Terminal record npm evidence needs exactly two observations")
