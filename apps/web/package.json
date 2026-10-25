@@ -59,11 +59,11 @@
     "@types/pg": "^8.20.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
-    "@vitest/ui": "^4.1.11",
+    "@vitest/ui": "^4.1.12",
     "jsdom": "^30.0.1",
     "tsx": "^4.23.5",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "zod": "4.6.6"
   }
 }
