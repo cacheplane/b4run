@@ -121,6 +121,41 @@ describe("development and private production dependency owners", () => {
     })
   }
 
+  for (const builder of ["@vercel/node", "@vercel/remix-builder"]) {
+    it(`${builder} preserves route keys and bounds multi-parameter route matching`, async () => {
+      const owner = dependency(cli, "vercel", builder)
+      const compiler = owner("path-to-regexp")
+      const updated = owner("path-to-regexp-updated")
+      const keys: { name: string }[] = []
+      const route = compiler.pathToRegexp("/users/:id/:section?", keys, { sensitive: true })
+      expect(keys.map(({ name }) => name)).toEqual(["id", "section"])
+      expect(route.exec("/users/42/profile")?.slice(1)).toEqual(["42", "profile"])
+      expect(route.exec("/users/42")?.slice(1)).toEqual(["42", undefined])
+      expect(route.test("/USERS/42")).toBe(false)
+      expect(compiler.pathToRegexp("/api", [], { end: false }).test("/api/nested")).toBe(true)
+      expect(compiler.pathToRegexp("/asset/:id(\\d+)").test("/asset/42")).toBe(true)
+      expect(compiler.pathToRegexp("/asset/:id(\\d+)").test("/asset/no")).toBe(false)
+      const repeatedKeys: { name: string }[] = []
+      const repeated = compiler.pathToRegexp("/files/:parts+", repeatedKeys)
+      expect(repeatedKeys.map(({ name }) => name)).toEqual(["parts"])
+      expect(repeated.exec("/files/one/two")?.[1]).toBe("one/two")
+      const script = `
+        const assert = require('node:assert/strict');
+        const { pathToRegexp } = require(process.argv[1]);
+        const route = pathToRegexp('/:a-:b');
+        assert.equal(route.test('/left-right'), true);
+        assert.equal(route.test('/a' + '-a'.repeat(80000) + '/a'), false);
+        console.log('bounded route');`
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        ["--max-old-space-size=128", "-e", script, owner.resolve("path-to-regexp")],
+        { timeout: 5000 },
+      )
+      expect(stdout.trim()).toBe("bounded route")
+      expect(compiler.pathToRegexp("/:a-:b").source).toBe(updated.pathToRegexp("/:a-:b").source)
+    })
+  }
+
   it("the remaining GraphQL fetch owner accepts prototype-named multipart headers safely", async () => {
     const owner = runtime(
       "graphql-yoga",

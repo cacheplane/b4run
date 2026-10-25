@@ -472,7 +472,7 @@ function reviewedMinimumFailures(workspace: ParsedWorkspace): string[] {
     ["axios", { 1: "1.20.0" }],
     ["@fastify/busboy", { 1: "3.2.2", 2: "3.2.2", 3: "3.2.2" }],
     ["minimatch", { 10: "10.2.3" }],
-    ["path-to-regexp", { 8: "8.4.0" }],
+    ["path-to-regexp", { 4: "6.3.0", 5: "6.3.0", 6: "6.3.0", 8: "8.4.0" }],
     ["sharp", { 0: "0.35.5" }],
     ["smol-toml", { 1: "1.7.1" }],
     ["brace-expansion", { 1: "1.1.21", 2: "2.1.7", 3: "3.0.8", 4: "5.0.11", 5: "5.0.11" }],

@@ -175,3 +175,50 @@ while the reviewed graph contains 10.7.5. A local focused run reproduces it.
 Only that exact expected version is synchronized; dependency declarations,
 chain identities, realpaths, module-cache and proxy behavior assertions remain.
 The complete source lane must rerun successfully on the corrected exact head.
+
+## GitHub-only residual high route compiler follow-up
+
+PR #1102 merges at `a61e4c4a7e6820fdf600b41f2e8ed6413a4857a5` after
+all 23 exact-head CI jobs pass. Source verification passes 12,623 tests with
+366 gated/platform skips; all 12 SOCKS regressions pass. The frozen merged-main
+install succeeds and both audit reports retain the hashes above.
+
+The independent GitHub alert refresh auto-closes the other high/moderate
+findings but retains high alert #204,
+[GHSA-9wv6-86v2-598j](https://github.com/advisories/GHSA-9wv6-86v2-598j),
+for `path-to-regexp` 6.1.0 under Vercel Node 5.9.7 and Remix builder 5.9.2.
+The registry audit does not report that identity. Neither a clean registry
+audit nor the builders' existing `path-to-regexp-updated` 6.3.0 alias proves
+remediation: installed builder source compiles with 6.1.0 and returns that
+regex; the patched alias only supplies comparison diagnostics.
+
+A narrow `path-to-regexp@>=6 <6.3.0` → `6.3.0` policy replaces exactly those
+two edges and removes the 6.1.0 package/snapshot, without new package identities
+or unrelated resolution changes. Existing 0.1.13 and 8.4.2 owners stay intact.
+The final follow-up lock SHA-256 is
+`8d1a254eda11f438f0d408f3f9a145b5c33aef413420e5717a7fa81d2ecaeb09`.
+Remove this policy when both upstream builder declarations admit patched 6.x
+and graph/owner regressions pass without it. Reviewed-minimum guards reject
+future affected 4/5 owners rather than silently forcing an untested major jump.
+
+Both real installed builder compilers are tested for optional and repeated
+parameters, key extraction, case sensitivity, prefix matching, ordinary numeric
+capture groups, and the advisory's multi-parameter nonmatch shape. Hostile
+matching runs in disposable child processes with a five-second timeout and
+128 MiB heap bound. Both original 6.1.0 owners exceed that bound; both patched
+owners complete, match the valid control, reject the nonmatch and generate the
+same protected pattern as their existing 6.3.0 alias. Full graph/owner focus
+passes 45 tests, including all 22 owner cases. This does not establish safety
+for arbitrary user-supplied custom regular expressions, which upstream explicitly
+excludes from the 6.3.0 protection.
+
+Fresh full/production audit JSON remains unchanged: zero moderate/high/critical,
+two low full and one low production. These audit results must be combined with
+GitHub's automatic closure of #204 after integration. No alert is dismissed or
+suppressed. Follow-up exact-head CI and main/deployment verification are required
+before this remediation is considered complete.
+
+Follow-up local lint passes 31 tasks. Build-cache validation passes. The first
+build cannot fetch existing Google Fonts under restricted networking; its log
+is retained. The unchanged build rerun with network access passes all 29 tasks,
+and typecheck passes 59 tasks plus root projects. Docs validation passes.
