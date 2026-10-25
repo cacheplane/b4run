@@ -74,3 +74,27 @@ Changes to published runtime dependency declarations require a patch changeset
 under the repository's fixed-group convention. Development-only manifests and
 private example/root resolution policies do not by themselves require a new
 package release; the existing changeset check decides and must remain intact.
+
+## Post-merge GitHub advisory reconciliation
+
+PR #1102 merged as `a61e4c4a7e6820fdf600b41f2e8ed6413a4857a5` after
+all 23 CI jobs passed, including 12,623 source tests. Fresh full/production
+npm audits still show zero moderate-or-higher findings. GitHub independently
+retains high alert #204, GHSA-9wv6-86v2-598j, for path-to-regexp 6.1.0 under
+Vercel Node and Remix builders. Their 6.3.0 alias is diagnostic only: actual
+route compilation returns the current 6.1.0 regular expression. This is a real
+coverage gap in relying on the registry audit alone.
+
+1. Add the reviewed 6.x minimum and real-owner route compiler regressions;
+   observe failures against the existing graph and bounded hostile input.
+2. Add only `path-to-regexp@>=6 <6.3.0` → `6.3.0`, regenerate with minimal
+   lock drift, frozen-install, and compare owner/alias resolutions.
+3. Verify normal route options, key extraction and bounded advisory regression
+   through both installed builder owners; preserve all existing assertions.
+4. Re-run audits, full security tests, lint/build/typecheck and hosted full
+   exact-head CI/native Vercel qualification. Obtain independent review.
+5. Merge the approved exact head, verify main CI/deployment/release observation,
+   and require GitHub to auto-close #204 without suppression or dismissal.
+
+Remove the bounded 6.x policy when both upstream builder declarations admit
+6.3.0 or later and owner/graph regressions pass without the policy.
