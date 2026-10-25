@@ -1,5 +1,20 @@
 # @b4run/cli
 
+## 0.15.3
+
+### Patch Changes
+
+- Updated dependencies [b8abb0f]
+  - @b4run/langgraph@0.15.3
+  - @b4run/ag-ui@0.15.3
+  - @b4run/core@0.15.3
+  - @b4run/langchain@0.15.3
+  - @b4run/memory@0.15.3
+  - @b4run/permissions@0.15.3
+  - @b4run/sdk@0.15.3
+  - @b4run/sqlite-storage@0.15.3
+  - @b4run/workspace@0.15.3
+
 ## 0.15.2
 
 ### Patch Changes

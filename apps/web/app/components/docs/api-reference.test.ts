@@ -96,6 +96,7 @@ const EXPECTED_DETAILED_IMPORTS = [
   ["@b4run/langgraph", "."],
   ["@b4run/langgraph", "./define-entry"],
   ["@b4run/langgraph", "./route-module"],
+  ["@b4run/langgraph", "./ui"],
   ["@b4run/langchain", "."],
   ["@b4run/langchain", "./package.json"],
   ["@b4run/sqlite-storage", "."],
@@ -255,6 +256,10 @@ const EXPECTED_REQUIRED_CONTRACT_KEYS = [
   "@b4run/langgraph#./route-module:WorkflowRouteModule",
   "@b4run/langgraph#./route-module:assertExactlyOneEntry",
   "@b4run/langgraph#./route-module:normalizeRouteModule",
+  "@b4run/langgraph#./ui:emitToolStep",
+  "@b4run/langgraph#./ui:toolStepMiddleware",
+  "@b4run/langgraph#./ui:ToolStepDisplay",
+  "@b4run/langgraph#./ui:ToolStepMiddlewareOptions",
   "@b4run/ag-ui#./sse:agUiContentType",
   "@b4run/ag-ui#./sse:encodeAgUiEvent",
   "@b4run/ag-ui#./client:B4HttpAgent",
@@ -721,7 +726,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(54)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(55)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,
@@ -1090,7 +1095,7 @@ describe("package catalog", { timeout: 30_000 }, () => {
 
   it("registers every authored high-value signature contract exactly once", () => {
     expect(API_REQUIRED_CONTRACT_KEYS).toEqual(EXPECTED_REQUIRED_CONTRACT_KEYS)
-    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(122)
+    expect(API_REQUIRED_CONTRACT_KEYS).toHaveLength(126)
     expect(new Set(API_REQUIRED_CONTRACT_KEYS).size).toBe(API_REQUIRED_CONTRACT_KEYS.length)
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/sdk#.:agent")
     expect(API_REQUIRED_CONTRACT_KEYS).toContain("@b4run/memory#.:MemoryStore")

@@ -1,5 +1,11 @@
 # @b4run/permissions
 
+## 0.15.3
+
+### Patch Changes
+
+- @b4run/sdk@0.15.3
+
 ## 0.15.2
 
 ### Patch Changes

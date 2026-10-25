@@ -1,5 +1,13 @@
 # @b4run/langgraph
 
+## 0.15.3
+
+### Patch Changes
+
+- b8abb0f: Add Node-only `@b4run/langgraph/ui` helpers for live tool-step events and settled
+  ToolMessage checkpoint metadata, with plain LangGraph and Python bridge recipes.
+  - @b4run/sdk@0.15.3
+
 ## 0.15.2
 
 ### Patch Changes

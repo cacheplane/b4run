@@ -1,5 +1,12 @@
 # @dawn-example/research-web
 
+## 0.0.28
+
+### Patch Changes
+
+- @b4run/ag-ui@0.15.3
+- @b4run/sdk@0.15.3
+
 ## 0.0.27
 
 ### Patch Changes
