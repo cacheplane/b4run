@@ -142,8 +142,10 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the forecast-facts demo: readme-contracts.mjs pins its GitHub-hosted copy.
 // Repinned for the patched Zod version used by published consumer probes.
 // Repinned for separate bounded pagination and HTTP request deadlines.
+// Repinned for the incident-pinned 0.15.3 Git-only terminal record and its
+// explicit exclusion from Release tombstone paths; workflow topology is unchanged.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "bce0db827754b6076f5d3747617c846edd6d4a14d88910624dc43db5cd54ad51"
+  "df8e4e5ff2bca98820e34ca2dae75c04f553da303458c39b3763d3f248c141dc"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

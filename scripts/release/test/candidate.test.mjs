@@ -21,6 +21,12 @@ import { canonicalTerminalRecordBytes } from "../terminal-record-store.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
 import { observationForMarker } from "./support/marker-observation.mjs"
 import {
+  TAGGED_COMMIT,
+  TAGGED_OBJECT,
+  TAGGED_VERSION,
+  tagged0153Record,
+} from "./support/tagged-0153-record-fixture.mjs"
+import {
   COMMIT_SHA as RECORD_SHA,
   VERSION as RECORD_VERSION,
   predecessorMarker as terminalPredecessorMarker,
@@ -2776,3 +2782,60 @@ async function detachedRepositoryFixture(t, { newCandidate = false } = {}) {
     }),
   }
 }
+
+function taggedRecoveryFixture(records, releases = []) {
+  const commits = [
+    commit(BASE_SHA, "0.15.2"),
+    commit(CUTOVER_SHA, "0.15.2", { parent: BASE_SHA, marker: true }),
+    commit(TAGGED_COMMIT, TAGGED_VERSION, { parent: CUTOVER_SHA, marker: true }),
+    commit(SHA_24, "0.15.4", { parent: TAGGED_COMMIT, marker: true }),
+  ]
+  const repository = recordedRepository(commits, records)
+  const tags = [
+    { ...tagRef(TAGGED_VERSION, TAGGED_COMMIT), object: { type: "tag", sha: TAGGED_OBJECT } },
+    tagRef("0.15.4", SHA_24),
+  ]
+  return {
+    terminalRecordRef: RECORD_REF,
+    ...repository,
+    github: githubFixture({ tags, releases }),
+    marker: ACTIVE_MARKER,
+  }
+}
+
+test("the pinned git-only 0.15.3 record releases the newer candidate and absence of that record blocks it", async () => {
+  const unrecorded = await discoverScheduledCandidate(taggedRecoveryFixture([]))
+  const recorded = await discoverScheduledCandidate(taggedRecoveryFixture([tagged0153Record()]))
+
+  assert.equal(unrecorded.candidate.version, "0.15.3")
+  assert.equal(recorded.candidate.version, "0.15.4")
+})
+
+test("a git-only record refuses even a visible Release carrying its digest", async () => {
+  const value = tagged0153Record()
+  const marker = abandonmentReleaseMarker({
+    candidate: { version: TAGGED_VERSION, commitSha: TAGGED_COMMIT },
+    artifact: {
+      manifestSha256: null,
+      releaseRecordSha256: null,
+      baseAssetSetSha256: null,
+      attestationSet: null,
+    },
+    abandonmentSha256: sha256(canonicalTerminalRecordBytes(value)),
+    previousMarker: null,
+  })
+  const release = {
+    id: 100,
+    tag_name: "v0.15.3",
+    name: "B4 v0.15.3 (abandoned before publication)",
+    draft: true,
+    immutable: false,
+    assets: [],
+    body: canonicalReleaseBody({ marker, manifest: null }),
+  }
+
+  await assert.rejects(
+    discoverScheduledCandidate(taggedRecoveryFixture([value], [release])),
+    /git-only.*Release/iu,
+  )
+})

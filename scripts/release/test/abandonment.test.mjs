@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-
 import {
   abandonmentRecordTag,
   canonicalAbandonmentBytes,
@@ -24,6 +23,7 @@ import {
   canonicalTerminalRecordBytes,
   MAX_TERMINAL_RECORD_BYTES,
 } from "../terminal-record-store.mjs"
+import { tagged0153Record } from "./support/tagged-0153-record-fixture.mjs"
 import {
   COMMIT_SHA as TERMINAL_COMMIT_SHA,
   VERSION as TERMINAL_VERSION,
@@ -1166,4 +1166,31 @@ test("canonicalAbandonmentBytes rejects non-record input before touching its fie
 
 test("the terminal record byte cap stays under the audit-receipt payload limit", () => {
   assert.ok(MAX_TERMINAL_RECORD_BYTES < RELEASE_PAYLOAD_LIMITS.auditReceiptBytes)
+})
+
+test("schema-2 git-only records cannot become Release tombstones", () => {
+  const value = tagged0153Record()
+
+  assert.throws(() => canonicalAbandonmentBytes(value), /git-only/iu)
+  assert.throws(() => parseAnyAbandonmentRecord(value), /git-only/iu)
+})
+
+test("schema-2 records are rejected by Release body producers and embedded body readers", () => {
+  const value = tagged0153Record()
+  const bytes = canonicalTerminalRecordBytes(value)
+  const marker = abandonmentReleaseMarker({
+    candidate: { version: value.version, commitSha: value.commitSha },
+    artifact: {
+      manifestSha256: null,
+      releaseRecordSha256: null,
+      baseAssetSetSha256: null,
+      attestationSet: null,
+    },
+    abandonmentSha256: sha256(bytes),
+    previousMarker: null,
+  })
+  const forged = `${canonicalReleaseBody({ marker, manifest: null })}<!-- B4_ABANDONMENT_RECORD_BASE64\n${bytes.toString("base64")}\nEND_B4_ABANDONMENT_RECORD_BASE64 -->\n`
+
+  assert.throws(() => canonicalAbandonmentReleaseBody({ marker, tombstone: value }), /git-only/iu)
+  assert.throws(() => parseAbandonmentReleaseBody(forged), /git-only/iu)
 })

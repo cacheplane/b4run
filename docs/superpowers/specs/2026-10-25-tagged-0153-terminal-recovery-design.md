@@ -30,7 +30,9 @@ the existing top-level record fields and canonical sorted-key bytes, but describ
 empty escrow assets, and null duplicate recovery. All 21 current package names
 must occur in two exact 404/E404 absence sweeps at least 60 seconds apart. Every
 candidate release-run attempt must be completed with publication never started.
-The capture window remains bounded to 15 minutes.
+The complete capture window, including the initial GitHub inventory, remains
+bounded to 15 minutes. No release-owner run at any SHA may be active during
+capture, because a coordinator on main could otherwise relay the failed tag.
 
 A new read-only, incident-specific collector uses existing GitHub/npm reader
 adapters. It verifies repository and authenticated operator identity, the direct

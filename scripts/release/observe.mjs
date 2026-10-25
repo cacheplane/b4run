@@ -680,6 +680,42 @@ export async function observeProductionCandidate({
       ),
     ])
 
+  if (committedTerminalRecord?.schemaVersion === 2) {
+    const refs =
+      tagRefsResult.status === "PRESENT" && Array.isArray(tagRefsResult.value)
+        ? tagRefsResult.value.filter(
+            (ref) => ref?.ref === `refs/tags/${committedTerminalRecord.tag.name}`,
+          )
+        : []
+    if (
+      refs.length !== 1 ||
+      refs[0].object?.type !== "tag" ||
+      refs[0].object?.sha !== committedTerminalRecord.tag.objectSha
+    ) {
+      terminalRecordMismatch = true
+      addDiagnostic(
+        diagnostics,
+        "github",
+        "terminal-record",
+        "AMBIGUOUS",
+        "TERMINAL_RECORD_TAG_MISMATCH",
+      )
+    }
+    if (
+      releasesResult.status !== "PRESENT" ||
+      !Array.isArray(releasesResult.value) ||
+      releasesResult.value.some((release) => release?.tag_name === committedTerminalRecord.tag.name)
+    ) {
+      terminalRecordMismatch = true
+      addDiagnostic(
+        diagnostics,
+        "github",
+        "terminal-record",
+        "AMBIGUOUS",
+        "TERMINAL_RECORD_RELEASE_MISMATCH",
+      )
+    }
+  }
   const latestCi = mapCi(ciResult, ciWorkflowResult, identity, diagnostics)
   const preparedArtifactState = await mapProductionArtifacts({
     result: artifactResult,
@@ -2730,6 +2766,7 @@ function terminalRecordBindsCandidate(record, identity) {
  * The numeric Release ID is not part of the observation; the apply command verifies it.
  */
 function terminalRecordMatchesRelease(record, release) {
+  if (record.schemaVersion === 2) return release.status === "absent"
   // An already-ambiguous release means GitHub itself was unreadable, not that the draft
   // contradicts the record; that path carries its own AMBIGUOUS diagnostic, so the committed
   // record still stands alone here rather than being reported as a mismatch.
