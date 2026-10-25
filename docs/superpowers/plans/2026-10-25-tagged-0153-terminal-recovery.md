@@ -27,6 +27,7 @@
 - [x] Accept only schema 1 or incident-pinned schema 2. Keep schema-1 predecessor and evidence validators intact; share strict npm/run/authority/time validation.
 - [x] Prove git-record acceptance but Release tombstone/body producer and reader rejection for the same schema-2 bytes; retain schema-1 behavior. Add explicit guards in `canonicalAbandonmentBytes` and `parseAnyAbandonmentRecord` (and any delegated body boundary).
 - [x] Add candidate tests proving a matching tag-only record excludes 0.15.3, an unrecorded tag blocks newer releases, and visible Release/tag drift is refused.
+- [x] Add a narrowly pinned nonterminal hold in push/scheduled/exact-dispatch resolution and direct observation until the matching schema-2 record exists. Prove blocked resolution has no actionable transition; preserve all other candidate behavior.
 - [x] Run parser/candidate tests and inspect observer consumers for null-marker assumptions. Add observer regressions where needed.
 
 ### Task 2: Read-only evidence collector

@@ -24,6 +24,10 @@ output-limit, replay, and request-owned client-tool store changes.
 
 The implementation PR must pass complete required CI, including native Vercel
 and CopilotKit. Record the exact implementation merge SHA as `RECOVERY_SHA`.
+The implementation includes a nonterminal hold for this exact 0.15.3 candidate:
+the automatic main-push owner must report it blocked with
+`tagged-0153-recovery-pending`, without relaying preparation at the old tag. That
+hold is not evidence of abandonment. Wait for all release-owner runs to settle.
 Use a fresh isolated checkout at that SHA, with no local modifications. The
 collector proves that this checkout is exact and clean and that the reviewed
 SHA is reachable from live main. It never changes remote release state.

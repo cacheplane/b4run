@@ -55,6 +55,18 @@ SHA, proven reachable from live main. Use GitHub comparison to live main and exa
 local HEAD/clean-status checks. Token input is the existing GITHUB_TOKEN environment;
 never print it. Bound API pagination and refuse all non-PRESENT/non-ABSENT results.
 
+## Automatic-retry hold
+
+Merging release-control code triggers the main-push release owner. Until the
+schema-2 record is committed, a narrowly pinned observer hold blocks this exact
+0.15.3 version/commit from actionable push, scheduled, and exact-dispatch
+selection, and blocks direct production observation. The hold is not terminal
+evidence, does not mark any package absent, and never authorizes another release.
+It only prevents this code merge from relaying another preparation/publication
+attempt at the old tag while the operator captures the approved evidence. The
+matching committed record removes the hold; ordinary arbitration then skips the
+terminal candidate. Preserve every other version's normal behavior.
+
 ## Integration and authorization
 
 The existing candidate selector already binds committed records to the live tag

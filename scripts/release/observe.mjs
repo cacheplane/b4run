@@ -47,7 +47,7 @@ import {
   REQUIRED_RELEASE_SMOKE_LANES,
 } from "./smoke-result.mjs"
 import { ReleaseState } from "./state.mjs"
-import { readTerminalRecord } from "./terminal-record-store.mjs"
+import { readTerminalRecord, TAGGED_0153_RECOVERY } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
@@ -318,6 +318,20 @@ export async function resolveProductionCandidate({
       normalized.candidate?.commitSha !== invocation.ref)
   ) {
     throw new Error("Production dispatch inputs do not match the discovered candidate")
+  }
+  if (isTagged0153Candidate(normalized.candidate)) {
+    const record = await readTerminalRecord({
+      git,
+      ref: terminalRecordRef,
+      version: TAGGED_0153_RECOVERY.version,
+    })
+    if (record?.schemaVersion !== 2) {
+      return deepFreeze({
+        ...normalized,
+        disposition: "blocked",
+        conflicts: [...new Set([...normalized.conflicts, "tagged-0153-recovery-pending"])],
+      })
+    }
   }
   // Only the built-in global discovery has already independently routed this
   // selected recovery candidate. Exact fallbacks and injected discovery still route.
@@ -590,6 +604,17 @@ export async function observeProductionCandidate({
       "terminal-record",
       "AMBIGUOUS",
       error instanceof TypeError ? "TERMINAL_RECORD_INVALID" : "TERMINAL_RECORD_UNREADABLE",
+    )
+  }
+  if (isTagged0153Candidate(identity) && committedTerminalRecord?.schemaVersion !== 2) {
+    committedTerminalRecord = null
+    terminalRecordUnusable = true
+    addDiagnostic(
+      diagnostics,
+      "git",
+      "terminal-record",
+      "AMBIGUOUS",
+      "TAGGED_0153_RECOVERY_PENDING",
     )
   }
   let smokeAdjudication = null
@@ -2749,6 +2774,13 @@ function assertTerminalRecordRef(value) {
 }
 
 /** The record must name exactly this candidate: version, commit, and its own self-consistent tag. */
+function isTagged0153Candidate(candidate) {
+  return (
+    candidate?.version === TAGGED_0153_RECOVERY.version &&
+    candidate?.commitSha === TAGGED_0153_RECOVERY.commitSha
+  )
+}
+
 function terminalRecordBindsCandidate(record, identity) {
   return (
     record.version === identity.version &&

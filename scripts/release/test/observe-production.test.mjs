@@ -6571,3 +6571,50 @@ test("production observation blocks any visible Release for a git-only record", 
   assert.equal(plan.disposition, "blocked")
   assert.ok(diagnostics.some((entry) => entry.code === "TERMINAL_RECORD_RELEASE_MISMATCH"))
 })
+
+test("the exact 0.15.3 candidate is held before actionable resolution for push, schedule and dispatch", async () => {
+  const events = [
+    { ref: "refs/heads/main", after: TAGGED_COMMIT },
+    { schedule: "17 7 * * *" },
+    { inputs: { version: TAGGED_VERSION, commitSha: TAGGED_COMMIT } },
+  ]
+  for (const event of events) {
+    const f = taggedObservationFixture()
+    const selected = {
+      candidate: f.candidate,
+      state: "CANDIDATE_TAGGED",
+      disposition: "selected",
+      tag: "v0.15.3",
+      conflicts: [],
+    }
+    const discovery = {
+      discoverManagedCandidate: async () => selected,
+      discoverScheduledCandidate: async () => selected,
+    }
+
+    const result = await resolveProductionCandidate({
+      ...f,
+      event,
+      inventory: { read: async () => f.inventory },
+      git: { ...f.git, listTree: async () => "" },
+      discovery,
+    })
+
+    assert.equal(result.disposition, "blocked")
+    assert.equal(result.state, "CANDIDATE_TAGGED")
+    assert.deepEqual(result.conflicts, ["tagged-0153-recovery-pending"])
+  }
+})
+
+test("direct observation cannot prepare the held incident without its committed git-only record", async () => {
+  const f = taggedObservationFixture()
+
+  const { observation, diagnostics } = await observeProductionCandidate({
+    ...f,
+    git: { ...f.git, listTree: async () => "" },
+  })
+  const plan = planRelease({ candidate: f.candidate, observation, mode: "controller" })
+
+  assert.equal(plan.disposition, "blocked")
+  assert.ok(diagnostics.some((entry) => entry.code === "TAGGED_0153_RECOVERY_PENDING"))
+})

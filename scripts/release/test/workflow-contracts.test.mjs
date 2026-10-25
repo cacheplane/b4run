@@ -145,7 +145,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the incident-pinned 0.15.3 Git-only terminal record and its
 // explicit exclusion from Release tombstone paths; workflow topology is unchanged.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "df8e4e5ff2bca98820e34ca2dae75c04f553da303458c39b3763d3f248c141dc"
+  "f3b52086f2c4578686c835872794dd9388121dbbbfd7fd5f4f2c86124fce1835"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
