@@ -165,3 +165,13 @@ source-supported explanation, although that run did not print the resolved
 path. The fixture now lives under the canonical checkout path and retains its
 strict allowlist, real reads, both traversal assertions and unconditional
 cleanup. The corrected exact-head Windows run is required before integration.
+
+The corrected Windows run passes all 44 dependency regressions, including all
+20 new owner cases. Hosted controller verification passes 4,033 tests plus
+33 integrity tests; harness, Vercel and Kubernetes compatibility lanes pass.
+The first complete source run reports 12,622 passing tests, 366 skips, and one
+failure: the existing SOCKS chain regression still expects `ip-address` 10.5.0
+while the reviewed graph contains 10.7.5. A local focused run reproduces it.
+Only that exact expected version is synchronized; dependency declarations,
+chain identities, realpaths, module-cache and proxy behavior assertions remain.
+The complete source lane must rerun successfully on the corrected exact head.

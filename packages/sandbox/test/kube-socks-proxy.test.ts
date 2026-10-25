@@ -1066,6 +1066,6 @@ describe("Kubernetes SOCKS dependency path", () => {
     const socksRequire = createRequire(chain.socks.entryPath)
     expect(realpathSync(socksRequire.resolve("ip-address"))).toBe(chain.ipAddress.entryPath)
     expect(socksRequire.cache[chain.ipAddress.entryPath]).toBeDefined()
-    expect(chain.ipAddress.manifest.version).toBe("10.5.0")
+    expect(chain.ipAddress.manifest.version).toBe("10.7.5")
   })
 })
