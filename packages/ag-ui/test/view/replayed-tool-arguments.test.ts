@@ -48,3 +48,56 @@ test("the turn view keeps checkpointed arguments when a resumed call has no new 
     result: "ran",
   })
 })
+
+test("a cancelled parallel call reopens with its arguments on parentless checkpoint replay", async () => {
+  const paused: readonly B4AgentStreamChunk[] = [
+    {
+      type: "tool_call",
+      data: { id: "approval", name: "runBash", input: { command: "node x" }, messageId: "model" },
+    },
+    {
+      type: "tool_call",
+      data: { id: "parallel", name: "readFile", input: { path: "file.txt" }, messageId: "model" },
+    },
+    {
+      type: "interrupt",
+      data: {
+        interruptId: "permission",
+        type: "permission-request",
+        kind: "command",
+        toolCallId: "approval",
+        detail: { command: "node x" },
+      },
+    },
+  ]
+  const resumed: readonly B4AgentStreamChunk[] = [
+    {
+      type: "tool_call",
+      data: { id: "parallel", name: "readFile", input: { path: "file.txt" }, replayed: true },
+    },
+    { type: "tool_result", data: { id: "parallel", name: "readFile", output: "contents" } },
+    { type: "done" },
+  ]
+  let view = EMPTY_TURNS
+  for (const [index, chunks] of [paused, resumed].entries()) {
+    for await (const event of toAguiEvents(
+      (async function* () {
+        yield* chunks
+      })(),
+      { threadId: "thread", runId: `run-${index}` },
+    )) {
+      view = reduceTurns(view, event)
+    }
+    if (index === 0)
+      expect(view.turns[0]?.steps.find((step) => step.id === "parallel")).toMatchObject({
+        status: "cancelled",
+        args: '{"path":"file.txt"}',
+      })
+  }
+
+  expect(view.turns[0]?.steps.find((step) => step.id === "parallel")).toMatchObject({
+    status: "done",
+    args: '{"path":"file.txt"}',
+    result: "contents",
+  })
+})

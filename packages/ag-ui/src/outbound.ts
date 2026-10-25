@@ -834,11 +834,13 @@ export async function* toAguiEvents(
           }),
           ...(tc.replayed
             ? []
-            : [tag(owner, {
-                type: EventType.TOOL_CALL_ARGS,
-                toolCallId,
-                delta: stringifyArgs(tc.input),
-              })]),
+            : [
+                tag(owner, {
+                  type: EventType.TOOL_CALL_ARGS,
+                  toolCallId,
+                  delta: stringifyArgs(tc.input),
+                }),
+              ]),
           tag(owner, {
             type: EventType.TOOL_CALL_END,
             toolCallId,
