@@ -1,5 +1,16 @@
 # @b4run/ag-ui
 
+## 0.15.4
+
+### Patch Changes
+
+- dec5fef: Keep resumed browser tools attached to their existing client history without
+  inventing a new parent or appending the argument JSON again. Add a validated
+  `agent({ maxOutputTokens })` option and apply it to every provider model call,
+  including browser-tool continuations and structured output.
+- Updated dependencies [dec5fef]
+  - @b4run/sdk@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes

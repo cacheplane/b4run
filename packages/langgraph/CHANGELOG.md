@@ -1,5 +1,14 @@
 # @b4run/langgraph
 
+## 0.15.4
+
+### Patch Changes
+
+- 80020c0: Allow compatible LangChain peer versions for the optional UI helper so npm can
+  install it alongside the other B4 packages without a peer resolution conflict.
+- Updated dependencies [dec5fef]
+  - @b4run/sdk@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes

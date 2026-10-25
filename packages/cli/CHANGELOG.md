@@ -1,5 +1,26 @@
 # @b4run/cli
 
+## 0.15.4
+
+### Patch Changes
+
+- dec5fef: Keep resumed browser tools attached to their existing client history without
+  inventing a new parent or appending the argument JSON again. Add a validated
+  `agent({ maxOutputTokens })` option and apply it to every provider model call,
+  including browser-tool continuations and structured output.
+- b8024a6: Wire request-owned client tool stores into the fetch runtime and include a shared-pool Postgres client tool store in generated web deployments, so browser tool calls can park and resume across serverless requests.
+- Updated dependencies [dec5fef]
+- Updated dependencies [80020c0]
+  - @b4run/ag-ui@0.15.4
+  - @b4run/langchain@0.15.4
+  - @b4run/sdk@0.15.4
+  - @b4run/langgraph@0.15.4
+  - @b4run/core@0.15.4
+  - @b4run/permissions@0.15.4
+  - @b4run/sqlite-storage@0.15.4
+  - @b4run/workspace@0.15.4
+  - @b4run/memory@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes

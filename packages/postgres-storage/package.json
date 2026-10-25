@@ -1,6 +1,6 @@
 {
   "name": "@b4run/postgres-storage",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "private": false,
   "type": "module",
   "license": "MIT",
