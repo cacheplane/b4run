@@ -3,7 +3,6 @@ import { once } from "node:events"
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { createServer, type RequestListener } from "node:http"
 import { createRequire } from "node:module"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
@@ -388,7 +387,11 @@ describe("development and private production dependency owners", () => {
     const { MockerRegistry } = mocker("@vitest/mocker")
     const { interceptorPlugin } = mocker("@vitest/mocker/node")
     const { resolveConfig } = mocker("vite")
-    const directory = mkdtempSync(join(tmpdir(), "b4-mock-redirect-"))
+    // Vite deliberately rejects Windows 8.3 paths containing "~", including
+    // aliases that the system temp directory can use. Keep this real-file
+    // fixture under the canonical checkout path so the allowlisted control
+    // exercises the same path contract as a normal Vite project.
+    const directory = mkdtempSync(join(realpathSync(process.cwd()), ".tmp-mock-redirect-"))
     try {
       const allowed = join(directory, "allowed")
       const { mkdirSync } = await import("node:fs")

@@ -157,3 +157,11 @@ packaging, tooling-pack, browser, harness, native Vercel and platform gates must
 pass on the exact PR head before integration. The PR's checks and final merge
 record provide that hosted evidence; local individual lanes are not represented
 as a successful run of the aggregate `pnpm ci:validate` command.
+
+The first hosted Windows owner run passed 19 cases but rejected the redirect
+test's allowlisted positive control. Vite explicitly rejects Windows paths
+containing `~` before evaluating the allowlist; an 8.3 system-temp alias is the
+source-supported explanation, although that run did not print the resolved
+path. The fixture now lives under the canonical checkout path and retains its
+strict allowlist, real reads, both traversal assertions and unconditional
+cleanup. The corrected exact-head Windows run is required before integration.
