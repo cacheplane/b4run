@@ -28,6 +28,22 @@ export default async (input: { readonly query: string }) => {
 
 ## Model providers
 
+Set `maxOutputTokens` on the agent descriptor to cap each model call, including
+calls after a browser tool returns:
+
+```ts
+export default agent({
+  model: "gpt-5-mini",
+  systemPrompt: "Answer using the tools and components this app exposes.",
+  maxOutputTokens: 4096,
+})
+```
+
+The value must be a positive safe integer. When omitted, the provider's default
+applies. The cap includes reasoning tokens when the provider counts them as
+output. It is separate from `recursionLimit`, which bounds graph steps, and
+does not impose a total budget across all model calls in a conversation.
+
 An `agent()` route runs on a LangChain chat model. B4.run infers the provider from known model names and loads the matching LangChain package on demand. The built-in provider ids are `openai`, `anthropic`, `google`, `mistral`, `groq`, `ollama`, `xai`, and `openrouter` (see [`ModelProviderId`](/docs/api/sdk#b4runsdk-1)). Raw `graph` and `chain` routes can create any provider themselves.
 
 Set `provider` yourself when the model name is an alias, ambiguous, local, or routed through a gateway:

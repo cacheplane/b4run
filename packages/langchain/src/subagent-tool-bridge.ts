@@ -16,6 +16,7 @@ import type { RunnableConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { z } from "zod"
+import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import {
   describeDone,
@@ -228,6 +229,8 @@ export function convertSubagentTaskToLangChain(
 
           let output: unknown
           try {
+            const readCheckpoint = childConfig.configurable?.[REPLAY_CHECKPOINT_READER]
+            if (typeof readCheckpoint === "function") await readCheckpoint(childConfig)
             output = await resolved.child.graph.invoke(
               { messages: [{ role: "user", content: input.input }] },
               childConfig,

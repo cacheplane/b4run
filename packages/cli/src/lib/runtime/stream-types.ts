@@ -12,6 +12,8 @@ export type StreamChunk =
       readonly input: unknown
       /** The model invocation that announced the call (its tokens' `messageId`). */
       readonly messageId?: string
+      /** A checkpointed call re-presented on resume, not a new argument stream. */
+      readonly replayed?: boolean
     }
   | {
       readonly type: "tool_result"

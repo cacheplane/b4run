@@ -744,12 +744,14 @@ export async function* streamResolvedRoute(
               name: string
               input: unknown
               messageId?: unknown
+              replayed?: unknown
             }
             yield {
               type: "tool_call",
               ...(tc.id ? { id: tc.id } : {}),
               name: tc.name,
               input: tc.input,
+              ...(tc.replayed === true ? { replayed: true } : {}),
               ...(typeof tc.messageId === "string" && tc.messageId !== ""
                 ? { messageId: tc.messageId }
                 : {}),

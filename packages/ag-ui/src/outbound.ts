@@ -822,19 +822,25 @@ export async function* toAguiEvents(
           }
         }
         announceToolStep(state, toolCallId)
+        // A checkpoint replay retains the client's original parent and arguments.
+        const parentMessageId = tc.replayed ? undefined : modelMessageId(state, tc.messageId)
         const frames: AguiOutboundEvent[] = [
           tag(owner, {
             type: EventType.TOOL_CALL_START,
             toolCallId,
             toolCallName: tc.name,
-            parentMessageId: modelMessageId(state, tc.messageId),
+            ...(parentMessageId !== undefined ? { parentMessageId } : {}),
             ...stepMetadata(state, toolCallId),
           }),
-          tag(owner, {
-            type: EventType.TOOL_CALL_ARGS,
-            toolCallId,
-            delta: stringifyArgs(tc.input),
-          }),
+          ...(tc.replayed
+            ? []
+            : [
+                tag(owner, {
+                  type: EventType.TOOL_CALL_ARGS,
+                  toolCallId,
+                  delta: stringifyArgs(tc.input),
+                }),
+              ]),
           tag(owner, {
             type: EventType.TOOL_CALL_END,
             toolCallId,

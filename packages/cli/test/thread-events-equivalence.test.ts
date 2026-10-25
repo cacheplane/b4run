@@ -27,10 +27,9 @@
 //   one replayed run. The chat is projected over the whole stream, so only the
 //   final outcome is compared; the resuming run adds no user message.
 // - A resumed call: the live resuming run re-presents the parked call
-//   (`TOOL_CALL_START`/`ARGS`/`END` under the same tool-call id, args resent
-//   whole) before its result; replay carries the call once. `chatOf` keys
-//   calls by id, so a re-presented call updates its entry instead of adding
-//   one, and its args are the re-sent ones.
+//   (`TOOL_CALL_START`/`END` under the same tool-call id) before its result;
+//   replay carries the call once. The resuming stream omits the parent and
+//   argument deltas, so `chatOf` keeps the original parent and arguments.
 // - Events tagged `subagentRunId` are dropped on both sides: the chat never
 //   shows a subagent's inner messages.
 // - Turn-level normalisation (run ids, clocks, reasoning ids)
@@ -368,19 +367,17 @@ function chatOf(events: readonly BaseEvent[], seedUserText?: string): Chat {
         break
       }
       case "TOOL_CALL_START": {
+        const known = calls.get(String(event.toolCallId))
+        if (known) {
+          // A resumed call keeps its original parent and complete arguments.
+          expect(known.name).toBe(String(event.toolCallName))
+          expect(event.parentMessageId).toBeUndefined()
+          break
+        }
         expect(
           event.parentMessageId,
           `TOOL_CALL_START without parentMessageId for ${String(event.toolCallId)}`,
         ).toEqual(expect.any(String))
-        const known = calls.get(String(event.toolCallId))
-        if (known) {
-          // A resumed run re-presents its parked call under the same id, args
-          // included: the same call, not a second one. A client keeps it in the
-          // message it was first filed under, so its parent is the first one.
-          expect(known.name).toBe(String(event.toolCallName))
-          known.args = ""
-          break
-        }
         const entry = {
           args: "",
           id: callId(String(event.toolCallId)),
