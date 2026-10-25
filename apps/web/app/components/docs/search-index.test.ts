@@ -1,5 +1,5 @@
 import { gzipSync } from "node:zlib"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import { API_REFERENCE_PAGES } from "./api-reference-pages"
 import {
   filterDocsSearchResults,
@@ -389,8 +389,9 @@ Deeper text is part of the H2 section.
     // index was ~100 KB gzipped when body text was added, ~126 KB once the
     // Angular entries of @b4run/ag-ui added three export surfaces and their aliases,
     // ~131 KB once the Upgrading page covered 0.9 through 0.14, and
-    // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes.
-    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(136_000)
+    // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes,
+    // and ~136.6 KB with the plain LangGraph UI API and producer/restore recipes.
+    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(137_000)
   })
 })
 
@@ -410,4 +411,19 @@ describe("query variants", () => {
     const results = flattenDocsSearchIndex(DOCS_INDEX)
     expect(filterDocsSearchResults("retries", results)[0]?.href).toBe("/docs/retry")
   })
+})
+
+test("indexes the plain LangGraph UI surface and all four public exports", () => {
+  const results = flattenDocsSearchIndex(DOCS_INDEX)
+  const aliases = [
+    "@b4run/langgraph/ui",
+    "emitToolStep",
+    "toolStepMiddleware",
+    "ToolStepDisplay",
+    "ToolStepMiddlewareOptions",
+  ]
+
+  const owners = aliases.map((alias) => filterDocsSearchResults(alias, results)[0]?.href)
+
+  expect(owners).toEqual(aliases.map(() => "/docs/api/langgraph"))
 })
