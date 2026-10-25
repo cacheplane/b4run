@@ -1,5 +1,14 @@
 # @b4run/sdk
 
+## 0.15.4
+
+### Patch Changes
+
+- dec5fef: Keep resumed browser tools attached to their existing client history without
+  inventing a new parent or appending the argument JSON again. Add a validated
+  `agent({ maxOutputTokens })` option and apply it to every provider model call,
+  including browser-tool continuations and structured output.
+
 ## 0.15.3
 
 ## 0.15.2

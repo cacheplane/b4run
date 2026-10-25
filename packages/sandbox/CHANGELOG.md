@@ -1,5 +1,13 @@
 # @b4run/sandbox
 
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [dec5fef]
+  - @b4run/sdk@0.15.4
+  - @b4run/workspace@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes

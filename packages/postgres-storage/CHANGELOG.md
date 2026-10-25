@@ -1,5 +1,13 @@
 # @b4run/postgres-storage
 
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [dec5fef]
+  - @b4run/sdk@0.15.4
+  - @b4run/permissions@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes

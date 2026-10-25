@@ -1,5 +1,11 @@
 # @b4run/vite-plugin
 
+## 0.15.4
+
+### Patch Changes
+
+- @b4run/core@0.15.4
+
 ## 0.15.3
 
 ### Patch Changes
