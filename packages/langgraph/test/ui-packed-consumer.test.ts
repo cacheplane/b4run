@@ -1,4 +1,5 @@
-import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { expect, test } from "vitest"
 import { createPackedConsumer, runCommand } from "./_helpers/packed-consumer.ts"
@@ -105,6 +106,64 @@ void emitted;
 
     expect(runtime).toEqual({ stdout: "", stderr: "" })
     expect(typesResult).toEqual({ stdout: "", stderr: "" })
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test("npm installs the packed helper alongside compatible newer optional peers", {
+  timeout: 30_000,
+}, async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), "b4-ui-peer-resolution-"))
+  const packageRoot = join(repoRoot, "packages/langgraph")
+  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"))
+  const peers = [
+    ["@b4run/sdk", manifest.version],
+    ["@langchain/core", "1.3.0"],
+    ["langchain", "1.6.0"],
+    ["@langchain/langgraph", "1.5.2"],
+  ] as const
+  const dependencies: Record<string, string> = {
+    "@b4run/langgraph": `file:${join(tempRoot, `b4run-langgraph-${manifest.version}.tgz`)}`,
+  }
+  try {
+    for (const [index, [name, version]] of peers.entries()) {
+      const directory = join(tempRoot, `peer-${index}`)
+      await mkdir(directory)
+      await writeFile(join(directory, "package.json"), JSON.stringify({ name, version }))
+      dependencies[name] = `file:${directory}`
+    }
+    await writeFile(
+      join(tempRoot, "package.json"),
+      JSON.stringify({
+        name: "peer-resolution-consumer",
+        private: true,
+        dependencies,
+      }),
+    )
+    await runCommand("pnpm", ["pack", "--pack-destination", tempRoot], packageRoot)
+
+    const result = await runCommand(
+      "npm",
+      [
+        "install",
+        "--offline",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        "--package-lock=false",
+        "--strict-peer-deps",
+      ],
+      tempRoot,
+    )
+
+    expect(result.stderr).not.toContain("ERESOLVE")
+    for (const [name, version] of peers) {
+      const installed = JSON.parse(
+        await readFile(join(tempRoot, "node_modules", name, "package.json"), "utf8"),
+      )
+      expect(installed.version).toBe(version)
+    }
   } finally {
     await rm(tempRoot, { recursive: true, force: true })
   }
