@@ -1,10 +1,14 @@
 {
   "slug": "pageviews-by-path",
-  "posthog_id": null,
+  "posthog_id": 13246719,
   "kind": "trends",
   "name": "Pageviews by path",
   "description": "Pageviews broken down by pathname. Counts page loads, not unique visitors or reading time.",
-  "events": [{ "event": "$pageview" }],
+  "events": [
+    {
+      "event": "$pageview"
+    }
+  ],
   "breakdown": "$pathname",
   "interval": "day",
   "date_from": "-30d"

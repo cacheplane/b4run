@@ -1,16 +1,30 @@
 {
   "slug": "site-and-docs-engagement",
-  "posthog_id": null,
+  "posthog_id": 2254718,
   "name": "Growth · Site and docs engagement",
   "description": "Event counts for the website and docs. A copied install command is intent, not an install; engaged time is visible seconds, not session length.",
   "tags": ["growth"],
   "tiles": [
-    { "insight": "pageviews-by-path" },
-    { "insight": "cta-clicks-by-id" },
-    { "insight": "install-command-copied-by-surface" },
-    { "insight": "external-links-by-host" },
-    { "insight": "engaged-time" },
-    { "insight": "docs-search" },
-    { "insight": "copy-code-by-surface" }
+    {
+      "insight": "pageviews-by-path"
+    },
+    {
+      "insight": "cta-clicks-by-id"
+    },
+    {
+      "insight": "install-command-copied-by-surface"
+    },
+    {
+      "insight": "external-links-by-host"
+    },
+    {
+      "insight": "engaged-time"
+    },
+    {
+      "insight": "docs-search"
+    },
+    {
+      "insight": "copy-code-by-surface"
+    }
   ]
 }

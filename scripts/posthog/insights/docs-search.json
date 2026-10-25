@@ -1,12 +1,18 @@
 {
   "slug": "docs-search",
-  "posthog_id": null,
+  "posthog_id": 13246715,
   "kind": "trends",
   "name": "Docs search",
   "description": "Docs search opens next to result clicks. Search text is never recorded, so this cannot show what people looked for.",
   "events": [
-    { "event": "docs:search_open", "name": "Search opened" },
-    { "event": "docs:search_result_click", "name": "Search result clicked" }
+    {
+      "event": "docs:search_open",
+      "name": "Search opened"
+    },
+    {
+      "event": "docs:search_result_click",
+      "name": "Search result clicked"
+    }
   ],
   "interval": "day",
   "date_from": "-30d"

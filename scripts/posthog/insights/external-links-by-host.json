@@ -1,10 +1,14 @@
 {
   "slug": "external-links-by-host",
-  "posthog_id": null,
+  "posthog_id": 13246717,
   "kind": "trends",
   "name": "External links by host",
   "description": "Clicks on links that leave the site, by destination host. Does not show what happened after the click.",
-  "events": [{ "event": "site:external_link_click" }],
+  "events": [
+    {
+      "event": "site:external_link_click"
+    }
+  ],
   "breakdown": "destination_host",
   "interval": "day",
   "date_from": "-30d"
