@@ -1,5 +1,11 @@
 # @dawn-example/chat-web
 
+## 0.0.28
+
+### Patch Changes
+
+- @b4run/ag-ui@0.15.3
+
 ## 0.0.27
 
 ### Patch Changes
