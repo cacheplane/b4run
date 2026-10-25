@@ -57,7 +57,7 @@ export const MINI: Readonly<Record<string, string>> = {
     name: "mono",
     private: true,
     packageManager: "pnpm@10.33.0",
-    devDependencies: { "@types/node": "26.1.2", typescript: "7.0.2", vitest: "4.1.11" },
+    devDependencies: { "@types/node": "26.1.2", typescript: "7.0.2", vitest: "4.1.12" },
   }),
   "pnpm-workspace.yaml":
     'packages:\n  - packages/*\n  - "tools/*"\n\n# built on install\nonlyBuiltDependencies:\n  - workerd\n',
