@@ -14,6 +14,9 @@
 
 **Files:**
 - Modify: `scripts/release/terminal-record-store.mjs`
+- Modify: `scripts/release/abandonment.mjs` to reject schema-2 git-only records at every Release tombstone boundary.
+- Test: `scripts/release/test/abandonment.test.mjs` for producer/reader rejection and schema-1 compatibility.
+- Modify: `scripts/release/observe.mjs` and its tests to reject a visible Release for schema 2.
 - Modify: `scripts/release/candidate.mjs` only if needed to reject a visible Release for a schema-2 record.
 - Test: `scripts/release/test/terminal-record-store.test.mjs`
 - Test: `scripts/release/test/candidate.test.mjs`
@@ -22,6 +25,7 @@
 - [ ] Add a fixed-identity schema-2 fixture and acceptance test; run `node --test scripts/release/test/terminal-record-store.test.mjs` and observe schema rejection.
 - [ ] Add identity/predecessor/inventory/publication/freshness rejection tests.
 - [ ] Accept only schema 1 or incident-pinned schema 2. Keep schema-1 predecessor and evidence validators intact; share strict npm/run/authority/time validation.
+- [ ] Prove git-record acceptance but Release tombstone/body producer and reader rejection for the same schema-2 bytes; retain schema-1 behavior. Add explicit guards in `canonicalAbandonmentBytes` and `parseAnyAbandonmentRecord` (and any delegated body boundary).
 - [ ] Add candidate tests proving a matching tag-only record excludes 0.15.3, an unrecorded tag blocks newer releases, and visible Release/tag drift is refused.
 - [ ] Run parser/candidate tests and inspect observer consumers for null-marker assumptions. Add observer regressions where needed.
 

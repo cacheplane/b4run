@@ -60,6 +60,8 @@ name/object/peel and excludes terminal candidates. Add regression coverage provi
 the schema-2 record releases the 0.15.3 hold, while no record, tag drift, malformed
 record, or publication evidence remains blocking. A schema-2 record must never be
 accepted as an escrowed-draft tombstone; refuse any visible Release for its tag.
+`abandonment.mjs` must explicitly reject schema 2 in Release tombstone/body
+producers and readers, even though they share the canonical git-record parser.
 Normal observer/audit consumers must understand schema 2 only as this committed,
 tag-only terminal record. They must not dereference its null escrow marker.
 
@@ -70,7 +72,9 @@ provenance, artifact sealing, and disabled workflow abandonment.
 Land the implementation PR on complete required CI, including Vercel/CopilotKit.
 Then use its reviewed merge SHA to capture fresh evidence and open a second PR
 containing only the canonical `scripts/release/terminal-records/v0.15.3.json`.
-Review and merge that record on green CI. The git-resident record itself is the
+Hold the operator release edit freeze. Review and merge that record on green CI,
+after independently rechecking absence and all tag/Release/run evidence immediately
+before merge; stop on drift. The git-resident record itself is the
 terminal authority; no draft exists to stamp and none will be manufactured.
 Reobserve selection, refresh the version PR, validate and merge the normal 0.15.4
 candidate, then publish only through the supported controller. Never move/delete
