@@ -224,6 +224,7 @@ import {
   selectPostgresDriver,
 } from "@b4run/cli/fetch"
 import {
+  createPostgresClientToolCallStore,
   createPostgresPermissionsStore,
   createPostgresThreadsStore,
   postgresCheckpointer,
@@ -543,6 +544,7 @@ export async function createRequestStores(env) {
     const naming = { pool, assumeMigrated, schema, tablePrefix }
     const stores = {
       checkpointer: postgresCheckpointer(naming),
+      clientToolStore: createPostgresClientToolCallStore(naming),
       dispose: () => pool.end(),
       permissionsStore: createPostgresPermissionsStore(naming),
       threadsStore: createPostgresThreadsStore(naming),
@@ -554,6 +556,7 @@ export async function createRequestStores(env) {
       // have completed, it never runs a migration unlocked.
       await Promise.all([
         stores.checkpointer.ready(),
+        stores.clientToolStore.ready(),
         stores.permissionsStore.ready(),
         stores.threadsStore.ready(),
       ])

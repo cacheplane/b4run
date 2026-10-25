@@ -5,7 +5,12 @@ import type { B4Config } from "@b4run/core"
 // runtime - this module's VALUE graph stays node-http-only.
 import type { MemoryStore } from "@b4run/memory"
 import type { PermissionsStore } from "@b4run/permissions"
-import type { AuthDefinition, B4Middleware, ThreadAccessPolicy } from "@b4run/sdk"
+import type {
+  AuthDefinition,
+  B4Middleware,
+  ClientToolCallStore,
+  ThreadAccessPolicy,
+} from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import type { RuntimeBootFallbacks } from "../runtime/execute-route-core.js"
@@ -30,6 +35,8 @@ export interface RequestStores {
   readonly threadsStore?: ThreadsStore
   readonly permissionsStore?: PermissionsStore
   readonly memoryStore?: MemoryStore
+  /** Durable client-tool calls, held open through the request's run lifetime. */
+  readonly clientToolStore?: ClientToolCallStore
   /**
    * Called once BOTH the response body has settled and any run the request
    * started has released its slot — never mid-stream, and never while route

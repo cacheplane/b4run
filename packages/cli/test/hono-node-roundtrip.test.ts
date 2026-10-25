@@ -59,10 +59,10 @@ import {
 
 /**
  * How many `pg_advisory_xact_lock` acquisitions ONE cold start costs: one per
- * store component (threads, permissions, checkpointer), each in its own
- * migration transaction.
+ * store component (threads, permissions, checkpointer, client tools), each in
+ * its own migration transaction.
  */
-const MIGRATION_LOCKS_PER_COLD_START = 3
+const MIGRATION_LOCKS_PER_COLD_START = 4
 
 const docker = await probeDocker()
 const requireDocker = process.env.B4_REQUIRE_DOCKER === "1"
@@ -351,7 +351,7 @@ describe("hono target — the emitted app on Node, against real Postgres", () =>
 
         // 4. Migrations ran ONCE for the isolate, not once per request. Without
         // the `assumeMigrated` flag the emitted stores.mjs carries, each request
-        // pays three migration transactions — every one of them taking an
+        // pays four migration transactions — every one of them taking an
         // advisory lock that also serializes concurrent requests.
         expect(await countMigrationLocks(client, containers.log)).toBe(
           MIGRATION_LOCKS_PER_COLD_START,

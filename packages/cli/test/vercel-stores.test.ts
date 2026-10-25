@@ -79,6 +79,38 @@ const DRIVER_REPORT = {
 const NEON_URL = "postgres://u:p@ep-quiet-sea-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
 const LOCAL_URL = "postgres://u:p@127.0.0.1:5432/app"
 
+test("generated web stores include a migrated request-owned client tool store", async () => {
+  const appRoot = await createFixtureApp()
+  const runtimeDir = await emitRuntime(appRoot, "vercel")
+
+  const observed = await driveEmittedStores(
+    appRoot,
+    runtimeDir,
+    [{ DATABASE_URL: LOCAL_URL }, { DATABASE_URL: LOCAL_URL }],
+    {
+      cliStub: NO_PROXY_RUNTIME_ENV_STUB,
+      report: "{ allocations, readyCalls }",
+      reportImports: 'import { allocations, readyCalls } from "@b4run/postgres-storage"',
+      storageStub: `${POSTGRES_STORAGE_STUB.replace("export const createPostgresClientToolCallStore = () => store", "")}
+export const allocations = []
+export const readyCalls = []
+export const createPostgresClientToolCallStore = (options) => {
+  allocations.push({ assumeMigrated: options.assumeMigrated, schema: options.schema, tablePrefix: options.tablePrefix })
+  return { ready: async () => { readyCalls.push(1) } }
+}
+`,
+    },
+  )
+
+  expect(observed).toEqual({
+    allocations: [
+      { assumeMigrated: false, schema: "public", tablePrefix: "b4" },
+      { assumeMigrated: true, schema: "public", tablePrefix: "b4" },
+    ],
+    readyCalls: [1],
+  })
+})
+
 describe("vercel target — stores.mjs driver selection", () => {
   test("a non-Neon DATABASE_URL opens a pooled pg connection with no proxy", async () => {
     const appRoot = await createFixtureApp()
@@ -204,6 +236,7 @@ describe("vercel target — stores.mjs driver selection", () => {
         reportImports: 'import { readyCalls } from "@b4run/postgres-storage"',
         storageStub: `export const readyCalls = []
 const store = { ready: async () => { readyCalls.push(1) } }
+export const createPostgresClientToolCallStore = () => store
 export const createPostgresPermissionsStore = () => store
 export const createPostgresThreadsStore = () => store
 export const postgresCheckpointer = () => store
@@ -211,8 +244,8 @@ export const postgresCheckpointer = () => store
       },
     )
 
-    // Three stores migrate on the first request; the second skips the pass.
-    expect(observed).toEqual({ readyCalls: 3 })
+    // Four stores migrate on the first request; the second skips the pass.
+    expect(observed).toEqual({ readyCalls: 4 })
   })
 
   test("only the vercel variant imports the pg pool builder; the hono variant stays edge-linkable", async () => {

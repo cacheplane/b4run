@@ -11,7 +11,7 @@ import {
 } from "@b4run/sdk"
 import { createClientToolCallStore, createThreadsStore } from "@b4run/sqlite-storage"
 import { MemorySaver } from "@langchain/langgraph"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, test, vi } from "vitest"
 import { createAimock } from "../../testing/dist/aimock-runner.js"
 import { __voidSettledClientToolCallsForTests } from "../src/lib/dev/agui-handler.ts"
 import {
@@ -159,7 +159,9 @@ type HandlerOptions = Parameters<typeof createRuntimeFetchHandler>[0]
 async function createHandler(
   appRoot: string,
   bootFallbacks?: HandlerOptions["bootFallbacks"],
-  extra: Partial<Pick<HandlerOptions, "checkpointer" | "threadAccess" | "threadsStore">> = {},
+  extra: Partial<
+    Pick<HandlerOptions, "checkpointer" | "threadAccess" | "threadsStore" | "requestStores">
+  > = {},
 ) {
   const handler = await createRuntimeFetchHandler({
     appRoot,
@@ -336,6 +338,62 @@ async function parkedRun(
 }
 
 const USER_AGAIN: AguiMessage = { id: "m9", role: "user", content: "again" }
+
+test("client tool calls park and resume through fresh request-owned stores", async () => {
+  const aimock = await withModel(toolTurnFixtures([CALL_A]))
+  const appRoot = await fixtureApp()
+  const shared = createMemoryClientToolCallStore()
+  const disposed: number[] = []
+  let allocations = 0
+  const handler = await createHandler(
+    appRoot,
+    { ...nodeBootFallbacks, resolveClientToolCallStore: async () => undefined },
+    {
+      checkpointer: new MemorySaver(),
+      requestStores: () => {
+        const id = ++allocations
+        let closed = false
+        const clientToolStore = new Proxy(shared, {
+          get(target, key: keyof ClientToolCallStore) {
+            return (...args: unknown[]) => {
+              if (closed) throw new Error("client tool store used after dispose")
+              return Reflect.apply(target[key], target, args)
+            }
+          },
+        })
+        return {
+          clientToolStore,
+          dispose: async () => {
+            closed = true
+            disposed.push(id)
+          },
+        }
+      },
+    },
+  )
+  const threadId = `request-store-${crypto.randomUUID()}`
+
+  const first = await run(handler, aguiRequest(threadId, "run-1", [USER_HELLO]))
+
+  expect(first.status).toBe(200)
+  expect(finished(first.events)?.outcome).toMatchObject({ pendingToolCallIds: ["call_a"] })
+  await vi.waitFor(() => expect(disposed).toEqual([1]))
+
+  const second = await run(
+    handler,
+    aguiRequest(threadId, "run-2", [
+      USER_HELLO,
+      assistantCalls(["call_a"]),
+      toolResult("m3", "call_a", "panel opened"),
+    ]),
+  )
+
+  expect(second.status).toBe(200)
+  expect(second.text).toContain("Opened.")
+  expect(aimock.getRequests()).toHaveLength(2)
+  await vi.waitFor(() => expect(disposed).toEqual([1, 2]))
+  expect((await shared.get(threadId, "call_a"))?.answeredAt).not.toBeNull()
+})
 
 describe("POST /agui/:route with client-provided tools", () => {
   it("round trip: the call parks invisibly and the result reaches the model on the next run", async () => {

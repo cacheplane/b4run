@@ -15,15 +15,16 @@ import { promisify } from "node:util"
 
 const cliPackageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 
-/** `@b4run/postgres-storage`'s main entry: three stores whose `ready()` is a no-op. */
+/** `@b4run/postgres-storage`'s main entry: four stores whose `ready()` is a no-op. */
 export const POSTGRES_STORAGE_STUB = `const store = { ready: async () => {} }
+export const createPostgresClientToolCallStore = () => store
 export const createPostgresPermissionsStore = () => store
 export const createPostgresThreadsStore = () => store
 export const postgresCheckpointer = () => store
 `
 
 /**
- * The same store trio, but whose FIRST `ready()` rejects — a failed cold
+ * The same store set, but whose FIRST `ready()` rejects — a failed cold
  * start. Counts every call so a later request's migration pass is visible.
  */
 export const FAILING_READY_STORAGE_STUB = `export const readyCalls = []
@@ -36,6 +37,7 @@ const store = {
     throw new Error("cold start failed")
   },
 }
+export const createPostgresClientToolCallStore = () => store
 export const createPostgresPermissionsStore = () => store
 export const createPostgresThreadsStore = () => store
 export const postgresCheckpointer = () => store
@@ -48,7 +50,7 @@ export const postgresCheckpointer = () => store
  * `dispose()` works.
  */
 /**
- * The store trio again, recording the naming each factory was handed and which
+ * The store set again, recording the naming each factory was handed and which
  * namespace each `ready()` migrated — the observables for the per-environment
  * schema bindings.
  */
@@ -67,6 +69,7 @@ const factory = (kind) => (options) => {
     },
   }
 }
+export const createPostgresClientToolCallStore = factory("clientTools")
 export const createPostgresPermissionsStore = factory("permissions")
 export const createPostgresThreadsStore = factory("threads")
 export const postgresCheckpointer = factory("checkpointer")

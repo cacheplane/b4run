@@ -715,7 +715,7 @@ export async function createRuntimeFetchHandler(
   const clientToolStore =
     validateClientToolStore(aguiConfig?.clientToolStore) ??
     (await fallbacks?.resolveClientToolCallStore?.(options.appRoot))
-  if (anyRouteOptsInToClientTools(bootConfig) && !clientToolStore) {
+  if (anyRouteOptsInToClientTools(bootConfig) && !clientToolStore && !options.requestStores) {
     console.warn(
       `B4: server.agui.clientTools names routes but no client tool store could be resolved for ` +
         `${options.appRoot}. Runs that send client tools will be refused with a 503. Set ` +
@@ -1031,6 +1031,10 @@ export async function createRuntimeFetchHandler(
 
     const getCheckpointer = (request: Request): BaseCheckpointSaver =>
       requireStore(perRequest.get(request)?.stores.checkpointer ?? checkpointer, "checkpointer")
+    const getClientTools = (request: Request): ClientToolRuntime => {
+      const store = validateClientToolStore(perRequest.get(request)?.stores.clientToolStore)
+      return store ? { ...clientTools, store } : clientTools
+    }
     const getThreadsStore = (request: Request): ThreadsStore =>
       requireStore(perRequest.get(request)?.stores.threadsStore ?? threadsStore, "threadsStore")
     const getPermissionsStore = (
@@ -1134,7 +1138,7 @@ export async function createRuntimeFetchHandler(
       apSseHeartbeatIntervalMs,
       boot,
       bootConfig,
-      clientTools,
+      getClientTools,
       getCheckpointer,
       getMemoryStoreFor,
       getPermissionsStore,
@@ -1548,8 +1552,8 @@ export function buildRouteTable(ctx: {
    * Read for `server.agui`, the AG-UI run envelope's per-route opt-ins.
    */
   readonly bootConfig: B4Config | undefined
-  /** Boot-resolved client tool store and TTL. See client-tool-runtime.ts. */
-  readonly clientTools: ClientToolRuntime
+  /** Request-owned client tool store with boot-resolved TTL and fallback. */
+  readonly getClientTools: (request: Request) => ClientToolRuntime
   readonly getCheckpointer: (request: Request) => BaseCheckpointSaver
   readonly getMemoryStoreFor: (request: Request) => Promise<MemoryStore>
   /** Narrow `/memory/*` to the caller's namespaces; `{}` reviews every namespace. */
@@ -1597,7 +1601,7 @@ export function buildRouteTable(ctx: {
     apSseHeartbeatIntervalMs,
     boot,
     bootConfig,
-    clientTools,
+    getClientTools,
     getCheckpointer,
     getMemoryStoreFor,
     getPermissionsStore,
@@ -2109,7 +2113,7 @@ export function buildRouteTable(ctx: {
           boot,
           ...(bootConfig ? { config: bootConfig } : {}),
           checkpointer: getCheckpointer(request),
-          clientTools,
+          clientTools: getClientTools(request),
           getMemoryStore: () => getMemoryStoreFor(request),
           liveTurnHub,
           middleware,
@@ -2139,7 +2143,7 @@ export function buildRouteTable(ctx: {
           appRoot,
           approvalGrants,
           boot,
-          clientTools,
+          clientTools: getClientTools(request),
           ...(bootConfig ? { config: bootConfig } : {}),
           middleware,
           permissionsStore: getPermissionsStore(request),

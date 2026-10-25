@@ -325,7 +325,7 @@ describe("b4 build — hono target", () => {
 
     const stores = await readBuildFile(appRoot, "stores.mjs")
     // Per-request stores memoize migrations on the INSTANCE, so without this
-    // flag every request pays three migration transactions — each taking
+    // flag every request pays four migration transactions — each taking
     // pg_advisory_xact_lock, which also serializes concurrent requests.
     expect(stores).toMatch(/^const migrated = new Set\(\)$/m)
     expect(stores).toContain("assumeMigrated")
@@ -1086,7 +1086,7 @@ describe("hono target — bindings on a host that has none", () => {
     // promise is awaiting, rather than rejecting a query.
     //
     // Per-request lifetime does not shrink the window: a client sits idle
-    // between every pair of queries the three stores make, and pg-pool neither
+    // between every pair of queries the four stores make, and pg-pool neither
     // detaches the idle listener in `_remove` nor gates the pool-level re-emit
     // on `ending`, so it can still fire after `dispose()`.
     //
@@ -1216,7 +1216,7 @@ describe("hono target — bindings on a host that has none", () => {
     // which it is not, so every request fails on a missing table instead.
     //
     // Three `ready()` calls per cold-start pass (threads, permissions,
-    // checkpointer), so a retried pass is six and a skipped one is three.
+    // checkpointer), so a retried pass is eight and a skipped one is four.
     const observed = await driveEmittedStores(appRoot, buildDir(appRoot), [{}, {}], {
       report: "{ readyCalls: readyCalls.length, requestErrors }",
       reportImports: 'import { readyCalls } from "@b4run/postgres-storage"',
@@ -1224,7 +1224,7 @@ describe("hono target — bindings on a host that has none", () => {
       tolerateRequestFailures: true,
     })
 
-    expect(observed).toEqual({ readyCalls: 6, requestErrors: ["cold start failed"] })
+    expect(observed).toEqual({ readyCalls: 8, requestErrors: ["cold start failed"] })
   })
 
   test("namespaces each request's stores from B4_PG_SCHEMA and B4_PG_TABLE_PREFIX", async () => {
@@ -1249,8 +1249,8 @@ describe("hono target — bindings on a host that has none", () => {
       },
     )
 
-    const trio = (schema: string, tablePrefix: string, assumeMigrated: boolean) =>
-      ["checkpointer", "permissions", "threads"].map((kind) => ({
+    const storeSet = (schema: string, tablePrefix: string, assumeMigrated: boolean) =>
+      ["checkpointer", "clientTools", "permissions", "threads"].map((kind) => ({
         assumeMigrated,
         kind,
         schema,
@@ -1260,23 +1260,26 @@ describe("hono target — bindings on a host that has none", () => {
       namings: [
         // Nothing set: the package defaults, so an existing deployment keeps
         // its `public.b4_*` tables.
-        ...trio("public", "b4", false),
-        ...trio("preview", "b4", false),
+        ...storeSet("public", "b4", false),
+        ...storeSet("preview", "b4", false),
         // `$NAME` resolves through the same per-request binding lookup as
         // DATABASE_URL — one setting, a different schema per Vercel environment.
-        ...trio("production", "app", false),
+        ...storeSet("production", "app", false),
         // The isolate has migrated `public.b4` already, so this pass is skipped
         // for it — and only for it.
-        ...trio("public", "b4", true),
+        ...storeSet("public", "b4", true),
       ],
       readyCalls: [
         "checkpointer:public.b4",
+        "clientTools:public.b4",
         "permissions:public.b4",
         "threads:public.b4",
         "checkpointer:preview.b4",
+        "clientTools:preview.b4",
         "permissions:preview.b4",
         "threads:preview.b4",
         "checkpointer:production.app",
+        "clientTools:production.app",
         "permissions:production.app",
         "threads:production.app",
       ],
@@ -1310,7 +1313,7 @@ export const formatErrorChain = (error) => String(error?.message ?? error)
       },
     )
 
-    expect(observed).toEqual(["preview.b4", "preview.b4", "preview.b4"])
+    expect(observed).toEqual(["preview.b4", "preview.b4", "preview.b4", "preview.b4"])
   })
 
   test("a bad naming binding fails the request by name instead of falling back to public", async () => {
@@ -1387,9 +1390,22 @@ export const formatErrorChain = (error) => String(error?.message ?? error)
       },
     )
 
-    // Three stores per request. The second database migrates on its own; the
+    // Four stores per request. The second database migrates on its own; the
     // return to the first one is the pass that may be skipped.
-    expect(observed).toEqual([false, false, false, false, false, false, true, true, true])
+    expect(observed).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+    ])
   })
 
   test("still names the missing binding when neither source has it", async () => {
