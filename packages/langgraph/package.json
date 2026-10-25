@@ -1,6 +1,6 @@
 {
   "name": "@b4run/langgraph",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -41,6 +41,10 @@
     "./route-module": {
       "types": "./dist/route-module.d.ts",
       "default": "./dist/route-module.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
     }
   },
   "publishConfig": {
@@ -48,7 +52,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "lint": "biome check --config-path ../config-biome/biome.json package.json src test tsconfig.json vitest.config.ts",
+    "lint": "biome check --config-path ../config-biome/biome.json package.json src test examples tsconfig.json vitest.config.ts",
     "test": "vitest --run --config vitest.config.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
@@ -57,6 +61,25 @@
   },
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
-    "@types/node": "26.1.2"
+    "@types/node": "26.1.2",
+    "@langchain/core": "1.2.12",
+    "langchain": "1.5.12",
+    "@langchain/langgraph": "1.4.17"
+  },
+  "peerDependencies": {
+    "@langchain/core": "^1.2.12",
+    "langchain": "^1.5.12",
+    "@langchain/langgraph": "^1.4.17"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "langchain": {
+      "optional": true
+    },
+    "@langchain/langgraph": {
+      "optional": true
+    }
   }
 }

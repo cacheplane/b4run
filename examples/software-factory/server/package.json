@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/software-factory-server",
   "private": true,
-  "version": "0.0.13",
+  "version": "0.0.14",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -22,6 +22,6 @@
     "@biomejs/biome": "2.5.6",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

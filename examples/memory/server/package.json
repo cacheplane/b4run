@@ -1,7 +1,7 @@
 {
   "name": "@b4-example/memory",
   "private": true,
-  "version": "0.0.40",
+  "version": "0.0.41",
   "type": "module",
   "scripts": {
     "dev": "node node_modules/@b4run/cli/dist/index.js dev --port 3002",
@@ -26,6 +26,6 @@
     "@b4run/testing": "workspace:*",
     "@types/node": "26.1.2",
     "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }

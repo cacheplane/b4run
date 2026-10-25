@@ -1,5 +1,13 @@
 # @b4run/langchain
 
+## 0.15.3
+
+### Patch Changes
+
+- @b4run/core@0.15.3
+- @b4run/sdk@0.15.3
+- @b4run/workspace@0.15.3
+
 ## 0.15.2
 
 ### Patch Changes

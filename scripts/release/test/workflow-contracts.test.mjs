@@ -2106,7 +2106,7 @@ test("testing-windows has the exact safe descriptors and executable classificati
         classification: "safe",
         descriptor: {
           name: "Dependency security regressions",
-          run: "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts",
+          run: "pnpm exec vitest --run --config test/security-dependencies/vitest.config.ts test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/development-owner-compatibility.test.ts",
         },
       },
     ],
@@ -2403,7 +2403,7 @@ test("dependency security workflow mutations fail closed", async (t) => {
       "ci.yml",
       (source) =>
         source.replace(
-          "test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts",
+          "test/security-dependencies/dependency-resolution.test.ts test/security-dependencies/hono-serve-static-windows.test.ts test/security-dependencies/development-owner-compatibility.test.ts",
           "test/security-dependencies",
         ),
     ],

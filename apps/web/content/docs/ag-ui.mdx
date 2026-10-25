@@ -733,6 +733,14 @@ Every identifiable server tool call emits a versioned `CUSTOM` event named `b4.s
 
 Settled updates and the final `TOOL_CALL_RESULT.metadata["b4.step"]` carry the outcome. Failures also carry `error: { message, code? }` inside the step and readable error text in the result, so clients and models both see the failure. Every CUSTOM step names its call in `value.toolCallId`; metadata and persisted steps omit that id because their carrier names it. A subagent's step carries `subagentRunId`.
 
+For plain LangGraph applications, use the Node-only
+[`@b4run/langgraph/ui` helpers](/docs/api/langgraph#plain-langgraph-tool-activity).
+Their CUSTOM events are live-only. Durable restore needs a server checkpointer
+and a bridge projection from `additional_kwargs.b4_step` to tool message
+`metadata["b4.step"]`, with readable failure text in `error`; client transcript
+persistence is a separate concern. The API guide includes Python emission and a
+public snapshot-hook recipe, plus JavaScript bridge constraints.
+
 #### The `b4.step` contract
 
 The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 value is camelCase and carries `v: 1`. It is what B4.run's clients read and what other producers, such as a provider adapter, should write. B4.run emits and persists this v1 shape, with epoch-millisecond times and stable source ids. `readToolStep` also reads the legacy CUSTOM and persisted shapes, including ISO timestamps, so existing stored threads remain readable. START and END carry the current step when one already exists. They are streamed immediately even when execution has not started; the mapper does not fabricate execution timing or wait for approval before announcing the call. RESULT carries the final persisted step. The contract defines four carriers:

@@ -455,7 +455,7 @@ function rootImporterPathsToVersion(
     })
 }
 
-function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
+function reviewedMinimumFailures(workspace: ParsedWorkspace): string[] {
   const failures: string[] = []
   for (const [name, floors] of [
     ["hono", { 4: "4.13.11" }],
@@ -463,14 +463,31 @@ function patchedFloorFailures(workspace: ParsedWorkspace): string[] {
     ["proxy-addr", { 2: "2.0.8" }],
     ["handlebars", { 4: "4.7.10" }],
     ["tar", { 7: "7.5.22" }],
-    ["fast-uri", { 3: "3.1.8" }],
+    ["fast-uri", { 3: "3.1.9" }],
     ["js-yaml", { 3: "3.15.2", 4: "4.3.2" }],
-    ["undici", { 6: "6.29.1", 7: "7.30.1", 8: "8.12.2" }],
+    ["undici", { 5: "6.29.1", 6: "6.29.1", 7: "7.30.1", 8: "8.12.2" }],
     ["body-parser", { 1: "1.20.9", 2: "2.4.0" }],
     ["zod", { 3: "4.6.6", 4: "4.6.6" }],
     ["@azure/msal-node", { 5: "7.1.0", 6: "7.1.0", 7: "7.1.0" }],
     ["axios", { 1: "1.20.0" }],
-    ["@fastify/busboy", { 3: "3.2.2" }],
+    ["@fastify/busboy", { 1: "3.2.2", 2: "3.2.2", 3: "3.2.2" }],
+    ["minimatch", { 10: "10.2.3" }],
+    ["path-to-regexp", { 4: "6.3.0", 5: "6.3.0", 6: "6.3.0", 8: "8.4.0" }],
+    ["sharp", { 0: "0.35.5" }],
+    ["smol-toml", { 1: "1.7.1" }],
+    ["brace-expansion", { 1: "1.1.21", 2: "2.1.7", 3: "3.0.8", 4: "5.0.11", 5: "5.0.11" }],
+    ["@grpc/grpc-js", { 1: "1.14.5" }],
+    ["ajv", { 8: "8.18.0" }],
+    // Advisory-range exit for a disputed report, not a demonstrated upstream fix.
+    // The actual Verdaccio owner runs with caching disabled (covered separately).
+    ["http-cache-semantics", { 4: "4.3.0" }],
+    ["compression", { 1: "1.8.2" }],
+    ["vite", { 6: "6.4.4", 7: "7.3.7", 8: "8.3.3" }],
+    ["qs", { 6: "6.16.0" }],
+    ["ip-address", { 10: "10.7.4" }],
+    ["fast-copy", { 3: "3.1.0" }],
+    ["vitest", { 4: "4.1.12" }],
+    ["@vitest/mocker", { 4: "4.1.12" }],
     ["source-map-js", { 1: "1.2.2" }],
     ["@graphql-tools/utils", { 10: "12.0.2", 11: "12.0.2", 12: "12.0.2" }],
     ["@modelcontextprotocol/sdk", { 1: "1.32.0" }],
@@ -912,8 +929,8 @@ describe("dependency security graph invariants", () => {
     expect(workspace.manifestOverrides["js-yaml@>=4 <4.3.2"]).toBe("4.3.2")
   })
 
-  it("contains no tracked security dependency below its patched floor", () => {
-    expect(patchedFloorFailures(readWorkspace())).toEqual([])
+  it("contains no tracked security dependency below its reviewed minimum", () => {
+    expect(reviewedMinimumFailures(readWorkspace())).toEqual([])
   })
 
   it("pins the reviewed package extensions", () => {
@@ -1120,14 +1137,14 @@ describe("dependency security graph invariants", () => {
     }
   })
 
-  it("reports a synthetic version below its patched floor", () => {
+  it("reports a synthetic version below its reviewed minimum", () => {
     const belowFloorWorkspace: ParsedWorkspace = {
       importers: {},
       manifestOverrides: {},
       packages: { "hono@4.12.33": {} },
       snapshots: { "hono@4.12.33": {} },
     }
-    expect(patchedFloorFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.13.11"])
+    expect(reviewedMinimumFailures(belowFloorWorkspace)).toEqual(["hono@4.12.33 is below 4.13.11"])
   })
 
   it("reports an orphan provider-utils peer identity independently", () => {

@@ -2,6 +2,16 @@
 
 B4.run is pre-1.0 and the API is still moving. So pin a version, read what changed, and upgrade on purpose. This page covers the upgrade workflow and the changes that need action, labeled with the version each one landed in. The full list of changes lives on GitHub.
 
+## Plain LangGraph tool-step helpers (unreleased)
+
+Plain Node LangChain/LangGraph applications can import `emitToolStep` and
+`toolStepMiddleware` from `@b4run/langgraph/ui` without a B4 agent or runtime.
+Install the optional LangChain peers only for this new subpath. Existing edge-safe
+root and route imports retain their boundary. Put the wrapper inside approval
+gates. CUSTOM is live-only; restore requires checkpoint metadata projection by
+your AG-UI bridge. See the [API recipes](/docs/api/langgraph#plain-langgraph-tool-activity)
+for the Python public hook, version constraints and the JavaScript private-hook caveat.
+
 ## Fixed-group versioning
 
 Every publishable B4.run package (`@b4run/cli`, `@b4run/core`, `@b4run/sdk`, the other `@b4run/*` packages and `create-b4-app`) is released together under one version number, using [Changesets](https://github.com/changesets/changesets)' fixed-group mode. If `@b4run/cli` is at `0.10.0`, so is every other package in that release. You don't need a compatibility matrix. Install matching versions and you're done.
