@@ -1143,25 +1143,16 @@ function assertResumedGatedJourney(
   expect(toolCallId).toBe(gatedToolCallId)
   const correlated = events.filter((event) => event.toolCallId === toolCallId)
   const argEvents = correlated.filter((event) => event.type === "TOOL_CALL_ARGS")
-  expect(argEvents.length).toBeGreaterThan(0)
+  // The initial gated journey already pins the complete argument JSON. A
+  // checkpoint replay reuses that call without changing its parent or appending
+  // a second copy of the arguments to the client's existing history.
+  expect(starts[0]).not.toHaveProperty("parentMessageId")
+  expect(argEvents).toEqual([])
   expect(correlated.map((event) => event.type)).toEqual([
     "TOOL_CALL_START",
-    ...argEvents.map(() => "TOOL_CALL_ARGS"),
     "TOOL_CALL_END",
     "TOOL_CALL_RESULT",
   ])
-  const encodedArgs = argEvents
-    .map((event) => {
-      if (typeof event.delta !== "string") {
-        throw new Error("Resumed fileFlightPlan args delta was not a string")
-      }
-      return event.delta
-    })
-    .join("")
-  // No ToolNode {input} wrapper: tool input types resolve through the app's
-  // tsconfig (#759), so fileFlightPlan's schema is `{ flightPlan }` and the
-  // resumed call replays the model's parsed args as-is, matching the gated run.
-  expect(JSON.parse(encodedArgs)).toEqual({ flightPlan: FLIGHT_PLAN })
 
   const toolResult = correlated.find((event) => event.type === "TOOL_CALL_RESULT")
   if (toolResult === undefined || typeof toolResult.content !== "string") {
