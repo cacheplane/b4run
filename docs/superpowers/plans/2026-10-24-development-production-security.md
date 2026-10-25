@@ -14,7 +14,10 @@ Main: `014918499a9093852f045d3a477cf77dd53ac8d8`. Full audit: 26 high,
 45 moderate, 13 low, zero critical. Production: 12 moderate, three low,
 zero high/critical. Raw reports are retained under
 `/private/tmp/b4run-security-followup-baseline-{full,production}.json`.
-User changes in the original checkout must remain untouched.
+User changes in the original checkout must remain untouched. Concurrent main
+`2ef24c2453b031e068e99ced4cc57355f49e63d6` subsequently adds LangGraph
+helpers and prepares 0.15.3; integrate and qualify it while preserving those
+versions and source changes.
 
 | Dependency | Intended supported target | Required owner qualification |
 | --- | --- | --- |

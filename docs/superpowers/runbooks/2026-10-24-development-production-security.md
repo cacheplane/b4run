@@ -5,6 +5,12 @@ after the immutable 0.15.2 release. It addresses the remaining high development
 and moderate production advisories. The original checkout's existing edits are
 preserved; implementation uses an isolated, previously clean worktree.
 
+Concurrent main `2ef24c2453b031e068e99ced4cc57355f49e63d6` adds LangGraph
+helpers and prepares 0.15.3. It is integrated without conflicts, preserving its
+source, changelogs, chart versions, package versions and new lockfile importer
+edge. The combined frozen install passes and both audit JSON hashes below are
+unchanged. Hosted qualification applies to that combined tree.
+
 ## Audit evidence
 
 | Selection | Baseline | Remediated frozen graph |
@@ -17,7 +23,7 @@ The full audit SHA-256 is
 The production audit SHA-256 is
 `59de95ef22c1d2b6e921ca42d171455ee756b6cafd76c1cad4e4645d223c334a`.
 The final lock SHA-256 is
-`22412f0783468365aff75260071cfe9e905bf6ae72b5d64eeccdcc6968d5e5bd`.
+`5f1c731f7360221e9286a9a41680934321000ca33850064c69be95e9b6685a3a`.
 
 Raw baseline and final audit JSON, exact registry metadata, rejected resolver
 output, owner graph and red/green logs are retained as
@@ -48,7 +54,7 @@ root policies do not impose dependency resolution on independent consumers.
 | Private CopilotKit runtime | Express qs 6.16.1, rate-limiter ip-address 10.7.5, pino-pretty fast-copy 3.1.0 and AJV fast-uri 3.1.9 |
 
 Directly owned development manifests and the factory target's test manifest are
-aligned with Vitest 4.1.12. Published package versions remain 0.15.2; these
+aligned with Vitest 4.1.12. Concurrent main's package versions remain 0.15.3; these
 changes affect repository tooling and private integration resolution. They do
 not replace any immutable published package or constitute a new npm release.
 
