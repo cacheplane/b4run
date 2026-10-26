@@ -1,5 +1,14 @@
 # @b4run/postgres-storage
 
+## 0.15.5
+
+### Patch Changes
+
+- 9e8e99e: Coordinate concurrent runs and browser-tool continuations across generated Postgres-backed runtime instances. Add request-owned run admission, expiring owner tokens and transactional storage fencing, reject competing work with a retryable conflict, and release ownership only after execution cleanup before exposing successful terminal events.
+- Updated dependencies [9e8e99e]
+  - @b4run/sdk@0.15.5
+  - @b4run/permissions@0.15.5
+
 ## 0.15.4
 
 ### Patch Changes
