@@ -252,6 +252,15 @@ The `/fetch` handler has no filesystem fallback for its module map or its requir
 {/* api-behavior-authorities: [{"kind":"source-ast","file":"packages/cli/src/lib/dev/runtime-fetch-core.ts","selector":"CLOSE_DRAIN_DEADLINE_MS"},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["builds and disposes stores once per request, never reusing them"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["disposes only AFTER an SSE body finishes, not when fetch resolves"]},{"kind":"test-assertion","file":"packages/cli/test/request-stores.test.ts","testNames":["close() does not return while a store disposal is still in flight"]},{"kind":"test-assertion","file":"packages/cli/test/runtime-fetch-parity.test.ts","testNames":["close() with an entirely unread SSE body warns after the drain deadline and proceeds"]}] */}
 A requestStores factory creates and disposes stores per request. Disposal waits for an SSE body to finish. close() waits for in-flight disposal while its bounded shutdown drain remains open; after the 30-second default deadline it warns and proceeds.
 
+### Shared run admission
+
+`RequestStores.runAdmission` coordinates one request's thread ownership across
+handlers. Construct injected checkpoint, thread, permission and client-tool stores
+from the admission's fenced pool. Disposal waits for both the response body and
+actual execution, including work that outlives an abandoned or cancelled response.
+Successful terminal frames are sent after final persistence and ownership release.
+See [shared Postgres admission](/docs/api/postgres-storage#shared-run-admission).
+
 ### Disposable managed execution
 
 `withWorkspace(options, callback)` captures `options.workspace` relative to

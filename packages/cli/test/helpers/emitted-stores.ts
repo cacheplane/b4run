@@ -301,7 +301,21 @@ export async function writePostgresStorageStub(
   appRoot: string,
   mainSource: string = POSTGRES_STORAGE_STUB,
 ): Promise<void> {
-  await writeStubPackage(appRoot, "@b4run/postgres-storage", mainSource, {
+  const admissionStub = /export\s+(?:function|const)\s+createPostgresRunAdmission\b/.test(
+    mainSource,
+  )
+    ? ""
+    : `
+export const createPostgresRunAdmission = (options) => ({
+  pool: options.pool,
+  signal: new AbortController().signal,
+  ready: async () => {},
+  tryAcquire: async () => true,
+  release: async () => {},
+  close: async () => {},
+})
+`
+  await writeStubPackage(appRoot, "@b4run/postgres-storage", mainSource + admissionStub, {
     ".": "./index.mjs",
     "./node": "./node.mjs",
   })

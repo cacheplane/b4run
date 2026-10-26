@@ -666,7 +666,7 @@
         "stepIndex": 6,
         "step": "Real-Postgres Agent Protocol pending-interrupts tests",
         "kind": "run",
-        "value": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint"
+        "value": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint shared-run-admission-postgres"
       },
       {
         "classification": "safe",

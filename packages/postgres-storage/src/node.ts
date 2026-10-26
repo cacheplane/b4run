@@ -27,6 +27,11 @@ import {
   type PostgresPermissionsStore,
   type PostgresPermissionsStoreOptions,
 } from "./permissions.js"
+import {
+  createPostgresRunAdmission as baseCreateRunAdmission,
+  type PostgresRunAdmission,
+  type PostgresRunAdmissionOptions,
+} from "./run-admission.js"
 import type { SqlPool } from "./sql.js"
 import {
   createPostgresThreadsStore as baseCreateThreadsStore,
@@ -133,6 +138,19 @@ export function createPostgresClientToolCallStore(
   options: NodePostgresStoreOptions = {},
 ): PostgresClientToolCallStore {
   return baseCreateClientToolCallStore({ ...options, ...poolFor(options) })
+}
+
+/** Admission options with a Node connection-string convenience. */
+export interface NodePostgresRunAdmissionOptions extends PostgresRunAdmissionOptions {
+  /** Connection string used only when no pool is supplied. */
+  readonly connectionString?: string
+}
+
+/** Build shared request ownership, optionally from a connection string. */
+export function createPostgresRunAdmission(
+  options: NodePostgresRunAdmissionOptions = {},
+): PostgresRunAdmission {
+  return baseCreateRunAdmission({ ...options, ...poolFor(options) })
 }
 
 export * from "./index.js"

@@ -537,8 +537,8 @@ jobs:
     needs: metadata_scope
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.metadata_scope.result != 'success' || needs.metadata_scope.outputs.prose_only != 'true') }}
     runs-on: ubuntu-latest
-    # Five test files (four in @b4run/postgres-storage, one in @b4run/cli)
-    # each start their own postgres:16 container, and a cold runner also pulls
+    # Postgres store, grant, and cross-handler admission suites start their
+    # own postgres:16 containers, and a cold runner also pulls
     # the image. 30 minutes leaves headroom for a slow pull plus the
     # per-container startup timeout without masking a hung suite.
     timeout-minutes: 30
@@ -589,7 +589,7 @@ jobs:
         # (`passWithNoTests` is false by default in vitest 4), and a suite that
         # matches but skips is caught by the "gated Postgres lane" self-check in
         # the test file — vitest has no fail-on-skipped flag to do it from here.
-        run: B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint
+        run: B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint shared-run-admission-postgres
 
   growth-db-docker:
     needs: metadata_scope

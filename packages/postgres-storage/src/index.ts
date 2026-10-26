@@ -22,6 +22,8 @@ export type {
   PostgresPermissionsStoreOptions,
 } from "./permissions.js"
 export { createPostgresPermissionsStore } from "./permissions.js"
+export type { PostgresRunAdmission, PostgresRunAdmissionOptions } from "./run-admission.js"
+export { createPostgresRunAdmission } from "./run-admission.js"
 export {
   assertIdentifier,
   DEFAULT_SCHEMA,

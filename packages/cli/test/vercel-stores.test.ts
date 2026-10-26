@@ -274,3 +274,45 @@ export const postgresCheckpointer = () => store
     })
   })
 })
+
+test("generated Postgres stores share a fenced admission pool and close ownership before the raw pool", async () => {
+  const appRoot = await createFixtureApp()
+  const runtimeDir = await emitRuntime(appRoot, "vercel")
+
+  const observed = await driveEmittedStores(appRoot, runtimeDir, [{ DATABASE_URL: LOCAL_URL }], {
+    cliStub: NO_PROXY_RUNTIME_ENV_STUB,
+    report: "{ events }",
+    reportImports: 'import { events } from "@b4run/postgres-storage"',
+    storageStub: `export const events = []
+const fenced = { fenced: true }
+export function createPostgresRunAdmission(options) {
+  events.push("admission")
+  return { pool: fenced, ready: async () => events.push("ready:admission"), close: async () => events.push("close:beforePoolEnd:" + options.pool.ended) }
+}
+const factory = (name) => (options) => {
+  events.push(name + ":fenced:" + (options.pool === fenced))
+  return { ready: async () => events.push("ready:" + name) }
+}
+export const postgresCheckpointer = factory("checkpointer")
+export const createPostgresClientToolCallStore = factory("clientTools")
+export const createPostgresPermissionsStore = factory("permissions")
+export const createPostgresThreadsStore = factory("threads")
+`,
+  })
+
+  expect(observed).toEqual({
+    events: [
+      "admission",
+      "checkpointer:fenced:true",
+      "clientTools:fenced:true",
+      "permissions:fenced:true",
+      "threads:fenced:true",
+      "ready:admission",
+      "ready:checkpointer",
+      "ready:clientTools",
+      "ready:permissions",
+      "ready:threads",
+      "close:beforePoolEnd:false",
+    ],
+  })
+})
