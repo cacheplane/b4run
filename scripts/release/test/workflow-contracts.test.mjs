@@ -144,8 +144,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for separate bounded pagination and HTTP request deadlines.
 // Repinned for the incident-pinned 0.15.3 Git-only terminal record and its
 // explicit exclusion from Release tombstone paths; workflow topology is unchanged.
+// Repinned for the current GitHub API revision on all-attempt jobs inventories.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "f3b52086f2c4578686c835872794dd9388121dbbbfd7fd5f4f2c86124fce1835"
+  "7d4cb62c99d635711fe60597604a5e758368812a685a1cc36930cc328bb5aec8"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
