@@ -1,5 +1,14 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
@@ -925,14 +934,22 @@ async function assertEdgeImport(artifact: ImportArtifact): Promise<void> {
   expect(hazards.unresolvedLoads, `${addressFor(artifact)} has computed runtime loads`).toEqual([])
 }
 
+/** Resolve filesystem aliases before enforcing package ownership boundaries. */
+async function canonicalGraphInputs(metafile: Metafile): Promise<string[]> {
+  return Promise.all(
+    Object.keys(metafile.inputs)
+      .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
+      .map((input) => realpath(resolve(packageFixtureRoot, input))),
+  )
+}
+
 async function assertDependencyFree(artifact: ImportArtifact): Promise<void> {
   const metafile = await browserGraph(artifact)
   expect(runtimeDependencyEdges(metafile), addressFor(artifact)).toEqual([])
-  const ownerRoot = `${await packageDirectory(artifact.packageName)}/`
-  const foreignInputs = Object.keys(metafile.inputs)
-    .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
-    .map((input) => resolve(packageFixtureRoot, input))
-    .filter((input) => !input.startsWith(ownerRoot))
+  const ownerRoot = `${await realpath(await packageDirectory(artifact.packageName))}/`
+  const foreignInputs = (await canonicalGraphInputs(metafile)).filter(
+    (input) => !input.startsWith(ownerRoot),
+  )
   expect(foreignInputs, addressFor(artifact)).toEqual([])
   expect((await analyzeGraphInputs(metafile)).unresolvedLoads, addressFor(artifact)).toEqual([])
 }
@@ -1507,12 +1524,11 @@ describe("API reference compatibility guards", () => {
 
     const graph = await browserGraph(workspaceRoot as ImportArtifact)
     expect(runtimeDependencyEdges(graph)).toEqual([])
-    const workspaceRootDirectory = `${await packageDirectory("@b4run/workspace")}/`
+    const workspaceRootDirectory = `${await realpath(await packageDirectory("@b4run/workspace"))}/`
     expect(
-      Object.keys(graph.inputs)
-        .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
-        .map((input) => resolve(packageFixtureRoot, input))
-        .filter((input) => !input.startsWith(workspaceRootDirectory)),
+      (await canonicalGraphInputs(graph)).filter(
+        (input) => !input.startsWith(workspaceRootDirectory),
+      ),
     ).toEqual([])
   })
 
@@ -1582,12 +1598,9 @@ describe("API reference compatibility guards", () => {
 
       const graph = await browserGraph(artifact as ImportArtifact)
       expect(runtimeDependencyEdges(graph), address).toEqual([])
-      const langgraphRoot = `${await packageDirectory("@b4run/langgraph")}/`
+      const langgraphRoot = `${await realpath(await packageDirectory("@b4run/langgraph"))}/`
       expect(
-        Object.keys(graph.inputs)
-          .filter((input) => !input.endsWith("api-reference-boundary.mjs"))
-          .map((input) => resolve(packageFixtureRoot, input))
-          .filter((input) => !input.startsWith(langgraphRoot)),
+        (await canonicalGraphInputs(graph)).filter((input) => !input.startsWith(langgraphRoot)),
         address,
       ).toEqual([])
     }
