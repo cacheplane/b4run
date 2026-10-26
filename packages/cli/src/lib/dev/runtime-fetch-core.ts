@@ -74,7 +74,6 @@ import {
   resolveRecordsServerCalls,
   validateClientToolStore,
 } from "./client-tool-runtime.js"
-import type { CorsConfig } from "./cors.js"
 import { applyCorsHeaders, corsPreflightResponse, resolveCorsPolicy } from "./cors.js"
 import { createLiveTurnHub, type LiveTurnHub, type LiveTurnProducer } from "./live-turn-hub.js"
 import {
@@ -99,6 +98,13 @@ import {
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
 import { AGUI_BODY_MAX_BYTES } from "./request-limits.js"
+import {
+  bindRequestRunAdmission,
+  claimRequestRun,
+  forgetRequestRunAdmission,
+  releaseRequestRun,
+  requestRunAdmission,
+} from "./request-run-admission.js"
 import { validateClientForwardedProps } from "./run-envelope.js"
 import { createRunRegistry, type RunRegistry } from "./run-registry.js"
 import { errorStackOf, formatErrorChain } from "./runtime-error-report.js"
@@ -404,6 +410,8 @@ async function awaitReady(store: unknown): Promise<void> {
  * and any run slot the request's route work still holds.
  */
 interface RequestLifetime {
+  readonly request: Request
+  removeAdmissionListener?: () => void
   readonly stores: RequestStores
   /**
    * Why `stores` is empty when the factory was supposed to fill it — set only
@@ -933,17 +941,24 @@ export async function createRuntimeFetchHandler(
       // `close()` can no longer stop, so the drain would sit on it until the
       // deadline instead of unwinding promptly.
       if (lifetime.shutdownController) liveShutdownControllers.delete(lifetime.shutdownController)
+      lifetime.removeAdmissionListener?.()
       const dispose = lifetime.stores.dispose
-      if (!dispose) return
       const running = (async () => {
         try {
-          await dispose()
+          try {
+            await releaseRequestRun(lifetime.request)
+          } finally {
+            await dispose?.()
+          }
         } catch {
           // Teardown must never turn a served response into a failure.
         }
       })()
       pendingDisposals.add(running)
-      void running.finally(() => pendingDisposals.delete(running))
+      void running.finally(() => {
+        pendingDisposals.delete(running)
+        forgetRequestRunAdmission(lifetime.request)
+      })
     }
 
     const settleBody = (lifetime: RequestLifetime | undefined): void => {
@@ -976,6 +991,15 @@ export async function createRuntimeFetchHandler(
       if (!controller) {
         controller = new AbortController()
         lifetime.shutdownController = controller
+        const admission = requestRunAdmission(request)
+        if (admission) {
+          const ownedController = controller
+          const lost = () => ownedController.abort(admission.signal.reason)
+          if (admission.signal.aborted) lost()
+          else admission.signal.addEventListener("abort", lost, { once: true })
+          lifetime.removeAdmissionListener = () =>
+            admission.signal.removeEventListener("abort", lost)
+        }
         if (shutdownReason) controller.abort(shutdownReason)
         else if (!lifetime.settled) liveShutdownControllers.add(controller)
       }
@@ -1015,6 +1039,7 @@ export async function createRuntimeFetchHandler(
               if (released) return
               released = true
               lifetime.pendingRuns--
+              if (lifetime.pendingRuns === 0) void releaseRequestRun(request).catch(() => undefined)
               maybeSettle(lifetime)
             },
             signal: handle.signal,
@@ -1202,7 +1227,9 @@ export async function createRuntimeFetchHandler(
             stores = await options.requestStores(request)
           }
         }
+        bindRequestRunAdmission(request, stores.runAdmission)
         lifetime = {
+          request,
           bodySettled: false,
           pendingRuns: 0,
           settled: false,
@@ -1942,6 +1969,8 @@ export function buildRouteTable(ctx: {
         // invariant, so it is the natural place to answer from, and its slot is
         // held across every settle — including the /runs/wait arms that defer
         // their release until an abandoned route unwinds.
+        const sharedConflict = await claimRequestRun(request, threadId)
+        if (sharedConflict) return sharedConflict
         if (getRunRegistry(request).has(threadId)) {
           return Response.json(
             createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
@@ -2390,6 +2419,8 @@ export function buildRouteTable(ctx: {
         // started meanwhile is the ordinary 409, a DELETE is refused, a cancel aborts the
         // read, and shutdown drains it. After the gate, so a 409 never tells an
         // unauthorized caller the thread is busy.
+        const sharedConflict = await claimRequestRun(request, threadId)
+        if (sharedConflict) return sharedConflict
         const slot = getRunRegistry(request).begin(threadId, getShutdownSignal(request))
         if (!slot)
           return Response.json(
@@ -2785,6 +2816,8 @@ async function handleApStreamRequest(options: {
     })
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
+    const sharedConflict = await claimRequestRun(request, threadId)
+    if (sharedConflict) return sharedConflict
     if (!thread) {
       // No row under this client-chosen id, so any staged workspace recorded for it is
       // stale (its thread was deleted behind the runtime's back since the boot sweep):
@@ -2805,6 +2838,8 @@ async function handleApStreamRequest(options: {
   // Hook-less only: the policied path created its row above, stamped and
   // re-authorized. PR A's contract is that an app with no policy file behaves
   // exactly as it did, and this line is what that means here.
+  const sharedConflict = await claimRequestRun(request, threadId)
+  if (sharedConflict) return sharedConflict
   if (!thread) {
     sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
@@ -2979,7 +3014,8 @@ async function handleApStreamRequest(options: {
             sourceCleanup = p
           })) {
             if (chunk.type === "interrupt") sawInterrupt = true
-            safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+            if (chunk.type !== "done" || !requestRunAdmission(request))
+              safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
             // The terminal is never published to the digest — it is delivered
             // exactly once, via `close` in the `finally` below, so a live
             // subscriber never sees it twice (once from the digest tail, once
@@ -3036,6 +3072,10 @@ async function handleApStreamRequest(options: {
             threadId,
             terminalStatus({ cancelled: false, sawInterrupt }),
           )
+          if (requestRunAdmission(request)) await sourceCleanup
+          await releaseRequestRun(request)
+          if (requestRunAdmission(request) && terminalChunk)
+            safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
         } catch (error) {
           // A cancelled run is not a failure: clients must be able to tell the
           // two apart without inferring it from a truncated stream.
@@ -3086,7 +3126,7 @@ async function handleApStreamRequest(options: {
                   error: run.cancelled ? undefined : readTerminalError(terminalChunk),
                 })
               : undefined
-          if (turnEnd && !run.cancelled)
+          if (turnEnd && !run.cancelled && !(requestRunAdmission(request) && sourceCleanup))
             await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
           else deferredTurnEnd = turnEnd
           await threadsStore
@@ -3113,7 +3153,7 @@ async function handleApStreamRequest(options: {
               notBefore: anchorCheckpointId,
             })
         }
-        if (run.cancelled && sourceCleanup) {
+        if (sourceCleanup && (run.cancelled || requestRunAdmission(request))) {
           // The abort stopped us CONSUMING the route, not the route itself:
           // abortableAsyncIterable wins a race against iterator.next(), and a
           // generator suspended at a non-abortable await keeps going until that
@@ -3263,6 +3303,8 @@ async function handleApWaitRequest(options: {
     })
     const settled = isThenable(g) ? await g : g
     if (!settled.ok) return settled.response
+    const sharedConflict = await claimRequestRun(request, threadId)
+    if (sharedConflict) return sharedConflict
     if (!thread) {
       // No row under this client-chosen id, so any staged workspace recorded for it is
       // stale (its thread was deleted behind the runtime's back since the boot sweep):
@@ -3281,6 +3323,8 @@ async function handleApWaitRequest(options: {
   }
 
   // Hook-less only — see the same line in handleApStreamRequest.
+  const sharedConflict = await claimRequestRun(request, threadId)
+  if (sharedConflict) return sharedConflict
   if (!thread) {
     sandboxManager?.forgetStagedWorkspace(threadId)
     thread = await threadsStore.createThread({ thread_id: threadId })
@@ -3603,6 +3647,7 @@ async function handleApWaitRequest(options: {
     // BigInt just as easily. Those reached the outer catch as the same opaque
     // "Unexpected runtime server failure" this fix exists to remove, so name
     // the cause and the route instead of letting the run look like a crash.
+    await releaseRequestRun(request)
     try {
       return Response.json(result.output ?? null, { status: 200 })
     } catch (error) {
@@ -3658,9 +3703,9 @@ async function handleApWaitRequest(options: {
           // Hold the slot until the abandoned route genuinely finishes rather
           // than freeing it the instant the 409 is decided, or a newly admitted
           // run would interleave checkpoint writes with it.
-          if (abandoned) run.release()
+          if (abandoned || requestRunAdmission(request)) run.release()
         })
-      if (!abandoned) run.release()
+      if (!abandoned && !requestRunAdmission(request)) run.release()
     } else {
       run.release()
     }
@@ -4358,6 +4403,9 @@ async function handleResumeRequest(options: {
     if (!settled.ok) return settled.response
   }
 
+  const sharedConflict = await claimRequestRun(request, threadId)
+  if (sharedConflict) return sharedConflict
+
   const releaseResumeClaim = resumeClaims.tryClaim(threadId)
   if (!releaseResumeClaim) {
     return Response.json(
@@ -4453,14 +4501,6 @@ async function handleResumeRequest(options: {
     // step 5; they are swapped here. That only moves the grant check LATER,
     // which is strictly less oracle surface, and it means a grant is never
     // checked against a resume body whose shape has not been validated.
-    const refusedByGrant = await gateResumeWithGrants({
-      grants: approvalGrants,
-      threadId,
-      pending: pendingInterrupts.interrupts,
-      entries: body.resume,
-      ...consumedByOf(request),
-    })
-    if (refusedByGrant) return refusedByGrant
 
     const requestUrl = new URL(request.url)
     const mwRequest: MiddlewareRequest = {
@@ -4477,6 +4517,15 @@ async function handleResumeRequest(options: {
     if (mwResult.action === "reject") {
       return statusResponse(mwResult.status, mwResult.body)
     }
+
+    const refusedByGrant = await gateResumeWithGrants({
+      grants: approvalGrants,
+      threadId,
+      pending: pendingInterrupts.interrupts,
+      entries: body.resume,
+      ...consumedByOf(request),
+    })
+    if (refusedByGrant) return refusedByGrant
 
     // Claim the thread's run slot before mutating its busy status. A rejected
     // request must not clobber state for the run genuinely in flight.
@@ -4579,7 +4628,8 @@ async function handleResumeRequest(options: {
               sourceCleanup = p
             })) {
               if (chunk.type === "interrupt") sawInterrupt = true
-              safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+              if (chunk.type !== "done" || !requestRunAdmission(request))
+                safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
               // See handleApStreamRequest: the terminal is never published to
               // the digest — `close` in the `finally` delivers it exactly once.
               if (chunk.type === "done") terminalChunk = chunk
@@ -4630,6 +4680,10 @@ async function handleResumeRequest(options: {
               threadId,
               terminalStatus({ cancelled: false, sawInterrupt }),
             )
+            if (requestRunAdmission(request)) await sourceCleanup
+            await releaseRequestRun(request)
+            if (requestRunAdmission(request) && terminalChunk)
+              safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
           } catch (error) {
             // A cancelled run is not a failure: clients must be able to tell the
             // two apart without inferring it from a truncated stream.
@@ -4674,7 +4728,7 @@ async function handleResumeRequest(options: {
                     error: run.cancelled ? undefined : readTerminalError(terminalChunk),
                   })
                 : undefined
-            if (turnEnd && !run.cancelled)
+            if (turnEnd && !run.cancelled && !(requestRunAdmission(request) && sourceCleanup))
               await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
             else deferredTurnEnd = turnEnd
             await threadsStore
@@ -4698,7 +4752,7 @@ async function handleResumeRequest(options: {
                 notBefore: anchorCheckpointId,
               })
           }
-          if (run.cancelled && sourceCleanup) {
+          if (sourceCleanup && (run.cancelled || requestRunAdmission(request))) {
             // Stamp after the unwind, then release — see handleApStreamRequest.
             void sourceCleanup
               .then(stampDeferredTurnEnd, stampDeferredTurnEnd)

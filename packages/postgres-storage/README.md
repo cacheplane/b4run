@@ -44,22 +44,7 @@ same values to the checkpointer, threads store and permissions store. Apps built
 
 Migrations are memoized per store instance. An injected pool remains caller-owned unless `ownsPool: true`; a pool created by the Node entry is store-owned. Close stores and caller-owned pools during application shutdown.
 
-## Related
-
-- [Postgres Storage API reference](https://b4.run/docs/api/postgres-storage) — exact options, stores, and lifecycle.
-- [Persistence and Tenancy](https://b4.run/docs/persistence) — application configuration and deployment guidance.
-- [`@b4run/sqlite-storage`](https://www.npmjs.com/package/@b4run/sqlite-storage) — local SQLite persistence.
-- [`@b4run/permissions`](https://www.npmjs.com/package/@b4run/permissions) — permission-store contracts.
-
-## Maturity and support
-
-B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/postgres-storage` changelog](https://github.com/cacheplane/b4run/blob/main/packages/postgres-storage/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
-
-## License
-
-MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).
-
-### Request-scoped run admission
+## Request-scoped run admission
 
 `createPostgresRunAdmission({ pool })` coordinates ownership of one thread across
 replicas. Create one instance per request, initialize its `ready()` method, and
@@ -89,7 +74,71 @@ pass data through these parameters. Dollar signs other than positional parameter
 markers and backslashes in the SQL text are rejected, including dollar-quoted
 strings and dollar-bearing identifiers. Bound values may contain these characters.
 This deliberately limited SQL subset serves the runtime stores; it is not an
-arbitrary SQL execution interface. Complete these transactions around individual storage
-operations; do not hold them through model generation. A synchronous client
+arbitrary SQL execution interface. Complete these transactions around individual
+storage operations; do not hold them through model generation. A synchronous client
 `release()` finishes rollback before making the underlying connection available
 for reuse. Released or lost admissions never resume unfenced access.
+
+
+For a custom Node fetch embedding, return the admission with its fenced stores
+from `requestStores`. Migrate **all** stores before the first claim, because active
+fencing deliberately rejects multi-statement migration batches. The runtime then
+claims after authorization and finalizes ownership after actual execution cleanup.
+Generated Vercel/Hono output supplies this wiring automatically.
+
+```ts
+import {
+  createPostgresClientToolCallStore,
+  createPostgresPermissionsStore,
+  createPostgresPool,
+  createPostgresRunAdmission,
+  createPostgresThreadsStore,
+  postgresCheckpointer,
+} from "@b4run/postgres-storage/node"
+
+const requestStores = async () => {
+  const pool = createPostgresPool({ connectionString: process.env.DATABASE_URL })
+  try {
+    const runAdmission = createPostgresRunAdmission({ pool })
+    const naming = { pool: runAdmission.pool }
+    const stores = {
+      checkpointer: postgresCheckpointer(naming),
+      clientToolStore: createPostgresClientToolCallStore(naming),
+      permissionsStore: createPostgresPermissionsStore(naming),
+      threadsStore: createPostgresThreadsStore(naming),
+    }
+    await Promise.all([runAdmission.ready(), ...Object.values(stores).map((store) => store.ready())])
+    return {
+      ...stores,
+      runAdmission,
+      dispose: async () => {
+        try { await runAdmission.close() } finally { await pool.end() }
+      },
+    }
+  } catch (error) {
+    await pool.end()
+    throw error
+  }
+}
+```
+
+This fences the injected checkpoint, thread, permission, and client-tool stores.
+Separately configured memory and boot-owned approval-grant stores are not wrapped.
+The existing managed-workspace restriction on `requestStores` remains in place.
+The process-local run registry remains the default for embeddings without shared
+admission; sharing Postgres data alone does not provide execution exclusion.
+
+## Related
+
+- [Postgres Storage API reference](https://b4.run/docs/api/postgres-storage) — exact options, stores, and lifecycle.
+- [Persistence and Tenancy](https://b4.run/docs/persistence) — application configuration and deployment guidance.
+- [`@b4run/sqlite-storage`](https://www.npmjs.com/package/@b4run/sqlite-storage) — local SQLite persistence.
+- [`@b4run/permissions`](https://www.npmjs.com/package/@b4run/permissions) — permission-store contracts.
+
+## Maturity and support
+
+B4.run is pre-1.0, and its public surface can change. All publishable B4.run packages release together as a fixed group; review the [`@b4run/postgres-storage` changelog](https://github.com/cacheplane/b4run/blob/main/packages/postgres-storage/CHANGELOG.md) and [upgrading guide](https://b4.run/docs/upgrading) before upgrading. For support, use [GitHub Discussions](https://github.com/cacheplane/b4run/discussions); report defects in [GitHub Issues](https://github.com/cacheplane/b4run/issues).
+
+## License
+
+MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).

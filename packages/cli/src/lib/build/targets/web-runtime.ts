@@ -225,6 +225,7 @@ import {
 } from "@b4run/cli/fetch"
 import {
   createPostgresClientToolCallStore,
+  createPostgresRunAdmission,
   createPostgresPermissionsStore,
   createPostgresThreadsStore,
   postgresCheckpointer,
@@ -541,11 +542,15 @@ export async function createRequestStores(env) {
   try {
     const namespace = \`\${hashDatabase(databaseUrl)}:\${schema}.\${tablePrefix}\`
     const assumeMigrated = migrated.has(namespace)
-    const naming = { pool, assumeMigrated, schema, tablePrefix }
+    const runAdmission = createPostgresRunAdmission({ pool, assumeMigrated, schema, tablePrefix })
+    const naming = { pool: runAdmission.pool, assumeMigrated, schema, tablePrefix }
     const stores = {
       checkpointer: postgresCheckpointer(naming),
       clientToolStore: createPostgresClientToolCallStore(naming),
-      dispose: () => pool.end(),
+      dispose: async () => {
+        try { await runAdmission.close() } finally { await pool.end() }
+      },
+      runAdmission,
       permissionsStore: createPostgresPermissionsStore(naming),
       threadsStore: createPostgresThreadsStore(naming),
     }
@@ -555,6 +560,7 @@ export async function createRequestStores(env) {
       // \`ready()\` exists for; this flag only skips a pass already known to
       // have completed, it never runs a migration unlocked.
       await Promise.all([
+        runAdmission.ready(),
         stores.checkpointer.ready(),
         stores.clientToolStore.ready(),
         stores.permissionsStore.ready(),

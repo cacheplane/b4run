@@ -9,25 +9,25 @@
 **Tech Stack:** TypeScript, existing pg/Neon structural SqlPool, Vitest, existing disposable Postgres/Testcontainers, pnpm/Turbo.
 
 ## Task 1: Storage ownership and fencing
-- [ ] Add failing `packages/postgres-storage/test/run-admission.test.ts` cases for two pools, expiry, takeover, owner-fenced writes/transactions, safe release and renewal.
-- [ ] Run and confirm expected failures.
-- [ ] Define `RequestRunAdmission` in `packages/sdk/src/run-admission.ts`, export it from sdk.
-- [ ] Implement `packages/postgres-storage/src/run-admission.ts` plus focused internal fenced-pool helper; add migration in the admission module through existing runMigrations component convention.
-- [ ] Export constructor/types from main and node entries, without new dependencies. Run storage/SDK build, tests, lint, typecheck and real PG cases.
+- [x] Add failing `packages/postgres-storage/test/run-admission.test.ts` cases for two pools, expiry, takeover, owner-fenced writes/transactions, safe release and renewal.
+- [x] Run and confirm expected failures.
+- [x] Define `RequestRunAdmission` in `packages/sdk/src/run-admission.ts`, export it from sdk.
+- [x] Implement `packages/postgres-storage/src/run-admission.ts` plus focused internal fenced-pool helper; add migration in the admission module through existing runMigrations component convention.
+- [x] Export constructor/types from main and node entries, without new dependencies. Run storage/SDK build, tests, lint, typecheck and real PG cases.
 
 ## Task 2: Runtime admission and release
-- [ ] Add failing shared-handler tests in `packages/cli/test/shared-run-admission.test.ts`, using existing runtime fixtures.
-- [ ] Extend `RequestStores` and add `packages/cli/src/lib/dev/request-run-admission.ts` for weak request binding and conflict responses.
-- [ ] Bind/unbind request admissions in `runtime-fetch-core.ts`. Compose ownership loss into request shutdown signals.
-- [ ] Claim after policy authorization before decisions in `agui-handler.ts` and AP run/state-mutation handlers.
-- [ ] Await normal execution/admission release before closing successful responses; keep admission until detached work settles on cancellation/abandonment. Dispose as fallback.
-- [ ] Verify local callers still pass with no admission configured; add denial, crash/error, immediate continuation and deferred-cleanup coverage.
+- [x] Add failing shared-handler tests in `packages/cli/test/shared-run-admission.test.ts`, using existing runtime fixtures.
+- [x] Extend `RequestStores` and add `packages/cli/src/lib/dev/request-run-admission.ts` for weak request binding and conflict responses.
+- [x] Bind/unbind request admissions in `runtime-fetch-core.ts`. Compose ownership loss into request shutdown signals.
+- [x] Claim after policy authorization before decisions in `agui-handler.ts` and AP run/state-mutation handlers.
+- [x] Await normal execution/admission release before closing successful responses; keep admission until detached work settles on cancellation/abandonment. Dispose as fallback.
+- [x] Verify local callers still pass with no admission configured; add denial, crash/error, immediate continuation and deferred-cleanup coverage.
 
 ## Task 3: Generated wiring and documentation
-- [ ] Add failing build-output tests for admission constructor, fenced pool on all stores, readiness and disposal.
-- [ ] Modify `packages/cli/src/lib/build/targets/web-runtime.ts` to create request admission and bind its pool to every request store. Await close before pool.end; include migration readiness.
-- [ ] Document manual requestStores wiring and boundaries in postgres-storage README and deployment docs; add patch changeset for SDK/storage/CLI fixed group.
-- [ ] Review spec compliance, then code quality. Resolve issues before proceeding.
+- [x] Add failing build-output tests for admission constructor, fenced pool on all stores, readiness and disposal.
+- [x] Modify `packages/cli/src/lib/build/targets/web-runtime.ts` to create request admission and bind its pool to every request store. Await close before pool.end; include migration readiness.
+- [x] Document manual requestStores wiring and boundaries in postgres-storage README and deployment docs; add patch changeset for SDK/storage/CLI fixed group.
+- [x] Review spec compliance, then code quality. Resolve issues before proceeding.
 
 ## Task 4: Validation and handoff
 - [ ] Run repository required source, release integrity, docs, pack and harness gates, plus disposable Postgres integration.

@@ -9,6 +9,7 @@ import type {
   AuthDefinition,
   B4Middleware,
   ClientToolCallStore,
+  RequestRunAdmission,
   ThreadAccessPolicy,
 } from "@b4run/sdk"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
@@ -31,6 +32,8 @@ export interface RuntimeServer {
  * boot-resolved store (or fails loudly, if this runtime has neither).
  */
 export interface RequestStores {
+  /** Shared request-owned admission; release follows actual execution, not headers. */
+  readonly runAdmission?: RequestRunAdmission
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   readonly permissionsStore?: PermissionsStore

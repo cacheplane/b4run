@@ -101,3 +101,19 @@ B4.run is pre-1.0, and its public surface can change. All publishable B4.run pac
 ## License
 
 MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).
+
+## Shared Postgres execution
+
+Generated Vercel and Hono Postgres deployments coordinate run ownership across
+instances. Another request executing the same thread receives HTTP 409
+`run_in_flight` with `Retry-After: 1`; a browser-tool continuation holds the same
+ownership boundary while accepting results and resuming the graph. Successful
+terminal events are sent after final writes and ownership release, so a client
+can immediately submit the next turn.
+
+For custom fetch embeddings, provide one `RequestStores.runAdmission` per request
+and construct its checkpoint, thread, permission and client-tool stores with the
+admission's fenced pool. See the [Postgres storage package](../postgres-storage/README.md#request-scoped-run-admission)
+for the API and transaction limits. Sharing durable stores alone does not
+coordinate execution; the default in-memory registry is local to one handler.
+This does not add distributed AP cancellation or exactly-once external tool effects.

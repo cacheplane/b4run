@@ -79,6 +79,7 @@ import {
   withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
+import { claimRequestRun, releaseRequestRun, requestRunAdmission } from "./request-run-admission.js"
 import { readResponseFormat, rejectResponseSchema } from "./response-schema.js"
 import { resolveRunEnvelopePolicy, validateRunEnvelope } from "./run-envelope.js"
 import type { RunRegistry } from "./run-registry.js"
@@ -652,6 +653,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         createStamp = settled.stamp
       }
     }
+
+    const sharedConflict = await claimRequestRun(request, input.threadId)
+    if (sharedConflict) return sharedConflict
 
     // ── Serialization ────────────────────────────────────────────────────
     //
@@ -1242,6 +1246,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // From here on, the stream owns both the request listeners and any resume
     // claim. Its execution-finally path releases the claim only after the
     // interrupted route has actually unwound.
+    let sharedTerminal: Uint8Array | undefined
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -1358,7 +1363,14 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : { type: "done", output: { error: "Server shutting down" } }
                 }
               }
-              safeEnqueue(controller, encodeAgUiEvent(event, accept))
+              const encoded = encodeAgUiEvent(event, accept)
+              if (
+                event.type === "RUN_FINISHED" &&
+                event.outcome?.type !== "cancelled" &&
+                requestRunAdmission(request)
+              )
+                sharedTerminal = encoded
+              else safeEnqueue(controller, encoded)
             }
           } finally {
             // Unconditional, same as handleApStreamRequest: attachers must see
@@ -1366,7 +1378,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // identity guard inside `close` means a zombie route can never
             // write into a successor turn that has already replaced this
             // entry.
-            liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
+            if (!sharedTerminal) liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
             // This finally covers BOTH the drained and the failed turn, which is
             // exactly the pair the Agent Protocol handlers cover with a
             // success-path call plus a catch-path retry: a turn that parked
@@ -1457,11 +1469,29 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               .catch(() => undefined)
             releaseSignalListeners()
           }
+          if (sharedTerminal) {
+            if (!run.signal.aborted && !deferClientRecordVoid && !deferredTurnEnd) {
+              await sourceCleanup
+              await releaseRequestRun(request)
+              liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
+              safeEnqueue(controller, sharedTerminal)
+            } else {
+              // A disconnect during final persistence can arrive after the
+              // translator produced success. Its deferred void/stamp still
+              // owns the lease; the execution-finalizer below releases it.
+              liveTurn?.close({ type: "done", output: { cancelled: true } })
+            }
+          }
           safeClose(controller)
         } catch (error) {
           // Mirrors the pre-refactor behavior: a mid-stream failure propagated
           // out of the handler after headers were sent, tearing the stream down
           // rather than framing an error event.
+          if (sharedTerminal)
+            liveTurn?.close({
+              type: "done",
+              output: { error: error instanceof Error ? error.message : String(error) },
+            })
           controller.error(error)
         } finally {
           const releaseExecutionClaims = () => {
