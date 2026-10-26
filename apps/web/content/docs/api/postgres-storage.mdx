@@ -34,6 +34,9 @@ The edge-safe classification covers the root's import graph. It is tested on loc
 | `B4PostgresSaver` | Implement LangGraph checkpoint persistence. |
 | `postgresCheckpointer` | Create a Postgres checkpointer. |
 | `PostgresStoreOptions` | Configure shared connection and table naming. |
+| `PostgresRunAdmission` | Hold request-owned thread execution and expose its fenced pool. |
+| `PostgresRunAdmissionOptions` | Configure lease lifetime, heartbeat, connection and table naming. |
+| `createPostgresRunAdmission` | Create shared admission over a structural SQL pool. |
 | `PostgresPermissionsStore` | Define the durable permissions store. |
 | `PostgresPermissionsStoreOptions` | Configure permissions storage and policy. |
 | `createPostgresPermissionsStore` | Create a permissions store. |
@@ -66,11 +69,15 @@ The edge-safe classification covers the root's import graph. It is tested on loc
 
 ### `@b4run/postgres-storage/node`
 
-The `/node` entry also re-exports every root export. The rows below list them again. Its three factories use the connection-string-aware implementations.
+The `/node` entry also re-exports every root export. The rows below list them again. Its store factories use the connection-string-aware implementations.
 
 | Export | Responsibility |
 |---|---|
 | `NodePostgresStoreOptions` | Add connection-string convenience. |
+| `NodePostgresRunAdmissionOptions` | Add connection-string convenience for request-owned admission. |
+| `PostgresRunAdmission` | Re-export the admission contract. |
+| `PostgresRunAdmissionOptions` | Re-export structural admission options. |
+| `createPostgresRunAdmission` | Create admission with an existing pool or an owned Node pool. |
 | `NodePostgresPermissionsStoreOptions` | Add connection-string convenience for permissions. |
 | `createPostgresPool` | Build the `pg` pool this entry builds for itself, with its idle-client `'error'` listener attached; the caller owns and ends it. |
 | `PostgresCheckpointerOptions` | Re-export root checkpointer options. |
@@ -195,9 +202,46 @@ Migration memoization belongs to each store instance; assumeMigrated skips that 
 {/* api-behavior-authorities: [{"kind":"test-assertion","file":"packages/postgres-storage/test/edge-bundle.test.ts","testNames":["links the main entry with no node builtins","negative control: the node entry does NOT link"]}] */}
 The main entry links without Node built-ins for edge pools, while /node deliberately fails an edge bundle because it imports pg for connectionString convenience.
 
+### Shared run admission
+
+Sharing checkpoints alone does not serialize graph execution across replicas.
+`createPostgresRunAdmission({ pool, schema?, tablePrefix?, leaseDurationMs?, heartbeatIntervalMs? })`
+creates one request's ownership object. Its `pool` must back the injected
+checkpointer, thread, permission and client-tool stores. Migrate every configured
+store before claiming; generated Vercel/Hono output supplies this wiring and
+request-scoped `RequestStores.runAdmission` automatically. A custom embedder must
+provide the admission and its fenced stores together.
+
+The default lease lasts 30 seconds and renews every 10 seconds. Both intervals
+must be positive integer milliseconds and the heartbeat must be shorter than the
+lease. Admission, renewal and transactional checks use the database clock. An
+expired owner cannot renew or commit through its fenced pool. A process crash
+leaves a lease that can expire; a new owner has a different token.
+
+`tryAcquire(threadId)` returns false for contention. The runtime returns HTTP 409
+`run_in_flight` with `Retry-After: 1`. It accepts callback results and reads the
+checkpoint that decides a continuation only while owned. Normal terminal success
+waits for final writes and asynchronous release; disconnected or abandoned work
+retains ownership until its deferred cleanup completes. `release()` is idempotent;
+`close()` also ends an underlying pool only when this admission owns it.
+
+The fenced pool uses short transactions around individual store operations.
+Explicit `BEGIN`/`START TRANSACTION`, `COMMIT`/`END`, and `ROLLBACK` are supported;
+nested transactions, savepoints, control modifiers and statement batches are
+rejected while owned. SQL text accepts positional parameters but rejects other
+dollar syntax and backslashes; pass unrestricted data as bound values. This is a
+runtime-store SQL subset, not a general SQL execution interface. Do not keep a
+transaction open through model generation.
+
+The process-local registry remains the default without shared admission. This
+feature does not coordinate distributed AP cancellation, fence separately
+configured memory or boot-owned approval-grant stores, or guarantee exactly-once
+external tool effects. Existing managed-workspace restrictions on `requestStores`
+remain unchanged.
+
 ### Migration and pool ownership
 
-Migration state is instance-scoped. In a per-request host, migrate an unflagged cold set of all three components, then set `assumeMigrated` only for the same database, schema, prefix, component, and current package schema. A wrong assertion fails on the first query. Checkpoint, thread, and permission migrations are separate.
+Migration state is instance-scoped. In a per-request host, migrate an unflagged cold set of every configured component, then set `assumeMigrated` only for the same database, schema, prefix, component, and current package schema. A wrong assertion fails on the first query. Checkpoint, thread, permission, client-tool, and run-admission migrations are separate.
 
 Another process sees a durable permission grant only after that store calls `load()`. When you construct a custom permissions store, pass the resolved `mode` and config explicitly. B4.run does not overlay sibling configuration onto an already-created store.
 

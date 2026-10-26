@@ -135,6 +135,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `createMemoryInterruptGrantStore` | Create the in-process grant store used by tests and storeless runtimes. |
 | `ClientToolCallRecord` | Describe one row of the tool-call record: a client-provided call the server issued and is waiting on, or a server tool call recorded for identity — with the route that issued it and, inside a subagent, the launching `task` call. |
 | `ToolCallOrigin` | Say where a server tool call was issued from when inside a subagent: the child route's key and the launching `task` call id. |
+| `RequestRunAdmission` | Coordinate one request's shared thread ownership, loss signal, and asynchronous release. |
 | `ClientToolCallStore` | Define the durable record of tool calls on AG-UI runs: which client calls are outstanding, answered, or voided, and which server calls were issued and settled. |
 | `ToolCallRecordKind` | Tell a client tool call row from a server tool call row. |
 | `ClientToolCallSettle` | Express the outcome of settling a server tool call row. |
@@ -480,6 +481,18 @@ methods and cannot select another thread's source.
 Use `ctx.fs` for current files. `ctx.fs.stat(path)` inspects entry kind,
 size, executable mode, and a symlink's target without following the leaf link;
 custom backends must supply `lstat` to support it.
+
+### Request-owned execution
+
+`RequestRunAdmission` is the optional `RequestStores.runAdmission` contract for
+custom runtime embeddings. `tryAcquire(threadId)` returns false while another
+request owns that thread; a successful instance belongs to one thread until
+`release()` finishes. Its `signal` aborts on ownership loss or release. Releasing
+or losing ownership is terminal for that instance. The runtime claims after
+thread authorization and retains ownership through actual execution cleanup.
+
+Use the [Postgres implementation](/docs/api/postgres-storage) for shared durable
+stores. This contract does not provide exactly-once external tool effects.
 
 ## Examples and related guides
 
