@@ -964,7 +964,7 @@
               "classification": "safe",
               "descriptor": {
                 "name": "Real-Postgres Agent Protocol pending-interrupts tests",
-                "run": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint"
+                "run": "B4_TEST_PGSTORAGE=1 pnpm --filter @b4run/cli test pending-interrupts-endpoint shared-run-admission-postgres"
               }
             }
           ]
