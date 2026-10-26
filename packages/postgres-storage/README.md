@@ -58,3 +58,38 @@ B4.run is pre-1.0, and its public surface can change. All publishable B4.run pac
 ## License
 
 MIT. See the [repository license](https://github.com/cacheplane/b4run/blob/main/LICENSE).
+
+### Request-scoped run admission
+
+`createPostgresRunAdmission({ pool })` coordinates ownership of one thread across
+replicas. Create one instance per request, initialize its `ready()` method, and
+pass its `pool` to every runtime store used by that request. Initialization and
+authorization queries may run before acquisition. Call `tryAcquire(threadId)`
+before reading the checkpoint that determines a run or accepting callback
+answers. A `false` result means another request owns the thread and may be retried.
+An acquired instance rejects a different thread; release and ownership loss are
+terminal. Await `release()` after graph work and final persistence finish, or use
+`close()` to also close a pool owned by this instance. Caller-supplied pools stay
+open unless `ownsPool` is set. The Node entry also accepts `connectionString`.
+
+The default lease is 30 seconds, renewed every 10 seconds. `leaseDurationMs` and
+`heartbeatIntervalMs` accept positive integer milliseconds; the heartbeat must be
+shorter than the lease. Expiry and renewal use the database clock. Observe
+`signal` to stop work after ownership loss or release. An expired owner cannot
+renew or commit runtime storage writes, even after another request takes over.
+This coordination does not provide exactly-once external tool effects.
+
+Once acquired, `pool.query()` executes one statement in a short fenced
+transaction. `pool.connect()` additionally supports explicit `BEGIN` (or
+`START TRANSACTION`), `COMMIT` (or `END`), and `ROLLBACK`, with an optional trailing
+semicolon. Nested transactions, savepoints, transaction-control modifiers, and
+multiple statements in a fenced query are rejected. SQL literals and comments
+may contain semicolons. Fenced SQL accepts positional parameters such as `$1`;
+pass data through these parameters. Dollar signs other than positional parameter
+markers and backslashes in the SQL text are rejected, including dollar-quoted
+strings and dollar-bearing identifiers. Bound values may contain these characters.
+This deliberately limited SQL subset serves the runtime stores; it is not an
+arbitrary SQL execution interface. Complete these transactions around individual storage
+operations; do not hold them through model generation. A synchronous client
+`release()` finishes rollback before making the underlying connection available
+for reuse. Released or lost admissions never resume unfenced access.

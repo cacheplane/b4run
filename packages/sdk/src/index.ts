@@ -131,6 +131,7 @@ export {
 } from "./persisted-turn.js"
 export type { RouteConfig, RouteKind } from "./route-config.js"
 export type { RouteStateMap, RouteToolMap } from "./route-types.js"
+export type { RequestRunAdmission } from "./run-admission.js"
 export type {
   RuntimeContext,
   RuntimeTool,
