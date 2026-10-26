@@ -62,9 +62,9 @@
       "recordDigest": "4ce69d809d1b5ac23a05c00c89d62a8a51867eaa62f9c3e12a83eab4f9ea2989"
     },
     "/docs/api/cli": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "a25d49533943f956086962061562e55ba9614472cb280ee1ce7ada0e5f087e62",
-      "recordDigest": "1ef14c5a47a13cd43ae9ea8b4e218e29669acb13f25ca893cffd705652a32d7f"
+      "lastModified": "2026-10-26T03:56:58.000Z",
+      "sourceDigest": "85c9eaae3796698bcd10450102f77affc0ef8c3f126bcbdcde0600ac63935d11",
+      "recordDigest": "23cf46eac378f6f87d5453e94eaff13429d2ce3d681e0691bc4cb876480ed201"
     },
     "/docs/api/core": {
       "lastModified": "2026-10-05T16:47:12.000Z",
@@ -107,9 +107,9 @@
       "recordDigest": "2d6970bbaa1310cb3680e42aed843d3eeb19a7bed2a1d09469c21499e6742275"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-09-30T21:52:20.000Z",
-      "sourceDigest": "022ee75ccf490b50cdc7689c72553756fda8139ce33fbd85c9b0085dc1fd6b2c",
-      "recordDigest": "810436e1dd5689af5276cf4d5c77e0893087ba7f215b1585ab583d4984491ef1"
+      "lastModified": "2026-10-26T03:56:58.000Z",
+      "sourceDigest": "a3ff247304069ddb9596354738ff83008b1c4cd9d8d2efcb0ddde0933e6258a1",
+      "recordDigest": "11799095879feb37d994eea13b71e5e2746a65dd5b44556b9abd1d6a8a5ecc22"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-25T03:18:16.000Z",
@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-10-25T03:54:57.000Z",
-      "sourceDigest": "bbd3740ab9bf4236792f9718a7dbc4adae0c71af95732d85f384e22489138eea",
-      "recordDigest": "e3c04d40bfb6170e4d138268b29be6edc5bc8c324ef42ee92715e128ebe1a153"
+      "lastModified": "2026-10-26T03:56:58.000Z",
+      "sourceDigest": "d4605a13e2a9cae20d1abb12b7bb9d518496bd34b6b37084dc524e90414b2f71",
+      "recordDigest": "eac0ab9a522e344bcfe38b735cc34a26e6ae9de09c29d40f7423fccf3360084a"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-09-30T21:52:20.000Z",
