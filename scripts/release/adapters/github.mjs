@@ -3,6 +3,7 @@ import { createHttpGet, DEFAULT_HTTP_MAX_RESPONSE_BYTES, DEFAULT_HTTP_TIMEOUT_MS
 
 const API_ORIGIN = "https://api.github.com"
 const API_VERSION = "2022-11-28"
+const CURRENT_API_VERSION = "2026-03-10"
 const JSON_ACCEPT = "application/vnd.github+json"
 const SHA_PATTERN = /^[0-9a-f]{40}$/u
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u
@@ -308,12 +309,16 @@ export function createGitHubReader({
     },
     async listActionsRunJobs({ runId }) {
       const id = normalizeId(runId)
-      const result = await readPaginated(context, {
-        initialUrl: `${base}/actions/runs/${id}/jobs?filter=all&per_page=100`,
-        operation: "actions-run-jobs",
-        extract: objectArray("jobs"),
-        compare: compareRunAttemptThenId,
-      })
+      // The legacy revision returns 502 for some historical all-attempt inventories.
+      const result = await readPaginated(
+        { ...context, apiVersion: CURRENT_API_VERSION },
+        {
+          initialUrl: `${base}/actions/runs/${id}/jobs?filter=all&per_page=100`,
+          operation: "actions-run-jobs",
+          extract: objectArray("jobs"),
+          compare: compareRunAttemptThenId,
+        },
+      )
       return normalizeAllAttemptJobs(result)
     },
     getActionsRun({ runId }) {
@@ -1326,7 +1331,7 @@ function recoveryContext(context, options) {
       context.paginationTimeoutMs,
       options.timeoutMs ?? context.paginationTimeoutMs,
     ),
-    apiVersion: "2026-03-10",
+    apiVersion: CURRENT_API_VERSION,
   }
 }
 

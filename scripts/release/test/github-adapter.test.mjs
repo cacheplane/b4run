@@ -10,6 +10,50 @@ const TOKEN = "github_secret_token"
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const BASE = "https://api.github.com/repos/b4run/b4"
 const REPOSITORY_ID = "1210070282"
+
+test("all-attempt jobs use the current API revision when the legacy endpoint returns 502", async () => {
+  for (const method of ["listActionsRunJobs", "listActionsRunJobsComplete"]) {
+    const calls = []
+    const github = createGitHubReader({
+      owner: OWNER,
+      repo: REPO,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, version: init.headers["X-GitHub-Api-Version"] })
+        if (init.headers["X-GitHub-Api-Version"] !== "2026-03-10")
+          return jsonResponse({ message: "Server Error" }, 502)
+        return jsonResponse({
+          total_count: 1,
+          jobs: [
+            {
+              id: 66,
+              run_id: 55,
+              head_sha: SHA,
+              run_attempt: 1,
+              name: "prepare",
+              status: "completed",
+              conclusion: "success",
+              started_at: "2026-08-24T00:00:00Z",
+              completed_at: "2026-08-24T00:01:00Z",
+            },
+          ],
+        })
+      },
+    })
+
+    const result = await github[method]({ runId: 55 })
+
+    assert.equal(result.status, "PRESENT")
+    assert.equal(result.value[0].id, 66)
+    assert.equal(result.value[0].runAttempt, 1)
+    assert.deepEqual(calls, [
+      {
+        url: `${BASE}/actions/runs/55/jobs?filter=all&per_page=100`,
+        version: "2026-03-10",
+      },
+    ])
+  }
+})
+
 const ALLOWED_METHODS = [
   "compareCommits",
   "downloadActionsArtifact",
