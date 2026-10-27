@@ -43,7 +43,7 @@ describe("createChatModel with a JSON-schema response format", () => {
       importer,
     })) as { bound: FakeModel; config: Record<string, unknown> }
 
-    expect(model.bound.options).toEqual({ model: "gpt-5-mini" })
+    expect(model.bound.options).toEqual({ model: "gpt-5-mini", outputVersion: "v0" })
     expect(model.config).toEqual({
       response_format: {
         type: "json_schema",
@@ -66,7 +66,7 @@ describe("createChatModel with a JSON-schema response format", () => {
       importer,
     })) as { bound: FakeModel; config: Record<string, unknown> }
 
-    expect(model.bound.options).toEqual({ model: "claude-sonnet-4-5" })
+    expect(model.bound.options).toEqual({ model: "claude-sonnet-4-5", outputVersion: "v0" })
     expect(model.config).toEqual({
       outputConfig: { format: { type: "json_schema", schema: responseFormat.schema } },
     })

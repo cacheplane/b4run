@@ -1,4 +1,5 @@
 import type { PromptFragment } from "@b4run/core"
+import { normalizeProviderMessage } from "@b4run/sdk"
 import {
   type BaseMessage,
   isAIMessage,
@@ -15,6 +16,7 @@ import {
   resolveModelRetryPolicy,
   retryCapacityErrors,
 } from "./model-call-retry.js"
+import { persistProviderMessage } from "./provider-message.js"
 import {
   buildSummarizationHook,
   type ResolvedSummarizationConfig,
@@ -33,6 +35,8 @@ import { composeSystemPrompt } from "./system-prompt.js"
 const LLM_INPUT_MESSAGES = "_b4LlmInputMessages"
 
 export interface B4AgentMiddlewareOptions {
+  /** Resolved provider, used to enrich standardized server-tool blocks. */
+  readonly provider?: string
   readonly systemPrompt: string
   readonly promptFragments: readonly PromptFragment[]
   /** The route's own state fields, which prompt fragments may read. */
@@ -103,10 +107,13 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
           : { ...request, messages, systemMessage }
       // Only this model call is sent again, never the tools around it, and
       // only for a capacity 429, which fails before the first token streams.
-      return retryCapacityErrors(
-        () => handler(next),
-        retry,
-        request.runtime.signal ? { signal: request.runtime.signal } : {},
+      return persistProviderMessage(
+        await retryCapacityErrors(
+          () => handler(next),
+          retry,
+          request.runtime.signal ? { signal: request.runtime.signal } : {},
+        ),
+        options.provider,
       )
     },
     wrapToolCall: async (request, handler) => {
@@ -140,13 +147,18 @@ export function answerDanglingToolCalls(messages: BaseMessage[]): BaseMessage[] 
   const answered = new Set(
     messages.flatMap((message) => (isToolMessage(message) ? [message.tool_call_id] : [])),
   )
-  const dangling = (message: BaseMessage) =>
-    isAIMessage(message)
-      ? (message.tool_calls ?? []).filter(
-          (call): call is typeof call & { id: string } =>
-            call.id !== undefined && !answered.has(call.id),
-        )
-      : []
+  const dangling = (message: BaseMessage) => {
+    if (!isAIMessage(message)) return []
+    const providerIds = new Set(
+      normalizeProviderMessage(message, { messageId: message.id ?? "" }).calls.map(
+        (call) => call.id,
+      ),
+    )
+    return (message.tool_calls ?? []).filter(
+      (call): call is typeof call & { id: string } =>
+        call.id !== undefined && !answered.has(call.id) && !providerIds.has(call.id),
+    )
+  }
   if (!messages.some((message) => dangling(message).length > 0)) return messages
 
   const repaired: BaseMessage[] = []

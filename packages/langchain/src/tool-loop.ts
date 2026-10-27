@@ -3,6 +3,8 @@ import { AIMessage, ToolMessage } from "@langchain/core/messages"
 import { DEFAULT_MODALITY_SUPPORT } from "./chat-model-factory.js"
 import { formatDroppedPartsWarning, toLangChainContent } from "./content-parts.js"
 
+import { persistProviderMessage } from "./provider-message.js"
+
 const DEFAULT_MAX_ITERATIONS = 10
 
 interface ToolExecutor {
@@ -41,7 +43,8 @@ export async function executeWithToolLoop(options: ExecuteWithToolLoopOptions): 
   let currentInput: unknown = input
 
   for (let i = 0; i < maxIterations; i++) {
-    const result = await chain.invoke(currentInput)
+    const invoked = await chain.invoke(currentInput)
+    const result = AIMessage.isInstance(invoked) ? persistProviderMessage(invoked) : invoked
 
     if (!isAIMessageWithToolCalls(result)) {
       return result

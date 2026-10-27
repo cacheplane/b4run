@@ -139,13 +139,20 @@ export function normalizeProviderMessage(
         : {}),
     }
     const firstNative = native && !nativeIds.has(id)
+    const effectiveStep =
+      firstNative && !savedIds.has(id) ? step : mergeToolStep(previous?.step, step, "message")
+    const hasResultEvidence = result !== undefined || status === "failed" || status === "completed"
+    const readableResult = hasResultEvidence
+      ? effectiveStep.status === "failed"
+        ? effectiveStep.error?.message
+        : (result ?? (effectiveStep.status === "completed" ? "Completed" : undefined))
+      : undefined
     calls.set(id, {
       id,
       name: builtin,
       input: normalizedInput,
-      step:
-        firstNative && !savedIds.has(id) ? step : mergeToolStep(previous?.step, step, "message"),
-      ...(result !== undefined ? { result } : {}),
+      step: effectiveStep,
+      ...(readableResult !== undefined ? { result: readableResult } : {}),
     })
     if (native) nativeIds.add(id)
   }

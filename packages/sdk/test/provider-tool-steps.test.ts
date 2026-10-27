@@ -696,3 +696,103 @@ test("native file citation indices do not become assistant offsets through v1 co
   expect(result.answer?.sources).toHaveLength(1)
   expect(result.answer?.citations).toEqual([{ sourceId: "m1:source:0", block: 0 }])
 })
+
+test("Google actual failed code results without output carry readable failure results", () => {
+  const message = {
+    content: [
+      { executableCode: { code: "fail()" } },
+      { codeExecutionResult: { outcome: "OUTCOME_FAILED" } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]?.step.status).toBe("failed")
+  expect(result.calls[0]?.result).toBe(result.calls[0]?.step.error?.message)
+  expect(result.calls[0]?.result).toBe("OUTCOME_FAILED")
+})
+
+test("v1 actual terminal results without output carry readable settlement results", () => {
+  const message = {
+    contentBlocks: [
+      { type: "server_tool_call", id: "success", name: "web_search", args: {} },
+      { type: "server_tool_call_result", toolCallId: "success", status: "success" },
+      { type: "server_tool_call", id: "failure", name: "web_search", args: {} },
+      { type: "server_tool_call_result", toolCallId: "failure", status: "error" },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls.map((call) => call.result)).toEqual(["Completed", "Provider tool failed"])
+})
+
+test("stored terminal steps without actual results do not invent result messages", () => {
+  const message = {
+    additional_kwargs: {
+      b4_steps: {
+        success: { v: 1, kind: "provider", builtin: "web_search", status: "completed" },
+        failure: {
+          v: 1,
+          kind: "provider",
+          builtin: "code_execution",
+          status: "failed",
+          error: { message: "Failed" },
+        },
+      },
+    },
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls.map((call) => call.result)).toEqual([undefined, undefined])
+})
+
+test("effective stored failure controls readable result over lossy v1 success", () => {
+  const message = {
+    additional_kwargs: {
+      b4_steps: {
+        s: {
+          v: 1,
+          kind: "provider",
+          builtin: "web_search",
+          provider: "openai",
+          status: "failed",
+          error: { message: "Unavailable" },
+        },
+      },
+    },
+    contentBlocks: [
+      { type: "server_tool_call", id: "s", name: "web_search", args: {} },
+      { type: "server_tool_call_result", toolCallId: "s", status: "success" },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]?.step.status).toBe("failed")
+  expect(result.calls[0]?.result).toBe("Unavailable")
+})
+
+test("effective stored failure controls readable result over contradictory native completion", () => {
+  const message = {
+    additional_kwargs: {
+      b4_steps: {
+        s: {
+          v: 1,
+          kind: "provider",
+          builtin: "web_search",
+          provider: "openai",
+          status: "failed",
+          error: { message: "Unavailable" },
+        },
+      },
+      tool_outputs: [{ id: "s", type: "web_search_call", status: "completed" }],
+    },
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]?.step.status).toBe("failed")
+  expect(result.calls[0]?.result).toBe("Unavailable")
+})

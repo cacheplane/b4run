@@ -427,7 +427,7 @@ export async function createChatModel(options: {
     )
   }
 
-  const constructorOptions: Record<string, unknown> = { model: options.model }
+  const constructorOptions: Record<string, unknown> = { model: options.model, outputVersion: "v0" }
   if (options.maxOutputTokens !== undefined) {
     const key =
       options.provider === "google"

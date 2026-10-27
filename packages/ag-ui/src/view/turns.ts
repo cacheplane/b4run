@@ -20,14 +20,17 @@ import type {
 } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
 import {
+  B4_ANSWER_METADATA_KEY,
   B4_STEP_EVENT_NAME,
   B4_STEP_METADATA_KEY,
+  type B4AnswerAnnotations,
   type B4MediaPart,
   type B4StepSource,
   type B4ToolStep,
   type B4ToolStepUpdate,
   isContentPart,
   isToolDisplayIcon,
+  readAnswerAnnotations,
   readToolStepUpdate,
   type ToolDisplaySource,
 } from "@b4run/sdk"
@@ -151,6 +154,8 @@ export interface SubagentStep {
 export type StepView = ToolStep | PlanStep | ReasoningStep | SubagentStep
 
 export interface TurnView {
+  /** Answer annotations keyed by assistant message id; offsets remain message-local. */
+  readonly answers?: Readonly<Record<string, B4AnswerAnnotations>>
   /** The run this turn is on; a resumed turn takes the resuming run's id. */
   readonly runId: string
   readonly status: TurnStatus
@@ -940,7 +945,33 @@ export function reduceTurns(
         ),
       )
     }
+    case EventType.TEXT_MESSAGE_END: {
+      const frame = event as BaseEvent & { messageId: string; metadata?: unknown }
+      const answer = isRecord(frame.metadata)
+        ? readAnswerAnnotations(frame.metadata[B4_ANSWER_METADATA_KEY])
+        : undefined
+      if (answer === undefined) return state
+      return withTurns(
+        state,
+        updateOwner(state.turns, owner, (turn) => ({
+          ...turn,
+          answers: { ...turn.answers, [frame.messageId]: answer },
+        })),
+      )
+    }
     case EventType.TEXT_MESSAGE_START: {
+      const frame = event as BaseEvent & { messageId: string; metadata?: unknown }
+      const answer = isRecord(frame.metadata)
+        ? readAnswerAnnotations(frame.metadata[B4_ANSWER_METADATA_KEY])
+        : undefined
+      if (answer !== undefined)
+        return withTurns(
+          state,
+          updateOwner(state.turns, owner, (turn) => ({
+            ...turn,
+            answers: { ...turn.answers, [frame.messageId]: answer },
+          })),
+        )
       // A new message after an earlier one starts on its own line; the
       // translator opens a new message at each tool call, so this is the
       // break a step put in the prose. Messages interleaved by id (which the

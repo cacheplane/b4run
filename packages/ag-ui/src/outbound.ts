@@ -24,8 +24,10 @@ import type {
 } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import {
+  B4_ANSWER_METADATA_KEY,
   B4_STEP_KEY,
   B4_STEP_METADATA_KEY,
+  type B4AnswerAnnotations,
   type B4ToolStep,
   type B4ToolStepUpdate,
   isContentPartArray,
@@ -39,6 +41,7 @@ import { createOrchestrationLedger } from "./orchestration-ledger.js"
 import { B4_STEP_EVENT_NAME } from "./step.js"
 import { asSubagentEndData, asSubagentStartData, unwrapSubagentChunk } from "./subagent-chunks.js"
 import {
+  asMessageAnnotationsData,
   asStepData,
   asToolCallArgsData,
   asToolCallData,
@@ -118,6 +121,7 @@ interface OwnerState {
    * events holds the invocation's text and its calls in one assistant
    * message — and has an assistant message for a tool-only invocation too.
    */
+  readonly answers: Map<string, B4AnswerAnnotations>
   readonly modelMessages: Map<string, string>
   /** Invocations whose text already ended: a late delta opens a fresh message. */
   readonly endedModelText: Set<string>
@@ -393,6 +397,7 @@ function newOwnerState(): OwnerState {
     steps: new Map(),
     announcedToolCallIds: new Set(),
     pendingFallbackToolCallIds: new Map(),
+    answers: new Map(),
     modelMessages: new Map(),
     endedModelText: new Set(),
     anonymousParent: null,
@@ -546,17 +551,34 @@ export async function* toAguiEvents(
       state.identifiedReasoning.delete(sourceId)
       yield* closeReasoning(owner, reasoning)
     }
-    const messageId = state.identifiedMessages.get(sourceId)
+    const answer = state.answers.get(sourceId)
+    const openMessageId = state.identifiedMessages.get(sourceId)
+    const messageId =
+      openMessageId ?? (answer === undefined ? undefined : modelMessageId(state, sourceId))
     if (messageId === undefined) return
+    if (openMessageId === undefined) {
+      yield* emit(owner, {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId,
+        role: "assistant",
+        metadata: { [B4_ANSWER_METADATA_KEY]: answer },
+      })
+    }
+    state.answers.delete(sourceId)
     state.identifiedMessages.delete(sourceId)
     state.endedModelText.add(sourceId)
-    yield* emit(owner, { type: EventType.TEXT_MESSAGE_END, messageId })
+    yield* emit(owner, {
+      type: EventType.TEXT_MESSAGE_END,
+      messageId,
+      ...(answer === undefined ? {} : { metadata: { [B4_ANSWER_METADATA_KEY]: answer } }),
+    })
   }
 
   function* flushAllText(owner: Owner): Generator<AguiOutboundEvent> {
     yield* flushText(owner)
     const state = stateFor(owner)
     const sources = new Set([
+      ...state.answers.keys(),
       ...state.identifiedReasoning.keys(),
       ...state.identifiedMessages.keys(),
     ])
@@ -748,6 +770,12 @@ export async function* toAguiEvents(
         })
         break
       }
+      case "message_annotations": {
+        const annotations = asMessageAnnotationsData(chunk.data)
+        if (annotations && !state.endedModelText.has(annotations.messageId))
+          state.answers.set(annotations.messageId, annotations.answer)
+        break
+      }
       case "message_end": {
         const data = chunk.data
         if (
@@ -868,13 +896,14 @@ export async function* toAguiEvents(
         const view = toolResultView(tr.output, tr.id)
         const previous = state.steps.get(toolCallId)
         if (view.step !== undefined) storeStep(state, toolCallId, view.step, "message")
+        if (tr.step !== undefined) storeStep(state, toolCallId, tr.step, "message")
         if (view.failed) {
           storeStep(
             state,
             toolCallId,
             {
               v: 1,
-              kind: view.step?.kind ?? previous?.kind ?? "server",
+              kind: tr.step?.kind ?? view.step?.kind ?? previous?.kind ?? "server",
               status: "failed",
               ...(view.failedStep ?? {}),
               error: view.step?.error ?? {
@@ -883,7 +912,7 @@ export async function* toAguiEvents(
             },
             "message",
           )
-        } else if (state.steps.get(toolCallId)?.status === "running") {
+        } else if (tr.step === undefined && state.steps.get(toolCallId)?.status === "running") {
           // Frame-only completion clears the running label, but retains sources.
           const held = state.steps.get(toolCallId)
           storeStep(

@@ -45,6 +45,12 @@ import {
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
+import {
+  createProviderStreamState,
+  ordinaryProviderChunk,
+  type ProviderStreamState,
+  projectProviderChunk,
+} from "./provider-stream.js"
 import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
 import { withRetry } from "./retry.js"
 import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
@@ -257,6 +263,7 @@ async function materializeAgent(
     : (opts.stateFields ?? [])
 
   const middleware = createB4AgentMiddleware({
+    provider,
     systemPrompt: descriptor.systemPrompt,
     // Fragments re-render on every model turn so they can reflect live state
     // (e.g., the current todos list).
@@ -400,6 +407,7 @@ interface SubagentToolRunContexts {
 interface ToolProjectionState {
   /** Model invocations with open text or reasoning output, closed by `message_end`. */
   readonly textModelRunIds: Set<string>
+  readonly providerRuns: Map<string, ProviderStreamState>
   /** Logical/fallback ids whose tool_call chunk was already emitted this stream. */
   readonly announcedToolCallIds: Set<string>
   /** on_tool_start data awaiting resolution at on_tool_end, keyed by execution run id. */
@@ -433,6 +441,7 @@ interface OwnerToolStates {
 function newToolProjectionState(): ToolProjectionState {
   return {
     textModelRunIds: new Set(),
+    providerRuns: new Map(),
     announcedToolCallIds: new Set(),
     heldToolStarts: new Map(),
     pendingToolErrors: [],
@@ -937,10 +946,24 @@ function classifyStreamEvent(
 
   switch (event.event) {
     case "on_chat_model_stream": {
+      let provider = tools.providerRuns.get(event.run_id)
+      if (!provider) {
+        provider = createProviderStreamState()
+        tools.providerRuns.set(event.run_id, provider)
+      }
+      const providerChunks = projectProviderChunk(
+        provider,
+        event.data.chunk,
+        event.run_id,
+        false,
+        typeof event.metadata?.ls_provider === "string"
+          ? event.metadata.ls_provider.toLowerCase()
+          : undefined,
+      )
       const streamed = (event.data.chunk as { content?: unknown })?.content
       const content = chunkText(streamed)
       const reasoning = chunkReasoning(streamed)
-      const chunks: AgentStreamChunk[] = []
+      const chunks: AgentStreamChunk[] = [...providerChunks]
       if (reasoning.length > 0) {
         // Registered like text so this invocation's `on_chat_model_end` emits
         // `message_end`, which is what closes the AG-UI reasoning span.
@@ -951,7 +974,13 @@ function classifyStreamEvent(
         tools.textModelRunIds.add(event.run_id)
         chunks.push({ type: "token", data: content, messageId: event.run_id })
       }
-      chunks.push(...projectToolCallFragments(tools, event.run_id, event.data.chunk))
+      chunks.push(
+        ...projectToolCallFragments(
+          tools,
+          event.run_id,
+          ordinaryProviderChunk(provider, event.data.chunk),
+        ),
+      )
       if (chunks.length === 0) break
       return {
         capturesFinalOutput: false,
@@ -977,7 +1006,25 @@ function classifyStreamEvent(
       const usage = readUsageChunk(event)
       const output = event.data.output as { tool_calls?: unknown } | undefined
       const calls = Array.isArray(output?.tool_calls) ? output.tool_calls : []
-      const chunks: AgentStreamChunk[] = flushToolCallFragments(tools, event.run_id)
+      const provider = tools.providerRuns.get(event.run_id) ?? createProviderStreamState()
+      const chunks: AgentStreamChunk[] = projectProviderChunk(
+        provider,
+        event.data.output,
+        event.run_id,
+        true,
+        typeof event.metadata?.ls_provider === "string"
+          ? event.metadata.ls_provider.toLowerCase()
+          : undefined,
+      )
+      chunks.push(...flushToolCallFragments(tools, event.run_id))
+      tools.providerRuns.delete(event.run_id)
+      if (provider.answer) {
+        chunks.push({
+          type: "message_annotations",
+          data: { messageId: event.run_id, answer: provider.answer },
+        })
+        tools.textModelRunIds.add(event.run_id)
+      }
       if (usage !== undefined) chunks.push({ type: "usage", data: usage })
       if (tools.textModelRunIds.delete(event.run_id)) {
         chunks.push({ type: "message_end", data: { messageId: event.run_id } })
@@ -987,7 +1034,7 @@ function classifyStreamEvent(
         const id = typeof call.id === "string" && call.id !== "" ? call.id : undefined
         const name = typeof call.name === "string" && call.name !== "" ? call.name : undefined
         if (id === undefined || name === undefined) continue
-        if (tools.announcedToolCallIds.has(id)) continue
+        if (tools.announcedToolCallIds.has(id) || provider.ids.has(id)) continue
         tools.announcedToolCallIds.add(id)
         // `messageId` is the invocation's identity, as on its text tokens: the
         // AG-UI mapper files the call under that invocation's message.

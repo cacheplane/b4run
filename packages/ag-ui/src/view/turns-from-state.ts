@@ -1,11 +1,13 @@
 import type { BaseEvent } from "@ag-ui/core"
 import { EventType, PROTOCOL_VERSION } from "@ag-ui/core"
 import {
+  B4_ANSWER_METADATA_KEY,
   B4_STEP_KEY,
   B4_STEP_METADATA_KEY,
   B4_SUBAGENT_KEY,
   B4_TURN_METADATA_KEY,
   mergeToolStep,
+  normalizeProviderMessage,
   type PersistedTurnEnd,
   readPersistedSubagent,
   readPersistedTurnEnd,
@@ -584,6 +586,11 @@ function synthesiseNamespace(
         push(s, at, { type: EventType.REASONING_MESSAGE_END, messageId: msg } as BaseEvent, owner)
         push(s, at, { type: EventType.REASONING_END, messageId: span } as BaseEvent, owner)
       }
+      const normalized = normalizeProviderMessage(kwargs, { messageId: id })
+      const answerMetadata =
+        normalized.answer === undefined
+          ? {}
+          : { metadata: { [B4_ANSWER_METADATA_KEY]: normalized.answer } }
       const text = textOf(kwargs.content)
       if (text !== "") {
         push(
@@ -598,10 +605,86 @@ function synthesiseNamespace(
           { type: EventType.TEXT_MESSAGE_CONTENT, messageId: id, delta: text } as BaseEvent,
           owner,
         )
-        push(s, at, { type: EventType.TEXT_MESSAGE_END, messageId: id } as BaseEvent, owner)
+        push(
+          s,
+          at,
+          { type: EventType.TEXT_MESSAGE_END, messageId: id, ...answerMetadata } as BaseEvent,
+          owner,
+        )
+      }
+      if (text === "" && normalized.answer !== undefined) {
+        push(
+          s,
+          at,
+          {
+            type: EventType.TEXT_MESSAGE_START,
+            messageId: id,
+            role: "assistant",
+            ...answerMetadata,
+          } as BaseEvent,
+          owner,
+        )
+        push(
+          s,
+          at,
+          { type: EventType.TEXT_MESSAGE_END, messageId: id, ...answerMetadata } as BaseEvent,
+          owner,
+        )
+      }
+      const providerIds = new Set(normalized.calls.map((call) => call.id))
+      for (const call of normalized.calls) {
+        const startedAt = Math.max(call.step.startedAt ?? at, at)
+        const settledAt = Math.max(call.step.settledAt ?? at, startedAt)
+        const metadata = { [B4_STEP_METADATA_KEY]: call.step }
+        push(
+          s,
+          startedAt,
+          {
+            type: EventType.TOOL_CALL_START,
+            toolCallId: call.id,
+            toolCallName: call.name,
+            parentMessageId: id,
+            metadata,
+          } as BaseEvent,
+          owner,
+        )
+        push(
+          s,
+          startedAt,
+          {
+            type: EventType.TOOL_CALL_ARGS,
+            toolCallId: call.id,
+            delta: stringifyArgs(call.input),
+          } as BaseEvent,
+          owner,
+        )
+        push(
+          s,
+          startedAt,
+          { type: EventType.TOOL_CALL_END, toolCallId: call.id, metadata } as BaseEvent,
+          owner,
+        )
+        if (call.result !== undefined) {
+          push(
+            s,
+            settledAt,
+            {
+              type: EventType.TOOL_CALL_RESULT,
+              toolCallId: call.id,
+              messageId: `tr:${call.id}`,
+              content: call.result,
+              metadata,
+              ...(call.step.status === "failed"
+                ? { error: call.step.error?.message ?? call.result }
+                : {}),
+            } as BaseEvent,
+            owner,
+          )
+        }
       }
       const calls = Array.isArray(kwargs.tool_calls) ? kwargs.tool_calls : []
       for (const call of calls) {
+        if (isRecord(call) && typeof call.id === "string" && providerIds.has(call.id)) continue
         if (!isRecord(call) || typeof call.id !== "string" || call.id === "") {
           s.warnings.push(`ignored tool call without a string id on message ${id} in ${where}`)
           continue

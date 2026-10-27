@@ -60,7 +60,7 @@ describe("OPENAI_BASE_URL through the runtime-env seam", () => {
   it("omits configuration entirely when neither source has it", async () => {
     delete process.env.OPENAI_BASE_URL
     const model = await openaiModel()
-    expect(model.options).toEqual({ model: "gpt-5-mini" })
+    expect(model.options).toEqual({ model: "gpt-5-mini", outputVersion: "v0" })
   })
 
   it("constructs a model on a runtime with no process at all", async () => {

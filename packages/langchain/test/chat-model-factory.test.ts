@@ -24,6 +24,7 @@ describe("chat model factory", () => {
     expect(importer).toHaveBeenCalledWith("@langchain/openai")
     expect((model as FakeModel).options).toEqual({
       model: "gpt-5-mini",
+      outputVersion: "v0",
       reasoning: { effort: "high", summary: "auto" },
       useResponsesApi: true,
     })
@@ -42,6 +43,7 @@ describe("chat model factory", () => {
     expect(importer).toHaveBeenCalledWith("@langchain/anthropic")
     expect((model as FakeModel).options).toEqual({
       model: "claude-sonnet-4-5",
+      outputVersion: "v0",
       thinking: { type: "enabled", budget_tokens: 4096 },
     })
   })
@@ -84,7 +86,7 @@ describe("chat model factory", () => {
     })
 
     expect(importer).toHaveBeenCalledWith("@langchain/google-genai")
-    expect((model as FakeModel).options).toEqual({ model: "gemini-2.5-flash" })
+    expect((model as FakeModel).options).toEqual({ model: "gemini-2.5-flash", outputVersion: "v0" })
   })
 
   test("reports missing Google @langchain/google-genai optional peer", async () => {
