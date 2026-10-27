@@ -373,14 +373,24 @@ lines go to `<state>/logs/up.log` too. `up`'s stdout is a log stream, not the CL
 reconcile route once (bounded at two minutes), which opens its Factory and reattaches to the
 workers' threads: after a restart under `up` there is no `factory reconcile` to run. It says
 `ready` only after the reconcile answers. The processes are detached from the terminal, so
-they take signals from `up` alone: on Ctrl-C, `SIGTERM` or a closed terminal, `up` stops the
-controller first (so it issues nothing more to the workers) and then the workers, one
-`SIGTERM` each and 20 seconds' grace before `SIGKILL` to the process's group; a second signal
-kills them all at once. A clean stop is every process exiting with code 0, and `up` exits 0;
-it exits 1 when it refused to start, a process never became ready, a process exited on its
-own (it stops the others; nothing is restarted) or one had to be killed. A `SIGKILL`ed `up`
-leaves the processes running; the next `up` names them, with the `ps` check to make before
-killing them.
+they take signals from `up` alone: on Ctrl-C or `SIGTERM`, `up` stops the controller first (so
+it issues nothing more to the workers) and then the workers, one `SIGTERM` each and 20
+seconds' grace before `SIGKILL` to the process's group; a second signal kills them all at once.
+A clean stop is every process exiting with code 0, and `up` exits 0; it exits 1 when it
+refused to start, a process never became ready, a process exited on its own (it stops the
+others; nothing is restarted) or one had to be killed. A `SIGKILL`ed `up` leaves the processes
+running; the next `up` names them, with the `ps` check to make before killing them.
+
+A terminal that goes away does not stop it. `up` ignores `SIGHUP` (a closed tab, or a host
+session resetting the terminal it runs in, which twice took the factory down in the live
+runs) and says so on its stdout; its lines go on to `<state>/logs/up.log` and each app's log.
+To stop an `up` whose terminal is gone, run `pnpm factory down` here, in any terminal (it
+reads the same config): it reads the pid `up` recorded in `<state>/up.lock`, sends that one
+process `SIGTERM` (the same ordered stop as Ctrl-C), and waits up to 90 seconds for it to
+exit, exiting 0 once it has. It signals nothing when the lock is missing, is not one `up`
+wrote, or names a pid that is no longer `up`'s. By hand, the same is `kill -TERM <pid>`, with
+the pid from that lock's `up.pid`.
+State is durable either way: the next `up` reconciles, as after any stop.
 
 `up` takes two locks: `<state>/up.lock` (the registry takes no process lock of its own) and
 `examples/software-factory/.up.lock`, because each app's own stores (its `.b4/` threads,
