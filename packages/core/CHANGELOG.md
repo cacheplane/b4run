@@ -1,5 +1,14 @@
 # @b4run/core
 
+## 0.15.7
+
+### Patch Changes
+
+- @b4run/permissions@0.15.7
+- @b4run/sdk@0.15.7
+- @b4run/sqlite-storage@0.15.7
+- @b4run/workspace@0.15.7
+
 ## 0.15.6
 
 ### Patch Changes

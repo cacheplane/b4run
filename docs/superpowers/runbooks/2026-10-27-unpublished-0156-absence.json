@@ -1,0 +1,708 @@
+{
+  "version": "0.15.6",
+  "candidate": "b9d722c6e4252c8b022265c05327474606099faa",
+  "startedAt": "2026-10-27T17:13:27.870Z",
+  "finishedAt": "2026-10-27T17:14:49.772Z",
+  "githubBefore": {
+    "tag": {
+      "absent": true,
+      "httpStatus": 404
+    },
+    "releases": [],
+    "runs": [
+      {
+        "id": 40537986586,
+        "runAttempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "headSha": "b9d722c6e4252c8b022265c05327474606099faa",
+        "jobs": [
+          {
+            "id": 122308336387,
+            "name": "detect",
+            "conclusion": "success"
+          },
+          {
+            "id": 122322241308,
+            "name": "tag",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322241652,
+            "name": "prepare",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322242674,
+            "name": "hydrate",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322245279,
+            "name": "attest",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322246382,
+            "name": "escrow",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322248996,
+            "name": "publish-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249558,
+            "name": "reconcile-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249828,
+            "name": "smoke-storage",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249978,
+            "name": "smoke-metadata",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322250159,
+            "name": "smoke-scaffold",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322250534,
+            "name": "smoke-published-harness",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322251746,
+            "name": "smoke-runtime-targets",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322251791,
+            "name": "reconcile-smokes",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322252688,
+            "name": "dispatch-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254255,
+            "name": "record-audit-dispatch",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254369,
+            "name": "correlate-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254830,
+            "name": "publish-release",
+            "conclusion": "skipped"
+          }
+        ],
+        "artifacts": [
+          {
+            "id": 12750279152,
+            "name": "production-observation-40537986586-1",
+            "expired": false
+          }
+        ]
+      },
+      {
+        "id": 40537987680,
+        "runAttempt": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "headSha": "b9d722c6e4252c8b022265c05327474606099faa",
+        "jobs": [
+          {
+            "id": 122322258692,
+            "name": "detect",
+            "conclusion": "failure"
+          },
+          {
+            "id": 122334390452,
+            "name": "tag",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334391996,
+            "name": "prepare",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334393606,
+            "name": "hydrate",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334395380,
+            "name": "attest",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334395501,
+            "name": "escrow",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334396341,
+            "name": "publish-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334399424,
+            "name": "reconcile-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400325,
+            "name": "smoke-published-harness",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400335,
+            "name": "smoke-runtime-targets",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400457,
+            "name": "smoke-metadata",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400926,
+            "name": "smoke-scaffold",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334401099,
+            "name": "smoke-storage",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334401886,
+            "name": "dispatch-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334402334,
+            "name": "reconcile-smokes",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334405133,
+            "name": "record-audit-dispatch",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334406203,
+            "name": "publish-release",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334407793,
+            "name": "correlate-audit",
+            "conclusion": "skipped"
+          }
+        ],
+        "artifacts": [
+          {
+            "id": 12751918333,
+            "name": "production-observation-40537987680-1",
+            "expired": false
+          }
+        ]
+      }
+    ]
+  },
+  "npmSweeps": [
+    [
+      {
+        "name": "@b4run/ag-ui",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:35.132Z"
+      },
+      {
+        "name": "@b4run/cli",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:35.340Z"
+      },
+      {
+        "name": "@b4run/config-biome",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:35.544Z"
+      },
+      {
+        "name": "@b4run/config-typescript",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:35.753Z"
+      },
+      {
+        "name": "@b4run/core",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:35.925Z"
+      },
+      {
+        "name": "@b4run/devkit",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:36.125Z"
+      },
+      {
+        "name": "@b4run/evals",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:36.372Z"
+      },
+      {
+        "name": "@b4run/inspector",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:36.531Z"
+      },
+      {
+        "name": "@b4run/langchain",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:36.749Z"
+      },
+      {
+        "name": "@b4run/langgraph",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:36.902Z"
+      },
+      {
+        "name": "@b4run/memory",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:37.106Z"
+      },
+      {
+        "name": "@b4run/memory-pgvector",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:37.734Z"
+      },
+      {
+        "name": "@b4run/permissions",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:37.880Z"
+      },
+      {
+        "name": "@b4run/postgres-storage",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:38.020Z"
+      },
+      {
+        "name": "@b4run/sandbox",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:38.611Z"
+      },
+      {
+        "name": "@b4run/sdk",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:38.826Z"
+      },
+      {
+        "name": "@b4run/sqlite-storage",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:39.004Z"
+      },
+      {
+        "name": "@b4run/testing",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:39.197Z"
+      },
+      {
+        "name": "@b4run/vite-plugin",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:39.339Z"
+      },
+      {
+        "name": "@b4run/workspace",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:39.516Z"
+      },
+      {
+        "name": "create-b4-app",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:13:39.700Z"
+      }
+    ],
+    [
+      {
+        "name": "@b4run/ag-ui",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:39.882Z"
+      },
+      {
+        "name": "@b4run/cli",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.030Z"
+      },
+      {
+        "name": "@b4run/config-biome",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.157Z"
+      },
+      {
+        "name": "@b4run/config-typescript",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.308Z"
+      },
+      {
+        "name": "@b4run/core",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.435Z"
+      },
+      {
+        "name": "@b4run/devkit",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.543Z"
+      },
+      {
+        "name": "@b4run/evals",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.736Z"
+      },
+      {
+        "name": "@b4run/inspector",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:40.916Z"
+      },
+      {
+        "name": "@b4run/langchain",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:41.322Z"
+      },
+      {
+        "name": "@b4run/langgraph",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:41.572Z"
+      },
+      {
+        "name": "@b4run/memory",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:41.677Z"
+      },
+      {
+        "name": "@b4run/memory-pgvector",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:41.879Z"
+      },
+      {
+        "name": "@b4run/permissions",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.047Z"
+      },
+      {
+        "name": "@b4run/postgres-storage",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.199Z"
+      },
+      {
+        "name": "@b4run/sandbox",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.371Z"
+      },
+      {
+        "name": "@b4run/sdk",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.627Z"
+      },
+      {
+        "name": "@b4run/sqlite-storage",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.764Z"
+      },
+      {
+        "name": "@b4run/testing",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:42.903Z"
+      },
+      {
+        "name": "@b4run/vite-plugin",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:43.012Z"
+      },
+      {
+        "name": "@b4run/workspace",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:43.198Z"
+      },
+      {
+        "name": "create-b4-app",
+        "version": "0.15.6",
+        "httpStatus": 404,
+        "observedAt": "2026-10-27T17:14:43.361Z"
+      }
+    ]
+  ],
+  "githubAfter": {
+    "tag": {
+      "absent": true,
+      "httpStatus": 404
+    },
+    "releases": [],
+    "runs": [
+      {
+        "id": 40537986586,
+        "runAttempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "headSha": "b9d722c6e4252c8b022265c05327474606099faa",
+        "jobs": [
+          {
+            "id": 122308336387,
+            "name": "detect",
+            "conclusion": "success"
+          },
+          {
+            "id": 122322241308,
+            "name": "tag",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322241652,
+            "name": "prepare",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322242674,
+            "name": "hydrate",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322245279,
+            "name": "attest",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322246382,
+            "name": "escrow",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322248996,
+            "name": "publish-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249558,
+            "name": "reconcile-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249828,
+            "name": "smoke-storage",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322249978,
+            "name": "smoke-metadata",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322250159,
+            "name": "smoke-scaffold",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322250534,
+            "name": "smoke-published-harness",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322251746,
+            "name": "smoke-runtime-targets",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322251791,
+            "name": "reconcile-smokes",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322252688,
+            "name": "dispatch-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254255,
+            "name": "record-audit-dispatch",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254369,
+            "name": "correlate-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122322254830,
+            "name": "publish-release",
+            "conclusion": "skipped"
+          }
+        ],
+        "artifacts": [
+          {
+            "id": 12750279152,
+            "name": "production-observation-40537986586-1",
+            "expired": false
+          }
+        ]
+      },
+      {
+        "id": 40537987680,
+        "runAttempt": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "headSha": "b9d722c6e4252c8b022265c05327474606099faa",
+        "jobs": [
+          {
+            "id": 122322258692,
+            "name": "detect",
+            "conclusion": "failure"
+          },
+          {
+            "id": 122334390452,
+            "name": "tag",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334391996,
+            "name": "prepare",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334393606,
+            "name": "hydrate",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334395380,
+            "name": "attest",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334395501,
+            "name": "escrow",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334396341,
+            "name": "publish-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334399424,
+            "name": "reconcile-npm",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400325,
+            "name": "smoke-published-harness",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400335,
+            "name": "smoke-runtime-targets",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400457,
+            "name": "smoke-metadata",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334400926,
+            "name": "smoke-scaffold",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334401099,
+            "name": "smoke-storage",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334401886,
+            "name": "dispatch-audit",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334402334,
+            "name": "reconcile-smokes",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334405133,
+            "name": "record-audit-dispatch",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334406203,
+            "name": "publish-release",
+            "conclusion": "skipped"
+          },
+          {
+            "id": 122334407793,
+            "name": "correlate-audit",
+            "conclusion": "skipped"
+          }
+        ],
+        "artifacts": [
+          {
+            "id": 12751918333,
+            "name": "production-observation-40537987680-1",
+            "expired": false
+          }
+        ]
+      }
+    ]
+  },
+  "untaggedUnpreparedUnpublished": true,
+  "policy": "Existing SUPERSEDED_NOOP rule for untouched older candidates; no histories, tags, records, checks or protections changed"
+}
