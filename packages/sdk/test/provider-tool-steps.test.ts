@@ -662,3 +662,37 @@ test("settled provider labels describe actual completion and cancellation", () =
     "Web search cancelled",
   ])
 })
+
+test("native file citation indices do not become assistant offsets through v1 copies", () => {
+  const message = {
+    content: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          {
+            type: "file_citation",
+            file_id: "f",
+            container_id: "c",
+            filename: "actual.txt",
+            index: 3,
+          },
+        ],
+      },
+    ],
+    contentBlocks: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          { type: "citation", fileId: "f", title: "actual.txt", startIndex: 3, endIndex: 3 },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.sources).toHaveLength(1)
+  expect(result.answer?.citations).toEqual([{ sourceId: "m1:source:0", block: 0 }])
+})

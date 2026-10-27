@@ -389,6 +389,19 @@ export function normalizeProviderMessage(
   // Anthropic v1 converts encrypted indices into numeric offsets. Match those
   // lossy copies one-for-one; ordinary citations deduplicate by full occurrence.
   const nativeOccurrences = [...citations]
+  const indexedFileCopies = texts.flatMap((block, index) =>
+    [...list(block.annotations), ...list(block.citations)]
+      .filter(
+        (entry) =>
+          entry.type === "file_citation" &&
+          typeof entry.file_id === "string" &&
+          offset(entry.index) !== undefined,
+      )
+      .map((entry) => ({
+        key: `${index}:${entry.file_id}:${entry.index}`,
+        container: string(entry.container_id),
+      })),
+  )
   const encryptedCopies = texts.flatMap((block, index) =>
     [...list(block.annotations), ...list(block.citations)]
       .filter((entry) => entry.encrypted_index !== undefined)
@@ -401,6 +414,18 @@ export function normalizeProviderMessage(
         const start = offset(entry.start_index ?? entry.startIndex ?? entry.start)
         const end = offset(entry.end_index ?? entry.endIndex ?? entry.end)
         const quote = string(entry.cited_text) ?? string(entry.citedText) ?? string(entry.quote)
+        if (start !== undefined && start === end) {
+          const key = `${index}:${fileId}:${start}`
+          const indexedCandidates = indexedFileCopies.filter((copy) => copy.key === key)
+          const indexedCandidate = indexedCandidates[0]
+          if (
+            indexedCandidate &&
+            new Set(indexedCandidates.map((copy) => copy.container)).size === 1
+          ) {
+            indexedFileCopies.splice(indexedFileCopies.indexOf(indexedCandidate), 1)
+            continue
+          }
+        }
         const candidates = new Set(
           nativeOccurrences
             .filter(
