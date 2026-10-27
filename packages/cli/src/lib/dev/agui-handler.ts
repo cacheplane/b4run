@@ -818,7 +818,13 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // branch is reached only when the snapshot has no client park, so any
       // open row on the thread is a stray or belongs to a run still in flight
       // — never this request's to report.
-      return clientToolPartialResponse(threadId, input.runId, request.headers.get("accept"), [])
+      return clientToolPartialResponse(
+        request,
+        threadId,
+        input.runId,
+        request.headers.get("accept"),
+        [],
+      )
     }
     if (clientTurn.mode === "partial") {
       // Some parked calls answered, others not yet: the results are recorded,
@@ -827,6 +833,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       // snapshot's parks still open in the record: a stray open row that
       // names no park here is not this request's to report.
       return clientToolPartialResponse(
+        request,
         threadId,
         input.runId,
         request.headers.get("accept"),
@@ -1869,6 +1876,7 @@ async function outstandingClientCallIds(
  * touched and nothing is published to the live turn — there is no turn.
  */
 async function clientToolPartialResponse(
+  request: Request,
   threadId: string,
   runId: string,
   accept: string | null,
@@ -1894,6 +1902,9 @@ async function clientToolPartialResponse(
     body.set(frame, offset)
     offset += frame.length
   }
+  // No graph runs on this path, so there is no execution finalizer to await
+  // ownership release before success. Disposal after EOF is only a fallback.
+  await releaseRequestRun(request)
   return new Response(body, {
     headers: {
       "cache-control": "no-cache",
