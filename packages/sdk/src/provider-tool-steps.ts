@@ -90,7 +90,7 @@ export function normalizeProviderMessage(
     native = true,
   ): void {
     const builtin = builtins[name]
-    if (!builtin) return
+    if (!builtin || (provider === "anthropic" && builtin !== "web_search")) return
     const previous = calls.get(id)
     const normalizedInput =
       typeof input === "object" && input !== null && !Array.isArray(input)
@@ -116,6 +116,7 @@ export function normalizeProviderMessage(
           : (labels[builtin] ?? builtin),
       ),
       ...(queries ? { queries } : {}),
+      ...(previous?.step.sources ? { sources: previous.step.sources } : {}),
       ...(status === "failed"
         ? {
             error: {
@@ -140,6 +141,7 @@ export function normalizeProviderMessage(
   function addSource(value: RecordValue, owner?: string): B4StepSource | undefined {
     const href = string(value.url) ?? string(value.uri) ?? string(value.href)
     const fileId = string(value.file_id) ?? string(value.fileId)
+    const containerId = string(value.container_id) ?? string(value.containerId)
     if (!href && !fileId) return undefined
     const ownerCall = owner ? calls.get(owner) : undefined
     const existing = [
@@ -148,7 +150,9 @@ export function normalizeProviderMessage(
     ].find(
       (source) =>
         (ownerCall ? ownerCall.step.sources?.includes(source) : true) &&
-        (href ? source.href === href : source.fileId === fileId),
+        (href
+          ? source.href === href
+          : source.fileId === fileId && source.containerId === containerId),
     )
     if (existing) return existing
     const ownSources = ownerCall?.step.sources ?? sources
@@ -158,7 +162,7 @@ export function normalizeProviderMessage(
       title: string(value.title) ?? string(value.filename) ?? href ?? fileId ?? "Source",
       ...(href ? { href } : {}),
       ...(fileId ? { fileId } : {}),
-      ...(string(value.container_id) ? { containerId: String(value.container_id) } : {}),
+      ...(containerId ? { containerId } : {}),
       ...(string(value.snippet) ? { snippet: String(value.snippet) } : {}),
     }
     if (ownerCall)
@@ -370,19 +374,21 @@ export function normalizeProviderMessage(
     for (const entry of [...list(block.annotations), ...list(block.citations)])
       citation(entry, index)
   }
-  const nativeCitations = new Set(
-    texts
-      .flatMap((block) => [...list(block.annotations), ...list(block.citations)])
-      .map((entry) => `${entry.url ?? entry.file_id}:${entry.cited_text ?? entry.quote ?? ""}`),
+  // Anthropic v1 converts encrypted indices into numeric offsets. Match those
+  // lossy copies one-for-one; ordinary citations deduplicate by full occurrence.
+  const encryptedCopies = texts.flatMap((block, index) =>
+    [...list(block.annotations), ...list(block.citations)]
+      .filter((entry) => entry.encrypted_index !== undefined)
+      .map((entry) => `${index}:${entry.url}:${entry.cited_text ?? ""}`),
   )
   for (const [index, block] of standardized.filter((block) => block.type === "text").entries()) {
     for (const entry of [...list(block.annotations), ...list(block.citations)]) {
-      if (
-        nativeCitations.has(
-          `${entry.url ?? entry.file_id ?? entry.fileId}:${entry.cited_text ?? entry.citedText ?? entry.quote ?? ""}`,
-        )
-      )
+      const key = `${index}:${entry.url}:${entry.cited_text ?? entry.citedText ?? entry.quote ?? ""}`
+      const encryptedCopy = encryptedCopies.indexOf(key)
+      if (encryptedCopy >= 0) {
+        encryptedCopies.splice(encryptedCopy, 1)
         continue
+      }
       citation(entry, index)
     }
   }

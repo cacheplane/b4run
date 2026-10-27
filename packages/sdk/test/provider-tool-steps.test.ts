@@ -445,3 +445,119 @@ test("preserves distinct citation occurrences while deduplicating native replay 
     [5, 8],
   ])
 })
+
+test("retains progress sources when terminal native output omits them", () => {
+  const message = {
+    response_metadata: {
+      tool_outputs: {
+        id: "s",
+        type: "web_search_call",
+        status: "in_progress",
+        action: { sources: [{ url: "https://example.com", title: "Example" }] },
+      },
+      output: [{ id: "s", type: "web_search_call", status: "completed" }],
+    },
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]?.step.status).toBe("completed")
+  expect(result.calls[0]?.step.sources).toEqual([
+    { id: "s:source:0", kind: "url", href: "https://example.com", title: "Example" },
+  ])
+})
+
+test("file identity includes its container", () => {
+  const message = {
+    content: [
+      {
+        type: "text",
+        text: "files",
+        annotations: [
+          {
+            type: "file_citation",
+            file_id: "same-file",
+            container_id: "container-a",
+            filename: "a.txt",
+          },
+          {
+            type: "file_citation",
+            file_id: "same-file",
+            container_id: "container-b",
+            filename: "b.txt",
+          },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.sources?.map((source) => [source.id, source.containerId])).toEqual([
+    ["m1:source:0", "container-a"],
+    ["m1:source:1", "container-b"],
+  ])
+})
+
+test("v1 citations enrich separate occurrences of the same native URL", () => {
+  const message = {
+    content: [
+      {
+        type: "text",
+        text: "one two",
+        annotations: [
+          {
+            type: "url_citation",
+            url: "https://example.com",
+            title: "Example",
+            start_index: 0,
+            end_index: 3,
+          },
+        ],
+      },
+    ],
+    contentBlocks: [
+      {
+        type: "text",
+        text: "one two",
+        annotations: [
+          {
+            type: "citation",
+            url: "https://example.com",
+            title: "Example",
+            startIndex: 0,
+            endIndex: 3,
+          },
+          {
+            type: "citation",
+            url: "https://example.com",
+            title: "Example",
+            startIndex: 4,
+            endIndex: 7,
+          },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.citations?.map((entry) => [entry.start, entry.end])).toEqual([
+    [0, 3],
+    [4, 7],
+  ])
+})
+
+test("Anthropic v1 fallback follows the same disabled built-in policy as native blocks", () => {
+  const message = {
+    contentBlocks: [
+      { type: "server_tool_call", id: "code", name: "code_execution", args: {} },
+      { type: "server_tool_call", id: "fetch", name: "web_fetch", args: {} },
+      { type: "server_tool_call", id: "search", name: "web_search", args: { query: "allowed" } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, { ...options, provider: "anthropic" })
+
+  expect(result.calls.map((call) => call.id)).toEqual(["search"])
+})
