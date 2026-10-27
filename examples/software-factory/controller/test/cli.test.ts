@@ -1448,6 +1448,77 @@ esac
     expect(JSON.parse(nothing.stdout).message).toMatch(/^Nothing to review: .* is received/)
   }, 120_000)
 
+  it("prints the intake approval it sent, though a run following the work order dispatched at once", async () => {
+    const { cli, spawn, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id } = await parkedIntake(cli, "create-cli-approve-raced")
+    const { json: row } = await cli("show", id)
+    const digest = row.taskDigest as string
+    // What a `factory run` following the work order in another terminal does: dispatch the
+    // moment the row reads `received`, so the row has moved on before the review's answer.
+    const following = (async () => {
+      expect(await pollState(stateDir, id, (s) => s === "received", 45_000)).toBe("received")
+      for (;;) {
+        const sent = await served?.run(id, "/work-orders/dispatch#workflow", { id })
+        if (sent?.status !== 409) return sent
+      }
+    })()
+    const approved = await spawn(
+      "review",
+      id,
+      "--approve",
+      "--digest",
+      digest,
+      "--allow-missing-evidence",
+    ).promise
+    expect((await following)?.status).toBe(200)
+    expect(JSON.parse(approved.stdout)).toMatchObject({
+      ok: true,
+      state: "received",
+      message: "Intake approved",
+      row: { id, taskDigest: digest },
+    })
+    expect(await pollState(stateDir, id, (s) => s !== "received")).not.toBe("received")
+  }, 60_000)
+
+  it("answers an approval of a digest already approved with that approval, not 'nothing to review' (live run 3)", async () => {
+    const { cli, spawn, stateDir } = await boot(
+      {},
+      { verifier: createFakeVerifier({ independent: "fail" }) },
+    )
+    const { id, revision } = await parkedIntake(cli, "create-cli-approve-landed")
+    const { json: row } = await cli("show", id)
+    const digest = row.taskDigest as string
+    // The approval lands (a `run` at its prompt sent it) and that run dispatches at once.
+    const sent = await served?.run(id, "/work-orders/approve-intake#workflow", {
+      id,
+      revision,
+      taskDigest: digest,
+    })
+    expect(sent?.body).toMatchObject({ ok: true, message: "Intake approved" })
+    expect((await served?.run(id, "/work-orders/dispatch#workflow", { id }))?.status).toBe(200)
+    const moved = await pollState(stateDir, id, (s) => s !== "received" && s !== "dispatched")
+    expect(moved).not.toBe("received")
+
+    // The same approval, a moment later: the approve route's outcome, the row as it reads now.
+    const again = await spawn("review", id, "--approve", "--digest", digest).promise
+    expect(JSON.parse(again.stdout)).toMatchObject({
+      ok: true,
+      state: "received",
+      message: "Intake approved",
+      row: { id, taskDigest: digest },
+    })
+    expect(JSON.parse(again.stdout).row.state).not.toBe("received")
+    expect(again.stderr).toContain("was approved at this digest")
+    // Another digest was never approved: there is still nothing to review.
+    const other = await failing(
+      spawn("review", id, "--approve", "--digest", "b".repeat(64)).promise,
+    )
+    expect(JSON.parse(other.stdout).message).toMatch(/^Nothing to review: /)
+  }, 60_000)
+
   it("warns at an intake review when dispatch would refuse the work order's budget", async () => {
     // devkit verifies for up to 240 s, so dispatch needs 480 s left; this row has 400 s in all.
     const { cli, spawn } = await boot(
@@ -2301,5 +2372,22 @@ esac
       run(process.execPath, [tsxBin, cliEntry, "up"], { env, cwd: packageRoot }),
     )
     expect(none.stderr).toContain("factory up needs a config")
+  }, 60_000)
+
+  it("down reads the state directory's lock, and signals nothing when no up holds it", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-cli-"))
+    const env = { ...process.env, FACTORY_CONFIG: "none", FACTORY_STATE_DIR: dir }
+    const stopped = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "down"], { env, cwd: packageRoot }),
+    )
+    expect(JSON.parse(stopped.stdout)).toEqual({
+      ok: false,
+      message: `No factory up is running: ${join(dir, "up.lock")} does not exist`,
+    })
+    const { FACTORY_STATE_DIR: _unset, ...stateless } = env
+    const nowhere = await failing(
+      run(process.execPath, [tsxBin, cliEntry, "down"], { env: stateless, cwd: packageRoot }),
+    )
+    expect(nowhere.stderr).toContain("factory down needs the state directory")
   }, 60_000)
 })

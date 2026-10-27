@@ -1449,12 +1449,18 @@ export function lineWriter(stream: NodeJS.WritableStream): (line: string) => voi
 }
 
 /**
- * `stop` on the first SIGINT, SIGTERM or SIGHUP (a closed terminal: the detached children would
- * otherwise outlive it); `force` on another more than a second later. One Ctrl-C under
- * `pnpm factory up` arrives three times within milliseconds (Trap 8): the terminal's SIGINT, the
- * inner pnpm's relayed SIGINT, and the SIGTERM that pnpm sends when the outer pnpm relays its
- * SIGINT too. None of those may kill. The `factory` script runs up as `node --import tsx`, never
- * under the tsx CLI, whose own relay SIGKILLs a child busy for more than about 30 ms.
+ * `stop` on the first SIGINT or SIGTERM; `force` on another more than a second later. One Ctrl-C
+ * under `pnpm factory up` arrives three times within milliseconds (Trap 8): the terminal's
+ * SIGINT, the inner pnpm's relayed SIGINT, and the SIGTERM that pnpm sends when the outer pnpm
+ * relays its SIGINT too. None of those may kill. The `factory` script runs up as
+ * `node --import tsx`, never under the tsx CLI, whose own relay SIGKILLs a child busy for more
+ * than about 30 ms.
+ *
+ * SIGHUP is ignored, and said so. A terminal that goes away (closed, or reset by the host
+ * session it runs in: twice in the live runs) hangs up its whole foreground group; stopping on
+ * that took the controller and both workers down with it. The children are detached already,
+ * and up's lines survive a dead terminal (`lineWriter`, `<state>/logs/up.log`), so up keeps
+ * running; `factory down` stops it, by the pid its lock records.
  */
 export function stopOnSignals(
   source: { on(event: "SIGINT" | "SIGTERM" | "SIGHUP", listener: () => void): unknown },
@@ -1464,7 +1470,7 @@ export function stopOnSignals(
   const stop = new AbortController()
   const force = new AbortController()
   let firstAt = 0
-  for (const name of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+  for (const name of ["SIGINT", "SIGTERM"] as const)
     source.on(name, () => {
       if (!stop.signal.aborted) {
         firstAt = now()
@@ -1475,7 +1481,79 @@ export function stopOnSignals(
         force.abort()
       }
     })
+  // A listener, so node's default (exit) never runs.
+  source.on("SIGHUP", () =>
+    out(
+      `${UP} SIGHUP: ignored, up keeps running without its terminal; stop it with pnpm factory down (or kill -TERM ${process.pid})`,
+    ),
+  )
   return { stop: stop.signal, force: force.signal }
+}
+
+/** What `down` needs of the host; tests stand in for the signal, the liveness check and the clock. */
+export interface DownDeps {
+  readonly kill: (pid: number, signal: NodeJS.Signals) => void
+  readonly alive: (pid: number) => boolean
+  readonly sleep: (ms: number) => Promise<void>
+  /** How long to wait for up to exit: its ordered stop gives each of three processes 20 s. */
+  readonly timeoutMs: number
+}
+
+export const realDownDeps: DownDeps = {
+  kill: (pid, signal) => process.kill(pid, signal),
+  alive: pidAlive,
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+  timeoutMs: 90_000,
+}
+
+export interface DownOutcome {
+  readonly ok: boolean
+  readonly message: string
+  readonly pid?: number
+}
+
+/**
+ * `factory down`: one SIGTERM to the `up` that `<state>/up.lock` names, which is up's own
+ * ordered stop (the controller first, then the workers), and a wait for it to exit. Only a held
+ * lock is acted on, D12's check: the pid alive and still showing up's command line, so a pid
+ * reused since a SIGKILLed up is never signalled. Nothing is killed: a stop that outlasts the
+ * wait is reported, and the person decides.
+ */
+export async function down(stateDir: string, deps: DownDeps = realDownDeps): Promise<DownOutcome> {
+  const path = join(stateDir, "up.lock")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { ok: false, message: `No factory up is running: ${path} does not exist` }
+    return { ok: false, message: `${path} is not a lock up wrote (${message(error)})` }
+  }
+  if (!isLockRecord(parsed))
+    return { ok: false, message: `${path} is not a lock up wrote; nothing was signalled` }
+  const { pid } = parsed.up
+  if (!holds(parsed.up))
+    return {
+      ok: false,
+      pid,
+      message: `The up that wrote ${path} (pid ${pid}) is no longer running; nothing was signalled. The next up names any process it left behind`,
+    }
+  deps.kill(pid, "SIGTERM")
+  const deadline = Date.now() + deps.timeoutMs
+  while (deps.alive(pid)) {
+    if (Date.now() >= deadline)
+      return {
+        ok: false,
+        pid,
+        message: `Sent SIGTERM to factory up (pid ${pid}); it is still stopping after ${Math.round(deps.timeoutMs / 1_000)} s. Its log is ${join(stateDir, "logs", "up.log")}`,
+      }
+    await deps.sleep(250)
+  }
+  return {
+    ok: true,
+    pid,
+    message: `factory up (pid ${pid}) stopped: the controller first, then the workers. Its log is ${join(stateDir, "logs", "up.log")}`,
+  }
 }
 
 /** The drafter's pinned base image, read as text (not imported: the controller shares no source with a worker). */

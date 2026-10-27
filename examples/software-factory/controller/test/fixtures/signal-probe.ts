@@ -1,14 +1,14 @@
-// A stand-in for `up` under the `factory` script's launcher: it handles SIGINT, SIGTERM and
-// SIGHUP, and on the first one does what up's stop does first, synchronous work (the registry
-// read, the log appends) that keeps its event loop busy, then exits 0 by its own hand a moment
-// later. It appends each event to SIGNAL_PROBE_REPORT, so a test can tell "exited 0" from
+// A stand-in for `up` under the `factory` script's launcher: it handles SIGINT and SIGTERM (up
+// ignores SIGHUP), and on the first one does what up's stop does first, synchronous work (the
+// registry read, the log appends) that keeps its event loop busy, then exits 0 by its own hand a
+// moment later. It appends each event to SIGNAL_PROBE_REPORT, so a test can tell "exited 0" from
 // "killed by a layer above it".
 import { appendFileSync } from "node:fs"
 
 const report = process.env.SIGNAL_PROBE_REPORT as string
 const say = (event: string) => appendFileSync(report, `${event}\n`)
 let stopping = false
-for (const name of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+for (const name of ["SIGINT", "SIGTERM"] as const)
   process.on(name, () => {
     say(name)
     if (stopping) return

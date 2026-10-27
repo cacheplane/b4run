@@ -192,13 +192,15 @@ export function promoteCheck(input: {
 
   // 2. The built artifact → the source. One form is understood: the one the drafter is told
   //    to write (`join(process.cwd(), "packages/<name>/dist/<file>.js")`), bound by
-  //    destructuring or to one name.
+  //    destructuring or to one name. A run of `//` lines directly above it that speaks of the
+  //    built module (`dist`, `built`, `process.cwd`) goes with it: it would describe an import
+  //    that is no longer there. Any other comment above it stays.
   const dist = new RegExp(
-    String.raw`^[ \t]*const\s+(\{[^}]*\}|[A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*join\(\s*process\.cwd\(\)\s*,\s*["']${packageDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/dist/([^"']+?)\.js["']\s*\)\s*\)\s*;?[ \t]*$`,
+    String.raw`((?:^[ \t]*\/\/[^\n]*\n)*)^[ \t]*const\s+(\{[^}]*\}|[A-Za-z_$][\w$]*)\s*=\s*await\s+import\(\s*join\(\s*process\.cwd\(\)\s*,\s*["']${packageDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/dist/([^"']+?)\.js["']\s*\)\s*\)\s*;?[ \t]*$`,
     "gm",
   )
   const sourceImports: string[] = []
-  source = source.replace(dist, (_whole, binding: string, rest: string) => {
+  source = source.replace(dist, (_whole, comments: string, binding: string, rest: string) => {
     const target = posix.relative(testDir, `${packageDir}/src/${rest}.ts`)
     const specifier = target.startsWith(".") ? target : `./${target}`
     sourceImports.push(
@@ -206,7 +208,7 @@ export function promoteCheck(input: {
         ? `import ${binding.replace(/\s+/g, " ")} from ${JSON.stringify(specifier)}`
         : `import * as ${binding} from ${JSON.stringify(specifier)}`,
     )
-    return ""
+    return /\bdist\b|\bbuilt\b|process\.cwd/i.test(comments) ? "" : comments.replace(/\n$/, "")
   })
   if (sourceImports.length === 0)
     return {
