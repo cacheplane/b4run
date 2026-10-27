@@ -1,5 +1,19 @@
 # @dawn-example/research-server
 
+## 0.0.40
+
+### Patch Changes
+
+- Updated dependencies [5d471fb]
+- Updated dependencies [09a33c0]
+  - @b4run/cli@0.15.6
+  - @b4run/sdk@0.15.6
+  - @b4run/langchain@0.15.6
+  - @b4run/core@0.15.6
+  - @b4run/postgres-storage@0.15.6
+  - @b4run/workspace@0.15.6
+  - @b4run/memory-pgvector@0.15.6
+
 ## 0.0.39
 
 ### Patch Changes
