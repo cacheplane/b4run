@@ -43,6 +43,16 @@ const labels: Readonly<Record<string, string>> = {
   code_execution: "Running code",
   image_generation: "Generating an image",
 }
+const completedLabels: Readonly<Record<string, string>> = {
+  web_search: "Searched the web",
+  code_execution: "Ran code",
+  image_generation: "Generated image",
+}
+const toolNames: Readonly<Record<string, string>> = {
+  web_search: "Web search",
+  code_execution: "Code execution",
+  image_generation: "Image generation",
+}
 const terminal = (value: unknown): B4ToolStep["status"] => {
   if (value === "failed" || value === "incomplete" || value === "error") return "failed"
   if (value === "completed" || value === "success") return "completed"
@@ -111,9 +121,11 @@ export function normalizeProviderMessage(
       provider,
       status,
       label: bounded(
-        status === "failed"
-          ? `${builtin.replaceAll("_", " ")} failed`
-          : (labels[builtin] ?? builtin),
+        status === "running"
+          ? (labels[builtin] ?? builtin)
+          : status === "completed"
+            ? (completedLabels[builtin] ?? builtin)
+            : `${toolNames[builtin] ?? builtin} ${status}`,
       ),
       ...(queries ? { queries } : {}),
       ...(previous?.step.sources ? { sources: previous.step.sources } : {}),
@@ -376,6 +388,7 @@ export function normalizeProviderMessage(
   }
   // Anthropic v1 converts encrypted indices into numeric offsets. Match those
   // lossy copies one-for-one; ordinary citations deduplicate by full occurrence.
+  const nativeOccurrences = [...citations]
   const encryptedCopies = texts.flatMap((block, index) =>
     [...list(block.annotations), ...list(block.citations)]
       .filter((entry) => entry.encrypted_index !== undefined)
@@ -383,6 +396,28 @@ export function normalizeProviderMessage(
   )
   for (const [index, block] of standardized.filter((block) => block.type === "text").entries()) {
     for (const entry of [...list(block.annotations), ...list(block.citations)]) {
+      const fileId = string(entry.file_id) ?? string(entry.fileId)
+      if (fileId && entry.container_id === undefined && entry.containerId === undefined) {
+        const start = offset(entry.start_index ?? entry.startIndex ?? entry.start)
+        const end = offset(entry.end_index ?? entry.endIndex ?? entry.end)
+        const quote = string(entry.cited_text) ?? string(entry.citedText) ?? string(entry.quote)
+        const candidates = new Set(
+          nativeOccurrences
+            .filter(
+              (occurrence) =>
+                occurrence.block === index &&
+                occurrence.start === start &&
+                occurrence.end === end &&
+                occurrence.quote === quote &&
+                [
+                  ...sources,
+                  ...[...calls.values()].flatMap((call) => call.step.sources ?? []),
+                ].some((source) => source.id === occurrence.sourceId && source.fileId === fileId),
+            )
+            .map((occurrence) => occurrence.sourceId),
+        )
+        if (candidates.size === 1) continue
+      }
       const key = `${index}:${entry.url}:${entry.cited_text ?? entry.citedText ?? entry.quote ?? ""}`
       const encryptedCopy = encryptedCopies.indexOf(key)
       if (encryptedCopy >= 0) {

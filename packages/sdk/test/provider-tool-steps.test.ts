@@ -561,3 +561,104 @@ test("Anthropic v1 fallback follows the same disabled built-in policy as native 
 
   expect(result.calls.map((call) => call.id)).toEqual(["search"])
 })
+
+test("deduplicates lossy v1 file citation against an unambiguous native container", () => {
+  const message = {
+    content: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          {
+            type: "file_citation",
+            file_id: "f",
+            container_id: "c",
+            filename: "a.txt",
+            start_index: 0,
+            end_index: 4,
+          },
+        ],
+      },
+    ],
+    contentBlocks: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          { type: "citation", fileId: "f", title: "a.txt", startIndex: 0, endIndex: 4 },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.sources).toHaveLength(1)
+  expect(result.answer?.citations).toEqual([
+    { sourceId: "m1:source:0", block: 0, start: 0, end: 4 },
+  ])
+})
+
+test("explicit v1 container identity remains separate from another native container", () => {
+  const message = {
+    content: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          {
+            type: "file_citation",
+            file_id: "f",
+            container_id: "a",
+            filename: "a.txt",
+            start_index: 0,
+            end_index: 4,
+          },
+        ],
+      },
+    ],
+    contentBlocks: [
+      {
+        type: "text",
+        text: "file",
+        annotations: [
+          {
+            type: "citation",
+            fileId: "f",
+            containerId: "b",
+            title: "b.txt",
+            startIndex: 0,
+            endIndex: 4,
+          },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.sources?.map((source) => source.containerId)).toEqual(["a", "b"])
+  expect(result.answer?.citations).toHaveLength(2)
+})
+
+test("settled provider labels describe actual completion and cancellation", () => {
+  const message = {
+    additional_kwargs: {
+      tool_outputs: [
+        { id: "s", type: "web_search_call", status: "completed" },
+        { id: "c", type: "code_interpreter_call", status: "completed" },
+        { id: "i", type: "image_generation_call", status: "completed" },
+        { id: "cancel", type: "web_search_call", status: "cancelled" },
+      ],
+    },
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls.map((call) => call.step.label)).toEqual([
+    "Searched the web",
+    "Ran code",
+    "Generated image",
+    "Web search cancelled",
+  ])
+})
