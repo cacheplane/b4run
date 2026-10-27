@@ -129,6 +129,8 @@ export {
   readPersistedSubagent,
   readPersistedTurnEnd,
 } from "./persisted-turn.js"
+export type { ProviderMessageProjection, ProviderToolCall } from "./provider-tool-steps.js"
+export { normalizeProviderMessage } from "./provider-tool-steps.js"
 export type { RouteConfig, RouteKind } from "./route-config.js"
 export type { RouteStateMap, RouteToolMap } from "./route-types.js"
 export type { RequestRunAdmission } from "./run-admission.js"
