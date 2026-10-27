@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 const packageRoot = join(import.meta.dirname, "..")
 const probe = join(import.meta.dirname, "fixtures/signal-probe.ts")
+const hangupProbe = join(import.meta.dirname, "fixtures/hangup-probe.ts")
 const factoryScript = (
   JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
     scripts: Record<string, string>
@@ -79,5 +80,43 @@ describe("the factory script's launcher", () => {
     group = undefined
     expect(events(report).at(-1)).toBe("exit 0")
     expect(exit).toEqual({ code: 0, signal: null })
+  }, 30_000)
+
+  // A terminal that goes away hangs up its whole foreground group (twice in the live runs, a
+  // host session resetting the terminal took up and the factory with it). up's handlers, in a
+  // real process: the hang-up is survived and said so, and a SIGTERM still stops it.
+  it("keeps up running through a SIGHUP to its group, and still stops on SIGTERM", async () => {
+    dir = mkdtempSync(join(tmpdir(), "factory-hangup-"))
+    const report = join(dir, "report")
+    const child = spawn(process.execPath, ["--import", "tsx", hangupProbe], {
+      cwd: packageRoot,
+      env: { ...process.env, HANGUP_PROBE_REPORT: report },
+      detached: true,
+      stdio: "ignore",
+    })
+    group = child.pid as number
+    let exit: { code: number | null; signal: string | null } | undefined
+    const exited = new Promise<{ code: number | null; signal: string | null }>((done) =>
+      child.once("exit", (code, signal) => {
+        exit = { code, signal }
+        done(exit)
+      }),
+    )
+    const deadline = Date.now() + 20_000
+    while (!events(report).includes("ready")) {
+      if (Date.now() > deadline) throw new Error("the probe never started")
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    process.kill(-group, "SIGHUP")
+    while (!events(report).some((line) => line.includes("SIGHUP: ignored"))) {
+      if (Date.now() > deadline) throw new Error("the probe never answered the SIGHUP")
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    await new Promise((r) => setTimeout(r, 300))
+    expect(exit).toBeUndefined()
+    process.kill(child.pid as number, "SIGTERM")
+    expect(await exited).toEqual({ code: 0, signal: null })
+    group = undefined
+    expect(events(report).at(-1)).toBe("exit 0")
   }, 30_000)
 })

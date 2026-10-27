@@ -117,6 +117,47 @@ describe("promoteCheck", () => {
     )
   })
 
+  it("drops the comment lines above the rewritten import that speak of the built module, and keeps any other (#1066)", () => {
+    const promote = (comments: readonly string[]) => {
+      const promoted = promoteCheck({
+        packageDir: "packages/cli",
+        checkFile: "checks/serve-port.test.ts",
+        source: [
+          'import { join } from "node:path"',
+          'import test from "node:test"',
+          'import assert from "node:assert/strict"',
+          "",
+          "// The port the issue names.",
+          "const PORT = 70000",
+          "",
+          ...comments,
+          'const { parsePort } = await import(join(process.cwd(), "packages/cli/dist/lib/dev/parse-port.js"))',
+          'test("A1: x", () => assert.throws(() => parsePort(String(PORT))))',
+          "",
+        ].join("\n"),
+      })
+      if (!promoted.ok) throw new Error(promoted.reason)
+      return promoted.source
+    }
+    // As seen in packages/cli/test/serve-port.test.ts: the comment named the dist import.
+    const stale = promote(["// Import the built module from the package dist mirrored from src"])
+    expect(stale).not.toContain("Import the built module")
+    expect(stale).toContain("// The port the issue names.")
+    expect(stale.split("\n")[1]).toBe('import { parsePort } from "../src/lib/dev/parse-port.ts"')
+    // The whole contiguous run goes, whichever of its lines names the built module.
+    const run = promote([
+      "// Load the function under test.",
+      "// Resolved from process.cwd(), which is the repository root.",
+    ])
+    expect(run).not.toContain("Load the function under test")
+    expect(run).not.toContain("Resolved from")
+    expect(promote(["// Built from packages/cli/src."])).not.toContain("Built from")
+    // A comment about something else stays where it was.
+    const kept = promote(["// A1 needs the parser: the issue is about its upper bound."])
+    expect(kept).toContain("// A1 needs the parser: the issue is about its upper bound.\n")
+    expect(kept).not.toContain("process.cwd")
+  })
+
   it("refuses what it cannot express, with the reason", () => {
     const reason = (source: string, packageDir = "packages/devkit") => {
       const result = promoteCheck({ packageDir, checkFile: "checks/x.test.ts", source })

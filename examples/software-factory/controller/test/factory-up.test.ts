@@ -21,7 +21,9 @@ import {
   acquireLock,
   appProcesses,
   commandOf,
+  type DownDeps,
   dotenvCandidates,
+  down,
   followLines,
   lineWriter,
   openaiKeyFor,
@@ -716,8 +718,8 @@ describe("a child's output streams", () => {
 })
 
 describe("up's signals", () => {
-  it("SIGINT, SIGTERM or SIGHUP stops; only a second one more than a second later kills", () => {
-    for (const first of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  it("SIGINT or SIGTERM stops; only a second one more than a second later kills", () => {
+    for (const first of ["SIGINT", "SIGTERM"] as const) {
       const source = new EventEmitter()
       let now = 1_000
       const said: string[] = []
@@ -739,6 +741,118 @@ describe("up's signals", () => {
       expect(force.aborted).toBe(true)
       expect(said.join("\n")).toContain(`${first}: stopping`)
     }
+  })
+
+  it("ignores SIGHUP, with a listener so node's default never exits, and says how to stop it", () => {
+    const source = new EventEmitter()
+    let now = 1_000
+    const said: string[] = []
+    const { stop, force } = stopOnSignals(
+      source,
+      (line) => said.push(line),
+      () => now,
+    )
+    // Registered: a process with a SIGHUP listener is not ended by one.
+    expect(source.listenerCount("SIGHUP")).toBe(1)
+    source.emit("SIGHUP")
+    now += 2_000
+    source.emit("SIGHUP")
+    expect(stop.aborted).toBe(false)
+    expect(force.aborted).toBe(false)
+    expect(said[0]).toContain("SIGHUP: ignored")
+    expect(said[0]).toContain("pnpm factory down")
+    expect(said[0]).toContain(`kill -TERM ${process.pid}`)
+    // A hang-up never counts as the first of the two signals that kill.
+    source.emit("SIGTERM")
+    expect(stop.aborted).toBe(true)
+    now += 400
+    source.emit("SIGHUP")
+    now += 2_000
+    source.emit("SIGHUP")
+    expect(force.aborted).toBe(false)
+  })
+})
+
+describe("factory down", () => {
+  const settings = { approvalTtlMs: 900_000, maxActiveMs: 3_600_000 }
+  /** Stands in for the host: records the signal, and up exits `afterPolls` polls after it. */
+  const host = (afterPolls = 2, timeoutMs = 5_000) => {
+    const sent: [number, string][] = []
+    let polls = 0
+    const deps: DownDeps = {
+      kill: (pid, signal) => {
+        sent.push([pid, signal])
+      },
+      alive: () => sent.length === 0 || polls++ < afterPolls,
+      sleep: async () => undefined,
+      timeoutMs,
+    }
+    return { sent, deps }
+  }
+
+  it("sends one SIGTERM to the up its lock names, and waits for it to exit", async () => {
+    const config = fresh()
+    const lock = acquireLock(config, settings, join(dir as string, ".up.lock"))
+    if ("refused" in lock) throw new Error(lock.refused)
+    try {
+      const { sent, deps: downDeps } = host()
+      const outcome = await down(config.stateDir, downDeps)
+      // The lock up wrote records its pid: here, this process's.
+      expect(sent).toEqual([[process.pid, "SIGTERM"]])
+      expect(outcome).toMatchObject({ ok: true, pid: process.pid })
+      expect(outcome.message).toContain(join(config.stateDir, "logs", "up.log"))
+    } finally {
+      lock.release()
+    }
+  })
+
+  it("reports a stop that outlasts its wait, and kills nothing", async () => {
+    const config = fresh()
+    const lock = acquireLock(config, settings, join(dir as string, ".up.lock"))
+    if ("refused" in lock) throw new Error(lock.refused)
+    try {
+      const { sent, deps: downDeps } = host(Number.POSITIVE_INFINITY, 0)
+      const outcome = await down(config.stateDir, downDeps)
+      expect(sent).toEqual([[process.pid, "SIGTERM"]])
+      expect(outcome).toMatchObject({ ok: false, pid: process.pid })
+      expect(outcome.message).toContain("still stopping")
+    } finally {
+      lock.release()
+    }
+  })
+
+  it("signals nothing without a lock, for a lock up did not write, or for a stale one", async () => {
+    const config = fresh()
+    const { sent, deps: downDeps } = host()
+    expect(await down(config.stateDir, downDeps)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("No factory up is running"),
+    })
+    mkdirSync(config.stateDir, { recursive: true })
+    const path = join(config.stateDir, "up.lock")
+    writeFileSync(path, "{}")
+    expect((await down(config.stateDir, downDeps)).message).toContain("not a lock up wrote")
+    // A dead pid, and a live one (this process) showing another command: neither is up.
+    for (const holder of [
+      { pid: 2 ** 22 + 1, command: "cli.ts up" },
+      { pid: process.pid, command: "no such command line" },
+    ]) {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          up: { ...holder, startedAt: "x" },
+          ports: config.ports,
+          controller: settings,
+          children: {},
+        }),
+      )
+      expect(await down(config.stateDir, downDeps)).toMatchObject({
+        ok: false,
+        pid: holder.pid,
+        message: expect.stringContaining("no longer running"),
+      })
+    }
+    expect(sent).toEqual([])
   })
 })
 

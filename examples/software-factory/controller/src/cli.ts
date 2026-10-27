@@ -43,7 +43,14 @@ import {
   RUN_WAITING_ON_A_PERSON,
   runAgainArgs,
 } from "./lib/operator/run-steps.js"
-import { heldLockController, lineWriter, realUpDeps, stopOnSignals, up } from "./lib/operator/up.js"
+import {
+  down,
+  heldLockController,
+  lineWriter,
+  realUpDeps,
+  stopOnSignals,
+  up,
+} from "./lib/operator/up.js"
 import { openRegistryReader } from "./lib/registry/reader.js"
 import { exportReview, intakeReview, type OperatorReview } from "./lib/review/operator-review.js"
 import { pinDiffBase } from "./lib/review/pin-diff-base.js"
@@ -84,7 +91,8 @@ const USAGE = `factory <command> [options]
   run       --issue <n> [--repo <owner/name>] [--pin <sha>] [--deliver local|draft-pr] [--new] [--allow-missing-evidence]
   run       --task <id> [--new] [--allow-missing-evidence]
   run       <workOrderId> [--allow-missing-evidence]
-  up        [--config <path>]
+  up        [--config <path>]   (a closed or reset terminal does not stop it)
+  down      [--config <path>]   (stops the up whose pid <state>/up.lock records, and waits for it)
   builder-handoff --task <id> --out <dir> [--work-order <workOrderId>] [--image-id sha256:<64 hex>]
 
 The commands that change something are requests to a running controller:
@@ -973,7 +981,12 @@ async function reviewOutcome(id: string, options: ReviewOptions): Promise<Review
   }
 
   const built = await buildReview(id, allowMissingEvidence)
-  if (!("digest" in built)) return refused(nothingToReview(id, built.row), built.row)
+  if (!("digest" in built)) {
+    const given = digest !== undefined ? intakeApprovedAt(id, digest) : undefined
+    return given === undefined
+      ? refused(nothingToReview(id, built.row), built.row)
+      : { kind: "sent", outcome: given, code: 0 }
+  }
   process.stderr.write(`${built.text}\n`)
   if (built.problems.length > 0)
     return refused(
@@ -1113,6 +1126,33 @@ async function redeliver(
   )
   print(outcome)
   return outcome.ok ? 0 : 1
+}
+
+/**
+ * The intake approval of exactly `digest`, when the journal holds one: the outcome the
+ * approve route gave it, with the row as it reads now. A `run` following the work order
+ * dispatches the moment the approval lands (live run 3), so an approval of the same digest
+ * that arrives a moment later finds the row `running`: the approval it asked for has been
+ * given, and that is its answer, not "nothing to review". Undefined for any other digest.
+ */
+function intakeApprovedAt(id: string, digest: string): RouteOutcome | undefined {
+  const { events, row } = read((reader) => ({ events: reader.events(id), row: reader.show(id) }))
+  const approval = events.find(
+    (e) =>
+      e.type === "transition" &&
+      e.payload.event === "approve_intake" &&
+      e.payload.taskDigest === digest,
+  )
+  if (approval === undefined || !row) return undefined
+  process.stderr.write(
+    `factory: ${id}'s draft was approved at this digest at ${approval.at}; the work order has moved on to ${row.state}\n`,
+  )
+  return {
+    ok: true,
+    state: String(approval.payload.to) as WorkOrderState,
+    message: "Intake approved",
+    row,
+  }
 }
 
 function nothingToReview(id: string, row: WorkOrderRow): string {
@@ -1791,7 +1831,7 @@ async function main(argv: string[]): Promise<number> {
     // A closed stdout (`up | head`) must not end up and orphan its detached children (Trap 24):
     // after an error there, up's own lines go to <state>/logs/up.log and each child's to its log.
     const out = lineWriter(process.stdout)
-    // SIGHUP too: a closed terminal would otherwise leave the detached children running.
+    // SIGHUP is ignored: a terminal that goes away no longer takes the factory with it.
     const { stop, force } = stopOnSignals(process, out)
     return await up(config, realUpDeps(out, config), stop, force)
   }
@@ -1987,6 +2027,17 @@ async function main(argv: string[]): Promise<number> {
         })
         print(outcome)
         return 0
+      }
+      case "down": {
+        if (id !== undefined) throw new Error("factory down takes no positional argument")
+        const stateDir = process.env.FACTORY_STATE_DIR
+        if (!stateDir)
+          throw new Error(
+            `factory down needs the state directory: ${DEFAULT_CONFIG_PATH}, --config <path> or FACTORY_STATE_DIR`,
+          )
+        const outcome = await down(stateDir)
+        print(outcome)
+        return outcome.ok ? 0 : 1
       }
       case "list":
         print(
