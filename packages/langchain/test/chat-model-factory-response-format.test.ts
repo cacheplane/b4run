@@ -73,7 +73,7 @@ describe("createChatModel with a JSON-schema response format", () => {
   })
 
   test("a provider without a schema-constrained output hook is rejected, not ignored", async () => {
-    const importer = vi.fn().mockResolvedValue({ ChatGoogleGenerativeAI: FakeModel })
+    const importer = vi.fn().mockResolvedValue({ ChatGoogle: FakeModel })
 
     await expect(
       createChatModel({ model: "gemini-2.5-flash", provider: "google", responseFormat, importer }),

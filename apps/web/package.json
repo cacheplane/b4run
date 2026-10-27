@@ -51,7 +51,7 @@
     "@b4run/postgres-storage": "workspace:*",
     "@b4run/sandbox": "workspace:*",
     "@b4run/sdk": "workspace:*",
-    "@langchain/core": "1.2.12",
+    "@langchain/core": "1.2.18",
     "@langchain/langgraph": "1.4.17",
     "@testcontainers/postgresql": "^12.0.4",
     "@types/mdx": "^2.0.14",

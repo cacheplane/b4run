@@ -1,3 +1,4 @@
+import type { BuiltInToolsConfig } from "./built-in-tools.js"
 import type { KnownModelId } from "./known-model-ids.js"
 import type { ModelProviderId } from "./model-provider.js"
 
@@ -186,6 +187,8 @@ export interface B4Agent<Subagents extends SubagentMap = SubagentMap> {
   readonly provider?: ModelProviderId
   /** Maximum output tokens per model call, including provider-counted reasoning tokens. */
   readonly maxOutputTokens?: number
+  /** Provider-managed tools, executed by the resolved provider rather than application handlers. */
+  readonly builtInTools?: BuiltInToolsConfig
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   readonly recursionLimit?: number
@@ -206,6 +209,8 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
    * provider's default applies. Independent of the graph's recursion limit.
    */
   readonly maxOutputTokens?: number
+  /** Provider-managed tools, executed by the resolved provider rather than application handlers. */
+  readonly builtInTools?: BuiltInToolsConfig
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   /**
@@ -236,6 +241,7 @@ export function agent<const Subagents extends SubagentMap = {}>(
     ...(config.delegation !== undefined ? { delegation: config.delegation } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
     ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+    ...(config.builtInTools !== undefined ? { builtInTools: config.builtInTools } : {}),
     ...(config.reasoning ? { reasoning: config.reasoning } : {}),
     ...(config.retry ? { retry: config.retry } : {}),
     ...(config.recursionLimit !== undefined ? { recursionLimit: config.recursionLimit } : {}),

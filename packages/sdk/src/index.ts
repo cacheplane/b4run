@@ -33,6 +33,17 @@ export type {
 export { defineAuth, isAuthDefinition } from "./auth.js"
 export type { BackendAdapter } from "./backend-adapter.js"
 export type {
+  AnthropicWebSearchOptions,
+  BuiltInToolsConfig,
+  GoogleCodeExecutionOptions,
+  GoogleWebFetchOptions,
+  GoogleWebSearchOptions,
+  NativeBuiltInToolOptions,
+  OpenAICodeExecutionOptions,
+  OpenAIImageGenerationOptions,
+  OpenAIWebSearchOptions,
+} from "./built-in-tools.js"
+export type {
   ClientToolCallAnswer,
   ClientToolCallRecord,
   ClientToolCallSettle,

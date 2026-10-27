@@ -222,7 +222,7 @@ test("persists normalized metadata immutably while preserving native replay fiel
 test.each([
   ["openai", "ChatOpenAI", "gpt-5-mini"],
   ["anthropic", "ChatAnthropic", "claude-sonnet-4-6"],
-  ["google", "ChatGoogleGenerativeAI", "gemini-2.5-flash"],
+  ["google", "ChatGoogle", "gemini-2.5-flash"],
   ["mistral", "ChatMistralAI", "mistral-large-latest"],
   ["groq", "ChatGroq", "llama-3.3-70b-versatile"],
   ["ollama", "ChatOllama", "llama3.2"],

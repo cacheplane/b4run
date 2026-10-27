@@ -48,6 +48,25 @@ function mergeOutputs(previous: unknown, next: unknown): unknown[] {
   return [...entries.values()]
 }
 
+/** Merges bridge fragments by transport ordinal, retaining repeated native parts. */
+function mergeGoogleCandidates(previous: unknown, next: unknown): unknown[] {
+  const entries: unknown[] = []
+  const indices = new Map<number, number>()
+  for (const item of [
+    ...(Array.isArray(previous) ? previous : []),
+    ...(Array.isArray(next) ? next : []),
+  ]) {
+    const ordinal = record(item).ordinal
+    const index = typeof ordinal === "number" ? indices.get(ordinal) : undefined
+    if (index !== undefined) entries[index] = item
+    else {
+      if (typeof ordinal === "number") indices.set(ordinal, entries.length)
+      entries.push(item)
+    }
+  }
+  return entries
+}
+
 function mergeMetadata(previous: unknown, next: unknown): RecordValue {
   const old = record(previous)
   const update = record(next)
@@ -56,6 +75,14 @@ function mergeMetadata(previous: unknown, next: unknown): RecordValue {
     ...update,
     ...(old.tool_outputs || update.tool_outputs
       ? { tool_outputs: mergeOutputs(old.tool_outputs, update.tool_outputs) }
+      : {}),
+    ...(old.b4_google_raw_candidates || update.b4_google_raw_candidates
+      ? {
+          b4_google_raw_candidates: mergeGoogleCandidates(
+            old.b4_google_raw_candidates,
+            update.b4_google_raw_candidates,
+          ),
+        }
       : {}),
   }
 }

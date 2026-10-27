@@ -24,12 +24,14 @@ import {
 } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import { resolveBuiltInTools } from "./built-in-tools-config.js"
 import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical-json-stream.js"
 import {
   createChatModel,
   DEFAULT_MODALITY_SUPPORT,
   type JsonSchemaResponseFormat,
   type ModalitySupport,
+  modelForAgent,
   resolveModalitySupport,
 } from "./chat-model-factory.js"
 import { trackCheckpointWrites } from "./checkpoint-writes.js"
@@ -225,6 +227,7 @@ async function materializeAgent(
     ...(descriptor.maxOutputTokens !== undefined
       ? { maxOutputTokens: descriptor.maxOutputTokens }
       : {}),
+    ...(descriptor.builtInTools !== undefined ? { builtInTools: descriptor.builtInTools } : {}),
     ...(descriptor.reasoning ? { reasoning: descriptor.reasoning } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
   })
@@ -277,8 +280,8 @@ async function materializeAgent(
   })
 
   const agentOptions: Record<string, unknown> = {
-    model: llm,
-    tools: langchainTools,
+    model: modelForAgent(llm),
+    tools: [...langchainTools, ...resolveBuiltInTools(provider, descriptor.builtInTools).tools],
     // One graph task per tool call (the default, pinned): parallel calls run,
     // checkpoint and interrupt independently.
     version: "v2",

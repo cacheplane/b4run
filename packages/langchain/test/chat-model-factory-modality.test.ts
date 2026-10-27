@@ -138,7 +138,7 @@ describe("readModelProfile", () => {
     expect(resolveModalitySupport(profiled, "anthropic").pdf).toEqual({ data: true, url: true })
   })
 
-  it("reads a Google profile from the real @langchain/google-genai class", async () => {
+  it("reads a Google profile from the real @langchain/google class", async () => {
     const profiled = await readModelProfile({ provider: "google", model: "gemini-2.5-flash" })
     // The profile (not the default fallback, which claims image URLs) is what answers.
     expect(resolveModalitySupport(profiled, "google")).toMatchObject({

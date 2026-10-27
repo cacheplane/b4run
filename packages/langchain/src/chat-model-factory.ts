@@ -1,7 +1,9 @@
 import { readRuntimeEnv } from "@b4run/core"
-import type { BuiltInModelProviderId, ReasoningConfig } from "@b4run/sdk"
+import type { BuiltInModelProviderId, BuiltInToolsConfig, ReasoningConfig } from "@b4run/sdk"
 import { errorDocsUrl, validateModelId } from "@b4run/sdk"
 import { defaultModelImporter } from "#default-model-importer"
+import { resolveBuiltInTools } from "./built-in-tools-config.js"
+import { googleProviderOptions } from "./google-provider.js"
 import { resolveReasoningConfig } from "./reasoning-config.js"
 
 type Importer = (specifier: string) => Promise<Record<string, unknown>>
@@ -38,8 +40,8 @@ const providerSpecs: Record<BuiltInModelProviderId, ProviderSpec> = {
   },
   // Official LangChain JS docs and current npm availability support this stable package/class.
   google: {
-    packageName: "@langchain/google-genai",
-    exportName: "ChatGoogleGenerativeAI",
+    packageName: "@langchain/google",
+    exportName: "ChatGoogle",
     apiKeyEnv: "GOOGLE_API_KEY",
   },
   mistral: {
@@ -374,11 +376,34 @@ function bindResponseFormat(
   }
 }
 
+const agentModels = new WeakMap<object, unknown>()
+
+/** Remove only the standalone tool binding so createAgent can bind all tools together. */
+export function modelForAgent(model: unknown): unknown {
+  if (typeof model !== "object" || model === null) return model
+  const configured = agentModels.get(model)
+  agentModels.delete(model)
+  return configured ?? model
+}
+
+function bindCallOptions(
+  model: unknown,
+  provider: string,
+  options: Readonly<Record<string, unknown>>,
+): unknown {
+  if (!hasWithConfig(model))
+    throw new Error(`Provider "${provider}" cannot bind builtInTools without withConfig().`)
+  return model.withConfig({ ...options })
+}
+
+/** Construct a provider chat model with validated reasoning, built-ins, and response constraints. */
 export async function createChatModel(options: {
   readonly model: string
   readonly provider: BuiltInModelProviderId
   /** Positive safe integer output budget for each provider call, when configured. */
   readonly maxOutputTokens?: number
+  /** Provider-managed tools, bound on every invocation of the returned model. */
+  readonly builtInTools?: BuiltInToolsConfig
   readonly reasoning?: ReasoningConfig
   readonly importer?: Importer
   /**
@@ -406,6 +431,7 @@ export async function createChatModel(options: {
   // Checked against the resolved provider BEFORE the provider package loads: a
   // sub-object for another provider throws here rather than being ignored.
   const reasoning = resolveReasoningConfig(options.provider, options.reasoning)
+  const builtIns = resolveBuiltInTools(options.provider, options.builtInTools)
   warnOnUnknownModelId({ model: options.model, provider: options.provider })
   const spec = providerSpecs[options.provider]
   const importer = options.importer ?? seededImporter ?? defaultModelImporter
@@ -441,7 +467,9 @@ export async function createChatModel(options: {
   // ChatOpenAI's constructor reads `reasoning` (`reasoningEffort` is only a
   // per-call option) and streams a summary only on the Responses API;
   // ChatAnthropic reads `thinking`. `resolveReasoningConfig` spells both.
-  Object.assign(constructorOptions, reasoning.constructorOptions)
+  Object.assign(constructorOptions, reasoning.constructorOptions, builtIns.constructorOptions)
+  if (options.provider === "google")
+    Object.assign(constructorOptions, googleProviderOptions(moduleExports))
 
   // The credential, resolved the same way the base URL below is.
   //
@@ -470,9 +498,18 @@ export async function createChatModel(options: {
   }
 
   const model = new (Constructor as ChatModelConstructor)(constructorOptions)
-  return options.responseFormat
-    ? bindResponseFormat(model, options.provider, options.responseFormat)
-    : model
+  const configured =
+    Object.keys(builtIns.callOptions).length > 0
+      ? bindCallOptions(model, options.provider, builtIns.callOptions)
+      : model
+  const formatted = options.responseFormat
+    ? bindResponseFormat(configured, options.provider, options.responseFormat)
+    : configured
+  if (builtIns.tools.length === 0) return formatted
+  const bound = bindCallOptions(formatted, options.provider, { tools: builtIns.tools })
+  // createAgent must bind the native definitions together with app tools itself.
+  if (typeof bound === "object" && bound !== null) agentModels.set(bound, formatted)
+  return bound
 }
 
 function isMissingModuleError(error: unknown, expectedPackageName: string): boolean {

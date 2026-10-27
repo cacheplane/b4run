@@ -76,8 +76,8 @@ describe("chat model factory", () => {
     ).rejects.toThrow(missingProviderPackageMessage("anthropic", "@langchain/anthropic"))
   })
 
-  test("creates Google with @langchain/google-genai ChatGoogleGenerativeAI", async () => {
-    const importer = vi.fn().mockResolvedValue({ ChatGoogleGenerativeAI: FakeModel })
+  test("creates Google with @langchain/google ChatGoogle", async () => {
+    const importer = vi.fn().mockResolvedValue({ ChatGoogle: FakeModel })
 
     const model = await createChatModel({
       model: "gemini-2.5-flash",
@@ -85,20 +85,20 @@ describe("chat model factory", () => {
       importer,
     })
 
-    expect(importer).toHaveBeenCalledWith("@langchain/google-genai")
+    expect(importer).toHaveBeenCalledWith("@langchain/google")
     expect((model as FakeModel).options).toEqual({ model: "gemini-2.5-flash", outputVersion: "v0" })
   })
 
-  test("reports missing Google @langchain/google-genai optional peer", async () => {
+  test("reports missing Google @langchain/google optional peer", async () => {
     const importer = vi.fn().mockRejectedValue(
-      Object.assign(new Error("Cannot find package '@langchain/google-genai'"), {
+      Object.assign(new Error("Cannot find package '@langchain/google'"), {
         code: "ERR_MODULE_NOT_FOUND",
       }),
     )
 
     await expect(
       createChatModel({ model: "gemini-2.5-flash", provider: "google", importer }),
-    ).rejects.toThrow(missingProviderPackageMessage("google", "@langchain/google-genai"))
+    ).rejects.toThrow(missingProviderPackageMessage("google", "@langchain/google"))
   })
 
   test("preserves missing transitive dependency errors", async () => {

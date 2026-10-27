@@ -62,7 +62,7 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
-    "@langchain/core": "1.2.12",
+    "@langchain/core": "1.2.18",
     "langchain": "1.5.12",
     "@langchain/langgraph": "1.4.17"
   },

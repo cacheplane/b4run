@@ -180,7 +180,7 @@ test("Google grounding makes answer annotations without inventing calls", () => 
 
   expect(result.calls).toEqual([])
   expect(result.answer?.sources?.[0]).toMatchObject({ href: "https://example.com" })
-  expect(result.answer?.citations?.[0]).toMatchObject({ start: 0, end: 6 })
+  expect(result.answer?.citations?.[0]).toEqual({ sourceId: "m1:source:0", quote: "answer" })
   expect(result.answer?.attribution).toEqual([
     { provider: "google", kind: "search-suggestions", html, mustRender: true },
   ])
@@ -795,4 +795,454 @@ test("effective stored failure controls readable result over contradictory nativ
 
   expect(result.calls[0]?.step.status).toBe("failed")
   expect(result.calls[0]?.result).toBe("Unavailable")
+})
+
+test("projects native and v1 OpenAI spans into the joined public assistant text", () => {
+  const annotation = {
+    type: "url_citation",
+    url: "https://source.test",
+    title: "Source",
+    start_index: 0,
+    end_index: 6,
+  }
+  const message = {
+    content: [
+      { type: "text", text: "First " },
+      { type: "text", text: "second", annotations: [annotation] },
+    ],
+    contentBlocks: [
+      { type: "text", text: "First " },
+      {
+        type: "text",
+        text: "second",
+        annotations: [
+          {
+            type: "citation",
+            url: "https://source.test",
+            title: "Source",
+            startIndex: 0,
+            endIndex: 6,
+          },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.citations).toEqual([
+    { sourceId: "m1:source:0", block: 0, start: 6, end: 12 },
+  ])
+})
+
+test("Anthropic multi-block quotes target the public assistant block and restore idempotently", () => {
+  const citation = {
+    type: "web_search_result_location",
+    url: "https://source.test",
+    title: "Source",
+    encrypted_index: "opaque",
+    cited_text: "same quote",
+  }
+  const message = {
+    content: [
+      { type: "text", text: "First ", citations: [citation] },
+      { type: "text", text: "second", citations: [citation] },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+  const restored = normalizeProviderMessage(
+    { ...message, additional_kwargs: { b4_answer: result.answer } },
+    options,
+  )
+
+  expect(result.answer?.citations).toEqual([
+    { sourceId: "m1:source:0", block: 0, quote: "same quote" },
+    { sourceId: "m1:source:0", block: 0, quote: "same quote" },
+  ])
+  expect(restored).toEqual(result)
+})
+
+test("joined coordinates do not shift already public persisted answer spans on restore", () => {
+  const message = {
+    content: [
+      { type: "text", text: "First " },
+      {
+        type: "text",
+        text: "second",
+        annotations: [
+          {
+            type: "url_citation",
+            url: "https://source.test",
+            title: "Source",
+            start_index: 0,
+            end_index: 6,
+          },
+        ],
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+  const restored = normalizeProviderMessage(
+    { ...message, additional_kwargs: { b4_answer: result.answer } },
+    options,
+  )
+
+  expect(restored).toEqual(result)
+  expect(restored.answer?.citations?.[0]).toMatchObject({ block: 0, start: 6, end: 12 })
+})
+
+test("unproven native text correspondence and out-of-bounds spans retain only quotes", () => {
+  const annotation = {
+    type: "url_citation",
+    url: "https://source.test",
+    title: "Source",
+    start_index: 0,
+    end_index: 100,
+    quote: "quote",
+  }
+  const message = {
+    content: "public answer",
+    response_metadata: {
+      output: [
+        {
+          type: "message",
+          content: [
+            { type: "output_text", text: "different native text", annotations: [annotation] },
+          ],
+        },
+      ],
+    },
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.citations).toEqual([{ sourceId: "m1:source:0", quote: "quote" }])
+})
+
+test("reads retained Google citation metadata without interpreting non-ASCII byte offsets", () => {
+  const citationMetadata = {
+    citationSources: [{ uri: "https://source.test", startIndex: 0, endIndex: 5 }],
+  }
+  const messages = [
+    { content: "é語", response_metadata: { citationMetadata } },
+    { content: "é語", additional_kwargs: { citation_metadata: citationMetadata } },
+    {
+      additional_kwargs: {
+        b4_google_raw_candidates: [
+          { candidate: { content: { parts: [{ text: "é語" }] }, citationMetadata } },
+        ],
+      },
+    },
+  ]
+
+  const results = messages.map((message) =>
+    normalizeProviderMessage(message, { ...options, provider: "google" }),
+  )
+
+  for (const result of results) {
+    expect(result.answer?.sources?.[0]?.href).toBe("https://source.test")
+    expect(result.answer?.citations).toEqual([{ sourceId: "m1:source:0", quote: "é語" }])
+  }
+})
+
+test("Google native error responses never use successful result wording", () => {
+  const messages = ["quota", { code: "LIMIT" }].map((error) => ({
+    content: [
+      { toolCall: { id: "g", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      { toolResponse: { id: "g", toolType: "GOOGLE_SEARCH_WEB", response: { error } } },
+    ],
+  }))
+
+  const results = messages.map((message) => normalizeProviderMessage(message, options))
+
+  expect(results.map((result) => result.calls[0]?.result)).toEqual(["quota", "LIMIT"])
+  expect(results[1]?.calls[0]?.step.error).toEqual({ message: "LIMIT", code: "LIMIT" })
+})
+
+test("keeps repeated native quote occurrences distinct through public projection and restore", () => {
+  const citations = ["first-token", "second-token"].map((encrypted_index) => ({
+    type: "web_search_result_location",
+    url: "https://source.test",
+    title: "Source",
+    encrypted_index,
+    cited_text: "quote",
+  }))
+  const message = { content: [{ type: "text", text: "quote then quote", citations }] }
+
+  const result = normalizeProviderMessage(message, options)
+  const restored = normalizeProviderMessage(
+    { ...message, additional_kwargs: { b4_answer: result.answer } },
+    options,
+  )
+
+  expect(result.answer?.citations).toHaveLength(2)
+  expect(restored).toEqual(result)
+})
+
+test("invalid Google citation byte boundaries never produce replacement text or spans", () => {
+  const messages = [
+    { startIndex: 1, endIndex: 5 },
+    { startIndex: 0.5, endIndex: 5 },
+    { startIndex: 0, endIndex: 99 },
+  ].map((range) => ({
+    content: "é語",
+    response_metadata: {
+      citationMetadata: { citationSources: [{ uri: "https://source.test", ...range }] },
+    },
+  }))
+
+  const results = messages.map((message) =>
+    normalizeProviderMessage(message, { ...options, provider: "google" }),
+  )
+
+  expect(results.map((result) => result.answer?.citations)).toEqual([
+    [{ sourceId: "m1:source:0" }],
+    [{ sourceId: "m1:source:0" }],
+    [{ sourceId: "m1:source:0" }],
+  ])
+})
+
+test("Google URL context sources require proven successful retrieval", () => {
+  const message = {
+    content: [
+      {
+        toolCall: {
+          id: "fetch",
+          toolType: "URL_CONTEXT",
+          args: { urls: ["https://success.test", "https://failed.test", "https://unknown.test"] },
+        },
+      },
+    ],
+    response_metadata: {
+      urlContextMetadata: {
+        urlMetadata: [
+          {
+            retrievedUrl: "https://success.test",
+            urlRetrievalStatus: "URL_RETRIEVAL_STATUS_SUCCESS",
+          },
+          { retrievedUrl: "https://failed.test", urlRetrievalStatus: "URL_RETRIEVAL_STATUS_ERROR" },
+          { retrievedUrl: "https://unknown.test" },
+        ],
+      },
+    },
+  }
+
+  const result = normalizeProviderMessage(message, { ...options, provider: "google" })
+
+  expect(result.calls[0]?.step.sources?.map((source) => source.href)).toEqual([
+    "https://success.test",
+  ])
+  expect(result.calls[0]?.step.status).toBe("running")
+  expect(result.answer?.sources).toBeUndefined()
+})
+
+test("Google code native ids correlate out-of-order results", () => {
+  const message = {
+    content: [
+      { executableCode: { id: "a", code: "one()" } },
+      { executableCode: { id: "b", code: "two()" } },
+      { codeExecutionResult: { id: "a", outcome: "OUTCOME_FAILED", output: "a failed" } },
+      { codeExecutionResult: { id: "b", outcome: "OUTCOME_OK", output: "b passed" } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, { ...options, provider: "google" })
+
+  expect(result.calls.map((call) => [call.id, call.step.status, call.result])).toEqual([
+    ["a", "failed", "a failed"],
+    ["b", "completed", "b passed"],
+  ])
+})
+
+test("ambiguous ID-less Google code results leave all open calls running", () => {
+  const message = {
+    content: [
+      { executableCode: { code: "one()" } },
+      { executableCode: { code: "two()" } },
+      { codeExecutionResult: { outcome: "OUTCOME_OK", output: "unknown owner" } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls.map((call) => call.step.status)).toEqual(["running", "running"])
+  expect(result.calls.map((call) => call.result)).toEqual([undefined, undefined])
+})
+
+test("unknown and unspecified Google code outcomes never prove failure", () => {
+  const messages = ["OUTCOME_UNSPECIFIED", "UNKNOWN", undefined].map((outcome) => ({
+    content: [
+      { executableCode: { id: "a", code: "one()" } },
+      { codeExecutionResult: { id: "a", outcome, output: "not terminal evidence" } },
+    ],
+  }))
+
+  const results = messages.map((message) => normalizeProviderMessage(message, options))
+
+  expect(results.map((result) => result.calls[0]?.step.status)).toEqual([
+    "running",
+    "running",
+    "running",
+  ])
+  expect(results.map((result) => result.calls[0]?.result)).toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ])
+})
+
+test("Google result suggestions preserve both native HTML forms verbatim", () => {
+  const first = '<div data-x="1">First</div>'
+  const second = '<div data-x="2">Second</div>'
+  const message = {
+    content: [
+      { toolCall: { id: "a", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      {
+        toolResponse: {
+          id: "a",
+          toolType: "GOOGLE_SEARCH_WEB",
+          response: { search_suggestions: first },
+        },
+      },
+      { toolCall: { id: "b", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      {
+        toolResponse: {
+          id: "b",
+          toolType: "GOOGLE_SEARCH_WEB",
+          response: { search_suggestions: { renderedContent: second } },
+        },
+      },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.answer?.attribution).toEqual([
+    { provider: "google", kind: "search-suggestions", html: first, mustRender: true },
+    { provider: "google", kind: "search-suggestions", html: second, mustRender: true },
+  ])
+})
+
+test("Google explicit native response status carries failure message and status code", () => {
+  const messages = ["ERROR", "FAILED"].map((status) => ({
+    content: [
+      { toolCall: { id: "a", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      {
+        toolResponse: {
+          id: "a",
+          toolType: "GOOGLE_SEARCH_WEB",
+          response: { status, message: "Quota exceeded" },
+        },
+      },
+    ],
+  }))
+
+  const results = messages.map((message) => normalizeProviderMessage(message, options))
+
+  expect(results.map((result) => result.calls[0]?.result)).toEqual([
+    "Quota exceeded",
+    "Quota exceeded",
+  ])
+  expect(results.map((result) => result.calls[0]?.step.error)).toEqual([
+    { message: "Quota exceeded", code: "ERROR" },
+    { message: "Quota exceeded", code: "FAILED" },
+  ])
+})
+
+test("Google URL response payloads contribute successful call sources and readable retrieval failures", () => {
+  const messages = [
+    "URL_RETRIEVAL_STATUS_ERROR",
+    "URL_RETRIEVAL_STATUS_PAYWALL",
+    "URL_RETRIEVAL_STATUS_UNSAFE",
+  ].map((status) => ({
+    content: [
+      {
+        toolCall: {
+          id: "fetch",
+          toolType: "URL_CONTEXT",
+          args: { urls: ["https://success.test", "https://failed.test"] },
+        },
+      },
+      {
+        toolResponse: {
+          id: "fetch",
+          toolType: "URL_CONTEXT",
+          response: {
+            url_metadata: [
+              {
+                retrieved_url: "https://success.test",
+                url_retrieval_status: "URL_RETRIEVAL_STATUS_SUCCESS",
+              },
+              { retrievedUrl: "https://failed.test", urlRetrievalStatus: status },
+            ],
+          },
+        },
+      },
+    ],
+  }))
+
+  const results = messages.map((message) => normalizeProviderMessage(message, options))
+
+  for (const result of results) {
+    expect(result.calls[0]?.step.status).toBe("failed")
+    expect(result.calls[0]?.step.sources?.[0]).toMatchObject({
+      id: "fetch:source:0",
+      href: "https://success.test",
+    })
+    expect(result.calls[0]?.result).toContain("Could not retrieve https://failed.test")
+  }
+  expect(results.map((result) => result.calls[0]?.step.error?.code)).toEqual([
+    "URL_RETRIEVAL_STATUS_ERROR",
+    "URL_RETRIEVAL_STATUS_PAYWALL",
+    "URL_RETRIEVAL_STATUS_UNSAFE",
+  ])
+})
+
+test("Google tool responses cannot settle a mismatched native invocation type", () => {
+  const message = {
+    content: [
+      { toolCall: { id: "a", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      { toolResponse: { id: "a", toolType: "URL_CONTEXT", response: { output: "wrong kind" } } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]).toMatchObject({ name: "web_search", step: { status: "running" } })
+  expect(result.calls[0]?.result).toBeUndefined()
+})
+
+test("Google ID-less code result matches the only still-open call and deadline proves failure", () => {
+  const message = {
+    content: [
+      { executableCode: { id: "a", code: "one()" } },
+      { executableCode: { id: "b", code: "two()" } },
+      { codeExecutionResult: { id: "a", outcome: "OUTCOME_OK", output: "done" } },
+      { codeExecutionResult: { outcome: "OUTCOME_DEADLINE_EXCEEDED" } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls.map((call) => [call.id, call.step.status])).toEqual([
+    ["a", "completed"],
+    ["b", "failed"],
+  ])
+  expect(result.calls[1]?.step.error?.code).toBe("OUTCOME_DEADLINE_EXCEEDED")
+})
+
+test("Google search response types must match even when both map to web search", () => {
+  const message = {
+    content: [
+      { toolCall: { id: "a", toolType: "GOOGLE_SEARCH_WEB", args: {} } },
+      { toolResponse: { id: "a", toolType: "GOOGLE_SEARCH_IMAGE", response: {} } },
+    ],
+  }
+
+  const result = normalizeProviderMessage(message, options)
+
+  expect(result.calls[0]?.step.status).toBe("running")
+  expect(result.calls[0]?.result).toBeUndefined()
 })

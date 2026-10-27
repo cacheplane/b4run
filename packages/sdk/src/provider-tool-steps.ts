@@ -40,16 +40,19 @@ const builtins: Readonly<Record<string, string>> = {
 }
 const labels: Readonly<Record<string, string>> = {
   web_search: "Searching the web",
+  web_fetch: "Fetching page",
   code_execution: "Running code",
   image_generation: "Generating an image",
 }
 const completedLabels: Readonly<Record<string, string>> = {
   web_search: "Searched the web",
+  web_fetch: "Fetched page",
   code_execution: "Ran code",
   image_generation: "Generated image",
 }
 const toolNames: Readonly<Record<string, string>> = {
   web_search: "Web search",
+  web_fetch: "Page fetch",
   code_execution: "Code execution",
   image_generation: "Image generation",
 }
@@ -73,6 +76,7 @@ export function normalizeProviderMessage(
 ): ProviderMessageProjection {
   const outer = record(message)
   const data = Object.keys(record(outer.kwargs)).length > 0 ? record(outer.kwargs) : outer
+  const messageId = string(data.id) ?? options.messageId
   const additional = record(data.additional_kwargs)
   const metadata = record(data.response_metadata)
   const calls = new Map<string, ProviderToolCall>()
@@ -80,14 +84,25 @@ export function normalizeProviderMessage(
   const savedIds = new Set<string>()
   const savedAnswer = readAnswerAnnotations(additional.b4_answer)
   const sources: B4StepSource[] = [...(savedAnswer?.sources ?? [])]
-  const citations: NonNullable<B4AnswerAnnotations["citations"]>[number][] = [
-    ...(savedAnswer?.citations ?? []),
-  ]
+  type Citation = NonNullable<B4AnswerAnnotations["citations"]>[number]
+  const citations: Citation[] = []
+  const citationLayouts = new Map<Citation, readonly RecordValue[]>()
   const attribution: NonNullable<B4AnswerAnnotations["attribution"]>[number][] = [
     ...(savedAnswer?.attribution ?? []),
   ]
   const content = list(data.content)
   const standardized = list(data.contentBlocks)
+  const googleCandidates = list(additional.b4_google_raw_candidates).map((entry) =>
+    record(entry.candidate),
+  )
+  const googleCitations =
+    options.provider === "google" ||
+    metadata.model_provider === "google" ||
+    metadata.model_provider === "google-genai" ||
+    googleCandidates.length > 0
+  const googleParts = googleCandidates.length
+    ? googleCandidates.flatMap((candidate) => list(record(candidate.content).parts))
+    : content
 
   function addCall(
     id: string,
@@ -99,7 +114,7 @@ export function normalizeProviderMessage(
     errorCode?: string,
     native = true,
   ): void {
-    const builtin = builtins[name]
+    const builtin = name === "web_fetch" && provider === "google" ? "web_fetch" : builtins[name]
     if (!builtin || (provider === "anthropic" && builtin !== "web_search")) return
     const previous = calls.get(id)
     const normalizedInput =
@@ -176,7 +191,7 @@ export function normalizeProviderMessage(
     if (existing) return existing
     const ownSources = ownerCall?.step.sources ?? sources
     const source: B4StepSource = {
-      id: `${owner ?? options.messageId}:source:${ownSources.length}`,
+      id: `${owner ?? messageId}:source:${ownSources.length}`,
       kind: fileId ? "file" : "url",
       title: string(value.title) ?? string(value.filename) ?? href ?? fileId ?? "Source",
       ...(href ? { href } : {}),
@@ -316,62 +331,155 @@ export function normalizeProviderMessage(
     for (const source of list(block.content)) addSource(source, id)
   }
 
-  for (const block of content) {
+  const googleTools: Readonly<Record<string, string>> = {
+    GOOGLE_SEARCH_WEB: "web_search",
+    GOOGLE_SEARCH_IMAGE: "web_search",
+    URL_CONTEXT: "web_fetch",
+  }
+  const googleInvocationTypes = new Map<string, string>()
+  for (const block of googleParts) {
     const invocation = record(block.toolCall)
     const response = record(block.toolResponse)
-    if (
-      invocation.toolType === "GOOGLE_SEARCH_WEB" ||
-      invocation.toolType === "GOOGLE_SEARCH_IMAGE"
-    ) {
-      const id = string(invocation.id)
-      if (id) addCall(id, "web_search", invocation.args ?? {}, "google", "running")
+    const name = googleTools[String(invocation.toolType)]
+    const id = string(invocation.id)
+    if (name && id) {
+      googleInvocationTypes.set(id, String(invocation.toolType))
+      addCall(id, name, invocation.args ?? {}, "google", "running")
     }
-    if (response.toolType === "GOOGLE_SEARCH_WEB" || response.toolType === "GOOGLE_SEARCH_IMAGE") {
-      const id = string(response.id)
-      const call = id ? calls.get(id) : undefined
-      const output = record(response.response)
-      if (call)
-        addCall(
-          call.id,
-          "web_search",
-          call.input,
-          "google",
-          output.error ? "failed" : "completed",
-          string(output.output) ?? string(record(output.error).message) ?? "Search completed",
+    const responseName = googleTools[String(response.toolType)]
+    const responseId = string(response.id)
+    const call = responseId ? calls.get(responseId) : undefined
+    const output = record(response.response)
+    if (responseName && call && googleInvocationTypes.get(call.id) === response.toolType) {
+      const nativeError = record(output.error)
+      const nativeCode =
+        typeof nativeError.code === "number" ? String(nativeError.code) : string(nativeError.code)
+      let failure: { message: string; code?: string } | undefined = output.error
+        ? {
+            message:
+              string(output.error) ??
+              string(nativeError.message) ??
+              nativeCode ??
+              "Provider tool failed",
+            ...(nativeCode ? { code: nativeCode } : {}),
+          }
+        : output.status === "ERROR" || output.status === "FAILED"
+          ? {
+              message: string(output.message) ?? "Google tool execution failed",
+              code: String(output.status),
+            }
+          : undefined
+      if (responseName === "web_fetch") {
+        for (const retrieval of list(output.url_metadata ?? output.urlMetadata)) {
+          const uri = string(retrieval.retrieved_url ?? retrieval.retrievedUrl)
+          const status = retrieval.url_retrieval_status ?? retrieval.urlRetrievalStatus
+          if (uri && status === "URL_RETRIEVAL_STATUS_SUCCESS") addSource({ uri }, call.id)
+          if (
+            [
+              "URL_RETRIEVAL_STATUS_ERROR",
+              "URL_RETRIEVAL_STATUS_PAYWALL",
+              "URL_RETRIEVAL_STATUS_UNSAFE",
+            ].includes(String(status))
+          ) {
+            failure ??= {
+              message: `Could not retrieve ${uri ?? "the requested URL"} (${status})`,
+              code: String(status),
+            }
+          }
+        }
+      }
+      addCall(
+        call.id,
+        responseName,
+        call.input,
+        "google",
+        failure ? "failed" : "completed",
+        failure?.message ??
+          string(output.output) ??
+          (responseName === "web_fetch" ? "Page fetched" : "Search completed"),
+        failure?.code,
+      )
+      for (const source of list(output.sources)) addSource(source, call.id)
+      const html =
+        string(output.search_suggestions) ??
+        string(record(output.search_suggestions).renderedContent)
+      if (html && !attribution.some((entry) => entry.html === html))
+        attribution.push({ provider: "google", kind: "search-suggestions", html, mustRender: true })
+    }
+  }
+
+  for (const candidate of [metadata, additional, ...googleCandidates]) {
+    for (const retrieval of list(record(candidate.urlContextMetadata).urlMetadata)) {
+      if (retrieval.urlRetrievalStatus !== "URL_RETRIEVAL_STATUS_SUCCESS") continue
+      const uri = string(retrieval.retrievedUrl)
+      if (!uri) continue
+      const owner = [...calls.values()].find((call) => {
+        const urls = record(call.input).urls
+        return (
+          call.step.provider === "google" &&
+          call.name === "web_fetch" &&
+          Array.isArray(urls) &&
+          urls.includes(uri)
         )
+      })
+      addSource({ uri }, owner?.id)
     }
   }
 
   let codeOrdinal = 0
-  let codeId: string | undefined
-  for (const block of content) {
-    if (Object.keys(record(block.executableCode)).length) {
-      codeId = `${options.messageId}:code:${codeOrdinal++}`
+  const googleCodeIds = new Set<string>()
+  for (const block of googleParts) {
+    const executable = record(block.executableCode)
+    if (Object.keys(executable).length) {
+      const generatedId = `${messageId}:code:${codeOrdinal++}`
+      const codeId = string(executable.id) ?? generatedId
+      googleCodeIds.add(codeId)
       addCall(codeId, "code_execution", block.executableCode, "google", "running")
     }
-    if (codeId && Object.keys(record(block.codeExecutionResult)).length) {
-      const result = record(block.codeExecutionResult)
-      const call = calls.get(codeId)
-      const status = result.outcome === "OUTCOME_OK" ? "completed" : "failed"
-      addCall(
-        codeId,
-        "code_execution",
-        call?.input ?? {},
-        "google",
-        status,
-        string(result.output),
-        status === "failed" ? string(result.outcome) : undefined,
+    const result = record(block.codeExecutionResult)
+    if (!Object.keys(result).length) continue
+    if (
+      !["OUTCOME_OK", "OUTCOME_FAILED", "OUTCOME_DEADLINE_EXCEEDED"].includes(
+        String(result.outcome),
       )
-    }
+    )
+      continue
+    const resultId = string(result.id)
+    const compatible = [...googleCodeIds].flatMap((id) => {
+      const call = calls.get(id)
+      return call && (resultId ? call.id === resultId : call.step.status === "running")
+        ? [call]
+        : []
+    })
+    if ((result.id !== undefined && !resultId) || compatible.length !== 1) continue
+    const call = compatible[0]
+    if (!call) continue
+    const status = result.outcome === "OUTCOME_OK" ? "completed" : "failed"
+    addCall(
+      call.id,
+      "code_execution",
+      call.input,
+      "google",
+      status,
+      string(result.output),
+      status === "failed" ? String(result.outcome) : undefined,
+    )
   }
 
-  function citation(value: RecordValue, block: number): void {
+  function citation(
+    value: RecordValue,
+    block: number,
+    layout: readonly RecordValue[],
+    nativeCopies?: Citation[],
+  ): void {
     const nested = record(value.url_citation ?? value.file_citation)
     const raw = Object.keys(nested).length ? { ...value, ...nested } : value
     const source = addSource(raw)
     if (!source) return
-    const start = offset(raw.start_index ?? raw.startIndex ?? raw.start)
-    const end = offset(raw.end_index ?? raw.endIndex ?? raw.end)
+    const start = googleCitations
+      ? undefined
+      : offset(raw.start_index ?? raw.startIndex ?? raw.start)
+    const end = googleCitations ? undefined : offset(raw.end_index ?? raw.endIndex ?? raw.end)
     const quote = string(raw.cited_text) ?? string(raw.citedText) ?? string(raw.quote)
     const entry = {
       sourceId: source.id,
@@ -380,8 +488,15 @@ export function normalizeProviderMessage(
       ...(end !== undefined ? { end } : {}),
       ...(quote ? { quote } : {}),
     }
-    if (!citations.some((previous) => JSON.stringify(previous) === JSON.stringify(entry)))
-      citations.push(entry)
+    const copy =
+      nativeCopies?.findIndex((previous) => JSON.stringify(previous) === JSON.stringify(entry)) ??
+      -1
+    if (copy >= 0) {
+      nativeCopies?.splice(copy, 1)
+      return
+    }
+    citations.push(entry)
+    citationLayouts.set(entry, layout)
   }
   const outputTexts = outputs.flatMap((output) =>
     list(output.content).filter((block) => block.type === "text" || block.type === "output_text"),
@@ -391,11 +506,12 @@ export function normalizeProviderMessage(
     : content.filter((block) => block.type === "text" || block.type === "output_text")
   for (const [index, block] of texts.entries()) {
     for (const entry of [...list(block.annotations), ...list(block.citations)])
-      citation(entry, index)
+      citation(entry, index, texts)
   }
   // Anthropic v1 converts encrypted indices into numeric offsets. Match those
   // lossy copies one-for-one; ordinary citations deduplicate by full occurrence.
   const nativeOccurrences = [...citations]
+  const nativeCopies = [...citations]
   const indexedFileCopies = texts.flatMap((block, index) =>
     [...list(block.annotations), ...list(block.citations)]
       .filter(
@@ -414,7 +530,8 @@ export function normalizeProviderMessage(
       .filter((entry) => entry.encrypted_index !== undefined)
       .map((entry) => `${index}:${entry.url}:${entry.cited_text ?? ""}`),
   )
-  for (const [index, block] of standardized.filter((block) => block.type === "text").entries()) {
+  const standardTexts = standardized.filter((block) => block.type === "text")
+  for (const [index, block] of standardTexts.entries()) {
     for (const entry of [...list(block.annotations), ...list(block.citations)]) {
       const fileId = string(entry.file_id) ?? string(entry.fileId)
       if (fileId && entry.container_id === undefined && entry.containerId === undefined) {
@@ -456,16 +573,109 @@ export function normalizeProviderMessage(
         encryptedCopies.splice(encryptedCopy, 1)
         continue
       }
-      citation(entry, index)
+      citation(entry, index, standardTexts, nativeCopies)
     }
   }
+  // Raw carrier coordinates have been reconciled above. The public message has
+  // one text block, formed by joining assistant text with no separator.
+  const contentTexts = content.filter(
+    (block) => block.type === "text" || block.type === "output_text",
+  )
+  const joinText = (layout: readonly RecordValue[]): string =>
+    layout.map((block) => (typeof block.text === "string" ? block.text : "")).join("")
+  const publicText =
+    typeof data.content === "string"
+      ? data.content
+      : contentTexts.length
+        ? joinText(contentTexts)
+        : googleCandidates.length
+          ? joinText(
+              googleParts.filter((part) => typeof part.text === "string" && part.thought !== true),
+            )
+          : joinText(standardTexts)
+  for (let index = 0; index < citations.length; index++) {
+    const entry = citations[index]
+    if (!entry) continue
+    const layout = citationLayouts.get(entry)
+    const { block, start, end, ...identity } = entry
+    const blockText = block !== undefined && layout ? layout[block]?.text : undefined
+    const proven =
+      layout?.every((part) => typeof part.text === "string") &&
+      joinText(layout) === publicText &&
+      typeof blockText === "string"
+    const validSpan =
+      proven &&
+      start !== undefined &&
+      end !== undefined &&
+      Number.isInteger(start) &&
+      Number.isInteger(end) &&
+      start <= end &&
+      end <= blockText.length
+    const prefix =
+      proven && block !== undefined ? joinText(layout?.slice(0, block) ?? []).length : 0
+    citations[index] = {
+      ...identity,
+      ...(proven ? { block: 0 } : {}),
+      ...(validSpan ? { start: prefix + start, end: prefix + end } : {}),
+    }
+  }
+
+  for (const candidate of [metadata, additional, ...googleCandidates]) {
+    const citationMetadata = record(candidate.citationMetadata ?? candidate.citation_metadata)
+    const candidateParts = list(record(candidate.content).parts)
+    const candidateText = candidateParts.length
+      ? joinText(candidateParts.filter((part) => part.thought !== true))
+      : publicText
+    for (const native of list(
+      citationMetadata.citationSources ?? citationMetadata.citation_sources,
+    )) {
+      const source = addSource(native)
+      if (!source) continue
+      // Citation metadata offsets are UTF-8 bytes. Keep a verified quote only;
+      // no byte offset becomes an assistant character position.
+      const start = offset(native.startIndex ?? native.start_index)
+      const end = offset(native.endIndex ?? native.end_index)
+      let quote = string(native.quote) ?? string(native.text)
+      if (
+        !quote &&
+        start !== undefined &&
+        end !== undefined &&
+        Number.isInteger(start) &&
+        Number.isInteger(end) &&
+        start <= end
+      ) {
+        let byte = 0
+        let character = 0
+        let quoteStart: number | undefined
+        let quoteEnd: number | undefined
+        for (const point of candidateText) {
+          if (byte === start) quoteStart = character
+          if (byte === end) quoteEnd = character
+          byte += new TextEncoder().encode(point).length
+          character += point.length
+        }
+        if (byte === start) quoteStart = character
+        if (byte === end) quoteEnd = character
+        if (quoteStart !== undefined && quoteEnd !== undefined)
+          quote = string(candidateText.slice(quoteStart, quoteEnd))
+      }
+      const entry = { sourceId: source.id, ...(quote ? { quote } : {}) }
+      if (!citations.some((previous) => JSON.stringify(previous) === JSON.stringify(entry)))
+        citations.push(entry)
+    }
+  }
+  let groundingSources: (B4StepSource | undefined)[] = []
   for (const grounding of [
     record(metadata.groundingMetadata ?? metadata.grounding_metadata),
     record(additional.groundingMetadata ?? additional.grounding_metadata),
+    ...googleCandidates.map((candidate) =>
+      record(candidate.groundingMetadata ?? candidate.grounding_metadata),
+    ),
   ]) {
-    const groundingSources = list(grounding.groundingChunks).map((chunk) =>
-      addSource(record(chunk.web ?? chunk.retrievedContext)),
-    )
+    if (Array.isArray(grounding.groundingChunks) && grounding.groundingChunks.length)
+      groundingSources = list(grounding.groundingChunks).map((chunk) =>
+        addSource(record(chunk.web ?? chunk.retrievedContext)),
+      )
     for (const support of list(grounding.groundingSupports)) {
       const segment = record(support.segment)
       for (const index of Array.isArray(support.groundingChunkIndices)
@@ -473,12 +683,11 @@ export function normalizeProviderMessage(
         : []) {
         const source = typeof index === "number" ? groundingSources[index] : undefined
         if (!source) continue
-        const start = offset(segment.startIndex)
-        const end = offset(segment.endIndex)
+        // Google segment offsets count UTF-8 bytes, not answer characters.
+        const quote = string(segment.text)
         const entry = {
           sourceId: source.id,
-          ...(start !== undefined ? { start } : {}),
-          ...(end !== undefined ? { end } : {}),
+          ...(quote ? { quote } : {}),
         }
         if (!citations.some((previous) => JSON.stringify(previous) === JSON.stringify(entry)))
           citations.push(entry)
@@ -487,6 +696,14 @@ export function normalizeProviderMessage(
     const html = string(record(grounding.searchEntryPoint).renderedContent)
     if (html && !attribution.some((entry) => entry.html === html))
       attribution.push({ provider: "google", kind: "search-suggestions", html, mustRender: true })
+  }
+  // Stored annotations already use public coordinates. Merge matching copies
+  // one-for-one so repeated quote occurrences survive persist/restore.
+  const unmatched = [...citations]
+  for (const saved of savedAnswer?.citations ?? []) {
+    const index = unmatched.findIndex((entry) => JSON.stringify(entry) === JSON.stringify(saved))
+    if (index >= 0) unmatched.splice(index, 1)
+    else citations.push(saved)
   }
   const answer =
     sources.length || citations.length || attribution.length || savedAnswer
