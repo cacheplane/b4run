@@ -473,3 +473,57 @@ test("dangling-call repair excludes native provider ids while retaining same-nam
   expect(repaired).toHaveLength(2)
   expect(repaired[1]).toMatchObject({ tool_call_id: "app", status: "error" })
 })
+
+test("corrects a lossy streamed success when authoritative native output fails", async () => {
+  const early = {
+    id: "native-message",
+    content: [
+      {
+        type: "server_tool_call",
+        id: "code",
+        name: "code_interpreter",
+        args: { code: "x" },
+      },
+      {
+        type: "server_tool_call_result",
+        toolCallId: "code",
+        status: "success",
+        output: "ok",
+      },
+    ],
+  }
+  const final = {
+    id: "native-message",
+    content: "",
+    additional_kwargs: {
+      tool_outputs: [
+        {
+          id: "code",
+          type: "code_interpreter_call",
+          status: "failed",
+          error: { message: "Execution failed" },
+        },
+      ],
+    },
+  }
+
+  const chunks = await collect([
+    event("stream", early),
+    event("stream", final),
+    event("end", final),
+  ])
+  const results = chunks.filter((chunk) => chunk.type === "tool_result")
+
+  expect(results).toHaveLength(2)
+  expect(results[0]).toMatchObject({
+    data: { output: "ok", step: { status: "completed" } },
+  })
+  expect(results[1]).toMatchObject({
+    data: {
+      output: "Execution failed",
+      step: { status: "failed", error: { message: "Execution failed" } },
+    },
+  })
+  expect(chunks.filter((chunk) => chunk.type === "tool_call")).toHaveLength(1)
+  expect(chunks.filter((chunk) => chunk.type === "tool_call_args")).toHaveLength(2)
+})

@@ -215,7 +215,7 @@ export const DEFAULT_MODALITY_SUPPORT: ModalitySupport = {
   file: { image: false, pdf: false },
 }
 
-/** Per provider, which part types its LangChain converter maps a `fileId` for; absent → none. Verified against the converters: anthropic maps both; openai's Chat Completions path maps only `file` blocks (its image branch has no fileId case); google-genai throws on fileId. */
+/** Per provider, which part types its LangChain converter maps a `fileId` for; absent → none. Verified against the converters: anthropic maps both; openai's Chat Completions path maps only `file` blocks (its image branch has no fileId case); Google ID-backed file data remains unadvertised by this conservative capability policy. */
 const FILE_HANDLE_SUPPORT: Partial<Record<BuiltInModelProviderId, ModalitySupport["file"]>> = {
   openai: { image: false, pdf: true },
   anthropic: { image: true, pdf: true },
@@ -289,7 +289,7 @@ export function resolveModalitySupport(
  * A model's LangChain `profile` read off its class, without constructing it:
  * every provider package's `profile` getter is a static per-id table that
  * reads only `this.model` (verified against the installed openai, anthropic,
- * google-genai, groq, xai and openrouter packages; `@langchain/core`'s base
+ * google, groq, xai and openrouter packages; `@langchain/core`'s base
  * getter returns `{}`), and most constructors throw without a credential,
  * which a capability document must not depend on. `undefined` when the
  * provider package is not installed (the route could not run either) — the

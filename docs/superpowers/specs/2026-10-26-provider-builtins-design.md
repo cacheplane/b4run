@@ -55,7 +55,8 @@ projection and restore; the stream event run_id remains only the live owner.
 Maintain normalization state per owner/model invocation. Announce provider
 identity immediately when native identity arrives, before argument completion.
 Emit the current step before lifecycle chunks so START/END/RESULT metadata is
-correct. Reconcile final native output without duplicate calls/results. Keep
+correct. Reconcile final native output without duplicate calls or unchanged results;
+a later authoritative native result corrects an earlier lossy result. Keep
 ordinary function calls on their existing path and preserve subagent ownership.
 
 Add answer annotations before the matching model message is closed. The outbound
@@ -75,17 +76,22 @@ to concatenated turn prose. Live and restored views must agree.
 
 ## Enabling options and Google boundary
 
-An author-facing agent() builtInTools option is a pending user preference. It
-must use the shared capability vocabulary, validate against the resolved
-provider, preserve ordinary app tools, and supply required source plumbing.
+The user approved an author-facing agent() builtInTools option. It is keyed by
+provider, like reasoning, and uses the shared capability vocabulary within each
+provider: OpenAI webSearch/codeExecution/imageGeneration, Anthropic webSearch,
+and Google webSearch/webFetch/codeExecution. Values are true or typed native
+configuration. Validate against the resolved provider before importing it,
+preserve ordinary app tools, and supply required source plumbing. Standalone
+createChatModel calls bind native tools; the agent graph supplies them alongside
+its runnable app tools without duplicate or overwritten tool configuration.
 
-The installed Google integration is @langchain/google-genai 2.3.2, backed by
+At baseline the Google integration is @langchain/google-genai 2.3.2, backed by
 @google/generative-ai. It drops metadata-only streaming chunks and does not
 support native invocation parts. A superclass-output wrapper cannot recover
-discarded data. Replacing it with current @langchain/google is pending explicit
-dependency approval. Do not silently buffer built-ins or claim guaranteed Google
-attribution from the deprecated transport. Normalize custom-route data when
-present; gate unsupported enabling until the approved transport path is tested.
+discarded data. The user approved replacing it with current @langchain/google,
+including import/build paths and tests. Do not silently buffer built-ins or
+claim guaranteed Google attribution from the deprecated transport. Test the
+retaining transport before enabling the new path.
 
 The audited replacement @langchain/google 0.2.12 requires @langchain/core
 ^1.2.18. Replacement alone still loses some native parts and metadata-only

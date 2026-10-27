@@ -10,7 +10,7 @@ interface CallStream {
   readonly args: CanonicalJsonStream
   raw: string
   ended: boolean
-  result: boolean
+  result: string | undefined
   step: string
 }
 
@@ -182,7 +182,7 @@ export function projectProviderChunk(
         args: createCanonicalJsonStream(),
         raw: "",
         ended: false,
-        result: false,
+        result: undefined,
         step: signature,
       }
       state.calls.set(call.id, current)
@@ -227,13 +227,19 @@ export function projectProviderChunk(
       })
       current.ended = true
     }
-    if (!current.result && hasResult) {
+    const resultSignature = JSON.stringify({
+      output: call.result,
+      status: call.step.status,
+      error: call.step.error,
+    })
+    // Later native output can correct an earlier lossy standardized result.
+    if (hasResult && current.result !== resultSignature) {
       emitStep()
       chunks.push({
         type: "tool_result",
         data: { id: call.id, name: call.name, output: call.result, step: call.step },
       })
-      current.result = true
+      current.result = resultSignature
     }
   }
   return chunks
