@@ -1,5 +1,11 @@
 # @b4run/ag-ui
 
+## 0.15.7
+
+### Patch Changes
+
+- @b4run/sdk@0.15.7
+
 ## 0.15.6
 
 ### Patch Changes

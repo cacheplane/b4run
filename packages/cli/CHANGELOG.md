@@ -1,5 +1,20 @@
 # @b4run/cli
 
+## 0.15.7
+
+### Patch Changes
+
+- Reissue the callback admission cleanup fix after the unpublished 0.15.6 candidate was blocked by duplicate CI identities. Runtime behavior is unchanged from that candidate: successful no-op and partial browser-tool callback responses wait for shared admission release, and cleanup failure cannot appear as terminal success.
+  - @b4run/ag-ui@0.15.7
+  - @b4run/core@0.15.7
+  - @b4run/langchain@0.15.7
+  - @b4run/langgraph@0.15.7
+  - @b4run/memory@0.15.7
+  - @b4run/permissions@0.15.7
+  - @b4run/sdk@0.15.7
+  - @b4run/sqlite-storage@0.15.7
+  - @b4run/workspace@0.15.7
+
 ## 0.15.6
 
 ### Patch Changes
