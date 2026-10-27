@@ -27,7 +27,7 @@ const providers: ReadonlyArray<{
   },
   {
     provider: "google",
-    exportName: "ChatGoogleGenerativeAI",
+    exportName: "ChatGoogle",
     model: "gemini-2.5-flash",
     apiKeyEnv: "GOOGLE_API_KEY",
   },

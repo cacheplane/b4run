@@ -42,7 +42,7 @@ test("output limits use each provider's supported constructor field", async () =
     {
       provider: "google",
       model: "gemini-2.5-flash",
-      name: "ChatGoogleGenerativeAI",
+      name: "ChatGoogle",
       field: "maxOutputTokens",
     },
     { provider: "ollama", model: "llama3.2", name: "ChatOllama", field: "numPredict" },

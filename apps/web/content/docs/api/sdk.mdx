@@ -49,6 +49,15 @@ import { scenarios } from "@b4run/sdk/testing"
 | `ReasoningConfig` | Configure model reasoning per provider. |
 | `OpenAIReasoningConfig` | Configure OpenAI reasoning effort and streamed summary. |
 | `AnthropicReasoningConfig` | Configure Anthropic extended thinking. |
+| `BuiltInToolsConfig` | Enable provider-owned capabilities on an agent, keyed by provider; unsupported or misplaced capability keys fail when the model is built. |
+| `NativeBuiltInToolOptions` | Forward additional native provider options without introducing runtime provider dependencies into the SDK. |
+| `OpenAIWebSearchOptions` | Native web-search type, context, domain and approximate-location options. |
+| `OpenAICodeExecutionOptions` | Native code-interpreter container and memory configuration. |
+| `OpenAIImageGenerationOptions` | Native image-generation quality, size, format and output controls. |
+| `AnthropicWebSearchOptions` | Native web-search version, domain, location and usage controls. |
+| `GoogleWebSearchOptions` | Native Google Search options; applications must render the supplied Search Suggestions unchanged. |
+| `GoogleWebFetchOptions` | Native Google URL context options. |
+| `GoogleCodeExecutionOptions` | Native Google hosted code-execution options. |
 | `RetryConfig` | Configure model-call retry attempts and delay. |
 | `SubagentMap` | Map local subagent names to agents. |
 | `ToolScope` | Select and gate route tools. |
@@ -191,6 +200,8 @@ import { scenarios } from "@b4run/sdk/testing"
 | `B4ToolStepUpdate` | A partial step for `mergeToolStep`; `status` and `kind` may be absent. |
 | `B4StepSource` | A file, URL, document or record a step or answer drew on, with a stable id. |
 | `B4AnswerAnnotations` | The `b4.answer` annotations on a final answer: citations, uncited sources, attribution. |
+| `ProviderToolCall` | One normalized provider call: stable id, name, native input, current step and an optional readable result. Its original AIMessage remains the model replay unit. |
+| `ProviderMessageProjection` | Provider calls and optional answer annotations normalized from one native or serialized assistant message. |
 | `B4_STEP_METADATA_KEY` | The message-metadata key a tool call's step travels under (`b4.step`). |
 | `B4_ANSWER_METADATA_KEY` | The message-metadata key a final answer's annotations travel under (`b4.answer`). |
 | `B4_STEP_EVENT_NAME` | The AG-UI `CUSTOM` event name a live step travels as (`b4.step`). |
@@ -201,6 +212,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `B4_ANSWER_JSON_SCHEMA` | The JSON Schema for `b4.answer` annotations. |
 | `readToolStep` | Normalize a `b4.step` value (legacy shapes included) to a step; an unknown status is dropped, and an unusable value returns undefined. |
 | `readToolStepUpdate` | Like `readToolStep`, but `kind` stays absent when the source did not state it, so a merge keeps the stored kind. |
+| `normalizeProviderMessage` | Read native provider activity and answer annotations without importing LangChain or modifying its messages. Pass the canonical assistant `messageId`, plus `provider` when known. Raw provider status and citation details take precedence over lossy standardized blocks. |
 | `readAnswerAnnotations` | Normalize `b4.answer` annotations. |
 | `mergeToolStep` | Merge a step from a call or a message into the stored step by the contract's rules. |
 | `settleOpenSteps` | Settle running steps at a run's end: `failed` after an error, `cancelled` after a cancel or interrupt, sparing the interrupt's open calls. |
@@ -273,7 +285,7 @@ The JSON Schema of `b4.answer` annotations, as data for tooling and for producer
 
 ### `agent()` and `AgentConfig`
 
-Use `agent()` as a route module's default export. `model` and `systemPrompt` are required. Optional policy, retry, reasoning, subagent, and tool fields are preserved on the branded descriptor.
+Use `agent()` as a route module's default export. `model` and `systemPrompt` are required. Optional policy, retry, reasoning, provider built-ins, subagent, and tool fields are preserved on the branded descriptor.
 
 ```ts api-contract="@b4run/sdk#.:agent"
 export declare function agent<const Subagents extends SubagentMap = {}>(
@@ -288,6 +300,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
   readonly model: KnownModelId
   readonly provider?: ModelProviderId
   readonly maxOutputTokens?: number
+  readonly builtInTools?: BuiltInToolsConfig
   readonly reasoning?: ReasoningConfig
   readonly retry?: RetryConfig
   readonly recursionLimit?: number
@@ -305,6 +318,7 @@ export interface AgentConfig<Subagents extends SubagentMap = {}> {
 | `readonly model` | `KnownModelId` | yes | Select the model. |
 | `readonly provider` | `ModelProviderId` | no | Override provider inference. |
 | `readonly maxOutputTokens` | `number` | no | Cap output per model call with a positive safe integer, including provider-counted reasoning tokens. |
+| `readonly builtInTools` | `BuiltInToolsConfig` | no | Enable supported native provider capabilities; see [provider built-ins](/docs/agents#provider-built-ins). |
 | `readonly reasoning` | `ReasoningConfig` | no | Tune reasoning per provider. |
 | `readonly retry` | `RetryConfig` | no | Tune transient retry behavior. |
 | `readonly recursionLimit` | `number` | no | Cap LangGraph super-steps. |

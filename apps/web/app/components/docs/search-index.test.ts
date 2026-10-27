@@ -383,16 +383,6 @@ Deeper text is part of the H2 section.
       }
     }
   })
-
-  it("stays small enough to fetch on first open", () => {
-    // Guard against indexing whole sections by accident: the lazily fetched
-    // index was ~100 KB gzipped when body text was added, ~126 KB once the
-    // Angular entries of @b4run/ag-ui added three export surfaces and their aliases,
-    // ~131 KB once the Upgrading page covered 0.9 through 0.14, and
-    // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes,
-    // and ~136.6 KB with the plain LangGraph UI API and producer/restore recipes.
-    expect(gzipSync(JSON.stringify(DOCS_INDEX)).length).toBeLessThan(137_000)
-  })
 })
 
 describe("query variants", () => {
@@ -426,4 +416,19 @@ test("indexes the plain LangGraph UI surface and all four public exports", () =>
   const owners = aliases.map((alias) => filterDocsSearchResults(alias, results)[0]?.href)
 
   expect(owners).toEqual(aliases.map(() => "/docs/api/langgraph"))
+})
+
+test("stays small enough to fetch on first open", () => {
+  // Guard against indexing whole sections by accident: the lazily fetched
+  // index was ~100 KB gzipped when body text was added, ~126 KB once the
+  // Angular entries of @b4run/ag-ui added three export surfaces and their aliases,
+  // ~131 KB once the Upgrading page covered 0.9 through 0.14, and
+  // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes,
+  // ~136.6 KB with the plain LangGraph UI API and producer/restore recipes,
+  // and ~137.4 KB with provider built-ins, native replay and Google migration.
+  const budget = 140_000
+
+  const compressed = gzipSync(JSON.stringify(DOCS_INDEX))
+
+  expect(compressed.length).toBeLessThan(budget)
 })

@@ -43,7 +43,7 @@ describe("createChatModel with a JSON-schema response format", () => {
       importer,
     })) as { bound: FakeModel; config: Record<string, unknown> }
 
-    expect(model.bound.options).toEqual({ model: "gpt-5-mini" })
+    expect(model.bound.options).toEqual({ model: "gpt-5-mini", outputVersion: "v0" })
     expect(model.config).toEqual({
       response_format: {
         type: "json_schema",
@@ -66,14 +66,14 @@ describe("createChatModel with a JSON-schema response format", () => {
       importer,
     })) as { bound: FakeModel; config: Record<string, unknown> }
 
-    expect(model.bound.options).toEqual({ model: "claude-sonnet-4-5" })
+    expect(model.bound.options).toEqual({ model: "claude-sonnet-4-5", outputVersion: "v0" })
     expect(model.config).toEqual({
       outputConfig: { format: { type: "json_schema", schema: responseFormat.schema } },
     })
   })
 
   test("a provider without a schema-constrained output hook is rejected, not ignored", async () => {
-    const importer = vi.fn().mockResolvedValue({ ChatGoogleGenerativeAI: FakeModel })
+    const importer = vi.fn().mockResolvedValue({ ChatGoogle: FakeModel })
 
     await expect(
       createChatModel({ model: "gemini-2.5-flash", provider: "google", responseFormat, importer }),

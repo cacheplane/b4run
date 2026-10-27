@@ -19,7 +19,7 @@ import {
   reject,
   type ThreadAccessRequest,
 } from "@b4run/sdk"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import { contrast } from "../../../../lib/design-system-checks"
 import { COLOR } from "../../../../lib/design-tokens"
 import { DOCS_INDEX } from "../../docs/search-index"
@@ -107,31 +107,6 @@ describe("the checklist shows real code", () => {
       String.raw`method: "POST",
       pattern: /^\/agui\/(?<routeId>[^/?#]+)(?:\?.*)?$/,`,
     )
-  })
-
-  it("retries each model call, never the whole run", () => {
-    // maxAttempts becomes the chat model's own maxRetries...
-    const adapter = read("packages/langchain/src/agent-adapter.ts")
-    expect(adapter).toContain("maxRetries: providerMaxRetries(retry),")
-    expect(adapter).not.toContain("isRetryableError")
-    expect(adapter).not.toContain("hasYielded")
-    const retry = read("packages/langchain/src/model-call-retry.ts")
-    expect(retry).toContain("return policy.maxAttempts - 1")
-    // ...and B4 sends one model call again after a capacity 429, recognised
-    // by LangChain's stamps, before any token of that call has streamed.
-    expect(retry).toContain("getRetryable(current) === true")
-    expect(retry).toContain('rateLimitType === "capacity"')
-    const middleware = read("packages/langchain/src/agent-middleware.ts")
-    expect(middleware).toContain(
-      "retryCapacityErrors(\n        () => handler(next),\n        retry,",
-    )
-    // The excerpt sets no baseDelay: the tile's claim is about attempts, and
-    // baseDelay paces only the capacity 429s.
-    const retries = itemOf("retries")
-    expect(retries.code).toBe("retry: { maxAttempts: 5 },")
-    expect(read(`${CHECKLIST_FIXTURES}src/app/support/index.ts`)).toContain(retries.code)
-    expect(retries.handledBy).toContain("Each model call")
-    expect(retries.handledBy).toContain("no streamed token is sent twice")
   })
 
   it("moves the three durable stores to Postgres, which the defaults keep on local disk", () => {
@@ -273,4 +248,28 @@ describe("the checklist shows real code", () => {
       }
     }
   })
+})
+
+test("retries each model call, never the whole run", () => {
+  const retries = itemOf("retries")
+
+  const adapter = read("packages/langchain/src/agent-adapter.ts")
+  const retry = read("packages/langchain/src/model-call-retry.ts")
+  const middleware = read("packages/langchain/src/agent-middleware.ts")
+  const support = read(`${CHECKLIST_FIXTURES}src/app/support/index.ts`)
+
+  // maxAttempts becomes the chat model's own maxRetries.
+  expect(adapter).toContain("maxRetries: providerMaxRetries(retry),")
+  expect(adapter).not.toContain("isRetryableError")
+  expect(adapter).not.toContain("hasYielded")
+  expect(retry).toContain("return policy.maxAttempts - 1")
+  // Only a capacity 429 before the first token retries this model call.
+  expect(retry).toContain("getRetryable(current) === true")
+  expect(retry).toContain('rateLimitType === "capacity"')
+  expect(middleware).toMatch(/retryCapacityErrors\(\s*\(\) => handler\(next\),\s*retry,/)
+  // The tile claims attempts; baseDelay only paces capacity 429s.
+  expect(retries.code).toBe("retry: { maxAttempts: 5 },")
+  expect(support).toContain(retries.code)
+  expect(retries.handledBy).toContain("Each model call")
+  expect(retries.handledBy).toContain("no streamed token is sent twice")
 })

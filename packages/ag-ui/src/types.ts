@@ -1,4 +1,11 @@
-import { type B4ToolStepUpdate, readToolStepUpdate } from "@b4run/sdk"
+import {
+  type B4AnswerAnnotations,
+  type B4ToolStep,
+  type B4ToolStepUpdate,
+  readAnswerAnnotations,
+  readToolStep,
+  readToolStepUpdate,
+} from "@b4run/sdk"
 
 /** Run identity the consumer supplies; never synthesized by the mapper. */
 export interface RunContext {
@@ -24,6 +31,7 @@ export type B4AgentStreamChunk =
       /** Source model invocation identity; shared with that invocation's tokens. */
       readonly messageId?: string
     }
+  | { readonly type: "message_annotations"; readonly data: B4MessageAnnotationsData }
   | { readonly type: "message_end"; readonly data: { readonly messageId: string } }
   | { readonly type: "tool_call"; readonly data: B4ToolCallData }
   | { readonly type: "tool_call_args"; readonly data: B4ToolCallArgsData }
@@ -63,10 +71,25 @@ export interface B4ToolCallArgsData {
   readonly messageId?: string | undefined
 }
 
+/** Answer annotations belonging to one model invocation. */
+export interface B4MessageAnnotationsData {
+  readonly messageId: string
+  readonly answer: B4AnswerAnnotations
+}
+
+/** Validates a message annotation carrier without changing its HTML. */
+export function asMessageAnnotationsData(data: unknown): B4MessageAnnotationsData | null {
+  if (!isRecord(data) || typeof data.messageId !== "string" || data.messageId === "") return null
+  const answer = readAnswerAnnotations(data.answer)
+  return answer === undefined ? null : { messageId: data.messageId, answer }
+}
+
 export interface B4ToolResultData {
   readonly id?: string | undefined
   readonly name: string
   readonly output: unknown
+  /** Authoritative provider or server result metadata. */
+  readonly step?: B4ToolStep
 }
 
 /**
@@ -116,10 +139,12 @@ export function asToolCallArgsData(data: unknown): B4ToolCallArgsData | null {
 /** Validates and narrows a `tool_result` chunk's `data`. Returns null if malformed. */
 export function asToolResultData(data: unknown): B4ToolResultData | null {
   if (!isRecord(data) || typeof data.name !== "string") return null
+  const step = readToolStep(data.step)
   return {
     id: typeof data.id === "string" ? data.id : undefined,
     name: data.name,
     output: data.output,
+    ...(step?.status !== undefined ? { step: { ...step, status: step.status } } : {}),
   }
 }
 

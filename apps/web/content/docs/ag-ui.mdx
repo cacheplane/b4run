@@ -751,6 +751,8 @@ The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 valu
 | `CUSTOM` event, with `value.toolCallId` required | `b4.step` |
 | Assistant-message metadata on `TEXT_MESSAGE_START` and `TEXT_MESSAGE_END`: citations, uncited sources and attribution for the final answer. Read it with `readAnswerAnnotations` from `@b4run/sdk`, a public reader; B4.run's own chat components do not show it yet | `"b4.answer"` |
 | LangChain persistence on a `ToolMessage` | `additional_kwargs.b4_step` |
+| LangChain persistence on an `AIMessage`, keyed by native provider call id | `additional_kwargs.b4_steps` |
+| LangChain persistence of assistant answer annotations | `additional_kwargs.b4_answer` |
 
 | Field | Meaning |
 |---|---|
@@ -789,6 +791,47 @@ Versioning is additive. A new field never bumps `v`, a consumer ignores fields i
 Producers and clients can test against the same corpus: `TOOL_STEP_FIXTURES` and `foldToolStepEvents` from `@b4run/sdk/testing`, and the JSON Schemas at `@b4run/sdk/tool-step.schema.json` and `@b4run/sdk/answer.schema.json`. See the [SDK reference](/docs/api/sdk).
 
 B4.run's vendor events all use the `b4.` prefix: `b4.step` here, and `b4.content_parts_dropped` from [Multimodal content](#multimodal-content). A client that does not know a name ignores it. The step's done payload, with its timing and the gate decision, is also stored on the checkpointed tool message as `additional_kwargs.b4_step` (the `task` tool's message carries `b4_subagent` as well), so `GET /threads/:thread_id/turns` rebuilds its labels, sources, outcomes and timing. `/state` retains the raw LangChain `additional_kwargs.b4_step` and `status`; `/events` projects the same step into AG-UI RESULT metadata and exposes failures through the result error. Inbound provider tool results, whether marked directly or through their assistant call, are excluded from model input. `PersistedStep` and `B4StepEventValue` are deprecated in favor of `B4ToolStep`, and `readStepEvent` now drops an empty-string label.
+
+### Provider-owned activity
+
+A provider-owned call stays in its native assistant message. B4.run projects it
+as standard tool lifecycle events with `kind: "provider"` in `b4.step`, so it
+does not enter your app's tool executor. The native payload remains available
+for the next model turn. The checkpoint stores its display projection separately
+in `AIMessage.additional_kwargs.b4_steps`; `/turns` restores the same provider
+steps rather than inventing ordinary function calls or persisted ToolMessages.
+
+OpenAI web search, code execution and image generation are normalized from their
+native output items. Anthropic web search uses its server invocation and result
+blocks. A native failure produces a failed step, readable result text and a
+result error. A model invocation ending without a provider result does not imply
+that the provider call succeeded.
+
+Answer citations, sources and attribution travel as `metadata["b4.answer"]` and
+persist as `additional_kwargs.b4_answer`. A citation points to a stable source
+id. Native source coordinates and opaque encrypted indices are not converted
+into character offsets in the assistant's answer. Grounding with no native call
+produces answer sources, without an invented search step.
+
+For custom LangChain graphs, normalize the canonical model result before your
+graph checkpoints it. Observing or changing a stream callback alone does not
+persist the projection. `normalizeProviderMessage` from `@b4run/sdk` accepts an
+AIMessage or serialized message fields and returns `{ calls, answer }` without
+changing native content. Use the persisted assistant id as its `messageId` in
+both live processing and restore. Keep native v0 message storage and graph
+`streamEvents` v2 when using this integration.
+
+Google Search Suggestions are separate from sources. When retained Google
+grounding supplies them, `b4.answer.attribution` preserves the provider HTML
+unchanged with `mustRender: true`. Your answer renderer must show it unmodified,
+adjacent to the grounded answer, full width, without restyling or link tracking.
+The built-in chat components do not render answer annotations automatically.
+Do not enable grounded search without an answer renderer that meets these
+requirements. See [Google's grounding documentation](https://ai.google.dev/gemini-api/docs/google-search).
+
+File search remains deferred. B4 does not offer Bedrock provider built-ins.
+Anthropic web fetch and code execution remain disabled while its upstream
+streaming integration cannot preserve their required result blocks.
 
 ### Canonical orchestration presentation
 

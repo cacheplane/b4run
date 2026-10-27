@@ -2,6 +2,35 @@
 
 B4.run is pre-1.0 and the API is still moving. So pin a version, read what changed, and upgrade on purpose. This page covers the upgrade workflow and the changes that need action, labeled with the version each one landed in. The full list of changes lives on GitHub.
 
+## Provider activity and answer annotations (unreleased)
+
+Agents can opt into provider-owned capabilities through
+`builtInTools.openai`, `builtInTools.anthropic` or `builtInTools.google`. Ordinary
+app tools keep their existing configuration. A misplaced provider block or
+unsupported capability fails before loading the model package. File search
+remains deferred.
+
+Google agent routes now use `@langchain/google` instead of the deprecated
+`@langchain/google-genai`. Replace that optional dependency and use
+`@langchain/core` 1.2.18 or a compatible version. B4 loads `ChatGoogle` and adds
+an adapter that retains raw native parts and grounding metadata during graph v2
+streaming. Custom routes constructing `ChatGoogleGenerativeAI` directly are not
+rewritten; migrate those model constructions separately.
+
+Provider tool activity is projected separately from app function calls and
+persisted on the native AIMessage as `additional_kwargs.b4_steps`. Answer
+annotations persist as `additional_kwargs.b4_answer` and reach AG-UI through
+`metadata["b4.answer"]`. Native provider content stays in v0 form for model
+replay; runnable streaming remains `streamEvents` v2.
+
+Existing agent tools and their `b4_step` carrier are unchanged. Custom graph
+authors can use `normalizeProviderMessage` from `@b4run/sdk` before writing
+canonical messages to their own checkpoints. Keep the same canonical assistant
+message id for live and restored source identities. Google-grounded answers
+require an application renderer for the unmodified Search Suggestions; see
+[provider-owned activity](/docs/ag-ui#provider-owned-activity). File search is
+deferred, and Anthropic fetch/code execution remain disabled.
+
 ## Plain LangGraph tool-step helpers (unreleased)
 
 Plain Node LangChain/LangGraph applications can import `emitToolStep` and
