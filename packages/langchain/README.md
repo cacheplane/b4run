@@ -23,6 +23,15 @@ export const embedder = openaiEmbedder({ model: "text-embedding-3-small" })
 
 `chainAdapter` adapts a LangChain runnable to B4.run's chain backend contract. `openaiEmbedder` supplies the memory embedding seam and reads provider configuration when first used.
 
+Agent descriptors can enable provider-owned search, code and image capabilities
+with `builtInTools`. Provider calls are normalized separately from app functions,
+retained in native v0 AIMessage history, and projected live and after restore as
+`b4.step` activity with `b4.answer` citations. Google routes use the optional
+`@langchain/google` integration with retained native chunks and grounding
+attribution. Applications must render Google Search Suggestions unchanged.
+See [provider built-ins](https://b4.run/docs/agents#provider-built-ins). File search
+remains deferred; Anthropic fetch/code execution are disabled.
+
 ## Runtime and stability
 
 - `@b4run/langchain` is an edge-safe, supported integration surface.

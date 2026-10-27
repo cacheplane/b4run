@@ -62,7 +62,7 @@ B4.run includes the OpenAI integration. Install the other LangChain provider pac
 
 ```bash
 npm install @langchain/anthropic     # anthropic
-npm install @langchain/google-genai  # google
+npm install @langchain/google        # google
 npm install @langchain/mistralai     # mistral
 npm install @langchain/groq          # groq
 npm install @langchain/ollama        # ollama
@@ -73,6 +73,70 @@ npm install @langchain/openrouter    # openrouter
 `b4 check` and `b4 verify` warn, with did-you-mean suggestions, when a model id isn't in B4.run's known list for its provider. Only `openai`, `google`, `anthropic` and `xai` have lists. The runtime prints the same warning once when it creates the model.
 
 It's only a warning. New, proxy and gateway model ids run fine as long as your provider accepts them.
+
+## Provider built-ins
+
+Use `builtInTools` for capabilities the model provider runs. Keep ordinary app
+functions in the route's `tools/` directory. The option is keyed by provider,
+like `reasoning`; a block for a different resolved provider fails before that
+provider is imported.
+
+```ts
+export default agent({
+  model: "gpt-5-mini",
+  systemPrompt: "Research the question and cite your sources.",
+  builtInTools: {
+    openai: {
+      webSearch: true,
+      codeExecution: true,
+    },
+  },
+})
+```
+
+| Provider block | Capabilities |
+|---|---|
+| `openai` | `webSearch`, `codeExecution`, `imageGeneration` |
+| `anthropic` | `webSearch` |
+| `google` | `webSearch`, `webFetch`, `codeExecution` |
+
+`true` selects the default native configuration. OpenAI built-ins use Responses;
+code execution defaults to an automatic container. Anthropic web search defaults
+to `web_search_20250305`. Google uses `googleSearch`, `urlContext` and
+`codeExecution`, and requests native server invocation details. Availability
+depends on the selected provider model.
+
+An object supplies provider-native options, with the provider's field names:
+
+```ts
+builtInTools: {
+  openai: {
+    webSearch: {
+      search_context_size: "low",
+      filters: { allowed_domains: ["weather.gov"] },
+    },
+    codeExecution: { container: { type: "auto", memory_limit: "1g" } },
+  },
+}
+```
+
+Known options have TypeScript types; additional native fields pass through for
+provider validation. B4 owns the capability keys and rejects misspelled or
+unsupported capabilities. Its adapters add the source and invocation-detail
+plumbing needed by the shared [`b4.step` contract](/docs/ag-ui#the-b4step-contract).
+Provider calls remain separate from ordinary app tools during execution,
+checkpoint restore and the next model turn.
+
+Google grounded search requires an answer renderer that displays the provider's
+Search Suggestions HTML unmodified, adjacent to the answer, full width, without
+restyling or link tracking. The annotations carry `mustRender: true`; B4's chat
+components do not render them automatically. See
+[provider-owned activity](/docs/ag-ui#provider-owned-activity).
+
+File search is deferred. Anthropic web fetch and code execution are disabled in
+this integration while its upstream streaming path cannot preserve their result
+blocks. Bedrock is not a built-in B4 provider, and MCP requires a separate approval
+design.
 
 ## When to pick an agent
 
