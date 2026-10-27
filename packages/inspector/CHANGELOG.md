@@ -1,5 +1,12 @@
 # @b4run/inspector
 
+## 0.15.6
+
+### Patch Changes
+
+- @b4run/core@0.15.6
+- @b4run/memory@0.15.6
+
 ## 0.15.5
 
 ### Patch Changes

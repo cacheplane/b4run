@@ -1,5 +1,21 @@
 # @b4run/cli
 
+## 0.15.6
+
+### Patch Changes
+
+- 5d471fb: Wait for shared run admission release before returning successful no-op or partial browser-tool callback responses. Release failures now fail the request instead of exposing a successful terminal response before ownership cleanup finishes.
+- Updated dependencies [09a33c0]
+  - @b4run/sdk@0.15.6
+  - @b4run/langchain@0.15.6
+  - @b4run/ag-ui@0.15.6
+  - @b4run/core@0.15.6
+  - @b4run/langgraph@0.15.6
+  - @b4run/permissions@0.15.6
+  - @b4run/sqlite-storage@0.15.6
+  - @b4run/workspace@0.15.6
+  - @b4run/memory@0.15.6
+
 ## 0.15.5
 
 ### Patch Changes
