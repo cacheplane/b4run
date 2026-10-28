@@ -1,14 +1,40 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { parse } from "yaml"
-import { readBoundedFixture } from "../fixture-io.mjs"
+import { readBoundedFixture, readBoundedFixtureBytes } from "../fixture-io.mjs"
+import { discoverHistoricalPublicationData } from "../historical-publication-data.mjs"
+import { historicalFamilyFixture } from "./fixtures/historical-family.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
+
+test("early release integrity accepts only actual bytes for authenticated historical binary pins", async (t) => {
+  const { root, files } = await historicalFamilyFixture(t, {
+    extraSupportBytes: Buffer.alloc(1024 * 1024 + 1, 0xff),
+  })
+  const pins = {
+    schemaVersion: 1,
+    scripts: Object.fromEntries(
+      [...files].map(([file, bytes]) => [
+        file,
+        { sha256: createHash("sha256").update(bytes).digest("hex") },
+      ]),
+    ),
+  }
+
+  await assertReleaseContentPins(root, pins)
+  const file = [...files.keys()].find((file) => file.endsWith("/large.zip"))
+  pins.scripts[file].sha256 = createHash("sha256")
+    .update(files.get(file).toString("utf8"))
+    .digest("hex")
+  await assert.rejects(() => assertReleaseContentPins(root, pins), /Release content pin mismatch/u)
+  await writeFile(path.join(root, file), Buffer.from("drift"))
+  await assert.rejects(() => assertReleaseContentPins(root, pins))
+})
 
 // Early byte checks complement the full suite's reachability and manifest checks.
 test("every recorded release content pin matches its source before a build", async () => {
@@ -18,20 +44,7 @@ test("every recorded release content pin matches its source before a build", asy
       { root: ROOT },
     ),
   )
-  assert.equal(pins.schemaVersion, 1)
-  assert.ok(Object.keys(pins.scripts).length > 0)
-  for (const [file, { sha256 }] of Object.entries(pins.scripts)) {
-    assert.match(sha256, /^[a-f0-9]{64}$/u)
-    const source = await readBoundedFixture(path.join(ROOT, file), {
-      root: ROOT,
-      maxBytes: 1024 * 1024,
-    })
-    assert.equal(
-      createHash("sha256").update(source).digest("hex"),
-      sha256,
-      `Release content pin mismatch: ${file}`,
-    )
-  }
+  await assertReleaseContentPins(ROOT, pins)
 })
 
 test("release integrity preflight fails early without replacing full validation", async () => {
@@ -148,3 +161,21 @@ test("required validate aggregates independent complete lanes and fails closed",
     assert.equal(item["continue-on-error"], undefined)
   }
 })
+
+async function assertReleaseContentPins(root, pins) {
+  const historicalData = new Set(await discoverHistoricalPublicationData({ root }))
+  assert.equal(pins.schemaVersion, 1)
+  assert.ok(Object.keys(pins.scripts).length > 0)
+  for (const [file, { sha256 }] of Object.entries(pins.scripts)) {
+    assert.match(sha256, /^[a-f0-9]{64}$/u)
+    const source = await readBoundedFixtureBytes(path.join(root, file), {
+      root,
+      maxBytes: historicalData.has(file) ? 64 * 1024 * 1024 : 1024 * 1024,
+    })
+    assert.equal(
+      createHash("sha256").update(source).digest("hex"),
+      sha256,
+      `Release content pin mismatch: ${file}`,
+    )
+  }
+}

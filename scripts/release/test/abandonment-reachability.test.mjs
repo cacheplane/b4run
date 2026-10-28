@@ -25,6 +25,9 @@ const OPTIONS = Object.freeze({ abandonmentEnvironment: ABANDONMENT_ENVIRONMENT 
 const LIVE_BYTES = await readFile(ROOT + "/.github/workflows/release.yml")
 const PROTECTED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-protected.yml")
 const DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-disabled.yml")
+const B4_HISTORICAL_IMPORT_BYTES = await readFile(
+  `${FIXTURE_ROOT}/release-workflow-b4-historical-import.yml`,
+)
 const B4_DISABLED_BYTES = await readFile(FIXTURE_ROOT + "/release-workflow-b4-disabled.yml")
 const B4_BEFORE_PUBLISHER_BUDGET_BYTES = await readFile(
   FIXTURE_ROOT + "/release-workflow-b4-before-publisher-budget.yml",
@@ -44,7 +47,7 @@ test("the classifier exports exactly the approved public API", () => {
 })
 
 test("the live workflow is the immutable disabled fixture and both reviewed modes classify", () => {
-  assert.deepEqual(LIVE_BYTES, B4_DISABLED_BYTES)
+  assert.deepEqual(LIVE_BYTES, B4_HISTORICAL_IMPORT_BYTES)
   assert.equal(classifyReleaseWorkflowAbandonment(LIVE_BYTES, OPTIONS), "disabled")
   assert.equal(classifyReleaseWorkflowAbandonment(PROTECTED_BYTES, OPTIONS), "protected")
   assert.equal(classifyReleaseWorkflowAbandonment(DISABLED_BYTES, OPTIONS), "disabled")
@@ -61,6 +64,7 @@ test("policy entries are bound to production-canonicalized immutable fixtures", 
     ["disabled-2026-08-28", "disabled", DISABLED_BYTES],
     ["protected-2026-08-28", "protected", PROTECTED_BYTES],
     ["renamed-b4-disabled-2026-09-07", "disabled", B4_TAG_ONLY_BYTES],
+    ["reviewed-b4-historical-import-2026-10-27", "disabled", B4_HISTORICAL_IMPORT_BYTES],
     ["reviewed-b4-postpublication-2026-09-12", "disabled", B4_BEFORE_PUBLISHER_BUDGET_BYTES],
     ["reviewed-b4-publisher-budget-2026-09-16", "disabled", B4_BEFORE_RELAY_DEDUPE_BYTES],
     ["reviewed-b4-relay-dedupe-2026-09-29", "disabled", B4_DISABLED_BYTES],
@@ -73,6 +77,31 @@ test("policy entries are bound to production-canonicalized immutable fixtures", 
     assert.equal(loaded.variants[index].canonicalSha256, canonical.canonicalSha256)
     assert.match(canonical.canonicalSha256, /^[0-9a-f]{64}$/u)
   }
+})
+
+test("the historical publisher import preserves the frozen relay workflow and rejects unknown sparse variants", () => {
+  const before = parseFixture(B4_DISABLED_BYTES)
+  const current = parseFixture(B4_HISTORICAL_IMPORT_BYTES)
+  const checkout = current.jobs["publish-npm"].steps.find(
+    (step) => step.with?.["sparse-checkout"] !== undefined,
+  )
+
+  assert.equal(classifyReleaseWorkflowAbandonment(B4_DISABLED_BYTES, OPTIONS), "disabled")
+  assert.equal(classifyReleaseWorkflowAbandonment(B4_HISTORICAL_IMPORT_BYTES, OPTIONS), "disabled")
+  assert.equal(
+    parseCanonicalReleaseWorkflow(B4_DISABLED_BYTES).canonicalSha256,
+    "5f066e90c8349739387dba732fb22f45f1f2981bfed574bb2697d184bfa80521",
+  )
+  checkout.with["sparse-checkout"] = checkout.with["sparse-checkout"].replace(
+    "scripts/release/historical-publication-record.mjs\n",
+    "",
+  )
+  assert.deepEqual(current, before)
+  checkout.with["sparse-checkout"] += "scripts/release/unknown.mjs\n"
+  assert.throws(
+    () => classifyReleaseWorkflowAbandonment(Buffer.from(stringify(current)), OPTIONS),
+    /not a reviewed variant/u,
+  )
 })
 
 test("both publisher budgets classify as disabled and differ only in the publish-npm timeout", () => {

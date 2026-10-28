@@ -20,10 +20,13 @@ import { fileURLToPath } from "node:url"
 import { parse, stringify } from "yaml"
 import { classifyReleaseWorkflowAbandonment } from "../abandonment-reachability.mjs"
 import { ARTIFACT_STORE_SPARSE_FILES } from "../artifact-store.mjs"
-import { readBoundedFixture } from "../fixture-io.mjs"
+import { readBoundedFixture, readBoundedFixtureBytes } from "../fixture-io.mjs"
+import { discoverHistoricalPublicationData } from "../historical-publication-data.mjs"
+import { HISTORICAL_PUBLICATION_RECORD_PATH } from "../historical-publication-record.mjs"
 import { PUBLISHER_OVERALL_TIMEOUT_MS, PUBLISHER_SPARSE_FILES } from "../publisher.mjs"
 import { REQUIRED_RELEASE_SMOKE_LANES } from "../smoke-result.mjs"
 import { factoryGuardProblems, pullRequestContext } from "./factory-guard.mjs"
+import { historicalFamilyFixture } from "./fixtures/historical-family.mjs"
 import { evaluateExpression } from "./github-expression.mjs"
 
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url))
@@ -145,8 +148,11 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for the incident-pinned 0.15.3 Git-only terminal record and its
 // explicit exclusion from Release tombstone paths; workflow topology is unchanged.
 // Repinned for the current GitHub API revision on all-attempt jobs inventories.
+// Repinned for exact historical 0.15.5 verification, authenticated optional data pins,
+// binary fixture bytes, and the unchanged dormant recovery probe inventory policy.
+// A later authenticated evidence-only PR may update derived data pins and this checksum.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "7d4cb62c99d635711fe60597604a5e758368812a685a1cc36930cc328bb5aec8"
+  "41cf2f53887abb6e95a106038f7a3d0585a465c05ce5f2b88a2cd5a05dac2fca"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
@@ -1749,7 +1755,7 @@ test("release.yml makes workflow abandonment unreachable", async () => {
   assert.equal(schema.abandonmentEnvironment, "release-abandonment")
   const liveBytes = await readFile(path.join(WORKFLOWS, "release.yml"))
   const disabledBytes = await readFile(
-    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-b4-disabled.yml"),
+    path.join(ROOT, "scripts/release/test/fixtures/release-workflow-b4-historical-import.yml"),
   )
   assert.deepEqual(liveBytes, disabledBytes)
   assert.equal(
@@ -3147,6 +3153,102 @@ test("script content pins fail closed on drift and on a pinned script that went 
   await assert.rejects(() => assertPinnedScriptContents(root, pins, [file]))
 })
 
+test("release data coverage authenticates the exact optional historical family and its runtime readers", async (t) => {
+  const { root, files } = await historicalFamilyFixture(t)
+  const recordReader = "scripts/release/historical-publication-record.mjs"
+  const supportReader = "scripts/release/historical-publication.mjs"
+  const recordPath = "scripts/release/historical-publications/v0.15.5.json"
+  await writeFile(path.join(root, recordReader), `export const RECORD = "${recordPath}"\n`)
+  await writeFile(path.join(root, supportReader), 'import "./historical-publication-record.mjs"\n')
+  const sources = {
+    "release.yml": `on:\n  workflow_dispatch: {}\njobs:\n  publish:\n    steps:\n      - run: node ${supportReader}\n`,
+  }
+  const pins = [recordReader, supportReader, ...files.keys()].sort()
+  const coverage = (pinned = pins) =>
+    assertReleaseScriptCoverage(root, sources, { scripts: {} }, pinned, [])
+
+  assert.deepEqual(await coverage(), pins)
+  for (const file of files.keys()) {
+    await assert.rejects(() => coverage(pins.filter((pin) => pin !== file)), /no content pin/u)
+  }
+  await assert.rejects(() => coverage([...pins, "scripts/release/stale.json"]), /pin is stale/u)
+  await writeFile(path.join(root, recordReader), "export const RECORD = null\n")
+  await assert.rejects(coverage, /historical.*reader|Historical.*reader/u)
+  await writeFile(path.join(root, recordReader), `export const RECORD = "${recordPath}"\n`)
+  await writeFile(
+    path.join(root, "scripts/release/entry.mjs"),
+    `import "./historical-publication-record.mjs"\n`,
+  )
+  const withoutSupport = {
+    "release.yml":
+      "on:\n  workflow_dispatch: {}\njobs:\n  publish:\n    steps:\n      - run: node scripts/release/entry.mjs\n",
+  }
+  await assert.rejects(
+    () =>
+      assertReleaseScriptCoverage(
+        root,
+        withoutSupport,
+        { scripts: {} },
+        ["scripts/release/entry.mjs", recordReader, ...files.keys()],
+        [],
+      ),
+    /historical.*reader|Historical.*reader/u,
+  )
+  await writeFile(path.join(root, [...files.keys()][0]), Buffer.from("drift"))
+  await assert.rejects(coverage)
+})
+
+test("authenticated historical binary data above the ordinary source bound requires exact raw content pins", async (t) => {
+  const { root, files } = await historicalFamilyFixture(t, {
+    extraSupportBytes: Buffer.alloc(1024 * 1024 + 1, 0xff),
+  })
+  const pins = {
+    scripts: Object.fromEntries(
+      [...files].map(([file, bytes]) => [
+        file,
+        { sha256: createHash("sha256").update(bytes).digest("hex") },
+      ]),
+    ),
+  }
+  const archive = [...files.keys()].find((file) => file.endsWith("/large.zip"))
+
+  await assertPinnedScriptContents(root, pins, [...files.keys()])
+  pins.scripts[archive].sha256 = createHash("sha256")
+    .update(files.get(archive).toString("utf8"))
+    .digest("hex")
+  await assert.rejects(
+    () => assertPinnedScriptContents(root, pins, [archive]),
+    /content pin mismatch/u,
+  )
+})
+
+test("production release closure retains the named historical runtime data readers even before admission", async () => {
+  const sources = await readFinalWorkflowSources()
+  const packageJson = JSON.parse(
+    await readBoundedFixture(path.join(ROOT, "package.json"), { root: ROOT }),
+  )
+  const { referenced } = releaseWorkflowScriptReferences(sources, packageJson)
+  const closure = await releaseScriptImportClosure(ROOT, referenced)
+
+  assertHistoricalDataReaders(closure)
+})
+
+test("release content pins hash raw binary bytes and keep ordinary source bounds", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "b4-binary-pins-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const file = "archive.zip"
+  const bytes = Buffer.from([0x50, 0x4b, 0xff, 0xfe])
+  const pins = { scripts: { [file]: { sha256: createHash("sha256").update(bytes).digest("hex") } } }
+  await writeFile(path.join(root, file), bytes)
+
+  await assertPinnedScriptContents(root, pins, [file])
+  await writeFile(path.join(root, file), Buffer.alloc(1024 * 1024 + 1))
+  await assert.rejects(
+    () => assertPinnedScriptContents(root, pins, [file]),
+    /missing or not a regular file/u,
+  )
+})
+
 test("root scripts retain the controller surfaces without legacy publication commands", async () => {
   const packageJson = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8"))
 
@@ -4426,6 +4528,8 @@ async function assertReleaseScriptCoverage(
     )
   }
   for (const file of closure.files) assertPinnedReleaseScript(file, pinned, "import")
+  const historicalData = await discoverHistoricalPublicationData({ root })
+  if (historicalData.length > 0) assertHistoricalDataReaders(closure)
   for (const file of dataFiles) {
     if (!closure.readers.has(file)) {
       throw new Error(
@@ -4437,7 +4541,8 @@ async function assertReleaseScriptCoverage(
     }
     assertPinnedReleaseScript(file, pinned, "data")
   }
-  const audited = [...new Set([...closure.files, ...dataFiles])].sort()
+  for (const file of historicalData) assertPinnedReleaseScript(file, pinned, "data")
+  const audited = [...new Set([...closure.files, ...dataFiles, ...historicalData])].sort()
   for (const file of pinned) {
     if (audited.includes(file)) continue
     throw new Error(
@@ -4448,6 +4553,23 @@ async function assertReleaseScriptCoverage(
     )
   }
   return audited
+}
+
+// The record has a static code-owned path. Supporting blobs are read by declared path after
+// record parsing in the named Git reader. Only strict authenticated discovery admits those
+// dynamic data edges; this seam never permits arbitrary files or executable module loads.
+function assertHistoricalDataReaders(closure) {
+  const recordReader = "scripts/release/historical-publication-record.mjs"
+  const supportReader = "scripts/release/historical-publication.mjs"
+  if (
+    !closure.files.includes(recordReader) ||
+    !closure.files.includes(supportReader) ||
+    closure.readers.get(HISTORICAL_PUBLICATION_RECORD_PATH) !== recordReader
+  ) {
+    throw new Error(
+      "Historical data reader anchors must retain the named record and supporting Git readers",
+    )
+  }
 }
 
 function assertPinnedReleaseScript(file, pinned, reach) {
@@ -4467,6 +4589,7 @@ function matchAllGroups(value, pattern) {
 }
 
 async function assertPinnedScriptContents(root, pins, files) {
+  const historicalData = new Set(await discoverHistoricalPublicationData({ root }))
   for (const file of files) {
     const expected = pins.scripts?.[file]?.sha256
     if (typeof expected !== "string" || !SHA256_HEX.test(expected)) {
@@ -4476,9 +4599,9 @@ async function assertPinnedScriptContents(root, pins, files) {
     }
     let source
     try {
-      source = await readBoundedFixture(path.join(root, file), {
+      source = await readBoundedFixtureBytes(path.join(root, file), {
         root,
-        maxBytes: 1024 * 1024,
+        maxBytes: historicalData.has(file) ? 64 * 1024 * 1024 : 1024 * 1024,
       })
     } catch {
       throw new Error(
@@ -4488,7 +4611,7 @@ async function assertPinnedScriptContents(root, pins, files) {
         ].join("\n"),
       )
     }
-    const actual = createHash("sha256").update(Buffer.from(source, "utf8")).digest("hex")
+    const actual = createHash("sha256").update(source).digest("hex")
     if (actual !== expected) {
       throw new Error(
         [

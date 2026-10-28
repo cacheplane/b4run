@@ -2068,6 +2068,9 @@ test("the publisher sparse allowlist equals its local import closure and exclude
   await visit(path.join(releaseRoot, "publisher.mjs"))
 
   assert.deepEqual([...discovered].sort(), PUBLISHER_SPARSE_FILES)
+  for (const dependency of ["historical-publication-record.mjs", "terminal-records.mjs"]) {
+    assert.ok(PUBLISHER_SPARSE_FILES.includes(`scripts/release/${dependency}`))
+  }
   for (const forbidden of [
     "inventory.mjs",
     "candidate.mjs",
