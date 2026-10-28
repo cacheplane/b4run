@@ -487,7 +487,7 @@ async function runObserve(options, runtime) {
           {
             ...report,
             recovery: observationRecovery,
-            historicalPublication,
+            ...(historicalPublication === null ? {} : { historicalPublication }),
             diagnostics: observationDiagnostics,
           },
           "production observation report",

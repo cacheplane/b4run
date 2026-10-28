@@ -33,6 +33,7 @@ import {
 } from "../smoke-result.mjs"
 import { canonicalTerminalRecordBytes } from "../terminal-record-store.mjs"
 import { canonicalAuditResultBytes } from "../terminal-records.mjs"
+import { createPreparationHandoff } from "../workflow-handoff.mjs"
 import { auditExecutorFixture } from "./support/audit-executor-fixture.mjs"
 import {
   TAGGED_COMMIT,
@@ -3452,7 +3453,7 @@ test("production observation requires complete verified escrow for attested aban
   }
 })
 
-test("observe CLI resolves the immutable candidate, runs the dry one-transition controller, and writes canonical outputs", async () => {
+test("observe CLI resolves the immutable candidate and writes canonical outputs accepted by the strict preparation handoff", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "b4-observe-cli-"))
   try {
     const eventPath = path.join(directory, "event.json")
@@ -3512,7 +3513,35 @@ test("observe CLI resolves the immutable candidate, runs the dry one-transition 
     assert.deepEqual(result.diagnostics, [])
     assert.ok(refs.includes(COMMIT_SHA))
     assert.ok(refs.includes(PARENT_SHA))
-    assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), result)
+    const persisted = JSON.parse(await readFile(reportPath, "utf8"))
+    assert.deepEqual(persisted, result)
+    const handoff = await createPreparationHandoff({
+      report: persisted,
+      root: directory,
+      environment: {
+        GITHUB_REPOSITORY: "cacheplane/b4run",
+        GITHUB_REF: `refs/tags/v${VERSION}`,
+        GITHUB_SHA: COMMIT_SHA,
+        GITHUB_WORKFLOW_REF: `cacheplane/b4run/.github/workflows/release.yml@refs/tags/v${VERSION}`,
+        GITHUB_RUN_ID: "7001",
+        GITHUB_RUN_ATTEMPT: "1",
+      },
+      async readInventory(input) {
+        assert.deepEqual(input, { root: directory, ref: COMMIT_SHA })
+        return rawInventory()
+      },
+    })
+    assert.deepEqual(handoff.candidate, result.candidate)
+    assert.equal(handoff.ciReceipt.runId, 30)
+    assert.deepEqual(Object.keys(persisted).sort(), [
+      "after",
+      "before",
+      "candidate",
+      "diagnostics",
+      "recovery",
+      "schemaVersion",
+      "transition",
+    ])
     assert.equal(
       await readFile(outputPath, "utf8"),
       [

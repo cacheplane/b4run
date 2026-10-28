@@ -1,7 +1,10 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import test from "node:test"
+import { runReleaseCli } from "../cli.mjs"
 import * as historical from "../historical-publication.mjs"
 import { parseHistoricalPublicationRecord } from "../historical-publication-record.mjs"
 import { canonicalReleaseBody } from "../metadata.mjs"
@@ -401,6 +404,69 @@ test("exact historical completion returns only AUDIT_COMPLETE terminal no-op and
   assert.equal(plan.nextTransition, null)
   assert.deepEqual(plan.proposedMutations, [])
   assert.deepEqual(plan.conflicts, [])
+})
+
+test("observe CLI retains the distinct actual historical proof in terminal reports", async () => {
+  const input = await completionFixture()
+  const proof = historical.createHistoricalCompletion(input)
+  const observation = { ...input.observation, historicalCompletion: proof }
+  const directory = await mkdtemp(path.join(os.tmpdir(), "b4-historical-report-"))
+  const eventPath = path.join(directory, "event.json")
+  const reportPath = path.join(directory, "report.json")
+  const outputPath = path.join(directory, "github-output")
+  try {
+    await writeFile(eventPath, JSON.stringify({ schedule: "17 7 * * *" }))
+    await writeFile(outputPath, "")
+
+    const result = await runReleaseCli(
+      ["observe", "--event", eventPath, "--report", reportPath, "--github-output", outputPath],
+      {
+        cwd: directory,
+        git: { listFirstParentHistory: async () => ["1".repeat(40)] },
+        githubReader: {},
+        inventory: {
+          read: async () => ({
+            status: "valid",
+            packages: TEST_MANIFEST.packages.map(({ name, version }) => ({ name, version })),
+          }),
+        },
+        npm: { observePackageVersion: async () => assert.fail("unexpected registry read") },
+        npmAuditFactory: { create: async () => assert.fail("unexpected audit") },
+        attestations: { verify: async () => assert.fail("unexpected attestation read") },
+        controllerMarker: JSON.parse(
+          await readFile(new URL("../controller-schema.json", import.meta.url), "utf8"),
+        ),
+        async importModule(specifier) {
+          const module = await import(specifier)
+          if (!specifier.endsWith("/observe.mjs")) return module
+          return {
+            ...module,
+            resolveProductionCandidate: async () => ({
+              candidate: input.candidate,
+              state: "AUDIT_COMPLETE",
+              disposition: "noop",
+              tag: null,
+              conflicts: [],
+            }),
+            observeProductionCandidate: async () => ({
+              observation,
+              diagnostics: [],
+              recovery: null,
+              historicalPublication: proof,
+            }),
+          }
+        },
+      },
+    )
+
+    assert.deepEqual(result.historicalPublication, proof)
+    assert.deepEqual(result.before.observation.historicalCompletion, proof)
+    assert.equal(result.before.plan.state, "AUDIT_COMPLETE")
+    assert.equal(result.before.plan.disposition, "noop")
+    assert.deepEqual(JSON.parse(await readFile(reportPath, "utf8")), result)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 for (const [name, mutate] of [
