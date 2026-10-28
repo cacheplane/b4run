@@ -89,7 +89,7 @@
       "sha256": "56782a047c7017a105d2c9beb243757cb0ac2bc9c49b9d8c076bc1b5ffb60f90"
     },
     "scripts/release/historical-publication.mjs": {
-      "sha256": "c70acffe0dac88ec604d6ea15ed45d83d0c31d9c0207d123979f4dd6d3a0ea63"
+      "sha256": "2134c032cd2e1806e6b09dd4050f4aed54dcca8fddf9e0ca583aeacb62d2865d"
     },
     "scripts/release/independent-audit-coordinator.mjs": {
       "sha256": "053d50e7632ee543f6ff3c22d615987e8c0820aa19db0f3d59dd9d1dc2686859"

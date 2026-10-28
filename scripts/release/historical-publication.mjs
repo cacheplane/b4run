@@ -622,6 +622,13 @@ export async function authenticateHistoricalOwnership({ git, ref }) {
     const path = match[4]
     paths.add(path)
     if (!path.startsWith("scripts/release/recovery-adoptions/")) continue
+    if (path === "scripts/release/recovery-adoptions/.gitkeep") {
+      if (match[1] !== "100644" || match[2] !== "blob") fail("ownership adoption placeholder entry")
+      const bytes = await git.showFileBytes({ ref, path })
+      if (!Buffer.isBuffer(bytes) || bytes.length !== 0)
+        fail("ownership adoption placeholder bytes")
+      continue
+    }
     if (
       !/^scripts\/release\/recovery-adoptions\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.json$/u.test(path) ||
       match[1] !== "100644" ||
