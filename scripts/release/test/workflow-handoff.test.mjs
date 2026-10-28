@@ -94,6 +94,8 @@ test("creates one frozen preparation handoff from the trusted report, immutable 
 test("rejects diagnostics and any stored report or plan drift before reading inventory", async () => {
   const cases = [
     ["report schema", (report) => (report.schemaVersion = 2)],
+    ["unknown report field", (report) => (report.unknown = null)],
+    ["null historical report field", (report) => (report.historicalPublication = null)],
     ["stored plan", (report) => (report.before.plan.state = "ARTIFACTS_PREPARED")],
     ["stored disposition", (report) => (report.before.plan.disposition = "blocked")],
     ["stored transition", (report) => (report.before.plan.nextTransition = "attest-artifacts")],

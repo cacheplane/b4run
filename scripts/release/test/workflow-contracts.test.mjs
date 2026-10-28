@@ -152,7 +152,7 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // binary fixture bytes, and the unchanged dormant recovery probe inventory policy.
 // A later authenticated evidence-only PR may update derived data pins and this checksum.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "41cf2f53887abb6e95a106038f7a3d0585a465c05ce5f2b88a2cd5a05dac2fca"
+  "0f19fc729edba76b77d9631ec16b8e4a483ec78959e8f9bb158548dc5efdc51a"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu
