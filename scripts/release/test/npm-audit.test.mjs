@@ -1992,3 +1992,91 @@ test("ordinary current0157 rejects provenance-only output even when package meta
     /bundle set is missing or ambiguous/u,
   )
 })
+
+test("raw incident capture uses fresh official consumers without future record authority", async () => {
+  const directories = []
+  const command = { stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "", exitCode: 0 }
+  const verifier = await batchVerifier(async ({ cwd }) => {
+    directories.push(cwd)
+    return command
+  })
+  const input = {
+    entry: TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app"),
+    candidate: TEST_CANDIDATE,
+  }
+
+  try {
+    const first = await verifier.captureIncidentPackageCommand(input)
+    const second = await verifier.captureIncidentPackageCommand(input)
+
+    assert.deepEqual(first, command)
+    assert.deepEqual(second, command)
+    assert.equal(Object.isFrozen(first), true)
+    assert.notEqual(directories[0], directories[1])
+    assert.equal(first.recordSha256, undefined)
+    assert.equal(first.kind, undefined)
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("raw incident capture fails closed without retaining failed or credential-bearing diagnostics", async () => {
+  const secret = "test-credential-never-retained"
+  for (const result of [
+    { stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "", exitCode: 1 },
+    { stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: secret, exitCode: 0 },
+    {
+      stdout: JSON.stringify({ error: { code: "E401", summary: secret, detail: secret } }),
+      exitCode: 1,
+    },
+  ]) {
+    const verifier = await batchVerifier(async () => result)
+
+    try {
+      await assert.rejects(
+        verifier.captureIncidentPackageCommand({
+          entry: TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app"),
+          candidate: TEST_CANDIDATE,
+        }),
+        (error) => !String(error).includes(secret),
+      )
+    } finally {
+      await verifier.dispose()
+    }
+  }
+})
+
+test("raw capture denies late output after cancellation and disposal waits for the actual command", async () => {
+  const abort = new AbortController()
+  let resolveCommand, started
+  const ready = new Promise((resolve) => {
+    started = resolve
+  })
+  const verifier = await batchVerifier(
+    () => {
+      started()
+      return new Promise((resolve) => {
+        resolveCommand = resolve
+      })
+    },
+    fs,
+    abort.signal,
+  )
+  const work = verifier.captureIncidentPackageCommand({
+    entry: TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app"),
+    candidate: TEST_CANDIDATE,
+  })
+  await ready
+  abort.abort()
+  let disposed = false
+  const disposal = verifier.dispose().then(() => {
+    disposed = true
+  })
+
+  assert.equal(disposed, false)
+  resolveCommand({ stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "", exitCode: 0 })
+
+  await assert.rejects(work)
+  await disposal
+  assert.equal(disposed, true)
+})

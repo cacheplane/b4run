@@ -306,10 +306,10 @@ export async function createNpmAuditVerifier({
       }
     }
 
-    const verifySingle = async ({ entry, candidate }, parse, single) => {
+    const verifySingle = async ({ entry, candidate }, parse, single, consumerKey = entry.name) => {
       if (disposed) throw new Error("npm audit verifier has been disposed")
       const identity = validateAuditContext(entry, candidate)
-      let consumer = consumers.get(identity.entry.name)
+      let consumer = consumers.get(consumerKey)
       if (consumer === undefined) {
         const directory = path.join(
           consumersRoot,
@@ -358,7 +358,7 @@ export async function createNpmAuditVerifier({
           targetPackageJsonPath,
           version: identity.entry.version,
         }
-        consumers.set(identity.entry.name, consumer)
+        consumers.set(consumerKey, consumer)
       }
       if (consumer.version !== identity.entry.version) {
         throw new Error(`npm audit consumer identity changed for ${identity.entry.name}`)
@@ -522,6 +522,45 @@ export async function createNpmAuditVerifier({
       async verifyPackage({ entry, candidate }) {
         const identity = validateAuditContext(entry, candidate)
         return verifySingle(identity, (output) => parseNpmAuditSignatures(output, identity), true)
+      },
+      /** Capture successful official incident output without asserting historical authority. */
+      captureIncidentPackageCommand(input) {
+        const work = (async () => {
+          if (disposed) throw new Error("npm audit verifier has been disposed")
+          signal.throwIfAborted()
+          const identity = validateAuditContext(
+            ...(() => {
+              const context = snapshotJson(input)
+              return [context.entry, context.candidate]
+            })(),
+          )
+          if (
+            identity.entry.name !== HISTORICAL_0155_INCIDENT.exceptionalPackage ||
+            identity.entry.version !== HISTORICAL_0155_INCIDENT.version ||
+            identity.candidate.commitSha !== HISTORICAL_0155_INCIDENT.commitSha
+          )
+            throw new Error("Raw capture requires the exact historical incident")
+          const result = await verifySingle(
+            identity,
+            (output, command) => {
+              parseAuditOutput(output)
+              if (command.stderr !== undefined && command.stderr !== "")
+                throw new Error("Raw capture requires empty diagnostics")
+              return deepFreeze({ stdout: output, stderr: "", exitCode: command.exitCode })
+            },
+            false,
+            Symbol("incident capture"),
+          )
+          if (disposed) throw new Error("npm audit verifier has been disposed")
+          signal.throwIfAborted()
+          return result
+        })()
+        batches.add(work)
+        work.then(
+          () => batches.delete(work),
+          () => batches.delete(work),
+        )
+        return work
       },
       /** Run the official incident command requiring precisely the remaining provenance proof. */
       async verifyHistoricalPackage(input) {

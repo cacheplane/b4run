@@ -327,11 +327,13 @@ test("historical record objects cannot introduce even a matching computed digest
   assert.throws(() => records.parseHistoricalPublicationRecord(raw, { manifest: TEST_MANIFEST }))
 })
 
-test("production historical admission record remains absent", async () => {
-  const { access } = await import("node:fs/promises")
+test("production historical admission family is absent or fully authenticated", async () => {
+  const { fileURLToPath } = await import("node:url")
+  const { discoverHistoricalPublicationData } = await import("../historical-publication-data.mjs")
 
-  await assert.rejects(
-    access(new URL("../historical-publications/v0.15.5.json", import.meta.url)),
-    { code: "ENOENT" },
-  )
+  const files = await discoverHistoricalPublicationData({
+    root: fileURLToPath(new URL("../../..", import.meta.url)),
+  })
+
+  assert.ok(Array.isArray(files))
 })

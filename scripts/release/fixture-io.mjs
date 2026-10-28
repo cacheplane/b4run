@@ -4,19 +4,26 @@ import path from "node:path"
 
 const MAX_FIXTURE_BYTES = 4 * 1024 * 1024
 
-export async function readBoundedFixture(file, { root, maxBytes = MAX_FIXTURE_BYTES } = {}) {
+/** Read a bounded regular fixture as UTF-8, preserving the existing text contract. */
+export async function readBoundedFixture(file, options = {}) {
+  return (await readBoundedFixtureBytes(file, options)).toString("utf8")
+}
+
+/** Read actual bounded bytes without Unicode replacement or following filesystem aliases. */
+export async function readBoundedFixtureBytes(file, { root, maxBytes = MAX_FIXTURE_BYTES } = {}) {
   try {
     const resolvedRoot = path.resolve(root)
     const resolvedFile = path.resolve(file)
     assertContained(resolvedRoot, resolvedFile)
     await assertNoSymlinkComponents(resolvedRoot, resolvedFile)
     const before = await lstat(resolvedFile)
-    if (!before.isFile() || before.size > maxBytes) throw new Error("unsafe")
+    if (!before.isFile() || before.nlink !== 1 || before.size > maxBytes) throw new Error("unsafe")
     const handle = await open(resolvedFile, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
     try {
       const opened = await handle.stat()
       if (
         !opened.isFile() ||
+        opened.nlink !== 1 ||
         opened.size > maxBytes ||
         before.dev !== opened.dev ||
         before.ino !== opened.ino
@@ -38,7 +45,7 @@ export async function readBoundedFixture(file, { root, maxBytes = MAX_FIXTURE_BY
       if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size) {
         throw new Error("unsafe")
       }
-      return bytes.toString("utf8")
+      return bytes
     } finally {
       await handle.close()
     }
