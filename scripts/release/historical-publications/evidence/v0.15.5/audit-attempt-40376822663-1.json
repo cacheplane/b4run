@@ -1,0 +1,38 @@
+{
+  "checks": [
+    {
+      "conclusion": "success",
+      "detail": "The draft Release records this exact independent audit dispatch.",
+      "name": "release-dispatch-marker"
+    },
+    {
+      "conclusion": "success",
+      "detail": "The current GitHub run and attempt match the dispatched tag audit.",
+      "name": "workflow-run-attempt"
+    },
+    {
+      "conclusion": "success",
+      "detail": "The fixed release inventory was read from the immutable candidate commit.",
+      "name": "immutable-inventory"
+    },
+    {
+      "conclusion": "success",
+      "detail": "The production observer verified the durable candidate evidence without diagnostics.",
+      "name": "production-observation"
+    },
+    {
+      "conclusion": "success",
+      "detail": "The production planner permits only completion of this release audit.",
+      "name": "production-plan"
+    }
+  ],
+  "commitSha": "877ce4899406cebabc150e80309cb5dbf2299bee",
+  "conclusion": "success",
+  "finishedAt": "2026-10-26T18:22:14.221Z",
+  "manifestSha256": "81b7df4408a73b1e236570cace34efbfdd9cea5848dc2f8145cd6d730c29429e",
+  "runAttempt": 1,
+  "schemaVersion": 1,
+  "startedAt": "2026-10-26T18:20:57.987Z",
+  "version": "0.15.5",
+  "workflowRunId": 40376822663
+}

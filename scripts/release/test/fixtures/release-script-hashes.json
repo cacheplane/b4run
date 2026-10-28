@@ -91,6 +91,36 @@
     "scripts/release/historical-publication.mjs": {
       "sha256": "c70acffe0dac88ec604d6ea15ed45d83d0c31d9c0207d123979f4dd6d3a0ea63"
     },
+    "scripts/release/historical-publications/evidence/v0.15.5/audit-attempt-40376822663-1.json": {
+      "sha256": "ccb4749b809d39692445efb1f66fe49a564ff2f4b94626ecfd8041d433f5a244"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/audit-result.json": {
+      "sha256": "ccb4749b809d39692445efb1f66fe49a564ff2f4b94626ecfd8041d433f5a244"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/bracket-facts.json": {
+      "sha256": "2a7263b12df2e27ac6e0575c4fa0831e7f7843ac1000e23febefeff2f1978399"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/manifest.json": {
+      "sha256": "81b7df4408a73b1e236570cace34efbfdd9cea5848dc2f8145cd6d730c29429e"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/npm-evidence.json": {
+      "sha256": "1401b7303458f1a9f31f325711b3275a5b765e0baaee4ab7d6c285d646cc4d1e"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/original-artifact.json": {
+      "sha256": "bb439ff3369d22778208c5555b6cd9855fcd1381c2d358a257617865798c9816"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/original-artifact.zip": {
+      "sha256": "0f51da9687083ee0dddfbac37139732253409f23832457d2a8ea8119f129a29d"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/sweep-first.json": {
+      "sha256": "f31edc58811446d7d8a6b5136f72a8a3e0eb59fabeeed589cebbbe8f5ad472db"
+    },
+    "scripts/release/historical-publications/evidence/v0.15.5/sweep-second.json": {
+      "sha256": "065c87ed3f94518e9288daf200fe3f8993cea0b58be3cbbe5e99d93f44f14748"
+    },
+    "scripts/release/historical-publications/v0.15.5.json": {
+      "sha256": "33e0c76cb15a5ddebe5da958d0b31d8b8630fa64fa30b0a015a6fa53b84b8857"
+    },
     "scripts/release/independent-audit-coordinator.mjs": {
       "sha256": "053d50e7632ee543f6ff3c22d615987e8c0820aa19db0f3d59dd9d1dc2686859"
     },

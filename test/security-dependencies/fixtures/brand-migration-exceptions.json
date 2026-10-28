@@ -1692,6 +1692,21 @@
       "sha256": "4a5cdd86d4acf503883c6bafa6884bf33eae5fc8fbd60d0d7691635099f32043"
     },
     {
+      "path": "scripts/release/historical-publications/evidence/v0.15.5/bracket-facts.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "58dfdf8714e684b6d38380546145feee1a1d5c65f8ffacaf12f7e5fc03278af4"
+    },
+    {
+      "path": "scripts/release/historical-publications/evidence/v0.15.5/sweep-first.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "a391ab164e25db5736d5178afe25ba5b5a66f5f48e023f53cff921958516d65f"
+    },
+    {
+      "path": "scripts/release/historical-publications/evidence/v0.15.5/sweep-second.json",
+      "reason": "frozen-release-evidence",
+      "sha256": "fd074dfa7d6b14163b1c0517636d4c02709acc8c26e4638edc4bd98ebba52c37"
+    },
+    {
       "path": "scripts/release/manifest.mjs",
       "reason": "historical-release-tool",
       "sha256": "138c77aee1f416d04b0b5497be1d027ea4f3644ed29db6ae8bd96205f40d3846"
