@@ -54,10 +54,9 @@ const DEFAULT_SERVE_PORT = 8000
  * Resolve the production listen port.
  *
  * An explicit `opts.port` always wins (including `0` for a random port). An
- * empty or non-numeric `PORT` env var is treated as "unset" and falls back to
- * {@link DEFAULT_SERVE_PORT} — this keeps `serveRuntime` in lockstep with the
- * Dockerfile healthcheck's `PORT||8000`, instead of `Number("")` silently
- * binding a random port.
+ * unset, empty, or invalid `PORT` env var falls back to {@link DEFAULT_SERVE_PORT}.
+ * Environment values must consist of decimal digits and represent an integer
+ * between 0 and 65535, inclusive.
  */
 export function resolveServePort(
   explicitPort: number | undefined,
