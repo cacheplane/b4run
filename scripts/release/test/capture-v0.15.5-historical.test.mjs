@@ -371,7 +371,17 @@ async function captureFixture() {
   const source = await originalReader()
   const readOriginal = () =>
     capture.captureHistoricalOriginal({ github: source.github, now: () => clock })
-  const readBracket = async () => ({ operator: { id: 7, login: "operator" }, main: "a".repeat(40) })
+  const readBracket = async () => ({
+    operator: {
+      id: 7,
+      login: "operator",
+      node_id: "MDQ6VXNlcjc=",
+      type: "User",
+      avatar_url: "https://avatars.githubusercontent.com/u/7?v=4",
+      updated_at: "2026-10-27T11:00:00Z",
+    },
+    main: "a".repeat(40),
+  })
   const readSweep = async () => {
     const startedAt = new Date(clock).toISOString()
     clock += 1000
@@ -402,7 +412,7 @@ async function captureFixture() {
   }
 }
 
-test("completed capture uses real elapsed sweeps and brackets before parsing the final proposed record", async () => {
+test("completed capture projects the operator identity from full GitHub user brackets into the strict record", async () => {
   const input = await captureFixture()
 
   const result = await capture.captureHistorical0155(input)
@@ -414,6 +424,16 @@ test("completed capture uses real elapsed sweeps and brackets before parsing the
   )
   assert.equal(record.brackets[0].factsSha256, record.brackets[1].factsSha256)
   assert.equal(record.capture.controllerSha, input.reviewedCommit)
+  assert.deepEqual(record.capture.operator, { id: 7, login: "operator" })
+  const bracketFacts = JSON.parse(
+    result.files.get("scripts/release/historical-publications/evidence/v0.15.5/bracket-facts.json"),
+  )
+  assert.deepEqual(bracketFacts.github, await input.readBracket())
+  for (const operator of [bracketFacts.github.operator, { id: 0, login: "operator" }]) {
+    const malformed = JSON.parse(result.recordBytes)
+    malformed.capture.operator = operator
+    assert.throws(() => parseHistoricalPublicationRecord(malformed, { manifest: TEST_MANIFEST }))
+  }
   assert.equal(result.files.size, 9)
   assert.equal(record.supportingEvidence.length, 9)
   assert.equal(
@@ -430,7 +450,15 @@ test("completed capture uses real elapsed sweeps and brackets before parsing the
 })
 
 test("capture aborts on drift, incomplete official output, insufficient elapsed spacing or total budget", async () => {
-  for (const kind of ["drift", "failed official", "spacing", "budget", "cancelled"]) {
+  for (const kind of [
+    "drift",
+    "operator identity drift",
+    "operator profile drift",
+    "failed official",
+    "spacing",
+    "budget",
+    "cancelled",
+  ]) {
     const input = await captureFixture()
     if (kind === "drift") {
       let reads = 0
@@ -438,6 +466,22 @@ test("capture aborts on drift, incomplete official output, insufficient elapsed 
         operator: { id: 7, login: "operator" },
         main: String(++reads),
       })
+    }
+    if (kind === "operator identity drift" || kind === "operator profile drift") {
+      const read = input.readBracket
+      let reads = 0
+      input.readBracket = async () => {
+        const bracket = await read()
+        const change =
+          ++reads === 1
+            ? {}
+            : kind === "operator identity drift"
+              ? { id: 8 }
+              : {
+                  updated_at: "2026-10-27T12:00:00Z",
+                }
+        return { ...bracket, operator: { ...bracket.operator, ...change } }
+      }
     }
     if (kind === "failed official") {
       const read = input.readSweep
@@ -454,7 +498,11 @@ test("capture aborts on drift, incomplete official output, insufficient elapsed 
       input.wait = async () => abort.abort()
     }
 
-    await assert.rejects(capture.captureHistorical0155(input), undefined, kind)
+    await assert.rejects(
+      capture.captureHistorical0155(input),
+      kind.includes("drift") ? /GitHub identity or original evidence drifted/u : undefined,
+      kind,
+    )
   }
 })
 

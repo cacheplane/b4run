@@ -582,7 +582,7 @@ export async function captureHistorical0155({
       policyRevision: HISTORICAL_PUBLICATION_POLICY_REVISION,
       incident: INCIDENT,
       capture: {
-        operator: before.operator,
+        operator: { id: before.operator.id, login: before.operator.login },
         controllerSha: reviewedCommit,
         startedAt: iso(started),
         finishedAt: iso(now()),
