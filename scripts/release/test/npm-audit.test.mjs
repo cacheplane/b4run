@@ -1844,3 +1844,57 @@ test("historical verifier rejects cancelled observations and never returns a lat
     await verifier.dispose()
   }
 })
+
+test("historical npm parser rejects command accessors before parsing or hashing different values", () => {
+  const context = {
+    entry: TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app"),
+    candidate: TEST_CANDIDATE,
+    manifest: TEST_MANIFEST,
+    record: testRecord(),
+    npmVersion: "11.17.0",
+  }
+  for (const key of ["stdout", "exitCode", "stderr"]) {
+    const command = { exitCode: 0, stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "" }
+    const original = command[key]
+    let reads = 0
+    Object.defineProperty(command, key, {
+      enumerable: true,
+      get() {
+        reads++
+        return reads === 1 ? original : key === "stdout" ? "unrelated output" : original
+      },
+    })
+
+    assert.throws(() => parseHistoricalNpmAuditResult(command, context))
+    assert.equal(reads, 0)
+  }
+})
+
+test("historical npm parser rejects context and nested accessors without invoking them", () => {
+  for (const key of ["entry", "candidate", "record", "manifest", "npmVersion", "nestedEntryName"]) {
+    const context = {
+      entry: structuredClone(
+        TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app"),
+      ),
+      candidate: TEST_CANDIDATE,
+      manifest: TEST_MANIFEST,
+      record: testRecord(),
+      npmVersion: "11.17.0",
+    }
+    const object = key === "nestedEntryName" ? context.entry : context
+    const field = key === "nestedEntryName" ? "name" : key
+    const original = object[field]
+    let reads = 0
+    Object.defineProperty(object, field, {
+      enumerable: true,
+      get() {
+        reads++
+        return original
+      },
+    })
+    const command = { exitCode: 0, stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "" }
+
+    assert.throws(() => parseHistoricalNpmAuditResult(command, context))
+    assert.equal(reads, 0)
+  }
+})

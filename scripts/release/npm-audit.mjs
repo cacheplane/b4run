@@ -95,14 +95,15 @@ export function parseNpmAuditSignatures(output, { entry, candidate } = {}) {
 }
 
 /** Verify the exact incident's remaining official npm proof without asserting a fresh keyed publish signature. */
-export function parseHistoricalNpmAuditResult(
-  commandResult,
-  { entry, candidate, record, manifest, npmVersion } = {},
-) {
+export function parseHistoricalNpmAuditResult(commandResult, context = {}) {
+  const { stdout, exitCode, stderr } = snapshotJson(commandResult)
+  const { entry, candidate, manifest, npmVersion } = snapshotJson(context)
+  // Preserve an owned parsed record's identity after rejecting every input accessor.
+  const record = Object.getOwnPropertyDescriptor(context, "record")?.value
   if (
     npmVersion !== EXPECTED_NPM_VERSION ||
-    commandResult?.exitCode !== 0 ||
-    (commandResult.stderr !== undefined && typeof commandResult.stderr !== "string")
+    exitCode !== 0 ||
+    (stderr !== undefined && typeof stderr !== "string")
   ) {
     throw new Error("Historical npm verification requires successful official npm 11.17.0 output")
   }
@@ -118,7 +119,7 @@ export function parseHistoricalNpmAuditResult(
   const sealedEntry = manifest.packages.find((row) => row.name === incident.exceptionalPackage)
   if (Object.entries(sealedEntry).some(([key, value]) => identity.entry[key] !== value))
     throw new Error("Historical npm manifest entry differs")
-  const audit = parseAuditOutput(commandResult.stdout)
+  const audit = parseAuditOutput(stdout)
   if (audit.verified.length !== 1)
     throw new Error("Historical npm audit requires exactly one verified package")
   const verified = audit.verified[0]
@@ -140,7 +141,7 @@ export function parseHistoricalNpmAuditResult(
     policyRevision: admitted.policyRevision,
     recordSha256: admitted.sha256,
     originalReceiptSha256: incident.originalReceiptSha256,
-    officialOutputSha256: createHash("sha256").update(commandResult.stdout).digest("hex"),
+    officialOutputSha256: createHash("sha256").update(stdout).digest("hex"),
     provenanceBundleSha256: createHash("sha256")
       .update(JSON.stringify(verified.attestationBundles[0]))
       .digest("hex"),
