@@ -11,6 +11,7 @@ import {
   createNpmAuditVerifier,
   NPM_AUDIT_OUTPUT_MAX_BYTES,
   NPM_AUDIT_VERIFIER,
+  parseHistoricalNpmAuditResult,
   parseNpmAuditSignatures,
 } from "../npm-audit.mjs"
 import { createStrictSmokeProcessRunner } from "../smoke-process-runner.mjs"
@@ -19,6 +20,12 @@ import {
   MULTIPLE_NPM_PROVENANCE_CERTIFICATE,
   WRONG_NPM_PROVENANCE_CERTIFICATE,
 } from "./fixtures/b4-npm-audit-certificates.mjs"
+import {
+  TEST_CANDIDATE,
+  TEST_MANIFEST,
+  TEST_OFFICIAL_AUDIT,
+  testRecord,
+} from "./fixtures/historical-0155.mjs"
 
 const HOSTILE_CACHE_ENVIRONMENT = Object.freeze({
   npm_config_offline: "true",
@@ -1631,6 +1638,208 @@ test("exact propagation errors can converge only to complete verified evidence",
       parseNpmAuditSignatures(auditOutput(), { entry: ENTRY, candidate: CANDIDATE }),
     )
     assert.equal(results.length, 0)
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("historical npm proof consumes the complete official success and retains distinct authority", () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  const context = {
+    entry,
+    candidate: TEST_CANDIDATE,
+    manifest: TEST_MANIFEST,
+    record: testRecord(),
+    npmVersion: "11.17.0",
+  }
+  const command = {
+    exitCode: 0,
+    stdout: JSON.stringify(TEST_OFFICIAL_AUDIT),
+    stderr: "",
+  }
+
+  const result = parseHistoricalNpmAuditResult(command, context)
+
+  assert.equal(
+    result.officialOutputSha256,
+    createHash("sha256").update(command.stdout).digest("hex"),
+  )
+  assert.match(result.provenanceBundleSha256, /^[a-f0-9]{64}$/u)
+  assert.equal(result.kind, "historical-provenance")
+  assert.equal(result.keyedPublish.status, "unavailable")
+  assert.equal(result.originalReceiptSha256, context.record.incident.originalReceiptSha256)
+  assert.equal(result.policyRevision, "historical-0155-v1")
+  assert.match(result.recordSha256, /^[a-f0-9]{64}$/u)
+  assert.equal(result.signature, undefined)
+  assert.ok(Object.isFrozen(result.provenance))
+  assert.throws(() => parseNpmAuditSignatures(command.stdout, context), /bundle|publish/u)
+})
+
+test("historical npm proof rejects every different official outcome and package identity", () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  const context = {
+    entry,
+    candidate: TEST_CANDIDATE,
+    manifest: TEST_MANIFEST,
+    record: testRecord(),
+    npmVersion: "11.17.0",
+  }
+  const mutateAudit = [
+    (a) => {
+      a.verified = []
+    },
+    (a) => {
+      a.verified.push(structuredClone(a.verified[0]))
+    },
+    (a) => {
+      a.invalid = [{}]
+    },
+    (a) => {
+      a.missing = [{}]
+    },
+    (a) => {
+      a.extra = true
+    },
+    (a) => {
+      a.verified[0].name = "other"
+    },
+    (a) => {
+      a.verified[0].version = "0.15.7"
+    },
+    (a) => {
+      a.verified[0].registry = "https://evil.invalid"
+    },
+    (a) => {
+      a.verified[0].location = "other"
+    },
+    (a) => {
+      a.verified[0].attestations.url = "https://evil.invalid"
+    },
+    (a) => {
+      a.verified[0].attestationBundles = []
+    },
+    (a) => {
+      a.verified[0].attestationBundles.push(structuredClone(a.verified[0].attestationBundles[0]))
+    },
+    (a) => {
+      a.verified[0].attestationBundles[0].predicateType = "foreign"
+    },
+    (a) => {
+      a.verified[0].attestationBundles[0].bundle.verificationMaterial.certificate.rawBytes =
+        WRONG_NPM_PROVENANCE_CERTIFICATE
+    },
+    ...["subject", "source", "builder", "workflow", "ref"].map((field) => (a) => {
+      const envelope = a.verified[0].attestationBundles[0].bundle.dsseEnvelope
+      const statement = JSON.parse(Buffer.from(envelope.payload, "base64"))
+      if (field === "subject") statement.subject[0].digest.sha512 = "a".repeat(128)
+      if (field === "source")
+        statement.predicate.buildDefinition.resolvedDependencies[0].digest.gitCommit = "a".repeat(
+          40,
+        )
+      if (field === "builder") statement.predicate.runDetails.builder.id = "foreign"
+      if (field === "workflow")
+        statement.predicate.buildDefinition.externalParameters.workflow.path = "foreign"
+      if (field === "ref")
+        statement.predicate.buildDefinition.externalParameters.workflow.ref = "refs/tags/v0.15.7"
+      envelope.payload = Buffer.from(JSON.stringify(statement)).toString("base64")
+    }),
+  ]
+  for (const mutate of mutateAudit) {
+    const output = structuredClone(TEST_OFFICIAL_AUDIT)
+    mutate(output)
+
+    assert.throws(() =>
+      parseHistoricalNpmAuditResult(
+        { exitCode: 0, stdout: JSON.stringify(output), stderr: "" },
+        context,
+      ),
+    )
+  }
+  for (const command of [
+    { exitCode: 1, stdout: JSON.stringify(TEST_OFFICIAL_AUDIT) },
+    { exitCode: 1, stdout: errorOutput("E503") },
+    { exitCode: 1, stdout: errorOutput("E401") },
+    { exitCode: 0, stdout: "{" },
+    { exitCode: 0, stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: {} },
+  ]) {
+    assert.throws(() => parseHistoricalNpmAuditResult(command, context))
+  }
+  for (const change of [
+    { npmVersion: "11.16.0" },
+    { entry: { ...entry, name: "other" } },
+    { candidate: { ...TEST_CANDIDATE, version: "0.15.7" } },
+    { candidate: { ...TEST_CANDIDATE, commitSha: "a".repeat(40) } },
+    { record: null },
+    { manifest: null },
+  ]) {
+    assert.throws(() =>
+      parseHistoricalNpmAuditResult(
+        { exitCode: 0, stdout: JSON.stringify(TEST_OFFICIAL_AUDIT) },
+        { ...context, ...change },
+      ),
+    )
+  }
+})
+
+test("isolated historical npm method does not weaken ordinary publisher verification", async () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  const verifier = await createNpmAuditVerifier({
+    runNpm: async (_command, args) =>
+      args[0] === "--version"
+        ? { stdout: "11.17.0\n", exitCode: 0 }
+        : {
+            stdout: JSON.stringify(TEST_OFFICIAL_AUDIT),
+            stderr: "",
+            exitCode: 0,
+          },
+    environment: {},
+    signal: new AbortController().signal,
+  })
+  try {
+    const context = {
+      entry,
+      candidate: TEST_CANDIDATE,
+      manifest: TEST_MANIFEST,
+      record: testRecord(),
+      npmVersion: "11.17.0",
+    }
+
+    assert.equal((await verifier.verifyHistoricalPackage(context)).kind, "historical-provenance")
+    await assert.rejects(verifier.verifyPackage(context), /invalid-evidence/u)
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("historical verifier rejects cancelled observations and never returns a late proof", async () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  const input = { entry, candidate: TEST_CANDIDATE, manifest: TEST_MANIFEST, record: testRecord() }
+  const controller = new AbortController()
+  let resolveAudit
+  let entered
+  const started = new Promise((resolve) => {
+    entered = resolve
+  })
+  const pending = new Promise((resolve) => {
+    resolveAudit = resolve
+  })
+  const verifier = await createNpmAuditVerifier({
+    environment: {},
+    signal: controller.signal,
+    runNpm: async (_command, args) => {
+      if (args[0] === "--version") return { stdout: "11.17.0\n", exitCode: 0 }
+      entered()
+      return pending
+    },
+  })
+  try {
+    const work = verifier.verifyHistoricalPackage(input)
+    await started
+    controller.abort()
+    resolveAudit({ stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "", exitCode: 0 })
+
+    await assert.rejects(work)
+    await assert.rejects(verifier.verifyHistoricalPackage(input))
   } finally {
     await verifier.dispose()
   }

@@ -1,9 +1,13 @@
-import { X509Certificate } from "node:crypto"
+import { createHash, X509Certificate } from "node:crypto"
 import * as defaultFileSystem from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
 import { snapshotJson } from "./adapter-normalize.mjs"
+import {
+  HISTORICAL_0155_INCIDENT,
+  parseHistoricalPublicationRecord,
+} from "./historical-publication-record.mjs"
 import { assertPreparedTarballPayload } from "./limits.mjs"
 import { BOOTSTRAP_TOKEN_VARIABLE, validateBootstrapToken } from "./npm-bootstrap.mjs"
 import { isExactSemver, parseSemver } from "./semver.mjs"
@@ -59,6 +63,94 @@ export const NPM_AUDIT_VERIFIER = `npm-audit-signatures@${EXPECTED_NPM_VERSION}`
 
 export function parseNpmAuditSignatures(output, { entry, candidate } = {}) {
   const identity = validateAuditContext(entry, candidate)
+  const audit = parseAuditOutput(output)
+
+  const sameName = audit.verified.filter((item) => item?.name === identity.entry.name)
+  if (sameName.length === 0) return deepFreeze({ status: "pending" })
+  if (sameName.length !== 1) {
+    throw new Error(`npm audit signatures contains duplicate ${identity.entry.name}`)
+  }
+  const verified = sameName[0]
+  assertExactFields(verified, VERIFIED_FIELDS, "npm audit signatures verified entry")
+  if (
+    verified.name !== identity.entry.name ||
+    verified.version !== identity.entry.version ||
+    verified.location !== `node_modules/${identity.entry.name}`
+  ) {
+    throw new Error(
+      `npm audit signatures did not verify exact ${identity.entry.name}@${identity.entry.version}`,
+    )
+  }
+  assertPublicRegistry(verified.registry)
+  validateAttestationDescriptor(verified.attestations, identity)
+  // npm 11 populates attestationBundles only after its built-in signature and Sigstore checks.
+  // Decode the already-verified signed payload only to bind its release identity.
+  const statement = verifiedProvenanceStatement(verified.attestationBundles, identity)
+  const provenance = validateProvenanceStatement(statement, identity)
+  return deepFreeze({
+    status: "verified",
+    signature: { status: "valid", verifier: NPM_AUDIT_VERIFIER },
+    provenance,
+  })
+}
+
+/** Verify the exact incident's remaining official npm proof without asserting a fresh keyed publish signature. */
+export function parseHistoricalNpmAuditResult(
+  commandResult,
+  { entry, candidate, record, manifest, npmVersion } = {},
+) {
+  if (
+    npmVersion !== EXPECTED_NPM_VERSION ||
+    commandResult?.exitCode !== 0 ||
+    (commandResult.stderr !== undefined && typeof commandResult.stderr !== "string")
+  ) {
+    throw new Error("Historical npm verification requires successful official npm 11.17.0 output")
+  }
+  const admitted = parseHistoricalPublicationRecord(record, { manifest })
+  const identity = validateAuditContext(entry, candidate)
+  const incident = HISTORICAL_0155_INCIDENT
+  if (
+    identity.entry.name !== incident.exceptionalPackage ||
+    identity.entry.version !== incident.version ||
+    identity.candidate.commitSha !== incident.commitSha
+  )
+    throw new Error("Historical npm incident identity differs")
+  const sealedEntry = manifest.packages.find((row) => row.name === incident.exceptionalPackage)
+  if (Object.entries(sealedEntry).some(([key, value]) => identity.entry[key] !== value))
+    throw new Error("Historical npm manifest entry differs")
+  const audit = parseAuditOutput(commandResult.stdout)
+  if (audit.verified.length !== 1)
+    throw new Error("Historical npm audit requires exactly one verified package")
+  const verified = audit.verified[0]
+  assertExactFields(verified, VERIFIED_FIELDS, "historical npm verified entry")
+  if (
+    verified.name !== identity.entry.name ||
+    verified.version !== identity.entry.version ||
+    verified.location !== `node_modules/${identity.entry.name}`
+  )
+    throw new Error("Historical npm verified package differs")
+  assertPublicRegistry(verified.registry)
+  validateAttestationDescriptor(verified.attestations, identity)
+  const statement = verifiedProvenanceStatement(verified.attestationBundles, identity, {
+    historical: true,
+  })
+  const provenance = validateProvenanceStatement(statement, identity)
+  return deepFreeze({
+    kind: "historical-provenance",
+    policyRevision: admitted.policyRevision,
+    recordSha256: admitted.sha256,
+    originalReceiptSha256: incident.originalReceiptSha256,
+    officialOutputSha256: createHash("sha256").update(commandResult.stdout).digest("hex"),
+    provenanceBundleSha256: createHash("sha256")
+      .update(JSON.stringify(verified.attestationBundles[0]))
+      .digest("hex"),
+    keyedPublish: { status: "unavailable" },
+    provenance,
+    verifier: NPM_AUDIT_VERIFIER,
+  })
+}
+
+function parseAuditOutput(output) {
   if (
     typeof output !== "string" ||
     Buffer.byteLength(output, "utf8") < 1 ||
@@ -91,33 +183,7 @@ export function parseNpmAuditSignatures(output, { entry, candidate } = {}) {
     )
   }
 
-  const sameName = audit.verified.filter((item) => item?.name === identity.entry.name)
-  if (sameName.length === 0) return deepFreeze({ status: "pending" })
-  if (sameName.length !== 1) {
-    throw new Error(`npm audit signatures contains duplicate ${identity.entry.name}`)
-  }
-  const verified = sameName[0]
-  assertExactFields(verified, VERIFIED_FIELDS, "npm audit signatures verified entry")
-  if (
-    verified.name !== identity.entry.name ||
-    verified.version !== identity.entry.version ||
-    verified.location !== `node_modules/${identity.entry.name}`
-  ) {
-    throw new Error(
-      `npm audit signatures did not verify exact ${identity.entry.name}@${identity.entry.version}`,
-    )
-  }
-  assertPublicRegistry(verified.registry)
-  validateAttestationDescriptor(verified.attestations, identity)
-  // npm 11 populates attestationBundles only after its built-in signature and Sigstore checks.
-  // Decode the already-verified signed payload only to bind its release identity.
-  const statement = verifiedProvenanceStatement(verified.attestationBundles, identity)
-  const provenance = validateProvenanceStatement(statement, identity)
-  return deepFreeze({
-    status: "verified",
-    signature: { status: "valid", verifier: NPM_AUDIT_VERIFIER },
-    provenance,
-  })
+  return audit
 }
 
 export async function createNpmAuditVerifier({
@@ -205,6 +271,69 @@ export async function createNpmAuditVerifier({
         // Runner errors can contain subprocess output or nested credential-bearing causes.
         auditFailure(log, auditDiagnostic(undefined), "command-failure")
       }
+    }
+
+    const verifySingle = async ({ entry, candidate }, parse, single) => {
+      if (disposed) throw new Error("npm audit verifier has been disposed")
+      const identity = validateAuditContext(entry, candidate)
+      let consumer = consumers.get(identity.entry.name)
+      if (consumer === undefined) {
+        const directory = path.join(
+          consumersRoot,
+          `package-${String(consumers.size + 1).padStart(2, "0")}`,
+        )
+        const packageDirectory = path.join(
+          directory,
+          "node_modules",
+          ...identity.entry.name.split("/"),
+        )
+        await fileSystem.mkdir(packageDirectory, { recursive: true, mode: 0o700 })
+        const rootPackageJson = Buffer.from(
+          `${JSON.stringify({
+            name: "b4-release-audit-consumer",
+            version: "0.0.0",
+            private: true,
+            dependencies: { [identity.entry.name]: identity.entry.version },
+          })}\n`,
+          "utf8",
+        )
+        const targetPackageJson = Buffer.from(
+          `${JSON.stringify({
+            name: identity.entry.name,
+            version: identity.entry.version,
+          })}\n`,
+          "utf8",
+        )
+        const rootPackageJsonPath = path.join(directory, "package.json")
+        const targetPackageJsonPath = path.join(packageDirectory, "package.json")
+        await Promise.all([
+          fileSystem.writeFile(rootPackageJsonPath, rootPackageJson, {
+            flag: "wx",
+            mode: 0o600,
+          }),
+          fileSystem.writeFile(targetPackageJsonPath, targetPackageJson, {
+            flag: "wx",
+            mode: 0o600,
+          }),
+        ])
+        consumer = {
+          directory,
+          packageDirectory,
+          rootPackageJson,
+          rootPackageJsonPath,
+          targetPackageJson,
+          targetPackageJsonPath,
+          version: identity.entry.version,
+        }
+        consumers.set(identity.entry.name, consumer)
+      }
+      if (consumer.version !== identity.entry.version) {
+        throw new Error(`npm audit consumer identity changed for ${identity.entry.name}`)
+      }
+      await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
+      const auditResult = await runAudit({ cwd: consumer.directory })
+      await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
+      return classifyAuditResult(auditResult, parse, single, log, identity.entry)
     }
 
     return {
@@ -326,72 +455,40 @@ export async function createNpmAuditVerifier({
         return work
       },
       async verifyPackage({ entry, candidate }) {
-        if (disposed) throw new Error("npm audit verifier has been disposed")
         const identity = validateAuditContext(entry, candidate)
-        let consumer = consumers.get(identity.entry.name)
-        if (consumer === undefined) {
-          const directory = path.join(
-            consumersRoot,
-            `package-${String(consumers.size + 1).padStart(2, "0")}`,
-          )
-          const packageDirectory = path.join(
-            directory,
-            "node_modules",
-            ...identity.entry.name.split("/"),
-          )
-          await fileSystem.mkdir(packageDirectory, { recursive: true, mode: 0o700 })
-          const rootPackageJson = Buffer.from(
-            `${JSON.stringify({
-              name: "b4-release-audit-consumer",
-              version: "0.0.0",
-              private: true,
-              dependencies: { [identity.entry.name]: identity.entry.version },
-            })}\n`,
-            "utf8",
-          )
-          const targetPackageJson = Buffer.from(
-            `${JSON.stringify({
-              name: identity.entry.name,
-              version: identity.entry.version,
-            })}\n`,
-            "utf8",
-          )
-          const rootPackageJsonPath = path.join(directory, "package.json")
-          const targetPackageJsonPath = path.join(packageDirectory, "package.json")
-          await Promise.all([
-            fileSystem.writeFile(rootPackageJsonPath, rootPackageJson, {
-              flag: "wx",
-              mode: 0o600,
-            }),
-            fileSystem.writeFile(targetPackageJsonPath, targetPackageJson, {
-              flag: "wx",
-              mode: 0o600,
-            }),
-          ])
-          consumer = {
-            directory,
-            packageDirectory,
-            rootPackageJson,
-            rootPackageJsonPath,
-            targetPackageJson,
-            targetPackageJsonPath,
-            version: identity.entry.version,
-          }
-          consumers.set(identity.entry.name, consumer)
-        }
-        if (consumer.version !== identity.entry.version) {
-          throw new Error(`npm audit consumer identity changed for ${identity.entry.name}`)
-        }
-        await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
-        const auditResult = await runAudit({ cwd: consumer.directory })
-        await assertSyntheticAuditTree(fileSystem, consumer, identity.entry.name)
-        return classifyAuditResult(
-          auditResult,
-          (output) => parseNpmAuditSignatures(output, identity),
-          true,
-          log,
-          identity.entry,
+        return verifySingle(identity, (output) => parseNpmAuditSignatures(output, identity), true)
+      },
+      /** Run the official command for the incident alone, rejecting pending and failed output. */
+      async verifyHistoricalPackage(input) {
+        if (disposed) throw new Error("npm audit verifier has been disposed")
+        signal.throwIfAborted()
+        const snapshot = snapshotJson(input)
+        const admitted = parseHistoricalPublicationRecord(
+          Object.getOwnPropertyDescriptor(input, "record").value,
+          { manifest: snapshot.manifest },
         )
+        const { sha256: _recordSha256, ...record } = admitted
+        const context = deepFreeze({ ...snapshot, record })
+        const work = (async () => {
+          const proof = await verifySingle(
+            context,
+            (_output, result) =>
+              parseHistoricalNpmAuditResult(result, {
+                ...context,
+                npmVersion: EXPECTED_NPM_VERSION,
+              }),
+            false,
+          )
+          if (disposed) throw new Error("npm audit verifier has been disposed")
+          signal.throwIfAborted()
+          return proof
+        })()
+        batches.add(work)
+        work.then(
+          () => batches.delete(work),
+          () => batches.delete(work),
+        )
+        return work
       },
       dispose() {
         if (disposal !== undefined) return disposal
@@ -462,7 +559,7 @@ function classifyAuditResult(result, parse, single, log, entry) {
   }
   if (result.exitCode !== 0) auditFailure(log, diagnostic, "exit-output-conflict")
   try {
-    return parse(result.stdout)
+    return parse(result.stdout, result)
   } catch {
     // Low-level parser messages and SyntaxError causes can contain untrusted names/JSON.
     auditFailure(log, diagnostic, "invalid-evidence")
@@ -639,8 +736,8 @@ function validateAttestationDescriptor(value, identity) {
   }
 }
 
-function verifiedProvenanceStatement(bundles, identity) {
-  if (!Array.isArray(bundles) || bundles.length !== 2) {
+function verifiedProvenanceStatement(bundles, identity, { historical = false } = {}) {
+  if (!Array.isArray(bundles) || bundles.length !== (historical ? 1 : 2)) {
     throw new Error("npm audit attestation bundle set is missing or ambiguous")
   }
   const publish = []
@@ -670,7 +767,7 @@ function verifiedProvenanceStatement(bundles, identity) {
     }
     throw new Error("npm audit attestation bundle predicate is not permitted")
   }
-  if (publish.length !== 1) {
+  if (publish.length !== (historical ? 0 : 1)) {
     throw new Error("npm audit keyed publish attestation is missing, duplicate, or ambiguous")
   }
   if (provenance.length !== 1) {
