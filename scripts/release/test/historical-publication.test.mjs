@@ -881,6 +881,66 @@ test("historical observation rejects contradictory adoption ownership even under
   await assert.rejects(historical.authenticateHistoricalOriginalEvidence(input))
 })
 
+test("historical ownership accepts the exact empty code-owned adoption placeholder", async () => {
+  const adoptionPath = "scripts/release/recovery-adoptions/v0.8.24.json"
+  const adoptionBytes = await readFile(
+    new URL("../recovery-adoptions/v0.8.24.json", import.meta.url),
+  )
+  const entries = [
+    ["scripts/release/recovery-adoptions/.gitkeep", "100644", "blob", Buffer.alloc(0)],
+    [adoptionPath, "100644", "blob", adoptionBytes],
+  ]
+  const git = {
+    listTreeEntries: async () =>
+      entries.map(([path, mode, type]) => `${mode} ${type} ${"b".repeat(40)}\t${path}\0`).join(""),
+    showFileBytes: async ({ path }) => entries.find(([entryPath]) => entryPath === path)?.[3],
+  }
+
+  const result = await historical.authenticateHistoricalOwnership({
+    git,
+    ref: "a".repeat(40),
+  })
+
+  assert.equal(result.adoptions.length, 1)
+  assert.equal(result.adoptions[0].path, adoptionPath)
+  assert.equal(result.treeSha256.length, 64)
+})
+
+test("historical ownership rejects unsafe placeholder forms and unknown adoption files", async () => {
+  const adoptionPath = "scripts/release/recovery-adoptions/v0.8.24.json"
+  const adoptionBytes = await readFile(
+    new URL("../recovery-adoptions/v0.8.24.json", import.meta.url),
+  )
+  for (const [placeholderMode, placeholderType, placeholderBytes, extraPath] of [
+    ["100644", "blob", Buffer.from("unexpected"), null],
+    ["100755", "blob", Buffer.alloc(0), null],
+    ["120000", "blob", Buffer.alloc(0), null],
+    ["100644", "tree", Buffer.alloc(0), null],
+    ["100644", "blob", Buffer.alloc(0), "scripts/release/recovery-adoptions/notes.txt"],
+    ["100644", "blob", Buffer.alloc(0), "scripts/release/recovery-adoptions/nested/intent.json"],
+  ]) {
+    const entries = [
+      [
+        "scripts/release/recovery-adoptions/.gitkeep",
+        placeholderMode,
+        placeholderType,
+        placeholderBytes,
+      ],
+      [adoptionPath, "100644", "blob", adoptionBytes],
+      ...(extraPath ? [[extraPath, "100644", "blob", Buffer.from("unknown")]] : []),
+    ]
+    const git = {
+      listTreeEntries: async () =>
+        entries
+          .map(([path, mode, type]) => `${mode} ${type} ${"b".repeat(40)}\t${path}\0`)
+          .join(""),
+      showFileBytes: async ({ path }) => entries.find(([entryPath]) => entryPath === path)?.[3],
+    }
+
+    await assert.rejects(historical.authenticateHistoricalOwnership({ git, ref: "a".repeat(40) }))
+  }
+})
+
 test("observation schema accepts only the exact optional historical proof keys", async () => {
   const { findObservationSchemaConflicts } = await import("../observation-schema.mjs")
   const input = await completionFixture(),
