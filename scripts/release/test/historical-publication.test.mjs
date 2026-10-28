@@ -321,6 +321,7 @@ async function originalFixture({ expired = true } = {}) {
         tag_name: record.incident.tag,
         immutable: true,
         draft: false,
+        body: "retained release body",
       }),
     listReleaseAssets: async () => present("release-assets", assets),
     downloadReleaseAsset: async ({ assetId }) =>
@@ -579,7 +580,6 @@ test("historical proof rejects foreign incidents, ordinary npm receipts, and for
 
 async function completionFixture() {
   const originalInput = await originalFixture()
-  const original = await historical.authenticateHistoricalOriginalEvidence(originalInput)
   const record = originalInput.record
   const source = observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "published" })
   const mapping = new Map([
@@ -641,6 +641,18 @@ async function completionFixture() {
   observation.release.bodySha256 = hash(
     Buffer.from(canonicalReleaseBody({ marker, manifest: null })),
   )
+  originalInput.github.getRelease = async () =>
+    present("release", {
+      id: record.incident.releaseId,
+      tag_name: record.incident.tag,
+      immutable: true,
+      draft: false,
+      body: canonicalReleaseBody({ marker, manifest: null }),
+    })
+  const original = await historical.authenticateHistoricalOriginalEvidence({
+    ...originalInput,
+    selectedRelease: { id: record.incident.releaseId, bodySha256: observation.release.bodySha256 },
+  })
   const packages = TEST_MANIFEST.packages.map((entry) => ({
     entry,
     verification:
@@ -870,4 +882,41 @@ test("proven expired metadata may survive an empty run inventory while retained 
     (await historical.authenticateHistoricalOriginalEvidence(input)).receiptSha256,
     input.record.incident.originalReceiptSha256,
   )
+})
+
+test("historical composition requires a positively present exact tag even with freshly generated bindings", async () => {
+  const input = await completionFixture(),
+    proof = historical.createHistoricalCompletion(input)
+  input.observation.tag = { status: "absent", commitSha: null }
+
+  assert.throws(() => historical.createHistoricalCompletion(input))
+  const observation = { ...input.observation, historicalCompletion: structuredClone(proof) }
+  observation.historicalCompletion.obligations.tag = hash(
+    Buffer.from(JSON.stringify(observation.tag)),
+  )
+  assert.equal(
+    planRelease({ candidate: input.candidate, observation, mode: "controller" }).disposition,
+    "blocked",
+  )
+})
+
+test("original authentication binds the selected immutable Release ID and fresh canonical body", async () => {
+  for (const selectedRelease of [
+    { id: 1, bodySha256: hash(Buffer.from("release body")) },
+    { id: 424591222, bodySha256: hash(Buffer.from("different body")) },
+  ]) {
+    const input = await originalFixture()
+    input.github.getRelease = async () =>
+      present("release", {
+        id: 424591222,
+        tag_name: "v0.15.5",
+        immutable: true,
+        draft: false,
+        body: "release body",
+      })
+
+    await assert.rejects(
+      historical.authenticateHistoricalOriginalEvidence({ ...input, selectedRelease }),
+    )
+  }
 })

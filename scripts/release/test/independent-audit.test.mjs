@@ -1149,3 +1149,35 @@ test("authorized main executor audits the original payload and rejects unbound s
     }
   }
 })
+
+test("historical terminal observation reports cannot grant independent audit authority", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "historical-independent-audit-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const calls = [],
+    observation = fiveLaneAuditObservation()
+  const runtime = auditRuntime({
+    calls,
+    observation,
+    planRelease: () => assert.fail("historical report must not reach audit planner"),
+  })
+  runtime.observeProductionCandidate = async () => ({
+    observation,
+    diagnostics: [],
+    historicalPublication: { kind: "historical-completion" },
+  })
+
+  await assert.rejects(
+    runIndependentAudit(argv({ result: path.join(directory, "audit-result.json") }), {
+      environment: environment(),
+      cwd: directory,
+      createRuntime: async () => runtime,
+      now: fixedTimestamps(),
+      clock: () => 0,
+      delay: async () => {},
+      pollAttempts: 1,
+      pollDelayMs: 0,
+      pollTimeoutMs: 100,
+    }),
+    (error) => error.code === "PRODUCTION_OBSERVATION_DIAGNOSTICS",
+  )
+})

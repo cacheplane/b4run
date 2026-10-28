@@ -55,6 +55,7 @@ export async function authenticateHistoricalOriginalEvidence({
   ref,
   github,
   now = Date.now(),
+  selectedRelease,
 }) {
   const admitted = parseHistoricalPublicationRecord(record, { manifest })
   if (!Number.isSafeInteger(now) || now < 0) fail("observation clock")
@@ -103,9 +104,19 @@ export async function authenticateHistoricalOriginalEvidence({
     release.id !== INCIDENT.releaseId ||
     release.tag_name !== INCIDENT.tag ||
     release.immutable !== true ||
-    release.draft !== false
+    release.draft !== false ||
+    typeof release.body !== "string"
   )
     fail("immutable release identity")
+  const releaseBodySha256 = digest(Buffer.from(release.body, "utf8"))
+  if (selectedRelease !== undefined) {
+    exact(selectedRelease, ["id", "bodySha256"])
+    if (
+      selectedRelease.id !== INCIDENT.releaseId ||
+      selectedRelease.bodySha256 !== releaseBodySha256
+    )
+      fail("selected immutable release binding")
+  }
   const assets = await readPresent(
     github.listReleaseAssets({ releaseId: INCIDENT.releaseId }),
     "release-assets",
@@ -151,6 +162,7 @@ export async function authenticateHistoricalOriginalEvidence({
     signatureAssertionSource: "authenticated-original-npm-receipt",
     tag: { name: INCIDENT.tag, objectSha: INCIDENT.tagObjectSha, commitSha: INCIDENT.commitSha },
     releaseId: INCIDENT.releaseId,
+    releaseBodySha256,
   })
 }
 
@@ -377,13 +389,20 @@ export function findHistoricalCompletionConflicts(candidate, observation, progre
     }
     if (
       proof.recordSha256 !== admitted.sha256 ||
-      !same(proof.original, originalAssertions(admitted, ownership))
+      !same(
+        proof.original,
+        originalAssertions(admitted, ownership, proof.original.releaseBodySha256),
+      ) ||
+      !/^[a-f0-9]{64}$/u.test(proof.original.releaseBodySha256) ||
+      proof.original.releaseBodySha256 !== observation.release.bodySha256
     )
       fail("completion original source")
     exact(proof.obligations, OBLIGATION_FIELDS)
     if (!same(proof.obligations, obligationBindings(observation)))
       fail("completion obligation bindings")
     if (
+      observation.tag.status !== "present" ||
+      observation.tag.commitSha !== INCIDENT.commitSha ||
       observation.release.status !== "published" ||
       observation.release.immutable !== true ||
       observation.release.marker?.npmEvidenceSha256 !== INCIDENT.originalReceiptSha256 ||
@@ -549,7 +568,7 @@ function obligationBindings(observation) {
     ]),
   )
 }
-function originalAssertions(record, ownership) {
+function originalAssertions(record, ownership, releaseBodySha256) {
   return {
     publisher: record.original.publisher,
     audit: record.original.audit,
@@ -560,6 +579,7 @@ function originalAssertions(record, ownership) {
     signatureAssertionSource: "authenticated-original-npm-receipt",
     tag: { name: INCIDENT.tag, objectSha: INCIDENT.tagObjectSha, commitSha: INCIDENT.commitSha },
     releaseId: INCIDENT.releaseId,
+    releaseBodySha256,
   }
 }
 function same(left, right) {

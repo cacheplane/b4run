@@ -6691,3 +6691,17 @@ test("shared registry byte validator binds actual bytes to every sealed size and
       false,
     )
 })
+
+test("ordinary observer retains the exact audit result shape when recovery reporting is not requested", async () => {
+  const result = await observeProductionCandidate({
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    terminalRecordRef: "HEAD",
+    git: gitReader(),
+    github: githubReader(),
+    npm: npmReader(),
+  })
+
+  assert.deepEqual(Object.keys(result).sort(), ["diagnostics", "observation"])
+})

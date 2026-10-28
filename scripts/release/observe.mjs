@@ -190,7 +190,7 @@ export function createProductionTerminalPublicationVerifier({
           const plan = planRelease({ candidate, observation, mode: "controller" })
           return (
             diagnostics.length === 0 &&
-            (verified.historicalPublication === null ||
+            (verified.historicalPublication == null ||
               verified.historicalPublication.original.releaseId === release.id) &&
             observation.release.status === "published" &&
             observation.release.immutable === true &&
@@ -1018,6 +1018,7 @@ export async function observeProductionCandidate({
         git,
         ref: terminalRecordRef,
         github,
+        selectedRelease: { id: releaseState.releaseId, bodySha256: observation.release.bodySha256 },
       })
       historicalCompletion = createHistoricalCompletion({
         candidate: identity,
@@ -1074,8 +1075,13 @@ export async function observeProductionCandidate({
   if (historicalRecordUnusable) release = nonPresentRelease("ambiguous")
   observation.release = release
   diagnostics.sort(compareDiagnostics)
-  const result = { observation, diagnostics, historicalPublication: historicalCompletion }
+  const result = {
+    observation,
+    diagnostics,
+    ...(historicalCompletion === null ? {} : { historicalPublication: historicalCompletion }),
+  }
   if (includeRecovery) {
+    result.historicalPublication = historicalCompletion
     result.recovery = productionRecovery({
       candidate: identity,
       artifactState: observedArtifactState,
@@ -2356,6 +2362,7 @@ async function mapProductionRelease({
       }
     }
     return productionReleaseState({
+      releaseId: release.id,
       release: {
         status: release.draft ? "draft" : "published",
         tag: `v${candidate.version}`,
@@ -3684,6 +3691,7 @@ function isNullableTimestamp(value) {
 }
 
 function productionReleaseState({
+  releaseId = null,
   release,
   artifactState,
   escrow,
@@ -3693,6 +3701,7 @@ function productionReleaseState({
   smokes = [],
 }) {
   return {
+    releaseId,
     release,
     artifactState,
     escrow,
