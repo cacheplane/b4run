@@ -326,6 +326,7 @@ async function runObserve(options, runtime) {
   let resolutionFailure = null
   let observationDiagnostics = []
   let observationRecovery = null
+  let historicalPublication = null
   try {
     selection = await resolveCandidate({
       event,
@@ -417,6 +418,10 @@ async function runObserve(options, runtime) {
           ...(currentPublisherRun === null ? {} : { currentPublisherRun }),
         })
         observationDiagnostics = normalizeObservationDiagnostics(result.diagnostics)
+        historicalPublication = snapshotCliData(
+          result.historicalPublication ?? null,
+          "historical publication evidence",
+        )
         observationRecovery = snapshotCliData(result.recovery, "production recovery evidence")
         return result.observation
       } catch (error) {
@@ -482,6 +487,7 @@ async function runObserve(options, runtime) {
           {
             ...report,
             recovery: observationRecovery,
+            historicalPublication,
             diagnostics: observationDiagnostics,
           },
           "production observation report",

@@ -6618,3 +6618,76 @@ test("direct observation cannot prepare the held incident without its committed 
   assert.equal(plan.disposition, "blocked")
   assert.ok(diagnostics.some((entry) => entry.code === "TAGGED_0153_RECOVERY_PENDING"))
 })
+
+test("ordinary production observation never consumes incident-only proofs or invents signature authority", async () => {
+  const fixture = auditedReleaseFixture()
+  const packages = publishedNpmFixture(fixture.manifest)
+  let incidentCalls = 0
+  const observed = await observeProductionCandidate({
+    candidate: candidate(),
+    inventory: inventory(),
+    marker: MARKER,
+    terminalRecordRef: "HEAD",
+    git: gitReader(),
+    github: releaseFixtureReader(fixture, {
+      async getActionsRun() {
+        return present("actions-run", fixture.run)
+      },
+      async listActionsRunJobs() {
+        return present("actions-run-jobs", fixture.jobs)
+      },
+    }),
+    npm: packages.npm,
+    npmAuditFactory: {
+      async create() {
+        return {
+          async verifyPackage() {
+            return { kind: "historical-provenance", keyedPublish: { status: "unavailable" } }
+          },
+          async verifyIncidentPackage() {
+            incidentCalls++
+            assert.fail("nonincident must stay ordinary")
+          },
+          async dispose() {},
+        }
+      },
+    },
+    attestations: attestationVerifier([]),
+    includeRecovery: true,
+  })
+
+  assert.equal(incidentCalls, 0)
+  assert.equal(observed.recovery.npmEvidence, null)
+  assert.equal(observed.historicalPublication, null)
+  assert.equal(Object.hasOwn(observed.observation, "historicalCompletion"), false)
+  assert.equal(
+    planRelease({ candidate: candidate(), observation: observed.observation, mode: "controller" })
+      .disposition,
+    "blocked",
+  )
+})
+
+test("shared registry byte validator binds actual bytes to every sealed size and digest", async () => {
+  const { exactRegistryTarball } = await import("../observe.mjs")
+  const entry = packageEntry("@b4run/sdk")
+  const pkg = { tarballUrl: npmTarballUrl(entry.name, entry.version), shasum: "1".repeat(40) }
+  const tarball = {
+    url: pkg.tarballUrl,
+    size: entry.size,
+    sha1: pkg.shasum,
+    sha256: entry.sha256,
+    sha512: entry.sha512,
+    contentBase64: packageBytes(entry.name).toString("base64"),
+  }
+
+  assert.equal(exactRegistryTarball(tarball, pkg, entry), true)
+  for (const key of ["size", "sha256", "sha512", "contentBase64"])
+    assert.equal(
+      exactRegistryTarball(
+        { ...tarball, [key]: key === "size" ? entry.size + 1 : "wrong" },
+        pkg,
+        entry,
+      ),
+      false,
+    )
+})

@@ -35,6 +35,7 @@ test("createGitReader exposes only allowlisted read operations with exact argume
     "listTreeEntries",
     "resolveTag",
     "showFile",
+    "showFileBytes",
   ])
   assert.equal(
     await git.showFile({ ref: "release/v1", path: "packages/sdk/package.json" }),
@@ -324,6 +325,10 @@ test("production git byte decoding rejects invalid UTF-8 and preserves a UTF-8 B
     "fixture",
   ])
   const reader = createGitReader({ root })
+  assert.deepEqual(
+    await reader.showFileBytes({ ref: "HEAD", path: "invalid.txt" }),
+    Buffer.from([0xff]),
+  )
   await assert.rejects(() => reader.showFile({ ref: "HEAD", path: "invalid.txt" }))
   assert.equal(await reader.showFile({ ref: "HEAD", path: "bom.txt" }), "\ufeffa")
   await assert.rejects(
@@ -349,5 +354,50 @@ test("mode-aware tree reader uses complete NUL-delimited output and bounded requ
   assert.throws(
     () => git.listTreeEntries({ ref: "HEAD" }, { signal: AbortSignal.abort() }),
     /ABORTED/,
+  )
+})
+
+test("binary Git reads preserve bytes with bounded output, deadlines, cancellation, and input validation", async () => {
+  const bytes = Buffer.from([0xff, 0, 0x80]),
+    calls = []
+  const git = createGitReader({
+    root: "/repo",
+    maxOutputBytes: 3,
+    run: async (...args) => {
+      calls.push(args)
+      return bytes
+    },
+  })
+  const signal = new AbortController().signal
+
+  assert.deepEqual(
+    await git.showFileBytes({ ref: "HEAD", path: "retained.zip" }, { signal, timeoutMs: 123 }),
+    bytes,
+  )
+  assert.equal(calls[0][2].encoding, "buffer")
+  assert.equal(calls[0][2].signal, signal)
+  assert.equal(calls[0][2].timeout, 123)
+  assert.throws(() => git.showFileBytes({ ref: "--bad", path: "retained.zip" }), /Invalid Git ref/)
+  assert.throws(
+    () => git.showFileBytes({ ref: "HEAD", path: "../retained.zip" }),
+    /Invalid repository path/,
+  )
+  assert.throws(
+    () => git.showFileBytes({ ref: "HEAD", path: "retained.zip" }, { signal: AbortSignal.abort() }),
+    /ABORTED/,
+  )
+  await assert.rejects(
+    createGitReader({ root: "/repo", maxOutputBytes: 2, run: async () => bytes }).showFileBytes({
+      ref: "HEAD",
+      path: "a",
+    }),
+    { code: "OUTPUT_TOO_LARGE" },
+  )
+  await assert.rejects(
+    createGitReader({ root: "/repo", run: async () => "text" }).showFileBytes({
+      ref: "HEAD",
+      path: "a",
+    }),
+    { code: "MALFORMED_OUTPUT" },
   )
 })

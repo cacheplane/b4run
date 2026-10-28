@@ -12,6 +12,7 @@ import {
   NPM_AUDIT_OUTPUT_MAX_BYTES,
   NPM_AUDIT_VERIFIER,
   parseHistoricalNpmAuditResult,
+  parseIncidentNpmAuditResult,
   parseNpmAuditSignatures,
 } from "../npm-audit.mjs"
 import { createStrictSmokeProcessRunner } from "../smoke-process-runner.mjs"
@@ -1897,4 +1898,97 @@ test("historical npm parser rejects context and nested accessors without invokin
     assert.throws(() => parseHistoricalNpmAuditResult(command, context))
     assert.equal(reads, 0)
   }
+})
+
+test("incident read-only verification selects ordinary or historical from the same successful command", async () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  let auditCalls = 0
+  const verifier = await createNpmAuditVerifier({
+    runNpm: async (_command, args) => {
+      if (args[0] === "--version") return { stdout: "11.17.0\n", exitCode: 0 }
+      auditCalls++
+      return { stdout: JSON.stringify(TEST_OFFICIAL_AUDIT), stderr: "", exitCode: 0 }
+    },
+    environment: {},
+    signal: new AbortController().signal,
+  })
+  try {
+    const result = await verifier.verifyIncidentPackage({
+      entry,
+      candidate: TEST_CANDIDATE,
+      manifest: TEST_MANIFEST,
+      record: testRecord(),
+    })
+
+    assert.equal(result.kind, "historical-provenance")
+    assert.equal(auditCalls, 1)
+    await assert.rejects(verifier.verifyPackage({ entry, candidate: TEST_CANDIDATE }))
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("incident read-only parser preserves an actual two-bundle official proof and rejects failed same-output commands", async () => {
+  const entry = TEST_MANIFEST.packages.find((entry) => entry.name === "create-b4-app")
+  const output = structuredClone(TEST_OFFICIAL_AUDIT)
+  output.verified[0].attestationBundles = auditBundles(output.verified[0].attestationBundles[0], {})
+  const command = { stdout: JSON.stringify(output), stderr: "", exitCode: 0 }
+  const context = {
+    entry,
+    candidate: TEST_CANDIDATE,
+    record: testRecord(),
+    manifest: TEST_MANIFEST,
+    npmVersion: "11.17.0",
+  }
+
+  assert.deepEqual(
+    parseIncidentNpmAuditResult(command, context),
+    parseNpmAuditSignatures(command.stdout, context),
+  )
+  assert.throws(() => parseHistoricalNpmAuditResult(command, context))
+  for (const altered of [
+    { ...command, exitCode: 1 },
+    { ...command, exitCode: 42 },
+    { ...command, stderr: 5 },
+  ])
+    assert.throws(() => parseIncidentNpmAuditResult(altered, context))
+  let calls = 0
+  const verifier = await createNpmAuditVerifier({
+    environment: {},
+    signal: new AbortController().signal,
+    runNpm: async (_command, args) => {
+      if (args[0] === "--version") return { stdout: "11.17.0\n", exitCode: 0 }
+      calls++
+      return command
+    },
+  })
+  try {
+    assert.equal((await verifier.verifyIncidentPackage(context)).signature.status, "valid")
+    assert.equal(calls, 1)
+  } finally {
+    await verifier.dispose()
+  }
+})
+
+test("ordinary current0157 rejects provenance-only output even when package metadata identifies0157", () => {
+  const output = structuredClone(TEST_OFFICIAL_AUDIT)
+  output.verified[0].version = "0.15.7"
+  output.verified[0].attestations.url = output.verified[0].attestations.url.replace(
+    "0.15.5",
+    "0.15.7",
+  )
+  const entry = {
+    ...TEST_MANIFEST.packages.find((row) => row.name === "create-b4-app"),
+    version: "0.15.7",
+  }
+  const candidate = {
+    version: "0.15.7",
+    commitSha: "e67a92e4dc3b0f5ffc884ecee3fa8d87d5d788c4",
+    publisherWorkflow: ".github/workflows/release.yml",
+  }
+
+  assert.throws(
+    () => parseNpmAuditSignatures(JSON.stringify(output), { entry, candidate }),
+    /bundle set is missing or ambiguous/u,
+  )
 })

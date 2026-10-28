@@ -48,6 +48,7 @@ const OBSERVATION_FIELDS = Object.freeze([
   "audit",
   "abandonment",
   "smokeAdjudication",
+  "historicalCompletion",
 ])
 const SMOKE_FIELDS = Object.freeze([
   "name",
@@ -96,10 +97,29 @@ export function findObservationSchemaConflicts(observation) {
   const conflicts = new Set()
   if (!isRecord(observation)) return ["observation-schema-invalid"]
   if (
-    !hasExactFields(observation, OBSERVATION_FIELDS, ["requiredSmokeLanes", "smokeAdjudication"])
+    !hasExactFields(observation, OBSERVATION_FIELDS, [
+      "requiredSmokeLanes",
+      "smokeAdjudication",
+      "historicalCompletion",
+    ])
   ) {
     conflicts.add("observation-schema-invalid")
   }
+  if (
+    Object.hasOwn(observation, "historicalCompletion") &&
+    !hasExactFields(observation.historicalCompletion, [
+      "kind",
+      "policyRevision",
+      "incident",
+      "record",
+      "recordSha256",
+      "manifest",
+      "original",
+      "packages",
+      "obligations",
+    ])
+  )
+    conflicts.add("observation-schema-invalid")
   if (!smokeAdjudicationShapeValid(observation.smokeAdjudication)) {
     conflicts.add("observation-schema-invalid")
   }

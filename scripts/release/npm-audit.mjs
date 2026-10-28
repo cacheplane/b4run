@@ -151,6 +151,38 @@ export function parseHistoricalNpmAuditResult(commandResult, context = {}) {
   })
 }
 
+/** Parse one successful official incident command, preserving full ordinary proof when available. */
+export function parseIncidentNpmAuditResult(commandResult, context = {}) {
+  const result = snapshotJson(commandResult)
+  const snapshot = snapshotJson(context)
+  const record = Object.getOwnPropertyDescriptor(context, "record")?.value
+  const admitted = parseHistoricalPublicationRecord(record, { manifest: snapshot.manifest })
+  const incident = HISTORICAL_0155_INCIDENT
+  if (
+    result.exitCode !== 0 ||
+    (result.stderr !== undefined && typeof result.stderr !== "string") ||
+    snapshot.npmVersion !== EXPECTED_NPM_VERSION ||
+    snapshot.entry?.name !== incident.exceptionalPackage ||
+    snapshot.entry?.version !== incident.version ||
+    snapshot.candidate?.commitSha !== incident.commitSha
+  )
+    throw new Error("Historical npm incident identity or successful command differs")
+  const entry = snapshot.manifest.packages.find(
+    (entry) => entry.name === incident.exceptionalPackage,
+  )
+  if (Object.entries(entry).some(([key, value]) => snapshot.entry[key] !== value))
+    throw new Error("Historical npm manifest entry differs")
+  const audit = parseAuditOutput(result.stdout)
+  if (audit.verified.length !== 1)
+    throw new Error("Historical npm audit requires exactly one verified package")
+  if (audit.verified[0]?.attestationBundles?.length === 2) {
+    const proof = parseNpmAuditSignatures(result.stdout, snapshot)
+    if (proof.status !== "verified") throw new Error("Ordinary incident proof is incomplete")
+    return proof
+  }
+  return parseHistoricalNpmAuditResult(commandResult, { ...snapshot, record: admitted })
+}
+
 function parseAuditOutput(output) {
   if (
     typeof output !== "string" ||
@@ -337,6 +369,38 @@ export async function createNpmAuditVerifier({
       return classifyAuditResult(auditResult, parse, single, log, identity.entry)
     }
 
+    const verifyIncident = (input, preferOrdinary) => {
+      if (disposed) throw new Error("npm audit verifier has been disposed")
+      signal.throwIfAborted()
+      const snapshot = snapshotJson(input)
+      const admitted = parseHistoricalPublicationRecord(
+        Object.getOwnPropertyDescriptor(input, "record").value,
+        { manifest: snapshot.manifest },
+      )
+      const { sha256: _recordSha256, ...record } = admitted
+      const context = deepFreeze({ ...snapshot, record })
+      const work = (async () => {
+        const proof = await verifySingle(
+          context,
+          (_output, result) =>
+            (preferOrdinary ? parseIncidentNpmAuditResult : parseHistoricalNpmAuditResult)(result, {
+              ...context,
+              npmVersion: EXPECTED_NPM_VERSION,
+            }),
+          false,
+        )
+        if (disposed) throw new Error("npm audit verifier has been disposed")
+        signal.throwIfAborted()
+        return proof
+      })()
+      batches.add(work)
+      work.then(
+        () => batches.delete(work),
+        () => batches.delete(work),
+      )
+      return work
+    }
+
     return {
       root,
       publisherEnvironment({ candidate } = {}) {
@@ -459,37 +523,13 @@ export async function createNpmAuditVerifier({
         const identity = validateAuditContext(entry, candidate)
         return verifySingle(identity, (output) => parseNpmAuditSignatures(output, identity), true)
       },
-      /** Run the official command for the incident alone, rejecting pending and failed output. */
+      /** Run the official incident command requiring precisely the remaining provenance proof. */
       async verifyHistoricalPackage(input) {
-        if (disposed) throw new Error("npm audit verifier has been disposed")
-        signal.throwIfAborted()
-        const snapshot = snapshotJson(input)
-        const admitted = parseHistoricalPublicationRecord(
-          Object.getOwnPropertyDescriptor(input, "record").value,
-          { manifest: snapshot.manifest },
-        )
-        const { sha256: _recordSha256, ...record } = admitted
-        const context = deepFreeze({ ...snapshot, record })
-        const work = (async () => {
-          const proof = await verifySingle(
-            context,
-            (_output, result) =>
-              parseHistoricalNpmAuditResult(result, {
-                ...context,
-                npmVersion: EXPECTED_NPM_VERSION,
-              }),
-            false,
-          )
-          if (disposed) throw new Error("npm audit verifier has been disposed")
-          signal.throwIfAborted()
-          return proof
-        })()
-        batches.add(work)
-        work.then(
-          () => batches.delete(work),
-          () => batches.delete(work),
-        )
-        return work
+        return verifyIncident(input, false)
+      },
+      /** Read-only incident observation prefers a complete ordinary proof from the same command. */
+      async verifyIncidentPackage(input) {
+        return verifyIncident(input, true)
       },
       dispose() {
         if (disposal !== undefined) return disposal
