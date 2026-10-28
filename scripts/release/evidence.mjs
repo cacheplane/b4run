@@ -9,31 +9,36 @@ import { smokeAdjudicationApplies } from "./smoke-adjudication.mjs"
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u
 
-export function correlateReleaseEvidence(candidate, observation) {
+/** Correlate shared artifact, asset, smoke, and audit obligations without npm progression. */
+export function correlateNonNpmReleaseEvidence(candidate, observation) {
   const conflicts = new Set(findObservationSchemaConflicts(observation))
   if (conflicts.has("observation-schema-invalid") || !observationStructureIsValid(observation)) {
-    return invalidEvidence(conflicts)
+    const { npm: _npm, ...invalid } = invalidEvidence(conflicts)
+    return Object.freeze(invalid)
   }
-  const inventoryPackages = Array.isArray(observation.inventory?.packages)
-    ? observation.inventory.packages
-    : []
-  const packageByName = new Map(inventoryPackages.map((pkg) => [pkg.name, pkg]))
+  const inventoryPackages = observation.inventory.packages
   const artifact = analyzeArtifacts(candidate, observation, inventoryPackages, conflicts)
   const assets = analyzeAssets(candidate, observation, artifact, conflicts)
-  const npm = analyzeNpm(candidate, observation, packageByName, conflicts)
   const smokes = analyzeSmokes(candidate, observation, artifact.manifestSha256, conflicts)
   const audit = analyzeAudit(candidate, observation, artifact.manifestSha256, conflicts)
-
   return Object.freeze({
     conflicts: Object.freeze([...conflicts].sort()),
     schemaValid: !conflicts.has("observation-schema-invalid"),
     structureValid: true,
     artifact,
     assets,
-    npm,
     smokes,
     audit,
   })
+}
+
+export function correlateReleaseEvidence(candidate, observation) {
+  const shared = correlateNonNpmReleaseEvidence(candidate, observation)
+  if (!shared.structureValid) return invalidEvidence(new Set(shared.conflicts))
+  const conflicts = new Set(shared.conflicts)
+  const packageByName = new Map(observation.inventory.packages.map((pkg) => [pkg.name, pkg]))
+  const npm = analyzeNpm(candidate, observation, packageByName, conflicts)
+  return Object.freeze({ ...shared, conflicts: Object.freeze([...conflicts].sort()), npm })
 }
 
 function invalidEvidence(conflicts) {

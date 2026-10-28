@@ -126,6 +126,7 @@
       "scripts/release/adapters/http.mjs",
       "scripts/release/adapters/npm.mjs",
       "scripts/release/artifact-store.mjs",
+      "scripts/release/historical-publication-record.mjs",
       "scripts/release/limits.mjs",
       "scripts/release/manifest.mjs",
       "scripts/release/metadata.mjs",

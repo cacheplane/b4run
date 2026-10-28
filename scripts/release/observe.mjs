@@ -8,6 +8,15 @@ import {
 import { extractActionsArtifactZip } from "./artifact-store.mjs"
 import { auditExecutorIdentity, authorizeAuditExecutor } from "./audit-executor.mjs"
 import { discoverManagedCandidate, discoverScheduledCandidate } from "./candidate.mjs"
+import {
+  authenticateHistoricalOriginalEvidence,
+  createHistoricalCompletion,
+  isHistoricalNpmAuditEvidence,
+} from "./historical-publication.mjs"
+import {
+  HISTORICAL_0155_INCIDENT,
+  readHistoricalPublicationRecord,
+} from "./historical-publication-record.mjs"
 import { assertValidReleaseInventory, readReleaseInventory } from "./inventory.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import {
@@ -46,7 +55,7 @@ import {
   parseSmokeResult,
   REQUIRED_RELEASE_SMOKE_LANES,
 } from "./smoke-result.mjs"
-import { ReleaseState } from "./state.mjs"
+import { RELEASE_PROGRESS_RANK, ReleaseState } from "./state.mjs"
 import { readTerminalRecord, TAGGED_0153_RECOVERY } from "./terminal-record-store.mjs"
 import { canonicalAuditResultBytes, parseAuditResult } from "./terminal-records.mjs"
 
@@ -152,6 +161,56 @@ export function classifyProductionEvent(value) {
   })
 }
 
+/** Build the single fresh terminal-publication predicate shared by all production discovery routes. */
+export function createProductionTerminalPublicationVerifier({
+  inventory,
+  marker,
+  git,
+  github,
+  npm,
+  npmAuditFactory,
+  attestations,
+  terminalRecordRef,
+}) {
+  return npm !== undefined && attestations !== undefined
+    ? async ({ candidate, release, releaseRecord }) => {
+        try {
+          const verified = await observeProductionCandidate({
+            candidate,
+            inventory: await inventory.read({ ref: candidate.commitSha }),
+            marker,
+            git,
+            github,
+            npm,
+            npmAuditFactory,
+            attestations,
+            terminalRecordRef,
+          })
+          const { observation, diagnostics } = verified
+          const plan = planRelease({ candidate, observation, mode: "controller" })
+          return (
+            diagnostics.length === 0 &&
+            (verified.historicalPublication == null ||
+              verified.historicalPublication.original.releaseId === release.id) &&
+            observation.release.status === "published" &&
+            observation.release.immutable === true &&
+            observation.release.tag === `v${candidate.version}` &&
+            observation.release.commitSha === candidate.commitSha &&
+            observation.release.bodySha256 === sha256(Buffer.from(release.body, "utf8")) &&
+            observation.release.marker?.manifestSha256 === releaseRecord.manifestSha256 &&
+            plan.state === "AUDIT_COMPLETE" &&
+            plan.disposition === "noop" &&
+            plan.conflicts.length === 0 &&
+            plan.nextTransition === null &&
+            plan.proposedMutations.length === 0
+          )
+        } catch {
+          return false
+        }
+      }
+    : undefined
+}
+
 export async function resolveProductionCandidate({
   event,
   inventory,
@@ -173,42 +232,16 @@ export async function resolveProductionCandidate({
     "candidate discovery",
   )
   const invocation = classifyProductionEvent(event)
-  const verifyTerminalPublication =
-    npm !== undefined && attestations !== undefined
-      ? async ({ candidate, release, releaseRecord }) => {
-          try {
-            const verified = await observeProductionCandidate({
-              candidate,
-              inventory: await inventory.read({ ref: candidate.commitSha }),
-              marker,
-              git,
-              github,
-              npm,
-              npmAuditFactory,
-              attestations,
-              terminalRecordRef,
-            })
-            const { observation, diagnostics } = verified
-            const plan = planRelease({ candidate, observation, mode: "controller" })
-            return (
-              diagnostics.length === 0 &&
-              observation.release.status === "published" &&
-              observation.release.immutable === true &&
-              observation.release.tag === `v${candidate.version}` &&
-              observation.release.commitSha === candidate.commitSha &&
-              observation.release.bodySha256 === sha256(Buffer.from(release.body, "utf8")) &&
-              observation.release.marker?.manifestSha256 === releaseRecord.manifestSha256 &&
-              plan.state === "AUDIT_COMPLETE" &&
-              plan.disposition === "noop" &&
-              plan.conflicts.length === 0 &&
-              plan.nextTransition === null &&
-              plan.proposedMutations.length === 0
-            )
-          } catch {
-            return false
-          }
-        }
-      : undefined
+  const verifyTerminalPublication = createProductionTerminalPublicationVerifier({
+    inventory,
+    marker,
+    git,
+    github,
+    npm,
+    npmAuditFactory,
+    attestations,
+    terminalRecordRef,
+  })
   const verifyTerminalAbandonment =
     npm !== undefined && attestations !== undefined
       ? async ({ candidate, release }) => {
@@ -793,6 +826,32 @@ export async function observeProductionCandidate({
   const observedArtifactState = releaseState.artifactState
   const observedInventory = observedArtifactState.inventory
   const ci = observedArtifactState.ci ?? latestCi
+  let historicalRecord = null
+  let historicalRecordUnusable = false
+  const historicalAssertions = []
+  if (
+    identity.version === HISTORICAL_0155_INCIDENT.version &&
+    identity.commitSha === HISTORICAL_0155_INCIDENT.commitSha &&
+    releaseState.release.status === "published" &&
+    releaseState.release.immutable === true
+  ) {
+    try {
+      historicalRecord = await readHistoricalPublicationRecord({
+        git,
+        ref: terminalRecordRef,
+        manifest: observedArtifactState.manifest,
+      })
+    } catch (error) {
+      historicalRecordUnusable = true
+      addDiagnostic(
+        diagnostics,
+        "git",
+        "historical-publication-record",
+        "AMBIGUOUS",
+        safeCode(error?.code, "HISTORICAL_RECORD_UNUSABLE"),
+      )
+    }
+  }
   let registryPackages = []
   let registryMutationObserved = false
   const registryResults = []
@@ -852,6 +911,10 @@ export async function observeProductionCandidate({
           npm,
           npmAuditVerifier,
           diagnostics,
+          historicalContext:
+            historicalRecord === null
+              ? null
+              : { record: historicalRecord, assertions: historicalAssertions },
         }),
       )
     }
@@ -905,34 +968,6 @@ export async function observeProductionCandidate({
     registryPackages,
     publishedImmutable: release.status === "published" && release.immutable === true,
   })
-  if (release.marker !== null && release.marker.npmEvidenceSha256 !== null) {
-    try {
-      if (
-        observedNpmEvidence === null ||
-        sha256(
-          canonicalNpmEvidenceBytes(observedNpmEvidence, {
-            candidate: identity,
-            manifest: observedArtifactState.manifest,
-            manifestSha256: manifestSha256(observedArtifactState.manifest),
-          }),
-        ) !== release.marker.npmEvidenceSha256
-      ) {
-        throw observationError("NPM_EVIDENCE_DIGEST_MISMATCH")
-      }
-    } catch (error) {
-      addDiagnostic(
-        diagnostics,
-        "npm",
-        "npm-evidence",
-        "AMBIGUOUS",
-        safeCode(error?.code, "NPM_EVIDENCE_DIGEST_MISMATCH"),
-      )
-      release = nonPresentRelease("ambiguous")
-    }
-  }
-  // A record we cannot parse, or one the visible draft contradicts, leaves the terminal state
-  // unknown: fail closed so planRelease blocks on github-release-ambiguous, not only the CLI.
-  if (terminalRecordUnusable || terminalRecordMismatch) release = nonPresentRelease("ambiguous")
   const publicationHistory = await observeProductionPublicationHistory({
     result: publisherRuns,
     candidate: identity,
@@ -965,9 +1000,88 @@ export async function observeProductionCandidate({
     abandonment,
     smokeAdjudication,
   }
+  let historicalCompletion = null
+  if (
+    historicalRecord !== null &&
+    !historicalRecordUnusable &&
+    committedTerminalRecord === null &&
+    !terminalRecordUnusable &&
+    !terminalRecordMismatch &&
+    smokeAdjudication === null &&
+    diagnostics.length === 0 &&
+    historicalAssertions.some((row) => row.verification.kind === "historical-provenance")
+  ) {
+    try {
+      const original = await authenticateHistoricalOriginalEvidence({
+        record: historicalRecord,
+        manifest: observedArtifactState.manifest,
+        git,
+        ref: terminalRecordRef,
+        github,
+        selectedRelease: { id: releaseState.releaseId, bodySha256: observation.release.bodySha256 },
+      })
+      historicalCompletion = createHistoricalCompletion({
+        candidate: identity,
+        observation,
+        record: historicalRecord,
+        manifest: observedArtifactState.manifest,
+        original,
+        packages: historicalAssertions,
+        progressRank: RELEASE_PROGRESS_RANK,
+      })
+      observation.historicalCompletion = historicalCompletion
+    } catch (error) {
+      addDiagnostic(
+        diagnostics,
+        "github",
+        "historical-publication",
+        "AMBIGUOUS",
+        safeCode(error?.code, "HISTORICAL_PUBLICATION_UNPROVEN"),
+      )
+    }
+  }
+  // Compose historical terminal proof from pristine observations. Ordinary receipt
+  // correlation remains strict and can never synthesize a missing publish signature.
+  if (historicalCompletion === null) {
+    if (release.marker !== null && release.marker.npmEvidenceSha256 !== null) {
+      try {
+        if (
+          observedNpmEvidence === null ||
+          sha256(
+            canonicalNpmEvidenceBytes(observedNpmEvidence, {
+              candidate: identity,
+              manifest: observedArtifactState.manifest,
+              manifestSha256: manifestSha256(observedArtifactState.manifest),
+            }),
+          ) !== release.marker.npmEvidenceSha256
+        ) {
+          throw observationError("NPM_EVIDENCE_DIGEST_MISMATCH")
+        }
+      } catch (error) {
+        addDiagnostic(
+          diagnostics,
+          "npm",
+          "npm-evidence",
+          "AMBIGUOUS",
+          safeCode(error?.code, "NPM_EVIDENCE_DIGEST_MISMATCH"),
+        )
+        release = nonPresentRelease("ambiguous")
+      }
+    }
+    // A record we cannot parse, or one the visible draft contradicts, leaves the terminal state
+    // unknown: fail closed so planRelease blocks on github-release-ambiguous, not only the CLI.
+    if (terminalRecordUnusable || terminalRecordMismatch) release = nonPresentRelease("ambiguous")
+  }
+  if (historicalRecordUnusable) release = nonPresentRelease("ambiguous")
+  observation.release = release
   diagnostics.sort(compareDiagnostics)
-  const result = { observation, diagnostics }
+  const result = {
+    observation,
+    diagnostics,
+    ...(historicalCompletion === null ? {} : { historicalPublication: historicalCompletion }),
+  }
   if (includeRecovery) {
+    result.historicalPublication = historicalCompletion
     result.recovery = productionRecovery({
       candidate: identity,
       artifactState: observedArtifactState,
@@ -2248,6 +2362,7 @@ async function mapProductionRelease({
       }
     }
     return productionReleaseState({
+      releaseId: release.id,
       release: {
         status: release.draft ? "draft" : "published",
         tag: `v${candidate.version}`,
@@ -3576,6 +3691,7 @@ function isNullableTimestamp(value) {
 }
 
 function productionReleaseState({
+  releaseId = null,
   release,
   artifactState,
   escrow,
@@ -3585,6 +3701,7 @@ function productionReleaseState({
   smokes = [],
 }) {
   return {
+    releaseId,
     release,
     artifactState,
     escrow,
@@ -3629,6 +3746,7 @@ async function mapProductionRegistryPackage({
   npm,
   npmAuditVerifier,
   diagnostics,
+  historicalContext = null,
 }) {
   if (result.status === "ABSENT") return absentRegistryPackage(expected.name)
   if (result.status !== "PRESENT") return ambiguousRegistryPackage(expected.name)
@@ -3673,7 +3791,17 @@ async function mapProductionRegistryPackage({
 
   let audit
   try {
-    audit = snapshotJson(await npmAuditVerifier.verifyPackage({ entry, candidate }))
+    audit = snapshotJson(
+      await (historicalContext !== null &&
+      entry.name === HISTORICAL_0155_INCIDENT.exceptionalPackage
+        ? npmAuditVerifier.verifyIncidentPackage({
+            entry,
+            candidate,
+            record: historicalContext.record,
+            manifest,
+          })
+        : npmAuditVerifier.verifyPackage({ entry, candidate })),
+    )
   } catch (error) {
     addDiagnostic(
       diagnostics,
@@ -3684,7 +3812,15 @@ async function mapProductionRegistryPackage({
     )
     return ambiguousRegistryPackage(expected.name)
   }
-  if (!exactNpmAuditEvidence(audit, candidate)) {
+  const historical =
+    historicalContext !== null &&
+    isHistoricalNpmAuditEvidence(audit, {
+      candidate,
+      entry,
+      manifest,
+      record: historicalContext.record,
+    })
+  if (!historical && !exactNpmAuditEvidence(audit, candidate)) {
     addDiagnostic(
       diagnostics,
       "npm",
@@ -3705,6 +3841,7 @@ async function mapProductionRegistryPackage({
     addDiagnostic(diagnostics, "npm", "package-metadata", "AMBIGUOUS", "LATEST_INVALID")
     return ambiguousRegistryPackage(expected.name)
   }
+  if (historicalContext !== null) historicalContext.assertions.push({ entry, verification: audit })
   return {
     name: expected.name,
     status: "present",
@@ -3712,7 +3849,7 @@ async function mapProductionRegistryPackage({
     tarballSha256: entry.sha256,
     integrity: entry.npmIntegrity,
     latest,
-    signature: { status: "valid" },
+    signature: { status: historical ? "missing" : "valid" },
     provenance: {
       workflow: audit.provenance.workflow,
       commitSha: audit.provenance.commitSha,
@@ -3807,7 +3944,8 @@ function isExactRegistryTarballUrl(value, entry) {
   }
 }
 
-function exactRegistryTarball(tarball, pkg, entry) {
+/** Bind freshly downloaded registry bytes to the exact sealed size, SHA256, SHA512 and SRI-derived manifest identity. */
+export function exactRegistryTarball(tarball, pkg, entry) {
   if (
     !isRecord(tarball) ||
     tarball.url !== pkg.tarballUrl ||

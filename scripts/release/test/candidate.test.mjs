@@ -2839,3 +2839,49 @@ test("a git-only record refuses even a visible Release carrying its digest", asy
     /git-only.*Release/iu,
   )
 })
+
+test("direct scheduled historical discovery uses the same fresh production terminal verifier", async () => {
+  const sha = "877ce4899406cebabc150e80309cb5dbf2299bee"
+  const repository = repositoryFixture([
+    commit(BASE_SHA, "0.15.4"),
+    commit(sha, "0.15.5", { parent: BASE_SHA, marker: true }),
+    commit(SHA_22, "0.15.7", { parent: sha, marker: true }),
+  ])
+  const older = managedRelease(424591222, "0.15.5", sha, { auditComplete: true, published: true })
+  const github = githubFixture({ tags: [tagRef("0.15.5", sha)], releases: [older] })
+  let freshChecks = 0
+  for (const method of [
+    "getRelease",
+    "listActionsArtifacts",
+    "listActionsRunArtifacts",
+    "downloadActionsArtifact",
+    "getActionsRun",
+    "getActionsRunAttempt",
+    "listActionsRunJobs",
+  ]) {
+    github[method] = async () => {
+      throw new Error("fresh authority unavailable")
+    }
+  }
+  github.getCommitCheckRuns = async () => {
+    freshChecks++
+    throw new Error("fresh authority unavailable")
+  }
+  github.listWorkflowRuns = async () => {
+    throw new Error("fresh authority unavailable")
+  }
+
+  const result = await discoverScheduledCandidate({
+    terminalRecordRef: RECORD_REF,
+    inventory: repository.inventory,
+    git: repository.git,
+    github,
+    marker: ACTIVE_MARKER,
+    npm: { async observePackageVersion() {}, async downloadRegistryTarball() {} },
+    attestations: { async verify() {} },
+  })
+
+  assert.equal(freshChecks, 1)
+  assert.equal(result.candidate.version, "0.15.5")
+  assert.notEqual(result.state, "AUDIT_COMPLETE")
+})

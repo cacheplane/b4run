@@ -1,5 +1,6 @@
 import { findPolicyConflicts } from "./conflicts.mjs"
 import { correlateReleaseEvidence } from "./evidence.mjs"
+import { findHistoricalCompletionConflicts } from "./historical-publication.mjs"
 import { snapshotReleaseInput } from "./observation-schema.mjs"
 
 export const ReleaseState = Object.freeze({
@@ -81,6 +82,18 @@ export function analyzeObservedRelease(candidate, observation) {
 export function analyzeReleaseSnapshot(candidate, observation) {
   if (candidate === null) {
     return Object.freeze({ state: ReleaseState.NO_CANDIDATE, conflicts: Object.freeze([]) })
+  }
+  if (Object.hasOwn(observation, "historicalCompletion")) {
+    const conflicts = findHistoricalCompletionConflicts(
+      candidate,
+      observation,
+      RELEASE_PROGRESS_RANK,
+    )
+    return Object.freeze({
+      state:
+        conflicts.length === 0 ? ReleaseState.AUDIT_COMPLETE : ReleaseState.CANDIDATE_VALIDATED,
+      conflicts,
+    })
   }
   const evidence = correlateReleaseEvidence(candidate, observation)
   if (!evidence.structureValid) {

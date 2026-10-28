@@ -622,6 +622,7 @@ jobs:
             scripts/release/release-record.mjs
             scripts/release/semver.mjs
             scripts/release/smoke-result.mjs
+            scripts/release/historical-publication-record.mjs
             scripts/release/terminal-records.mjs
             scripts/release/topology.mjs
 

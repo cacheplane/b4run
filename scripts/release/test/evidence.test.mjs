@@ -58,3 +58,43 @@ test("abandonment retains the exact verified base without classifying escrow com
   assert.equal(evidence.assets.draftExact, false)
   assert.deepEqual(evidence.conflicts, [])
 })
+
+test("shared non-npm evidence keeps every positive release gate independent of missing npm signature", async () => {
+  const { correlateNonNpmReleaseEvidence } = await import("../evidence.mjs")
+  const observation = observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "published" })
+  observation.registry.packages[0].signature.status = "missing"
+
+  const evidence = correlateNonNpmReleaseEvidence(candidate(), observation)
+
+  assert.deepEqual(evidence.conflicts, [])
+  assert.equal(evidence.artifact.attested, true)
+  assert.equal(evidence.assets.publishedExact, true)
+  assert.equal(evidence.smokes.complete, true)
+  assert.equal(evidence.audit.complete, true)
+  assert.equal(Object.hasOwn(evidence, "npm"), false)
+  assert.ok(
+    correlateReleaseEvidence(candidate(), observation).conflicts.includes("npm-signature-missing"),
+  )
+})
+
+test("shared non-npm policy retains identity, CI, inventory, and arbitration gates", async () => {
+  const { correlateNonNpmReleaseEvidence } = await import("../evidence.mjs")
+  const { findNonNpmPolicyConflicts } = await import("../conflicts.mjs")
+  const { RELEASE_PROGRESS_RANK } = await import("../state.mjs")
+  const observation = observationForMarker({ phase: "AUDIT_VERIFIED", releaseStatus: "published" })
+  observation.ci.status = "failed"
+  observation.otherCandidates = [
+    { version: "0.8.21", commitSha: "1".repeat(40), state: "CANDIDATE_TAGGED" },
+  ]
+
+  const conflicts = findNonNpmPolicyConflicts(
+    candidate(),
+    observation,
+    correlateNonNpmReleaseEvidence(candidate(), observation),
+    "AUDIT_COMPLETE",
+    RELEASE_PROGRESS_RANK,
+  )
+
+  assert.ok(conflicts.includes("candidate-ci-failed"))
+  assert.ok(conflicts.includes("older-tagged-candidate-incomplete"))
+})

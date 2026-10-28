@@ -10,7 +10,8 @@ const ABANDONABLE_STATES = new Set([
   "CANDIDATE_ESCROWED",
 ])
 
-export function findPolicyConflicts(candidate, observation, evidence, state, progressRank) {
+/** Validate shared candidate policy independently of npm-dependent progression. */
+export function findNonNpmPolicyConflicts(candidate, observation, evidence, state, progressRank) {
   const conflicts = new Set(evidence.conflicts)
   if (observation.inventory?.status !== "valid") conflicts.add("release-inventory-invalid")
   if (observation.inventory?.packages?.some((pkg) => pkg.version !== candidate.version) === true) {
@@ -25,6 +26,13 @@ export function findPolicyConflicts(candidate, observation, evidence, state, pro
   addCiConflicts(conflicts, candidate, observation)
   addArbitrationConflicts(conflicts, candidate, observation, state, progressRank)
   addIdentityConflicts(conflicts, candidate, observation)
+  return [...conflicts].sort()
+}
+
+export function findPolicyConflicts(candidate, observation, evidence, state, progressRank) {
+  const conflicts = new Set(
+    findNonNpmPolicyConflicts(candidate, observation, evidence, state, progressRank),
+  )
   addProgressionConflicts(conflicts, observation, evidence)
   addAbandonmentConflicts(conflicts, observation, evidence, state)
   if (state === "AUDIT_COMPLETE" && evidence.npm.latestNewer) {

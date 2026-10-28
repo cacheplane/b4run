@@ -18,6 +18,11 @@
       "canonicalSha256": "c4251c300f01f9bacb85f0ecd7e11db671a96a9959d029b2cd78b8384b00af9c"
     },
     {
+      "id": "reviewed-b4-historical-import-2026-10-27",
+      "mode": "disabled",
+      "canonicalSha256": "f15814dfdc34cb7280b02140fc4e9198dc979e0abf716c47fc60f9adf9f5474a"
+    },
+    {
       "id": "reviewed-b4-postpublication-2026-09-12",
       "mode": "disabled",
       "canonicalSha256": "618d7f422379e18c706eaa34be973faed8c28d317394a71ef7691ed3f5053219"

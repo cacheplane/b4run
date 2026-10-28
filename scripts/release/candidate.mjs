@@ -5,6 +5,7 @@ import {
   parseAbandonmentReleaseBody,
   parseAnyAbandonmentRecord,
 } from "./abandonment.mjs"
+import { HISTORICAL_0155_INCIDENT } from "./historical-publication-record.mjs"
 import { assertPayloadByteLength, RELEASE_PAYLOAD_LIMITS } from "./limits.mjs"
 import { CANONICAL_RELEASE_PACKAGE_ORDER, HISTORICAL_RELEASE_PACKAGE_NAMES } from "./manifest.mjs"
 import {
@@ -210,6 +211,28 @@ export async function discoverScheduledCandidate({
     "GitHub reader",
   )
 
+  // A direct discovery call must use the same fresh observer as scheduled and
+  // exact production resolution for this explicitly admitted historical tuple.
+  if (verifyTerminalPublication === undefined && npm !== undefined && attestations !== undefined) {
+    verifyTerminalPublication = async (input) => {
+      if (
+        input.candidate.version !== HISTORICAL_0155_INCIDENT.version ||
+        input.candidate.commitSha !== HISTORICAL_0155_INCIDENT.commitSha
+      )
+        return false
+      const { createProductionTerminalPublicationVerifier } = await import("./observe.mjs")
+      return createProductionTerminalPublicationVerifier({
+        inventory,
+        marker,
+        git,
+        github,
+        npm,
+        npmAuditFactory,
+        attestations,
+        terminalRecordRef,
+      })(input)
+    }
+  }
   const [tagResult, releaseResult] = await Promise.all([
     github.listTagRefs(),
     github.listReleases(),

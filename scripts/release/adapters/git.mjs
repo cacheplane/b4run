@@ -93,6 +93,21 @@ export function createGitReader({
         maxOutputBytes,
       )
     },
+    /** Read bounded binary repository contents without text decoding. */
+    showFileBytes({ ref, path }, request = {}) {
+      assertValidRef(ref)
+      assertValidPath(path)
+      return executeGit(
+        run,
+        ["show", `${ref}:${path}`],
+        {
+          ...options,
+          ...requestOptions(request),
+          encoding: "buffer",
+        },
+        maxOutputBytes,
+      )
+    },
     listTree({ ref }) {
       assertValidRef(ref)
       return read(["ls-tree", "-r", "--name-only", ref])
@@ -197,6 +212,11 @@ function executeGit(run, args, options, maxOutputBytes) {
     .then(() => run("git", args, options))
     .then(
       (output) => {
+        if (options.encoding === "buffer") {
+          if (!Buffer.isBuffer(output)) throw gitFailure("MALFORMED_OUTPUT")
+          if (output.length > maxOutputBytes) throw gitFailure("OUTPUT_TOO_LARGE")
+          return Buffer.from(output)
+        }
         if (typeof output !== "string") {
           throw gitFailure("MALFORMED_OUTPUT")
         }
@@ -226,6 +246,10 @@ function runCommand(command, args, options) {
         return
       }
       try {
+        if (options.encoding === "buffer") {
+          resolve(stdout)
+          return
+        }
         // Exact source hashing must not silently replace invalid UTF-8 or strip a BOM.
         resolve(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(stdout))
       } catch {

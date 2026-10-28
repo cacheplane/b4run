@@ -1847,6 +1847,11 @@
       "sha256": "cd69de050e1733839cd18e8f209a9adfd7ac5cd42f726133821cbf677227544a"
     },
     {
+      "path": "scripts/release/test/fixtures/historical-0155.mjs",
+      "reason": "historical-fixture",
+      "sha256": "0a57775d24a2d972043bdf818142a402bb23a49743ee54c4068027f2a427928c"
+    },
+    {
       "path": "scripts/release/test/fixtures/incidents/0.8.20-skipped.json",
       "reason": "historical-fixture",
       "sha256": "cd45e4fb03f45b421eacf5a95082f4ba05f6941018944ca380b65e9302f840a8"

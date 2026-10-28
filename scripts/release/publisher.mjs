@@ -80,6 +80,7 @@ export const PUBLISHER_SPARSE_FILES = Object.freeze([
   "scripts/release/adapter-normalize.mjs",
   "scripts/release/adapters/http.mjs",
   "scripts/release/adapters/npm.mjs",
+  "scripts/release/historical-publication-record.mjs",
   "scripts/release/limits.mjs",
   "scripts/release/manifest.mjs",
   "scripts/release/npm-audit.mjs",
@@ -89,6 +90,7 @@ export const PUBLISHER_SPARSE_FILES = Object.freeze([
   "scripts/release/publisher.mjs",
   "scripts/release/release-record.mjs",
   "scripts/release/semver.mjs",
+  "scripts/release/terminal-records.mjs",
   "scripts/release/topology.mjs",
 ])
 
