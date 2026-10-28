@@ -702,12 +702,17 @@ export async function readHistoricalCheckout(
   cwd,
   { run = promisify(execFile), environment = process.env } = {},
 ) {
+  requireThat(
+    !Object.keys(environment).some((key) => /^GIT_/iu.test(key)),
+    "Capture rejects ambient Git context",
+  )
+  await assertUnaliasedDirectory(cwd, fs)
   const options = {
     cwd,
     timeout: 15000,
     maxBuffer: 4 * 1024 * 1024,
     encoding: "utf8",
-    env: Object.fromEntries(Object.entries(environment).filter(([key]) => !/^GIT_/iu.test(key))),
+    env: { ...environment },
   }
   const git = (args) =>
     run("git", ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", ...args], options)
@@ -879,7 +884,7 @@ async function assertSafeOutputPath({ cwd, output, fileSystem }) {
     typeof output === "string" && path.isAbsolute(output) && path.resolve(output) === output,
     "Output must be an exact absolute path",
   )
-  const checkoutRoot = path.resolve(cwd)
+  const checkoutRoot = await assertUnaliasedDirectory(cwd, fileSystem)
   requireThat(
     output !== checkoutRoot && !output.startsWith(`${checkoutRoot}${path.sep}`),
     "Output must be outside the repository checkout",
@@ -902,6 +907,26 @@ async function assertSafeOutputPath({ cwd, output, fileSystem }) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error
   }
+}
+async function assertUnaliasedDirectory(directory, fileSystem) {
+  requireThat(
+    typeof directory === "string" &&
+      path.isAbsolute(directory) &&
+      path.resolve(directory) === directory,
+    "Checkout must be an exact absolute directory",
+  )
+  let current = path.parse(directory).root
+  for (const segment of path.relative(current, directory).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment)
+    const metadata = await fileSystem.lstat(current)
+    requireThat(
+      metadata.isDirectory() &&
+        !metadata.isSymbolicLink() &&
+        (await fileSystem.realpath(current)) === current,
+      "Checkout ancestor is an alias or not a directory",
+    )
+  }
+  return directory
 }
 function abortable(work, signal) {
   return new Promise((resolve, reject) => {

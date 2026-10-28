@@ -467,6 +467,7 @@ test("private capture output is exclusive, exact and mode0600 without admitted r
   const canonicalRoot = await fs.realpath(root)
   t.after(() => fs.rm(root, { recursive: true, force: true }))
   const result = await capture.captureHistorical0155(await captureFixture())
+  await fs.mkdir(path.join(canonicalRoot, "repo"))
   const output = path.join(canonicalRoot, "capture")
 
   await capture.writeHistoricalCaptureOutput({
@@ -646,7 +647,7 @@ test("current editable Release marker cannot disagree with independently authent
   await assert.rejects(capture.captureHistoricalOriginal({ github: input.github }))
 })
 
-test("checkout verification rejects hidden index flags and foreign worktree roots with sanitized Git reads", async () => {
+test("checkout verification rejects hidden index flags and foreign worktree roots with ordinary Git reads", async () => {
   const invocations = []
   const cwd = await fs.realpath(process.cwd())
   const run = async (command, args, options) => {
@@ -661,7 +662,7 @@ test("checkout verification rejects hidden index flags and foreign worktree root
   assert.deepEqual(
     await capture.readHistoricalCheckout(cwd, {
       run,
-      environment: { PATH: "path", GIT_DIR: "foreign", GIT_WORK_TREE: "foreign" },
+      environment: { PATH: "path" },
     }),
     { head: "a".repeat(40), status: "" },
   )
@@ -691,6 +692,7 @@ test("operator command completes official cleanup and rechecks checkout before e
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "historical-command-"))
   const canonicalRoot = await fs.realpath(root)
   t.after(() => fs.rm(root, { recursive: true, force: true }))
+  await fs.mkdir(path.join(canonicalRoot, "repo"))
   const output = path.join(canonicalRoot, "capture")
   const result = await capture.captureHistorical0155(await captureFixture())
   let cleanup = false,
@@ -741,4 +743,67 @@ test("operator command completes official cleanup and rechecks checkout before e
     ),
   )
   await assert.rejects(fs.lstat(path.join(canonicalRoot, "failed")), { code: "ENOENT" })
+})
+
+test("aliased checkout ancestors cannot redirect private output into the actual checkout", async (t) => {
+  const created = await fs.mkdtemp(path.join(os.tmpdir(), "historical-cwd-alias-"))
+  const root = await fs.realpath(created)
+  t.after(() => fs.rm(root, { recursive: true, force: true }))
+  await fs.mkdir(path.join(root, "actual"))
+  const actualCheckout = path.join(root, "actual/repo")
+  await fs.mkdir(actualCheckout)
+  await fs.symlink(path.join(root, "actual"), path.join(root, "alias"))
+  const aliasedCheckout = path.join(root, "alias/repo")
+  const result = await capture.captureHistorical0155(await captureFixture())
+  const output = path.join(actualCheckout, "private-output")
+
+  await assert.rejects(
+    capture.writeHistoricalCaptureOutput({ cwd: aliasedCheckout, output, result }),
+  )
+  await assert.rejects(fs.lstat(output), { code: "ENOENT" })
+  let readers = 0
+  await assert.rejects(
+    capture.runHistorical0155Capture(["--reviewed-commit", "a".repeat(40), "--output", output], {
+      cwd: aliasedCheckout,
+      readCheckout: async () => ({ head: "a".repeat(40), status: "" }),
+      createReaders: async () => {
+        readers++
+        return {}
+      },
+      capture: async () => result,
+    }),
+  )
+  assert.equal(readers, 0)
+  await assert.rejects(fs.lstat(output), { code: "ENOENT" })
+  await assert.rejects(
+    capture.readHistoricalCheckout(aliasedCheckout, {
+      environment: {},
+      run: async (_command, args) => ({
+        stdout: args.includes("--verify")
+          ? `${"a".repeat(40)}\n`
+          : args.includes("--show-toplevel")
+            ? `${actualCheckout}\n`
+            : "",
+      }),
+    }),
+  )
+})
+
+test("checkout verification rejects every ambient Git context before invoking Git", async () => {
+  const cwd = await fs.realpath(process.cwd())
+  let calls = 0
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT"]) {
+    await assert.rejects(
+      capture.readHistoricalCheckout(cwd, {
+        environment: { PATH: "ordinary-path", [key]: "foreign-context" },
+        run: async () => {
+          calls++
+          throw new Error("Git should not run")
+        },
+      }),
+      /ambient Git/u,
+    )
+  }
+
+  assert.equal(calls, 0)
 })
