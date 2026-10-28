@@ -37,7 +37,7 @@ jobs:
         run: '"$PNPM_HOME/pnpm" install --frozen-lockfile'
 
       - name: Open or update Version Packages pull request
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51
         with:
           commit: Version Packages
           title: Version Packages
