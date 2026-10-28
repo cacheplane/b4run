@@ -310,7 +310,7 @@ jobs:
 
       - name: Upload Harness Artifacts
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: harness-artifacts
           path: artifacts/testing/
@@ -842,7 +842,7 @@ jobs:
 
       - name: Upload native Vercel diagnostics
         if: failure() && steps.native_vercel_diagnostics.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: vercel-native-diagnostics
           path: ${{ runner.temp }}/vercel-native/upload/
@@ -903,7 +903,7 @@ jobs:
 
       - name: Upload Playwright traces
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: inspector-playwright-traces
           path: packages/inspector/test-results
@@ -1081,7 +1081,7 @@ jobs:
 
       - name: Upload Kubernetes compatibility artifacts
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: kubernetes-compat-canonical
           path: artifacts/testing/kubernetes-compat/**
