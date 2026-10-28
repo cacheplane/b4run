@@ -412,6 +412,152 @@ async function captureFixture() {
   }
 }
 
+async function metadataCaptureFixture() {
+  const input = await captureFixture()
+  const original = await input.readOriginal()
+  const github = await input.readBracket()
+  const assets = [1, 2].map((id) => ({
+    id,
+    name: `asset-${id}.json`,
+    size: 123,
+    digest: `sha256:${"a".repeat(64)}`,
+    updated_at: "2026-10-27T11:00:00Z",
+    state: "uploaded",
+    download_count: id,
+  }))
+  const before = {
+    github: {
+      ...github,
+      releases: [{ id: 100, body: "release body", assets }],
+      owners: [{ id: 10, status: "completed" }],
+    },
+    original: {
+      ...structuredClone(original.facts),
+      release: { ...original.facts.release, assets: structuredClone(assets) },
+      assets: structuredClone(assets),
+    },
+  }
+  const after = structuredClone(before)
+  let originals = 0,
+    brackets = 0
+  input.readOriginal = async () => ({
+    ...original,
+    facts: ++originals === 1 ? before.original : after.original,
+  })
+  input.readBracket = async () => (++brackets === 1 ? before.github : after.github)
+  return { input, before, after }
+}
+
+const metadataAssetLists = [
+  (facts) => facts.github.releases[0].assets,
+  (facts) => facts.original.release.assets,
+  (facts) => facts.original.assets,
+]
+
+test("capture accepts only asset download counter drift and retains both complete metadata snapshots", async () => {
+  const { input, before, after } = await metadataCaptureFixture()
+  for (const assets of metadataAssetLists) {
+    assets(after)[0].download_count += 3
+    assets(before)[1].download_count = 0
+    assets(after)[1].download_count = Number.MAX_SAFE_INTEGER
+  }
+  const expected = structuredClone({ schemaVersion: 1, before, after })
+
+  const result = await capture.captureHistorical0155(input)
+
+  const evidence = result.files.get(
+    "scripts/release/historical-publications/evidence/v0.15.5/bracket-facts.json",
+  )
+  assert.deepEqual(JSON.parse(evidence), expected)
+  assert.deepEqual({ schemaVersion: 1, before, after }, expected)
+  const record = parseHistoricalPublicationRecord(result.recordBytes, { manifest: TEST_MANIFEST })
+  assert.equal(record.brackets[0].factsSha256, hash(evidence))
+  assert.equal(record.brackets[1].factsSha256, hash(evidence))
+  assert.equal(result.files.size, 9)
+})
+
+test("capture rejects malformed asset counters even when both snapshots agree", async () => {
+  for (const assets of metadataAssetLists) {
+    for (const value of [
+      -1,
+      0.5,
+      Number.MAX_SAFE_INTEGER + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "1",
+      null,
+      true,
+      {},
+      [],
+      undefined,
+    ]) {
+      const { input, before, after } = await metadataCaptureFixture()
+      assets(before)[0].download_count = value
+      assets(after)[0].download_count = value
+
+      await assert.rejects(capture.captureHistorical0155(input), /download counter/u)
+    }
+  }
+})
+
+test("capture preserves asset counter presence in stable comparison", async () => {
+  for (const assets of metadataAssetLists) {
+    for (const absent of ["before", "after"]) {
+      const fixture = await metadataCaptureFixture()
+      delete assets(fixture[absent])[0].download_count
+
+      await assert.rejects(capture.captureHistorical0155(fixture.input), /evidence drifted/u)
+    }
+  }
+})
+
+test("capture rejects adjacent metadata, inventories and counters outside known asset paths", async () => {
+  const changes = [
+    ...metadataAssetLists.flatMap((assets) => [
+      ...Object.entries({
+        id: 3,
+        name: "changed.json",
+        size: 124,
+        digest: `sha256:${"b".repeat(64)}`,
+        updated_at: "2026-10-27T12:00:00Z",
+        state: "changed",
+        extra: true,
+      }).map(([key, value]) => (facts) => {
+        assets(facts)[0][key] = value
+      }),
+      (facts) => assets(facts).reverse(),
+      (facts) => assets(facts).pop(),
+    ]),
+    (facts) => {
+      facts.github.releases[0].body = "changed"
+    },
+    (facts) => {
+      facts.original.release.body = "changed"
+    },
+    (facts) => {
+      facts.github.operator.id++
+    },
+    (facts) => {
+      facts.github.owners[0].status = "in_progress"
+    },
+    (facts) => {
+      facts.github.releases.push({ id: 101, assets: [] })
+    },
+    (facts) => {
+      facts.github.download_count = 1
+    },
+    (facts) => {
+      facts.original.artifact.download_count = 1
+    },
+  ]
+  for (const change of changes) {
+    const { input, after } = await metadataCaptureFixture()
+    change(after)
+
+    await assert.rejects(capture.captureHistorical0155(input), /evidence drifted/u)
+  }
+})
+
 test("completed capture projects the operator identity from full GitHub user brackets into the strict record", async () => {
   const input = await captureFixture()
 
@@ -428,8 +574,9 @@ test("completed capture projects the operator identity from full GitHub user bra
   const bracketFacts = JSON.parse(
     result.files.get("scripts/release/historical-publications/evidence/v0.15.5/bracket-facts.json"),
   )
-  assert.deepEqual(bracketFacts.github, await input.readBracket())
-  for (const operator of [bracketFacts.github.operator, { id: 0, login: "operator" }]) {
+  assert.deepEqual(bracketFacts.before.github, await input.readBracket())
+  assert.deepEqual(bracketFacts.after, bracketFacts.before)
+  for (const operator of [bracketFacts.before.github.operator, { id: 0, login: "operator" }]) {
     const malformed = JSON.parse(result.recordBytes)
     malformed.capture.operator = operator
     assert.throws(() => parseHistoricalPublicationRecord(malformed, { manifest: TEST_MANIFEST }))

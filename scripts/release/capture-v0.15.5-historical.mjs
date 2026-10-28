@@ -489,6 +489,40 @@ export async function captureHistoricalSweep({ manifest, npm, audit, now = Date.
   }
 }
 
+/** Project only present valid public asset counters out of stable identity comparison. */
+function stableAssetFacts(assets) {
+  return assets.map((asset) => {
+    if (!Object.hasOwn(asset, "download_count")) return asset
+    requireThat(
+      Number.isSafeInteger(asset.download_count) && asset.download_count >= 0,
+      "Invalid GitHub release asset download counter",
+    )
+    return { ...asset, download_count: 0 }
+  })
+}
+
+function stableReleaseFacts(release) {
+  return Array.isArray(release?.assets)
+    ? { ...release, assets: stableAssetFacts(release.assets) }
+    : release
+}
+
+/** Retain every other fact, field presence and array order from the observed snapshots. */
+function stableCaptureFacts({ github, original }) {
+  return {
+    github: Array.isArray(github.releases)
+      ? { ...github, releases: github.releases.map(stableReleaseFacts) }
+      : github,
+    original: {
+      ...original,
+      ...(Object.hasOwn(original, "release")
+        ? { release: stableReleaseFacts(original.release) }
+        : {}),
+      ...(Array.isArray(original.assets) ? { assets: stableAssetFacts(original.assets) } : {}),
+    },
+  }
+}
+
 /** Capture a proposed historical assertion; no release or admitted repository data is changed. */
 export async function captureHistorical0155({
   github,
@@ -542,10 +576,12 @@ export async function captureHistorical0155({
     const afterOriginal = await stage(() => readOriginal({ github, now, signal }))
     const after = await stage(() => readBracket({ github, reviewedCommit, signal }))
     const bracketAfterAt = iso(now())
-    const factsBefore = canonical({ github: before, original: original.facts })
-    const factsAfter = canonical({ github: after, original: afterOriginal.facts })
+    const factsBefore = { github: before, original: original.facts }
+    const factsAfter = { github: after, original: afterOriginal.facts }
     requireThat(
-      factsBefore.equals(factsAfter) &&
+      canonical(stableCaptureFacts(factsBefore)).equals(
+        canonical(stableCaptureFacts(factsAfter)),
+      ) &&
         canonical(original.original).equals(canonical(afterOriginal.original)) &&
         manifestSha256(original.manifest) === manifestSha256(afterOriginal.manifest),
       "GitHub identity or original evidence drifted during capture",
@@ -555,7 +591,9 @@ export async function captureHistorical0155({
       "Sweep spacing is less than sixty seconds",
     )
     const files = new Map([...original.files].map(([file, bytes]) => [file, Buffer.from(bytes)]))
-    files.set(`${PREFIX}bracket-facts.json`, factsBefore)
+    // Both bracket entries bind this combined file of complete observed metadata snapshots.
+    const bracketFacts = canonical({ schemaVersion: 1, before: factsBefore, after: factsAfter })
+    files.set(`${PREFIX}bracket-facts.json`, bracketFacts)
     const sweeps = [first, second].map((sweep, index) => {
       const bytes = canonical(sweep)
       files.set(`${PREFIX}sweep-${index === 0 ? "first" : "second"}.json`, bytes)
@@ -590,7 +628,7 @@ export async function captureHistorical0155({
       original: original.original,
       brackets: [bracketBeforeAt, bracketAfterAt].map((observedAt) => ({
         observedAt,
-        factsSha256: hash(factsBefore),
+        factsSha256: hash(bracketFacts),
         releaseOwnersInactive: true,
       })),
       sweeps,
