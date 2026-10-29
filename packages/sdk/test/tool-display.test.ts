@@ -57,7 +57,7 @@ describe("ToolDisplay", () => {
   })
 
   it("reports unknown keys before other problems", () => {
-    expect(describeToolDisplayProblem({ group: 1, icon: "nope" })).toBe(
+    expect(describeToolDisplayProblem({ group: 1, icon: "" })).toBe(
       'display has an unknown key "group" (allowed: icon, running, done, failed, sources)',
     )
   })
@@ -71,19 +71,6 @@ describe("ToolDisplay", () => {
     expect(describeToolDisplayProblem({ icon: () => 1 })).toBe(`${prefix} (got function)`)
     expect(describeToolDisplayProblem({ running: null })).toBe(
       "display.running must be a function (got null)",
-    )
-  })
-
-  it("quotes invalid label values as prose, escaping quotes and control characters", () => {
-    const prefix = "display.running must be a function"
-    expect(describeToolDisplayProblem({ running: 'say "hi"\\' })).toBe(
-      `${prefix} (got "say \\"hi\\"\\\\")`,
-    )
-    expect(describeToolDisplayProblem({ running: "a\nb\u0000" })).toBe(
-      `${prefix} (got "a\\u000ab\\u0000")`,
-    )
-    expect(describeToolDisplayProblem({ running: "x".repeat(80) })).toBe(
-      `${prefix} (got "${"x".repeat(60)}…")`,
     )
   })
 
@@ -141,4 +128,17 @@ test("keeps known-glyph membership separate from icon authoring validity", () =>
 
   expect(known).toEqual(TOOL_DISPLAY_ICONS.map(() => true))
   expect(opaque).toEqual(custom.map(() => false))
+})
+
+test("quotes invalid label values as prose, escaping quotes and control characters", () => {
+  const prefix = "display.running must be a function"
+  const values = ['say "hi"\\', "a\nb\u0000", "x".repeat(80)]
+
+  const problems = values.map((running) => describeToolDisplayProblem({ running }))
+
+  expect(problems).toEqual([
+    `${prefix} (got "say \\"hi\\"\\\\")`,
+    `${prefix} (got "a\\u000ab\\u0000")`,
+    `${prefix} (got "${"x".repeat(60)}…")`,
+  ])
 })

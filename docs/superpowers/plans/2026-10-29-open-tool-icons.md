@@ -47,11 +47,11 @@ by rg, upgrading guidance if necessary; .changeset/<new-name>.md.
 - [x] Explain open authoring names, ten recommended glyphs, known-name membership
   semantics and generic fallback. Remove claims that all icon names form a closed
   enum. Add a patch changeset, no manual package-version/release changes.
-- [ ] Run pnpm lint, pnpm check:build-cache, pnpm build, pnpm typecheck, pnpm test,
+- [x] Run pnpm lint, pnpm check:build-cache, pnpm build, pnpm typecheck, pnpm test,
   pnpm check:release-inventory and node scripts/check-docs.mjs. Run applicable
   release integrity/controller, packed consumer and harness checks; report any
   environmental limitations without claiming they passed.
-- [ ] Independent spec review then quality review, final aggregate review; parent
+- [x] Independent spec review then quality review, final aggregate review; parent
   commits reviewed files, publishes and attaches a PR. Keep auto-merge off.
 
 ## Implementation evidence
@@ -84,3 +84,20 @@ excluding the two explicitly reported Docker-backed files. Full web suite:
 1615 passed / 71 skipped across 109 passed / 7 skipped files. Corrected the icon
 wording to distinguish recommended names from all bundled glyphs (the existing
 kit also has internal alert/check glyphs); no renderer behavior changed.
+
+Final broad checks: all 4184 release-controller tests passed unrestricted, including
+the temporary-file permission cases that failed under the restricted sandbox.
+Runtime and smoke harness lanes passed. The framework lane initially passed
+120 cases and failed its browser activation case solely because pinned Chromium
+was absent; installing the existing Playwright browser asset and rerunning the
+entire framework lane passed. No package dependencies changed. SDK diagnostic
+regressions were kept at top-level test calls with arrange/act/assert; a final
+325-test SDK run and lint passed, and SDK typecheck passed. Final aggregate
+review approved the source and test cleanup.
+
+- [ ] Complete required PR CI, including the locally unavailable Docker-backed
+  deployment tests, before any merge. Auto-merge remains off; user review is next.
+
+Evidence logs: /private/tmp/b4-open-icons-final-*;
+framework rerun artifacts: artifacts/testing/harness-2026-10-29T172952-578Z-9396;
+runtime/smoke artifacts: artifacts/testing/harness-2026-10-29T172110-227Z-84966.
