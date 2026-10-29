@@ -77,3 +77,10 @@ reached an unchanged Docker-backed Hono setup timeout; the retry exposed the sam
 Docker fixture in Vercel deployment tests. Those attempts were stopped rather
 than misreported as green. A scoped CLI/web rerun and remaining broad gates are
 being recorded separately. No Docker or deployment test source was changed.
+
+Published review PR: https://github.com/cacheplane/b4run/pull/1124 (unmerged).
+The scoped CLI suite passed 2767 tests / 228 files (10 tests / 3 files skipped),
+excluding the two explicitly reported Docker-backed files. Full web suite:
+1615 passed / 71 skipped across 109 passed / 7 skipped files. Corrected the icon
+wording to distinguish recommended names from all bundled glyphs (the existing
+kit also has internal alert/check glyphs); no renderer behavior changed.
