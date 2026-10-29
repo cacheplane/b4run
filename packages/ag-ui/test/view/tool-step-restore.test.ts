@@ -179,3 +179,68 @@ for (const status of ["completed", "failed"] as const) {
     })
   })
 }
+
+test("preserves custom icon names when restoring legacy and v1 results", () => {
+  const inputs = ["weather-radar", "constructor", "__proto__"].flatMap((icon) => {
+    const timing = { startedAt: "2026-10-05T00:00:00.000Z", settledAt: "2026-10-05T00:00:01.000Z" }
+    return [
+      { status: "completed", icon, ...timing },
+      { v: 1, kind: "server", status: "completed", icon },
+    ].map((stamp) => ({
+      icon,
+      input: base([
+        ckpt("k0", 0, [
+          human("u1", "weather"),
+          ai("a1", "", [{ id: "c1", name: "radar", args: {} }]),
+          toolMsg("c1", "radar", "clear", Object.freeze(stamp)),
+        ]),
+      ]),
+    }))
+  })
+
+  const restored = inputs.map(({ input }) => turnsFromState(input))
+
+  expect(restored.map(({ turns }) => turns.turns[0]?.steps[0])).toEqual(
+    inputs.map(({ icon }) => expect.objectContaining({ icon, status: "done" })),
+  )
+  expect(restored.flatMap(({ warnings }) => warnings)).toEqual([])
+})
+
+test("restores opaque permission icons and ignores invalid optional icons", () => {
+  const icons = ["weather-radar", "constructor", "__proto__", " ", "", 42, null]
+  const history = [
+    ckpt("k0", 0, [human("u1", "weather"), ai("a1", "", [{ id: "c1", name: "radar", args: {} }])]),
+  ]
+  const inputs = icons.map((icon) =>
+    base(
+      history,
+      {},
+      [
+        {
+          interruptId: "perm-1",
+          value: {
+            interruptId: "perm-1",
+            type: "permission-request",
+            kind: "tool",
+            toolCallId: "c1",
+            detail: { toolName: "radar", argsPreview: "{}" },
+            step: Object.freeze({ icon, label: "Reading radar" }),
+          },
+        },
+      ],
+      "interrupted",
+    ),
+  )
+
+  const steps = inputs.map((input) => turnsFromState(input).turns.turns[0]?.steps[0])
+
+  expect(steps.slice(0, 4)).toEqual(
+    icons
+      .slice(0, 4)
+      .map((icon) => expect.objectContaining({ icon, status: "awaiting", label: "Reading radar" })),
+  )
+  for (const step of steps.slice(4)) {
+    expect(step).toMatchObject({ status: "awaiting", label: "Reading radar" })
+    expect(step).not.toHaveProperty("icon")
+  }
+})

@@ -1,4 +1,4 @@
-/** The fixed step icons; `tool` is the default when a tool sets none. */
+/** Recommended step icons with built-in glyphs; `tool` is the default when none is set. */
 export const TOOL_DISPLAY_ICONS = [
   "search",
   "read",
@@ -12,7 +12,8 @@ export const TOOL_DISPLAY_ICONS = [
   "tool",
 ] as const
 
-export type ToolDisplayIcon = (typeof TOOL_DISPLAY_ICONS)[number]
+/** An opaque icon name; recommended names retain editor autocomplete. */
+export type ToolDisplayIcon = (typeof TOOL_DISPLAY_ICONS)[number] | (string & {})
 
 /** A file, URL or record a call drew on; shown as a chip under the step. */
 export interface ToolDisplaySource {
@@ -32,6 +33,7 @@ export interface ToolDisplaySource {
  */
 // biome-ignore lint/suspicious/noExplicitAny: defaults widen to the tool's own input/output types
 export interface ToolDisplay<TInput = any, TOutput = any> {
+  /** A nonempty, opaque name. Unknown names use the client's generic tool glyph. */
   readonly icon?: ToolDisplayIcon
   /** The sentence while the call runs, e.g. `Searching the corpus for “${query}”`. */
   readonly running?: (input: TInput) => string
@@ -60,7 +62,8 @@ export const TOOL_DISPLAY_LABEL_MAX = 120
 const DISPLAY_KEYS = ["icon", "running", "done", "failed", "sources"] as const
 const FUNCTION_KEYS = ["running", "done", "failed", "sources"] as const
 
-export function isToolDisplayIcon(value: unknown): value is ToolDisplayIcon {
+/** Tests membership in the recommended built-in glyph names, not validity of an authored icon. */
+export function isToolDisplayIcon(value: unknown): value is (typeof TOOL_DISPLAY_ICONS)[number] {
   return typeof value === "string" && (TOOL_DISPLAY_ICONS as readonly string[]).includes(value)
 }
 
@@ -104,8 +107,8 @@ export function describeToolDisplayProblem(value: unknown): string | undefined {
         return `display has an unknown key "${key}" (allowed: ${DISPLAY_KEYS.join(", ")})`
       }
     }
-    if (record.icon !== undefined && !isToolDisplayIcon(record.icon)) {
-      return `display.icon must be one of ${TOOL_DISPLAY_ICONS.join(", ")} (got ${describeValue(record.icon)})`
+    if (record.icon !== undefined && (typeof record.icon !== "string" || record.icon === "")) {
+      return `display.icon must be a nonempty string (got ${describeValue(record.icon)})`
     }
     for (const key of FUNCTION_KEYS) {
       const field = record[key]

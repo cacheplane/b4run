@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import {
   describeToolDisplayProblem,
   isToolDisplayIcon,
@@ -39,8 +39,8 @@ describe("ToolDisplay", () => {
   it("names the first problem it finds", () => {
     expect(describeToolDisplayProblem(null)).toBe("display must be an object")
     expect(describeToolDisplayProblem([])).toBe("display must be an object")
-    expect(describeToolDisplayProblem({ icon: "nope" })).toBe(
-      'display.icon must be one of search, read, write, run, web, memory, plan, agent, think, tool (got "nope")',
+    expect(describeToolDisplayProblem({ icon: "" })).toBe(
+      'display.icon must be a nonempty string (got "")',
     )
     expect(describeToolDisplayProblem({ running: "Searching" })).toBe(
       'display.running must be a function (got "Searching")',
@@ -65,8 +65,7 @@ describe("ToolDisplay", () => {
   it("names value types without throwing", () => {
     const circular: Record<string, unknown> = {}
     circular.self = circular
-    const prefix =
-      "display.icon must be one of search, read, write, run, web, memory, plan, agent, think, tool"
+    const prefix = "display.icon must be a nonempty string"
     expect(describeToolDisplayProblem({ icon: 1n })).toBe(`${prefix} (got bigint)`)
     expect(describeToolDisplayProblem({ icon: circular })).toBe(`${prefix} (got object)`)
     expect(describeToolDisplayProblem({ icon: () => 1 })).toBe(`${prefix} (got function)`)
@@ -75,16 +74,15 @@ describe("ToolDisplay", () => {
     )
   })
 
-  it("quotes string values as prose, escaping quotes and control characters", () => {
-    const prefix =
-      "display.icon must be one of search, read, write, run, web, memory, plan, agent, think, tool"
-    expect(describeToolDisplayProblem({ icon: 'say "hi"\\' })).toBe(
+  it("quotes invalid label values as prose, escaping quotes and control characters", () => {
+    const prefix = "display.running must be a function"
+    expect(describeToolDisplayProblem({ running: 'say "hi"\\' })).toBe(
       `${prefix} (got "say \\"hi\\"\\\\")`,
     )
-    expect(describeToolDisplayProblem({ icon: "a\nb\u0000" })).toBe(
+    expect(describeToolDisplayProblem({ running: "a\nb\u0000" })).toBe(
       `${prefix} (got "a\\u000ab\\u0000")`,
     )
-    expect(describeToolDisplayProblem({ icon: "x".repeat(80) })).toBe(
+    expect(describeToolDisplayProblem({ running: "x".repeat(80) })).toBe(
       `${prefix} (got "${"x".repeat(60)}…")`,
     )
   })
@@ -106,4 +104,41 @@ describe("ToolDisplay", () => {
     expect(isToolDisplayIcon("nope")).toBe(false)
     expect(isToolDisplayIcon(1)).toBe(false)
   })
+})
+
+test("accepts opaque nonempty icon names without changing authored input", () => {
+  const displays = [
+    "weather-radar",
+    "constructor",
+    "__proto__",
+    " ",
+    'say "hi"\\',
+    "a\nb\u0000",
+    "x".repeat(80),
+  ].map((icon) => Object.freeze({ icon }))
+
+  const problems = displays.map(describeToolDisplayProblem)
+
+  expect(problems).toEqual(displays.map(() => undefined))
+  expect(displays[0]).toEqual({ icon: "weather-radar" })
+})
+
+test("rejects empty and non-string authored icon values", () => {
+  const icons = ["", null, 42, {}, [], true]
+
+  const problems = icons.map((icon) => describeToolDisplayProblem({ icon }))
+
+  expect(
+    problems.every((problem) => problem?.startsWith("display.icon must be a nonempty string")),
+  ).toBe(true)
+})
+
+test("keeps known-glyph membership separate from icon authoring validity", () => {
+  const custom = ["weather-radar", "constructor", "__proto__", " "]
+
+  const known = TOOL_DISPLAY_ICONS.map(isToolDisplayIcon)
+  const opaque = custom.map(isToolDisplayIcon)
+
+  expect(known).toEqual(TOOL_DISPLAY_ICONS.map(() => true))
+  expect(opaque).toEqual(custom.map(() => false))
 })

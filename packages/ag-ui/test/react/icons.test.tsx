@@ -27,3 +27,12 @@ describe("StepIcon", () => {
     expect(markup).toContain('aria-hidden="true"')
   })
 })
+
+test("uses the generic glyph for opaque and prototype-like icon names", () => {
+  const names = ["weather-radar", "constructor", "__proto__"]
+  const generic = renderToStaticMarkup(<StepIcon name="tool" />)
+
+  const rendered = names.map((name) => renderToStaticMarkup(<StepIcon name={name} />))
+
+  expect(rendered).toEqual(names.map(() => generic))
+})

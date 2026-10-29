@@ -1,6 +1,6 @@
 import type { BaseEvent, CustomEvent } from "@ag-ui/core"
 import { EventType } from "@ag-ui/core"
-import { isToolDisplayIcon, readToolStep, type ToolDisplaySource } from "@b4run/sdk"
+import { readToolStep, type ToolDisplaySource } from "@b4run/sdk"
 import { B4_STEP_EVENT_NAME, B4_STEP_STATUSES, type B4StepEventValue } from "../step.js"
 
 export { B4_STEP_EVENT_NAME, B4_STEP_STATUSES }
@@ -12,7 +12,7 @@ const STATUSES: ReadonlySet<string> = new Set<string>(B4_STEP_STATUSES)
  * any other event or a malformed identity (a non-empty string `toolCallId` and
  * a legacy `status`: `running`, `completed`, `failed` or `denied`). Reads
  * through `readToolStep`, so v1 values are accepted too and narrowed back:
- * `icon` must be a known icon, `label` a non-empty string, and `sources` keep
+ * `icon` must be a non-empty string, `label` a non-empty string, and `sources` keep
  * only `title` and `href`.
  *
  * @deprecated Read `CustomEvent.value` with `readToolStep` from `@b4run/sdk`,
@@ -30,7 +30,7 @@ export function readStepEvent(event: BaseEvent): B4StepEventValue | undefined {
   return {
     toolCallId,
     status: step.status as B4StepEventValue["status"],
-    ...(isToolDisplayIcon(icon) ? { icon } : {}),
+    ...(typeof icon === "string" && icon !== "" ? { icon } : {}),
     ...(label !== undefined ? { label } : {}),
     ...(sources !== undefined
       ? {

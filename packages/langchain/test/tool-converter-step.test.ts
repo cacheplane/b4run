@@ -521,3 +521,23 @@ test("nested allowed policies announce execution exactly once", async () => {
     "completed",
   ])
 })
+
+test("preserves custom icons in live v1 metadata and persisted tool results", async () => {
+  const { dispatchCustomEvent } = await import("@langchain/core/callbacks/dispatch/web")
+  const events = vi.fn()
+  vi.mocked(dispatchCustomEvent).mockImplementation(events)
+  const display = Object.freeze({ icon: "weather-radar", done: () => "Read radar" })
+
+  const result = await run({ name: "radar", display, run: async () => "clear" })
+
+  expect(events.mock.calls.map((call) => call[1])).toEqual([
+    expect.objectContaining({ v: 1, status: "running", icon: "weather-radar" }),
+    expect.objectContaining({ v: 1, status: "completed", icon: "weather-radar" }),
+  ])
+  expect((result as ToolMessage).additional_kwargs[B4_STEP_KEY]).toMatchObject({
+    v: 1,
+    status: "completed",
+    icon: "weather-radar",
+  })
+  expect(display.icon).toBe("weather-radar")
+})

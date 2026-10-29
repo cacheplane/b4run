@@ -1,9 +1,10 @@
-import { EventType } from "@ag-ui/core"
+import { type BaseEvent, EventType } from "@ag-ui/core"
 import { B4_STEP_METADATA_KEY, type B4ToolStep } from "@b4run/sdk"
 import { foldToolStepEvents } from "@b4run/sdk/testing"
 import { expect, test } from "vitest"
 import { type AguiOutboundEvent, toAguiEvents } from "../src/outbound.ts"
 import type { B4AgentStreamChunk } from "../src/types.ts"
+import { EMPTY_TURNS, reduceTurns } from "../src/view/turns.ts"
 
 async function collect(chunks: readonly B4AgentStreamChunk[]) {
   async function* source() {
@@ -395,4 +396,75 @@ test("a running update after a frame-only result cannot contribute fields to a l
     status: "failed",
     error: { message: "Late failure" },
   })
+})
+
+test("preserves custom icons through standard call metadata and live view projection", async () => {
+  const active = Object.freeze({ ...running, icon: "weather-radar" })
+  const settled = Object.freeze({ ...completed, icon: "weather-radar" })
+  const chunks: readonly B4AgentStreamChunk[] = [
+    { type: "step", data: { ...active, toolCallId: "radar-call" } },
+    { type: "tool_call", data: { id: "radar-call", name: "radar", input: {} } },
+    {
+      type: "tool_result",
+      data: {
+        id: "radar-call",
+        name: "radar",
+        output: {
+          tool_call_id: "radar-call",
+          content: "clear",
+          status: "success",
+          additional_kwargs: { b4_step: settled },
+        },
+      },
+    },
+  ]
+
+  const events = await collect(chunks)
+  const frames = events.filter(
+    (event) =>
+      event.type === EventType.TOOL_CALL_START ||
+      event.type === EventType.TOOL_CALL_END ||
+      event.type === EventType.TOOL_CALL_RESULT,
+  )
+  const runningEvents = events.slice(
+    0,
+    events.findIndex((event) => event.type === EventType.TOOL_CALL_RESULT),
+  )
+  const runningView = runningEvents.reduce(
+    (view, event) => reduceTurns(view, event as BaseEvent),
+    EMPTY_TURNS,
+  )
+  const settledView = events.reduce(
+    (view, event) => reduceTurns(view, event as BaseEvent),
+    EMPTY_TURNS,
+  )
+
+  expect(frames).toEqual([
+    expect.objectContaining({
+      type: EventType.TOOL_CALL_START,
+      toolCallId: "radar-call",
+      metadata: { [B4_STEP_METADATA_KEY]: active },
+    }),
+    expect.objectContaining({
+      type: EventType.TOOL_CALL_END,
+      toolCallId: "radar-call",
+      metadata: { [B4_STEP_METADATA_KEY]: active },
+    }),
+    expect.objectContaining({
+      type: EventType.TOOL_CALL_RESULT,
+      toolCallId: "radar-call",
+      metadata: { [B4_STEP_METADATA_KEY]: settled },
+    }),
+  ])
+  expect(runningView.turns[0]?.steps[0]).toMatchObject({
+    id: "radar-call",
+    status: "running",
+    icon: "weather-radar",
+  })
+  expect(settledView.turns[0]?.steps[0]).toMatchObject({
+    id: "radar-call",
+    status: "done",
+    icon: "weather-radar",
+  })
+  expect(foldSteps(events).steps["radar-call"]).toEqual(settled)
 })
