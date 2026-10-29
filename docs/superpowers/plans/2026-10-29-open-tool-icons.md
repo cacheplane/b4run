@@ -21,22 +21,22 @@ matching tests. Audit permission-gate, capabilities/types and LangChain tool
 conversion for additional closed membership checks. Avoid changing files that
 already forward strings correctly.
 
-- [ ] Add failing top-level tests accepting display.icon='weather-radar' while
+- [x] Add failing top-level tests accepting display.icon='weather-radar' while
   rejecting '' and non-string values. Type-contract test must accept that name.
   Assert isToolDisplayIcon still recognizes only the recommended names, with
   compile-time narrowing tests for both true and false branches.
-- [ ] Run focused SDK tests to prove RED, then widen ToolDisplayIcon with known
+- [x] Run focused SDK tests to prove RED, then widen ToolDisplayIcon with known
   literal autocomplete and an open string alternative. Replace author validation
   with nonempty-string checks and update its error text/TSDoc. Keep the known-name
   predicate's runtime behavior and recommendation table stable; type its result
   as `value is (typeof TOOL_DISPLAY_ICONS)[number]`, preserving false-branch strings.
-- [ ] Add failing tests for custom icons in deprecated persisted/readStepEvent
+- [x] Add failing tests for custom icons in deprecated persisted/readStepEvent
   readers and permission restore projections, including constructor/__proto__.
   Verify actual RED before minimal nonempty-string pass-through changes.
-- [ ] Verify a real tool-display producer retains the custom name on running
+- [x] Verify a real tool-display producer retains the custom name on running
   and settled v1 metadata, and a restored view retains it. Confirm generic glyph
   fallback is safe for unknown/prototype names without inventing a registry.
-- [ ] Run SDK, AG-UI, LangChain and affected core build/test/lint/typecheck. Build
+- [x] Run SDK, AG-UI, LangChain and affected core build/test/lint/typecheck. Build
   before dist-based tests. Review failures; do not weaken shared status fixtures.
 
 ## Task 2: Docs and delivery
@@ -44,7 +44,7 @@ already forward strings correctly.
 Files: apps/web/content/docs/api/sdk.mdx, api/ag-ui.mdx, tool-authoring docs found
 by rg, upgrading guidance if necessary; .changeset/<new-name>.md.
 
-- [ ] Explain open authoring names, ten recommended glyphs, known-name membership
+- [x] Explain open authoring names, ten recommended glyphs, known-name membership
   semantics and generic fallback. Remove claims that all icon names form a closed
   enum. Add a patch changeset, no manual package-version/release changes.
 - [ ] Run pnpm lint, pnpm check:build-cache, pnpm build, pnpm typecheck, pnpm test,
@@ -69,3 +69,11 @@ Broad final verification and SEO regeneration follow the reviewed content commit
 Initial concurrent root runs encountered worker/loopback restrictions, a busy-host
 sandbox shell timeout and stale SEO metadata. No unrelated source changes were
 made for those failures; a direct unrestricted Inspector build passed.
+
+Final whole-repository build passed sequentially (29 tasks); root typecheck also
+passed. SEO metadata was regenerated after the content commit, updating exactly
+the four touched doc routes, and both SEO checks passed. The full source run
+reached an unchanged Docker-backed Hono setup timeout; the retry exposed the same
+Docker fixture in Vercel deployment tests. Those attempts were stopped rather
+than misreported as green. A scoped CLI/web rerun and remaining broad gates are
+being recorded separately. No Docker or deployment test source was changed.
