@@ -1,5 +1,11 @@
 # create-b4-app
 
+## 0.15.8
+
+### Patch Changes
+
+- @b4run/devkit@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes

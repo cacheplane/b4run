@@ -1,5 +1,13 @@
 # @b4run/ag-ui
 
+## 0.15.8
+
+### Patch Changes
+
+- c8e0583: Accept any nonempty tool display icon string while retaining the ten recommended names for autocomplete and built-in glyphs. Preserve custom names in legacy readers and parked permission views. `isToolDisplayIcon` continues to identify only recommended names; unknown names render with the generic tool glyph.
+- Updated dependencies [c8e0583]
+  - @b4run/sdk@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes

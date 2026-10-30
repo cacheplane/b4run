@@ -1,5 +1,11 @@
 # @b4run/memory
 
+## 0.15.8
+
+### Patch Changes
+
+- @b4run/sqlite-storage@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes

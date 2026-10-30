@@ -1,5 +1,7 @@
 # @b4run/config-typescript
 
+## 0.15.8
+
 ## 0.15.7
 
 ## 0.15.6

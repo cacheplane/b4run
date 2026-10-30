@@ -1,5 +1,15 @@
 # @b4run/core
 
+## 0.15.8
+
+### Patch Changes
+
+- Updated dependencies [c8e0583]
+  - @b4run/sdk@0.15.8
+  - @b4run/permissions@0.15.8
+  - @b4run/sqlite-storage@0.15.8
+  - @b4run/workspace@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes

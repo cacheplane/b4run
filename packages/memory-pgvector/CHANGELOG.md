@@ -1,5 +1,11 @@
 # @b4run/memory-pgvector
 
+## 0.15.8
+
+### Patch Changes
+
+- @b4run/memory@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes

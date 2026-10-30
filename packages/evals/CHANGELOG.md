@@ -1,5 +1,11 @@
 # @b4run/evals
 
+## 0.15.8
+
+### Patch Changes
+
+- @b4run/testing@0.15.8
+
 ## 0.15.7
 
 ### Patch Changes
