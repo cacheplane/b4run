@@ -3,7 +3,7 @@ import { readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { withWorkspace } from "@b4run/cli"
 import type { SandboxProvider } from "@b4run/workspace"
-import { inspectWorkspace } from "@b4run/workspace"
+import { inspectWorkspace, isWorkspaceInspectionError } from "@b4run/workspace"
 import { captureDirectory } from "../targets/archive.js"
 import type { Task } from "../targets/catalog.js"
 import {
@@ -135,7 +135,7 @@ export async function gradeSuite(input: GradeSuiteInput): Promise<SuiteSession> 
 
         const before = await snapshot()
         const result = await runSuite(handle, target, task.checks[kind], signal)
-        return { build, tampered: changedDuringSuite(before, await snapshot()), result }
+        return { build, tampered: await changedAfterSuite(before, snapshot, signal), result }
       },
     )
   } finally {
@@ -173,4 +173,21 @@ export function changedDuringSuite(
   const sorted = (files: Readonly<Record<string, string>>): [string, string][] =>
     Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   return JSON.stringify(sorted(before)) !== JSON.stringify(sorted(after))
+}
+
+/** Compare the post-suite snapshot; a mutation detected during that read is tamper. */
+export async function changedAfterSuite(
+  before: Readonly<Record<string, string>>,
+  after: () => Promise<Readonly<Record<string, string>>>,
+  signal: AbortSignal,
+): Promise<boolean> {
+  try {
+    return changedDuringSuite(before, await after())
+  } catch (error) {
+    signal.throwIfAborted()
+    // The suite has already run. A write observed inside its final snapshot is
+    // the same tamper as a persistent difference between two stable snapshots.
+    if (isWorkspaceInspectionError(error) && error.code === "changed") return true
+    throw error
+  }
 }
