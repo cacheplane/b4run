@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, test } from "vitest"
 import { discoverToolDefinitions } from "../src/lib/runtime/tool-discovery.js"
 
 describe("tool discovery error messages", () => {
@@ -112,16 +112,6 @@ describe("tool discovery error messages", () => {
     expect(tool?.display?.running?.({ query: "agents" })).toBe("Searching for agents")
   })
 
-  it("rejects a display export with an unknown icon, naming the field and the code", async () => {
-    writeTool(
-      "search.ts",
-      `export const display = { icon: "sparkle" }
-      export default async () => "ok"`,
-    )
-    await expect(discover()).rejects.toThrow(/exports display, but display\.icon must be one of/)
-    await expect(discover()).rejects.toThrow(/B4_E5002/)
-  })
-
   it("rejects a display export whose label is not a function", async () => {
     writeTool(
       "search.ts",
@@ -142,4 +132,45 @@ describe("tool discovery error messages", () => {
     const [tool] = await discover()
     expect(tool?.display?.icon).toBe("search")
   })
+})
+
+test("discovers custom tool-display icons unchanged", async () => {
+  const appRoot = mkdtempSync(join(tmpdir(), "b4-open-icon-"))
+  const routeDir = join(appRoot, "route")
+  const toolsDir = join(routeDir, "tools")
+  mkdirSync(toolsDir, { recursive: true })
+  writeFileSync(
+    join(toolsDir, "radar.ts"),
+    'export const display = { icon: "weather-radar" }; export default async () => "clear"',
+  )
+
+  try {
+    const tools = await discoverToolDefinitions({ appRoot, routeDir })
+
+    expect(tools[0]?.display?.icon).toBe("weather-radar")
+  } finally {
+    rmSync(appRoot, { recursive: true, force: true })
+  }
+})
+
+test("rejects an empty display icon with the field and diagnostic code", async () => {
+  const appRoot = mkdtempSync(join(tmpdir(), "b4-empty-icon-"))
+  const routeDir = join(appRoot, "route")
+  const toolsDir = join(routeDir, "tools")
+  mkdirSync(toolsDir, { recursive: true })
+  writeFileSync(
+    join(toolsDir, "radar.ts"),
+    'export const display = { icon: "" }; export default async () => "clear"',
+  )
+
+  try {
+    const discover = () => discoverToolDefinitions({ appRoot, routeDir })
+
+    await expect(discover()).rejects.toThrow(
+      /exports display, but display\.icon must be a nonempty string/,
+    )
+    await expect(discover()).rejects.toThrow(/B4_E5002/)
+  } finally {
+    rmSync(appRoot, { recursive: true, force: true })
+  }
 })

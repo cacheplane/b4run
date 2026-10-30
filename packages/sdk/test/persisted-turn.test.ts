@@ -48,7 +48,7 @@ describe("persisted turn stamps", () => {
         status: "failed",
         startedAt: "2026-10-05T00:00:00.000Z",
         settledAt: "2026-10-05T00:00:01.000Z",
-        icon: "nope",
+        icon: "",
         decision: "maybe",
       }),
     ).toEqual({
@@ -112,4 +112,19 @@ describe("persisted turn stamps", () => {
     ).toEqual({ status: "failed", error: "boom", endedAt: "2026-10-05T00:00:02.000Z" })
     expect(readPersistedTurnEnd({ status: "done", endedAt: "not a date" })).toBeUndefined()
   })
+})
+
+test("preserves opaque legacy persisted icons and drops invalid optional values", () => {
+  const base = Object.freeze({
+    status: "completed",
+    startedAt: "2026-10-05T00:00:00.000Z",
+    settledAt: "2026-10-05T00:00:01.000Z",
+  })
+  const icons = ["weather-radar", "constructor", "__proto__", " "]
+
+  const restored = icons.map((icon) => readPersistedStep(Object.freeze({ ...base, icon })))
+  const invalid = ["", 42, null].map((icon) => readPersistedStep({ ...base, icon }))
+
+  expect(restored).toEqual(icons.map((icon) => ({ ...base, icon })))
+  expect(invalid).toEqual([base, base, base])
 })

@@ -310,7 +310,7 @@ describe("turnsFromState", () => {
       label: "File N738ZU KSTP to KRST",
     })
     // An older interrupt without `step`, or a malformed one, leaves the step bare.
-    for (const step of [undefined, "File it", { icon: "nope", label: 7 }]) {
+    for (const step of [undefined, "File it", { icon: "", label: 7 }]) {
       const restored = restore(step)
       expect(restored).toMatchObject({ status: "awaiting" })
       expect(restored).not.toHaveProperty("label")

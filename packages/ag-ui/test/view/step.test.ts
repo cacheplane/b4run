@@ -1,5 +1,5 @@
 import { EventType } from "@ag-ui/core"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import { readStepEvent } from "../../src/view/step.ts"
 
 const custom = (name: string, value: unknown) => ({ type: EventType.CUSTOM, name, value }) as never
@@ -37,11 +37,24 @@ describe("readStepEvent", () => {
   it("drops invalid optional fields", () => {
     const base = { toolCallId: "t1", status: "completed" }
     expect(readStepEvent(custom("b4.step", { ...base, label: 42 }))).toEqual(base)
-    expect(readStepEvent(custom("b4.step", { ...base, icon: "sparkle" }))).toEqual(base)
+    expect(readStepEvent(custom("b4.step", { ...base, icon: "" }))).toEqual(base)
     expect(
       readStepEvent(
         custom("b4.step", { ...base, sources: [{ title: "" }, { title: "a.md", href: 1 }, "x"] }),
       ),
     ).toEqual({ ...base, sources: [{ title: "a.md" }] })
   })
+})
+
+test("reads opaque legacy event icons and drops invalid optional values", () => {
+  const base = Object.freeze({ toolCallId: "t1", status: "running" })
+  const icons = ["weather-radar", "constructor", "__proto__", " "]
+
+  const steps = icons.map((icon) =>
+    readStepEvent(custom("b4.step", Object.freeze({ ...base, icon }))),
+  )
+  const invalid = ["", 42, null].map((icon) => readStepEvent(custom("b4.step", { ...base, icon })))
+
+  expect(steps).toEqual(icons.map((icon) => ({ ...base, icon })))
+  expect(invalid).toEqual([base, base, base])
 })

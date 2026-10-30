@@ -29,7 +29,6 @@ import {
   type B4ToolStep,
   type B4ToolStepUpdate,
   isContentPart,
-  isToolDisplayIcon,
   readAnswerAnnotations,
   readToolStepUpdate,
   type ToolDisplaySource,
@@ -1107,7 +1106,7 @@ function attachInterrupt(turn: TurnView, entry: unknown): TurnView {
   const metadata = isRecord(interrupt.metadata) ? interrupt.metadata : {}
   const display = isRecord(metadata.step) ? metadata.step : {}
   const parkedDisplay = {
-    ...(isToolDisplayIcon(display.icon) ? { icon: display.icon } : {}),
+    ...(typeof display.icon === "string" && display.icon !== "" ? { icon: display.icon } : {}),
     ...(typeof display.label === "string" && display.label !== "" ? { label: display.label } : {}),
   }
   const place = (target: TurnView): TurnView => {

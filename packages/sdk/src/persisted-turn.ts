@@ -1,4 +1,4 @@
-import { isToolDisplayIcon, type ToolDisplayIcon, type ToolDisplaySource } from "./tool-display.js"
+import type { ToolDisplayIcon, ToolDisplaySource } from "./tool-display.js"
 
 /** `additional_kwargs` key: the step a ToolMessage persists (every tool, display or not). */
 export const B4_STEP_KEY = "b4_step"
@@ -68,7 +68,7 @@ function readSources(value: unknown): readonly ToolDisplaySource[] | undefined {
 }
 
 /**
- * A `b4_step` stamp, or undefined when its identity fields are missing. Invalid optional fields are dropped.
+ * A `b4_step` stamp, or undefined when its identity fields are missing. Nonempty icon names are preserved; invalid optional fields are dropped.
  *
  * @deprecated Use `readToolStep`, which also reads this shape.
  */
@@ -83,7 +83,7 @@ export function readPersistedStep(value: unknown): PersistedStep | undefined {
     status: value.status,
     startedAt: value.startedAt,
     settledAt: value.settledAt,
-    ...(isToolDisplayIcon(value.icon) ? { icon: value.icon } : {}),
+    ...(typeof value.icon === "string" && value.icon !== "" ? { icon: value.icon } : {}),
     ...(typeof value.label === "string" && value.label !== "" ? { label: value.label } : {}),
     ...(sources !== undefined ? { sources } : {}),
     ...(typeof value.decision === "string" && DECISIONS.has(value.decision)

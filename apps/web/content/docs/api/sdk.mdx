@@ -184,12 +184,12 @@ import { scenarios } from "@b4run/sdk/testing"
 | `WorkspaceFs` | Define the workspace filesystem contract exposed to tools. |
 | `WorkspaceContext` | Supply trusted managed workspace identity, provenance, and permission-bound initial reads. |
 | `ToolDisplay` | Describe how a tool call reads to a person (icon, running/done/failed labels, sources). |
-| `ToolDisplayIcon` | Name one of the fixed step icons. |
+| `ToolDisplayIcon` | Name an opaque icon string, with recommended names offered in autocomplete. |
 | `ToolDisplaySource` | Describe a file, URL or record a call drew on. |
-| `TOOL_DISPLAY_ICONS` | List the fixed step icon names. |
+| `TOOL_DISPLAY_ICONS` | List the ten recommended names with built-in glyphs. |
 | `TOOL_DISPLAY_LABEL_MAX` | Cap a step label's length. |
 | `describeToolDisplayProblem` | Name what is wrong with a `display` export, or nothing. |
-| `isToolDisplayIcon` | Narrow a string to a step icon name. |
+| `isToolDisplayIcon` | Test and narrow to a recommended built-in glyph name; custom names return false. |
 | `ToolDenial` | Describe a denied tool call's result: the reason the model receives, branded. |
 | `TOOL_DENIAL` | Name the symbol key that brands a denied tool call's result. |
 | `toolDenial` | Brand a denial reason as a tool result; the model still reads the reason as plain text. |

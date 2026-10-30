@@ -1,5 +1,5 @@
 import { type BaseEvent, EventType } from "@ag-ui/core"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, test } from "vitest"
 import { createCounterIdFactory } from "../../src/ids.ts"
 import { toAguiEvents } from "../../src/outbound.ts"
 import type { B4AgentStreamChunk } from "../../src/types.ts"
@@ -1085,4 +1085,34 @@ describe("reduceTurns", () => {
     const b = await fold(RUN, fixedClock())
     expect(a).toEqual(b)
   })
+})
+
+test("projects opaque icon names from parked permission metadata", async () => {
+  const icons = ["weather-radar", "constructor", "__proto__", " "]
+  const views = await Promise.all(
+    icons.map((icon) =>
+      fold([
+        { type: "tool_call", data: { id: "c1", name: "radar", input: {} } },
+        {
+          type: "interrupt",
+          data: {
+            interruptId: "perm-1",
+            type: "permission-request",
+            kind: "command",
+            toolCallId: "c1",
+            detail: {},
+            step: Object.freeze({ icon, label: "Reading radar" }),
+          },
+        },
+      ]),
+    ),
+  )
+
+  const steps = views.map((view) => view.turns[0]?.steps[0])
+
+  expect(steps).toEqual(
+    icons.map((icon) =>
+      expect.objectContaining({ icon, status: "awaiting", label: "Reading radar" }),
+    ),
+  )
 })

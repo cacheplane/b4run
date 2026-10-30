@@ -761,7 +761,7 @@ The step is a versioned contract owned by `@b4run/sdk` (`B4ToolStep`). A v1 valu
 | `kind` | `"server"` for a tool your agent runs, `"provider"` for a tool the model provider runs. |
 | `builtin`, `provider` | For provider tools, an open string such as `web_search` or `code_execution`, and the provider name. |
 | `status` | `running`, `completed`, `failed`, `denied` or `cancelled`. |
-| `label`, `icon` | Plain text of at most 120 code points, and an icon name. |
+| `label`, `icon` | Plain text of at most 120 code points, and any nonempty, opaque icon name. Unknown names use the generic tool glyph. |
 | `queries`, `sources` | Search strings, and the files, URLs, documents or records the call drew on. Each source has a stable `id`, a `kind` and a `title`. |
 | `startedAt`, `settledAt` | Epoch milliseconds on the producer's clock. |
 | `parentToolCallId` | The call that started this one. |

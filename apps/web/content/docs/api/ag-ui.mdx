@@ -163,7 +163,7 @@ The framework-free half of the client: pure reducers and selectors over AG-UI ev
 | `B4_STEP_STATUSES` | Deprecated: use `B4_TOOL_STEP_STATUSES` from `@b4run/sdk`. The legacy statuses a step can carry. |
 | `B4StepEventValue` | Deprecated: use `B4ToolStep` from `@b4run/sdk`. A legacy `b4.step` event's value: `toolCallId`, `status`, `icon`, `label`, `sources`. |
 | `B4StepStatus` | Deprecated: use `B4ToolStepStatus` from `@b4run/sdk`. `running`, `completed`, `failed` or `denied`. |
-| `readStepEvent` | Deprecated: use `readToolStep` from `@b4run/sdk`. The `b4.step` value an event carries in the legacy shape, or undefined for any other event or a malformed one; invalid optional fields are dropped. |
+| `readStepEvent` | Deprecated: use `readToolStep` from `@b4run/sdk`. The `b4.step` value an event carries in the legacy shape, or undefined for any other event or a malformed one; nonempty icon strings are preserved and invalid optional fields are dropped. |
 | `toContractSteps` | Every tool step of a `TurnsView` as a `b4.step` contract `B4ToolStep`, keyed by tool call id, nested subagent turns included. |
 | `isSubagentMessage` | Narrow a transcript message to one a subagent produced. |
 | `turnForToolCalls` | The turn that owns any of these tool call ids, nested subagent calls included. |
