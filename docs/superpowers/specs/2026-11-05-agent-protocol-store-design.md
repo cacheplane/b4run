@@ -2,7 +2,7 @@
 
 Date: 2026-11-05
 
-Status: Store decisions selected under Brian's delegated design authority; independent spec review passed; awaiting Brian's written-spec review.
+Status: Approved by Brian on 2026-11-05 after independent spec review.
 
 Scope: the Store and memory-review section of the coordinated B4/b4app Agent Protocol release.
 
