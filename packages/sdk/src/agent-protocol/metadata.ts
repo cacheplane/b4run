@@ -293,6 +293,8 @@ export interface ResyncRequiredV1 {
   readonly latestSeq: number
   readonly [key: string]: unknown
 }
+/** Custom names are open in this DTO; the B4Event schema validates reserved payloads.
+ * Use B4CustomData when constructing those typed custom facts. */
 export type B4Event = AspEvent & {
   readonly eventId: string
   readonly seq: number

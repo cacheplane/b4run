@@ -2120,6 +2120,20 @@ export const AGENT_PROTOCOL_DEFINITIONS: Readonly<Record<string, ContractSchema>
   B4Event: {
     allOf: [
       {
+        // Only the five reserved names select B4 contracts; application custom data stays opaque.
+        if: {
+          allOf: [
+            atPath(["method"], { const: "custom" }),
+            atPath(
+              ["params", "data", "name"],
+              enumeration("b4.run", "b4.turn", "b4.input", "b4.activity", "b4.history"),
+            ),
+          ],
+        },
+        // biome-ignore lint/suspicious/noThenProperty: JSON Schema conditional keyword, not a thenable.
+        then: atPath(["params", "data"], ref("B4CustomData")),
+      },
+      {
         if: { properties: { method: { const: "checkpoints" } } },
         // biome-ignore lint/suspicious/noThenProperty: JSON Schema conditional keyword, not a thenable.
         then: { properties: { params: object({ data: ref("B4Checkpoint") }) } },

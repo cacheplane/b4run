@@ -6814,5 +6814,866 @@
       }
     },
     "valid": true
+  },
+  {
+    "name": "integrated reserved custom b4.run",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.run",
+          "payload": {
+            "v": 1,
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "agentId": "/chat#agent",
+            "status": "interrupted",
+            "phase": "settled",
+            "continuation": "waiting",
+            "effectsUncertain": true,
+            "reason": "permission"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "integrated reserved custom rejects v2 b4.run",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.run",
+          "payload": {
+            "v": 2,
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "agentId": "/chat#agent",
+            "status": "interrupted",
+            "phase": "settled",
+            "continuation": "waiting",
+            "effectsUncertain": true,
+            "reason": "permission"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom rejects invalid b4.run.status",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.run",
+          "payload": {
+            "v": 1,
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "agentId": "/chat#agent",
+            "status": "stopped",
+            "phase": "settled",
+            "continuation": "waiting",
+            "effectsUncertain": true,
+            "reason": "permission"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom b4.turn",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.turn",
+          "payload": {
+            "v": 1,
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "currentRunId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "state": "waiting",
+            "continuation": "waiting"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "integrated reserved custom rejects v2 b4.turn",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.turn",
+          "payload": {
+            "v": 2,
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "currentRunId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "state": "waiting",
+            "continuation": "waiting"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom rejects invalid b4.turn.state",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.turn",
+          "payload": {
+            "v": 1,
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "currentRunId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "state": "pending",
+            "continuation": "waiting"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom b4.input",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "integrated reserved custom rejects v2 b4.input",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 2,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom rejects invalid b4.input.disposition",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "completed"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom b4.activity",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": ["worker"],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.activity",
+          "payload": {
+            "v": 1,
+            "id": "tool-1",
+            "namespace": ["worker"],
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "type": "tool",
+            "payload": {
+              "v": 1,
+              "kind": "server",
+              "status": "failed"
+            },
+            "state": "interrupted",
+            "sourceSeq": 2,
+            "effectsUncertain": true
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "integrated reserved custom rejects v2 b4.activity",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": ["worker"],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.activity",
+          "payload": {
+            "v": 2,
+            "id": "tool-1",
+            "namespace": ["worker"],
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "type": "tool",
+            "payload": {
+              "v": 1,
+              "kind": "server",
+              "status": "failed"
+            },
+            "state": "interrupted",
+            "sourceSeq": 2,
+            "effectsUncertain": true
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom rejects invalid b4.activity.effectsUncertain",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": ["worker"],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.activity",
+          "payload": {
+            "v": 1,
+            "id": "tool-1",
+            "namespace": ["worker"],
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "type": "tool",
+            "payload": {
+              "v": 1,
+              "kind": "server",
+              "status": "failed"
+            },
+            "state": "interrupted",
+            "sourceSeq": 2,
+            "effectsUncertain": "unknown"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom b4.history",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.history",
+          "payload": {
+            "v": 1,
+            "revision": "opaque",
+            "reason": "rollback",
+            "removedRunIds": ["871e7ea2-7a46-4678-bcac-3a912de1b008"]
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "integrated reserved custom rejects v2 b4.history",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.history",
+          "payload": {
+            "v": 2,
+            "revision": "opaque",
+            "reason": "rollback",
+            "removedRunIds": ["871e7ea2-7a46-4678-bcac-3a912de1b008"]
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom rejects invalid b4.history.reason",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.history",
+          "payload": {
+            "v": 1,
+            "revision": "opaque",
+            "reason": "delete",
+            "removedRunIds": ["871e7ea2-7a46-4678-bcac-3a912de1b008"]
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated input disposition rejects private grant",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted",
+            "grant": "illustrative-private-grant"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated input disposition rejects private submissionId",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted",
+            "submissionId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated input disposition rejects private receipt",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted",
+            "receipt": {
+              "submissionId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+              "submissionKind": "b4",
+              "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+              "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+              "acceptedAt": "2026-11-05T12:00:00Z",
+              "replayed": false,
+              "disposition": "accepted"
+            }
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated input disposition rejects private message",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted",
+            "message": {
+              "role": "user",
+              "content": "illustrative-private-text"
+            }
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": false
+  },
+  {
+    "name": "integrated reserved custom preserves extensible carriers",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.run",
+          "payload": {
+            "v": 1,
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "agentId": "/chat#agent",
+            "status": "interrupted",
+            "phase": "settled",
+            "continuation": "waiting",
+            "effectsUncertain": true,
+            "reason": "permission",
+            "futurePayload": {
+              "opaque": [true]
+            }
+          },
+          "futureData": {
+            "opaque": [1, null]
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true,
+      "futureEnvelope": {
+        "opaque": "preserved"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "unreserved custom payload remains opaque app.future",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "app.future",
+          "payload": [
+            null,
+            {
+              "v": 2,
+              "grant": "application-data",
+              "nested": ["opaque"]
+            }
+          ]
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "unreserved custom payload remains opaque b4.future",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.future",
+          "payload": [
+            null,
+            {
+              "v": 2,
+              "grant": "application-data",
+              "nested": ["opaque"]
+            }
+          ]
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "unnamed custom payload remains opaque",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "payload": {
+            "v": 2,
+            "grant": "application-data",
+            "nested": [null]
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "reserved-looking values data remains application payload",
+    "schema": "B4Event",
+    "value": {
+      "type": "event",
+      "method": "values",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 2,
+            "grant": "application-data"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
+  },
+  {
+    "name": "generic ASP custom data remains unchanged",
+    "schema": "AspEvent",
+    "value": {
+      "type": "event",
+      "method": "custom",
+      "params": {
+        "namespace": [],
+        "timestamp": 0,
+        "data": {
+          "name": "b4.input",
+          "payload": {
+            "v": 1,
+            "inputId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+            "disposition": "accepted",
+            "grant": "illustrative-private-grant"
+          }
+        }
+      },
+      "eventId": "b4e1.0da04590-7139-4020-b6c0-de2c25b34f8c.2",
+      "seq": 2,
+      "b4": {
+        "v": 1,
+        "generation": "0da04590-7139-4020-b6c0-de2c25b34f8c",
+        "runId": "871e7ea2-7a46-4678-bcac-3a912de1b008",
+        "turnId": "871e7ea2-7a46-4678-bcac-3a912de1b008"
+      },
+      "future": true
+    },
+    "valid": true
   }
 ]
