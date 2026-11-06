@@ -16,7 +16,7 @@ export type {
   PostgresInterruptGrantStoreOptions,
 } from "./interrupt-grants.js"
 export { createPostgresInterruptGrantStore } from "./interrupt-grants.js"
-export type { PostgresStoreOptions } from "./options.js"
+export type { PostgresRuntimeOptions, PostgresStoreOptions } from "./options.js"
 export type {
   PostgresPermissionsStore,
   PostgresPermissionsStoreOptions,
@@ -24,6 +24,7 @@ export type {
 export { createPostgresPermissionsStore } from "./permissions.js"
 export type { PostgresRunAdmission, PostgresRunAdmissionOptions } from "./run-admission.js"
 export { createPostgresRunAdmission } from "./run-admission.js"
+export type { PostgresRuntimeInstallation } from "./runtime/index.js"
 export {
   assertIdentifier,
   DEFAULT_SCHEMA,

@@ -1,5 +1,5 @@
 import { withTransaction } from "./internal/tx.js"
-import type { SqlPool } from "./sql.js"
+import type { SqlClient, SqlPool } from "./sql.js"
 
 /**
  * The one shape a schema or table prefix may take. Exported so generated wiring
@@ -27,9 +27,9 @@ export const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/
  * same string.
  */
 export function assertIdentifier(name: string, value: string): void {
-  if (!IDENTIFIER_PATTERN.test(value))
+  if (!IDENTIFIER_PATTERN.test(value) || value.length > 63)
     throw new Error(
-      `postgres-storage: ${name} must be a lowercase SQL identifier (${IDENTIFIER_PATTERN}), got ${JSON.stringify(value)}`,
+      `postgres-storage: ${name} must be a lowercase SQL identifier of length at most 63 (${IDENTIFIER_PATTERN}), got ${JSON.stringify(value)}`,
     )
 }
 
@@ -71,6 +71,16 @@ function advisoryLockId(key: string): number {
     hash = Math.imul(hash, 0x01000193)
   }
   return hash | 0
+}
+
+/** Internal shared schema-creation lock. New installation domains must use
+ * this same key before DDL so they also exclude existing component installers. */
+export async function lockSchema(client: SqlClient, schema: string): Promise<void> {
+  assertIdentifier("schema", schema)
+  await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
+    ADVISORY_LOCK_CLASS,
+    advisoryLockId(`schema:${schema}`),
+  ])
 }
 
 /**
@@ -120,10 +130,7 @@ async function ensureSchema(pool: SqlPool, schema: string): Promise<void> {
   if (existing.rows.length > 0) return
 
   await withTransaction(pool, async (client) => {
-    await client.query("SELECT pg_advisory_xact_lock($1, $2)", [
-      ADVISORY_LOCK_CLASS,
-      advisoryLockId(`schema:${schema}`),
-    ])
+    await lockSchema(client, schema)
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`)
   })
 }

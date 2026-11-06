@@ -34,6 +34,8 @@ The edge-safe classification covers the root's import graph. It is tested on loc
 | `B4PostgresSaver` | Implement LangGraph checkpoint persistence. |
 | `postgresCheckpointer` | Create a Postgres checkpointer. |
 | `PostgresStoreOptions` | Configure shared connection and table naming. |
+| `PostgresRuntimeOptions` | Configure the fresh coordinated runtime namespace and explicit pool ownership. |
+| `PostgresRuntimeInstallation` | Hold installation UUID, schema/prefix and asynchronous close; does not mint request authority. |
 | `PostgresRunAdmission` | Hold request-owned thread execution and expose its fenced pool. |
 | `PostgresRunAdmissionOptions` | Configure lease lifetime, heartbeat, connection and table naming. |
 | `createPostgresRunAdmission` | Create shared admission over a structural SQL pool. |
@@ -74,6 +76,9 @@ The `/node` entry also re-exports every root export. The rows below list them ag
 | Export | Responsibility |
 |---|---|
 | `NodePostgresStoreOptions` | Add connection-string convenience. |
+| `openPostgresRuntimeInstallation` | Install or validate the fresh coordinated Node runtime domain using an injected pool. |
+| `PostgresRuntimeOptions` | Re-export runtime installation options. |
+| `PostgresRuntimeInstallation` | Re-export the installation lifecycle type. |
 | `NodePostgresRunAdmissionOptions` | Add connection-string convenience for request-owned admission. |
 | `PostgresRunAdmission` | Re-export the admission contract. |
 | `PostgresRunAdmissionOptions` | Re-export structural admission options. |
@@ -113,6 +118,30 @@ The `/node` entry also re-exports every root export. The rows below list them ag
 | `PostgresClientToolCallStore` | Re-export the client tool call store type. |
 | `PostgresClientToolCallStoreOptions` | Re-export client tool call options. |
 | `createPostgresClientToolCallStore` | Create a Node client tool call store. |
+
+The Node-only `openPostgresRuntimeInstallation` requires an injected `SqlPool`;
+its options are `pool`, optional `schema` (default `public`), `tablePrefix`
+(default `b4_ap_v1`) and `ownsPool` (default `false`). Installation validates
+identifiers before SQL, serializes under an advisory lock, and validates the
+whole format/version/UUID and committed catalog before any DDL in an existing
+namespace. It preserves legacy tables. The returned installation exposes
+`installationId`, `schema`, `tablePrefix` and asynchronous `close()`; active or
+queued work and cached clients must finish before close.
+
+Internal trusted-host bindings put runtime records and native saver writes in
+one fenced transaction. Native bytes retain canonical generation/Run/namespace
+ownership. Independent committed snapshots use repeatable-read connections;
+per-Thread read leases hold no database transaction across provider callbacks.
+Lease reservations use actual Node `pg.Pool` facts and retain a work slot;
+insufficient capacity fails before an unsafe callback or queued self-wait.
+Opaque structural pools retain ordinary transactions and snapshots but have an
+unverified lease profile: read leases fail closed before acquisition. R4 must
+resolve supported controls before mutation, without trusting caller support flags.
+This installation does not activate CLI handlers or mint public request
+authority. The C5 bridge, execution lease lifecycle, adapter safe-boundary hooks,
+recovery materialization, copy/state, rollback/deletion and retention/webhooks
+remain required downstream work. Unsupported state controls fail before mutation;
+the coordinated persistence profile alone is not full host or edge certification.
 
 ## Key contracts
 

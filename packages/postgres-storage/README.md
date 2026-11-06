@@ -128,6 +128,37 @@ The existing managed-workspace restriction on `requestStores` remains in place.
 The process-local run registry remains the default for embeddings without shared
 admission; sharing Postgres data alone does not provide execution exclusion.
 
+## Fresh coordinated runtime installation
+
+`openPostgresRuntimeInstallation({ pool, schema?, tablePrefix?, ownsPool? })` from
+`@b4run/postgres-storage/node` installs or validates the separate Agent Protocol
+runtime namespace (`public.b4_ap_v1_*` by default). It uses one advisory-locked
+installation transaction and a coherent format/version/installation UUID marker.
+Incompatible or explicitly reused namespaces fail before DDL; old store tables
+and independent memory/Store data remain intact. Generated identifier lengths
+are validated before SQL. An injected pool stays caller-owned unless `ownsPool`
+is true; await `close()` after active work and cached clients have settled.
+
+This Node installation API does not mint request authority or activate current
+CLI handlers. Internal host bindings enforce generation, ownership fence and
+current lease in the same transaction as runtime records and native saver writes.
+Native checkpoint bytes, pending writes and their canonical Run/namespace owners
+share the transaction; committed snapshots use independent repeatable-read
+connections. Per-Thread read leases release their database transaction before
+provider work and leave other Threads free to progress. A read lease reserves
+one session connection and a work slot using actual Node `pg.Pool` facts.
+Known pools without safe capacity reject before the callback. Opaque structural
+pools retain ordinary transactions/snapshots, but have an unverified lease
+profile: read leases fail closed before acquisition. This is not full host
+certification; the R4 integration must resolve supported controls before mutation.
+
+The C5 authority bridge and runtime cutover remain required. Execution dispatch,
+heartbeat/recovery, adapter safe-boundary hooks, recovery materialization,
+copy/state operations, rollback/deletion and retention/webhooks await their
+respective service tasks. Unsupported state controls fail before mutation. This
+persistence foundation does not certify full host activation or extend the
+root entry's edge qualification.
+
 ## Related
 
 - [Postgres Storage API reference](https://b4.run/docs/api/postgres-storage) — exact options, stores, and lifecycle.
