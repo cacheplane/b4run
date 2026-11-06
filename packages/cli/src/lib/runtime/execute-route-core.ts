@@ -101,6 +101,11 @@ import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { isGraphInterrupt } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
+import {
+  normalizeProtocolInput,
+  normalizeProtocolOutput,
+  type ProtocolBoundaryOptions,
+} from "../dev/protocol/input.js"
 import { stripReservedThreadMetadata } from "../dev/thread-metadata.js"
 import { type ResolvedAgentsMdConfig, resolveAgentsMdConfig } from "./agents-md-config.js"
 import { createB4Context } from "./b4-context.js"
@@ -473,6 +478,8 @@ export async function executeResolvedRoute(
   options: BootResolvedInstances & {
     readonly appRoot: string
     readonly input: unknown
+    /** Trusted adapter boundary for standard protocol callers; absent for native callers. */
+    readonly protocol?: ProtocolBoundaryOptions
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
     /** Who started the run — see `B4ToolContext.principal`. */
@@ -550,6 +557,8 @@ export async function invokeResolvedRoute(
   options: BootResolvedInstances & {
     readonly appRoot: string
     readonly input: unknown
+    /** Trusted adapter boundary for standard protocol callers; absent for native callers. */
+    readonly protocol?: ProtocolBoundaryOptions
     readonly middlewareContext?: Readonly<Record<string, unknown>>
     /** Who started the run — see `B4ToolContext.principal`. */
     readonly principal?: B4Principal
@@ -573,6 +582,8 @@ export async function* streamResolvedRoute(
   options: BootResolvedInstances & {
     readonly appRoot: string
     readonly input: unknown
+    /** Trusted adapter boundary for standard protocol callers; absent for native callers. */
+    readonly protocol?: ProtocolBoundaryOptions
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
     /** Who started the run — see `B4ToolContext.principal`. */
@@ -631,6 +642,9 @@ export async function* streamResolvedRoute(
   const releaseSandbox = sandboxRunKey ? options.sandboxManager?.retain(sandboxRunKey) : undefined
   try {
     const startedAt = Date.now()
+    const routeInput = options.protocol
+      ? normalizeProtocolInput(options.input, options.protocol)
+      : options.input
     const prepared = await prepareRouteExecution({
       ...options,
       isSubagent: options.isSubagent ?? false,
@@ -669,13 +683,13 @@ export async function* streamResolvedRoute(
         tools,
         ...(options.signal ? { signal: options.signal } : {}),
       })
-      const { output } = await invokeEntry(
-        normalized.kind,
-        normalized.entry,
-        options.input,
-        context,
-      )
-      yield { type: "done", output }
+      const { output } = await invokeEntry(normalized.kind, normalized.entry, routeInput, context)
+      yield {
+        type: "done",
+        output: options.protocol
+          ? normalizeProtocolOutput(output, options.protocol.output)
+          : output,
+      }
       return
     }
 
@@ -687,7 +701,7 @@ export async function* streamResolvedRoute(
 
     const routeParamNames = extractRouteParamNames(options.routeId)
 
-    const agentInput = toAgentInput(options.input, options.resume)
+    const agentInput = toAgentInput(routeInput, options.resume)
 
     // Episode recorder (streaming path): a COMPLETED turn records an "ok"
     // episode; a thrown execution error records an "error" episode before
@@ -775,7 +789,12 @@ export async function* streamResolvedRoute(
           case "done":
             sawDone = true
             finalOutput = chunk.data
-            yield { type: "done", output: chunk.data }
+            yield {
+              type: "done",
+              output: options.protocol
+                ? normalizeProtocolOutput(chunk.data, options.protocol.output)
+                : chunk.data,
+            }
             break
           case "interrupt": {
             // The agent-adapter registers the pending entry in
@@ -2098,6 +2117,8 @@ export async function executeRouteAtResolvedPath(
   options: BootResolvedInstances & {
     readonly appRoot: string
     readonly input: unknown
+    /** Trusted adapter boundary for standard protocol callers; absent for native callers. */
+    readonly protocol?: ProtocolBoundaryOptions
     readonly isSubagent?: boolean
     readonly middlewareContext?: Readonly<Record<string, unknown>>
     /** Who started the run — see `B4ToolContext.principal`. */
@@ -2123,6 +2144,9 @@ export async function executeRouteAtResolvedPath(
   let epThreadId: string | undefined
 
   try {
+    const routeInput = options.protocol
+      ? normalizeProtocolInput(options.input, options.protocol)
+      : options.input
     const sandboxRunKey = options.sandboxThreadId ?? options.threadId
     releaseSandbox = sandboxRunKey ? options.sandboxManager?.retain(sandboxRunKey) : undefined
     const prepared = await prepareRouteExecutionForInvocation(
@@ -2181,7 +2205,7 @@ export async function executeRouteAtResolvedPath(
     const { output, parked } = await invokeEntry(
       normalized.kind,
       normalized.entry,
-      options.input,
+      routeInput,
       context,
       {
         ...(checkpointer ? { checkpointer } : {}),
@@ -2220,7 +2244,7 @@ export async function executeRouteAtResolvedPath(
       appRoot: options.appRoot,
       executionSource: "in-process",
       mode: normalized.kind,
-      output,
+      output: options.protocol ? normalizeProtocolOutput(output, options.protocol.output) : output,
       routeId: options.routeId,
       routePath: options.routePath,
       startedAt: options.startedAt,

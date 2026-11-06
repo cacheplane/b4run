@@ -1,3 +1,4 @@
+import { normalizeProtocolOutput, type ProtocolOutputOptions } from "../dev/protocol/input.js"
 import {
   createRuntimeFailureResult,
   createRuntimeSuccessResult,
@@ -8,6 +9,8 @@ import {
 export interface NormalizeServerResultOptions {
   readonly appRoot: string
   readonly finishedAt?: number
+  /** Opt-in shaping of raw route output; legacy server clients keep the parsed body. */
+  readonly protocol?: ProtocolOutputOptions
   readonly mode: RuntimeExecutionMode
   readonly responseBodyText: string
   readonly routeId: string
@@ -41,7 +44,9 @@ export function normalizeServerResult(
       executionSource: "server",
       ...(options.finishedAt === undefined ? {} : { finishedAt: options.finishedAt }),
       mode: options.mode,
-      output: parsedBody.value,
+      output: options.protocol
+        ? normalizeProtocolOutput(parsedBody.value, options.protocol)
+        : parsedBody.value,
       routeId: options.routeId,
       routePath: options.routePath,
       startedAt: options.startedAt,
