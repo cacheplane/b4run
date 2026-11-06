@@ -67,9 +67,9 @@
       "recordDigest": "23cf46eac378f6f87d5453e94eaff13429d2ce3d681e0691bc4cb876480ed201"
     },
     "/docs/api/core": {
-      "lastModified": "2026-10-05T16:47:12.000Z",
-      "sourceDigest": "5470b273d2862c22d9f50b3c3b61262e302085bbebc82d89523b8cea309af9f8",
-      "recordDigest": "ef28824cccf19ccdf8bb43475d4276aaf5f212cbab4b2bc360d0bec9567ee833"
+      "lastModified": "2026-11-06T16:52:19.000Z",
+      "sourceDigest": "9f904d4443ca347f739d025e91adca6387fe67fe5b3051981c30f1bb7ad77f62",
+      "recordDigest": "68a603252b4e53fa638269084138e1d0cf5b281ec61b4395dc4f2d098fdf4fd4"
     },
     "/docs/api/evals": {
       "lastModified": "2026-09-25T17:07:15.000Z",
@@ -152,9 +152,9 @@
       "recordDigest": "022e3fe5ceb5f91bca92d0556b8226b87849cf08cbea2dfbfec5355d1c171ccf"
     },
     "/docs/configuration": {
-      "lastModified": "2026-10-10T03:29:09.000Z",
-      "sourceDigest": "a62d60d99de0f0c93b0a9d36116c50dca9c5edcb3ff1b7776b1788656e30a732",
-      "recordDigest": "6f22535db1c36614960dbc218bc66566fa45161d8b2269bd1bf5a00020af7254"
+      "lastModified": "2026-11-06T16:52:19.000Z",
+      "sourceDigest": "f4c19d6de12f7110cdf8af6e5f8df3ed26f80d6228932e347c8657e9accdd7c8",
+      "recordDigest": "12063c086721a75ef3639e567806c86cecff4735f1a0921e5b23f339daad12e7"
     },
     "/docs/context-management": {
       "lastModified": "2026-10-20T19:28:17.000Z",
