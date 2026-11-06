@@ -1,5 +1,16 @@
 # @b4-example/software-factory-server
 
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [dd4271c]
+- Updated dependencies [4190d2a]
+  - @b4run/cli@0.15.9
+  - @b4run/sandbox@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.0.19
 
 ### Patch Changes
