@@ -257,6 +257,14 @@
       "dependsOn": ["build", "^test"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts"]
     },
+    "@b4run/sdk#typecheck": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
+        "$TURBO_ROOT$/test/agent-protocol/tsconfig.runtime-storage.json"
+      ]
+    },
     "@b4run/sdk#build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/agent-protocol/fixtures/**"],

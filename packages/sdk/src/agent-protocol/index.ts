@@ -8,4 +8,5 @@ export {
   AGENT_PROTOCOL_NATIVE_NOTICE,
   AGENT_PROTOCOL_NATIVE_SOURCE,
 } from "./schema.js"
+export type * from "./storage.js"
 export type * from "./types.js"
