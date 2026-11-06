@@ -4,6 +4,7 @@
  * app/styles/design-system.test.ts fails if this drifts from the CSS.
  */
 export const COLOR = {
+  "inspector-surface": "#fdfcfb",
   page: "#f5f4f0",
   surface: "#eeeee7",
   "surface-sunk": "#e8e8df",

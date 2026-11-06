@@ -139,7 +139,7 @@ export function TurnInspector({
         )}
         {openHref && (
           <a className={styles.openLink} href={`${openHref}${momentHash}`}>
-            Open inspector ↗
+            Open inspector
           </a>
         )}
       </header>

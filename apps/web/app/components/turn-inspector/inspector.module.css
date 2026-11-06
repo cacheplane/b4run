@@ -1,8 +1,8 @@
 .inspector {
   container-type: inline-size;
-  --panel: color-mix(in srgb, var(--color-page) 25%, white);
+  --panel: var(--color-inspector-surface);
   border: 1px solid var(--color-rule);
-  border-radius: 16px;
+  border-radius: var(--inspector-radius-frame);
   color: var(--color-ink);
   background: var(--color-page);
   font-family: var(--font-hanken), sans-serif;
@@ -44,7 +44,7 @@
 .inspector select {
   min-height: 44px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--inspector-radius-control);
   padding: 8px 12px;
   color: var(--color-ink);
   background: transparent;
@@ -98,7 +98,7 @@
   overflow: auto;
   overflow-wrap: anywhere;
   border: 1px solid var(--color-rule);
-  border-radius: 12px;
+  border-radius: var(--inspector-radius-panel);
   background: var(--panel);
 }
 .conversation {
@@ -128,7 +128,7 @@
 
 .item {
   margin-bottom: 16px;
-  border-radius: 10px;
+  border-radius: var(--inspector-radius-message);
 }
 .item > button {
   width: 100%;
@@ -195,7 +195,7 @@
 }
 .segmented {
   display: flex;
-  border-radius: 8px;
+  border-radius: var(--inspector-radius-control);
   background: var(--color-surface);
 }
 .segmented button {
@@ -338,7 +338,7 @@
   font: 12px / 1.7 var(--font-mono);
   background: var(--panel);
   border: 1px solid var(--color-rule);
-  border-radius: 12px;
+  border-radius: var(--inspector-radius-panel);
   padding-block: 12px;
 }
 .sourceCode code > span {
