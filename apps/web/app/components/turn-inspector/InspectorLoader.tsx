@@ -9,13 +9,19 @@ import { useInspectorActions } from "./inspector-context"
 const Replay = lazy(() =>
   import("./TurnInspector").then((module) => ({ default: module.TurnInspector })),
 )
-export function InspectorLoader({ lesson }: { lesson: string }) {
+export function InspectorLoader({
+  lesson,
+  standalone = false,
+}: {
+  lesson: string
+  standalone?: boolean
+}) {
   const entry = useMemo(() => getLesson(lesson), [lesson])
   if (!entry) throw new Error("Unknown authored inspector lesson")
   // A keyed child resets pending requests and state when a lesson changes.
-  return <Loader key={lesson} lesson={lesson} />
+  return <Loader key={lesson} lesson={lesson} standalone={standalone} />
 }
-function Loader({ lesson }: { lesson: string }) {
+function Loader({ lesson, standalone = false }: { lesson: string; standalone?: boolean }) {
   const entry = useMemo(() => getLesson(lesson), [lesson])
   if (!entry) throw new Error("Unknown inspector lesson")
   const [capture, setCapture] = useState<Capture | null>(null)
@@ -118,7 +124,15 @@ function Loader({ lesson }: { lesson: string }) {
       )}
       {capture && (
         <Suspense fallback={<p role="status">Opening inspector…</p>}>
-          <Replay sources={entry.sources} capture={capture} {...(moment ? { moment } : {})} />
+          <Replay
+            {...(!standalone ? { openHref: `/docs/app/inspect/${lesson}` } : {})}
+            recordingLabel={
+              entry.appBuild ? `Recorded in B4 ${entry.appBuild.flavor}` : "Recorded in B4"
+            }
+            sources={entry.sources}
+            capture={capture}
+            {...(moment ? { moment } : {})}
+          />
         </Suspense>
       )}
     </div>

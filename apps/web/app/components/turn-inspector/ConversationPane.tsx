@@ -1,5 +1,7 @@
+import { Fragment } from "react"
 import type { ReplayState } from "../../../lib/turn-inspector/capture-types"
 import { Observed } from "./ActivityDetails"
+import { InspectorIcon } from "./InspectorIcon"
 import styles from "./inspector.module.css"
 export function ConversationPane({
   state,
@@ -16,18 +18,33 @@ export function ConversationPane({
     <>
       {state.items
         .filter((i) => !turnId || i.turnId === turnId)
-        .map((item) => (
-          <article key={item.id} className={styles.item}>
-            <button
-              type="button"
-              data-item-id={item.id}
-              aria-pressed={item.id === selectedId}
-              onClick={() => onSelect(item.id)}
+        .map((item, index, items) => (
+          <Fragment key={item.id}>
+            {(index === 0 || items[index - 1]?.turnId !== item.turnId) && (
+              <p className={styles.turnHeading}>{item.turnId.replace("turn-", "Turn ")}</p>
+            )}
+            <article
+              className={styles.item}
+              data-role={item.role}
+              data-selected={item.id === selectedId}
             >
-              {item.name || item.role} · {item.state}
-            </button>
-            {item.role !== "tool" && <Observed value={item.content} />}
-          </article>
+              <button
+                type="button"
+                data-item-id={item.id}
+                aria-pressed={item.id === selectedId}
+                onClick={() => onSelect(item.id)}
+              >
+                {item.role === "tool" && <InspectorIcon name="tool" />}
+                <span>{item.name || item.role}</span>
+                <span className={styles.itemState}>{item.state}</span>
+              </button>
+              {item.role !== "tool" && (
+                <div className={styles.message}>
+                  <Observed value={item.content} />
+                </div>
+              )}
+            </article>
+          </Fragment>
         ))}
       {state.requests
         .filter((r) => !turnId || r.turnId === turnId)

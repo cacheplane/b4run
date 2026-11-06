@@ -5,6 +5,8 @@ import {
   nextDelay,
   playbackAction,
   stepIndex,
+  turnIndex,
+  turnStarts,
 } from "../../../lib/turn-inspector/playback"
 import fixture from "./__fixtures__/synthetic-capture.json"
 
@@ -31,4 +33,15 @@ test("steps over text deltas and respects reduced motion", () => {
   expect(stepIndex(capture, 0, 1)).toBe(2)
   expect(stepIndex(capture, 2, -1)).toBe(0)
   expect(playbackAction(capture, initialPlayback(), { type: "play" }, true).playing).toBe(false)
+})
+
+test("turn navigation uses first observed activity and speed preserves recorded time", () => {
+  const starts = turnStarts(capture)
+  expect(starts.map((t) => t.id)).toEqual(["turn-1", "turn-2"])
+  expect(turnIndex(capture, -1, 1)).toBe(starts[0]?.index)
+  expect(turnIndex(capture, starts[0]?.index ?? 0, 1)).toBe(starts[1]?.index)
+  expect(turnIndex(capture, starts[1]?.index ?? 0, -1)).toBe(starts[0]?.index)
+  const clock = { index: 0, playing: true }
+  expect(nextDelay(capture, clock, 2)).toBe((nextDelay(capture, clock) ?? 0) / 2)
+  expect(nextDelay(capture, clock, 0.5)).toBe((nextDelay(capture, clock) ?? 0) * 2)
 })

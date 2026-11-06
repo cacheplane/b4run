@@ -20,12 +20,17 @@ export function TurnInspector({
   capture,
   moment,
   sources = [],
+  openHref,
+  recordingLabel,
 }: {
   capture: Capture
+  openHref?: string
+  recordingLabel?: string
   sources?: LessonSource[]
   moment?: { id: string; request: number }
 }) {
   const id = useId()
+  const [speed, setSpeed] = useState<0.5 | 1 | 2>(1)
   const [mode, setMode] = useState<"replay" | "source">("replay")
   const heading = useRef<HTMLHeadingElement>(null)
   const [playback, setPlayback] = useState(initialPlayback)
@@ -51,32 +56,37 @@ export function TurnInspector({
   )
   // Selection is deliberately absent from the scheduler dependencies.
   useEffect(() => {
-    const delay = nextDelay(capture, { index: playback.index, playing: playback.playing })
+    const delay = nextDelay(capture, { index: playback.index, playing: playback.playing }, speed)
     if (delay === null) return
     const timer = setTimeout(() => dispatch({ type: "tick" }), delay)
     return () => clearTimeout(timer)
-  }, [capture, playback.index, playback.playing, dispatch])
+  }, [capture, playback.index, playback.playing, dispatch, speed])
   useEffect(() => {
     if (reducedMotion) setPlayback((p) => ({ ...p, playing: false }))
   }, [reducedMotion])
+  const selectMoment = useCallback(
+    (momentId: string) => {
+      const target = capture.moments.find((value) => value.id === momentId)
+      if (!target) {
+        setAnnouncement("That moment is not part of this recording.")
+        return
+      }
+      setPlayback((current) => ({
+        ...playbackAction(capture, current, { type: "seek", index: target.eventIndex }),
+        selectedItemId: target.itemId ?? null,
+        selectedTurnId: null,
+      }))
+      setPane("conversation")
+      setMode("replay")
+      setAnnouncement(target.label)
+      heading.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" })
+      heading.current?.focus({ preventScroll: true })
+    },
+    [capture],
+  )
   useEffect(() => {
-    if (!moment) return
-    const target = capture.moments.find((value) => value.id === moment.id)
-    if (!target) {
-      setAnnouncement("That moment is not part of this recording.")
-      return
-    }
-    setPlayback((current) => ({
-      ...playbackAction(capture, current, { type: "seek", index: target.eventIndex }),
-      selectedItemId: target.itemId ?? null,
-      selectedTurnId: null,
-    }))
-    setPane("conversation")
-    setMode("replay")
-    setAnnouncement(target.label)
-    heading.current?.scrollIntoView?.({ block: "nearest", behavior: "instant" })
-    heading.current?.focus({ preventScroll: true })
-  }, [capture, moment])
+    if (moment) selectMoment(moment.id)
+  }, [moment, selectMoment])
   const state = useMemo(() => stateAt(capture, playback.index), [capture, playback.index])
   useEffect(() => {
     const el = conversation.current
@@ -89,41 +99,44 @@ export function TurnInspector({
           Turn inspector
         </h3>
         <span>
-          {capture.provenance === "synthetic" ? "Synthetic test recording" : "Recorded in B4"}
+          {capture.provenance === "synthetic"
+            ? "Synthetic test recording"
+            : (recordingLabel ?? "Recorded in B4")}
         </span>
+        {sources.length > 0 && (
+          <fieldset className={styles.toolbar} aria-label="Inspector view">
+            <button
+              type="button"
+              aria-pressed={mode === "replay"}
+              onClick={() => setMode("replay")}
+            >
+              Replay
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === "source"}
+              onClick={() => {
+                dispatch({ type: "pause" })
+                setMode("source")
+              }}
+            >
+              Source
+            </button>
+          </fieldset>
+        )}
+        {openHref && (
+          <a className={styles.openLink} href={openHref}>
+            Open inspector ↗
+          </a>
+        )}
       </header>
-      <p className={styles.caption}>
-        Replay what the app observed. Times reflect when events arrived. Requests here are
-        read-only.
-      </p>
-      {sources.length > 0 && (
-        <fieldset className={styles.toolbar} aria-label="Inspector view">
-          <button type="button" aria-pressed={mode === "replay"} onClick={() => setMode("replay")}>
-            Replay
-          </button>
-          <button
-            type="button"
-            aria-pressed={mode === "source"}
-            onClick={() => {
-              dispatch({ type: "pause" })
-              setMode("source")
-            }}
-          >
-            Source
-          </button>
-        </fieldset>
-      )}
+
       {mode === "source" ? (
         <SourcePane sources={sources} moment={moment?.id} />
       ) : (
         <>
-          <PlaybackControls
-            capture={capture}
-            playback={playback}
-            dispatch={dispatch}
-            reducedMotion={reducedMotion}
-          />
           <div className={styles.toolbar}>
+            <strong>Conversation</strong>
             <label>
               Turn{" "}
               <select
@@ -199,6 +212,15 @@ export function TurnInspector({
               <ActivityDetails item={state.items.find((i) => i.id === playback.selectedItemId)} />
             </aside>
           </div>
+          <PlaybackControls
+            capture={capture}
+            playback={playback}
+            dispatch={dispatch}
+            reducedMotion={reducedMotion}
+            speed={speed}
+            onSpeed={setSpeed}
+            onMoment={selectMoment}
+          />
         </>
       )}
       <p className={styles.srOnly} role="status">

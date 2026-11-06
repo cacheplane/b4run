@@ -21,7 +21,9 @@ afterEach(async () => {
   host?.remove()
 })
 async function click(label: string) {
-  const button = [...host.querySelectorAll("button")].find((b) => b.textContent === label)
+  const button = [...host.querySelectorAll("button")].find(
+    (b) => (b.getAttribute("aria-label") ?? b.textContent) === label,
+  )
   expect(button).toBeTruthy()
   await act(async () => button!.click())
 }
@@ -47,4 +49,16 @@ test("selects repeated tool names by stable IDs and labels missing values", asyn
   await act(async () => tools[1]!.click())
   expect(host.querySelector('[data-details-id="tool-2"]')).not.toBeNull()
   expect(host.textContent).toContain("Not available in this recording")
+})
+
+test("bottom player moment selects the recorded item and supports keyboard transport names", async () => {
+  await mount()
+  const player = host.querySelector("[data-player]")
+  const details = host.querySelector('aside[aria-label="Activity details"]')
+  expect(details?.compareDocumentPosition(player!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  await click("Inspect Completed message")
+  expect(host.querySelector('[data-details-id="message-1"]')).not.toBeNull()
+  expect(host.querySelector('input[type="range"]')?.getAttribute("value")).toBe("2")
+  await click("Playback speed 1×")
+  expect(host.querySelector('button[aria-label="Playback speed 2×"]')).not.toBeNull()
 })

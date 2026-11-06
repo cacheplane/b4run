@@ -29,7 +29,7 @@ export default async function Page({ params }: { params: Promise<{ captureId: st
         <p>
           <a href={lesson.lessonHref}>Back to the lesson</a>
         </p>
-        <InspectorLoader lesson={lesson.id} />
+        <InspectorLoader lesson={lesson.id} standalone />
         <details>
           <summary>Recording provenance</summary>
           {lesson.appBuild && (

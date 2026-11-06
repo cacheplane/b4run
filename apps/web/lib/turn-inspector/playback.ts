@@ -57,11 +57,12 @@ export function playbackAction(
 export function nextDelay(
   capture: Capture,
   playback: Pick<Playback, "index" | "playing">,
+  speed: 0.5 | 1 | 2 = 1,
 ): number | null {
   if (!playback.playing) return null
   const next = capture.events[playback.index + 1]
   return next
-    ? Math.max(0, next.elapsedMs - (capture.events[playback.index]?.elapsedMs ?? 0))
+    ? Math.max(0, next.elapsedMs - (capture.events[playback.index]?.elapsedMs ?? 0)) / speed
     : null
 }
 export function stepIndex(capture: Capture, index: number, direction: 1 | -1): number {
@@ -69,4 +70,33 @@ export function stepIndex(capture: Capture, index: number, direction: 1 | -1): n
     if (capture.events[i]!.changes.some((c) => c.kind !== "delta")) return i
   }
   return direction === -1 ? -1 : capture.events.length - 1
+}
+
+/** Turn boundaries use first observed activity, including a user item before turn state. */
+export function turnStarts(capture: Capture): { id: string; index: number }[] {
+  const seen = new Set<string>()
+  const starts: { id: string; index: number }[] = []
+  for (const event of capture.events)
+    for (const change of event.changes) {
+      const id =
+        change.kind === "turn"
+          ? change.turn.id
+          : change.kind === "item"
+            ? change.item.turnId
+            : change.kind === "request"
+              ? change.request.turnId
+              : null
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        starts.push({ id, index: event.sequence })
+      }
+    }
+  return starts
+}
+/** Move to a distinct turn boundary without inventing activity at that position. */
+export function turnIndex(capture: Capture, index: number, direction: 1 | -1): number {
+  const starts = turnStarts(capture)
+  if (direction === 1)
+    return starts.find((turn) => turn.index > index)?.index ?? capture.events.length - 1
+  return [...starts].reverse().find((turn) => turn.index < index)?.index ?? -1
 }
