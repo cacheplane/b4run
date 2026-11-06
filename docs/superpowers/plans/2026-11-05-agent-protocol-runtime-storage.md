@@ -28,6 +28,12 @@ Create services under `packages/cli/src/lib/dev/protocol/runtime/`:
 Keep existing execute-route-core/agent adapters as the execution entry; extract
 only responsibilities needed for the approved transaction/lifecycle boundary.
 
+P0 verified that `packages/sdk/src/backend-adapter.ts` is the current shared
+BackendAdapter owner and exposes only kind/execute/stream with a signal. R8/R10
+extend that existing contract for the approved adapter hooks; those hooks are
+required implementation work, not existing capabilities. Do not create a second
+adapter interface or infer safe-boundary support from the current methods.
+
 ### R1: Define transaction bundle and real-backend conformance harness
 
 **Files:** Create SDK storage.ts and `packages/sdk/test/agent-protocol-storage.contract.ts`; create `test/agent-protocol/runtime-storage-contract.ts`; modify SDK agent-protocol/index.ts exports. Backend test entrypoints are created/run in R2/R3, not falsely reported GREEN here.
@@ -121,7 +127,7 @@ another admission algorithm inside the test.
 
 ### R8: Safe-boundary injection and checkpoint rebinding
 
-**Files:** Create runtime/inputs.ts; modify `packages/langchain/src/agent-adapter.ts`, `agent-middleware.ts`, `packages/langgraph/src/langgraph-adapter.ts`, `packages/cli/src/lib/runtime/execute-route-core.ts`; create `packages/cli/test/protocol-injection.test.ts`, `protocol-safe-head.test.ts`.
+**Files:** Create runtime/inputs.ts; modify `packages/sdk/src/backend-adapter.ts`, `packages/langchain/src/agent-adapter.ts`, `agent-middleware.ts`, `packages/langgraph/src/langgraph-adapter.ts`, `packages/cli/src/lib/runtime/execute-route-core.ts`; create `packages/cli/test/protocol-injection.test.ts`, `protocol-safe-head.test.ts`.
 
 - [ ] Test steering during model/tool work, FIFO bounds, duplicate tokens, root/child authority, privileged system input, pause/finish race and pending tools after stop/lost owner.
 - [ ] Run `pnpm --filter @b4run/cli test protocol-injection protocol-safe-head`; a real test model must consume injected text at its next eligible step.
@@ -143,7 +149,7 @@ another admission algorithm inside the test.
 
 ### R10: State PATCH, copy and fork
 
-**Files:** Create runtime/state.ts; modify backend checkpoints/threads files and adapter hooks; create `packages/cli/test/protocol-state-operations.test.ts`.
+**Files:** Create runtime/state.ts; modify backend checkpoints/threads files and adapter hooks in the existing SDK contract owner `packages/sdk/src/backend-adapter.ts`, `packages/langchain/src/agent-adapter.ts` and `packages/langgraph/src/langgraph-adapter.ts` as needed; create `packages/cli/test/protocol-state-operations.test.ts`.
 
 - [ ] Test no-execution PATCH/copy, merge/message rules, ignored metadata-only checkpoint, full copied history, stable remapped checkpoint IDs, source/destination authority, root/child fork and unresolved protected tasks.
 - [ ] Run `pnpm --filter @b4run/cli test protocol-state-operations`; count model/tool calls rather than only responses.

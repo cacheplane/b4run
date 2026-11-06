@@ -54,9 +54,9 @@ surfaces and historical release/verification evidence.
 
 ### L3: Add and prove the production website hold
 
-**Files:** Modify `apps/web/scripts/vercel-ignore-build.sh`; create `apps/web/scripts/vercel-ignore-build.test.mjs`; preserve existing factory/* denial and preview behavior. Draft exact operator steps in the cutover runbook.
+**Files:** Modify `apps/web/scripts/vercel-ignore-build.sh` and the existing `apps/web/app/vercel-ignore-build.test.ts` suite; preserve existing factory/* denial and preview behavior. Draft exact operator steps in the cutover runbook.
 
-- [ ] Add script tests: production plus B4_PROTOCOL_RELEASE_HOLD=1 exits 0 (skip); production without hold exits 1 (build); preview unaffected; factory guard remains first and always denies builds. Run `node --test apps/web/scripts/vercel-ignore-build.test.mjs` and verify expected failures before implementation.
+- [ ] Add script tests: production plus B4_PROTOCOL_RELEASE_HOLD=1 exits 0 (skip); production without hold exits 1 (build); preview unaffected; factory guard remains first and always denies builds. Run `pnpm --filter @b4run/web test vercel-ignore-build` and verify expected failures before implementation. P0 confirmed this existing Vitest suite owns the shell-script regressions; extend it rather than create a second test stack.
 - [ ] Add the production-only hold check before the unconditional production-build branch. No universal CI serialization or disabling unrelated release workflows. Default absent hold preserves existing behavior.
 - [ ] Run script tests and workflow/shell/docs checks. Review this infrastructure-only change independently if it must reach main ahead of the integration cutover; it changes no public API.
 - [ ] At the future release preflight, inspect actual Vercel project's ignored-build command and production settings. Set only the named production hold through reviewed operator tooling, preserving preview environment. Capture redacted setting/skip evidence and verify a new main candidate cannot promote unreviewed docs.

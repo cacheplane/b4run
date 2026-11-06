@@ -15,6 +15,10 @@
 
 ## File and migration map
 
+P0 execution mapping and baseline evidence are recorded in B4's
+`docs/superpowers/reports/2026-11-05-agent-protocol-p0-setup.md`. The approved
+wire/runtime contracts and upstream pins are unchanged.
+
 Create `Sources/B4Adapter/AgentProtocol{Types,Client,Events,Projection}.swift`,
 `B4RecoveryProjection.swift`; retain `SSEParser.swift` with correct id handling.
 Replace callers of B4HTTPClient/B4Protocol/B4Events/B4TurnTranslator; remove their
@@ -24,16 +28,53 @@ Module naming is internal; no new Swift target is required.
 Create `Sources/WorkspaceStorage/AgentProtocol.swift`,
 `Sources/Coordinator/ProtocolProjection.swift`, `ProtocolOperations.swift`,
 `ProtocolActivation.swift`; preserve SessionService as sole business writer.
-At audited baseline, new local migration is `SQL/0009_agent_protocol.sql`, hub
-migration `0017_agent_protocol.sql`; confirm unallocated numbers against execution
-main before creating them and record any deterministic renumbering in the task log.
+P0 selected source `a7e1ef743cebaf3704a3fa37ede72db8018df12d` already contains
+`Sources/WorkspaceStorage/SQL/0009_thread_runtime_choice.sql` and
+`Hub/crates/b4hub-db/migrations/0017_thread_runtime_choice.sql`. Allocate
+`Sources/WorkspaceStorage/SQL/0010_agent_protocol.sql` and
+`Hub/crates/b4hub-db/migrations/0018_agent_protocol.sql`; recheck for collisions
+before creation. This renumbers only the audited plan's proposed 0009/0017 files.
 Do not edit existing migrations or ship a changed migration hash.
+`Sources/WorkspaceMirror/MirrorSchema.swift` currently ends its ordered
+`PRAGMA user_version` migrations at version 6 (runtime choices). A4 appends
+version 7 after rechecking allocation; `MirrorMigrations.swift` applies that
+existing array and owns rebuild/prepare behavior. Preserve versions 1–6. This
+internal SQLite schema number is separate from negotiated client protocol v2.
 
-Tests run from b4app root. Rust commands use its Cargo workspace/private test DB:
-`bash -c 'cd Hub && source <(./scripts/test-db.sh) && cargo test --workspace --locked'`.
-Run one cargo test per worktree; stop only that helper's cluster afterward with
-`bash -c 'cd Hub && ./scripts/test-db.sh --stop'`. Never point tests at the owner's
-real account database/runtime directories. Real provider tests stay opt-in.
+Tests run from b4app root. Rust commands use its Cargo workspace/private test DB.
+P0 reproduced system Bash 3.2 returning from `source <(...)` before a delayed
+export arrived; use a sequential mode-0600 temporary-file handoff instead:
+
+```bash
+bash <<'B4APP_HUB_TEST'
+set -euo pipefail
+unset DATABASE_URL
+cd Hub
+hub_test_env=$(mktemp)
+hub_test_cleanup() {
+  hub_test_status=$?
+  trap - EXIT
+  set +e
+  ./scripts/test-db.sh --stop
+  hub_stop_status=$?
+  rm -f "$hub_test_env"
+  hub_remove_status=$?
+  if [ "$hub_test_status" -ne 0 ]; then exit "$hub_test_status"; fi
+  if [ "$hub_stop_status" -ne 0 ]; then exit "$hub_stop_status"; fi
+  exit "$hub_remove_status"
+}
+trap hub_test_cleanup EXIT
+chmod 600 "$hub_test_env"
+./scripts/test-db.sh > "$hub_test_env"
+source "$hub_test_env"
+: "${DATABASE_URL:?private cluster unavailable}"
+cargo test --workspace --locked
+B4APP_HUB_TEST
+```
+
+Run one cargo test per worktree; stop only that helper's cluster. Never print the
+env file, inherit an account/shared-worktree DATABASE_URL, or point tests at the
+owner's real account database/runtime directories. Real provider tests stay opt-in.
 
 ### A1: Pin shared wire corpus and compile new DTOs
 
@@ -70,7 +111,7 @@ real account database/runtime directories. Real provider tests stay opt-in.
 
 ### A4: Gate hub/mirror activation without consuming deferred changes
 
-**Files:** Create ProtocolActivation.swift and hub `0017_agent_protocol.sql`; modify `Hub/crates/b4hub-core/src/change.rs`, `writable.rs`, `Hub/crates/b4hub-db/src/{settings,changes,snapshot}.rs`, `Hub/crates/b4hub/src/{routes,serve}.rs`, `routes/{changes,snapshot}.rs`, `relay/link.rs`, `Sources/Coordinator/HubSync/{SyncFilter,HubSync,HubPull,HubLink}.swift`, `Sources/WorkspaceMirror/{MirrorSchema,MirrorMigrations,MirrorSync,MirrorTransport}.swift`, `Sources/WorkspaceSync/HubLinkConnection.swift`, `Sources/WorkspaceSync/HTTPHubAPI.swift`, `HubAPI.swift`, `Wire.swift` and `Tests/Fixtures/sync/changes.json`/relay fixtures.
+**Files:** Create ProtocolActivation.swift and hub `Hub/crates/b4hub-db/migrations/0018_agent_protocol.sql`; modify `Hub/crates/b4hub-core/src/change.rs`, `writable.rs`, `Hub/crates/b4hub-db/src/{settings,changes,snapshot}.rs`, `Hub/crates/b4hub/src/{routes,serve}.rs`, `routes/{changes,snapshot}.rs`, `relay/link.rs`, `Sources/Coordinator/HubSync/{SyncFilter,HubSync,HubPull,HubLink}.swift`, `Sources/WorkspaceMirror/{MirrorSchema,MirrorMigrations,MirrorSync,MirrorTransport}.swift`, `Sources/WorkspaceSync/HubLinkConnection.swift`, `Sources/WorkspaceSync/HTTPHubAPI.swift`, `HubAPI.swift`, `Wire.swift` and `Tests/Fixtures/sync/changes.json`/relay fixtures.
 
 - [ ] Test joined-v1 creation/admission refusal, immediate local legacy retirement without mirrored writes, unrelated Codex/Claude sync through restart, v2 activation then one normal retirement transaction, never-joined local data refusing v1 join and already-open pull/link fencing.
 - [ ] Run `swift test --filter ProtocolActivationTests` after creating `Tests/CoordinatorTests/ProtocolActivationTests.swift`; run Rust fixtures/private-DB suite with the command above. Expect missing HTTP protocol gates and unknown-kind fixture failures.
@@ -87,7 +128,7 @@ real account database/runtime directories. Real provider tests stay opt-in.
 - [ ] Run `swift test --filter ProtocolProjection`; expect current volatile streamed map/separate writes to fail.
 - [ ] Implement one DB transaction for partial blocks/activity, Run/root associations, sanitized requests, private grants and applied cursor/coverage. Keep immutable intent/canonical correlation records separate from synced presentation rows.
 - [ ] Route Agent Protocol events through this transaction. Missing initial correlation stages canonical IDs then reconciles receipt/Run; never attaches to activeTurn as a fallback. Publish only after commit and stop advancing on write failure.
-- [ ] Run focused tests and existing SessionTests; preserve process-bound Codex/Claude request expiration and directory locks. Keep viewer EventLog epoch/sequence independent of ASP and sync cursors.
+- [ ] Run focused tests and existing SessionTests; preserve process-bound Codex/Claude request expiration and the current per-thread `turn_active` refusal. D-182 removed the directory lock; do not reintroduce it. Preserve D-185's `withVisibleThread` publication fence after the projection commit. Keep viewer EventLog epoch/sequence independent of ASP and sync cursors.
 - [ ] Commit `feat: persist protocol projection and replay progress together`.
 
 Contract assertion:
@@ -127,7 +168,7 @@ a new command/API or a fake alternate persistence implementation.
 
 ### A8: Settings, managed servers and permission presentation
 
-**Files:** Modify `Sources/WorkspaceUI/{ConnectionSheets,ConnectionsView,WorkspaceModel+Connections,NewThreadSheet,PhoneNewThreadSheet,RuntimeRequestView,TranscriptView}.swift`, `Sources/Coordinator/{B4ProjectInspector,LocalServerService}.swift`; create `Sources/Coordinator/B4ManagedServerProbe.swift`; update `Tests/WorkspaceUITests/ConnectionsModelTests.swift`, `Tests/CoordinatorTests/LocalServerTests.swift`.
+**Files:** Modify `Sources/WorkspaceUI/{ConnectionSheets,ConnectionsView,WorkspaceModel+Connections,RuntimeRequestView,TranscriptView,PhoneProjectSheet}.swift`, `Sources/WorkspaceUI/NewThread/{NewThreadView,NewThreadDock,NewThreadDraft,NewThreadMemory,StartOptions,ComposerPickerRow}.swift`, `Sources/Coordinator/{B4ProjectInspector,LocalServerService}.swift`; create `Sources/Coordinator/B4ManagedServerProbe.swift`; update `Tests/WorkspaceUITests/{ConnectionsModelTests,NewThreadDraftTests,PhoneProjectTests}.swift`, `Tests/CoordinatorTests/LocalServerTests.swift`. The removed NewThreadSheet/PhoneNewThreadSheet paths map to this current composer/project flow; preserve D-183's first-message `thread.start`, runtime model/permission selection and project-folder behavior.
 
 - [ ] Test catalog/schema chat filtering, immutable target/profile/agent edits, explicit auth entry/reference lifecycle, retired history state and partial/uncertain activity. Use focused model/UI tests, not trivial rendering snapshots.
 - [ ] Run `swift test --filter ConnectionsModelTests` and `swift test --filter LocalServerTests`; expect typed-route/old-kind assumptions to fail.

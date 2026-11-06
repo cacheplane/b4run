@@ -17,7 +17,7 @@
 
 | Files | Responsibility |
 | --- | --- |
-| `test/agent-protocol/fixtures/upstream/openapi.json`, `protocol.cddl`, `manifest.json` | Original pinned input bytes, hashes, license/source provenance |
+| `test/agent-protocol/fixtures/upstream/openapi.json`, `protocol.cddl`, `LICENSE`, `manifest.json` | Original pinned input bytes, hashes, license/source provenance |
 | `test/agent-protocol/fixtures/corrections.json`, `wire-cases.json` | Exact overlay and independent positive/negative corpus |
 | `packages/sdk/src/agent-protocol/{index,types,metadata,errors}.ts` | Public DTOs, reserved vocabulary and standard/B4 discriminants |
 | `packages/sdk/src/agent-protocol/schema.ts` | B4 v1 schema definitions and source references |
@@ -33,9 +33,10 @@ integration branch's binding replacement.
 
 ### C1: Freeze source inputs and reproduce the correction
 
-**Files:** Create the five fixture files above; create `packages/sdk/test/agent-protocol-inputs.test.ts`, `packages/sdk/scripts/agent-protocol-inputs.mjs` and its `.d.mts` declaration for the shared guarded overlay reader; modify `packages/sdk/package.json` and lockfile to pin the schema validator as a test-only dependency.
+**Files:** Create the six fixture/provenance files above, including verbatim `test/agent-protocol/fixtures/upstream/LICENSE`; create `packages/sdk/test/agent-protocol-inputs.test.ts`, `packages/sdk/scripts/agent-protocol-inputs.mjs` and its `.d.mts` declaration for the shared guarded overlay reader; modify `packages/sdk/package.json` and lockfile to pin the schema validator as a test-only dependency; modify existing formatter owner `packages/config-biome/biome.json` only for a narrow formatter exception for `test/agent-protocol/fixtures/upstream/openapi.json`.
 
-- [ ] Copy exact OpenAPI/CDDL bytes from the audited upstream commit; record SHA256/source URL/license in manifest. Verify against an independent fetch/read of that immutable commit, never moving main.
+- [ ] Copy exact OpenAPI/CDDL/LICENSE bytes from the audited upstream commit; record SHA256/source URL/license in manifest. Verify against an independent fetch/read of that immutable commit, never moving main.
+- [ ] Preserve verbatim OpenAPI formatting through the existing Biome formatter configuration: root lint checks `test/`, and P0 confirmed formatting changes the pinned bytes. Add only the exact upstream OpenAPI formatter exception; keep hand-authored fixtures/scripts and all other applicable checks enabled. Do not reformat normative bytes or exclude the entire fixture directory from lint.
 - [ ] Write tests counting exactly 27 method/path operations, five original RunStream request-required failures, corrected empty RunStream validity and still-required Run response fields. Assert unmodified ordinary text-array Message validates; add no speculative Message overlay.
 - [ ] Run `pnpm --filter @b4run/sdk test agent-protocol-inputs`; verify actual collection count, not a no-tests success.
 - [ ] Implement the shared overlay reader as an exact JSON-pointer removal guarded by original hash and expected array equality. A changed upstream file or unexpectedly shaped target must fail before generation.
