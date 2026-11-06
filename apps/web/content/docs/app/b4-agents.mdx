@@ -9,7 +9,9 @@ A B4 connection points to an agent route on a server. That server owns its model
 
 ## Start with Navlog
 
-Navlog is the maintained B4 example. It prepares a flight plan using weather tools, reference material, and computed results. Read the [Navlog guide](/docs/recipes/navlog) for its current setup and requirements.
+Navlog is the maintained B4 example. It prepares a flight plan using weather tools, reference material, and computed results. You can first [inspect a recorded aircraft lookup](/docs/app/first-conversation#follow-the-same-idea-in-navlog) to see a request, tool call, and result without configuring a server.
+
+When you are ready to run it, read the [Navlog guide](/docs/recipes/navlog) for setup and requirements.
 
 The example needs its own model-provider configuration. Signing in to Codex or Claude Code does not provide the B4 server with a model credential.
 
@@ -29,7 +31,13 @@ Registration inspects project code. Only attach a project you trust. The app dis
 
 ## Follow a turn
 
-Ask Navlog for a bounded planning task, then follow the tool calls and results. A weather result is tied to its observation time. Treat the example as a way to inspect agent behavior, not as verified operational flight-planning advice.
+Start with a read-only request that you can compare with the recorded lesson:
+
+> Read aircraft/c172n.md and tell me the aircraft model, usable fuel, and configured cruise RPM. Cite the file. Do not change any files, fetch weather, or file a flight plan.
+
+Follow `readDoc` and compare its result with the response. The file in your checkout may differ from the pinned revision in the recording, so check the source you are actually running.
+
+Once that works, follow the framework guide for a planning task. A weather result is tied to its observation time. The example demonstrates agent behavior and is not qualified for operational flight planning.
 
 If you ask the example to record a flight plan, it requires approval. Its tool writes a local record and reports that it was **not transmitted**. An approval and a local file are not evidence of an external filing.
 
