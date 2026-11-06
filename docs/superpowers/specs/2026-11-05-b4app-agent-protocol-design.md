@@ -2,8 +2,8 @@
 
 Date: 2026-11-05
 
-Status: Review draft. Approved peer/auth/recovery/data policies are consolidated
-here; concrete fields and protocol activation are for written-spec approval.
+Status: Approved by Brian on 2026-11-05 after independent specification review,
+including concrete fields and protocol activation.
 Canonical destination: b4app `docs/superpowers/specs/` under this filename.
 A byte-identical review copy is kept with the coordinated B4 specifications.
 
@@ -285,7 +285,7 @@ fixture, live and blocked evidence separately in compatibility/milestones/new
 gate files. Add new numbered decisions amending D-019/020/021/023 and the relevant
 connection/sync rules; never edit old decision files or the owner's roadmap.
 
-The planned new kind/protocol-v2 activation and B4 wire names are explicit review
-choices, not changes performed in this branch. This is a standalone client spec
-ready for review and subsequent task planning, not an implementation plan or
+The approved new kind/protocol-v2 activation and B4 wire names are design
+choices, not changes performed in this branch. This standalone client spec is
+ready for task planning; it is not an implementation plan or
 permission to publish, upgrade projects or delete old data.

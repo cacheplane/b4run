@@ -2,14 +2,13 @@
 
 Date: 2026-11-05
 
-Status: Written-spec review draft. Brian approved the behavioral, endpoint,
-data, release and documentation policies in conversation. Concrete wire names,
-coordination interfaces and client activation choices remain subject to this
-written-spec review. No runtime implementation, live conformance result,
+Status: Approved by Brian on 2026-11-05 after independent specification review.
+Approval includes the concrete wire names, coordination interfaces and client
+activation choices in the linked specifications. No runtime implementation, live conformance result,
 publication, project upgrade or data deletion is claimed. Independent wire,
 runtime and client/release reviews approved these drafts after corrections; see
 the [review record](../reports/2026-11-05-agent-protocol-spec-review.md). Brian
-written-spec approval remains pending.
+subsequently approved the written specifications.
 
 B4 replaces its older HTTP dialect with the pinned Agent Protocol resources and
 streaming protocol, preserving native AG-UI and current application functionality.
@@ -72,7 +71,7 @@ runtime/storage, bindings/consumers, Store (approved design), client/sync and
 release/docs qualification. Dependency contracts must settle before overlapping
 work; this is design decomposition, not a task-by-task build plan.
 
-## 3. Concrete choices requiring written review
+## 3. Approved concrete choices
 
 Behavioral approvals remain intact. These concrete resolutions are now explicit:
 
@@ -90,8 +89,7 @@ Behavioral approvals remain intact. These concrete resolutions are now explicit:
 6. b4app's new agentProtocol kind and protocol-v2 activation, preventing old
    mirrors from receiving unknown enum values or unsafe permission controls.
 
-These are reviewable implementation-design choices, not retrospective claims
-that Brian previously selected each field/number. Changing a behavior-level
+These concrete choices were approved in the written-spec review. Changing a behavior-level
 promise during implementation requires returning to that decision; routine
 internal naming does not permit changing the public contract.
 
@@ -251,11 +249,9 @@ unbounded benchmark program or claiming exactly-once external side effects.
 
 ## 9. Review boundary and next artifact
 
-Approve or amend this linked written design before implementation planning.
-The Store spec retains its previous approval; the new wire/runtime/client/release
-specs are drafts until reviewed. Independent review checks the contract against
-the pinned sources and approved policy, then Brian reviews the concrete choices.
-After approval, write dependency-ordered implementation plans per component/repo
+Brian approved this linked written design after independent review. The Store
+spec retains its earlier approval. Write dependency-ordered implementation plans
+per component/repo
 with exact files/tests and release checkpoints. Do not implement or publish from
 this design turn. Source inspection and documentation validation are explicitly
 separate from the future release acceptance results above.

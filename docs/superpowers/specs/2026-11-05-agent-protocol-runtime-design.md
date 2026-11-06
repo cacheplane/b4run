@@ -2,8 +2,8 @@
 
 Date: 2026-11-05
 
-Status: Review draft; approved policies consolidated with concrete coordination
-choices for written-spec approval. No implementation or test pass is claimed.
+Status: Approved by Brian on 2026-11-05 after independent specification review,
+including the concrete coordination choices. No implementation or test pass is claimed.
 
 Read with the wire design and approved Store design in this directory. Baseline
 B4 source is `c1e1796556d0863da735e47822014bafa015ef3f`. The new runtime replaces

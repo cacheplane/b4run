@@ -2,8 +2,8 @@
 
 Date: 2026-11-05
 
-Status: Review draft. Behavioral policies were approved in conversation; concrete
-names, envelopes and bounds below are proposed for written-spec approval.
+Status: Approved by Brian on 2026-11-05 after independent specification review,
+including the concrete names, envelopes and bounds below.
 
 This is the wire contract for the coordinated release. The companion runtime,
 client and release specifications supply persistence, consumer and delivery

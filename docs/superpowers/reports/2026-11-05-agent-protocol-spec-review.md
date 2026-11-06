@@ -3,7 +3,7 @@
 Date: 2026-11-05
 
 Scope: documentation-only design consolidation. Behavioral approvals are
-recorded in the conversation; written-spec approval by Brian is pending.
+recorded in the conversation; Brian approved the linked written specifications on 2026-11-05.
 
 ## Independent review
 
@@ -55,5 +55,5 @@ The client document is byte-identical in both worktrees. No original working
 branch was switched; unrelated dirty files remain untouched. No pushes, PRs,
 tags, publication, deployments, project upgrades or data deletion occurred.
 
-After Brian reviews/approves the written specs, the next deliverable is
+With Brian's written-spec approval recorded, the next deliverable is
 implementation plans with explicit dependency/test/release checkpoints.
