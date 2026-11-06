@@ -255,7 +255,11 @@
     },
     "@b4run/sqlite-storage#test": {
       "dependsOn": ["build", "^test"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts"
+      ]
     },
     "@b4run/sdk#typecheck": {
       "dependsOn": ["build"],

@@ -11,7 +11,10 @@ import type { StartRuntimeServerOptions } from "./runtime-server.js"
  * that part needs no extraction, it is already the single shared assembly
  * point. What both boot paths perform once, ahead of starting the HTTP
  * listener, is refreshing the generated route types so `b4.generated.d.ts`
- * reflects the current route tree. This function is that shared step; both
+ * reflects the current route tree. The new Agent Protocol SQLite installation
+ * is not opened here: coordinated admission/execution must retire the legacy
+ * owners at the real runtime-server/runtime-fetch-core assembly before cutover.
+ * This function is that shared step; both
  * `dev-session.ts` (b4 dev's initial boot) and `serve-runtime.ts`
  * (serveRuntime) call it instead of duplicating discoverRoutes+runTypegen.
  */

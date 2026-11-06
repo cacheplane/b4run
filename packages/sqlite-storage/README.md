@@ -40,6 +40,26 @@ The Node runtime acquires ownership before admitting managed workspace work.
 `openWorkspaceInstallation` exposes guarded source and association stores;
 creation and deletion transitions remain durable across process restarts.
 
+## Agent Protocol runtime installation
+
+`openRuntimeInstallation(appRoot)` opens the fresh local runtime namespace at
+`.b4/agent-protocol/v1/runtime.sqlite` with WAL, foreign keys, and FULL synchronous
+commits. It holds a separate kernel SQLite lock until `close()`, records process
+start/boot identity and a nonce, and refuses declared replicas or cluster workers.
+An incompatible schema or installation marker is inspected without modifying the
+runtime database or its sidecars. Legacy runtime files and independent memory,
+Store, rules, and workspace data are preserved.
+
+This Node host installation API does not bind request authority or activate the
+existing CLI boot paths. The authority bridge and coordinated runtime cutover
+remain required integration work. Internal transaction tests cover atomic grant
+consumption, asynchronous rollback, committed reads, and durable fences; they do
+not certify the full host profile. Copy/state operations await the state service;
+rollback/deletion await maintenance; recovery materialization awaits projection.
+Those controls fail before mutation until their owners implement them. Linux,
+macOS, and Windows have process identity implementations; native platform
+qualification remains separate from the local test evidence.
+
 ## Related
 
 - [SQLite Storage API reference](https://b4.run/docs/api/sqlite-storage) — exact checkpoint and thread-store contracts.
