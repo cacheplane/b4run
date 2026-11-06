@@ -14,7 +14,7 @@ export interface Activity {
   readonly installationId: string
   readonly client?: SqlClient
   active: boolean
-  failure?: unknown
+  failure?: { readonly error: unknown }
 }
 export interface Host {
   uuid(): string

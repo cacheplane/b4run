@@ -702,12 +702,24 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
           code: "pool_capacity",
         })
         await expect(other.pool.query("SELECT 1")).rejects.toMatchObject({ code: "pool_capacity" })
+        await expect(other.advanceFence()).rejects.toMatchObject({ code: "pool_capacity" })
+        expect(pool.waitingCount).toBe(0)
+        expect(
+          (
+            await backend.second.query(
+              `SELECT fence FROM ${naming.schema}.${naming.tablePrefix}_scopes WHERE thread_id=$1`,
+              ["capacity-other"],
+            )
+          ).rows[0].fence,
+        ).toBe("1")
         // Keep the second connection checked out until the lease itself settles.
         // Cleanup must use its own held session rather than queue behind us.
       })
     } finally {
       blocker?.release()
       await other.transaction((tx) => tx.snapshot())
+      const successor = await other.advanceFence()
+      expect((await successor.snapshot()).scope.fence).toBe(2)
       await owner.close()
       await pool.end()
       expect(pool.totalCount).toBe(0)
@@ -837,6 +849,147 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       expect((await store.committedReader().snapshot()).scope.threadId).toBe(ids.thread)
     } finally {
       await owner.close()
+    }
+  })
+  it("rejects nested max-one fence advancement before checkout and preserves both fences", async () => {
+    const { openPostgresRuntimeInstallation } = await runtime()
+    const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+    const pool = backend.pool({ max: 1, connectionTimeoutMillis: 200 })
+    const naming = backend.naming()
+    const owner = await openPostgresRuntimeInstallation({ pool, ...naming })
+    const first = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, { threadId: ids.thread, generation: ids.generation, fence: 1 }),
+    )
+    const other = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, {
+        threadId: "nested-fence",
+        generation: "nested-fence-generation",
+        fence: 1,
+      }),
+    )
+    try {
+      await first.transaction(async () => {
+        await expect(first.advanceFence()).rejects.toThrow(/nested/i)
+        await expect(other.advanceFence()).rejects.toThrow(/nested/i)
+        expect(pool.waitingCount).toBe(0)
+      })
+      expect(
+        (
+          await backend.second.query(
+            `SELECT fence FROM ${naming.schema}.${naming.tablePrefix}_scopes ORDER BY thread_id`,
+          )
+        ).rows,
+      ).toEqual([{ fence: "1" }, { fence: "1" }])
+      const successor = await other.advanceFence()
+      expect((await successor.snapshot()).scope.fence).toBe(2)
+    } finally {
+      await owner.close()
+      await pool.end()
+      expect(pool.totalCount).toBe(0)
+      expect(pool.waitingCount).toBe(0)
+    }
+  })
+  it("permits free other-scope fence advancement from a max-two lease callback", async () => {
+    const { openPostgresRuntimeInstallation } = await runtime()
+    const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+    const pool = backend.pool({ max: 2, connectionTimeoutMillis: 200 })
+    const naming = backend.naming()
+    const owner = await openPostgresRuntimeInstallation({ pool, ...naming })
+    const first = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, { threadId: ids.thread, generation: ids.generation, fence: 1 }),
+    )
+    const other = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, {
+        threadId: "free-fence",
+        generation: "free-fence-generation",
+        fence: 1,
+      }),
+    )
+    try {
+      await first.withReadLease(async () => {
+        await expect(first.advanceFence()).rejects.toThrow(/nested/i)
+        const successor = await other.advanceFence()
+        expect((await successor.snapshot()).scope.fence).toBe(2)
+      })
+      expect(
+        (await backend.second.query(`SELECT * FROM ${naming.schema}.${naming.tablePrefix}_leases`))
+          .rows,
+      ).toEqual([])
+    } finally {
+      await owner.close()
+      await pool.end()
+      expect(pool.totalCount).toBe(0)
+      expect(pool.waitingCount).toBe(0)
+    }
+  })
+  it("rejects callback-time raw-pool capacity waits before checkout", async () => {
+    const { openPostgresRuntimeInstallation } = await runtime()
+    const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+    const pool = backend.pool({ max: 1, connectionTimeoutMillis: 200 })
+    const owner = await openPostgresRuntimeInstallation({ pool, ...backend.naming() })
+    const first = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, { threadId: ids.thread, generation: ids.generation, fence: 1 }),
+    )
+    const other = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, {
+        threadId: "raw-pool-other",
+        generation: "raw-pool-generation",
+        fence: 1,
+      }),
+    )
+    try {
+      await first.transaction(async () => {
+        await expect(other.pool.query("SELECT 1")).rejects.toMatchObject({ code: "pool_capacity" })
+        expect(pool.waitingCount).toBe(0)
+      })
+      expect((await other.pool.query<{ n: number }>("SELECT 1 AS n")).rows[0]?.n).toBe(1)
+    } finally {
+      await owner.close()
+      await pool.end()
+      expect(pool.totalCount).toBe(0)
+      expect(pool.waitingCount).toBe(0)
+    }
+  })
+  it("rejects internal binding from an active max-one transaction before creating another scope", async () => {
+    const { openPostgresRuntimeInstallation } = await runtime()
+    const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+    const pool = backend.pool({ max: 1, connectionTimeoutMillis: 200 })
+    const naming = backend.naming()
+    const owner = await openPostgresRuntimeInstallation({ pool, ...naming })
+    const first = await bindRuntimeStore(
+      owner,
+      createRuntimeBinding(owner, { threadId: ids.thread, generation: ids.generation, fence: 1 }),
+    )
+    const capability = createRuntimeBinding(owner, {
+      threadId: "nested-binding",
+      generation: "nested-binding-generation",
+      fence: 1,
+    })
+    try {
+      await first.transaction(async () => {
+        await expect(bindRuntimeStore(owner, capability)).rejects.toThrow(/nested/i)
+        expect(pool.waitingCount).toBe(0)
+      })
+      expect(
+        (
+          await backend.second.query(
+            `SELECT count(*)::int AS n FROM ${naming.schema}.${naming.tablePrefix}_scopes`,
+          )
+        ).rows[0].n,
+      ).toBe(1)
+      const free = await bindRuntimeStore(owner, capability)
+      expect((await free.snapshot()).scope.threadId).toBe("nested-binding")
+    } finally {
+      await owner.close()
+      await pool.end()
+      expect(pool.totalCount).toBe(0)
+      expect(pool.waitingCount).toBe(0)
     }
   })
 })

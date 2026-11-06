@@ -292,4 +292,167 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       await fixture.close()
     }
   })
+  it.each(["put", "putWrites"])(
+    "caught pre-SQL %s validation rolls back the complete outer transaction",
+    async (method) => {
+      const fixture = await bound(backend)
+      const saver = fixture.store.checkpointer(run.run.run_id)
+      try {
+        await fixture.store.transaction(async (tx) => {
+          await tx.runs.put(run)
+          await tx.thread.put(thread)
+        })
+        let childError: unknown
+        await expect(
+          fixture.store.transaction(async (tx) => {
+            await tx.thread.put({ ...thread, revision: 2 })
+            try {
+              if (method === "put") await saver.put({ configurable: {} }, checkpoint, metadata, {})
+              else await saver.putWrites({ configurable: {} }, [["messages", "pending"]], "task")
+            } catch (error) {
+              childError = error
+            }
+          }),
+        ).rejects.toThrow(/thread_id is required/)
+        expect(childError).toBeInstanceOf(Error)
+        expect((await fixture.observer.snapshot()).revision).toBe(1)
+      } finally {
+        await fixture.close()
+      }
+    },
+  )
+  it.each(["put", "putWrites"])(
+    "caught pre-SQL %s serializer failure rolls back and preserves the original error",
+    async (method) => {
+      const fixture = await bound(backend)
+      const saver = fixture.store.checkpointer(run.run.run_id)
+      const original = saver.serde.dumpsTyped
+      const injected = new Error("injected pre-SQL serialization failure")
+      try {
+        await fixture.store.transaction(async (tx) => {
+          await tx.runs.put(run)
+          await tx.thread.put(thread)
+        })
+        saver.serde.dumpsTyped = async () => {
+          throw injected
+        }
+        const operation = () =>
+          method === "put"
+            ? saver.put(config, checkpoint, metadata, {})
+            : saver.putWrites(
+                {
+                  ...config,
+                  configurable: { ...config.configurable, checkpoint_id: checkpoint.id },
+                },
+                [["messages", "pending"]],
+                "task",
+              )
+        await expect(operation()).rejects.toBe(injected)
+        await expect(
+          fixture.store.transaction(async (tx) => {
+            await tx.thread.put({ ...thread, revision: 2 })
+            try {
+              await operation()
+            } catch (error) {
+              expect(error).toBe(injected)
+            }
+          }),
+        ).rejects.toBe(injected)
+        expect((await fixture.observer.snapshot()).revision).toBe(1)
+      } finally {
+        saver.serde.dumpsTyped = original
+        await fixture.close()
+      }
+    },
+  )
+  it("caught falsy serializer rejection still aborts the outer transaction", async () => {
+    const fixture = await bound(backend)
+    const saver = fixture.store.checkpointer(run.run.run_id)
+    const original = saver.serde.dumpsTyped
+    try {
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(run)
+        await tx.thread.put(thread)
+      })
+      saver.serde.dumpsTyped = async () => Promise.reject(undefined)
+      await expect(
+        fixture.store.transaction(async (tx) => {
+          await tx.thread.put({ ...thread, revision: 2 })
+          try {
+            await saver.put(config, checkpoint, metadata, {})
+          } catch {}
+        }),
+      ).rejects.toBeUndefined()
+      expect((await fixture.observer.snapshot()).revision).toBe(1)
+    } finally {
+      saver.serde.dumpsTyped = original
+      await fixture.close()
+    }
+  })
+  it("caught list deserialization rejection poisons its complete async-iteration lifetime", async () => {
+    const fixture = await bound(backend)
+    const saver = fixture.store.checkpointer(run.run.run_id)
+    const original = saver.serde.loadsTyped
+    const injected = new Error("injected list deserialization failure")
+    try {
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(run)
+        await tx.thread.put(thread)
+      })
+      await saver.put(config, checkpoint, metadata, {})
+      saver.serde.loadsTyped = async () => {
+        throw injected
+      }
+      const iterator = saver.list(config)
+      await expect(
+        fixture.store.transaction(async (tx) => {
+          await tx.thread.put({ ...thread, revision: 2 })
+          try {
+            for await (const tuple of iterator) void tuple
+          } catch (error) {
+            expect(error).toBe(injected)
+          }
+        }),
+      ).rejects.toBe(injected)
+      expect((await fixture.observer.snapshot()).revision).toBe(1)
+    } finally {
+      saver.serde.loadsTyped = original
+      await fixture.close()
+    }
+  })
+  it("keeps standalone saver reads, lazy list termination and later writes usable", async () => {
+    const fixture = await bound(backend)
+    const saver = fixture.store.checkpointer(run.run.run_id)
+    try {
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(run)
+        await tx.thread.put(thread)
+      })
+      await expect(saver.put({ configurable: {} }, checkpoint, metadata, {})).rejects.toThrow(
+        /thread_id is required/,
+      )
+      await saver.put(config, checkpoint, metadata, {})
+      expect((await saver.get(config))?.id).toBe(checkpoint.id)
+      expect(await saver.listNamespaces(scope.threadId)).toEqual([""])
+      let seen = 0
+      for await (const tuple of saver.list(config)) {
+        expect(tuple.checkpoint.id).toBe(checkpoint.id)
+        seen++
+        break
+      }
+      expect(seen).toBe(1)
+      await saver.putWrites(
+        { ...config, configurable: { ...config.configurable, checkpoint_id: checkpoint.id } },
+        [["messages", "after-list"]],
+        "task",
+      )
+      expect((await saver.getTuple(config))?.pendingWrites).toEqual([
+        ["task", "messages", "after-list"],
+      ])
+      await saver.close()
+      expect((await fixture.observer.snapshot()).revision).toBe(1)
+    } finally {
+      await fixture.close()
+    }
+  })
 })

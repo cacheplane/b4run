@@ -2,7 +2,7 @@ import type { RuntimeStorageScope } from "@b4run/sdk/agent-protocol"
 import { withTransaction } from "../internal/tx.js"
 import { installationContext, type PostgresRuntimeInstallation } from "./index.js"
 import { table } from "./schema.js"
-import { diagnostic, makeRuntimeStore } from "./transaction.js"
+import { assertRuntimeWriteEntry, diagnostic, makeRuntimeStore } from "./transaction.js"
 
 const bindings = new WeakMap<
   object,
@@ -31,6 +31,7 @@ export async function bindRuntimeStore(
     throw new Error("Unrecognized internal runtime binding")
   const context = installationContext(installation)
   const { scope } = binding
+  assertRuntimeWriteEntry(installation, scope)
   context.pending++
   try {
     await withTransaction(context.pool, async (client) => {

@@ -51,6 +51,18 @@ export interface Access {
 export function diagnostic(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code })
 }
+/** Reject callback reentry/resource waits before a write acquires a client or
+ * changes pending accounting. Internal resource validation, not authority. */
+export function assertRuntimeWriteEntry(
+  owner: PostgresRuntimeInstallation,
+  scope: RuntimeStorageScope,
+): void {
+  const context = installationContext(owner)
+  const current = context.host.activity.getStore()
+  if (current?.kind === "transaction" || current?.scopeKey === scopeKey(owner, scope))
+    throw new Error("Nested runtime transaction or lease would deadlock")
+  if (current?.kind === "lease") context.host.assertWorkCapacity()
+}
 export function requireSame(actual: unknown, expected: unknown): void {
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     throw diagnostic("scope_mismatch", "Runtime record belongs to a different scope")
@@ -293,7 +305,7 @@ export function makeRuntimeStore(
     if (current?.owner === owner && current.scopeKey === key) {
       if (!current.active)
         throw diagnostic("closed_transaction", "Runtime transaction context is no longer active")
-      if (current.failure) throw current.failure
+      if (current.failure) throw current.failure.error
     }
   }
   const enlist = () => {
@@ -309,7 +321,7 @@ export function makeRuntimeStore(
       client: current.client,
       check: usable,
       fail(error: unknown) {
-        current.failure ??= error
+        current.failure ??= { error }
       },
     }
   }
@@ -354,7 +366,7 @@ export function makeRuntimeStore(
     async end() {},
     async connect() {
       usable()
-      if (context.host.activity.getStore()?.kind === "lease") context.host.assertWorkCapacity()
+      if (context.host.activity.getStore()) context.host.assertWorkCapacity()
       context.pending++
       try {
         const client = await context.pool.connect()
@@ -388,10 +400,7 @@ export function makeRuntimeStore(
   })
   const transaction = async <T>(callback: (tx: RuntimeTransaction) => Promise<T>): Promise<T> => {
     usable()
-    const current = context.host.activity.getStore()
-    if (current?.kind === "transaction" || current?.scopeKey === key)
-      throw new Error("Nested runtime transaction or lease would deadlock")
-    if (current?.kind === "lease") context.host.assertWorkCapacity()
+    assertRuntimeWriteEntry(owner, scope)
     context.pending++
     try {
       // Lock before scope validation, using the same connection that every
@@ -428,7 +437,7 @@ export function makeRuntimeStore(
                 )
             },
             fail(error) {
-              activity.failure ??= error
+              activity.failure ??= { error }
             },
           }),
         })
@@ -438,7 +447,7 @@ export function makeRuntimeStore(
           const result = await context.host.activity.run(activity, () =>
             callback(makeTransaction(makeAccess(owner, client, scope, now, () => active))),
           )
-          if (activity.failure) throw activity.failure
+          if (activity.failure) throw activity.failure.error
           await validate(raw)
           return result
         } finally {
@@ -553,15 +562,57 @@ export function makeRuntimeStore(
           }
         },
       })
-      return new B4PostgresSaver({
+      const saver = new B4PostgresSaver({
         pool: saverPool,
         schema: context.naming.schema,
         tablePrefix: `${context.naming.prefix}_native`,
         assumeMigrated: true,
       })
+      const fail = (error: unknown) => {
+        const current = context.host.activity.getStore()
+        if (
+          current?.kind === "transaction" &&
+          current.active &&
+          current.owner === owner &&
+          current.scopeKey === key
+        )
+          current.failure ??= { error }
+      }
+      const protect =
+        <Args extends unknown[], Value>(operation: (...args: Args) => Promise<Value>) =>
+        async (...args: Args): Promise<Value> => {
+          try {
+            return await operation(...args)
+          } catch (error) {
+            fail(error)
+            throw error
+          }
+        }
+      const list = saver.list.bind(saver)
+      // Cover preparation and deserialization as well as enlisted SQL. Keep
+      // list lazy, forwarding next/return/throw through its complete lifetime.
+      return Object.assign(saver, {
+        ready: protect(saver.ready.bind(saver)),
+        close: protect(saver.close.bind(saver)),
+        get: protect(saver.get.bind(saver)),
+        getTuple: protect(saver.getTuple.bind(saver)),
+        listNamespaces: protect(saver.listNamespaces.bind(saver)),
+        put: protect(saver.put.bind(saver)),
+        putWrites: protect(saver.putWrites.bind(saver)),
+        deleteThread: protect(saver.deleteThread.bind(saver)),
+        async *list(...args: Parameters<B4PostgresSaver["list"]>) {
+          try {
+            yield* list(...args)
+          } catch (error) {
+            fail(error)
+            throw error
+          }
+        },
+      })
     },
     async advanceFence() {
       usable()
+      assertRuntimeWriteEntry(owner, scope)
       context.pending++
       try {
         await withTransaction(context.pool, async (client) => {
