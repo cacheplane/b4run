@@ -1,5 +1,21 @@
 # @b4run/cli
 
+## 0.15.9
+
+### Patch Changes
+
+- dd4271c: Accept array-valued LangGraph checkpoint interrupts when resuming approvals, while preserving validation of every interrupt and rejection of duplicate or ambiguous identifiers. This fixes Navlog approval continuation with newer installed LangGraph versions.
+- 4190d2a: Include the App guides in the bundled documentation and resolve the App overview from its directory index.
+  - @b4run/ag-ui@0.15.9
+  - @b4run/core@0.15.9
+  - @b4run/langchain@0.15.9
+  - @b4run/langgraph@0.15.9
+  - @b4run/memory@0.15.9
+  - @b4run/permissions@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/sqlite-storage@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

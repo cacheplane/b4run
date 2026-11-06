@@ -1,5 +1,17 @@
 # @b4run/testing
 
+## 0.15.9
+
+### Patch Changes
+
+- Updated dependencies [dd4271c]
+- Updated dependencies [4190d2a]
+  - @b4run/cli@0.15.9
+  - @b4run/core@0.15.9
+  - @b4run/memory@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @b4run/sandbox
 
+## 0.15.9
+
+### Patch Changes
+
+- @b4run/sdk@0.15.9
+- @b4run/workspace@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes
