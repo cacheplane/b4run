@@ -152,9 +152,9 @@
       "recordDigest": "e54fb7b0ccde7049632bab994d1bf205aaafb7003c5f33702c3e0f3bbd66156a"
     },
     "/docs/app/b4-agents": {
-      "lastModified": "2026-11-06T05:09:32.087Z",
-      "sourceDigest": "8f6399d5ef462b359666e705d7ab50e19d5a8ae69631e99c6a411ad5a35a22cd",
-      "recordDigest": "efaec5503202ec5902803e3bb57ea374477ab639dc92ac72ffbb8204564252f2"
+      "lastModified": "2026-11-06T16:46:36.000Z",
+      "sourceDigest": "4215f1ad4f95eb90e7cefb73d40268cbea784df871161bef49931ea356be66ba",
+      "recordDigest": "521d9e9de338f71c1daa1d69c86f1fd7b7b86badf4d546758a3c4ab0bc6e714a"
     },
     "/docs/app/claude-code": {
       "lastModified": "2026-11-06T05:09:32.087Z",
@@ -167,9 +167,9 @@
       "recordDigest": "c6269f84b352be96148b2f50f58cde0bfaf4deae3ba563ef81149a35d99b36ba"
     },
     "/docs/app/first-conversation": {
-      "lastModified": "2026-11-06T15:50:27.000Z",
-      "sourceDigest": "54086924e2bd877d1331ccd747f160e49d0b704a80581e0d192a8e78ff95889f",
-      "recordDigest": "fda0d62dcd6c1d1754ee9af265cfc3e0980c4c89d156c01cd7a532accada9139"
+      "lastModified": "2026-11-06T16:46:36.000Z",
+      "sourceDigest": "72daf2b37fdb9cbdcd226872ef566fee81e033c2ce9ef865cd994a6a96475db8",
+      "recordDigest": "1c323d55f13d40b0d45a4a9ea20786fdf9a18402f7e29f853e36170ea464eee1"
     },
     "/docs/app/install": {
       "lastModified": "2026-11-06T05:15:17.834Z",
@@ -382,9 +382,9 @@
       "recordDigest": "b7a3dc93009bb7e74f8f75ec3161c5a1b45164b79b0eb9ef204303d768474b83"
     },
     "/docs/recipes/flight-planner": {
-      "lastModified": "2026-10-15T21:35:55.000Z",
-      "sourceDigest": "825c003c3de89df1ce96e61b92c1bece1b4a6fa2a80959e08991e5a03930c167",
-      "recordDigest": "abc562b3c5c3daa4935af6462325af331ee91d99c97117a2f801beba64035d9d"
+      "lastModified": "2026-11-06T16:46:36.000Z",
+      "sourceDigest": "aafb123aebb21b93c6439ef50406cbdeaf42d36d0781fc9c297ad70d8e9ece37",
+      "recordDigest": "eee0daa314598789b6516747c1e6c6b3556ee5f4e5cacb5896bd97529e1d0f13"
     },
     "/docs/recipes/flight-planner-web-ui": {
       "lastModified": "2026-10-18T19:16:30.000Z",
@@ -392,9 +392,9 @@
       "recordDigest": "68fcd65c99d07f717f8e5500a7eeb2d1dab18c1ba4073702b55a2b8535b6f30d"
     },
     "/docs/recipes/navlog": {
-      "lastModified": "2026-10-15T21:27:49.000Z",
-      "sourceDigest": "61e1b839e3973fb6376d635832afae65946174b89a8b14901ebf265a51a862a8",
-      "recordDigest": "c31e292278cc6b3d3fe08c83e130239b805c7f3587310ea9676af549b5f289f4"
+      "lastModified": "2026-11-06T16:46:36.000Z",
+      "sourceDigest": "121c1a6ec852fe5669a77ff4eac88db830f711d899630f7a67a1ca232d15c3b8",
+      "recordDigest": "49ea36dc3779cf493288dee58673efc273d09859ed737096ba919ae3c0f89525"
     },
     "/docs/recipes/retry-flaky-tools": {
       "lastModified": "2026-09-29T18:42:00.000Z",

@@ -22,3 +22,9 @@ Added reciprocal app links from the framework Navlog and flight-planner recipes.
 The public text does not claim the missing video exists. `docs/media/app-docs/storyboards.md` records the remaining demonstration sequence and capture requirements. The completed beta lesson does not establish provider-specific, approval or phone live coverage. The stale checkpoint blocker in the release sheet is now marked resolved with its evidence.
 
 This review qualifies prose against the available evidence, not production launch readiness. Download and release acceptance gates remain open as authorized earlier.
+
+### Validation
+
+Content revision: `ad17b14e4`. Inspector/export/manifest suites: 54 tests across 11 files passed. Repository `node scripts/check-docs.mjs`: passed. Production website build: passed. Regenerated lastmod for exactly the four edited public routes; lastmod content and route checks passed. Built SEO audit: 117 indexed pages, 92 docs, 92 documentation OG images, zero failures. The first audit attempt had no server listening on its expected port; starting the built site on loopback port 3018 and rerunning resolved that prerequisite failure.
+
+No application code, public recordings or runtime dependencies changed in this editorial pass. Full repository CI and real-device/release acceptance were not rerun; their existing qualification limits remain open.

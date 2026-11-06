@@ -65,3 +65,12 @@ Files: the ten MDX pages, `apps/web/lib/turn-inspector/lessons.ts`, review recor
 - [ ] View every page at desktop and phone widths, keyboard-only and 200% zoom. Confirm headings/readability, video controls/captions, noncompeting playback, readable tool payloads and Source selection. Check the entire lesson remains understandable with JavaScript disabled or capture loading failed.
 - [ ] After final edits, run `pnpm --filter @b4run/web seo:lastmod` before route tests or the build and commit its generated manifest. Run web tests, typecheck, lint and build; root `node scripts/check-docs.mjs` after prerequisite builds; run `seo:lastmod:check`, `seo:lastmod:routes` and `seo:audit-built` with the web filter after the final build. Run the applicable root CI gate set; prose-only classification does not cover media components, scripts or CSS.
 - [ ] Record exact results in `docs/verification/app-docs-editorial-review.md`, including any unavailable real-device/runtime checks. Prepare final PR(s) and preview links. Do not mark production docs complete while installation or key behavioral claims are unverified; do not publish or merge as part of this planning task.
+
+## Execution checkpoint — November 6
+
+- Ten source-backed text guides exist; production acceptance remains open and authorized download placeholders are retained.
+- The first-conversation lesson now teaches the compact inspector's real controls and all three admitted moments. The B4 setup path starts with the same read-only lookup. Both framework recipes link back to the app path.
+- The editorial review is recorded in `docs/verification/app-docs-editorial-review.md`; the release sheet now distinguishes the resolved checkpoint defect and qualified beta capture from production gates.
+- Overview, provider setup, first-conversation and approval storyboards are prepared in `docs/media/app-docs/storyboards.md`. Media provenance explicitly records that native video/captions/poster are not yet available.
+- Next execution: capture native footage and protocol events from the same controlled beta take, review/admit matching assets, then implement and test accessible video/exclusive playback. Do not pair new native footage with the old capture as if they were one take. The independent lesson-checker CLI and final production acceptance remain unfinished.
+- Current checks: 54 focused tests, docs completeness, production build, lastmod checks and built SEO audit passed. See the editorial record for exact scope and prerequisites.
