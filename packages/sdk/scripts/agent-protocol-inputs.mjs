@@ -57,5 +57,9 @@ export function readAgentProtocolInputs({ fixturesDirectory = defaultFixturesDir
     correctedOpenapi: applyAgentProtocolCorrection(originalOpenapi),
     manifest: JSON.parse(readFileSync(join(fixturesDirectory, "upstream/manifest.json"), "utf8")),
     corrections,
+    sourceTexts: {
+      cddl: bytes["protocol.cddl"].toString("utf8"),
+      license: bytes.LICENSE.toString("utf8"),
+    },
   }
 }

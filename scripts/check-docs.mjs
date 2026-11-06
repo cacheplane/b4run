@@ -1026,6 +1026,9 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./tool-step.schema.json", "detailed", "surfaceKind", "metadata"],
   ["import:@b4run/sdk:./answer.schema.json", "detailed", "surfaceKind", "metadata"],
+  ["import:@b4run/sdk:./agent-protocol", "catalog-only", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sdk:./agent-protocol.schema.json", "catalog-only", "surfaceKind", "metadata"],
+  ["import:@b4run/sdk:./agent-protocol.fixtures.json", "catalog-only", "surfaceKind", "metadata"],
   ["import:@b4run/cli:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./fetch", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/cli:./runtime", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1088,6 +1091,36 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
 ]
 
 const EXPECTED_FINAL_API_ARTIFACT_POLICIES = [
+  [
+    "import:@b4run/sdk:./agent-protocol",
+    "catalog-only",
+    "typescript-runtime",
+    "edge-safe",
+    "dependency-free",
+    "tooling",
+    "supported",
+    null,
+  ],
+  [
+    "import:@b4run/sdk:./agent-protocol.schema.json",
+    "catalog-only",
+    "metadata",
+    null,
+    null,
+    "tooling",
+    "supported",
+    null,
+  ],
+  [
+    "import:@b4run/sdk:./agent-protocol.fixtures.json",
+    "catalog-only",
+    "metadata",
+    null,
+    null,
+    "tooling",
+    "supported",
+    null,
+  ],
   [
     "import:@b4run/config-biome:.",
     "internal",
@@ -1336,6 +1369,7 @@ function apiArtifactAddress(artifact) {
 }
 
 const DEPENDENCY_FREE_API_ADDRESSES = new Set([
+  "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/sdk:./pure",
   "import:@b4run/memory:./browse",
   "import:@b4run/workspace:.",
@@ -1344,6 +1378,7 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/langgraph:./route-module",
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
+  "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/ag-ui:./copilotkit-runtime",
   "import:@b4run/sdk:.",
   "import:@b4run/sdk:./pure",
@@ -4290,15 +4325,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 59 || new Set(artifactAddresses).size !== 59) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 59 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 62 || new Set(artifactAddresses).size !== 62) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 62 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 55 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 58 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 55 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 58 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

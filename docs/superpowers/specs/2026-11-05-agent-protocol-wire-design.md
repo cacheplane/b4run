@@ -576,3 +576,96 @@ Store approval remains its independently approved body
 carrier. Trace-only langsmithTracer is validated and honored where tracing is
 configured or rejected explicitly before acceptance; it does not enable a
 LangSmith wire dialect or change the submission's execution identity.
+
+## 14. Approved v1 wire clarifications
+
+Brian approved these four concrete type/key clarifications by replying “Continue”
+to the reviewed proposal on 2026-11-06. The reviewed proposal SHA256 is
+`93ba70dfa1e446aa52ea77b0dc6dd45f70337e679a7c0f462c46667291cbb3a1`.
+They fill the gaps in sections 3, 8, 12 and 13 without changing existing operation
+semantics, limits/defaults, resource paths, authorization, retention or source pins.
+
+### History anchor
+
+`history.anchor` is a required nonempty opaque string identifying the frozen
+history selection. Clients store/compare it for equality and do not parse it
+or treat it as authority. It remains stable while paging that selection, including
+empty history. Clients send the existing checkpoint UUID or returned `b4h1.`
+cursor in `before`; the anchor introduces no request member. `nextBefore` remains `null|string`; existing authorized cursor and
+history-changed/history-expired rules apply. The selection follows the existing
+generation/revision/branch/namespace scope; it creates no checkpoint or authority.
+No equality guarantee is added across independently selected histories.
+
+### Input disposition custom fact
+
+For `custom` data named `b4.input`, use this payload:
+
+```ts
+{ v: 1; inputId: UUID; runId: UUID; turnId: UUID;
+  disposition: "accepted" | "applied" | "not_applied"; reason?: string }
+```
+
+`runId` is the exact injection target, never a successor. The event's standard
+namespace and top-level B4 correlation retain their existing meanings. Only the
+already-approved durable transitions produce these dispositions. This payload
+contains no grant, submission token, full receipt or injected message text.
+Authorized exact receipt lookup remains the operation-reconciliation mechanism.
+`reason` is a public, sanitized disposition explanation, not private diagnostics
+or copied input. Unknown optional server extension fields remain preservable.
+
+### Agent metadata schema and limit keys
+
+`metadata.b4.schemas` is an extensible object with these known optional keys;
+unsupported schema-bearing controls are omitted. A supported schema-bearing
+control must publish its schema; an unknown schema prevents claiming support:
+
+- `injectionInput`, `stateEdit`, `resumeUpdate`, `resumeGoto`, `resumeConfig`,
+  `recovery`: JSON Schema objects for the named existing feature.
+- `custom`: map of custom event name to JSON Schema object, including the existing
+  reserved B4 custom facts where supported.
+
+`metadata.b4.limits` is an extensible object. Values are effective maxima, never
+remaining quota or a grant of support. Required common fields are
+`requestBytes:uint` and `pendingPrompts:uint`. Known optional fields/groups are:
+
+```ts
+snapshotBytes?: uint; eventBytes?: uint;
+inbox?: { entries: uint; bytes: uint; textBytes: uint };
+viewer?: { events: uint; bytes: uint };
+inspection?: {
+  requestBytes: uint; responseBytes: uint;
+  defaults: { maxEntries: uint; maxFileBytes: uint; maxTotalBytes: uint };
+  caps: { maxEntries: uint; maxFileBytes: uint; maxTotalBytes: uint };
+};
+staging?: { uploadBytes: uint; quotaBytes: uint; deadlineMs: uint };
+```
+
+A present group has all its listed members. Each supported feature requires its
+applicable group (`inbox` for injection, `viewer` for ASP observation, and the
+corresponding inspection/staging groups); only unavailable features omit them.
+Every enforced configured snapshot/event ceiling must be advertised in
+`snapshotBytes`/`eventBytes`. An unknown required limit prevents a support claim;
+omission never means unlimited capacity. Existing capability/schema guards
+still control whether a feature is usable. Optional output fields represent genuinely inapplicable or unconfigured ceilings,
+not uncertainty about an enforced ceiling. No new numeric defaults are chosen here. Use the already-approved 1 MiB request, 64 prompts, inbox128/1 MiB/
+64 KiB text, viewer1024/4 MiB, inspection defaults/caps and effective configured
+staging/output ceilings. Preserve unknown server extension fields.
+
+### Webhook delivery summary
+
+While an accepted webhook's bounded delivery record is retained, Run metadata
+contains the summary below. It is omitted when no webhook was accepted or after
+that delivery record expires under the approved retention rules:
+
+```ts
+webhook?: { state: "pending" | "delivered" | "failed"; attempts: uint }
+```
+
+This object has only these two members. Pending includes queued, in-flight and
+backoff delivery; delivered means confirmed successful delivery; failed means
+terminal failure/budget exhaustion under the approved policy. Attempts counts
+durably started/reserved delivery attempts (0 through the existing maximum five),
+including an in-flight attempt. Reserve/increment before network send so a crash
+cannot create an uncounted retry. This is an attempt count, not a success count.
+An absent webhook is represented by omission. Existing callback payload, at-least-
+once semantics, retry budget, authority and refusal behavior stay in force.

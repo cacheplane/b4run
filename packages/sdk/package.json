@@ -43,7 +43,13 @@
       "default": "./dist/testing/index.js"
     },
     "./tool-step.schema.json": "./dist/tool-step.schema.json",
-    "./answer.schema.json": "./dist/answer.schema.json"
+    "./answer.schema.json": "./dist/answer.schema.json",
+    "./agent-protocol": {
+      "types": "./dist/agent-protocol/index.d.ts",
+      "default": "./dist/agent-protocol/index.js"
+    },
+    "./agent-protocol.schema.json": "./dist/agent-protocol.schema.json",
+    "./agent-protocol.fixtures.json": "./dist/agent-protocol.fixtures.json"
   },
   "publishConfig": {
     "access": "public"

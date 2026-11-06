@@ -22,4 +22,5 @@ export function readAgentProtocolInputs(options?: { fixturesDirectory?: string }
   correctedOpenapi: OpenApiDocument
   manifest: AgentProtocolManifest
   corrections: AgentProtocolCorrections
+  sourceTexts: { cddl: string; license: string }
 }

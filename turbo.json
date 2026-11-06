@@ -233,7 +233,9 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
-        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs"
+        "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
+        "$TURBO_ROOT$/test/agent-protocol/fixtures/**",
+        "$TURBO_ROOT$/turbo.json"
       ]
     },
     "@b4run/vite-plugin#test": {
@@ -253,6 +255,11 @@
     "@b4run/sqlite-storage#test": {
       "dependsOn": ["build", "^test"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts"]
+    },
+    "@b4run/sdk#build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/agent-protocol/fixtures/**"],
+      "outputs": ["dist/**"]
     }
   }
 }
