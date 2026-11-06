@@ -180,8 +180,44 @@ function makeTransaction(access: Access): RuntimeTransaction {
           (grant.expiresAt !== null && Date.parse(grant.expiresAt) <= Date.parse(access.now()))
         )
           return false
-        await grants.put({ ...grant, consumedByRunId: continuationRunId })
-        return true
+        access.check()
+        // Awaited reads can interleave even inside this single transaction.
+        // Compare the validated records again in the same statement that wins
+        // consumption, and keep its canonical column and payload inseparable.
+        const result = db
+          .prepare(`
+          UPDATE grants SET consumed_by_run_id=?,payload=?
+          WHERE id=? AND thread_id=? AND generation=?
+            AND consumed_by_run_id IS NULL AND payload=?
+            AND EXISTS (
+              SELECT 1 FROM threads WHERE thread_id=? AND generation=?
+                AND current_run_id=? AND paused_generation=? AND payload=?
+            )
+            AND EXISTS (
+              SELECT 1 FROM pending WHERE id=? AND thread_id=? AND generation=?
+                AND owner_run_id=? AND status='pending' AND namespace=? AND payload=?
+            )
+        `)
+          .run(
+            continuationRunId,
+            JSON.stringify({ ...grant, consumedByRunId: continuationRunId }),
+            id,
+            scope.threadId,
+            scope.generation,
+            JSON.stringify(grant),
+            scope.threadId,
+            scope.generation,
+            grant.ownerRunId,
+            grant.pausedGeneration,
+            JSON.stringify(current),
+            grant.inputId,
+            scope.threadId,
+            scope.generation,
+            grant.ownerRunId,
+            JSON.stringify(grant.namespace),
+            JSON.stringify(pending),
+          )
+        return result.changes === 1
       },
     },
     receipts: makeRecords(access, receiptSpec),
@@ -254,6 +290,8 @@ export function makeRuntimeStore(
       (current?.kind === "lease" && current.scopeKey === scopeKey)
     )
       throw new Error("Nested runtime transaction or lease would deadlock")
+    if (current?.kind === "lease" && (context.leaseRequests.get(scopeKey)?.count ?? 0) > 0)
+      throw new Error("Lease callback cannot wait behind another scoped lease")
     const previous = context.scopeTails.get(scopeKey) ?? Promise.resolve()
     let release!: () => void
     const tail = new Promise<void>((resolve) => {
@@ -367,52 +405,68 @@ export function makeRuntimeStore(
       )
       return makeRuntimeStore(installation, { ...scope, fence: scope.fence + 1 }, now)
     },
-    withReadLease: (callback) =>
-      scopeExclusive(async () => {
-        const lease = await exclusive(async () => {
-          const db = context.db
-          let active = true
-          db.exec("BEGIN IMMEDIATE")
-          try {
-            const tx = makeTransaction(makeAccess(installation, db, scope, now, () => active))
-            const snapshot = await tx.snapshot()
-            const leaseId = randomUUID()
-            db.prepare("INSERT INTO leases VALUES (?,?,?,?,?,?,?)").run(
-              leaseId,
-              scope.threadId,
-              scope.generation,
-              scope.fence,
-              snapshot.revision,
-              snapshot.throughSeq,
-              context.lock.identity.nonce,
-            )
-            db.exec("COMMIT")
-            return { leaseId, snapshot }
-          } finally {
-            active = false
-            if (db.isTransaction) db.exec("ROLLBACK")
-          }
-        })
-        // Only this generation is excluded during provider/unwind work. The
-        // installation writer queue and SQLite transaction have been released.
-        try {
-          return await context.activity.run({ kind: "lease", scopeKey }, () => callback(lease))
-        } finally {
-          await exclusive(async () => {
-            const access = makeAccess(installation, context.db, scope, now, () => true)
-            context.db.exec("BEGIN IMMEDIATE")
+    withReadLease: async (callback) => {
+      installationContext(installation)
+      // Lease nesting is unsupported. Cross-Thread transactions are allowed
+      // only when they cannot wait behind a held or queued scoped lease.
+      if (context.activity.getStore())
+        throw new Error("Nested runtime read lease acquisition is not supported")
+      const requests = context.leaseRequests.get(scopeKey) ?? { count: 0 }
+      requests.count++
+      context.leaseRequests.set(scopeKey, requests)
+      try {
+        return await scopeExclusive(async () => {
+          const lease = await exclusive(async () => {
+            const db = context.db
+            let active = true
+            db.exec("BEGIN IMMEDIATE")
             try {
-              access.check()
-              context.db
-                .prepare("DELETE FROM leases WHERE id=? AND owner_nonce=?")
-                .run(lease.leaseId, context.lock.identity.nonce)
-              context.db.exec("COMMIT")
+              const tx = makeTransaction(makeAccess(installation, db, scope, now, () => active))
+              const snapshot = await tx.snapshot()
+              const leaseId = randomUUID()
+              db.prepare("INSERT INTO leases VALUES (?,?,?,?,?,?,?)").run(
+                leaseId,
+                scope.threadId,
+                scope.generation,
+                scope.fence,
+                snapshot.revision,
+                snapshot.throughSeq,
+                context.lock.identity.nonce,
+              )
+              db.exec("COMMIT")
+              return { leaseId, snapshot }
             } finally {
-              if (context.db.isTransaction) context.db.exec("ROLLBACK")
+              active = false
+              if (db.isTransaction) db.exec("ROLLBACK")
             }
           })
-        }
-      }),
+          // Only this generation is excluded during provider/unwind work. The
+          // installation writer queue and SQLite transaction have been released.
+          try {
+            return await context.activity.run({ kind: "lease", scopeKey }, () => callback(lease))
+          } finally {
+            await exclusive(async () => {
+              const access = makeAccess(installation, context.db, scope, now, () => true)
+              context.db.exec("BEGIN IMMEDIATE")
+              try {
+                access.check()
+                context.db
+                  .prepare("DELETE FROM leases WHERE id=? AND owner_nonce=?")
+                  .run(lease.leaseId, context.lock.identity.nonce)
+                context.db.exec("COMMIT")
+              } finally {
+                if (context.db.isTransaction) context.db.exec("ROLLBACK")
+              }
+            })
+          }
+        })
+      } finally {
+        // Count queued and active requests independently: completing one lease
+        // must not erase another request's protection against wait cycles.
+        requests.count--
+        if (requests.count === 0) context.leaseRequests.delete(scopeKey)
+      }
+    },
   }
   return store
 }

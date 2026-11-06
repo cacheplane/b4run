@@ -60,6 +60,11 @@ Those controls fail before mutation until their owners implement them. Linux,
 macOS, and Windows have process identity implementations; native platform
 qualification remains separate from the local test evidence.
 
+Internal SQLite read lease callbacks cannot acquire additional read leases. They
+may transact in another Thread when it has no held or queued read lease;
+otherwise the backend rejects before queuing to avoid a cycle. Independent
+top-level leases and transactions retain their ordinary queueing.
+
 ## Related
 
 - [SQLite Storage API reference](https://b4.run/docs/api/sqlite-storage) — exact checkpoint and thread-store contracts.

@@ -531,3 +531,357 @@ it("serves concurrent committed snapshots on independent read transactions", asy
   expect(first).toEqual(second)
   expect(first.runs).toEqual([data.run])
 })
+
+async function leasePair() {
+  const { openRuntimeInstallation } = await runtime()
+  const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+  const data = await import("./fixtures/runtime-data.ts")
+  const owner = openRuntimeInstallation(root())
+  cleanup.push(() => owner.close())
+  const first = bindRuntimeStore(owner, createRuntimeBinding(owner, data.scope))
+  const otherScope = {
+    ...data.scope,
+    threadId: "50000000-0000-4000-8000-000000000001",
+    generation: "50000000-0000-4000-8000-000000000002",
+  }
+  const second = bindRuntimeStore(owner, createRuntimeBinding(owner, otherScope))
+  return { owner, first, second, data, otherScope }
+}
+function acquisitionOutcome(promise: Promise<unknown>) {
+  // All lease bookkeeping uses synchronous SQLite plus promise microtasks. A
+  // queued acquisition still pending on the next turn must fail this assertion;
+  // the outer callbacks then unwind so the RED case can clean up normally.
+  return Promise.race([
+    promise.then(
+      () => ({ status: "fulfilled" }),
+      (reason: unknown) => ({ status: "rejected", reason }),
+    ),
+    new Promise<{ status: string }>((resolve) => setImmediate(() => resolve({ status: "queued" }))),
+  ])
+}
+function assertNoLeases(owner: { readonly path: string; close(): void }) {
+  const db = new DatabaseSync(owner.path, { readOnly: true })
+  try {
+    expect(db.prepare("SELECT count(*) AS n FROM leases").get()?.n).toBe(0)
+  } finally {
+    db.close()
+  }
+  expect(() => owner.close()).not.toThrow()
+}
+it("rejects a nested lease before ancestor scope reacquisition can queue", async () => {
+  const { owner, first, second } = await leasePair()
+  let nested: Promise<unknown> | undefined
+  try {
+    await first.withReadLease(async () => {
+      nested = second.withReadLease(() => first.transaction((tx) => tx.snapshot()))
+      expect(await acquisitionOutcome(nested)).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({ message: expect.stringMatching(/nested.*lease/i) }),
+      })
+    })
+  } finally {
+    await nested?.catch(() => undefined)
+  }
+  assertNoLeases(owner)
+})
+it("rejects opposing cross-scope nested lease acquisitions without retaining either lease", async () => {
+  const { owner, first, second } = await leasePair()
+  let enteredFirst!: () => void
+  let enteredSecond!: () => void
+  const firstEntered = new Promise<void>((resolve) => {
+    enteredFirst = resolve
+  })
+  const secondEntered = new Promise<void>((resolve) => {
+    enteredSecond = resolve
+  })
+  const nested: Promise<unknown>[] = []
+  const run = async (
+    held: typeof first,
+    next: typeof second,
+    entered: () => void,
+    otherEntered: Promise<void>,
+  ) =>
+    held.withReadLease(async () => {
+      entered()
+      await otherEntered
+      const acquisition = next.withReadLease(async () => undefined)
+      nested.push(acquisition)
+      expect(await acquisitionOutcome(acquisition)).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({ message: expect.stringMatching(/nested.*lease/i) }),
+      })
+    })
+  const outer = [
+    run(first, second, enteredFirst, secondEntered),
+    run(second, first, enteredSecond, firstEntered),
+  ]
+  try {
+    await Promise.all(outer)
+  } finally {
+    await Promise.allSettled(outer)
+    await Promise.allSettled(nested)
+  }
+  assertNoLeases(owner)
+})
+it("allows another Thread transaction inside a lease callback", async () => {
+  const { owner, first, second, otherScope, data } = await leasePair()
+  const otherRun = {
+    ...data.run,
+    run: {
+      ...data.run.run,
+      run_id: "50000000-0000-4000-8000-000000000003",
+      thread_id: otherScope.threadId,
+    },
+    metadata: {
+      ...data.run.metadata,
+      generation: otherScope.generation,
+      turnId: "50000000-0000-4000-8000-000000000003",
+    },
+  }
+  await first.withReadLease(async () => {
+    await second.transaction((tx) => tx.runs.put(otherRun))
+    expect((await second.committedReader().snapshot()).runs).toEqual([otherRun])
+    const db = new DatabaseSync(owner.path, { readOnly: true })
+    try {
+      expect(db.prepare("SELECT count(*) AS n FROM leases").get()?.n).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+  assertNoLeases(owner)
+})
+
+async function grantFixture() {
+  const { openRuntimeInstallation } = await runtime()
+  const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+  const data = await import("./fixtures/runtime-data.ts")
+  const owner = openRuntimeInstallation(root())
+  cleanup.push(() => owner.close())
+  const store = bindRuntimeStore(owner, createRuntimeBinding(owner, data.scope), () => data.now)
+  const first = "60000000-0000-4000-8000-000000000001"
+  const second = "60000000-0000-4000-8000-000000000002"
+  const grant: import("@b4run/sdk/agent-protocol").RuntimeGrantRecord = {
+    grantId: "grant",
+    tokenHash: "token-hash",
+    proposalHash: "proposal-hash",
+    inputId: "input",
+    ownerRunId: data.runId,
+    pausedGeneration: "pause",
+    namespace: [],
+    expiresAt: null,
+    consumedByRunId: null,
+  }
+  const pending: import("@b4run/sdk/agent-protocol").RuntimePendingRecord = {
+    input: {
+      namespace: [],
+      runId: data.runId,
+      turnId: data.runId,
+      data: {
+        interruptId: grant.inputId,
+        payload: {},
+        b4: {
+          v: 1,
+          pausedGeneration: grant.pausedGeneration,
+          proposalHash: grant.proposalHash,
+          status: "waiting",
+        },
+      },
+    },
+    ownerRunId: data.runId,
+    namespace: [],
+    disposition: "pending",
+    decision: null,
+  }
+  const paused = {
+    ...data.thread,
+    headCheckpointId: null,
+    currentRunId: data.runId,
+    pausedGeneration: grant.pausedGeneration,
+  }
+  await store.transaction(async (tx) => {
+    await tx.runs.put(data.run)
+    for (const id of [first, second])
+      await tx.runs.put({
+        ...data.run,
+        run: { ...data.run.run, run_id: id },
+        metadata: { ...data.run.metadata, previousRunId: data.runId },
+      })
+    await tx.thread.put(paused)
+    await tx.pending.put(pending)
+    await tx.grants.put(grant)
+  })
+  return { owner, store, data, grant, pending, paused, first, second }
+}
+it("has exactly one durable winner for concurrent grant consumes in one transaction", async () => {
+  const { owner, store, grant, first, second } = await grantFixture()
+  const result = await store.transaction((tx) =>
+    Promise.all([
+      tx.grants.consume(grant.grantId, first),
+      tx.grants.consume(grant.grantId, second),
+    ]),
+  )
+  expect(result.filter(Boolean)).toHaveLength(1)
+  const winner = result[0] ? first : second
+  const loser = result[0] ? second : first
+  const expected = { ...grant, consumedByRunId: winner }
+  expect((await store.snapshot()).grants).toEqual([expected])
+  const db = new DatabaseSync(owner.path, { readOnly: true })
+  try {
+    const row = db
+      .prepare("SELECT consumed_by_run_id,payload FROM grants WHERE id=?")
+      .get(grant.grantId)
+    expect(row?.consumed_by_run_id).toBe(winner)
+    expect(JSON.parse(String(row?.payload))).toEqual(expected)
+  } finally {
+    db.close()
+  }
+  await expect(store.transaction((tx) => tx.grants.consume(grant.grantId, loser))).resolves.toBe(
+    false,
+  )
+  expect((await store.snapshot()).grants).toEqual([expected])
+})
+it.each([
+  "thread pause",
+  "current owner",
+  "input pause",
+  "proposal",
+  "namespace",
+  "expiry",
+  "input owner",
+  "answered",
+])("does not consume a grant after invalid %s", async (invalid) => {
+  const { store, grant, pending, paused, first, data } = await grantFixture()
+  await store.transaction(async (tx) => {
+    if (invalid === "thread pause")
+      await tx.thread.put({ ...paused, pausedGeneration: "other-pause" })
+    else if (invalid === "current owner") await tx.thread.put({ ...paused, currentRunId: first })
+    else if (invalid === "expiry")
+      await tx.grants.put({ ...grant, expiresAt: "2026-11-05T23:59:59.000Z" })
+    else if (invalid === "namespace")
+      await tx.pending.put({
+        ...pending,
+        namespace: ["other"],
+        input: { ...pending.input, namespace: ["other"] },
+      })
+    else if (invalid === "input owner")
+      await tx.pending.put({
+        ...pending,
+        ownerRunId: first,
+        input: { ...pending.input, runId: first },
+      })
+    else if (invalid === "answered") await tx.pending.put({ ...pending, disposition: "answered" })
+    else
+      await tx.pending.put({
+        ...pending,
+        input: {
+          ...pending.input,
+          data: {
+            ...pending.input.data,
+            b4: {
+              ...pending.input.data.b4,
+              ...(invalid === "input pause"
+                ? { pausedGeneration: "other-pause" }
+                : { proposalHash: "other-proposal" }),
+            },
+          },
+        },
+      })
+    expect(tx.scope.threadId).toBe(data.scope.threadId)
+  })
+  const before = (await store.snapshot()).grants
+  await expect(store.transaction((tx) => tx.grants.consume(grant.grantId, first))).resolves.toBe(
+    false,
+  )
+  expect((await store.snapshot()).grants).toEqual(before)
+})
+
+it("rejects opposing cross-Thread transactions from top-level lease callbacks before they queue", async () => {
+  const { owner, first, second } = await leasePair()
+  let enteredFirst!: () => void
+  let enteredSecond!: () => void
+  const firstEntered = new Promise<void>((resolve) => {
+    enteredFirst = resolve
+  })
+  const secondEntered = new Promise<void>((resolve) => {
+    enteredSecond = resolve
+  })
+  const transactions: Promise<unknown>[] = []
+  const run = (
+    held: typeof first,
+    next: typeof second,
+    entered: () => void,
+    otherEntered: Promise<void>,
+  ) =>
+    held.withReadLease(async () => {
+      entered()
+      await otherEntered
+      const transaction = next.transaction((tx) => tx.snapshot())
+      transactions.push(transaction)
+      expect(await acquisitionOutcome(transaction)).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: expect.stringMatching(/lease.*wait|wait.*lease/i),
+        }),
+      })
+    })
+  const outer = [
+    run(first, second, enteredFirst, secondEntered),
+    run(second, first, enteredSecond, firstEntered),
+  ]
+  try {
+    await Promise.all(outer)
+  } finally {
+    await Promise.allSettled(outer)
+    await Promise.allSettled(transactions)
+  }
+  assertNoLeases(owner)
+})
+it("retains queued lease protection after an earlier same-scope lease completes", async () => {
+  const { owner, first, second } = await leasePair()
+  let releaseFirst!: () => void
+  let releaseSecond!: () => void
+  let enteredFirst!: () => void
+  let enteredSecond!: () => void
+  const firstRelease = new Promise<void>((resolve) => {
+    releaseFirst = resolve
+  })
+  const secondRelease = new Promise<void>((resolve) => {
+    releaseSecond = resolve
+  })
+  const firstEntered = new Promise<void>((resolve) => {
+    enteredFirst = resolve
+  })
+  const secondEntered = new Promise<void>((resolve) => {
+    enteredSecond = resolve
+  })
+  const firstLease = second.withReadLease(async () => {
+    enteredFirst()
+    await firstRelease
+  })
+  await firstEntered
+  const queuedLease = second.withReadLease(async () => {
+    enteredSecond()
+    await secondRelease
+  })
+  let transaction: Promise<unknown> | undefined
+  try {
+    await first.withReadLease(async () => {
+      releaseFirst()
+      await firstLease
+      await secondEntered
+      transaction = second.transaction((tx) => tx.snapshot())
+      expect(await acquisitionOutcome(transaction)).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: expect.stringMatching(/lease.*wait|wait.*lease/i),
+        }),
+      })
+    })
+  } finally {
+    releaseFirst()
+    releaseSecond()
+    await Promise.allSettled([firstLease, queuedLease])
+    await transaction?.catch(() => undefined)
+  }
+  assertNoLeases(owner)
+})

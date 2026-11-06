@@ -26,6 +26,7 @@ interface Context {
   tail: Promise<void>
   pending: number
   readonly scopeTails: Map<string, Promise<void>>
+  readonly leaseRequests: Map<string, { count: number }>
   readonly activity: AsyncLocalStorage<{ kind: "transaction" | "lease"; scopeKey: string }>
 }
 const contexts = new WeakMap<RuntimeInstallation, Context>()
@@ -113,6 +114,7 @@ export function openRuntimeInstallation(
       tail: Promise.resolve(),
       pending: 0,
       scopeTails: new Map(),
+      leaseRequests: new Map(),
       activity: new AsyncLocalStorage(),
     }
     const installation: RuntimeInstallation = {
@@ -129,6 +131,7 @@ export function openRuntimeInstallation(
           context.busy ||
           context.pending > 0 ||
           context.scopeTails.size > 0 ||
+          context.leaseRequests.size > 0 ||
           context.readers.size > 0
         )
           throw new Error("Cannot close SQLite runtime during an active transaction or lease")
