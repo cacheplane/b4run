@@ -39,4 +39,18 @@ Use the conversation's stop control when you want to interrupt active work. Wait
 
 Navlog is a B4 example that prepares a flight plan using tools and source material. A request leads to lookups, results, and a response, just as a coding task leads to file reads and an explanation. Its weather is time-dependent, and its local flight-plan recording is not a transmission to a filing service.
 
+Let's look at a smaller request first. In this recording, we ask Navlog to read its aircraft profile. It calls `readDoc`, checks for remembered preferences, and answers. We then ask a follow-up in the same conversation.
+
+<TurnInspector lesson="navlog-aircraft" />
+
+<InspectMoment lesson="navlog-aircraft" moment="read-profile">Inspect the first file read.</InspectMoment> Select the tool call and compare its arguments with its result. The argument names `aircraft/c172n.md`. The result contains the file's contents. The response arrives afterward.
+
+There is a useful detail here: the request names N738ZU, while the example's baseline file names N734ST. The agent reports that it found no remembered override. Reading the tool result lets us check that distinction ourselves.
+
+<InspectMoment lesson="navlog-aircraft" moment="read-again">Inspect the follow-up turn.</InspectMoment> The same tool reads the same file again, but this is a separate call with its own result. Move backward through the recording to see what was available before the second answer arrived.
+
+If you build B4 agents, choose **Source** to read the example's `readDoc` tool and aircraft profile at the recorded revision. The source explains how the tool works. The replay shows what the app observed when it ran.
+
+This recording uses B4 beta 0.1.0. It reads example files; it does not fetch weather or file a flight plan.
+
 You can [run the B4 example](/docs/app/b4-agents) when you want to explore that path. To keep your conversations organized, continue with [manage your work](/docs/app/manage-work).

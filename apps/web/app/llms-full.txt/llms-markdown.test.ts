@@ -182,3 +182,14 @@ describe("fencedVerbatim", () => {
     )
   })
 })
+
+it("preserves inspector labels and links in Markdown exports", () => {
+  expect(
+    mdxToMarkdown(
+      '<InspectMoment lesson="navlog" moment="read">Read the tool call</InspectMoment>',
+    ),
+  ).toBe("[Read the tool call](https://b4.run/docs/app/inspect/navlog#inspect/navlog/read)")
+  expect(mdxToMarkdown('<TurnInspector lesson="navlog" />')).toBe(
+    "[Explore the recorded turn](https://b4.run/docs/app/inspect/navlog)",
+  )
+})
