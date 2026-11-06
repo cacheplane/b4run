@@ -58,11 +58,20 @@ export function TurnInspector({
   }, [])
   const dispatch = useCallback(
     (action: PlaybackAction) => {
+      if (action.type === "play" && !reducedMotion)
+        for (const video of document.querySelectorAll("video")) video.pause()
       setPlayback((current) => playbackAction(capture, current, action, reducedMotion))
       if (action.type === "seek") setAnnouncement(`Recorded event ${action.index + 1}`)
     },
     [capture, reducedMotion],
   )
+  useEffect(() => {
+    const pauseForVideo = (event: Event) => {
+      if (event.target instanceof HTMLVideoElement) dispatch({ type: "pause" })
+    }
+    document.addEventListener("play", pauseForVideo, true)
+    return () => document.removeEventListener("play", pauseForVideo, true)
+  }, [dispatch])
   // Selection is deliberately absent from the scheduler dependencies.
   useEffect(() => {
     const delay = nextDelay(capture, { index: playback.index, playing: playback.playing }, speed)

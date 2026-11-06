@@ -1,0 +1,30 @@
+WEBVTT
+
+NOTE Descriptive captions for silent native beta footage; no spoken audio.
+
+00:00:00.000 --> 00:00:06.000
+Let's ask a question we can check against a file.
+
+00:00:06.000 --> 00:00:12.000
+A turn includes the work between our message and the answer.
+
+00:00:12.000 --> 00:00:18.000
+Navlog reads the aircraft profile and checks memory.
+
+00:00:18.000 --> 00:00:25.000
+Open the readDoc activity to see its arguments and result.
+
+00:00:25.000 --> 00:00:34.000
+The profile specifies a Cessna 172N, 50 US gal usable fuel, and 2400 RPM.
+
+00:00:34.000 --> 00:00:40.000
+Now ask a follow-up: what does the same file say about reserve fuel?
+
+00:00:40.000 --> 00:00:47.000
+This is a second turn, with a new file read and memory lookup.
+
+00:00:47.000 --> 00:00:54.000
+The answer arrives. Compare it with the returned profile.
+
+00:00:54.000 --> 00:01:02.000
+Reserve: 45 min at planned cruise burn. The profile has no alternate-fuel entry.

@@ -1,0 +1,1620 @@
+{
+  "version": 1,
+  "id": "navlog-aircraft-video",
+  "provenance": "live",
+  "revisions": {
+    "app": "48c9887c7f88d379da53fa682ff2104520934c29",
+    "runtime": "dd4271cbe69e49fb49b0587c30b5b4dbf733a0c7",
+    "example": "dd4271cbe69e49fb49b0587c30b5b4dbf733a0c7"
+  },
+  "recordedAt": "2026-11-06T19:07:38.097Z",
+  "initial": {
+    "turns": [],
+    "items": [],
+    "requests": [],
+    "notices": []
+  },
+  "events": [
+    {
+      "sequence": 0,
+      "sourceSequence": 136,
+      "elapsedMs": 11328.948375,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-1",
+            "turnId": "turn-1",
+            "role": "user",
+            "type": "userMessage",
+            "name": "",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": "Read aircraft/c172n.md. What aircraft model, usable fuel, and cruise RPM does the profile specify? Cite the file. Keep this read-only: do not plan or file a flight, fetch weather, or change files."
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 1,
+      "sourceSequence": 137,
+      "elapsedMs": 11330.074667,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-1",
+            "status": "submitting",
+            "submission": "prepared",
+            "outcome": null
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "sourceSequence": 138,
+      "elapsedMs": 18111.597667000002,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-1",
+            "status": "running",
+            "submission": "acknowledged",
+            "outcome": null
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 3,
+      "sourceSequence": 139,
+      "elapsedMs": 18165.7415,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-2",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-1"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 4,
+      "sourceSequence": 140,
+      "elapsedMs": 18175.697375,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-3",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-2"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 5,
+      "sourceSequence": 141,
+      "elapsedMs": 18182.010084,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-2",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-1"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 6,
+      "sourceSequence": 142,
+      "elapsedMs": 18183.626542,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-3",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-2"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 7,
+      "sourceSequence": 143,
+      "elapsedMs": 18185.149584,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-3",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": true,
+              "value": "(no memories found)"
+            },
+            "toolCallId": "tool-2"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 8,
+      "sourceSequence": 144,
+      "elapsedMs": 18188.574375,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-2",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": true,
+              "value": "{\"content\":\"# Demo aircraft: N734ST\\n\\nThe aircraft this planner assumes when the pilot has not said otherwise. What the pilot says in\\nthe request wins; then what this pilot asked the planner to remember; then this file.\\n\\n| Item | Value | Source |\\n|---|---|---|\\n| Tail number | N734ST | Demo aircraft |\\n| Type | Cessna 172N (1978) | Demo aircraft |\\n| Tanks | Long range | Demo aircraft |\\n| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |\\n| Cruise power | 2400 RPM | Demo aircraft |\\n| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |\\n| Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md] |\\n\\n\\\"Full tanks\\\" means all usable fuel. A pilot who says \\\"standard tanks\\\" has 40 US gal usable.\\n\"}"
+            },
+            "toolCallId": "tool-1"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 9,
+      "sourceSequence": 145,
+      "elapsedMs": 25744.874584,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-4",
+            "turnId": "turn-1",
+            "role": "assistant",
+            "type": "agentMessage",
+            "name": "",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": ""
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 10,
+      "sourceSequence": 146,
+      "elapsedMs": 25745.01875,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "The"
+        }
+      ]
+    },
+    {
+      "sequence": 11,
+      "sourceSequence": 147,
+      "elapsedMs": 25745.033667,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " profile"
+        }
+      ]
+    },
+    {
+      "sequence": 12,
+      "sourceSequence": 148,
+      "elapsedMs": 25745.044375,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " lists"
+        }
+      ]
+    },
+    {
+      "sequence": 13,
+      "sourceSequence": 149,
+      "elapsedMs": 25745.054167,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": ":"
+        }
+      ]
+    },
+    {
+      "sequence": 14,
+      "sourceSequence": 150,
+      "elapsedMs": 25754.602625,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " C"
+        }
+      ]
+    },
+    {
+      "sequence": 15,
+      "sourceSequence": 151,
+      "elapsedMs": 25754.631792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "ess"
+        }
+      ]
+    },
+    {
+      "sequence": 16,
+      "sourceSequence": 152,
+      "elapsedMs": 25832.9975,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "na"
+        }
+      ]
+    },
+    {
+      "sequence": 17,
+      "sourceSequence": 153,
+      "elapsedMs": 25838.0325,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " "
+        }
+      ]
+    },
+    {
+      "sequence": 18,
+      "sourceSequence": 154,
+      "elapsedMs": 25839.5395,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "172"
+        }
+      ]
+    },
+    {
+      "sequence": 19,
+      "sourceSequence": 155,
+      "elapsedMs": 25840.833792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "N"
+        }
+      ]
+    },
+    {
+      "sequence": 20,
+      "sourceSequence": 156,
+      "elapsedMs": 25854.747125,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " ("
+        }
+      ]
+    },
+    {
+      "sequence": 21,
+      "sourceSequence": 157,
+      "elapsedMs": 25854.789625,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "197"
+        }
+      ]
+    },
+    {
+      "sequence": 22,
+      "sourceSequence": 158,
+      "elapsedMs": 25869.602042,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "8"
+        }
+      ]
+    },
+    {
+      "sequence": 23,
+      "sourceSequence": 159,
+      "elapsedMs": 25870.673084000002,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": ");"
+        }
+      ]
+    },
+    {
+      "sequence": 24,
+      "sourceSequence": 160,
+      "elapsedMs": 25929.455334,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " usable"
+        }
+      ]
+    },
+    {
+      "sequence": 25,
+      "sourceSequence": 161,
+      "elapsedMs": 25929.528,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " fuel"
+        }
+      ]
+    },
+    {
+      "sequence": 26,
+      "sourceSequence": 162,
+      "elapsedMs": 25940.610209,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " "
+        }
+      ]
+    },
+    {
+      "sequence": 27,
+      "sourceSequence": 163,
+      "elapsedMs": 25942.715584,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "50"
+        }
+      ]
+    },
+    {
+      "sequence": 28,
+      "sourceSequence": 164,
+      "elapsedMs": 25953.620292,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " US"
+        }
+      ]
+    },
+    {
+      "sequence": 29,
+      "sourceSequence": 165,
+      "elapsedMs": 25955.748625,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " gal"
+        }
+      ]
+    },
+    {
+      "sequence": 30,
+      "sourceSequence": 166,
+      "elapsedMs": 25956.738624999998,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " ("
+        }
+      ]
+    },
+    {
+      "sequence": 31,
+      "sourceSequence": 167,
+      "elapsedMs": 25957.279917,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "long"
+        }
+      ]
+    },
+    {
+      "sequence": 32,
+      "sourceSequence": 168,
+      "elapsedMs": 25973.199375,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "‑"
+        }
+      ]
+    },
+    {
+      "sequence": 33,
+      "sourceSequence": 169,
+      "elapsedMs": 25975.671584,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "range"
+        }
+      ]
+    },
+    {
+      "sequence": 34,
+      "sourceSequence": 170,
+      "elapsedMs": 25996.120959,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " tanks"
+        }
+      ]
+    },
+    {
+      "sequence": 35,
+      "sourceSequence": 171,
+      "elapsedMs": 26005.498209,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": ");"
+        }
+      ]
+    },
+    {
+      "sequence": 36,
+      "sourceSequence": 172,
+      "elapsedMs": 26075.507709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " cruise"
+        }
+      ]
+    },
+    {
+      "sequence": 37,
+      "sourceSequence": 173,
+      "elapsedMs": 26077.759459,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " power"
+        }
+      ]
+    },
+    {
+      "sequence": 38,
+      "sourceSequence": 174,
+      "elapsedMs": 26083.626584,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " "
+        }
+      ]
+    },
+    {
+      "sequence": 39,
+      "sourceSequence": 175,
+      "elapsedMs": 26090.708167,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "240"
+        }
+      ]
+    },
+    {
+      "sequence": 40,
+      "sourceSequence": 176,
+      "elapsedMs": 26090.822,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "0"
+        }
+      ]
+    },
+    {
+      "sequence": 41,
+      "sourceSequence": 177,
+      "elapsedMs": 26094.079834,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " RPM"
+        }
+      ]
+    },
+    {
+      "sequence": 42,
+      "sourceSequence": 178,
+      "elapsedMs": 26099.078875,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " —"
+        }
+      ]
+    },
+    {
+      "sequence": 43,
+      "sourceSequence": 179,
+      "elapsedMs": 26099.774625,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " source"
+        }
+      ]
+    },
+    {
+      "sequence": 44,
+      "sourceSequence": 180,
+      "elapsedMs": 26150.625167,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": ":"
+        }
+      ]
+    },
+    {
+      "sequence": 45,
+      "sourceSequence": 181,
+      "elapsedMs": 26152.073292,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": " aircraft"
+        }
+      ]
+    },
+    {
+      "sequence": 46,
+      "sourceSequence": 182,
+      "elapsedMs": 26237.082459,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "/c"
+        }
+      ]
+    },
+    {
+      "sequence": 47,
+      "sourceSequence": 183,
+      "elapsedMs": 26238.267417,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "172"
+        }
+      ]
+    },
+    {
+      "sequence": 48,
+      "sourceSequence": 184,
+      "elapsedMs": 26238.869834,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "n"
+        }
+      ]
+    },
+    {
+      "sequence": 49,
+      "sourceSequence": 185,
+      "elapsedMs": 26239.626125,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": ".md"
+        }
+      ]
+    },
+    {
+      "sequence": 50,
+      "sourceSequence": 186,
+      "elapsedMs": 26239.6645,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-4",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "sequence": 51,
+      "sourceSequence": 187,
+      "elapsedMs": 26258.783542,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-4",
+            "turnId": "turn-1",
+            "role": "assistant",
+            "type": "agentMessage",
+            "name": "",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": "The profile lists: Cessna 172N (1978); usable fuel 50 US gal (long‑range tanks); cruise power 2400 RPM — source: aircraft/c172n.md."
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 52,
+      "sourceSequence": 189,
+      "elapsedMs": 26270.46525,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-1",
+            "status": "terminal",
+            "submission": "acknowledged",
+            "outcome": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 53,
+      "sourceSequence": 191,
+      "elapsedMs": 43110.656959,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-5",
+            "turnId": "turn-2",
+            "role": "user",
+            "type": "userMessage",
+            "name": "",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": "Read the same aircraft profile again. Quote its reserve-fuel entry. Does it include an alternate-fuel entry? If not, say so. Keep this read-only."
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 54,
+      "sourceSequence": 192,
+      "elapsedMs": 43112.19475,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-2",
+            "status": "submitting",
+            "submission": "prepared",
+            "outcome": null
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 55,
+      "sourceSequence": 193,
+      "elapsedMs": 49397.013667,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-2",
+            "status": "running",
+            "submission": "acknowledged",
+            "outcome": null
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 56,
+      "sourceSequence": 194,
+      "elapsedMs": 49432.580375,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-6",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-3"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 57,
+      "sourceSequence": 195,
+      "elapsedMs": 49444.772667,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-7",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-4"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 58,
+      "sourceSequence": 196,
+      "elapsedMs": 49450.8235,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-6",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-3"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 59,
+      "sourceSequence": 197,
+      "elapsedMs": 49453.337584,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-7",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": false
+            },
+            "toolCallId": "tool-4"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 60,
+      "sourceSequence": 198,
+      "elapsedMs": 49455.155042,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-7",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "recall",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "query": "pilot aircraft overrides and preferences"
+              }
+            },
+            "result": {
+              "available": true,
+              "value": "(no memories found)"
+            },
+            "toolCallId": "tool-4"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 61,
+      "sourceSequence": 199,
+      "elapsedMs": 49457.081042,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-6",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "toolCall",
+            "name": "readDoc",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": true,
+              "value": {
+                "path": "aircraft/c172n.md"
+              }
+            },
+            "result": {
+              "available": true,
+              "value": "{\"content\":\"# Demo aircraft: N734ST\\n\\nThe aircraft this planner assumes when the pilot has not said otherwise. What the pilot says in\\nthe request wins; then what this pilot asked the planner to remember; then this file.\\n\\n| Item | Value | Source |\\n|---|---|---|\\n| Tail number | N734ST | Demo aircraft |\\n| Type | Cessna 172N (1978) | Demo aircraft |\\n| Tanks | Long range | Demo aircraft |\\n| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |\\n| Cruise power | 2400 RPM | Demo aircraft |\\n| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |\\n| Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md] |\\n\\n\\\"Full tanks\\\" means all usable fuel. A pilot who says \\\"standard tanks\\\" has 40 US gal usable.\\n\"}"
+            },
+            "toolCallId": "tool-3"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 62,
+      "sourceSequence": 200,
+      "elapsedMs": 55439.361709,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-8",
+            "turnId": "turn-2",
+            "role": "assistant",
+            "type": "agentMessage",
+            "name": "",
+            "state": "streaming",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": ""
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 63,
+      "sourceSequence": 201,
+      "elapsedMs": 55443.328167,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "The"
+        }
+      ]
+    },
+    {
+      "sequence": 64,
+      "sourceSequence": 202,
+      "elapsedMs": 55444.710834,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " profile"
+        }
+      ]
+    },
+    {
+      "sequence": 65,
+      "sourceSequence": 203,
+      "elapsedMs": 55446.3845,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "’s"
+        }
+      ]
+    },
+    {
+      "sequence": 66,
+      "sourceSequence": 204,
+      "elapsedMs": 55450.051959,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " reserve"
+        }
+      ]
+    },
+    {
+      "sequence": 67,
+      "sourceSequence": 205,
+      "elapsedMs": 55483.681375,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "-f"
+        }
+      ]
+    },
+    {
+      "sequence": 68,
+      "sourceSequence": 206,
+      "elapsedMs": 55483.718042,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "uel"
+        }
+      ]
+    },
+    {
+      "sequence": 69,
+      "sourceSequence": 207,
+      "elapsedMs": 55500.0225,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " entry"
+        }
+      ]
+    },
+    {
+      "sequence": 70,
+      "sourceSequence": 208,
+      "elapsedMs": 55511.69775,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": ":"
+        }
+      ]
+    },
+    {
+      "sequence": 71,
+      "sourceSequence": 209,
+      "elapsedMs": 55554.375459,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " \""
+        }
+      ]
+    },
+    {
+      "sequence": 72,
+      "sourceSequence": 210,
+      "elapsedMs": 55554.416042,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "45"
+        }
+      ]
+    },
+    {
+      "sequence": 73,
+      "sourceSequence": 211,
+      "elapsedMs": 55574.047042,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " min"
+        }
+      ]
+    },
+    {
+      "sequence": 74,
+      "sourceSequence": 212,
+      "elapsedMs": 55574.744417,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " at"
+        }
+      ]
+    },
+    {
+      "sequence": 75,
+      "sourceSequence": 213,
+      "elapsedMs": 55582.100375,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " planned"
+        }
+      ]
+    },
+    {
+      "sequence": 76,
+      "sourceSequence": 214,
+      "elapsedMs": 55584.235625,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " cruise"
+        }
+      ]
+    },
+    {
+      "sequence": 77,
+      "sourceSequence": 215,
+      "elapsedMs": 55610.587875,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " burn"
+        }
+      ]
+    },
+    {
+      "sequence": 78,
+      "sourceSequence": 216,
+      "elapsedMs": 55610.629917,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "\""
+        }
+      ]
+    },
+    {
+      "sequence": 79,
+      "sourceSequence": 217,
+      "elapsedMs": 55629.648042,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " ("
+        }
+      ]
+    },
+    {
+      "sequence": 80,
+      "sourceSequence": 218,
+      "elapsedMs": 55631.386792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "source"
+        }
+      ]
+    },
+    {
+      "sequence": 81,
+      "sourceSequence": 219,
+      "elapsedMs": 55669.528792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": ":"
+        }
+      ]
+    },
+    {
+      "sequence": 82,
+      "sourceSequence": 220,
+      "elapsedMs": 55669.574709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " aircraft"
+        }
+      ]
+    },
+    {
+      "sequence": 83,
+      "sourceSequence": 221,
+      "elapsedMs": 55687.616667,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "/c"
+        }
+      ]
+    },
+    {
+      "sequence": 84,
+      "sourceSequence": 222,
+      "elapsedMs": 55689.987709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "172"
+        }
+      ]
+    },
+    {
+      "sequence": 85,
+      "sourceSequence": 223,
+      "elapsedMs": 55724.049375,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "n"
+        }
+      ]
+    },
+    {
+      "sequence": 86,
+      "sourceSequence": 224,
+      "elapsedMs": 55724.096667,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": ".md"
+        }
+      ]
+    },
+    {
+      "sequence": 87,
+      "sourceSequence": 225,
+      "elapsedMs": 55739.964709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": ")."
+        }
+      ]
+    },
+    {
+      "sequence": 88,
+      "sourceSequence": 226,
+      "elapsedMs": 55741.897084,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " There"
+        }
+      ]
+    },
+    {
+      "sequence": 89,
+      "sourceSequence": 227,
+      "elapsedMs": 55779.741459,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " is"
+        }
+      ]
+    },
+    {
+      "sequence": 90,
+      "sourceSequence": 228,
+      "elapsedMs": 55779.782709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " no"
+        }
+      ]
+    },
+    {
+      "sequence": 91,
+      "sourceSequence": 229,
+      "elapsedMs": 55796.985,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " alternate"
+        }
+      ]
+    },
+    {
+      "sequence": 92,
+      "sourceSequence": 230,
+      "elapsedMs": 55800.945709,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "-f"
+        }
+      ]
+    },
+    {
+      "sequence": 93,
+      "sourceSequence": 231,
+      "elapsedMs": 55823.109542,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "uel"
+        }
+      ]
+    },
+    {
+      "sequence": 94,
+      "sourceSequence": 232,
+      "elapsedMs": 55827.865792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " entry"
+        }
+      ]
+    },
+    {
+      "sequence": 95,
+      "sourceSequence": 233,
+      "elapsedMs": 55872.521917,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " in"
+        }
+      ]
+    },
+    {
+      "sequence": 96,
+      "sourceSequence": 234,
+      "elapsedMs": 55874.157667,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " the"
+        }
+      ]
+    },
+    {
+      "sequence": 97,
+      "sourceSequence": 235,
+      "elapsedMs": 55874.190792,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": " profile"
+        }
+      ]
+    },
+    {
+      "sequence": 98,
+      "sourceSequence": 236,
+      "elapsedMs": 55874.203334,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "item-8",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "sequence": 99,
+      "sourceSequence": 237,
+      "elapsedMs": 55973.026917,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "item-8",
+            "turnId": "turn-2",
+            "role": "assistant",
+            "type": "agentMessage",
+            "name": "",
+            "state": "complete",
+            "provenance": "live",
+            "content": {
+              "available": true,
+              "value": "The profile’s reserve-fuel entry: \"45 min at planned cruise burn\" (source: aircraft/c172n.md). There is no alternate-fuel entry in the profile."
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 100,
+      "sourceSequence": 239,
+      "elapsedMs": 55982.774917,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-2",
+            "status": "terminal",
+            "submission": "acknowledged",
+            "outcome": "completed"
+          }
+        }
+      ]
+    }
+  ],
+  "moments": [
+    {
+      "id": "read-profile",
+      "label": "Read the aircraft profile",
+      "eventIndex": 8,
+      "itemId": "item-2"
+    },
+    {
+      "id": "read-again",
+      "label": "Read it again in a second turn",
+      "eventIndex": 61,
+      "itemId": "item-6"
+    },
+    {
+      "id": "finished",
+      "label": "Both turns complete",
+      "eventIndex": 100
+    }
+  ]
+}
