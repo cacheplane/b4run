@@ -105,35 +105,44 @@ export function parsePendingInterrupts(tuple: CheckpointTuple): PendingInterrupt
   let malformed = false
   for (const write of tuple.pendingWrites ?? []) {
     if (!Array.isArray(write) || write[1] !== "__interrupt__") continue
-    if (write.length < 3 || !isRecord(write[2])) {
+    if (write.length < 3) {
       malformed = true
       continue
     }
 
-    const value = write[2]
-    const hasInnerValue = Object.hasOwn(value, "value")
-    // Kept verbatim for GET /threads/:id/pending_interrupts: this is the
-    // permission prompt a reconnecting client re-renders.
-    const payload = value.value
-    const innerValue = isRecord(payload) ? payload : undefined
-    if (hasInnerValue && !innerValue) malformed = true
+    // Newer LangGraph versions store all interrupts for a task in one array;
+    // older checkpoints store a single envelope. Validate every envelope and
+    // keep duplicate/alias checks across the complete set below.
+    const values = Array.isArray(write[2]) ? write[2] : [write[2]]
+    for (const value of values) {
+      if (!isRecord(value)) {
+        malformed = true
+        continue
+      }
+      const hasInnerValue = Object.hasOwn(value, "value")
+      // Kept verbatim for GET /threads/:id/pending_interrupts: this is the
+      // permission prompt a reconnecting client re-renders.
+      const payload = value.value
+      const innerValue = isRecord(payload) ? payload : undefined
+      if (hasInnerValue && !innerValue) malformed = true
 
-    const rawInnerId = innerValue?.interruptId
-    const innerId = asIdentifier(rawInnerId)
-    if (rawInnerId !== undefined && !innerId) malformed = true
+      const rawInnerId = innerValue?.interruptId
+      const innerId = asIdentifier(rawInnerId)
+      if (rawInnerId !== undefined && !innerId) malformed = true
 
-    const outerId = asIdentifier(value.id)
-    const interruptId = innerId ?? outerId
-    if (!interruptId) {
-      malformed = true
-      continue
+      const outerId = asIdentifier(value.id)
+      const interruptId = innerId ?? outerId
+      if (!interruptId) {
+        malformed = true
+        continue
+      }
+
+      const resumeKey = outerId && RESUME_KEY_PATTERN.test(outerId) ? outerId : null
+      if (!resumeKey) malformed = true
+
+      const aliases = innerId && outerId && innerId !== outerId ? [innerId, outerId] : [interruptId]
+      interrupts.push({ aliases, interruptId, resumeKey, value: payload })
     }
-
-    const resumeKey = outerId && RESUME_KEY_PATTERN.test(outerId) ? outerId : null
-    if (!resumeKey) malformed = true
-
-    const aliases = innerId && outerId && innerId !== outerId ? [innerId, outerId] : [interruptId]
-    interrupts.push({ aliases, interruptId, resumeKey, value: payload })
   }
 
   const interruptIds = new Set<string>()
