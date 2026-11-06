@@ -107,9 +107,9 @@
       "recordDigest": "2d6970bbaa1310cb3680e42aed843d3eeb19a7bed2a1d09469c21499e6742275"
     },
     "/docs/api/postgres-storage": {
-      "lastModified": "2026-10-26T03:56:58.000Z",
-      "sourceDigest": "a3ff247304069ddb9596354738ff83008b1c4cd9d8d2efcb0ddde0933e6258a1",
-      "recordDigest": "11799095879feb37d994eea13b71e5e2746a65dd5b44556b9abd1d6a8a5ecc22"
+      "lastModified": "2026-11-06T21:48:46.000Z",
+      "sourceDigest": "2de8aedd3ec3cf19a09ba81a57cd16d9cb3b09e614f8b38d59b2e05f271a07bb",
+      "recordDigest": "376f90fb76d742240705309eb771ca0427d56dca76238d04d25da2381f08df2f"
     },
     "/docs/api/sandbox": {
       "lastModified": "2026-09-25T03:18:16.000Z",
