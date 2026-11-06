@@ -2,9 +2,9 @@
   "version": 2,
   "routes": {
     "/": {
-      "lastModified": "2026-10-21T16:39:44.000Z",
-      "sourceDigest": "a9615cfa1ed70915e82c9d2add6129bc05a015e9f967e0f615254ce835078968",
-      "recordDigest": "ec1d248f2713f0e887cc455cd43cf1b010a7d0b2594bdc98850881628fe2084e"
+      "lastModified": "2026-11-06T05:23:41.304Z",
+      "sourceDigest": "1bc53cd7a2afd2bb11d06c0037f895c80d6418925694f45f558982dc8685ff34",
+      "recordDigest": "82f1df118da1cb1bfebed46ce2ac53b1b5c28ded11fb728bd894926d20b4eb4a"
     },
     "/blog": {
       "lastModified": "2026-10-22T22:54:39.000Z",
@@ -35,6 +35,11 @@
       "lastModified": "2026-10-22T22:54:39.000Z",
       "sourceDigest": "518a50e0e75c99d694a546dcf655e1b846357b3bca381b556955125e2a307efe",
       "recordDigest": "63f43f3a270cc9768eb2af668830616e4c0d098736dd17f76fcd0be08615ab56"
+    },
+    "/docs": {
+      "lastModified": "2026-11-06T05:16:11.562Z",
+      "sourceDigest": "b91ec002f4cb732823a73e3a8f126b2774af350a7b99f7ec133fc3e742f5136d",
+      "recordDigest": "b2d15ec4cedfd449fa2032c068128f6acb6e5aa95ddc48f6034c508df95974cd"
     },
     "/docs/access-control": {
       "lastModified": "2026-10-08T20:51:05.000Z",
@@ -135,6 +140,56 @@
       "lastModified": "2026-09-25T19:33:48.000Z",
       "sourceDigest": "276a644158c1747eebfdba1ede2c3b64c8fdaacd3fa9832f23b1b6f9da16fbad",
       "recordDigest": "292ebc4a939c14b381da1af65e22e97b55df9ecbe48323a8fbe6de457a9afdc7"
+    },
+    "/docs/app": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "0ab8c0c0af42a7469385de14a7ca6daf30cbc3a935d81f50a07182b13c748d5c",
+      "recordDigest": "4a9f4b82f007ed5ea384a2bf5958ab07ca2e60c7a8b19c71212e55b53a3c16f1"
+    },
+    "/docs/app/accounts-and-data": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "9b0d39cc8d1ff700604d6d56984de1824e023fc5a98afd839dd00801e1f7f340",
+      "recordDigest": "e54fb7b0ccde7049632bab994d1bf205aaafb7003c5f33702c3e0f3bbd66156a"
+    },
+    "/docs/app/b4-agents": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "8f6399d5ef462b359666e705d7ab50e19d5a8ae69631e99c6a411ad5a35a22cd",
+      "recordDigest": "efaec5503202ec5902803e3bb57ea374477ab639dc92ac72ffbb8204564252f2"
+    },
+    "/docs/app/claude-code": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "f6c4072a6e54b4e705233969d2b36eec84bfd5d34dae3d8d31246c0b6ac5d73b",
+      "recordDigest": "2ba869a3c32c0633a11e6e766ef6b3795a6ce6285f1bcb5d4f1a8c5efe98166e"
+    },
+    "/docs/app/codex": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "c889f88d46b63b759f7e74acdbde89d6585743b92792a774fcad8a80f42ca245",
+      "recordDigest": "c6269f84b352be96148b2f50f58cde0bfaf4deae3ba563ef81149a35d99b36ba"
+    },
+    "/docs/app/first-conversation": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "33358a5acc1e10af9cbb6c64ee57fb41a06c2d71c130cb09bee3799541dde13f",
+      "recordDigest": "d669938cfcd9f9bf639279d8af9c7befdd7592b687070d981269bce3cde34a3c"
+    },
+    "/docs/app/install": {
+      "lastModified": "2026-11-06T05:15:17.834Z",
+      "sourceDigest": "23bb17af7dbc46aaaa95e393572bc63910699d1f68f1068f2d0d2de96813cc79",
+      "recordDigest": "3b81c2945ecf970760334d7791b2c3c4773f87c905690289e1c6adb3a0ebc1a2"
+    },
+    "/docs/app/iphone": {
+      "lastModified": "2026-11-06T05:15:17.834Z",
+      "sourceDigest": "2ef3e9d1d1890db0d681797321e6c44c534766c39b33b42afafc210516dc3152",
+      "recordDigest": "546fcd0ab4a851bf94290e8a406cf2ea647acee9f0019b6d698dd8cc3f1e5728"
+    },
+    "/docs/app/manage-work": {
+      "lastModified": "2026-11-06T05:09:32.087Z",
+      "sourceDigest": "e966072a521a0a6fbcb84a9433ab0786de8f9032f1c11332f5cda1ae97df2e7a",
+      "recordDigest": "f6ef434a01460b07f6332be4cd1b7de41cf1eaa35610122153437826c4672e74"
+    },
+    "/docs/app/troubleshooting": {
+      "lastModified": "2026-11-06T05:20:00.236Z",
+      "sourceDigest": "d67e97d0b05d4ee00dbd787d144ad084f47569c2568f618627c8bee013e4b040",
+      "recordDigest": "4b575d5add4243dcd5298a06cfab2f9366865412b967c175943c961336d6ffac"
     },
     "/docs/approval-grants": {
       "lastModified": "2026-10-08T17:28:30.000Z",
@@ -447,14 +502,14 @@
       "recordDigest": "90a2ce6f7143e3d62b70acbe5c8e8199d9c9f885a9eeb8b0962a96b0e2113c9a"
     },
     "/privacy": {
-      "lastModified": "2026-10-22T03:38:44.034Z",
-      "sourceDigest": "315d7dc48b5ce6a54aa38a6cfd083dcb42c44c4431790eb62222bd54965c1910",
-      "recordDigest": "05271a53bf6f0c2c1720918eb2f57bf240416997451db41fb90117d623c7bd2e"
+      "lastModified": "2026-11-06T05:27:29.850Z",
+      "sourceDigest": "767eb57e29ff17389d7e28c46bd7529990cc16c8e9544e7bce2fe3e767af9e9f",
+      "recordDigest": "f10ef764c33f10b9f0ffab887dca1ba0bf6c69f2dab0d6080f7b4b2ed8892c4a"
     },
     "/updates": {
-      "lastModified": "2026-10-22T17:08:25.000Z",
-      "sourceDigest": "4606513c4e8e8555e81dbf4252313ac2e97307599c0f757b2f42030f153591c7",
-      "recordDigest": "7f951423d21ce90ce96c3a048d4da23d2d08b613a20fc34f0778d29469cf98d2"
+      "lastModified": "2026-11-06T05:27:29.850Z",
+      "sourceDigest": "7bbdfd1a02a56afa4e49dd1a182be9b6ca36a60adf02453f96346abe2c4ada93",
+      "recordDigest": "550303501af01ce0446f9f8ef8300539b2db6dc6ddf79b10312315a6adc73b74"
     }
   }
 }

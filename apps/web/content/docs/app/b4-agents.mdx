@@ -1,0 +1,36 @@
+---
+title: "Use a B4 agent"
+description: "Connect an existing B4 server or run the maintained Navlog example."
+---
+
+# Use a B4 agent
+
+A B4 connection points to an agent route on a server. That server owns its model configuration and workspace. It can run locally on your Mac or at a compatible remote HTTPS endpoint.
+
+## Start with Navlog
+
+Navlog is the maintained B4 example. It prepares a flight plan using weather tools, reference material, and computed results. Read the [Navlog guide](/docs/recipes/navlog) for its current setup and requirements.
+
+The example needs its own model-provider configuration. Signing in to Codex or Claude Code does not provide the B4 server with a model credential.
+
+## Connect an existing server
+
+Start the example server using its guide. In b4app, open **Settings → Connections**, use the add control, and choose **B4 agent…**. Enter the server address and the exact agent route reported by that server.
+
+A local address can use loopback HTTP. A remote endpoint must use HTTPS. If it requires an API key, use the connection form's credential field rather than putting the key in a URL or conversation.
+
+Check that the connection is available before starting a conversation. The app supports compatible agent routes; do not assume every workflow or graph endpoint is interchangeable with an agent.
+
+## Let the Mac manage a local project
+
+Under **Settings → B4 projects**, choose **Attach B4 project…** and select the trusted project directory. It needs its B4 configuration and installed project CLI. Configure the environment file if the project needs one, start the server, then connect a discovered agent route.
+
+Registration inspects project code. Only attach a project you trust. The app distinguishes a server it starts from one you started independently; attaching an endpoint does not give it ownership of that process.
+
+## Follow a turn
+
+Ask Navlog for a bounded planning task, then follow the tool calls and results. A weather result is tied to its observation time. Treat the example as a way to inspect agent behavior, not as verified operational flight-planning advice.
+
+If you ask the example to record a flight plan, it requires approval. Its tool writes a local record and reports that it was **not transmitted**. An approval and a local file are not evidence of an external filing.
+
+To learn how the agent is built, continue with the [framework flight-planner guide](/docs/recipes/flight-planner).

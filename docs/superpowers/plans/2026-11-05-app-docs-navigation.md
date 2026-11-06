@@ -10,6 +10,10 @@
 
 ---
 
+## Implementation status — November 5, 2026
+
+Implemented inline on `blove/app-docs-navigation` in `.worktrees/app-docs-navigation-20261105`. The two audiences, ten source-backed App drafts, scoped search, machine-readable exports, metadata, and docs typography are implemented. The owner authorized labeled release-download placeholders and planned Homebrew instructions while publication is pending. Browser review covers both audiences, the entrance, mobile controls, no-JavaScript navigation, and zoom. Validation details and remaining release gates are recorded in `docs/verification/2026-11-05-app-docs-navigation.md` and `docs/verification/app-docs-release-facts.md`. The Navlog capture and interactive inspector are subsequent phases.
+
 ## Prerequisites and file responsibilities
 
 Read the approved design and delivery plan. Complete the content/media plan's release-fact task before publishing setup instructions. The existing `/docs` redirect is in `apps/web/next.config.ts`; `app/docs/[...slug]/page.tsx` is a 404, not an MDX loader. `llms-full.txt` currently special-cases only `recipes/index.mdx`. The SEO audit parses the literal `DOCS_NAV` source. These assumptions must be updated together.

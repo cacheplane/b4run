@@ -9,14 +9,27 @@ import type { DocsSearchEntry } from "./search-index"
 
 vi.mock("../../lib/analytics/client", () => ({ track: vi.fn() }))
 
+let pathname = "/docs/retry"
 const push = vi.fn()
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
-  usePathname: () => "/docs/retry",
+  usePathname: () => pathname,
 }))
 
 const INDEX: readonly DocsSearchEntry[] = [
   {
+    area: "app",
+    href: "/docs/app/troubleshooting",
+    title: "Retry an app connection",
+    section: "Accounts and help",
+    headings: [],
+    sections: [],
+    aliases: [],
+    canonicalAliases: [],
+    aliasSurfaces: {},
+  },
+  {
+    area: "framework",
     href: "/docs/retry",
     title: "Retry",
     section: "Agent Capabilities",
@@ -30,6 +43,7 @@ const INDEX: readonly DocsSearchEntry[] = [
     aliasSurfaces: {},
   },
   {
+    area: "framework",
     href: "/docs/api/sdk",
     title: "@b4run/sdk",
     section: "API Reference",
@@ -54,6 +68,7 @@ beforeAll(() => {
 
 const fetchMock = vi.fn()
 beforeEach(() => {
+  pathname = "/docs/retry"
   resetDocsSearchIndex()
   push.mockReset()
   vi.mocked(track).mockClear()
@@ -118,6 +133,42 @@ async function key(target: EventTarget, init: KeyboardEventInit) {
 }
 
 describe("docs search dialog", () => {
+  it.each(["/docs/app/install", "/docs/retry", "/docs"])(
+    "defaults search scope from %s and lets readers search both audiences",
+    async (path) => {
+      pathname = path
+      const container = await render()
+      await openFromTrigger(container)
+      const select = dialog()?.querySelector<HTMLSelectElement>(
+        'select[aria-label="Search audience"]',
+      )
+      expect(select?.value).toBe(
+        path === "/docs" ? "all" : path.startsWith("/docs/app/") ? "app" : "framework",
+      )
+      await type("retry")
+      const before = options()
+        .map((option) => option.textContent)
+        .join(" ")
+      if (path !== "/docs")
+        expect(before.includes("Retry an app connection")).toBe(path.startsWith("/docs/app/"))
+      await act(async () => {
+        if (!select) throw new Error("missing audience control")
+        select.value = "all"
+        select.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      expect(
+        options()
+          .map((option) => option.textContent)
+          .join(" "),
+      ).toContain("Retry an app connection")
+      expect(
+        options()
+          .map((option) => option.textContent)
+          .join(" "),
+      ).toContain("Framework")
+    },
+  )
+
   it("opens as a native modal dialog and fetches the index only on first open", async () => {
     const container = await render()
     expect(fetchMock).not.toHaveBeenCalled()

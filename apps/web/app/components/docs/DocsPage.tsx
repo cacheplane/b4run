@@ -20,7 +20,7 @@ interface Props {
 export function DocsPage({ href, Content, promptSlug }: Props) {
   const prompt = promptSlug ? getPrompt(promptSlug) : null
   const seoPage = resolveStaticSeoPage(href)
-  const slug = href.replace(/^\/docs\//, "")
+  const slug = href.replace(/^\/docs\//, "").replace(/\/+$/, "")
 
   return (
     <>

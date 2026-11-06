@@ -1,0 +1,42 @@
+---
+title: "Your first conversation"
+description: "Follow a request through a turn, tool activity, and a response."
+---
+
+# Your first conversation
+
+Let's start with a small request you can check. Choose your connected agent and a project folder, then ask:
+
+> Explain what this project does and where its main entry point is. Do not change any files.
+
+The first message starts the conversation. The agent may read files before it answers. Follow that activity as it arrives.
+
+## Understand a turn
+
+A turn begins with your request. It includes the agent's work toward that request and ends when the runtime reports an outcome. One turn can contain several tool calls. A tool call might read a file, run a command, or ask a server for information.
+
+A tool result tells us what came back from that action. The final response explains the outcome to you. Read both when you need to understand how the agent reached its answer.
+
+## Respond when the agent needs you
+
+Some actions require a decision. Read the requested action before responding. The available choices depend on the runtime and its configured permissions. A waiting turn needs your response before it can continue.
+
+An approval allows the requested action; it does not prove that the action succeeded. Follow the subsequent result.
+
+## Ask a follow-up
+
+After the turn finishes, ask a narrower question in the same conversation:
+
+> Which file would I read next to understand how that entry point works?
+
+You are continuing a conversation with the same runtime. Starting a conversation with another provider does not transfer hidden context between providers.
+
+## Stop or recover
+
+Use the conversation's stop control when you want to interrupt active work. Wait for the reported outcome. If the runtime disconnects before confirming the result, the app may show an unknown outcome. Do not assume the request failed or resend it blindly. Follow the recovery action shown by the app.
+
+## Follow the same idea in Navlog
+
+Navlog is a B4 example that prepares a flight plan using tools and source material. A request leads to lookups, results, and a response, just as a coding task leads to file reads and an explanation. Its weather is time-dependent, and its local flight-plan recording is not a transmission to a filing service.
+
+You can [run the B4 example](/docs/app/b4-agents) when you want to explore that path. To keep your conversations organized, continue with [manage your work](/docs/app/manage-work).

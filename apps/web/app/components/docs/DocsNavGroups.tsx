@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { Eyebrow } from "../ui/Eyebrow"
+import { docsArea } from "./doc-sections"
 import { IntentLink } from "./IntentLink"
-import { DOCS_NAV } from "./nav"
+import { navFor } from "./nav"
 
 interface Props {
   readonly pathname: string
@@ -45,14 +45,15 @@ export function DocsNavGroups({ pathname, variant, onNavigate }: Props) {
   }, [pathname, variant])
 
   const menu = variant === "menu"
+  const area = docsArea(pathname)
   return (
     <nav ref={navRef} aria-label="Documentation" className={menu ? "space-y-2" : "space-y-1 mt-2"}>
-      {DOCS_NAV.map((section) => {
+      {(area ? navFor(area) : []).map((section) => {
         const activeSection = section.items.some((item) => item.href === pathname)
         return (
           <details key={section.label} open={activeSection} className="group">
             <summary className={`${SUMMARY_CLASS} ${menu ? "min-h-11 py-2" : "py-1.5"}`}>
-              <Eyebrow as="span">{section.label}</Eyebrow>
+              <span className="text-sm font-semibold">{section.label}</span>
               <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
                 ›
               </span>

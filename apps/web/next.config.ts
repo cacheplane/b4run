@@ -98,13 +98,6 @@ const nextConfig: NextConfig = {
         destination: "/brand/identity/index.html",
         permanent: true,
       },
-      // The docs have no index page; send /docs to the first guide with a
-      // cacheable 308 instead of rendering a page that redirects.
-      {
-        source: "/docs",
-        destination: "/docs/getting-started",
-        permanent: true,
-      },
       // A short link for outreach; set B4_CALL_URL to a booking page, else the form.
       {
         source: "/call",

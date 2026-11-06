@@ -217,7 +217,9 @@ describe("contract: every referenced token is declared", () => {
     const missing = sources.flatMap(({ path, text }) =>
       [...text.matchAll(/var\((--(?:color|text|font)-[\w-]+)/g)]
         .map((m) => m[1] as string)
-        .filter((name) => !declared.has(name) && !/^--font-(inter|jetbrains-mono)$/.test(name))
+        .filter(
+          (name) => !declared.has(name) && !/^--font-(inter|jetbrains-mono|hanken)$/.test(name),
+        )
         .map((name) => `${path}: ${name}`),
     )
     expect([...new Set(missing)]).toEqual([])

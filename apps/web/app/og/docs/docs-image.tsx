@@ -34,6 +34,8 @@ export function docsImagePageFor(slug: readonly string[]): DocsImagePage | undef
 
 /** The crumb above the page: its nav section, or "API Reference" for a package page. */
 export function docsImageEyebrow(page: Pick<DocsImagePage, "breadcrumbs">): string {
+  const current = page.breadcrumbs.at(-1)?.label
+  if (current === "App" || current === "Framework") return `Docs · ${current}`
   const parent = page.breadcrumbs.at(-2)?.label
   return parent === undefined || parent === "Docs" || parent === "Home"
     ? "Docs"
@@ -65,8 +67,7 @@ export function renderDocsImage(page: DocsImagePage) {
         style={{
           fontSize: 22,
           fontWeight: 600,
-          letterSpacing: 4,
-          textTransform: "uppercase",
+          letterSpacing: 0,
           color: COLOR["ink-muted"],
         }}
       >

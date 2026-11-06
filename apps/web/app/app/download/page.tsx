@@ -22,6 +22,9 @@ export default async function Page() {
   return (
     <AppPage>
       <h1>Download Agent Workspace</h1>
+      <p>
+        <a href="/docs/app">Read the app guides</a>.
+      </p>
       {beta ? (
         <>
           <p>

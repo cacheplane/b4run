@@ -142,15 +142,18 @@ describe("sitemap documentation entries", () => {
     ])
   })
 
-  it("uses the exhaustive docs registry exactly and omits the redirect-only docs root", async () => {
+  it("uses the exhaustive docs registry exactly and includes the docs entrance", async () => {
     const entries = await productionSitemap()
     const docsUrls = entries
       .map((entry) => entry.url)
       .filter((url) => new URL(url).pathname.startsWith("/docs"))
 
-    expect(docsUrls).toEqual(ALL_DOCS_PAGES.map((page) => `https://b4.run${page.href}`))
+    expect(docsUrls).toEqual([
+      "https://b4.run/docs",
+      ...ALL_DOCS_PAGES.map((page) => `https://b4.run${page.href}`),
+    ])
     expect(docsUrls).toContain("https://b4.run/docs/thread-access")
-    expect(docsUrls).not.toContain("https://b4.run/docs")
+    expect(docsUrls).toContain("https://b4.run/docs")
   })
 
   it("contains the complete resolved production static, docs, and tag inventory", async () => {
@@ -160,6 +163,7 @@ describe("sitemap documentation entries", () => {
     const resolvedPaths = entries.map((entry) => new URL(entry.url).pathname)
     const expectedPaths = [
       "/",
+      "/docs",
       "/blog",
       "/privacy",
       "/updates",
@@ -171,7 +175,7 @@ describe("sitemap documentation entries", () => {
     expect(resolvedPaths).toEqual(expectedPaths)
     expect(new Set(resolvedPaths)).toEqual(new Set(expectedPaths))
     expect(new Set(resolvedPaths).size).toBe(resolvedPaths.length)
-    expect(resolvedPaths).not.toContain("/docs")
+    expect(resolvedPaths).toContain("/docs")
     expect(resolvedPaths).toContain("/blog/b4-0-8-framework-around-the-agent")
     expect(resolvedPaths).toContain("/blog/b4-at-the-edge")
     expect(resolvedPaths).toContain("/blog/b4-0-4-release")
@@ -180,7 +184,7 @@ describe("sitemap documentation entries", () => {
     // Both posts are dated after the frozen as-of date.
     expect(resolvedPaths).not.toContain("/blog/build-a-code-fixing-agent-you-can-read")
     expect(resolvedPaths).not.toContain("/blog/what-is-a-software-factory")
-    expect(entries).toHaveLength(4 + ALL_DOCS_PAGES.length + posts.length + tags.length)
+    expect(entries).toHaveLength(5 + ALL_DOCS_PAGES.length + posts.length + tags.length)
   })
 
   it("keeps production post and tag static params aligned with the frozen sitemap inventory", async () => {

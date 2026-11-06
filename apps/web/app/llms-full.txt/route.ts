@@ -6,6 +6,7 @@ import { PROMPTS } from "../../content/prompts"
 import { webContentRoot } from "../../lib/content-root"
 import { fencedVerbatim, llmsDocSection, mdxToMarkdown } from "../../lib/llms-markdown.mjs"
 import { getAllPosts } from "../components/blog/post-index"
+import { docContentPath } from "../components/docs/doc-sources"
 import { ALL_DOCS_PAGES } from "../components/docs/nav"
 
 // Rendered once at build time and served from the CDN. The content is baked
@@ -22,10 +23,7 @@ async function readContent(relPath: string): Promise<string> {
   return readFile(path.join(CONTENT_ROOT, relPath), "utf8")
 }
 
-function docHrefToContentPath(href: string): string {
-  const slug = href.replace(/^\/docs\/?/, "")
-  return slug === "recipes" ? "docs/recipes/index.mdx" : `docs/${slug}.mdx`
-}
+const docHrefToContentPath = docContentPath
 
 // Heading outline: `# B4.run: Full Reference` > `## <part>` > `### <page>`.
 // Each page drops its own `# Title` (the `###` heading replaces it) and its

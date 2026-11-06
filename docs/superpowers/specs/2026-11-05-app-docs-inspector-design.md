@@ -15,7 +15,7 @@ Implement the inspector inside b4.run, with Replay and optional Source. Use the 
 
 ## Evidence and repository baseline
 
-The initial `/Users/blove/repos/b4run` checkout is on `blove/ag-ui-orchestration-projection` at `f7d89dbc6`, with unrelated local work. It contains obsolete Dawn branding and `examples/research`. Earlier recommendations based on that checkout must not become production instructions.
+The initial `/Users/blove/repos/b4run` checkout is on `blove/ag-ui-orchestration-projection` at `f7d89dbc6`, with unrelated local work. It contains obsolete branding and `examples/research`. Earlier recommendations based on that checkout must not become production instructions.
 
 This design is based on locally available `origin/main` at `c1e179655`, checked out separately on `blove/app-docs-design`. No remote freshness claim is made; refresh and reconcile main before implementation. The newer tree has `examples/navlog`, B4 package names, Paper Relay tokens, and `/app` marketing/download pages. `/app` and `/docs/app/` serve different purposes and link to each other.
 

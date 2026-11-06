@@ -1,0 +1,28 @@
+---
+title: "Connect Claude Code"
+description: "Use the Claude Code runtime and login on your Mac."
+---
+
+# Connect Claude Code
+
+The app runs Claude Code through its installed command-line runtime. If you already use it in a terminal, start by checking that login and then connect it to the app.
+
+## Before you start
+
+Complete [app setup](/docs/app/install). Install Claude Code and sign in using its official flow. The app account connects your devices; your Claude Code login authorizes the agent runtime.
+
+## Add the connection
+
+Open **Settings**, then **Connections**. Use the add-connection control and choose Claude Code. The app checks the installed executable and its authentication state.
+
+If authentication is required, complete the runtime's official sign-in flow in your terminal, then check the connection again. Do not paste a provider credential into a conversation.
+
+## Choose the work
+
+Start a conversation with the Claude Code connection and the working folder you want it to use. Model and permission choices apply to that conversation. Keep the defaults when you want the runtime's configuration to decide.
+
+The app manages its own conversations. It does not automatically import every conversation you previously started in a terminal.
+
+## Follow the result
+
+[Send a first request](/docs/app/first-conversation) and watch for text, tool activity, or a request for your input. If the connection is unavailable, use [troubleshooting](/docs/app/troubleshooting) to distinguish an installation problem from an authentication problem.

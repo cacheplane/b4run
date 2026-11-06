@@ -14,8 +14,8 @@ import {
 import { track } from "../../lib/analytics/client"
 import { SIGNAL_EVENTS } from "../../lib/analytics/events"
 import { Button } from "../ui/Button"
-import { Eyebrow } from "../ui/Eyebrow"
 import { Icon } from "../ui/Icon"
+import { type DocsArea, docsArea } from "./doc-sections"
 import {
   isTypingTarget,
   loadDocsSearchIndex,
@@ -26,6 +26,7 @@ import {
   type DocsSearchHit,
   type DocsSearchResult,
   filterDocsSearchResults,
+  resultsForArea,
 } from "./docs-search-results"
 
 type IndexState =
@@ -127,6 +128,7 @@ export function DocsSearch() {
   const router = useRouter()
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [scope, setScope] = useState<DocsArea | "all">(docsArea(pathname) ?? "all")
   const [query, setQuery] = useState("")
   const [active, setActive] = useState(0)
   const [index, setIndex] = useState<IndexState>({ status: "idle" })
@@ -141,8 +143,11 @@ export function DocsSearch() {
   const optionId = (i: number) => `${baseId}-option-${i}`
 
   const results = useMemo<readonly DocsSearchHit[]>(
-    () => (index.status === "ready" ? filterDocsSearchResults(query, index.results) : []),
-    [index, query],
+    () =>
+      index.status === "ready"
+        ? filterDocsSearchResults(query, resultsForArea(index.results, scope))
+        : [],
+    [index, query, scope],
   )
 
   const load = useCallback(() => {
@@ -226,9 +231,10 @@ export function DocsSearch() {
   }, [open, openSearch])
 
   // A completed navigation (including browser back) closes the dialog.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pathname is the trigger
   useEffect(() => {
     setOpen(false)
+    setScope(docsArea(pathname) ?? "all")
+    setActive(0)
   }, [pathname])
 
   // Keep the active option in view.
@@ -290,7 +296,7 @@ export function DocsSearch() {
           close()
         }
       }}
-      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 p-0 pt-[12vh] backdrop-blur-sm backdrop:bg-transparent open:flex"
+      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 p-0 pt-[12vh] backdrop:bg-transparent open:flex"
     >
       {/* The scrim and the panel are styled by ui.css ([data-docs-search-dialog]). */}
       <div className="w-full max-w-xl mx-4 overflow-hidden">
@@ -322,6 +328,22 @@ export function DocsSearch() {
           </button>
         </div>
 
+        <label className="flex items-center gap-3 px-4 py-2 text-sm">
+          Search in
+          <select
+            aria-label="Search audience"
+            value={scope}
+            onChange={(event) => {
+              setScope(event.target.value as DocsArea | "all")
+              setActive(0)
+            }}
+            className="min-h-11 border border-rule-strong bg-page px-3"
+          >
+            <option value="app">App</option>
+            <option value="framework">Framework</option>
+            <option value="all">All docs</option>
+          </select>
+        </label>
         <p role="status" aria-live="polite" className="sr-only" data-docs-search-status>
           {status}
         </p>
@@ -373,9 +395,9 @@ export function DocsSearch() {
                 onClick={() => navigate(hit.href)}
                 className="cursor-pointer px-4 py-2.5"
               >
-                <Eyebrow as="span" className="block whitespace-nowrap">
-                  {hit.section}
-                </Eyebrow>
+                <span className="block whitespace-nowrap text-xs text-ink-muted">
+                  {(hit.area ?? docsArea(hit.href)) === "app" ? "App" : "Framework"} · {hit.section}
+                </span>
                 <span className="block text-sm font-semibold text-ink">
                   {hit.heading ? hit.heading.text : hit.title}
                 </span>
