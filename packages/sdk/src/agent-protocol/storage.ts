@@ -106,7 +106,15 @@ export interface RuntimeOperationContext {
   readonly method: string
   readonly operationThreadId: string
   readonly targetRunId: string
-  readonly requestHash: string
+  /** Original pure protocol normalization/default facts, not executable route
+   * schema/reducer callbacks. Missing facts cannot authorize a fresh retry. */
+  readonly normalization: {
+    readonly messages: boolean
+    readonly mechanicalDefaults: Readonly<Record<string, unknown>>
+    readonly configDefaults: Readonly<Record<string, unknown>>
+  }
+  /** Original execution input/config after adapter schema/reducer processing.
+   * Receipt identity is the pure protocol fingerprint, not a rehash of this. */
   readonly resolved: Readonly<Record<string, unknown>>
   readonly provenance: Readonly<Record<string, unknown>>
 }

@@ -223,9 +223,10 @@ it("excludes transport command IDs and trace IDs from an exact operation fingerp
 it("does not create a second token identity when an omitted Thread becomes explicit", async () => {
   const { f, body } = await setup()
   const accepted = await f.admit()
-  await expect(f.admit(body({ thread_id: accepted.threadId }))).rejects.toMatchObject({
-    code: "submission_conflict",
-  })
+  expect((await f.admit(body({ thread_id: accepted.threadId }))).runId).toBe(accepted.runId)
+  await expect(
+    f.admit(body({ thread_id: accepted.threadId, on_completion: "keep" })),
+  ).rejects.toMatchObject({ code: "submission_conflict" })
   expect((await f.snapshot(accepted.threadId)).runs).toHaveLength(1)
 })
 
@@ -274,4 +275,108 @@ it("keeps opaque business input.messages outside the public message projection",
   const snapshot = await f.snapshot(accepted.threadId)
   expect(snapshot.runs[0]?.run.input).toEqual(input)
   expect(snapshot.thread?.thread.messages).toEqual([])
+})
+
+it("reconciles C3-equivalent message IDs instead of comparing raw message arrays", async () => {
+  const { f, body } = await setup()
+  const message = { id: "user-1", role: "user", content: "hello" }
+  const first = await f.admit(body({ input: { messages: [message] } }))
+  f.parser(() => {
+    throw new Error("current schema must not run")
+  })
+  const replay = await f.admit(body({ input: { messages: [message, message] } }))
+  expect(replay.runId).toBe(first.runId)
+  expect((await f.admit(body({ input: {}, messages: [message] }))).runId).toBe(first.runId)
+  expect(f.resolutionCount()).toBe(1)
+  const snapshot = await f.snapshot(first.threadId)
+  expect(snapshot.runs).toHaveLength(1)
+  expect(snapshot.thread?.thread.messages).toHaveLength(1)
+  await expect(
+    f.admit(body({ input: { messages: [{ ...message, content: "changed" }] } })),
+  ).rejects.toMatchObject({ code: "submission_conflict" })
+})
+it.each([{ temperature: 0.5 }, { configurable: { temperature: 0.5 } }])(
+  "reconciles explicit ORIGINAL resolved config defaults %j",
+  async (defaults) => {
+    const { f, body } = await setup()
+    f.originalConfigDefaults(defaults)
+    const first = await f.admit()
+    f.originalConfigDefaults({ temperature: 0.9 })
+    f.defaultAgent("/missing#agent")
+    expect((await f.admit(body({ config: defaults }))).runId).toBe(first.runId)
+    expect(f.resolutionCount()).toBe(1)
+    await expect(f.admit(body({ config: { temperature: 0.8 } }))).rejects.toMatchObject({
+      code: "submission_conflict",
+    })
+  },
+)
+it("retains explicit nondefault mechanical intent while reconciling explicit default values", async () => {
+  const { f, body } = await setup()
+  const first = await f.admit(body({ on_disconnect: "continue" }))
+  expect(
+    (
+      await f.admit(
+        body({
+          on_disconnect: "continue",
+          on_completion: "delete",
+          if_not_exists: "reject",
+          stream_mode: "values",
+        }),
+      )
+    ).runId,
+  ).toBe(first.runId)
+  await expect(f.admit()).rejects.toMatchObject({ code: "submission_conflict" })
+})
+it("normalizes nonobject input/messages identity without replaying its custom combiner", async () => {
+  const { f, body } = await setup()
+  let combines = 0
+  f.combineMessages((input, messages) => {
+    combines++
+    return { business: input, messages }
+  })
+  const message = { id: "user-1", role: "user", content: "hello" }
+  const first = await f.admit(body({ input: "literal", messages: [message] }))
+  expect((await f.admit(body({ input: "literal", messages: [message, message] }))).runId).toBe(
+    first.runId,
+  )
+  expect(combines).toBe(1)
+  await expect(
+    f.admit(body({ input: { input: "literal" }, messages: [message] })),
+  ).rejects.toMatchObject({ code: "submission_conflict" })
+})
+it("preserves opaque business arrays and their order during receipt comparison", async () => {
+  const { f, body } = await setup()
+  f.declareMessages(false)
+  const first = await f.admit(body({ input: ["first", "second"] }))
+  expect((await f.admit(body({ input: ["first", "second"] }))).runId).toBe(first.runId)
+  await expect(f.admit(body({ input: ["second", "first"] }))).rejects.toMatchObject({
+    code: "submission_conflict",
+  })
+})
+
+it("captures pure identity before a new-operation parser mutates its execution input", async () => {
+  const { f, body } = await setup()
+  f.parser((value) => {
+    const execution = value as Record<string, unknown>
+    execution.question = "execution"
+    return execution
+  })
+  const first = await f.admit(body({ input: { question: "wire" } }))
+  expect((await f.snapshot(first.threadId)).runs[0]?.run.input).toMatchObject({
+    question: "execution",
+  })
+  expect((await f.admit(body({ input: { question: "wire" } }))).runId).toBe(first.runId)
+  expect(f.resolutionCount()).toBe(1)
+})
+it("fails closed for an old private receipt context without normalization facts", async () => {
+  const { f } = await setup()
+  const first = await f.admit()
+  const row = required((await f.snapshot(first.threadId)).receipts[0])
+  const { normalization: _facts, ...oldContext } = required(row.operation)
+  await f.seedReceipt(first.threadId, {
+    ...row,
+    operation: oldContext as NonNullable<typeof row.operation>,
+  })
+  await expect(f.admit()).rejects.toMatchObject({ code: "receipt_expired" })
+  expect((await f.snapshot(first.threadId)).runs).toHaveLength(1)
 })

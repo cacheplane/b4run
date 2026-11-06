@@ -171,3 +171,26 @@ it("uses arbitrary native AG-UI submission IDs through the same ledger", async (
   })
   expect(rows[0]?.run_id).toBe(accepted.runId)
 })
+
+it("orders Run search by created_at instant descending before pagination, then ID ascending", async () => {
+  const { f, body } = await setup()
+  const entries = await Promise.all(
+    Array.from({ length: 3 }, (_, index) =>
+      f.admit(
+        body({
+          metadata: { b4: { v: 1, submissionId: `10000000-0000-4000-8000-00000000009${index}` } },
+        }),
+      ),
+    ),
+  )
+  entries.sort((a, b) => a.runId.localeCompare(b.runId))
+  const dates = ["2026-01-01T00:00:00Z", "2026-02-01T01:00:00+01:00", "2026-02-01T00:00:00Z"]
+  for (const [index, entry] of entries.entries())
+    await (await f.store(entry.threadId)).transaction(async (tx) => {
+      const row = required(await tx.runs.get(entry.runId))
+      await tx.runs.put({ ...row, run: { ...row.run, created_at: required(dates[index]) } })
+    })
+  expect((await f.search({}, { limit: 1 }))[0]?.run_id).toBe(required(entries[1]).runId)
+  expect((await f.search({}, { limit: 1, offset: 1 }))[0]?.run_id).toBe(required(entries[2]).runId)
+  expect((await f.search({}, { limit: 1, offset: 2 }))[0]?.run_id).toBe(required(entries[0]).runId)
+})

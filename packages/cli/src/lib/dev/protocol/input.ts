@@ -28,6 +28,46 @@ export interface ProtocolBoundaryOptions {
   readonly output?: ProtocolOutputOptions
 }
 
+/** Pure protocol identity before route schema/reducer/combine execution. The
+ * host persists the resolved messages capability with its receipt; replay never
+ * invokes an adapter callback or guesses capabilities from business input. */
+export type ProtocolInputIdentity =
+  | { readonly kind: "absent" }
+  | { readonly kind: "opaque"; readonly input: unknown }
+  | { readonly kind: "object"; readonly input: Readonly<Record<string, unknown>> }
+  | { readonly kind: "separate"; readonly input: unknown; readonly messages: readonly B4Message[] }
+
+function hasMessageInput(input: unknown, messages: readonly B4Message[] | undefined): boolean {
+  return messages !== undefined || (isRecord(input) && Object.hasOwn(input, "messages"))
+}
+function protocolMessageInputs(input: unknown, messages: readonly B4Message[] | undefined) {
+  const top = messages === undefined ? [] : parsePublicMessages(messages)
+  const nested =
+    isRecord(input) && Object.hasOwn(input, "messages") ? parsePublicMessages(input.messages) : []
+  // Shared ID conflict/dedup semantics. Execution still calls its original
+  // custom reducer with the original top/nested arrays, exactly once.
+  const merged = mergePublicMessages(top, nested)
+  return { top, nested, merged }
+}
+export function normalizeProtocolInputIdentity(
+  input: unknown,
+  options: {
+    readonly messagesSupported: boolean
+    readonly messages?: readonly B4Message[]
+  },
+): ProtocolInputIdentity {
+  if (options.messages !== undefined && !options.messagesSupported)
+    throw new Error("adapter does not declare messages input")
+  if (!options.messagesSupported || !hasMessageInput(input, options.messages))
+    return input === undefined ? { kind: "absent" } : { kind: "opaque", input }
+  const { merged } = protocolMessageInputs(input, options.messages)
+  if (isRecord(input) || input === undefined)
+    return { kind: "object", input: { ...(input ?? {}), messages: merged } }
+  // A separate pair avoids colliding with an opaque object that happens to
+  // contain input/messages keys, without executing a custom combiner.
+  return { kind: "separate", input, messages: merged }
+}
+
 export function normalizeProtocolInput(input: unknown, options: ProtocolBoundaryOptions): unknown {
   try {
     const capability = options.adapter.messages
@@ -35,17 +75,8 @@ export function normalizeProtocolInput(input: unknown, options: ProtocolBoundary
       throw new Error("adapter does not declare messages input")
     }
     let candidate = input
-    if (
-      capability &&
-      (options.messages !== undefined || (isRecord(input) && Object.hasOwn(input, "messages")))
-    ) {
-      const top = options.messages === undefined ? [] : parsePublicMessages(options.messages)
-      const nested =
-        isRecord(input) && Object.hasOwn(input, "messages")
-          ? parsePublicMessages(input.messages)
-          : []
-      // Check conflicts before the adapter's reducer can replace/discard an ID.
-      mergePublicMessages(top, nested)
+    if (capability && hasMessageInput(input, options.messages)) {
+      const { top, nested } = protocolMessageInputs(input, options.messages)
       const messages = parsePublicMessages(capability.reduce(top, nested))
       if (isRecord(input) || input === undefined) {
         candidate = { ...(input ?? {}), messages }

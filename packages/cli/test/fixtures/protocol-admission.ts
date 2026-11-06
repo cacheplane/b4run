@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { ThreadAccessPolicy } from "@b4run/sdk"
-import type { RuntimeReceiptRecord, RuntimeStore } from "@b4run/sdk/agent-protocol"
+import type { B4Message, RuntimeReceiptRecord, RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { sqliteRuntimeStorage } from "@b4run/sqlite-storage"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import { Pool } from "pg"
@@ -111,6 +111,9 @@ export async function fixture(
   let agent = "/chat#agent"
   let originalAvailable = true
   let messages = true
+  let configDefaults: Readonly<Record<string, unknown>> = {}
+  let combineInput: ((input: unknown, messages: readonly B4Message[]) => unknown) | undefined
+  let resolutions = 0
   let parse = (value: unknown) => value
   const pauses = new Map<string, { entered: () => void; wait: Promise<void> }>()
   const pause = async (phase: string) => {
@@ -171,15 +174,24 @@ export async function fixture(
     authorizeAgent: (request, id) =>
       authorizeProtocolAgent({ request, registry: registry(), middleware: undefined }, id),
     resolveAgent: async () => {
+      resolutions++
       await pause("resolution")
       return {
         boundary: {
           adapter: {
             parseInput: (value: unknown) => parse(value),
-            ...(messages ? { messages: { reduce: mergePublicMessages } } : {}),
+            ...(messages
+              ? {
+                  messages: {
+                    reduce: mergePublicMessages,
+                    ...(combineInput ? { combineInput } : {}),
+                  },
+                }
+              : {}),
           },
         },
         config: { allowedKeys: ["temperature"] },
+        defaults: configDefaults,
       }
     },
     failpoint(point) {
@@ -226,6 +238,15 @@ export async function fixture(
     },
     defaultAgent(value: string) {
       agent = value
+    },
+    originalConfigDefaults(value: Readonly<Record<string, unknown>>) {
+      configDefaults = value
+    },
+    combineMessages(value: typeof combineInput) {
+      combineInput = value
+    },
+    resolutionCount() {
+      return resolutions
     },
     declareMessages(value: boolean) {
       messages = value

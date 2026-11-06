@@ -4,8 +4,10 @@ import {
   type ThreadAccessRequest,
 } from "@b4run/sdk"
 import type {
+  B4RunStream,
   ReceiptV1,
   Run,
+  RuntimeOperationContext,
   RuntimeReceiptRecord,
   RuntimeThreadRecord,
   RuntimeTransaction,
@@ -14,7 +16,11 @@ import { sha256Hex } from "@b4run/sdk/pure"
 import { requestPrincipal } from "../dev/auth.js"
 import type { AgentCatalog } from "../dev/protocol/catalog.js"
 import { ProtocolError } from "../dev/protocol/errors.js"
-import { normalizeProtocolInput, type ProtocolBoundaryOptions } from "../dev/protocol/input.js"
+import {
+  normalizeProtocolInput,
+  normalizeProtocolInputIdentity,
+  type ProtocolBoundaryOptions,
+} from "../dev/protocol/input.js"
 import { mergePublicMessages, parsePublicMessages } from "../dev/protocol/messages.js"
 import {
   matchesLiteralFilters,
@@ -106,35 +112,71 @@ function operationPayload(value: Record<string, unknown>): Record<string, unknow
   }
   return { ...payload, metadata }
 }
-function replayReceipt(
+const mechanicalKeys = ["on_disconnect", "on_completion", "if_not_exists", "stream_mode"] as const
+/** Compare protocol semantics before adapter/schema processing, using the
+ * original target and defaults. The separate resolved execution input remains
+ * immutable but is never used as a substitute for normalizing this candidate. */
+function protocolOperationIdentity(
+  incoming: B4RunStream,
+  raw: Record<string, unknown>,
+  original: Readonly<Record<string, unknown>>,
+  facts: RuntimeOperationContext["normalization"],
+): Record<string, unknown> {
+  const { input: _input, messages: _messages, config: _config, ...fields } = incoming
+  return operationPayload({
+    ...fields,
+    ...Object.fromEntries(
+      mechanicalKeys.map((key) => [
+        key,
+        Object.hasOwn(raw, key) ? incoming[key] : facts.mechanicalDefaults[key],
+      ]),
+    ),
+    agent_id: incoming.agent_id ?? original.agent_id,
+    thread_id: incoming.thread_id ?? original.thread_id,
+    input: normalizeProtocolInputIdentity(incoming.input, {
+      messagesSupported: facts.messages,
+      ...(incoming.messages !== undefined ? { messages: incoming.messages } : {}),
+    }),
+    config: { ...facts.configDefaults, ...(incoming.config ?? {}) },
+  })
+}
+async function replayReceipt(
   tx: RuntimeTransaction,
   record: RuntimeReceiptRecord,
-  requestHash: string,
+  incoming: B4RunStream,
+  raw: Record<string, unknown>,
   ownerKey: string,
 ): Promise<AdmissionResult> {
-  return (async () => {
-    const operation = record.operation
-    if (!operation || operation.scopeKey !== ownerKey) throw new ProtocolError("receipt_expired")
-    if (operation.requestHash !== requestHash) throw new ProtocolError("submission_conflict")
-    const run = await tx.runs.get(record.receipt.runId)
-    if (!run) throw new ProtocolError("submission_target_gone")
-    if (record.state !== "accepted") throw new ProtocolError("receipt_expired")
-    if (
-      record.fingerprint !==
-      hash([
-        ownerKey,
-        operation.method,
-        operationPayload(operation.resolved as Record<string, unknown>),
-        tx.scope.generation,
-      ])
-    )
-      throw new ProtocolError("submission_conflict")
-    return {
-      runId: record.receipt.runId,
-      threadId: tx.scope.threadId,
-      responseMeta: { b4: { v: 1, receipt: { ...record.receipt, replayed: true } } },
-    }
-  })()
+  const operation = record.operation
+  if (
+    !operation ||
+    operation.scopeKey !== ownerKey ||
+    !operation.normalization ||
+    typeof operation.normalization.messages !== "boolean"
+  )
+    throw new ProtocolError("receipt_expired")
+  let fingerprint: string
+  try {
+    fingerprint = hash([
+      ownerKey,
+      operation.method,
+      canonical(
+        protocolOperationIdentity(incoming, raw, operation.resolved, operation.normalization),
+      ),
+      tx.scope.generation,
+    ])
+  } catch {
+    throw new ProtocolError("submission_conflict")
+  }
+  if (fingerprint !== record.fingerprint) throw new ProtocolError("submission_conflict")
+  const run = await tx.runs.get(record.receipt.runId)
+  if (!run) throw new ProtocolError("submission_target_gone")
+  if (record.state !== "accepted") throw new ProtocolError("receipt_expired")
+  return {
+    runId: record.receipt.runId,
+    threadId: tx.scope.threadId,
+    responseMeta: { b4: { v: 1, receipt: { ...record.receipt, replayed: true } } },
+  }
 }
 function publicRun(row: import("@b4run/sdk/agent-protocol").RuntimeRunRecord): Run {
   const { lookup: _lookup, ...metadata } = row.metadata
@@ -161,6 +203,10 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           configurable && typeof configurable === "object" ? Object.keys(configurable) : [],
       }
       const normalized = parseProtocolRequest("run", body, { config: safePolicy })
+      // Detached wire facts cannot be changed by new-operation schema/adapter
+      // callbacks, including while another request commits its receipt.
+      const identityRequest: B4RunStream = JSON.parse(JSON.stringify(normalized))
+      const rawShape = Object.fromEntries(Object.keys(raw).map((key) => [key, true]))
       const metadata = normalized.metadata ?? {}
       const envelope =
         metadata.b4 === undefined ? { v: 1 as const } : parseRequestMetadata(metadata.b4)
@@ -174,7 +220,6 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
       const gate = makeProtocolThreadGate(options.policy, request, {
         deploymentId: options.deploymentId,
       })
-      const requestHash = hash(operationPayload(normalized))
       const reconcile = async (): Promise<AdmissionResult | undefined> => {
         const candidates = await backend.searchOperations({
           scopeKey: ownerKey,
@@ -210,7 +255,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
             throw new ProtocolError("submission_target_gone")
           const record = await tx.receipts.get(receiptId)
           if (!record) throw new ProtocolError("receipt_expired")
-          return replayReceipt(tx, record, requestHash, ownerKey)
+          return replayReceipt(tx, record, identityRequest, rawShape, ownerKey)
         })
       }
       const previous = await reconcile()
@@ -234,6 +279,30 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
         const catalog = await options.catalog(request)
         const route = catalog.select(normalized.agent_id)
         const resolvedAgent = await options.resolveAgent(route)
+        const originalMechanicalDefaults = parseProtocolRequest(
+          "run",
+          requestedThread === undefined ? {} : { thread_id: requestedThread },
+        )
+        const normalization: RuntimeOperationContext["normalization"] = {
+          messages: resolvedAgent.boundary.adapter.messages !== undefined,
+          mechanicalDefaults: Object.fromEntries(
+            mechanicalKeys.map((key) => [key, originalMechanicalDefaults[key]]),
+          ),
+          configDefaults: JSON.parse(JSON.stringify(resolvedAgent.defaults ?? {})),
+        }
+        let identity: string
+        try {
+          identity = canonical(
+            protocolOperationIdentity(
+              identityRequest,
+              rawShape,
+              { agent_id: route.assistantId, thread_id: threadId },
+              normalization,
+            ),
+          )
+        } catch {
+          throw new ProtocolError("invalid_argument")
+        }
         if (normalized.config)
           parseProtocolRequest("run", body, {
             ...(resolvedAgent.config ? { config: resolvedAgent.config } : {}),
@@ -272,7 +341,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
             const originalAgent = existingReceipt.operation?.resolved.agent_id
             if (typeof originalAgent === "string")
               await options.authorizeAgent(request, originalAgent)
-            return replayReceipt(tx, existingReceipt, requestHash, ownerKey)
+            return replayReceipt(tx, existingReceipt, identityRequest, rawShape, ownerKey)
           }
           const expected = envelope.expected
           if (
@@ -432,12 +501,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           }
           await tx.receipts.put({
             receiptId,
-            fingerprint: hash([
-              ownerKey,
-              "run.create",
-              operationPayload(resolved),
-              tx.scope.generation,
-            ]),
+            fingerprint: hash([ownerKey, "run.create", identity, tx.scope.generation]),
             receipt,
             state: "accepted",
             operation: {
@@ -445,7 +509,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
               method: "run.create",
               operationThreadId: threadId,
               targetRunId: runId,
-              requestHash,
+              normalization,
               resolved,
               provenance: trustedProvenance,
             },
@@ -601,7 +665,10 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
       }
       const offset = query.offset ?? 0
       return [...rows.values()]
-        .sort((a, b) => a.run_id.localeCompare(b.run_id))
+        .sort(
+          (a, b) =>
+            Date.parse(b.created_at) - Date.parse(a.created_at) || a.run_id.localeCompare(b.run_id),
+        )
         .slice(offset, offset + (query.limit ?? 10))
     },
   }
