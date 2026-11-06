@@ -571,56 +571,100 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           })
           if (decision.ok) authorized.push(candidate)
         }
-        let gone = false
+        type LookupOutcome = {
+          readonly identity: string
+          readonly facts?: string
+          readonly gone?: true
+          readonly unavailable?: true
+          readonly run?: Run
+        }
+        const operations = new Map<string, LookupOutcome>()
+        let inconsistent = false
         for (const candidate of authorized) {
+          // The storage scope is the actual Run's Thread, including for forks.
+          // It can constrain that standard filter without collapsing distinct
+          // original command targets that share this destination scope.
           if (query.thread_id && query.thread_id !== candidate.scope.threadId) continue
-          const store = await backend.openThread(candidate.scope.threadId, false)
-          if (!store) {
-            gone = true
-            continue
+          const opaqueGone: LookupOutcome = {
+            identity: canonical(["unavailable", candidate.scope, candidate.receiptId]),
+            gone: true,
           }
-          const result = await store.transaction(async (tx) => {
-            const row = await tx.thread.get()
-            const decision = await gate({
-              action: "read",
-              operation: "run.receipt",
-              threadId: candidate.scope.threadId,
-              ...subject(row, candidate.provenance),
-            })
-            if (!decision.ok) return undefined
-            if (tx.scope.generation !== candidate.scope.generation) return { gone: true as const }
-            const receipt = await tx.receipts.get(candidate.receiptId)
-            if (!receipt) return undefined
-            const actual = await tx.runs.get(receipt.receipt.runId)
-            if (!actual || receipt.state === "retired") return { gone: true as const }
-            const run = publicRun(actual)
-            if (!matches(run)) return undefined
-            const state =
-              receipt.state === "accepted"
-                ? { state: "accepted" as const, receipt: { ...receipt.receipt, replayed: true } }
-                : { state: "expired" as const }
-            return {
-              run: {
-                ...run,
-                metadata: {
-                  ...run.metadata,
-                  b4: {
-                    ...actual.metadata,
-                    lookup: {
-                      submissionId: lookup.submissionId,
-                      submissionKind: lookup.submissionKind,
-                      ...state,
+          const store = await backend.openThread(candidate.scope.threadId, false)
+          const result = store
+            ? await store.transaction(async (tx): Promise<LookupOutcome | undefined> => {
+                const row = await tx.thread.get()
+                const decision = await gate({
+                  action: "read",
+                  operation: "run.receipt",
+                  threadId: candidate.scope.threadId,
+                  ...subject(row, candidate.provenance),
+                })
+                if (!decision.ok) return undefined
+                if (tx.scope.generation !== candidate.scope.generation) return opaqueGone
+                const receipt = await tx.receipts.get(candidate.receiptId)
+                if (!receipt) return undefined
+                const operation = receipt.operation
+                if (!operation?.method || !operation.operationThreadId || !operation.targetRunId)
+                  return { ...opaqueGone, unavailable: true }
+                const identity = canonical([
+                  "operation",
+                  operation.method,
+                  operation.operationThreadId,
+                  operation.targetRunId,
+                ])
+                const { receiptId: _id, ...logicalFacts } = receipt
+                // Compare receipt facts only. Two reads of the same Run may
+                // legitimately observe different lifecycle projections.
+                const facts = canonical(logicalFacts)
+                const actual = await tx.runs.get(receipt.receipt.runId)
+                if (!actual || receipt.state === "retired") return { identity, facts, gone: true }
+                const run = publicRun(actual)
+                const state =
+                  receipt.state === "accepted"
+                    ? {
+                        state: "accepted" as const,
+                        receipt: { ...receipt.receipt, replayed: true },
+                      }
+                    : { state: "expired" as const }
+                return {
+                  identity,
+                  facts,
+                  run: {
+                    ...run,
+                    metadata: {
+                      ...run.metadata,
+                      b4: {
+                        ...actual.metadata,
+                        lookup: {
+                          submissionId: lookup.submissionId,
+                          submissionKind: lookup.submissionKind,
+                          ...state,
+                        },
+                      },
                     },
                   },
-                },
-              },
-            }
+                }
+              })
+            : opaqueGone
+          if (!result) continue
+          const previous = operations.get(result.identity)
+          if (previous && previous.facts !== result.facts) inconsistent = true
+          operations.set(result.identity, {
+            ...previous,
+            ...result,
+            ...(previous?.gone ? { gone: true } : {}),
           })
-          if (result && "gone" in result) gone = true
-          if (result && "run" in result) rows.set(result.run.run_id, result.run)
         }
-        if (gone) throw new ProtocolError("submission_target_gone")
-        if (rows.size > 1) throw new ProtocolError("submission_ambiguous")
+        // Reconciliation is about logical operations, not display rows. Decide
+        // ambiguity before selecting accepted/expired/gone, applying mutable
+        // per-Run filters, deduplicating public Runs or paginating.
+        if (operations.size > 1) throw new ProtocolError("submission_ambiguous")
+        if (inconsistent) throw new ProtocolError("storage_unavailable")
+        for (const operation of operations.values()) {
+          if (operation.unavailable) throw new ProtocolError("storage_unavailable")
+          if (operation.gone) throw new ProtocolError("submission_target_gone")
+          if (operation.run && matches(operation.run)) rows.set(operation.run.run_id, operation.run)
+        }
       } else {
         for (const thread of await backend.listThreads()) {
           const id = thread.thread.thread_id

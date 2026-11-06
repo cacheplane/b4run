@@ -125,6 +125,7 @@ export async function fixture(
     }
   }
   let fail: "beforeCommit" | "afterCommit" | undefined
+  const revokedOrigins = new Set<string>()
   const requests: import("@b4run/sdk").ThreadAccessRequest[] = []
   const policy: ThreadAccessPolicy = {
     create: (request) => {
@@ -133,7 +134,13 @@ export async function fixture(
     },
     fallback: (request) => {
       requests.push(request)
-      return { decision: allowed ? "allow" : "deny" }
+      return {
+        decision:
+          allowed &&
+          !revokedOrigins.has(request.provenance?.sourceThreadId ?? request.threadId ?? "")
+            ? "allow"
+            : "deny",
+      }
     },
   }
   const request = (principal = "alice"): Request => {
@@ -226,6 +233,9 @@ export async function fixture(
       })
       pauses.set(phase, { entered, wait })
       return { entered: enteredPromise, release }
+    },
+    revokeOrigin(id: string) {
+      revokedOrigins.add(id)
     },
     policyRequests() {
       return requests
