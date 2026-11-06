@@ -389,3 +389,36 @@ const compilePublicMessageRoles = () => {
   return { messages, channel }
 }
 void compilePublicMessageRoles
+
+it("preserves every native capability property and required key from the pinned closure", () => {
+  const reference = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../test/agent-protocol/fixtures/native-capability-property-keys.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    source: Record<string, unknown>
+    definitions: Record<string, { properties: string[]; required: string[] }>
+  }
+  expect(schema.nativeSource).toEqual(reference.source)
+  expect(Object.keys(reference.definitions)).toHaveLength(16)
+  for (const [name, expected] of Object.entries(reference.definitions)) {
+    const actual = schema.$defs[`Native${name}`] as {
+      properties?: Record<string, unknown>
+      required?: string[]
+    }
+    expect(
+      Object.keys(actual.properties ?? {}).sort(),
+      `${name} property names are wire fields, including names shared with schema annotations`,
+    ).toEqual(expected.properties)
+    expect([...(actual.required ?? [])].sort(), `${name} required keys`).toEqual(expected.required)
+    for (const required of actual.required ?? [])
+      expect(
+        actual.properties,
+        `${name}.${required} must be a declared property in this pinned closed object`,
+      ).toHaveProperty(required)
+  }
+})

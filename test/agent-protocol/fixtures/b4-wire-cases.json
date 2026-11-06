@@ -3123,15 +3123,32 @@
     "schema": "NativeAgentCapabilities",
     "value": {
       "identity": {
+        "name": "Research assistant",
+        "description": "Find and cite sources",
         "metadata": {
-          "opaque": [1]
+          "opaque": [1, null]
         }
       },
       "transport": {
         "httpBinary": true
       },
       "tools": {
-        "clientProvided": true
+        "clientProvided": true,
+        "items": [
+          {
+            "name": "search",
+            "description": "Search the knowledge base",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              },
+              "required": ["query"]
+            }
+          }
+        ]
       },
       "output": {
         "structuredOutput": true
@@ -3140,7 +3157,13 @@
         "persistentState": true
       },
       "multiAgent": {
-        "delegation": true
+        "delegation": true,
+        "subagents": [
+          {
+            "name": "researcher",
+            "description": "Investigate a focused topic"
+          }
+        ]
       },
       "reasoning": {
         "encrypted": true
@@ -6711,5 +6734,85 @@
       ]
     },
     "valid": false
+  },
+  {
+    "name": "native identity preserves description",
+    "schema": "NativeIdentityCapabilities",
+    "value": {
+      "name": "Research assistant",
+      "description": "Find and cite sources",
+      "metadata": {
+        "opaque": [1, null]
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "native tool preserves required description",
+    "schema": "NativeTool",
+    "value": {
+      "name": "search",
+      "description": "Search the knowledge base",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "native subagent preserves description",
+    "schema": "NativeSubagentInfo",
+    "value": {
+      "name": "researcher",
+      "description": "Investigate a focused topic"
+    },
+    "valid": true
+  },
+  {
+    "name": "native capabilities nonempty tools with descriptions",
+    "schema": "NativeAgentCapabilities",
+    "value": {
+      "identity": {
+        "name": "Research assistant",
+        "description": "Find and cite sources",
+        "metadata": {
+          "opaque": [1, null]
+        }
+      },
+      "tools": {
+        "supported": true,
+        "items": [
+          {
+            "name": "search",
+            "description": "Search the knowledge base",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string"
+                }
+              },
+              "required": ["query"]
+            }
+          }
+        ]
+      },
+      "multiAgent": {
+        "supported": true,
+        "subagents": [
+          {
+            "name": "researcher",
+            "description": "Investigate a focused topic"
+          }
+        ]
+      }
+    },
+    "valid": true
   }
 ]

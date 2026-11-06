@@ -1293,6 +1293,7 @@ export const AGENT_PROTOCOL_DEFINITIONS: Readonly<Record<string, ContractSchema>
     type: "object",
     properties: {
       name: { type: "string" },
+      description: { type: "string" },
       type: { type: "string" },
       version: { type: "string" },
       provider: { type: "string" },
@@ -1327,6 +1328,7 @@ export const AGENT_PROTOCOL_DEFINITIONS: Readonly<Record<string, ContractSchema>
     type: "object",
     properties: {
       name: { type: "string" },
+      description: { type: "string" },
       parameters: { not: { type: "null" } },
       metadata: ref("NativeMetadata"),
     },
@@ -1363,7 +1365,7 @@ export const AGENT_PROTOCOL_DEFINITIONS: Readonly<Record<string, ContractSchema>
   },
   NativeSubagentInfo: {
     type: "object",
-    properties: { name: { type: "string" } },
+    properties: { name: { type: "string" }, description: { type: "string" } },
     required: ["name"],
     unevaluatedProperties: false,
   },
