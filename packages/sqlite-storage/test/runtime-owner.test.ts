@@ -1,8 +1,22 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 
+function namespaceChecksums(root: string) {
+  const directory = join(root, ".b4/agent-protocol/v1")
+  return Object.fromEntries(
+    readdirSync(directory)
+      .sort()
+      .map((file) => [
+        file,
+        createHash("sha256")
+          .update(readFileSync(join(directory, file)))
+          .digest("hex"),
+      ]),
+  )
+}
 const roots: string[] = []
 afterEach(() => {
   for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true })
@@ -19,6 +33,7 @@ it("keeps a single lifetime owner and rejects declared replicas before creating 
   expect(existsSync(join(path, ".b4"))).toBe(false)
   const owner = openRuntimeInstallation(path)
   try {
+    expect(existsSync(join(path, ".b4/agent-protocol/v1/runtime-owner.sqlite-journal"))).toBe(false)
     expect(() => openRuntimeInstallation(path)).toThrow(/owner/i)
   } finally {
     owner.close()
@@ -88,6 +103,7 @@ it("excludes a real second process, verifies process identity, and recovers afte
     expect(String(identity?.boot_identity).length).toBeGreaterThan(0)
     expect(identity?.nonce).toMatch(/^[a-f0-9-]{36}$/)
     db.close()
+    const beforeContention = namespaceChecksums(path)
     const contender = launch()
     expect(await response(contender)).toMatchObject({
       status: "rejected",
@@ -95,6 +111,7 @@ it("excludes a real second process, verifies process identity, and recovers afte
     })
     await stopped(contender)
     expect(() => openRuntimeInstallation(path)).toThrow(/owner/)
+    expect(namespaceChecksums(path)).toEqual(beforeContention)
     const killed = stopped(holder)
     holder.kill("SIGKILL")
     await killed
@@ -219,3 +236,81 @@ it("recovers stale identity metadata even when its PID belongs to a live unrelat
     recovered.close()
   }
 })
+
+it.each(["runtime", "owner"] as const)(
+  "rejects a crashed %s hot rollback journal without recovery or namespace byte changes",
+  async (target) => {
+    const { fork } = await import("node:child_process")
+    const { copyFileSync } = await import("node:fs")
+    const { DatabaseSync } = await import("node:sqlite")
+    const { openRuntimeInstallation } = await import("../src/runtime/index.ts")
+    const path = mkdtempSync(join(tmpdir(), "b4-owner-hot-journal-"))
+    roots.push(path)
+    const owner = openRuntimeInstallation(path)
+    owner.close()
+    const directory = join(path, ".b4/agent-protocol/v1")
+    const name = target === "runtime" ? "runtime.sqlite" : "runtime-owner.sqlite"
+    const child = fork(
+      new URL("./fixtures/runtime-worker.ts", import.meta.url),
+      [path, `hot-${target}-journal`],
+      {
+        execArgv: ["--import", "tsx"],
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      },
+    )
+    try {
+      expect(await response(child)).toMatchObject({ status: "hot-journal" })
+      const ended = stopped(child)
+      child.kill("SIGKILL")
+      await ended
+      expect(existsSync(join(directory, `${name}-journal`))).toBe(true)
+      // A raw main-only copy sees the spilled compatible value, proving the
+      // journal—not that main copy—holds the committed incompatible state.
+      const inspection = mkdtempSync(join(tmpdir(), "b4-hot-journal-main-"))
+      roots.push(inspection)
+      const copy = join(inspection, "main.sqlite")
+      copyFileSync(join(directory, name), copy)
+      const raw = new DatabaseSync(copy, { readOnly: true })
+      try {
+        expect(
+          raw
+            .prepare(
+              `SELECT version FROM ${target === "runtime" ? "runtime_installation" : "owner_probe"}`,
+            )
+            .get()?.version,
+        ).toBe(1)
+      } finally {
+        raw.close()
+      }
+      const recoveredCopy = join(inspection, "recover.sqlite")
+      copyFileSync(join(directory, name), recoveredCopy)
+      copyFileSync(join(directory, `${name}-journal`), `${recoveredCopy}-journal`)
+      const recovered = new DatabaseSync(recoveredCopy)
+      try {
+        expect(
+          recovered
+            .prepare(
+              `SELECT version FROM ${target === "runtime" ? "runtime_installation" : "owner_probe"}`,
+            )
+            .get()?.version,
+        ).toBe(2)
+      } finally {
+        recovered.close()
+      }
+      const before = namespaceChecksums(path)
+      let failure: unknown
+      try {
+        openRuntimeInstallation(path).close()
+      } catch (error) {
+        failure = error
+      }
+      expect(namespaceChecksums(path)).toEqual(before)
+      expect(failure).toBeInstanceOf(Error)
+      expect(String(failure)).toMatch(/rollback journal/i)
+    } finally {
+      const ended = stopped(child)
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+      await ended
+    }
+  },
+)

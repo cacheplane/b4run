@@ -82,7 +82,13 @@ export function acquireOwner(path: string): OwnerLock {
   const db = new DatabaseSync(path)
   let closed = false
   try {
-    db.exec("PRAGMA busy_timeout=0; PRAGMA synchronous=FULL; BEGIN EXCLUSIVE")
+    // This auxiliary database holds only the kernel lifetime lock; process
+    // identity and all application state are committed in runtime.sqlite. Keep
+    // its empty-file initialization journal in memory so a normal owner crash
+    // cannot leave a disk rollback journal requiring source-path recovery.
+    db.exec(
+      "PRAGMA busy_timeout=0; PRAGMA journal_mode=MEMORY; PRAGMA synchronous=FULL; BEGIN EXCLUSIVE",
+    )
   } catch (cause) {
     db.close()
     throw new Error("SQLite runtime already has an execution owner", { cause })

@@ -1,5 +1,7 @@
 import cluster from "node:cluster"
 import { writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { bindRuntimeStore, createRuntimeBinding } from "../../src/runtime/binding.ts"
 import { openRuntimeInstallation } from "../../src/runtime/index.ts"
@@ -8,7 +10,32 @@ import { checkpoint, eventId, now, receipt, run, scope, thread } from "./runtime
 const root = process.argv[2]
 const mode = process.argv[3]
 if (!root) throw new Error("Missing runtime root")
-if (mode === "cluster" && cluster.isPrimary) {
+if (mode === "hot-runtime-journal" || mode === "hot-owner-journal") {
+  const isRuntime = mode === "hot-runtime-journal"
+  const db = new DatabaseSync(
+    join(root, ".b4/agent-protocol/v1", isRuntime ? "runtime.sqlite" : "runtime-owner.sqlite"),
+  )
+  db.exec(
+    "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA cache_size=1; PRAGMA cache_spill=ON",
+  )
+  if (isRuntime) db.exec("UPDATE runtime_installation SET version=2")
+  else
+    db.exec(
+      "CREATE TABLE owner_probe(version INTEGER); INSERT INTO owner_probe VALUES (2); CREATE TABLE owner_spill(payload TEXT); INSERT INTO owner_spill VALUES ('committed')",
+    )
+  db.exec("BEGIN EXCLUSIVE")
+  if (isRuntime) {
+    db.exec("UPDATE runtime_installation SET version=1")
+    db.prepare("UPDATE runtime_owner SET process_start=?").run("synthetic-spill".repeat(100_000))
+  } else {
+    db.exec("UPDATE owner_probe SET version=1")
+    db.prepare("UPDATE owner_spill SET payload=?").run("synthetic-spill".repeat(100_000))
+  }
+  // Keep the uncommitted spill and its real rollback journal alive until the
+  // parent kills this process. No payload is sent over IPC or logged.
+  process.send?.({ status: "hot-journal" })
+  process.on("message", () => undefined)
+} else if (mode === "cluster" && cluster.isPrimary) {
   cluster.setupPrimary({
     exec: fileURLToPath(new URL("./runtime-worker.ts", import.meta.url)),
     args: [root, "cluster-worker"],

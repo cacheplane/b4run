@@ -39,8 +39,14 @@ function inspect(path: string, directory = false): boolean {
 function inspectDatabase(path: string): boolean {
   const exists = inspect(path)
   let hasSidecar = false
-  for (const suffix of ["-wal", "-shm", "-journal"])
-    if (inspect(`${path}${suffix}`)) hasSidecar = true
+  for (const suffix of ["-wal", "-shm", "-journal"]) {
+    if (!inspect(`${path}${suffix}`)) continue
+    // Runtime state is WAL-only and the owner lock performs no writes. A
+    // rollback journal may restore different committed bytes on mutable open;
+    // reject even a cold journal rather than recover an unvalidated namespace.
+    if (suffix === "-journal") throw new Error("Incompatible rollback journal in runtime namespace")
+    hasSidecar = true
+  }
   if (!exists && hasSidecar)
     throw new Error("Incompatible orphan runtime sidecar without its database")
   return exists
