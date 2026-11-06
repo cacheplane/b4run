@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { expect, test } from "vitest"
 import { parseCapture } from "../../../lib/turn-inspector/capture-schema"
 import { INSPECTOR_LESSONS } from "../../../lib/turn-inspector/lessons"
 import { validateSource } from "../../../lib/turn-inspector/source"
 
 const asset = (digest: string, extension: string) => {
-  const bytes = readFileSync(resolve("public/docs-recordings", `${digest}.${extension}`))
+  const bytes = readFileSync(
+    new URL(`../../../public/docs-recordings/${digest}.${extension}`, import.meta.url),
+  )
   expect(createHash("sha256").update(bytes).digest("hex")).toBe(digest)
   return bytes.toString("utf8")
 }

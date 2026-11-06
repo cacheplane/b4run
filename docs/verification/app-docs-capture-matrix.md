@@ -25,3 +25,11 @@ The checkpoint defect is separate: LangGraph 1.7.1 stores `__interrupt__` as an 
 ## Coverage and remaining media
 
 This first lesson qualifies message streaming, repeated tools, a follow-up turn, completion, replay, source inspection and transcript fallback. Approval, cancellation and unknown outcomes are fixture-tested but are not represented as live-qualified recordings by this lesson. Video demos and captions remain the separate content/media delivery step; no placeholder video is presented as a real recording.
+
+## Implementation checks
+
+- Recorder: full Swift suite passed, 1,428 tests in 174 suites; strict formatting passed. A finish-barrier race is now rejected rather than repaired with snapshot data.
+- Website: full focused-package run passed, 1,694 tests with 71 skipped, before the final content wiring. The final inspector and Markdown suites passed through the repository-root runner: 49 tests across ten files. The root run exposed a working-directory assumption in the new manifest test; asset paths are now module-relative.
+- Website lint, typecheck and production build passed. The built SEO audit passed with 117 indexed pages, 92 docs, 92 documentation OG images and no errors. The standalone inspector returned 200 with noindex, its canonical lesson and transcript fallback; an unknown recording returned 404.
+- Browser checks covered real inline and direct moment links, source loading and contrast, selected activity, and mobile controls. At 375px the integrated page has no horizontal overflow and visible inspector buttons are at least 44px high. Earlier component-width checks covered 320, 375, 768, 1024 and 1440px. Browser review caught and corrected a cancelled-fetch remount bug, inherited source text contrast and a narrow docs-header overflow.
+- The broad `pnpm ci:validate` attempt passed release integrity, lint, build-cache checks, all 29 build tasks and all 59 typecheck/build prerequisites. Its source-test phase was interrupted after widespread existing timeout failures under machine load averages above 80 (later above 150). It also found the manifest test path issue fixed above. This is **not** a green repository-wide gate. Remaining release/package/harness stages were not reached by that invocation.
