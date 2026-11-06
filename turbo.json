@@ -72,7 +72,8 @@
         "!$TURBO_ROOT$/examples/*/**/.next/**",
         "!$TURBO_ROOT$/examples/*/**/.turbo/**",
         "!$TURBO_ROOT$/examples/*/**/dist/**",
-        "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo"
+        "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo",
+        "$TURBO_ROOT$/test/agent-protocol/fixtures/b4-wire-cases.json"
       ]
     },
     "@b4-example/navlog-server#build": {
