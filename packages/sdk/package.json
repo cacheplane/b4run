@@ -65,6 +65,8 @@
   "devDependencies": {
     "@b4run/config-typescript": "workspace:*",
     "@types/node": "26.1.2",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "zod": "^4.6.6"
   }
 }

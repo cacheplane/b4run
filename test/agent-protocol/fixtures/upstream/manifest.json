@@ -1,0 +1,32 @@
+{
+  "repository": "https://github.com/langchain-ai/agent-protocol",
+  "commit": "455acf2eb2c55c634350f4c6a8da117d0ecfa7b1",
+  "versions": {
+    "openapi": "0.1.6",
+    "cddl": "0.0.20"
+  },
+  "license": "MIT",
+  "files": [
+    {
+      "url": "https://raw.githubusercontent.com/langchain-ai/agent-protocol/455acf2eb2c55c634350f4c6a8da117d0ecfa7b1/LICENSE",
+      "sha256": "d9bb52f2e3540d60ff50d8f0f5b6ba649b7fd346948c4c3d086c8afb120763c7",
+      "gitBlobSha1": "fc0602feecdd6748623c852ab534e1ca612673c7",
+      "bytes": 1072,
+      "path": "LICENSE"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/langchain-ai/agent-protocol/455acf2eb2c55c634350f4c6a8da117d0ecfa7b1/openapi.json",
+      "sha256": "7d069e43ca105e8127ce07ba7bd8bd7a78a2fadd6420009f2634a24cfb153f32",
+      "gitBlobSha1": "ca9738953a0960e4e2918ccab6e3c6efe124a9ca",
+      "bytes": 77595,
+      "path": "openapi.json"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/langchain-ai/agent-protocol/455acf2eb2c55c634350f4c6a8da117d0ecfa7b1/streaming/protocol.cddl",
+      "sha256": "9cebafc02e523f509f880aa8ebaa2af077f8a7f0589d8063a50d610c3af78fb1",
+      "gitBlobSha1": "d3342a16628030987056bc6840abb0f11b3f1dc5",
+      "bytes": 39078,
+      "path": "protocol.cddl"
+    }
+  ]
+}

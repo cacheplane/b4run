@@ -1,0 +1,2546 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agent Protocol",
+    "version": "0.1.6"
+  },
+  "tags": [
+    {
+      "name": "Runs",
+      "description": "A run is an invocation of an agent, optionally, on a thread. If applied to a thread, it updates the state of the thread. Otherwise, it has not state or memory persistence."
+    },
+    {
+      "name": "Threads",
+      "description": "A thread contains the accumulated outputs of a group of runs. It is a container to maintain the state of an agent across multiple runs. It also acts as a registry for the runs.\n\nA thread keeps track of agent states at every step so that continuity of the context is preserved. Moreover, such a book-keeping enables us some granular controls like debugging, interrupting or replaying a run/invocation.\n\nA thread state is a data context defined by the developer and can be anything (e.g. a `typeddict`) and it gets passed through from one invocation to another so that business logic is instrumented by data.\n\nA thread keeps track of the whole state history. At every step, it also applies a checkpoint, which is primarily a `uuid`, so that it is easier to refer to a chunk of the history.\n\nOne can easily query the last state, a specific state (by checkpoint id), the whole state history, or, a part of the history (from a checkpoint).\n\nSee `Thread`, `ThreadState` and `Checkpoint` models below for more info."
+    },
+    {
+      "name": "Agents",
+      "description": "An agent is an LLM-powered actor that can be invoked on a thread."
+    },
+    {
+      "name": "Background Runs",
+      "description": "Background runs are runs that do not run synchronously during the request that created them. They can be managed, cancelled, streamed and waited with these endpoints."
+    },
+    {
+      "name": "Streaming",
+      "description": "Thread-scoped streaming endpoints for filtered event streams, command delivery, and WebSocket transport."
+    },
+    {
+      "name": "Store",
+      "description": "Store is an API for managing persistent key-value store (long-term memory) that is available from any thread."
+    }
+  ],
+  "paths": {
+    "/agents/search": {
+      "post": {
+        "tags": ["Agents"],
+        "summary": "Search Agents",
+        "description": "List Agents available in this service.",
+        "operationId": "search_agents",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name of the agent to search."
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "description": "Metadata of the agent to search."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "title": "Limit",
+                    "description": "Maximum number to return.",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "title": "Offset",
+                    "description": "Offset to start from.",
+                    "default": 0,
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Agent"
+                  },
+                  "type": "array",
+                  "title": "Response Search Agents"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}": {
+      "get": {
+        "tags": ["Agents"],
+        "summary": "Get Agent",
+        "description": "Get an agent by ID.",
+        "operationId": "get_agent",
+        "parameters": [
+          {
+            "description": "The ID of the agent.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent ID",
+              "description": "The ID of the agent."
+            },
+            "name": "agent_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agent_id}/schemas": {
+      "get": {
+        "tags": ["Agents"],
+        "summary": "Get Agent Schemas",
+        "description": "Get an agent's schemas by ID.",
+        "operationId": "get_agent_schemas",
+        "parameters": [
+          {
+            "description": "The ID of the agent.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id",
+              "description": "The ID of the agent."
+            },
+            "name": "agent_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSchema"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads": {
+      "post": {
+        "tags": ["Threads"],
+        "summary": "Create Thread",
+        "description": "Create a thread.",
+        "operationId": "create_thread",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Thread"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/search": {
+      "post": {
+        "tags": ["Threads"],
+        "summary": "Search Threads",
+        "description": "Search for threads.\n\nThis endpoint also functions as the endpoint to list all threads.",
+        "operationId": "search_threads",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Thread"
+                  },
+                  "type": "array",
+                  "title": "Response Search Threads Threads Search Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{thread_id}/history": {
+      "get": {
+        "tags": ["Threads"],
+        "summary": "Get Thread History",
+        "description": "Get all past states for a thread.",
+        "operationId": "get_thread_history",
+        "parameters": [
+          {
+            "description": "The ID of the thread.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread."
+            },
+            "name": "thread_id",
+            "in": "path"
+          },
+          {
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Limit",
+              "default": 10
+            },
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Before"
+            },
+            "name": "before",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ThreadState"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{thread_id}/copy": {
+      "post": {
+        "tags": ["Threads"],
+        "summary": "Copy Thread",
+        "description": "Create a new thread with a copy of the state and checkpoints from an existing thread.",
+        "operationId": "copy_thread",
+        "parameters": [
+          {
+            "description": "The ID of the thread.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Thread"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{thread_id}": {
+      "get": {
+        "tags": ["Threads"],
+        "summary": "Get Thread",
+        "description": "Get a thread by ID.",
+        "operationId": "get_thread",
+        "parameters": [
+          {
+            "description": "The ID of the thread.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Thread"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Threads"],
+        "summary": "Delete Thread",
+        "description": "Delete a thread by ID.",
+        "operationId": "delete_thread",
+        "parameters": [
+          {
+            "description": "The ID of the thread.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Threads"],
+        "summary": "Patch Thread",
+        "description": "Update a thread.",
+        "operationId": "patch_thread",
+        "parameters": [
+          {
+            "description": "The ID of the thread.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Thread"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/search": {
+      "post": {
+        "tags": ["Background Runs"],
+        "summary": "Search Runs",
+        "description": "List runs for a thread, agent or status",
+        "operationId": "search_runs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Run"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "tags": ["Background Runs"],
+        "summary": "Get Run",
+        "description": "Get a run by ID.",
+        "operationId": "get_run",
+        "parameters": [
+          {
+            "description": "The ID of the run.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id",
+              "description": "The ID of the run."
+            },
+            "name": "run_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Background Runs"],
+        "summary": "Delete Run",
+        "description": "Delete a run by ID.",
+        "operationId": "delete_run",
+        "parameters": [
+          {
+            "description": "The ID of the run.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id",
+              "description": "The ID of the run."
+            },
+            "name": "run_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/wait": {
+      "get": {
+        "tags": ["Background Runs"],
+        "summary": "Wait for Run output",
+        "description": "Wait for a run to finish, return the final output. If the run already finished, returns its final output immediately.",
+        "operationId": "wait_run",
+        "parameters": [
+          {
+            "description": "The ID of the run.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id",
+              "description": "The ID of the run."
+            },
+            "name": "run_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunWaitResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/stream": {
+      "get": {
+        "tags": ["Background Runs"],
+        "summary": "Stream output from Run",
+        "description": "Join the output stream of an existing run. This endpoint streams output in real-time from a run similar to the /threads/__THREAD_ID__/runs/stream endpoint. Only output produced after this endpoint is called will be streamed.",
+        "operationId": "stream_run",
+        "parameters": [
+          {
+            "description": "The ID of the run.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id",
+              "description": "The ID of the run."
+            },
+            "name": "run_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/{run_id}/cancel": {
+      "post": {
+        "tags": ["Background Runs"],
+        "summary": "Cancel Run",
+        "operationId": "cancel_run",
+        "parameters": [
+          {
+            "description": "The ID of the run.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id",
+              "description": "The ID of the run."
+            },
+            "name": "run_id",
+            "in": "path"
+          },
+          {
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "title": "Wait",
+              "default": false
+            },
+            "name": "wait",
+            "in": "query"
+          },
+          {
+            "description": "Action to take when cancelling the run. Possible values are `interrupt` or `rollback`. `interrupt` will simply cancel the run. `rollback` will cancel the run and delete the run and associated checkpoints afterwards.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["interrupt", "rollback"],
+              "title": "Action",
+              "default": "interrupt"
+            },
+            "name": "action",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs": {
+      "post": {
+        "tags": ["Background Runs"],
+        "summary": "Create Background Run",
+        "description": "Create a run in a new thread, return the run ID immediately. Don't wait for the final run output.",
+        "operationId": "create_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunStream"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Run"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/stream": {
+      "post": {
+        "tags": ["Runs"],
+        "summary": "Create Run, Stream Output",
+        "description": "Create a run in a new thread, stream the output.",
+        "operationId": "create_and_stream_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunStream"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "The server will send a stream of events in SSE format.\n\n**Example event**:\n\nid: 1\n\nevent: message\n\ndata: {}"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs/wait": {
+      "post": {
+        "tags": ["Runs"],
+        "summary": "Create Run, Wait for Output",
+        "description": "Create a run in a new thread. Wait for the final output and then return it.",
+        "operationId": "create_and_wait_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunWaitResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{thread_id}/stream": {
+      "post": {
+        "tags": ["Streaming"],
+        "summary": "Open Thread SSE Stream",
+        "description": "Open a connection-scoped Server-Sent Events stream for a thread. The request body selects channels, namespace prefixes, optional namespace depth, and an optional sequence number to replay buffered events after. Closing the HTTP connection unsubscribes from this stream.",
+        "operationId": "open_thread_sse_stream",
+        "parameters": [
+          {
+            "description": "The ID of the thread whose events should be streamed.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread whose events should be streamed."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventStreamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A filtered stream of protocol events in SSE format.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "The server sends streaming protocol events as Server-Sent Events. Each event payload is a StreamingEvent JSON object."
+                },
+                "example": "id: evt_123\nevent: messages\ndata: {\"type\":\"event\",\"eventId\":\"evt_123\",\"seq\":43,\"method\":\"messages\",\"params\":{\"namespace\":[],\"timestamp\":1710000000000,\"data\":{\"event\":\"message-start\",\"role\":\"ai\",\"id\":\"msg_123\"}}}\n\n"
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Streaming"],
+        "summary": "Open Thread WebSocket Stream",
+        "description": "Upgrade to a WebSocket connection for a thread. After the connection is upgraded, clients send streaming protocol commands in-band and receive command responses plus unsolicited events on the same connection. Use `subscription.subscribe`, `subscription.unsubscribe`, and `subscription.reconnect` to manage event filters on the WebSocket.",
+        "operationId": "open_thread_websocket_stream",
+        "parameters": [
+          {
+            "description": "The ID of the thread to open over WebSocket.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread to open over WebSocket."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols. The connection is upgraded to WebSocket and uses the streaming protocol message framing."
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/threads/{thread_id}/commands": {
+      "post": {
+        "tags": ["Streaming"],
+        "summary": "Send Thread Streaming Command",
+        "description": "Send a streaming protocol command to a thread over HTTP. This endpoint is the request/response companion to the SSE event stream and supports commands such as `run.start`, `input.respond`, `input.inject`, `state.get`, `state.listCheckpoints`, and `state.fork`.",
+        "operationId": "send_thread_streaming_command",
+        "parameters": [
+          {
+            "description": "The ID of the thread that should receive the command.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id",
+              "description": "The ID of the thread that should receive the command."
+            },
+            "name": "thread_id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StreamingCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Command response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamingCommandResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/store/items": {
+      "put": {
+        "tags": ["Store"],
+        "summary": "Insert or Update Item",
+        "operationId": "put_item",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorePutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Store"],
+        "summary": "Delete Store Item",
+        "operationId": "delete_item",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreDeleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": ["Store"],
+        "summary": "Get Store Item",
+        "operationId": "get_item",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/store/items/search": {
+      "post": {
+        "tags": ["Store"],
+        "summary": "Search Store Items",
+        "operationId": "search_items",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreSearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchItemsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/store/namespaces": {
+      "post": {
+        "tags": ["Store"],
+        "summary": "List namespaces",
+        "operationId": "list_namespaces",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreListNamespacesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListNamespaceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Agent": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The ID of the agent."
+          },
+          "name": {
+            "type": "string",
+            "title": "Agent Name",
+            "description": "The name of the agent"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "The description of the agent."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "The agent metadata."
+          },
+          "capabilities": {
+            "type": "object",
+            "title": "Agent Capabilities",
+            "description": "Describes which protocol features the agent supports. In addition to the standard capabilities (prefixed with ap.), implementations can declare custom capabilities, named in reverse domain notation (eg. com.example.some.capability).",
+            "properties": {
+              "ap.io.messages": {
+                "type": "boolean",
+                "title": "Messages",
+                "description": "Whether the agent supports Messages as input/output/state. If true, the agent uses the `messages` key in threads/runs endpoints."
+              },
+              "ap.io.streaming": {
+                "type": "boolean",
+                "title": "Streaming",
+                "description": "Whether the agent supports streaming output."
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "type": "object",
+        "required": ["agent_id", "name", "capabilities"],
+        "title": "Agent"
+      },
+      "AgentSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The ID of the agent."
+          },
+          "input_schema": {
+            "type": "object",
+            "title": "Input Schema",
+            "description": "The schema for the agent input. In JSON Schema format."
+          },
+          "output_schema": {
+            "type": "object",
+            "title": "Output Schema",
+            "description": "The schema for the agent output. In JSON Schema format."
+          },
+          "state_schema": {
+            "type": "object",
+            "title": "State Schema",
+            "description": "The schema for the agent's internal state. In JSON Schema format."
+          },
+          "config_schema": {
+            "type": "object",
+            "title": "Config Schema",
+            "description": "The schema for the agent config. In JSON Schema format."
+          }
+        },
+        "type": "object",
+        "required": ["agent_id", "input_schema", "output_schema"],
+        "title": "AgentSchema",
+        "description": "Defines the structure and properties of an agent."
+      },
+      "StreamingChannel": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "values",
+              "updates",
+              "messages",
+              "tools",
+              "lifecycle",
+              "input",
+              "checkpoints",
+              "tasks",
+              "custom"
+            ]
+          },
+          {
+            "type": "string",
+            "pattern": "^custom:.+"
+          }
+        ],
+        "title": "StreamingChannel",
+        "description": "A subscribable streaming channel. Namespaced custom channels use the `custom:*` form."
+      },
+      "StreamingNamespace": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "title": "StreamingNamespace",
+        "description": "Hierarchical path identifying a position in the agent tree. The empty array identifies the root agent."
+      },
+      "EventStreamRequest": {
+        "type": "object",
+        "required": ["channels"],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/StreamingChannel"
+            },
+            "description": "Channels to include in this event stream."
+          },
+          "namespaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StreamingNamespace"
+            },
+            "description": "Namespace prefixes to include. Omit to receive matching events from all namespaces."
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Maximum depth below each namespace prefix."
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Replay buffered matching events after this monotonic sequence number, then switch to live delivery."
+          }
+        },
+        "additionalProperties": true,
+        "title": "EventStreamRequest",
+        "description": "Request body for a connection-scoped SSE event stream."
+      },
+      "StreamingCommand": {
+        "type": "object",
+        "required": ["id", "method"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Client-assigned command ID used to correlate the command response."
+          },
+          "method": {
+            "type": "string",
+            "description": "Streaming protocol command method, such as `run.start`, `subscription.subscribe`, `input.respond`, or `state.get`."
+          },
+          "params": {
+            "type": "object",
+            "description": "Command parameters. Shape depends on the command method.",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true,
+        "title": "StreamingCommand",
+        "description": "Client-to-server command in the streaming protocol."
+      },
+      "StreamingSuccessResponse": {
+        "type": "object",
+        "required": ["type", "id", "result"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "success"
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "ID of the command this response belongs to."
+          },
+          "result": {
+            "type": "object",
+            "description": "Command result. Shape depends on the command method.",
+            "additionalProperties": true
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "appliedThroughSeq": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Latest event sequence number applied before this response."
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true,
+        "title": "StreamingSuccessResponse"
+      },
+      "StreamingErrorResponse": {
+        "type": "object",
+        "required": ["type", "id", "error", "message"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "error"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ID of the command this response belongs to, or null if the command could not be correlated."
+          },
+          "error": {
+            "type": "string",
+            "description": "Streaming protocol error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "stacktrace": {
+            "type": "string",
+            "description": "Optional stack trace for debugging."
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true,
+        "title": "StreamingErrorResponse"
+      },
+      "StreamingCommandResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/StreamingSuccessResponse"
+          },
+          {
+            "$ref": "#/components/schemas/StreamingErrorResponse"
+          }
+        ],
+        "title": "StreamingCommandResponse",
+        "description": "Server response to a streaming protocol command."
+      },
+      "StreamingEvent": {
+        "type": "object",
+        "required": ["type", "method", "params"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "event"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Unique event ID used for reconnection. Maps to the SSE `id:` field."
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Monotonic sequence number for ordering and replay."
+          },
+          "method": {
+            "type": "string",
+            "description": "Event method. Most events use the channel name, while some event families use a more specific method such as `input.requested`."
+          },
+          "params": {
+            "type": "object",
+            "description": "Event parameters, including namespace, timestamp, and channel-specific data.",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true,
+        "title": "StreamingEvent",
+        "description": "Server-to-client event in the streaming protocol."
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": ["pending", "error", "success", "timeout", "interrupted"],
+        "title": "Status",
+        "description": "The status of the run. One of 'pending', 'error', 'success', 'timeout', 'interrupted'."
+      },
+      "StreamMode": {
+        "type": "string",
+        "enum": ["values", "messages", "updates", "custom"]
+      },
+      "RunWaitResponse": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/Run",
+            "title": "Run",
+            "description": "The run information."
+          },
+          "values": {
+            "type": "object",
+            "title": "Values",
+            "description": "The values returned by the run."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Messages",
+            "description": "The messages returned by the run."
+          }
+        }
+      },
+      "RunCreate": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thread Id",
+            "description": "The ID of the thread to run. If not provided, creates a stateless run. 'thread_id' is ignored unless Threads stage is implemented."
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The agent ID to run. If not provided will use the default agent for this service. 'agent_id' is ignored unless Agents stage is implemented."
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "array"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input",
+            "description": "The input to the agent."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Messages",
+            "description": "The messages to pass an input to the agent."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "Metadata to assign to the run."
+          },
+          "config": {
+            "properties": {
+              "tags": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "title": "Tags"
+              },
+              "recursion_limit": {
+                "type": "integer",
+                "title": "Recursion Limit"
+              },
+              "configurable": {
+                "type": "object",
+                "title": "Configurable"
+              }
+            },
+            "type": "object",
+            "title": "Config",
+            "description": "The configuration for the agent."
+          },
+          "webhook": {
+            "type": "string",
+            "maxLength": 65536,
+            "minLength": 1,
+            "format": "uri",
+            "title": "Webhook",
+            "description": "Webhook to call after run finishes."
+          },
+          "on_completion": {
+            "type": "string",
+            "enum": ["delete", "keep"],
+            "title": "On Completion",
+            "description": "Whether to delete or keep the thread when run completes. Must be one of 'delete' or 'keep'. Defaults to 'delete' when thread_id not provided, otherwise 'keep'."
+          },
+          "on_disconnect": {
+            "type": "string",
+            "enum": ["cancel", "continue"],
+            "title": "On Disconnect",
+            "description": "The disconnect mode to use. Must be one of 'cancel' or 'continue'.",
+            "default": "cancel"
+          },
+          "if_not_exists": {
+            "type": "string",
+            "enum": ["create", "reject"],
+            "title": "If Not Exists",
+            "description": "How to handle missing thread. Must be either 'reject' (raise error if missing), or 'create' (create new thread).",
+            "default": "reject"
+          }
+        },
+        "type": "object",
+        "required": [],
+        "title": "RunCreate",
+        "description": "Payload for creating a run."
+      },
+      "RunStream": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RunCreate"
+          },
+          {
+            "properties": {
+              "stream_mode": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StreamMode"
+                  },
+                  {
+                    "items": {
+                      "$ref": "#/components/schemas/StreamMode"
+                    },
+                    "type": "array"
+                  }
+                ],
+                "title": "Stream Mode",
+                "description": "The stream mode(s) to use.",
+                "default": "values"
+              }
+            },
+            "type": "object",
+            "required": [
+              "run_id",
+              "created_at",
+              "updated_at",
+              "status",
+              "metadata"
+            ],
+            "title": "Run"
+          }
+        ]
+      },
+      "Run": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RunStream"
+          },
+          {
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "format": "uuid",
+                "title": "Run Id",
+                "description": "The ID of the run."
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "title": "Created At",
+                "description": "The time the run was created."
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "title": "Updated At",
+                "description": "The last time the run was updated."
+              },
+              "status": {
+                "$ref": "#/components/schemas/RunStatus"
+              }
+            },
+            "type": "object",
+            "required": [
+              "run_id",
+              "created_at",
+              "updated_at",
+              "status",
+              "metadata"
+            ],
+            "title": "Run"
+          }
+        ]
+      },
+      "RunSearchRequest": {
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "Run metadata to filter on."
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus",
+            "title": "Run Status",
+            "description": "Run status to filter on."
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thread Id",
+            "description": "The ID of the thread to filter on."
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id",
+            "description": "The ID of the agent to filter on."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Maximum number to return.",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "description": "Offset to start from.",
+            "default": 0,
+            "minimum": 0
+          }
+        },
+        "type": "object",
+        "title": "RunSearchRequest",
+        "description": "Payload for listing runs."
+      },
+      "ThreadSearchRequest": {
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "Thread metadata to filter on."
+          },
+          "values": {
+            "type": "object",
+            "title": "Values",
+            "description": "State values to filter on."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ThreadStatus",
+            "title": "Thread Status",
+            "description": "Thread status to filter on."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Maximum number to return.",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset",
+            "description": "Offset to start from.",
+            "default": 0,
+            "minimum": 0
+          }
+        },
+        "type": "object",
+        "title": "ThreadSearchRequest",
+        "description": "Payload for listing threads."
+      },
+      "Thread": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thread Id",
+            "description": "The ID of the thread."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "The time the thread was created."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "The last time the thread was updated."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "The thread metadata."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ThreadStatus",
+            "title": "Thread Status",
+            "description": "The status of the thread."
+          },
+          "values": {
+            "type": "object",
+            "title": "Values",
+            "description": "The current state of the thread."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Messages",
+            "description": "The current Messages of the thread. If messages are contained in Thread.values, implementations should remove them from values when returning messages. When this key isn't present it means the thread/agent doesn't support messages."
+          }
+        },
+        "type": "object",
+        "required": [
+          "thread_id",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "status"
+        ],
+        "title": "Thread"
+      },
+      "ThreadCheckpoint": {
+        "properties": {
+          "checkpoint_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checkpoint Id",
+            "description": "The ID of the checkpoint."
+          }
+        },
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["checkpoint_id"],
+        "title": "ThreadCheckpoint",
+        "description": "Structured identifier for a thread checkpoint, ie. an entry in the thread's history."
+      },
+      "ThreadState": {
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/ThreadCheckpoint",
+            "title": "Checkpoint",
+            "description": "The identifier for this checkpoint."
+          },
+          "values": {
+            "type": "object",
+            "title": "Values",
+            "description": "The current state of the thread."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Messages",
+            "description": "The current messages of the thread. This key isn't present for agents that don't support messages."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "The checkpoint metadata."
+          }
+        },
+        "type": "object",
+        "required": ["checkpoint", "values"],
+        "title": "ThreadState"
+      },
+      "ThreadCreate": {
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thread Id",
+            "description": "The ID of the thread. If not provided, a random UUID will be generated."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "Metadata to add to thread."
+          },
+          "if_exists": {
+            "type": "string",
+            "enum": ["raise", "do_nothing"],
+            "title": "If Exists",
+            "description": "How to handle duplicate creation. Must be either 'raise' (raise error if duplicate), or 'do_nothing' (return existing thread).",
+            "default": "raise"
+          }
+        },
+        "type": "object",
+        "title": "ThreadCreate",
+        "description": "Payload for creating a thread."
+      },
+      "ThreadStatus": {
+        "type": "string",
+        "enum": ["idle", "busy", "interrupted", "error"],
+        "title": "Status",
+        "description": "The status of the thread. One of 'idle', 'busy', 'interrupted', 'error'."
+      },
+      "ThreadPatch": {
+        "properties": {
+          "checkpoint": {
+            "$ref": "#/components/schemas/ThreadCheckpoint",
+            "title": "Checkpoint",
+            "description": "The identifier of the checkpoint to branch from. Ignored for metadata-only patches. If not provided, defaults to the latest checkpoint."
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata",
+            "description": "Metadata to merge with existing thread metadata."
+          },
+          "values": {
+            "type": "object",
+            "title": "Values",
+            "description": "Values to merge with existing thread values."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "title": "Messages",
+            "description": "Messages to combine with current thread messages."
+          }
+        },
+        "type": "object",
+        "title": "ThreadPatch",
+        "description": "Payload for updating a thread."
+      },
+      "StorePutRequest": {
+        "type": "object",
+        "required": ["namespace", "key", "value"],
+        "properties": {
+          "namespace": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Namespace",
+            "description": "A list of strings representing the namespace path."
+          },
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The unique identifier for the item within the namespace."
+          },
+          "value": {
+            "type": "object",
+            "title": "Value",
+            "description": "A dictionary containing the item's data."
+          }
+        },
+        "title": "StorePutRequest",
+        "description": "Request to store or update an item."
+      },
+      "StoreDeleteRequest": {
+        "type": "object",
+        "required": ["key"],
+        "properties": {
+          "namespace": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Namespace",
+            "description": "A list of strings representing the namespace path."
+          },
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "The unique identifier for the item."
+          }
+        },
+        "title": "StoreDeleteRequest",
+        "description": "Request to delete an item."
+      },
+      "StoreSearchRequest": {
+        "type": "object",
+        "properties": {
+          "namespace_prefix": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "string"
+            },
+            "title": "Namespace Prefix",
+            "description": "List of strings representing the namespace prefix."
+          },
+          "filter": {
+            "type": ["object", "null"],
+            "additionalProperties": true,
+            "title": "Filter",
+            "description": "Optional dictionary of key-value pairs to filter results."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "title": "Limit",
+            "description": "Maximum number of items to return (default is 10)."
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "title": "Offset",
+            "description": "Number of items to skip before returning results (default is 0)."
+          }
+        },
+        "title": "StoreSearchRequest",
+        "description": "Request to search for items"
+      },
+      "StoreListNamespacesRequest": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Prefix",
+            "description": "Optional list of strings representing the prefix to filter namespaces."
+          },
+          "suffix": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "title": "Suffix",
+            "description": "Optional list of strings representing the suffix to filter namespaces."
+          },
+          "max_depth": {
+            "type": "integer",
+            "title": "Max Depth",
+            "description": "Optional integer specifying the maximum depth of namespaces to return."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "title": "Limit",
+            "description": "Maximum number of namespaces to return (default is 100)."
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "title": "Offset",
+            "description": "Number of namespaces to skip before returning results (default is 0)."
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "required": ["namespace", "key", "value", "created_at", "updated_at"],
+        "properties": {
+          "namespace": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The namespace of the item. A namespace is analogous to a document's directory."
+          },
+          "key": {
+            "type": "string",
+            "description": "The unique identifier of the item within its namespace. In general, keys needn't be globally unique."
+          },
+          "value": {
+            "type": "object",
+            "description": "The value stored in the item. This is the document itself."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timestamp when the item was created."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timestamp when the item was last updated."
+          }
+        },
+        "description": "Represents a single document or data entry in the graph's Store. Items are used to store cross-thread memories."
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "description": "The role of the message."
+          },
+          "content": {
+            "title": "Content",
+            "description": "The content of the message.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "text"
+                        },
+                        "metadata": {
+                          "type": "object"
+                        }
+                      },
+                      "required": ["text", "type"],
+                      "title": "MessageTextBlock"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "type": "object"
+                        }
+                      },
+                      "required": ["type"],
+                      "additionalProperties": true,
+                      "title": "MessageAnyBlock"
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "The ID of the message."
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "title": "Metadata",
+            "description": "The metadata of the message."
+          }
+        },
+        "required": ["role", "content"],
+        "additionalProperties": true
+      },
+      "SearchItemsResponse": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "ListNamespaceResponse": {
+        "type": "array",
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "title": "ErrorResponse",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "For some errors that could be handled programmatically, a short string indicating the error code reported."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable short description of the error."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "A dictionary of additional information about the error."
+          }
+        }
+      }
+    },
+    "responses": {
+      "GetItemResponse": {
+        "description": "Successful retrieval of an item.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "PutItemResponse": {
+        "description": "Item successfully stored or updated.",
+        "content": {}
+      },
+      "DeleteItemResponse": {
+        "description": "Item successfully deleted.",
+        "content": {}
+      },
+      "SearchItemsResponse": {
+        "description": "Successful search operation.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SearchItemsResponse"
+            }
+          }
+        }
+      },
+      "ListNamespacesResponse": {
+        "description": "Successful retrieval of namespaces.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ListNamespaceResponse"
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "description": "An error occurred.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}
