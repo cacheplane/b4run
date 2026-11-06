@@ -73,7 +73,9 @@
         "!$TURBO_ROOT$/examples/*/**/.turbo/**",
         "!$TURBO_ROOT$/examples/*/**/dist/**",
         "!$TURBO_ROOT$/examples/*/**/*.tsbuildinfo",
-        "$TURBO_ROOT$/test/agent-protocol/fixtures/b4-wire-cases.json"
+        "$TURBO_ROOT$/test/agent-protocol/fixtures/b4-wire-cases.json",
+        "$TURBO_ROOT$/packages/postgres-storage/package.json",
+        "$TURBO_ROOT$/packages/postgres-storage/src/**"
       ]
     },
     "@b4-example/navlog-server#build": {

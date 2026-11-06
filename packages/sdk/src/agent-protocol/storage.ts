@@ -97,6 +97,56 @@ export interface RuntimeReceiptRecord {
   readonly fingerprint: string
   readonly receipt: ReceiptV1
   readonly state: "accepted" | "spent" | "retired"
+  /** Private reconciliation context; never included in a public receipt/Run.
+   * Legacy contextless fixture records cannot be replayed by admission. */
+  readonly operation?: RuntimeOperationContext
+}
+export interface RuntimeOperationContext {
+  readonly scopeKey: string
+  readonly method: string
+  readonly operationThreadId: string
+  readonly targetRunId: string
+  readonly requestHash: string
+  readonly resolved: Readonly<Record<string, unknown>>
+  readonly provenance: Readonly<Record<string, unknown>>
+}
+/** Trusted boot wiring only. Public requests never receive this registration
+ * callback or its storage hooks. A registration is not a policy decision. */
+export type RuntimeStorageFactory = (
+  register: RuntimeStorageRegistration,
+) => RuntimeStorageInstallation | Promise<RuntimeStorageInstallation>
+export interface RuntimeStorageInstallation {
+  readonly installationId: string
+}
+export type RuntimeStorageRegistration = (
+  options: RuntimeStorageRegistrationOptions,
+) => RuntimeStorageInstallation
+export interface RuntimeOperationSearch {
+  readonly scopeKey: string
+  readonly submissionId: string
+  readonly submissionKind: "b4" | "agui"
+  readonly operationThreadId?: string
+  readonly targetRunId?: string
+  readonly method?: string
+}
+/** Discovery is private to the host. Authorize the actual stored subject
+ * before opening its fenced store or disclosing any receipt diagnostics. */
+export interface RuntimeOperationCandidate {
+  readonly scope: RuntimeStorageScope
+  readonly thread: RuntimeThreadRecord | undefined
+  readonly receiptId: string
+  readonly agentId?: string
+  readonly provenance?: Readonly<Record<string, unknown>>
+}
+export interface RuntimeStorageRegistrationOptions {
+  readonly installationId: string
+  close(): void | Promise<void>
+  readThread(threadId: string): Promise<RuntimeThreadRecord | undefined>
+  searchOperations(query: RuntimeOperationSearch): Promise<readonly RuntimeOperationCandidate[]>
+  listThreads(): Promise<readonly RuntimeThreadRecord[]>
+  /** Called by the trusted host only AFTER its common authorization gate.
+   * Resolve/create the canonical generation under the backend's Thread lock. */
+  openThread(threadId: string, create: boolean): Promise<RuntimeStore | undefined>
 }
 
 export interface RuntimeJournalRecord {

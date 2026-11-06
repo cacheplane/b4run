@@ -76,6 +76,7 @@ The `/node` entry also re-exports every root export. The rows below list them ag
 | Export | Responsibility |
 |---|---|
 | `NodePostgresStoreOptions` | Add connection-string convenience. |
+| `postgresRuntimeStorage` | Return a one-time shared-host factory over the injected pool; indexed receipts and fenced admission share one transaction domain. |
 | `openPostgresRuntimeInstallation` | Install or validate the fresh coordinated Node runtime domain using an injected pool. |
 | `PostgresRuntimeOptions` | Re-export runtime installation options. |
 | `PostgresRuntimeInstallation` | Re-export the installation lifecycle type. |

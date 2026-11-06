@@ -1,3 +1,4 @@
+import type { RuntimeStorageHost } from "./storage-host.js"
 /**
  * The REQUEST-PATH core of route execution, with no `node:` imports of its
  * own — this is the module the `@b4run/cli/fetch` entry reaches (graph
@@ -430,6 +431,9 @@ export function toAgentInput(input: unknown, resume?: RouteResumePayload): unkno
  * interface so subagent re-entries inherit it with the rest of the boot state.
  */
 export interface BootResolvedInstances {
+  /** Registered shared-runtime installation. Staged until the ExecutionHost
+   * replaces legacy Node owners; independent legacy stores never fill it. */
+  readonly runtimeStorage?: RuntimeStorageHost
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)

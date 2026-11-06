@@ -170,7 +170,7 @@ export interface ThreadSubject {
   readonly thread_id: string
   readonly created_at: string
   readonly updated_at: string
-  readonly status: "idle" | "busy" | "interrupted"
+  readonly status: "idle" | "busy" | "interrupted" | "error"
   /**
    * Client-supplied metadata, verbatim and UNTRUSTED — anyone who can create a
    * thread can put anything here. Never contains the reserved key — B4.run lifts

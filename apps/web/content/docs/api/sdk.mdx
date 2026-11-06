@@ -228,6 +228,18 @@ import { scenarios } from "@b4run/sdk/testing"
 | `readPersistedSubagent` | Validate a `b4_subagent` value. |
 | `readPersistedTurnEnd` | Validate a `b4:turn` value. |
 
+### Runtime storage boot contracts
+
+The portable `@b4run/sdk/agent-protocol` subpath exports the type-only
+`RuntimeStorageFactory`, `RuntimeStorageRegistration`,
+`RuntimeStorageRegistrationOptions`, and `RuntimeStorageInstallation` contracts.
+The trusted host retains the one-time boot registration; request metadata,
+principals and independent store objects do not create an authorized scope.
+`RuntimeOperationContext`, `RuntimeOperationSearch` and
+`RuntimeOperationCandidate` describe private reconciliation state and discovery,
+not wire response fields. `RuntimeReceiptRecord.operation` retains the original
+resolved defaults and protected provenance; public receipt responses omit it.
+
 ### `@b4run/sdk/pure`
 
 | Export | Responsibility |

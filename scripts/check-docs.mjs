@@ -3257,6 +3257,7 @@ const expectedB4ConfigSchemaPaths = [
   "permissions.deny",
   "permissions.mode",
   "permissions.store",
+  "runtimeStorage",
   "sandbox",
   "sandbox.env",
   "sandbox.idleTimeoutMs",

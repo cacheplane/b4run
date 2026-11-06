@@ -14,6 +14,7 @@ export type {
   InterruptGrantRecord,
   InterruptGrantStore,
 } from "./interrupt-grants/types.js"
+export { sqliteRuntimeStorage } from "./runtime/host.js"
 export { openRuntimeInstallation, type RuntimeInstallation } from "./runtime/index.js"
 export type {
   CreateThreadInput,

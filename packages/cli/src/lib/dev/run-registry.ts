@@ -1,11 +1,10 @@
 /**
  * Process-local registry of in-flight runs, keyed by thread id.
  *
- * B4.run has no `run_id`. A thread runs at most one run at a time — enforced by
- * `begin` refusing an already-running thread — so the thread id *is* the run
- * identity. Without that guarantee a second run would overwrite the first's
- * entry and orphan its controller, producing exactly the unkillable run this
- * registry exists to prevent.
+ * Legacy native execution cancellation only. Standard protocol admission has
+ * canonical durable Run IDs and is owned by runtime/admission.ts. This map is
+ * not a receipt ledger, restart recovery mechanism or acceptance authority.
+ * The shared ExecutionHost must replace legacy owners before binding activation.
  *
  * Deliberately in-memory and handler-scoped rather than persisted on
  * `ThreadsStore`: an AbortController is not serializable, and gating on the

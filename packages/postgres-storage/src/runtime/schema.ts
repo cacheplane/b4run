@@ -34,6 +34,7 @@ CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, thro
       .split(";")
       .map((sql) => sql.trim()),
   ),
+  "CREATE INDEX receipts_operation ON receipts(((payload::jsonb)->'operation'->>'scopeKey'),((payload::jsonb)->'receipt'->>'submissionId'),((payload::jsonb)->'receipt'->>'submissionKind'),((payload::jsonb)->'operation'->>'operationThreadId'),((payload::jsonb)->'operation'->>'targetRunId'))",
 ]
 
 const names = [
@@ -71,6 +72,7 @@ function statements(n: TableNaming): string[] {
   const identifiers = [
     ...names,
     "current_generation",
+    "receipts_operation",
     ...RECORD_TABLES.flatMap((name) => [`${name}_scope`, `${name}_owner`]),
   ].sort((a, b) => b.length - a.length)
   const pattern = new RegExp(`\\b(${identifiers.join("|")})\\b`, "g")

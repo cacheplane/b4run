@@ -35,6 +35,7 @@ CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, thro
       .split(";")
       .map((sql) => sql.trim()),
   ),
+  "CREATE INDEX receipts_operation ON receipts(json_extract(payload,'$.operation.scopeKey'),json_extract(payload,'$.receipt.submissionId'),json_extract(payload,'$.receipt.submissionKind'),json_extract(payload,'$.operation.operationThreadId'),json_extract(payload,'$.operation.targetRunId'))",
 ]
 function normalize(sql: string): string {
   return sql.replace(/\s+/g, " ").trim().toLowerCase()

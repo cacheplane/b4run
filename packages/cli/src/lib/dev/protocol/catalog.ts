@@ -53,12 +53,12 @@ export interface AgentCatalog {
   select(agentId?: string): RuntimeRegistryEntry
 }
 
-export async function createAgentCatalog(options: AgentCatalogOptions): Promise<AgentCatalog> {
-  validateLimits(options.limits)
-  const defaultId = checkAgentProtocolDefault(
-    options.config ?? options.boot?.config,
-    options.registry.entries,
-  )
+type AgentAuthorizationOptions = Pick<AgentCatalogOptions, "request" | "registry" | "middleware">
+/** The shared route authorization pass. Exact receipts select the original
+ * Agent without reading mutable default selection, descriptions or schemas. */
+async function authorizedProtocolAgents(
+  options: AgentAuthorizationOptions,
+): Promise<RuntimeRegistryEntry[]> {
   const entries: RuntimeRegistryEntry[] = []
   const url = new URL(options.request.url)
   // Complete the authorization pass before any protected description import or
@@ -75,6 +75,24 @@ export async function createAgentCatalog(options: AgentCatalogOptions): Promise<
     })
     if (decision.action !== "reject") entries.push(route)
   }
+  return entries
+}
+export async function authorizeProtocolAgent(
+  options: AgentAuthorizationOptions,
+  agentId: string,
+): Promise<void> {
+  const entries = await authorizedProtocolAgents(options)
+  if (!entries.some((entry) => entry.assistantId === agentId))
+    throw new AgentCatalogError("not_found", 404, "Agent not found")
+}
+
+export async function createAgentCatalog(options: AgentCatalogOptions): Promise<AgentCatalog> {
+  validateLimits(options.limits)
+  const defaultId = checkAgentProtocolDefault(
+    options.config ?? options.boot?.config,
+    options.registry.entries,
+  )
+  const entries = await authorizedProtocolAgents(options)
   const ids = new Set(entries.map((entry) => entry.assistantId))
   const routeIds = new Set(entries.map((entry) => entry.routeId))
   // Native subagent preflights scan a descriptor index. Limit that incidental

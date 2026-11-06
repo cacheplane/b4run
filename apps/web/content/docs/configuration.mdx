@@ -43,6 +43,7 @@ export default config({
   },
 
   // Defaults are local SQLite/file stores under .b4/.
+  // runtimeStorage: coordinatedRuntimeFactory,
   // checkpointer: sharedCheckpointer,
   // threadsStore: sharedThreadsStore,
 
@@ -264,6 +265,25 @@ ungated under `"optional"`.
 [`b4 approvals prune`](/docs/cli#b4-approvals) runs the same pass by hand. A
 `grantStore` you supply is checked at boot while grants are on and must implement every store
 method, `prune` included.
+
+### `runtimeStorage`
+
+```ts
+runtimeStorage?: RuntimeStorageFactory
+```
+
+A coordinated runtime factory registered once by the shared host at boot.
+`sqliteRuntimeStorage(appRoot)` from `@b4run/sqlite-storage` selects the fresh
+single-process namespace. `postgresRuntimeStorage({ pool })` from
+`@b4run/postgres-storage/node` selects the shared Postgres namespace. These
+factories register one transaction domain for Thread, Run, checkpoint, receipt,
+journal, and dispatch records; separate `checkpointer` and `threadsStore`
+settings do not provide it.
+
+The admission service commits accepted work and retry receipts together. This
+configuration seam is staged: existing Node HTTP owners still require the
+ExecutionHost and binding cutover before they consume it. It does not activate
+standard endpoints or certify recovery, copy, rollback, deletion, or webhooks.
 
 ### `checkpointer`
 

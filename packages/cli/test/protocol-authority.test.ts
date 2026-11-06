@@ -212,3 +212,22 @@ async function capture(fn: () => Promise<unknown>): Promise<unknown> {
   }
   throw new Error("Expected rejection")
 }
+
+it("passes a standard error Thread through C5 while separating its access stamp", async () => {
+  let seen: ThreadAccessRequest | undefined
+  const gate = setup({
+    fallback: (request) => {
+      seen = request
+      return { decision: "allow" }
+    },
+  })
+  const standard: import("@b4run/sdk/agent-protocol").Thread = {
+    ...thread("idle"),
+    status: "error",
+    metadata: { "b4:access": { ownerId: "trusted-user" }, public: "caller" },
+  }
+  await gate({ action: "read", operation: "run.receipt", threadId: id, thread: standard })
+  expect(seen?.thread?.status).toBe("error")
+  expect(seen?.thread?.access).toEqual({ ownerId: "trusted-user" })
+  expect(seen?.thread?.metadata).toEqual({ public: "caller" })
+})

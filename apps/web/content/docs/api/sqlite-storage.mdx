@@ -47,6 +47,7 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ClientToolCallStore` | Define the client tool call store contract. |
 | `ClientToolCallStoreOptions` | Select the client tool call database path. |
 | `createClientToolCallStore` | Open, migrate, and return a client tool call store. |
+| `sqliteRuntimeStorage` | Return a one-time shared-host runtime storage factory with private scoped binding and indexed receipts; existing handlers remain staged. |
 | `openRuntimeInstallation` | Acquire a single Node execution owner and open a fresh Agent Protocol SQLite installation; does not activate existing CLI handlers. |
 | `RuntimeInstallation` | Hold the runtime path, installation UUID, observed SQLite settings, and explicit close. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |

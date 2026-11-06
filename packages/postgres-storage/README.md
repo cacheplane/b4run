@@ -149,10 +149,16 @@ provider work and leave other Threads free to progress. A read lease reserves
 one session connection and a work slot using actual Node `pg.Pool` facts.
 Known pools without safe capacity reject before the callback. Opaque structural
 pools retain ordinary transactions/snapshots, but have an unverified lease
-profile: read leases fail closed before acquisition. This is not full host
-certification; the R4 integration must resolve supported controls before mutation.
+profile: read leases fail closed before acquisition. This is not full host certification. Admission does not use read leases;
+lease-dependent controls still require their service capability checks before mutation.
 
-The C5 authority bridge and runtime cutover remain required. Execution dispatch,
+`postgresRuntimeStorage({ pool, schema?, tablePrefix?, ownsPool? })` is exported
+only from `@b4run/postgres-storage/node`. It returns a `RuntimeStorageFactory`
+for one-time shared host registration, using private fenced binders and indexed
+operation receipt discovery. The common C5 gate and original Agent middleware
+run before disclosure; admission commits its Run, projection, journal, dispatch
+and receipt in one transaction. Exact retries preserve original resolved defaults.
+The runtime cutover remains required. Execution dispatch,
 heartbeat/recovery, adapter safe-boundary hooks, recovery materialization,
 copy/state operations, rollback/deletion and retention/webhooks await their
 respective service tasks. Unsupported state controls fail before mutation. This

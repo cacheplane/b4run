@@ -8,6 +8,7 @@ import type {
   ThreadSubject,
 } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { Thread as ProtocolThread } from "@b4run/sdk/agent-protocol"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { requestPrincipal } from "./auth.js"
 import { ProtocolError, protocolErrorResponse } from "./protocol/errors.js"
@@ -46,7 +47,7 @@ export interface GateSpec {
   readonly action: ThreadAction
   readonly operation: ThreadOperation
   readonly threadId?: string
-  readonly thread?: Thread
+  readonly thread?: Thread | ProtocolThread
   readonly requestedMetadata?: Record<string, unknown>
   /**
    * The workspace this request stages or chooses — see
@@ -109,7 +110,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * shortcut would let a forged stamp resolve through the chain on an object that
  * reports it stripped.
  */
-function toThreadSubject(thread: Thread): ThreadSubject {
+function toThreadSubject(thread: Thread | ProtocolThread): ThreadSubject {
   const reserved = Object.hasOwn(thread.metadata, THREAD_ACCESS_METADATA_KEY)
     ? thread.metadata[THREAD_ACCESS_METADATA_KEY]
     : undefined

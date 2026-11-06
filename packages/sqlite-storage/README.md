@@ -51,8 +51,15 @@ runtime database or its sidecars. Legacy runtime files and independent memory,
 Store, rules, and workspace data are preserved.
 
 This Node host installation API does not bind request authority or activate the
-existing CLI boot paths. The authority bridge and coordinated runtime cutover
-remain required integration work. Internal transaction tests cover atomic grant
+existing CLI boot paths. The coordinated runtime cutover remains required integration work. `sqliteRuntimeStorage(appRoot, options?)` returns a portable
+`RuntimeStorageFactory` for the shared host's one-time boot registration. Its
+private storage hooks resolve canonical generations and indexed operation
+receipts. Admission uses the common current authorization gate before opening a
+scope, then commits Run, input projection, journal, dispatch and receipt together.
+Exact retries reuse the original target and resolved defaults. This factory does
+not expose a public scope binder or activate legacy handlers.
+
+Internal transaction tests cover atomic grant
 consumption, asynchronous rollback, committed reads, and durable fences; they do
 not certify the full host profile. Copy/state operations await the state service;
 rollback/deletion await maintenance; recovery materialization awaits projection.

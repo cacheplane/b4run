@@ -154,4 +154,5 @@ export function createPostgresRunAdmission(
 }
 
 export * from "./index.js"
+export { postgresRuntimeStorage } from "./runtime/host.js"
 export { openPostgresRuntimeInstallation } from "./runtime/node.js"
