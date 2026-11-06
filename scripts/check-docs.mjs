@@ -3288,6 +3288,8 @@ const expectedB4ConfigSchemaPaths = [
   "sandbox.security.runAsNonRoot.uid",
   "sandbox.thread",
   "server",
+  "server.agentProtocol",
+  "server.agentProtocol.defaultAgentId",
   "server.agui",
   "server.agui.clientForwardedProps",
   "server.agui.clientToolRetentionMs",

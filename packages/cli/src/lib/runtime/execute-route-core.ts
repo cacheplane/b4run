@@ -1271,7 +1271,7 @@ export interface PreparedRouteModules {
  * (e.g. a syntax error mid-edit in dev) does not poison the process.
  */
 const preparedRouteModulesCache = new Map<string, Promise<PreparedRouteModules>>()
-function getPreparedRouteModules(
+export function getPreparedRouteModules(
   options: {
     readonly appRoot: string
     readonly routeFile: string

@@ -245,6 +245,11 @@ export interface B4Config {
    * does. Everything here is off unless configured.
    */
   readonly server?: {
+    /** Exact canonical Agent ID (`${routeId}#${kind}`) for omitted-agent calls.
+     * A sole public runnable route is selected automatically when omitted. */
+    readonly agentProtocol?: {
+      readonly defaultAgentId?: string
+    }
     /**
      * Cross-origin access to the B4.run endpoints (`/agui/*`, `/threads/*`,
      * `/memory/*`). Omit and the runtime sends no `Access-Control-*` header at

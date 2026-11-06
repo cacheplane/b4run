@@ -619,6 +619,9 @@ consolidation and reflection.
 
 ```ts
 server?: {
+  agentProtocol?: {
+    defaultAgentId?: string
+  }
   cors?: {
     origins: readonly string[] | "*"
     credentials?: boolean
@@ -638,6 +641,15 @@ server?: {
   }
 }
 ```
+
+#### `server.agentProtocol`
+
+`defaultAgentId` is an exact canonical Agent ID, such as `"/chat#agent"` or
+`"/report#workflow"`. Check, build and runtime boot reject a configured ID that
+does not name a public runnable route. A sole public runnable route is the
+automatic catalog default when this setting is omitted. With multiple routes,
+explicit Agent IDs remain usable; omitted selection reports `agent_required`.
+A configured default denied to the caller never falls back to another route.
 
 #### `server.cors`
 

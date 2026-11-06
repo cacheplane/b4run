@@ -15,3 +15,8 @@ export function createRouteAssistantId(
 ): string {
   return `${routeId}#${mode}`
 }
+
+/** Static manifests follow the same private-directory rule as disk discovery. */
+export function isPublicRunnableRoute(route: { readonly routePath: string }): boolean {
+  return !route.routePath.split(/[\\/]/).some((segment) => segment.startsWith("_"))
+}

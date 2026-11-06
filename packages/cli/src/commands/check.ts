@@ -13,8 +13,9 @@ import {
 import { knownTargetNames } from "../lib/build/targets/index.js"
 import { assertRouteMarkerFileLimits } from "../lib/build/targets/marker-files.js"
 import { assertVercelBuildConfig } from "../lib/build/targets/vercel-config.js"
+import { createRuntimeRegistryFromManifest } from "../lib/dev/runtime-registry-core.js"
 import { resolveDistillRetry } from "../lib/memory/distill-retry-config.js"
-import { loadB4Config } from "../lib/node-config.js"
+import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, formatErrorMessage, writeLine } from "../lib/output.js"
 import { resolveAgentsMdConfig } from "../lib/runtime/agents-md-config.js"
 import { collectDelegationErrors } from "../lib/runtime/collect-delegation-errors.js"
@@ -25,6 +26,7 @@ import { createRouteAssistantId } from "../lib/runtime/route-identity.js"
 import { loadStaticModules } from "../lib/runtime/static-modules.js"
 import { discoverToolDefinitions } from "../lib/runtime/tool-discovery.js"
 import { collectUnknownModelIdWarnings } from "../lib/runtime/warn-unknown-model-ids.js"
+import { checkAgentProtocolDefault } from "../lib/verify/check-runtime.js"
 
 interface CheckOptions {
   readonly cwd?: string
@@ -90,13 +92,9 @@ export async function runCheckCommand(options: CheckOptions, io: CommandIo): Pro
     // without them still satisfies `assertEdgeCapabilities`. The tests below the
     // gate are what actually catch a narrowed argument; this is what stops the
     // TYPE from claiming the command loads less than the gate inspects.
-    let loadedConfig: EdgeCapabilityInput["config"] & Pick<B4Config, "agentsMd" | "build"> = {}
-    try {
-      const loaded = await loadB4Config({ appRoot: manifest.appRoot })
-      loadedConfig = loaded.config
-    } catch {
-      loadedConfig = {}
-    }
+    const loadedConfig: EdgeCapabilityInput["config"] & Pick<B4Config, "agentsMd" | "build"> =
+      (await loadOptionalB4Config(manifest.appRoot)) ?? {}
+    checkAgentProtocolDefault(loadedConfig, createRuntimeRegistryFromManifest(manifest).entries)
 
     // Rejected target list or not: a mistyped opt-out must not pass check.
     assertVercelBuildConfig(loadedConfig.build)
