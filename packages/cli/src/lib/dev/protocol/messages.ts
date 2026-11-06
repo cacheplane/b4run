@@ -97,13 +97,8 @@ function parsePublicMessage(value: unknown): B4Message {
   if (value.id !== undefined && typeof value.id !== "string") {
     throw new Error("Invalid message ID: expected a string")
   }
-  if (
-    "lc" in value ||
-    "kwargs" in value ||
-    Object.keys(value).some((key) => key.startsWith("lc_"))
-  ) {
-    throw new Error("Invalid public message: native serialization envelope is not allowed")
-  }
+  // The pinned MessageAnyBlock branch permits every string type, including
+  // "text" without a text field. Present block metadata still must be an object.
   if (
     typeof value.content !== "string" &&
     !(
@@ -112,7 +107,7 @@ function parsePublicMessage(value: unknown): B4Message {
         (block) =>
           isRecord(block) &&
           typeof block.type === "string" &&
-          (block.type !== "text" || typeof block.text === "string"),
+          (block.metadata === undefined || isRecord(block.metadata)),
       )
     )
   ) {
