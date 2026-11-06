@@ -37,6 +37,32 @@ describe("published Agent Protocol contracts", () => {
     const validate = ajv.compile({ $ref: `urn:b4:agent-protocol:test#/$defs/${wire.schema}` })
     expect(validate(wire.value), JSON.stringify(validate.errors)).toBe(wire.valid)
   })
+  it("faithfully translates the pinned CDDL channel regexp to ECMAScript", () => {
+    const cddl = readFileSync(
+      new URL("../../../test/agent-protocol/fixtures/upstream/protocol.cddl", import.meta.url),
+      "utf8",
+    )
+    expect(cddl).toContain('tstr .regexp "custom:.+"')
+    expect(schema.$defs.AspChannel.anyOf).toContainEqual({
+      type: "string",
+      pattern: "^(?:custom:[^\\n\\r]+)$",
+    })
+  })
+  it("preserves the distinct generic OpenAPI StreamingChannel schema", () => {
+    const original = JSON.parse(
+      readFileSync(
+        new URL("../../../test/agent-protocol/fixtures/upstream/openapi.json", import.meta.url),
+        "utf8",
+      ),
+    )
+    expect(schema.$defs.StreamingChannel).toEqual(original.components.schemas.StreamingChannel)
+    const check = (name: string, value: string) =>
+      ajv.validate({ $ref: `urn:b4:agent-protocol:test#/$defs/${name}` }, value)
+    expect(check("StreamingChannel", "custom:a\n")).toBe(true)
+    expect(check("AspChannel", "custom:a\n")).toBe(false)
+    expect(check("StreamingChannel", "custom:\u2028")).toBe(false)
+    expect(check("AspChannel", "custom:\u2028")).toBe(true)
+  })
   it("publishes both pinned JSON assets and exactly three contract subpaths", () => {
     expect(existsSync(fixturesPath), "missing fixture asset").toBe(true)
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))

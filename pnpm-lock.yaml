@@ -773,6 +773,12 @@ importers:
       '@b4run/workspace':
         specifier: workspace:*
         version: link:../workspace
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1(ajv@8.20.0)
       commander:
         specifier: 15.0.0
         version: 15.0.0
@@ -816,12 +822,6 @@ importers:
       '@types/pg':
         specifier: ^8.20.4
         version: 8.20.4
-      ajv:
-        specifier: 8.20.0
-        version: 8.20.0
-      ajv-formats:
-        specifier: 3.0.1
-        version: 3.0.1(ajv@8.20.0)
       hono:
         specifier: ^4.13.11
         version: 4.13.13

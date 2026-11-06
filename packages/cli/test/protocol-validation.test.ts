@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { Ajv2020 } from "ajv/dist/2020.js"
 import { fullFormats } from "ajv-formats/dist/formats.js"
+import { build } from "esbuild"
 import { describe, expect, it } from "vitest"
 import { AgentCatalogError } from "../src/lib/dev/protocol/catalog.ts"
 import {
@@ -494,5 +496,73 @@ describe("metadata and configuration authority boundaries", () => {
     expect(() =>
       validateProtocolConfig({ configurable: { unknown: 1 } }, { allowedKeys: [] }),
     ).toThrow(ProtocolError)
+  })
+})
+
+// Compare boundary strings against the independent, published C2 schema. Do not
+// replace URI syntax with WHATWG normalization or tighten CDDL regex matching.
+describe("review regressions for pinned string constraints", () => {
+  const channelCases = (
+    JSON.parse(
+      readFileSync(
+        new URL("../../../test/agent-protocol/fixtures/b4-wire-cases.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { name: string; schema: string; value: unknown; valid: boolean }[]
+  ).filter((wire) => wire.schema === "AspChannel")
+  it.each(channelCases)("matches $name", ({ value: channel, valid }) => {
+    const value = { id: 1, method: "subscription.subscribe", params: { channels: [channel] } }
+    expect(validates("AspChannel", channel)).toBe(valid)
+    expect(validates("B4Command", value)).toBe(valid)
+    if (valid) expect(parseProtocolRequest("command", value)).toEqual(value)
+    else expect(() => parseProtocolRequest("command", value)).toThrow(ProtocolError)
+  })
+  it.each([
+    ["https://example.com/a b", false],
+    ["https://example.com/a\nb", false],
+    ["https://example.com/a\rb", false],
+    ["https://example.com/a\tb", false],
+    ["https://example.com/a\n", false],
+    ["https://example.com/\u0000", false],
+    ["https://example.com/a\\b", false],
+    ["https://example.com/%", false],
+    ["https://example.com/%2", false],
+    ["https://example.com/%GG", false],
+    ["https://example.com/a%20b", true],
+    ["HTTP://EXAMPLE.COM:80", true],
+    ["https://example.com", true],
+    ["urn:example:animal:ferret:nose", true],
+    ["mailto:a@example.com", true],
+    ["https://example.com/?x=%2F#frag", true],
+  ] as const)("validates the original webhook URI %j", (webhook, valid) => {
+    const value = { webhook }
+    expect(validates("B4RunStream", value)).toBe(valid)
+    if (valid) expect(parseProtocolRequest("run", value).webhook).toBe(webhook)
+    else expect(() => parseProtocolRequest("run", value)).toThrow(ProtocolError)
+  })
+})
+
+describe("protocol URI matcher runtime graph", () => {
+  it("bundles for browsers without importing Ajv engine, codegen or Node", async () => {
+    const result = await build({
+      entryPoints: [fileURLToPath(new URL("../src/lib/dev/protocol/validate.ts", import.meta.url))],
+      bundle: true,
+      platform: "browser",
+      format: "esm",
+      write: false,
+      metafile: true,
+      logLevel: "silent",
+    })
+    if (!result.metafile) throw new Error("Missing protocol bundle metafile")
+    const inputs = Object.keys(result.metafile.inputs)
+    expect(inputs.some((file) => /ajv-formats.*\/dist\/formats.js$/.test(file))).toBe(true)
+    expect(inputs.filter((file) => /\/ajv\/dist\//.test(file))).toEqual([])
+    expect(
+      Object.values(result.metafile.inputs)
+        .flatMap((input) => input.imports)
+        .filter((item) => item.path.startsWith("node:")),
+    ).toEqual([])
+    for (const output of result.outputFiles)
+      expect(output.text).not.toMatch(/\bnew Function\b|\beval\s*\(/)
   })
 })

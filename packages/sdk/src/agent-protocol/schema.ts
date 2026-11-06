@@ -700,7 +700,9 @@ export const AGENT_PROTOCOL_DEFINITIONS: Readonly<Record<string, ContractSchema>
       { const: "checkpoints" },
       { const: "tasks" },
       { const: "custom" },
-      { type: "string", pattern: "custom:.+" },
+      // CDDL .regexp is XSD whole-string matching; RFC 9485 §5.3 translates
+      // anchors and dot semantics to ECMAScript without changing upstream.
+      { type: "string", pattern: "^(?:custom:[^\\n\\r]+)$" },
     ],
   },
   AspEventStreamRequest: object(

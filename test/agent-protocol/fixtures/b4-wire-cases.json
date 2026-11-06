@@ -7675,5 +7675,167 @@
       "future": true
     },
     "valid": true
+  },
+  {
+    "name": "CDDL channel named values",
+    "schema": "AspChannel",
+    "value": "values",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named updates",
+    "schema": "AspChannel",
+    "value": "updates",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named messages",
+    "schema": "AspChannel",
+    "value": "messages",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named tools",
+    "schema": "AspChannel",
+    "value": "tools",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named lifecycle",
+    "schema": "AspChannel",
+    "value": "lifecycle",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named input",
+    "schema": "AspChannel",
+    "value": "input",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named checkpoints",
+    "schema": "AspChannel",
+    "value": "checkpoints",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named tasks",
+    "schema": "AspChannel",
+    "value": "tasks",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named custom",
+    "schema": "AspChannel",
+    "value": "custom",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel empty suffix",
+    "schema": "AspChannel",
+    "value": "custom:",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel suffix",
+    "schema": "AspChannel",
+    "value": "custom:a",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel LF suffix",
+    "schema": "AspChannel",
+    "value": "custom:\n",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel CR suffix",
+    "schema": "AspChannel",
+    "value": "custom:\r",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel trailing LF",
+    "schema": "AspChannel",
+    "value": "custom:a\n",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel trailing CR",
+    "schema": "AspChannel",
+    "value": "custom:a\r",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel trailing CRLF",
+    "schema": "AspChannel",
+    "value": "custom:a\r\n",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel embedded LF",
+    "schema": "AspChannel",
+    "value": "custom:a\nb",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel embedded CR",
+    "schema": "AspChannel",
+    "value": "custom:a\rb",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel leading prefix",
+    "schema": "AspChannel",
+    "value": "prefixcustom:a",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel tab suffix",
+    "schema": "AspChannel",
+    "value": "custom:\t",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel emoji suffix",
+    "schema": "AspChannel",
+    "value": "custom:\ud83d\ude0a",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel line separator suffix",
+    "schema": "AspChannel",
+    "value": "custom:\u2028",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel paragraph separator suffix",
+    "schema": "AspChannel",
+    "value": "custom:\u2029",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel infix line separator",
+    "schema": "AspChannel",
+    "value": "custom:a\u2028b",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel infix paragraph separator",
+    "schema": "AspChannel",
+    "value": "custom:a\u2029b",
+    "valid": true
+  },
+  {
+    "name": "CDDL channel named custom trailing LF",
+    "schema": "AspChannel",
+    "value": "custom\n",
+    "valid": false
+  },
+  {
+    "name": "CDDL channel named custom trailing CR",
+    "schema": "AspChannel",
+    "value": "custom\r",
+    "valid": false
   }
 ]

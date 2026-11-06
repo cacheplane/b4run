@@ -25,6 +25,16 @@ Generate tests/types from a separate, reviewed correction overlay:
 - Upstream does not define REST Run SSE payload framing, webhook payload/retries,
   B4 turn grouping or recovery. The policies below are B4 choices, not corrections.
 
+Translate CDDL `.regexp` faithfully rather than copying its text as a JSON
+Schema pattern. [RFC 8610 §3.8.3](https://www.rfc-editor.org/rfc/rfc8610.html#section-3.8.3)
+uses XSD regular expressions; the [ECMAScript mapping in RFC 9485 §5.3](https://www.rfc-editor.org/rfc/rfc9485.html#section-5.3)
+adds whole-string anchors and replaces dot with `[^\n\r]`, using Unicode mode.
+The pinned `custom:.+` Channel expression therefore becomes
+`^(?:custom:[^\n\r]+)$`. This repairs our schema translation, not upstream;
+keep the original CDDL and correction overlay unchanged. The separate generic
+OpenAPI `StreamingChannel` pattern remains unchanged; REST Run `stream_mode`
+continues to use its four-value `StreamMode` enum.
+
 Ordinary text-array Message content validates unchanged: its block branches use
 anyOf, not an exclusive oneOf. Do not add a speculative correction for overlapping
 text/any-block branches. Only reproduced defects belong in the overlay.

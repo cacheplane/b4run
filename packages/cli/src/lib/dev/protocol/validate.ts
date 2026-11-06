@@ -10,6 +10,7 @@ import type {
   StoreListNamespacesRequest,
   ThreadSearchRequest,
 } from "@b4run/sdk/agent-protocol"
+import { fullFormats } from "ajv-formats/dist/formats.js"
 import { ProtocolError, type ProtocolErrorOptions } from "./errors.js"
 import { parsePublicMessages } from "./messages.js"
 import {
@@ -83,13 +84,10 @@ export function parseProtocolRequest<K extends keyof ProtocolRequests>(
     optional(record, "metadata", (value) => parseCallerMetadata(value, "run"))
     optional(record, "config", (value) => validateProtocolConfig(value, options.config))
     optional(record, "webhook", (value) => {
-      text(value)
-      if ((value as string).length < 1 || (value as string).length > 65536) invalid()
-      try {
-        new URL(value as string)
-      } catch {
-        invalid()
-      }
+      if (typeof value !== "string" || value.length < 1 || value.length > 65536) invalid()
+      // The exact pinned URI format validates the original bytes. WHATWG URL
+      // parsing would normalize whitespace, escapes and controls first.
+      if (typeof fullFormats.uri !== "function" || !fullFormats.uri(value)) invalid()
     })
     optional(record, "on_disconnect", (value) => oneOf(value, ["cancel", "continue"]))
     optional(record, "on_completion", (value) => oneOf(value, ["delete", "keep"]))
@@ -291,7 +289,7 @@ function parseCommand(
           "tasks",
           "custom",
         ].includes(channel) &&
-          !channel.startsWith("custom:"))
+          !/^(?:custom:[^\n\r]+)$/u.test(channel))
       )
         invalid()
     }
