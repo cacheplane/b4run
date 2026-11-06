@@ -140,6 +140,12 @@ export function mdxToMarkdown(source, options = {}) {
       continue
     }
 
+    if (trimmed.startsWith("<DocsVideo")) {
+      push(
+        "[Watch the captioned Navlog demo and read its transcript](https://b4.run/docs/app/first-conversation)",
+      )
+      continue
+    }
     if (trimmed.startsWith("<TurnInspector")) {
       const lesson = attribute(trimmed, "lesson")
       if (lesson)

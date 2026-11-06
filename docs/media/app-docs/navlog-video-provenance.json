@@ -1,0 +1,65 @@
+{
+  "take": "navlog-aircraft-video",
+  "source": {
+    "filename": "Agent Workspace.mp4",
+    "sha256": "c988c8a17c376eb5b9ad5481ee3e3e36d9b32c207d59f1165741ee387670b114",
+    "durationSeconds": 120.283333,
+    "width": 1020,
+    "height": 720,
+    "fps": 60
+  },
+  "privateCaptureSha256": "4777a75124a7656bd265c3e7f557dd55ff0501bedbab7dffb5a7055472dbac90",
+  "edit": {
+    "lessonSourceIntervalSeconds": [
+      28,
+      90
+    ],
+    "overviewSourceIntervalSeconds": [
+      28,
+      60
+    ],
+    "speed": 1,
+    "crop": {
+      "x": 60,
+      "y": 60,
+      "width": 900,
+      "height": 600
+    },
+    "outputFps": 30,
+    "audio": "none"
+  },
+  "assets": {
+    "5360e0dcd88790f903c60ce24f7d5b5a5b4938c88dc8556769a1fb0975f89a39.mp4": {
+      "bytes": 1310012,
+      "sha256": "5360e0dcd88790f903c60ce24f7d5b5a5b4938c88dc8556769a1fb0975f89a39"
+    },
+    "318f7c2586ec2a33286efc8e86d005962a9afde6704a50c5ab79f80efb422e8b.png": {
+      "bytes": 193598,
+      "sha256": "318f7c2586ec2a33286efc8e86d005962a9afde6704a50c5ab79f80efb422e8b"
+    },
+    "5fb64342e9cf0e44b5987a1bf97a070248957c5f1ab9c22abb32f7f39767df20.png": {
+      "bytes": 138785,
+      "sha256": "5fb64342e9cf0e44b5987a1bf97a070248957c5f1ab9c22abb32f7f39767df20"
+    },
+    "54440439aa03d58ac632f4a7b2124236080aea24debc93ac22018ce2c6a81b67.vtt": {
+      "bytes": 930,
+      "sha256": "54440439aa03d58ac632f4a7b2124236080aea24debc93ac22018ce2c6a81b67"
+    },
+    "4c909dcd7509a3e16a1e9cc6a52ac6ffa3b4bc8c4d5d0ea69a6b62b40b6c1068.mp4": {
+      "bytes": 615918,
+      "sha256": "4c909dcd7509a3e16a1e9cc6a52ac6ffa3b4bc8c4d5d0ea69a6b62b40b6c1068"
+    },
+    "7b2ba819080532b41450de8e0f9b488aa6e53449dabfb81765afc363190139c8.vtt": {
+      "bytes": 535,
+      "sha256": "7b2ba819080532b41450de8e0f9b488aa6e53449dabfb81765afc363190139c8"
+    },
+    "7e80731a5d435fb476db1a4c28d839eb44a7cdc6c5594bfa8ca1e44b65489016.json": {
+      "bytes": 35777,
+      "sha256": "7e80731a5d435fb476db1a4c28d839eb44a7cdc6c5594bfa8ca1e44b65489016"
+    },
+    "4fea3559a06cb79b3ac1f8ec7e92d4aab3bb9a6c5063b045177d3effbd01c1d4.txt": {
+      "bytes": 3814,
+      "sha256": "4fea3559a06cb79b3ac1f8ec7e92d4aab3bb9a6c5063b045177d3effbd01c1d4"
+    }
+  }
+}

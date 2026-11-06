@@ -193,3 +193,9 @@ it("preserves inspector labels and links in Markdown exports", () => {
     "[Explore the recorded turn](https://b4.run/docs/app/inspect/navlog)",
   )
 })
+
+it("preserves the video transcript route in Markdown exports", () => {
+  expect(mdxToMarkdown('<DocsVideo clip="lesson" />')).toContain(
+    "[Watch the captioned Navlog demo and read its transcript](https://b4.run/docs/app/first-conversation)",
+  )
+})

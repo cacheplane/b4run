@@ -7,6 +7,10 @@ description: "Follow a request through a turn, tool activity, and a response."
 
 You already know how to give an agent a task. Let's follow what happens between your message and its answer. We'll start with your own project, then inspect a recorded conversation with Navlog. You can explore the recording without installing or running the example.
 
+<DocsVideo clip="lesson" />
+
+The video follows two read-only requests in Navlog, a B4 example. Watch the file read, the answer, and the follow-up. We will inspect this same conversation below.
+
 ## Start with a request you can check
 
 Choose your connected Codex or Claude Code agent and a project folder, then ask:
@@ -45,11 +49,11 @@ Navlog is a B4 example that prepares a flight plan using tools and source materi
 
 Let's look at a smaller request first. In this recording, we ask Navlog to read its aircraft profile. It calls `readDoc`, checks for remembered preferences, and answers. We then ask a follow-up in the same conversation.
 
-<TurnInspector lesson="navlog-aircraft" />
+<TurnInspector lesson="navlog-aircraft-video" />
 
 ## Read the tool's arguments and result
 
-<InspectMoment lesson="navlog-aircraft" moment="read-profile">Inspect the first file read.</InspectMoment> The inspector selects the `readDoc` call at the point where its result arrived.
+<InspectMoment lesson="navlog-aircraft-video" moment="read-profile">Inspect the first file read.</InspectMoment> The inspector selects the `readDoc` call at the point where its result arrived.
 
 Choose **Arguments**. The `path` value is `aircraft/c172n.md`: the file the agent asked the tool to read. Now choose **Result**. This is what the tool returned. We can compare the requested path with the returned contents before reading the agent's explanation.
 
@@ -57,15 +61,15 @@ The **Tree** view makes the returned data easier to explore. Choose **Show full 
 
 There are two useful questions to ask here: did the tool receive the input we expected, and does its result support the answer?
 
-There is a useful detail here: the request names N738ZU, while the example's baseline file names N734ST. The agent reports that it found no remembered override. Reading the tool result lets us check that distinction ourselves.
+The request names the file directly. Its profile describes a Cessna 172N with 50 US gal of usable fuel and cruise power at 2400 RPM. Compare those entries with the answer.
 
 ## Follow the next turn
 
-<InspectMoment lesson="navlog-aircraft" moment="read-again">Inspect the follow-up turn.</InspectMoment> We asked about reserve and alternate fuel, and asked the agent to read the profile again. The same tool reads the same file, but this is a separate call with its own arguments and result.
+<InspectMoment lesson="navlog-aircraft-video" moment="read-again">Inspect the follow-up turn.</InspectMoment> We asked about reserve and alternate fuel, and asked the agent to read the profile again. The same tool reads the same file, but this is a separate call with its own arguments and result.
 
 Choose **Previous event** in the player. The result becomes unavailable because we moved to a point before it arrived. Choose **Next event** to bring it back. The recording lets us check what the app had observed at each step.
 
-<InspectMoment lesson="navlog-aircraft" moment="finished">Inspect the completed conversation.</InspectMoment> Read the final response alongside the file. The profile includes a reserve entry. Look for whether it also contains the alternate-fuel information the follow-up requested. A useful answer should distinguish what the source says from what it does not provide.
+<InspectMoment lesson="navlog-aircraft-video" moment="finished">Inspect the completed conversation.</InspectMoment> Read the final response alongside the file. The profile includes a reserve entry. Look for whether it also contains the alternate-fuel information the follow-up requested. A useful answer should distinguish what the source says from what it does not provide.
 
 You can select another message or tool to inspect it, or use **Play** to follow the recorded timing. The speed control changes playback speed; the elapsed time still describes the recording. On a narrow screen, use **Conversation** and **Details** to switch between the two panes.
 
