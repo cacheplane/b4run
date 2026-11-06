@@ -1,7 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { sqliteMemoryStore } from "@b4run/memory"
+import { MemorySaver } from "@langchain/langgraph"
 import { afterEach, describe, expect, it } from "vitest"
+import { z } from "zod"
 import {
   normalizeProtocolInput,
   normalizeProtocolOutput,
@@ -11,6 +14,7 @@ import { mergePublicMessages } from "../src/lib/dev/protocol/messages.ts"
 import {
   executeResolvedRoute,
   invokeResolvedRoute,
+  seedPreparedRouteModules,
   streamResolvedRoute,
 } from "../src/lib/runtime/execute-route.ts"
 import { toAgentInput } from "../src/lib/runtime/execute-route-core.ts"
@@ -228,6 +232,37 @@ describe("protocol route output", () => {
     expect(() => normalizeProtocolOutput(0, { stateful: true })).toThrow(/state object/)
   })
 
+  it.each([
+    { body: "0", protocol: { stateful: true } },
+    { body: '{"messages":"PRIVATE_RESULT_SENTINEL"}', protocol: { messages: true } },
+    {
+      body: '{"messages":[{"id":"PRIVATE_RESULT_SENTINEL","role":"user","content":"a"},{"id":"PRIVATE_RESULT_SENTINEL","role":"user","content":"b"}]}',
+      protocol: { messages: true },
+    },
+  ])(
+    "returns a sanitized structured server failure for invalid declared output %#",
+    ({ body, protocol }) => {
+      const result = normalizeServerResult({
+        appRoot: "/fixture",
+        mode: "agent",
+        routeId: "/chat",
+        routePath: "src/app/chat/index.ts",
+        responseBodyText: body,
+        protocol,
+        startedAt: 0,
+        finishedAt: 10,
+        statusCode: 200,
+      })
+      expect(result).toMatchObject({ status: "failed", executionSource: "server", durationMs: 10 })
+      expect(result.status === "failed" ? result.error : null).toEqual({
+        kind: "server_transport_error",
+        message: "Server returned an invalid protocol output payload for /runs/wait",
+      })
+      expect(JSON.stringify(result)).not.toContain("PRIVATE_RESULT_SENTINEL")
+      expect(result).not.toHaveProperty("output")
+    },
+  )
+
   it("keeps legacy server response semantics while providing an explicit protocol conversion", () => {
     const options = {
       appRoot: "/fixture",
@@ -329,4 +364,110 @@ describe("execution adapter protocol integration", () => {
       error: { message: expect.stringMatching(/route.input.*must be object/i) },
     })
   })
+})
+
+describe("protocol output validation and real episodic memory", () => {
+  it.each([
+    { streaming: false, includeFailedRuns: false },
+    { streaming: false, includeFailedRuns: true },
+    { streaming: true, includeFailedRuns: false },
+    { streaming: true, includeFailedRuns: true },
+  ])(
+    "records rejected output consistently with the failed-run policy $streaming/$includeFailedRuns",
+    async ({ streaming, includeFailedRuns }) => {
+      const options = await fixture()
+      await writeFile(options.routeFile, "export const agent = { invoke: async () => 0 }\n")
+      const store = sqliteMemoryStore({ path: join(options.appRoot, "memory.sqlite") })
+      const effectPath = join(options.appRoot, "effect.txt")
+      let invocations = 0
+      seedPreparedRouteModules(
+        new Map([
+          [
+            options.routeFile,
+            {
+              module: {
+                kind: "agent",
+                config: {},
+                entry: {
+                  invoke: async () => {
+                    await writeFile(effectPath, String(++invocations))
+                    return 0
+                  },
+                },
+              },
+              tools: [],
+              stateFields: undefined,
+              memory: {
+                kind: "semantic",
+                scope: ["route"],
+                schema: z.object({ note: z.string() }),
+              },
+            },
+          ],
+        ]),
+      )
+      const execution = {
+        ...options,
+        input: { messages: [first] },
+        checkpointer: new MemorySaver(),
+        config: {
+          memory: {
+            store,
+            writes: "auto" as const,
+            episodes: { enabled: true, includeFailedRuns },
+          },
+        },
+      }
+      const protocol: ProtocolBoundaryOptions = {
+        adapter: { parseInput: (input) => input },
+        output: { stateful: true },
+      }
+      if (streaming) {
+        const chunks: unknown[] = []
+        await expect(
+          (async () => {
+            for await (const chunk of streamResolvedRoute({
+              ...execution,
+              threadId: "rejected",
+              protocol,
+            }))
+              chunks.push(chunk)
+          })(),
+        ).rejects.toThrow(/state object/)
+        expect(chunks).toEqual([])
+      } else {
+        expect(
+          await invokeResolvedRoute({ ...execution, threadId: "rejected", protocol }),
+        ).toMatchObject({
+          status: "failed",
+          error: { kind: "execution_error", message: expect.stringMatching(/state object/) },
+        })
+      }
+      // Output rejection does not undo an entry's already-completed side effect.
+      expect(await readFile(effectPath, "utf8")).toBe("1")
+      const rejected = (await store.browse({ kind: "episodic" })).records
+      expect(rejected.map((record) => record.data.outcome)).toEqual(
+        includeFailedRuns ? ["error"] : [],
+      )
+
+      // The same real adapter without a protocol declaration still succeeds and
+      // writes one success episode, proving memory was enabled in every case.
+      if (streaming) {
+        const chunks = []
+        for await (const chunk of streamResolvedRoute({ ...execution, threadId: "native" }))
+          chunks.push(chunk)
+        expect(chunks).toEqual([{ type: "done", output: 0 }])
+      } else {
+        expect(await invokeResolvedRoute({ ...execution, threadId: "native" })).toMatchObject({
+          status: "passed",
+          output: 0,
+        })
+      }
+      expect(await readFile(effectPath, "utf8")).toBe("2")
+      const all = (await store.browse({ kind: "episodic" })).records
+      expect(all.map((record) => record.data.outcome).sort()).toEqual(
+        includeFailedRuns ? ["error", "ok"] : ["ok"],
+      )
+    },
+  )
 })

@@ -2226,9 +2226,14 @@ export async function executeRouteAtResolvedPath(
       },
     )
 
-    // Record the episode BEFORE returning so the write is durable when the
-    // caller observes the result; the result object itself is unchanged. A
-    // PARKED turn records nothing — the completing resume turn records instead.
+    // Validate the declared output before recording a successful episode.
+    // Keep the raw state for episode input/tool facts and park detection.
+    const resultOutput = options.protocol
+      ? normalizeProtocolOutput(output, options.protocol.output)
+      : output
+
+    // Record before returning so the write is durable when the caller observes
+    // the result. A parked turn records on the completing resume turn instead.
     await recordRunEpisode({
       memoryContext: epMemoryContext,
       episodes: epConfig,
@@ -2244,7 +2249,7 @@ export async function executeRouteAtResolvedPath(
       appRoot: options.appRoot,
       executionSource: "in-process",
       mode: normalized.kind,
-      output: options.protocol ? normalizeProtocolOutput(output, options.protocol.output) : output,
+      output: resultOutput,
       routeId: options.routeId,
       routePath: options.routePath,
       startedAt: options.startedAt,
