@@ -29,7 +29,7 @@ const MDX_COMPONENTS = [
 
 function sourceFor(href: string): string {
   const slug = href.replace(/^\/docs\//, "")
-  const file = slug === "recipes" ? "recipes/index.mdx" : `${slug}.mdx`
+  const file = slug === "recipes" || slug === "app" ? `${slug}/index.mdx` : `${slug}.mdx`
   return readFileSync(join(CONTENT_ROOT, "docs", file), "utf8")
 }
 

@@ -30,8 +30,8 @@ rmSync(outDir, { recursive: true, force: true })
 mkdirSync(outDir, { recursive: true })
 
 const topics = pages.map(({ slug, label }) => {
-  const sourceRel = slug === "recipes" ? "recipes/index.mdx" : `${slug}.mdx`
-  const alternateRel = slug === "recipes" ? "recipes.mdx" : `${slug}/index.mdx`
+  const sourceRel = slug === "recipes" || slug === "app" ? `${slug}/index.mdx` : `${slug}.mdx`
+  const alternateRel = slug === "recipes" || slug === "app" ? `${slug}.mdx` : `${slug}/index.mdx`
   const sourcePath = join(docsSrc, sourceRel)
   if (!existsSync(sourcePath)) {
     throw new Error(`[generate-docs] registered source missing at ${sourcePath}`)

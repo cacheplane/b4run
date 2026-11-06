@@ -1,0 +1,40 @@
+---
+title: "Install and sign in"
+description: "Prepare your Mac and understand the two accounts involved in setup."
+---
+
+# Install and sign in
+
+Before we connect an agent, let's get the app and its account ready.
+
+## Download the app
+
+**Mac download — coming with the public release.** The download link will be added here when the release is available. You can also visit the [download page](/app/download).
+
+Open the downloaded archive, move **Agent Workspace** to your Applications folder, and launch it.
+
+### Install with Homebrew
+
+Once the public release is available, you can install the app with Homebrew:
+
+```sh
+brew install --cask cacheplane/tap/agent-workspace
+```
+
+The cask will be published with the release. If you run the command before then, Homebrew cannot find it.
+
+## Requirements
+
+You need a Mac with Apple Silicon running macOS 26 or later. The iPhone companion requires iOS 26 or later.
+
+Codex and Claude Code use their own installed runtimes and authentication on your Mac. B4 agents run on a B4 server with its own model-provider configuration.
+
+## Sign in to the app
+
+Open Agent Workspace. The sign-in screen offers **Continue with a passkey** and **Continue with Apple**. Follow the system sign-in flow. If you create an account, onboarding asks for your name.
+
+This is your app account. It does not replace your Codex or Claude Code login, and it does not supply model credentials to a B4 server.
+
+## Connect an agent
+
+Continue with [Codex](/docs/app/codex) or [Claude Code](/docs/app/claude-code). If sign-in fails, use [troubleshooting](/docs/app/troubleshooting) before starting a conversation.

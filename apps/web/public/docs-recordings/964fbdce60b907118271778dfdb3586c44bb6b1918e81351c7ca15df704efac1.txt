@@ -1,0 +1,45 @@
+Navlog: reading the aircraft profile
+Recorded in B4 beta 0.1.0 on 2026-11-06. Two completed turns.
+This is a recorded example, not flight-planning guidance. No weather was fetched and no flight plan was filed.
+The request names N738ZU; the source profile names N734ST. The recording preserves that distinction.
+
+turn-1 / item-1 / user
+Content: We are exploring the Navlog example for the B4 documentation. Read the aircraft profile for N738ZU and tell me the aircraft model, usable fuel, and configured cruise RPM. Cite the workspace file you read. Do not plan or file a flight, fetch weather, or change any files.
+
+turn-1 / item-2 / readDoc
+Arguments: {
+  "path": "aircraft/c172n.md"
+}
+Result: {"content":"# Demo aircraft: N734ST\n\nThe aircraft this planner assumes when the pilot has not said otherwise. What the pilot says in\nthe request wins; then what this pilot asked the planner to remember; then this file.\n\n| Item | Value | Source |\n|---|---|---|\n| Tail number | N734ST | Demo aircraft |\n| Type | Cessna 172N (1978) | Demo aircraft |\n| Tanks | Long range | Demo aircraft |\n| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |\n| Cruise power | 2400 RPM | Demo aircraft |\n| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |\n| Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md] |\n\n\"Full tanks\" means all usable fuel. A pilot who says \"standard tanks\" has 40 US gal usable.\n"}
+
+turn-1 / item-3 / recall
+Arguments: {
+  "query": "pilot aircraft overrides and preferences"
+}
+Result: (no memories found)
+
+turn-1 / item-4 / assistant
+Content: I read aircraft/c172n.md (the aircraft baseline). It describes a Cessna 172N (1978) with usable fuel 50 US gal and cruise power 2400 RPM. No pilot memory/override for N738ZU was found.
+
+turn-2 / item-5 / user
+Content: What does the same aircraft profile say about reserve fuel and alternate fuel? Read it again to verify, quote those two entries, and keep this read-only.
+
+turn-2 / item-6 / readDoc
+Arguments: {
+  "path": "aircraft/c172n.md"
+}
+Result: {"content":"# Demo aircraft: N734ST\n\nThe aircraft this planner assumes when the pilot has not said otherwise. What the pilot says in\nthe request wins; then what this pilot asked the planner to remember; then this file.\n\n| Item | Value | Source |\n|---|---|---|\n| Tail number | N734ST | Demo aircraft |\n| Type | Cessna 172N (1978) | Demo aircraft |\n| Tanks | Long range | Demo aircraft |\n| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |\n| Cruise power | 2400 RPM | Demo aircraft |\n| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |\n| Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md] |\n\n\"Full tanks\" means all usable fuel. A pilot who says \"standard tanks\" has 40 US gal usable.\n"}
+
+turn-2 / item-7 / recall
+Arguments: {
+  "query": "pilot aircraft overrides and preferences"
+}
+Result: (no memories found)
+
+turn-2 / item-8 / assistant
+Content: I re-read the aircraft baseline (aircraft/c172n.md).
+
+"Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md]"
+
+There is no "Alternate fuel" entry in the aircraft baseline.
+

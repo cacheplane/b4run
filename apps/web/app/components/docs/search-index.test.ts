@@ -6,7 +6,7 @@ import {
   flattenDocsSearchIndex,
   queryVariants,
 } from "./docs-search-results"
-import { ALL_DOCS_PAGES, DOCS_NAV } from "./nav"
+import { ALL_DOCS_PAGES, APP_DOCS_NAV, DOCS_NAV } from "./nav"
 import { DOCS_INDEX, extractSearchDocument, parsePublicExportAliases } from "./search-index"
 
 const FINAL_PR2_API_HREFS = [
@@ -21,7 +21,9 @@ const FINAL_PR2_API_HREFS = [
 describe("documentation search index", () => {
   it("contains every registered page in exhaustive registry order", () => {
     const journeySectionByHref = new Map<string, string>(
-      DOCS_NAV.flatMap((section) => section.items.map((item) => [item.href, section.label])),
+      [...DOCS_NAV, ...APP_DOCS_NAV].flatMap((section) =>
+        section.items.map((item) => [item.href, section.label]),
+      ),
     )
     const apiHrefs = new Set<string>(API_REFERENCE_PAGES.map(({ href }) => href))
     const expected = ALL_DOCS_PAGES.map((item) => ({
@@ -101,6 +103,7 @@ describe("documentation search index", () => {
   it("ranks exact aliases ahead of fuzzy text and preserves registry order for ties", () => {
     const results = flattenDocsSearchIndex([
       {
+        area: "framework",
         href: "/docs/getting-started",
         title: "First page",
         section: "Reference",
@@ -111,6 +114,7 @@ describe("documentation search index", () => {
         aliasSurfaces: {},
       },
       {
+        area: "framework",
         href: "/docs/mental-model",
         title: "sharedAlias guide",
         section: "Reference",
@@ -426,7 +430,8 @@ test("stays small enough to fetch on first open", () => {
   // ~135.2 KB with the 0.15 response-schema and CLI-reporting upgrade notes,
   // ~136.6 KB with the plain LangGraph UI API and producer/restore recipes,
   // and ~137.4 KB with provider built-ins, native replay and Google migration.
-  const budget = 140_000
+  // Ten App guides add about 6 KB; retain a bounded combined download.
+  const budget = 150_000
 
   const compressed = gzipSync(JSON.stringify(DOCS_INDEX))
 

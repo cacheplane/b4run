@@ -29,7 +29,10 @@ describe("resolvePendingResume", () => {
   test.each([undefined, []] as const)(
     "starts a turn with no pending interrupts and resume %j",
     (resume) => {
-      expect(resolvePendingResume(resume, snapshot([]))).toEqual({ ok: true, mode: "turn" })
+      expect(resolvePendingResume(resume, snapshot([]))).toEqual({
+        ok: true,
+        mode: "turn",
+      })
     },
   )
 
@@ -60,7 +63,11 @@ describe("resolvePendingResume", () => {
           [{ interruptId: "perm-1", payload: decision, status: "resolved" }],
           snapshot([pending("perm-1", RESUME_KEY_1)]),
         ),
-      ).toEqual({ ok: true, mode: "resume", resume: { [RESUME_KEY_1]: decision } })
+      ).toEqual({
+        ok: true,
+        mode: "resume",
+        resume: { [RESUME_KEY_1]: decision },
+      })
     },
   )
 
@@ -123,7 +130,11 @@ describe("resolvePendingResume", () => {
   test.each([
     { interruptId: "perm-1", status: "resolved" },
     { interruptId: "perm-1", payload: "sometimes", status: "resolved" },
-    { interruptId: "perm-1", payload: { decision: "once" }, status: "resolved" },
+    {
+      interruptId: "perm-1",
+      payload: { decision: "once" },
+      status: "resolved",
+    },
   ] satisfies B4ResumeEntry[])(
     "rejects a resolved entry with missing or unsupported payload: %j",
     (entry) => {
@@ -285,7 +296,10 @@ describe("readPendingInterrupts", () => {
           {
             id: RESUME_KEY_1,
             value: {
-              detail: { suggestedPattern: "deployProd", toolName: "deployProd" },
+              detail: {
+                suggestedPattern: "deployProd",
+                toolName: "deployProd",
+              },
               interruptId: "perm-1",
               kind: "tool",
               type: "permission-request",
@@ -357,6 +371,60 @@ describe("readPendingInterrupts", () => {
 })
 
 describe("parsePendingInterrupts", () => {
+  test("resumes array-valued interrupt writes from generated app dependencies", () => {
+    const tuple = {
+      pendingWrites: [
+        [
+          TASK_UUID_1,
+          "__interrupt__",
+          [
+            { id: RESUME_KEY_1, value: { interruptId: "perm-1" } },
+            { id: RESUME_KEY_2, value: { interruptId: "perm-2" } },
+          ],
+        ],
+      ],
+    } as unknown as CheckpointTuple
+    const parsed = parsePendingInterrupts(tuple)
+    expect(parsed.malformed).toBe(false)
+    expect(
+      resolvePendingResume(
+        [
+          { interruptId: "perm-1", status: "resolved", payload: "once" },
+          { interruptId: "perm-2", status: "cancelled" },
+        ],
+        parsed,
+      ),
+    ).toEqual({
+      ok: true,
+      mode: "resume",
+      resume: {
+        [RESUME_KEY_1]: "once",
+        [RESUME_KEY_2]: "deny",
+      },
+    })
+  })
+
+  test.each([null, [], { id: "unsafe" }, { id: RESUME_KEY_1, value: { interruptId: "perm-1" } }])(
+    "rejects malformed or duplicate entries inside an interrupt array: %j",
+    (entry) => {
+      const tuple = {
+        pendingWrites: [
+          [
+            TASK_UUID_1,
+            "__interrupt__",
+            [{ id: RESUME_KEY_1, value: { interruptId: "perm-1" } }, entry],
+          ],
+        ],
+      } as unknown as CheckpointTuple
+      expect(
+        resolvePendingResume(
+          [{ interruptId: "perm-1", status: "cancelled" }],
+          parsePendingInterrupts(tuple),
+        ),
+      ).toMatchObject({ ok: false, code: "malformed_checkpoint" })
+    },
+  )
+
   test("parses a tuple the caller already holds, with no checkpointer read", () => {
     const tuple = {
       pendingWrites: [
@@ -383,12 +451,16 @@ test("resumes a real LangGraph interrupt with the parsed outer resume key", asyn
   const checkpointer = new MemorySaver()
   const graph = new StateGraph(State)
     .addNode("permission", () => ({
-      answer: interrupt<{ interruptId: string }, PermissionDecision>({ interruptId: "perm-real" }),
+      answer: interrupt<{ interruptId: string }, PermissionDecision>({
+        interruptId: "perm-real",
+      }),
     }))
     .addEdge(START, "permission")
     .addEdge("permission", END)
     .compile({ checkpointer })
-  const config = { configurable: { checkpoint_ns: "", thread_id: "thread-real" } }
+  const config = {
+    configurable: { checkpoint_ns: "", thread_id: "thread-real" },
+  }
 
   await graph.invoke({}, config)
   const tuple = await checkpointer.getTuple(config)

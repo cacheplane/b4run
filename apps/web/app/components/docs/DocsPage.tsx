@@ -3,6 +3,7 @@ import { getPrompt, type PromptSlug } from "../../../content/prompts"
 import { JsonLd } from "../../seo/JsonLd"
 import { resolveStaticSeoPage } from "../../seo/resolve"
 import { breadcrumbJsonLd, techArticleJsonLd } from "../../seo/structured-data"
+import { InspectorProvider } from "../turn-inspector/inspector-context"
 import { DocsBreadcrumb } from "./DocsBreadcrumb"
 import { DocsPrevNext } from "./DocsPrevNext"
 import { LegacyAnchorRedirect } from "./LegacyAnchorRedirect"
@@ -20,7 +21,7 @@ interface Props {
 export function DocsPage({ href, Content, promptSlug }: Props) {
   const prompt = promptSlug ? getPrompt(promptSlug) : null
   const seoPage = resolveStaticSeoPage(href)
-  const slug = href.replace(/^\/docs\//, "")
+  const slug = href.replace(/^\/docs\//, "").replace(/\/+$/, "")
 
   return (
     <>
@@ -30,14 +31,16 @@ export function DocsPage({ href, Content, promptSlug }: Props) {
           <JsonLd data={breadcrumbJsonLd(seoPage)} />
         </>
       ) : null}
-      <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <DocsBreadcrumb href={href} />
         <PageActions slug={slug} {...(prompt?.body ? { promptBody: prompt.body } : {})} />
       </div>
       <MobileDocsTOC />
       <article className="prose-b4">
         <LegacyAnchorRedirect redirects={legacyRedirectsFor(href)} />
-        <Content />
+        <InspectorProvider>
+          <Content />
+        </InspectorProvider>
       </article>
       <DocsPrevNext href={href} />
     </>

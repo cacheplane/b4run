@@ -19,7 +19,7 @@ interface MenuLink {
 }
 
 const SITE_LINKS: readonly MenuLink[] = [
-  { label: "Docs", href: "/docs/getting-started", ctaId: "header_get_started" },
+  { label: "Docs", href: "/docs", ctaId: "header_get_started" },
   { label: "Blog", href: "/blog", ctaId: "header_blog" },
   { label: "Demo", href: NAVLOG_DEMO_URL, ctaId: "header_live_demo" },
   { label: "Download brand kit", href: "/brand/b4-run-brand-assets.zip", download: true },

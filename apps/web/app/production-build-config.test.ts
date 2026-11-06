@@ -64,15 +64,15 @@ describe("production response policy", () => {
     expect(String(redirects[0]?.source)).toContain("ingest")
   })
 
-  it("redirects the docs root permanently from config instead of a page", async () => {
+  it("serves the docs audience entrance without a redirect", async () => {
     const redirects = (await nextConfig.redirects?.()) ?? []
 
-    expect(redirects).toContainEqual({
+    expect(redirects).not.toContainEqual({
       source: "/docs",
       destination: "/docs/getting-started",
       permanent: true,
     })
-    expect(existsSync(new URL("./docs/page.tsx", import.meta.url))).toBe(false)
+    expect(existsSync(new URL("./docs/page.tsx", import.meta.url))).toBe(true)
   })
 
   it("redirects the retired research recipe slugs to the flight-planner recipes", async () => {

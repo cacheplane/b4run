@@ -1,0 +1,30 @@
+---
+title: "Accounts, privacy, and sync"
+description: "Understand the app account, provider credentials, and conversation data."
+---
+
+# Accounts, privacy, and sync
+
+There are several accounts involved in using agents. Let's separate what each one does.
+
+## Your app account
+
+Your app account connects the Mac and iPhone through the hub. Production sign-in supports a passkey or Apple account. The Mac keeps account-specific workspace data, and the phone keeps a local copy of synced data.
+
+## Your agent accounts
+
+Codex and Claude Code retain their own runtime authentication. Signing in to b4app does not sign you in to either provider. A B4 server has its own model-provider configuration; your coding-agent login does not supply that configuration.
+
+## What leaves the Mac
+
+The agents may send requests and relevant context to their configured providers. App-managed conversations sync to the hub so your connected devices can show them. This means the conversation is not confined to the Mac.
+
+The app's sync does not copy your entire project directory. An agent can include file contents or command output in a conversation or provider request, so consider the task and the runtime's permissions before sharing sensitive work.
+
+Endpoint credentials are stored through the app's secret store. Do not paste secrets into messages, screenshots, or a diagnostic report.
+
+## Manage your account
+
+Use **Settings → Account** to manage your name and sign-in methods. Logging out closes the account's active local work. On the phone, logout clears its local account copy. Returning to the same account on the Mac can reopen retained local account data.
+
+Account deletion is a separate action from logout. Read its confirmation carefully; do not use logout as a substitute for deleting an account or assume deletion erases data held independently by a provider.

@@ -1,0 +1,38 @@
+---
+title: "Troubleshooting"
+description: "Match the visible state to a concrete recovery step."
+---
+
+# Troubleshooting
+
+Start with the state the app shows. An unavailable runtime, an expired login, and an interrupted turn need different responses.
+
+## The download or Homebrew install is unavailable
+
+The downloads and Homebrew cask arrive with the public release. Check the [installation guide](/docs/app/install#download-the-app) for availability. Once the cask is published, run `brew update` before trying the install command again.
+
+## The agent is not installed
+
+Open **Diagnostics** and check the executable result. Install the corresponding runtime using its official instructions, then check the connection again. Installing b4app does not install the coding-agent runtime.
+
+## The connection needs authentication
+
+Sign in through the runtime's supported flow, then check the connection. Your app account is separate. For Codex, the connection offers **Sign in with ChatGPT**; for Claude Code, complete its official terminal sign-in.
+
+## A turn is waiting
+
+Open the conversation and look for a pending approval or question. Read the request and respond with one of the supported choices. A decision from an expired runtime session may no longer be valid; use the current request shown by the app.
+
+## The outcome is unknown
+
+The runtime stopped communicating before the app could confirm how the turn ended. Use the offered check/reconciliation action. Do not automatically resend the prompt: the original request may have run.
+
+If the runtime cannot resolve it, abandoning the turn gives up on tracking that outcome. It does not undo work already performed.
+
+## The iPhone cannot reach the Mac
+
+Check that the Mac is awake, connected, and signed in to the expected account. Look at the phone's connection status. For pairing problems, generate a new code; old codes expire and cannot be reused.
+
+## You need more information
+
+Open **Diagnostics** and record the failing check and app version. Share the smallest relevant error description. Remove account details, local paths and conversation contents that are not needed to explain the problem.

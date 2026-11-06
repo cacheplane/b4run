@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "id": "synthetic-two-turns",
+  "provenance": "synthetic",
+  "recordedAt": "2026-11-05T00:00:00Z",
+  "revisions": {
+    "app": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "example": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "initial": {
+    "turns": [],
+    "items": [],
+    "requests": [],
+    "notices": []
+  },
+  "events": [
+    {
+      "sequence": 0,
+      "elapsedMs": 0,
+      "sourceSequence": 1,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-1",
+            "status": "running",
+            "submission": "acknowledged",
+            "outcome": null
+          }
+        },
+        {
+          "kind": "item",
+          "item": {
+            "id": "message-1",
+            "turnId": "turn-1",
+            "role": "assistant",
+            "type": "message",
+            "state": "streaming",
+            "content": {
+              "available": true,
+              "value": ""
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            },
+            "name": "",
+            "provenance": "live"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 1,
+      "elapsedMs": 100,
+      "sourceSequence": 3,
+      "changes": [
+        {
+          "kind": "delta",
+          "itemId": "message-1",
+          "text": "Hello"
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "elapsedMs": 200,
+      "sourceSequence": 5,
+      "changes": [
+        {
+          "kind": "item",
+          "item": {
+            "id": "message-1",
+            "turnId": "turn-1",
+            "role": "assistant",
+            "type": "message",
+            "state": "complete",
+            "content": {
+              "available": true,
+              "value": "Hello world"
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            },
+            "name": "",
+            "provenance": "live"
+          }
+        },
+        {
+          "kind": "item",
+          "item": {
+            "id": "tool-1",
+            "turnId": "turn-1",
+            "role": "tool",
+            "type": "tool",
+            "state": "complete",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            },
+            "name": "weather",
+            "provenance": "live"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 3,
+      "elapsedMs": 300,
+      "sourceSequence": 7,
+      "changes": [
+        {
+          "kind": "request",
+          "request": {
+            "id": "request-1",
+            "turnId": "turn-1",
+            "kind": "tool_permission",
+            "state": "pending",
+            "prompt": {
+              "available": true,
+              "value": "File the plan?"
+            },
+            "decision": {
+              "available": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 4,
+      "elapsedMs": 400,
+      "sourceSequence": 9,
+      "changes": [
+        {
+          "kind": "request",
+          "request": {
+            "id": "request-1",
+            "turnId": "turn-1",
+            "kind": "tool_permission",
+            "state": "resolved",
+            "prompt": {
+              "available": true,
+              "value": "File the plan?"
+            },
+            "decision": {
+              "available": false
+            }
+          }
+        },
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-1",
+            "status": "terminal",
+            "submission": "acknowledged",
+            "outcome": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 5,
+      "elapsedMs": 500,
+      "sourceSequence": 11,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-2",
+            "status": "running",
+            "submission": "acknowledged",
+            "outcome": null
+          }
+        },
+        {
+          "kind": "item",
+          "item": {
+            "id": "tool-2",
+            "turnId": "turn-2",
+            "role": "tool",
+            "type": "tool",
+            "state": "complete",
+            "content": {
+              "available": false
+            },
+            "input": {
+              "available": false
+            },
+            "result": {
+              "available": false
+            },
+            "name": "weather",
+            "provenance": "live"
+          }
+        }
+      ]
+    },
+    {
+      "sequence": 6,
+      "elapsedMs": 600,
+      "sourceSequence": 13,
+      "changes": [
+        {
+          "kind": "turn",
+          "turn": {
+            "id": "turn-2",
+            "status": "terminal",
+            "submission": "acknowledged",
+            "outcome": "cancelled"
+          }
+        }
+      ]
+    }
+  ],
+  "moments": [
+    {
+      "id": "message",
+      "eventIndex": 2,
+      "label": "Completed message",
+      "itemId": "message-1"
+    }
+  ]
+}

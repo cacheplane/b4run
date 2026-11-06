@@ -1,0 +1,78 @@
+---
+title: "Your first conversation"
+description: "Follow a request through a turn, tool activity, and a response."
+---
+
+# Your first conversation
+
+You already know how to give an agent a task. Let's follow what happens between your message and its answer. We'll start with your own project, then inspect a recorded conversation with Navlog. You can explore the recording without installing or running the example.
+
+## Start with a request you can check
+
+Choose your connected Codex or Claude Code agent and a project folder, then ask:
+
+> Explain what this project does and where its main entry point is. Do not change any files.
+
+The first message starts the conversation. The agent may read files before it answers. Follow that activity as it arrives, then check the answer against the project. A useful first result names the entry point and explains how it fits into the application.
+
+## Understand a turn
+
+A turn begins with your request. It includes the agent's work toward that request and ends when the runtime reports an outcome. One turn can contain several tool calls. A tool call might read a file, run a command, or ask a server for information.
+
+A tool result tells us what came back from that action. The final response explains the outcome to you. Read both when you need to understand how the agent reached its answer.
+
+## Respond when the agent needs you
+
+Some actions require a decision. Read the requested action before responding. The available choices depend on the runtime and its configured permissions. A waiting turn needs your response before it can continue.
+
+An approval allows the requested action; it does not prove that the action succeeded. Follow the subsequent result.
+
+## Ask a follow-up
+
+After the turn finishes, ask a narrower question in the same conversation:
+
+> Which file would I read next to understand how that entry point works?
+
+You are continuing a conversation with the same runtime. Starting a conversation with another provider does not transfer hidden context between providers.
+
+## Stop or recover
+
+Use the conversation's stop control when you want to interrupt active work. Wait for the reported outcome. If the runtime disconnects before confirming the result, the app may show an unknown outcome. Do not assume the request failed or resend it blindly. Follow the recovery action shown by the app.
+
+## Follow the same idea in Navlog
+
+Navlog is a B4 example that prepares a flight plan using tools and source material. A request leads to lookups, results, and a response, just as a coding task leads to file reads and an explanation. Its weather is time-dependent, and its local flight-plan recording is not a transmission to a filing service.
+
+Let's look at a smaller request first. In this recording, we ask Navlog to read its aircraft profile. It calls `readDoc`, checks for remembered preferences, and answers. We then ask a follow-up in the same conversation.
+
+<TurnInspector lesson="navlog-aircraft" />
+
+## Read the tool's arguments and result
+
+<InspectMoment lesson="navlog-aircraft" moment="read-profile">Inspect the first file read.</InspectMoment> The inspector selects the `readDoc` call at the point where its result arrived.
+
+Choose **Arguments**. The `path` value is `aircraft/c172n.md`: the file the agent asked the tool to read. Now choose **Result**. This is what the tool returned. We can compare the requested path with the returned contents before reading the agent's explanation.
+
+The **Tree** view makes the returned data easier to explore. Choose **Show full value** to read the complete file. This particular result arrived as a JSON string; the inspector labels the parsed view. **JSON** shows the original recorded value.
+
+There are two useful questions to ask here: did the tool receive the input we expected, and does its result support the answer?
+
+There is a useful detail here: the request names N738ZU, while the example's baseline file names N734ST. The agent reports that it found no remembered override. Reading the tool result lets us check that distinction ourselves.
+
+## Follow the next turn
+
+<InspectMoment lesson="navlog-aircraft" moment="read-again">Inspect the follow-up turn.</InspectMoment> We asked about reserve and alternate fuel, and asked the agent to read the profile again. The same tool reads the same file, but this is a separate call with its own arguments and result.
+
+Choose **Previous event** in the player. The result becomes unavailable because we moved to a point before it arrived. Choose **Next event** to bring it back. The recording lets us check what the app had observed at each step.
+
+<InspectMoment lesson="navlog-aircraft" moment="finished">Inspect the completed conversation.</InspectMoment> Read the final response alongside the file. The profile includes a reserve entry. Look for whether it also contains the alternate-fuel information the follow-up requested. A useful answer should distinguish what the source says from what it does not provide.
+
+You can select another message or tool to inspect it, or use **Play** to follow the recorded timing. The speed control changes playback speed; the elapsed time still describes the recording. On a narrow screen, use **Conversation** and **Details** to switch between the two panes.
+
+## Connect the example to its source
+
+If you build B4 agents, choose **Source** to read the example's `readDoc` tool and aircraft profile at the recorded revision. The source explains how the tool works. The replay shows what the app observed when it ran.
+
+This recording uses B4 beta 0.1.0. It reads example files; it does not fetch weather or file a flight plan.
+
+You can [run the B4 example](/docs/app/b4-agents) when you want to explore that path. To keep your conversations organized, continue with [manage your work](/docs/app/manage-work).

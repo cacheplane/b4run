@@ -12,6 +12,8 @@ import { DOCS_SEO_PAGES } from "../../seo/registry"
 import { API_REFERENCE_PAGES } from "./api-reference-pages"
 import {
   ALL_DOCS_PAGES,
+  APP_DOCS_NAV,
+  APP_DOCS_PAGES,
   breadcrumbsFor,
   DOCS_NAV,
   DOCS_PAGES,
@@ -448,7 +450,9 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     expect(DOCS_NAV.reduce((count, section) => count + section.items.length, 0)).toBe(
       DOCS_PAGES.length,
     )
-    expect(ALL_DOCS_PAGES).toHaveLength(DOCS_PAGES.length + API_REFERENCE_PAGES.length)
+    expect(ALL_DOCS_PAGES).toHaveLength(
+      DOCS_PAGES.length + APP_DOCS_PAGES.length + API_REFERENCE_PAGES.length,
+    )
 
     const hubIndex = ALL_DOCS_PAGES.findIndex(({ href }) => href === "/docs/api")
     const afterLeaves = hubIndex + 1 + API_REFERENCE_PAGES.length
@@ -467,20 +471,21 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
 
   it("derives breadcrumbs and siblings from the registered order", () => {
     expect(breadcrumbsFor("/docs/ag-ui")).toEqual([
-      { label: "Docs", href: "/docs/getting-started" },
+      { label: "Docs", href: "/docs" },
+      { label: "Framework", href: "/docs/getting-started" },
       { label: "Connect Clients" },
       { label: "AG-UI and Web Clients" },
     ])
     expect(breadcrumbsFor("/docs/tools")).toEqual([
-      { label: "Docs", href: "/docs/getting-started" },
+      { label: "Docs", href: "/docs" },
+      { label: "Framework", href: "/docs/getting-started" },
       { label: "Build" },
       { label: "Tools" },
     ])
     // The first page keeps the Docs crumb and does not link to itself.
     expect(breadcrumbsFor("/docs/getting-started")).toEqual([
-      { label: "Docs" },
-      { label: "Get Started" },
-      { label: "Getting Started" },
+      { label: "Docs", href: "/docs" },
+      { label: "Framework" },
     ])
     expect(siblingsFor("/docs/dev-server/agent-protocol").prev?.href).toBe("/docs/memory/browse")
     expect(siblingsFor("/docs/dev-server/agent-protocol").next?.href).toBe("/docs/ag-ui")
@@ -492,7 +497,8 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
   it("gives hidden API leaves a linked API hub and no journey siblings", () => {
     for (const leaf of API_REFERENCE_PAGES) {
       expect(breadcrumbsFor(leaf.href)).toEqual([
-        { label: "Docs", href: "/docs/getting-started" },
+        { label: "Docs", href: "/docs" },
+        { label: "Framework", href: "/docs/getting-started" },
         { label: "Reference" },
         { label: "API Reference", href: "/docs/api" },
         { label: leaf.label },
@@ -501,28 +507,21 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
     }
   })
 
-  it("uses a Docs / section / page trail with the current route as the final crumb for all 78 pages", () => {
-    const sectionLabels = new Set<string>(DOCS_NAV.map((section) => section.label))
+  it("identifies the audience and never links the current page to itself", () => {
+    const sections = new Set<string>([...DOCS_NAV, ...APP_DOCS_NAV].map((section) => section.label))
     for (const page of ALL_DOCS_PAGES) {
       const crumbs = breadcrumbsFor(page.href)
-      const finalCrumb = crumbs.at(-1)
-
-      expect(crumbs[0], `${page.href} Docs crumb`).toEqual(
-        page.href === "/docs/getting-started"
-          ? { label: "Docs" }
-          : { label: "Docs", href: "/docs/getting-started" },
-      )
-      expect(crumbs[1]?.href, `${page.href} section crumb`).toBeUndefined()
-      expect(sectionLabels.has(crumbs[1]?.label ?? ""), `${page.href} section crumb`).toBe(true)
-      expect(finalCrumb, `${page.href} final crumb`).toEqual({ label: page.label })
-      // Every ancestor except the section label is a real route.
-      expect(
-        crumbs.slice(2, -1).every((crumb) => typeof crumb.href === "string"),
-        `${page.href} linked ancestors`,
-      ).toBe(true)
+      expect(crumbs[0]).toEqual({ label: "Docs", href: "/docs" })
+      const app = page.href === "/docs/app" || page.href.startsWith("/docs/app/")
+      expect(crumbs[1]?.label).toBe(app ? "App" : "Framework")
+      const home = page.href === "/docs/app" || page.href === "/docs/getting-started"
+      if (!home) {
+        expect(sections.has(crumbs[2]?.label ?? "")).toBe(true)
+        expect(crumbs.at(-1)).toEqual({ label: page.label })
+      }
       const linked = crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))
       expect(new Set(linked).size).toBe(linked.length)
-      expect(crumbs.flatMap((crumb) => (crumb.href ? [crumb.href] : []))).not.toContain(page.href)
+      expect(linked).not.toContain(page.href)
     }
   })
 
@@ -531,14 +530,14 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       .split("\n")
       .filter((line) => /^\s*\{ label: .*href: "\/docs\//.test(line))
 
-    expect(itemLines).toHaveLength(DOCS_PAGES.length)
+    expect(itemLines).toHaveLength(DOCS_PAGES.length + APP_DOCS_PAGES.length)
     for (const line of itemLines) {
       expect(line).toMatch(/^\s*\{ label: "[^"]+", href: "\/docs\/[^"]+" \},\s*$/)
     }
   })
 
   it("matches authored content and wrappers to the exact exhaustive registry", () => {
-    const navHrefs = DOCS_PAGES.map((page) => page.href)
+    const navHrefs = [...DOCS_PAGES, ...APP_DOCS_PAGES].map((page) => page.href)
     const contentHrefs = filesUnder(CONTENT_ROOT, (file) => file.endsWith(".mdx"))
       .map(contentHref)
       .sort()
@@ -607,7 +606,7 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       const slug = item.href.replace(/^\/docs\//, "")
       const contentPath = join(
         CONTENT_ROOT,
-        slug === "recipes" ? "recipes/index.mdx" : `${slug}.mdx`,
+        slug === "recipes" || slug === "app" ? `${slug}/index.mdx` : `${slug}.mdx`,
       )
       const wrapperPath = join(WRAPPERS_ROOT, slug, "page.tsx")
       return {
@@ -634,7 +633,7 @@ describe("documentation registry invariants", { timeout: 30_000 }, () => {
       const wrapperPath = join(WRAPPERS_ROOT, slug, "page.tsx")
       const contentPath = join(
         CONTENT_ROOT,
-        slug === "recipes" ? "recipes/index.mdx" : `${slug}.mdx`,
+        slug === "recipes" || slug === "app" ? `${slug}/index.mdx` : `${slug}.mdx`,
       )
 
       expect(firstH1, `${item.href} first MDX H1`).toBe(item.label)

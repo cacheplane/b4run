@@ -1864,8 +1864,8 @@ function packageManifests() {
 
 function docHrefToContentPath(href) {
   const slug = href.replace(/^\/docs\/?/, "")
-  return slug === "recipes"
-    ? "apps/web/content/docs/recipes/index.mdx"
+  return slug === "recipes" || slug === "app"
+    ? `apps/web/content/docs/${slug}/index.mdx`
     : `apps/web/content/docs/${slug}.mdx`
 }
 
@@ -4132,13 +4132,14 @@ const expectedNavDocEntries = [
   { label: "FAQ", href: "/docs/faq" },
 ]
 
-if (/\bhref:\s*"\/docs"/.test(docsNav)) {
-  failures.push("DOCS_NAV must omit the redirect-only /docs route")
-}
 if (!/export const DOCS_PAGES[^=]*=\s*DOCS_NAV\.flatMap\(/s.test(docsNav)) {
   failures.push("DOCS_PAGES must derive its reading order directly from DOCS_NAV")
 }
-if (!/export const ALL_DOCS_PAGES[^=]*=\s*DOCS_PAGES\.flatMap\(/s.test(docsNav)) {
+if (
+  !/export const ALL_DOCS_PAGES[^=]*=\s*\[\s*\.\.\.DOCS_PAGES,\s*\.\.\.APP_DOCS_PAGES,?\s*\]\.flatMap\(/s.test(
+    docsNav,
+  )
+) {
   failures.push("ALL_DOCS_PAGES must derive from DOCS_PAGES and insert hidden reference leaves")
 }
 if (
@@ -4149,24 +4150,27 @@ if (
   failures.push("ALL_DOCS_PAGES must insert API_REFERENCE_PAGES immediately after /docs/api")
 }
 
-if (navDocEntries.length !== expectedNavDocEntries.length) {
+const frameworkNavDocEntries = navDocEntries.filter(
+  ({ href }) => href !== "/docs/app" && !href.startsWith("/docs/app/"),
+)
+if (frameworkNavDocEntries.length !== expectedNavDocEntries.length) {
   failures.push(
-    `DOCS_NAV registry has ${navDocEntries.length} rows; expected exactly ${expectedNavDocEntries.length}`,
+    `DOCS_NAV registry has ${frameworkNavDocEntries.length} rows; expected exactly ${expectedNavDocEntries.length}`,
   )
 }
 
 const firstNavRegistryMismatch = Array.from(
-  { length: Math.max(navDocEntries.length, expectedNavDocEntries.length) },
+  { length: Math.max(frameworkNavDocEntries.length, expectedNavDocEntries.length) },
   (_, index) => index,
 ).find((index) => {
-  const actual = navDocEntries[index]
+  const actual = frameworkNavDocEntries[index]
   const expected = expectedNavDocEntries[index]
   return actual?.label !== expected?.label || actual?.href !== expected?.href
 })
 
 if (firstNavRegistryMismatch !== undefined) {
   failures.push(
-    `DOCS_NAV registry row ${firstNavRegistryMismatch + 1} mismatch: expected ${JSON.stringify(expectedNavDocEntries[firstNavRegistryMismatch] ?? null)}, received ${JSON.stringify(navDocEntries[firstNavRegistryMismatch] ?? null)}`,
+    `DOCS_NAV registry row ${firstNavRegistryMismatch + 1} mismatch: expected ${JSON.stringify(expectedNavDocEntries[firstNavRegistryMismatch] ?? null)}, received ${JSON.stringify(frameworkNavDocEntries[firstNavRegistryMismatch] ?? null)}`,
   )
 }
 

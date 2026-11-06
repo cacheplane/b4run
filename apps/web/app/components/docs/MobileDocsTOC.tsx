@@ -1,7 +1,6 @@
 "use client"
 
 import { useRef } from "react"
-import { Eyebrow } from "../ui/Eyebrow"
 import { useDocsHeadings } from "./use-docs-headings"
 
 /**
@@ -21,7 +20,7 @@ export function MobileDocsTOC() {
       className="group lg:hidden mb-6 border border-rule text-sm"
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3 text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">
-        <Eyebrow as="span">On this page</Eyebrow>
+        <span className="font-semibold text-ink-muted">On this page</span>
         <span aria-hidden className="text-xs transition-transform group-open:rotate-90">
           ›
         </span>

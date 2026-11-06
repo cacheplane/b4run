@@ -132,9 +132,9 @@ function pageHtml(jsonLd: unknown): string {
 }
 
 function exactRobots(): string {
-  return `${APPROVED_AGENTS.map((agent) => `User-Agent: ${agent}\nAllow: /\nDisallow: /api/`).join(
-    "\n\n",
-  )}
+  return `${APPROVED_AGENTS.map(
+    (agent) => `User-Agent: ${agent}\nAllow: /\nDisallow: /api/\nDisallow: /ingest/`,
+  ).join("\n\n")}
 
 Host: https://b4.run
 Sitemap: https://b4.run/sitemap.xml
@@ -226,7 +226,7 @@ describe("built SEO audit parsing", () => {
     ).toThrow("robots user-agent groups do not exactly match the approved order")
     expect(() =>
       assertExactRobots(exactRobots().replace("Disallow: /api/", "Disallow: /")),
-    ).toThrow("robots group * must contain exactly Allow: / and Disallow: /api/")
+    ).toThrow("robots group * must contain exactly Allow: / and Disallow: /api/, /ingest/")
     expect(() =>
       assertExactRobots(
         exactRobots().replace(

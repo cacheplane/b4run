@@ -1,6 +1,8 @@
+import { type DocsArea, docsArea } from "./doc-sections"
 import type { DocsSearchEntry, DocsSearchHeading } from "./search-index"
 
 export interface DocsSearchResult {
+  readonly area?: DocsArea
   readonly href: string
   readonly title: string
   readonly section: string
@@ -37,6 +39,7 @@ export function flattenDocsSearchIndex(
     const bodies = new Map((entry.sections ?? []).map((section) => [section.anchor, section]))
     const intro = bodies.get(null)
     results.push({
+      area: entry.area ?? docsArea(entry.href) ?? "framework",
       href: entry.href,
       title: entry.title,
       section: entry.section,
@@ -51,6 +54,7 @@ export function flattenDocsSearchIndex(
       if (heading.level === 1) continue
       const body = bodies.get(heading.anchor)
       results.push({
+        area: entry.area ?? docsArea(entry.href) ?? "framework",
         href: `${entry.href}#${heading.anchor}`,
         title: entry.title,
         section: entry.section,
@@ -278,4 +282,14 @@ export function filterDocsSearchResults(
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .slice(0, 20)
     .map(({ result, match }) => (match ? { ...result, match } : result))
+}
+
+/** Apply audience scope before ranking and limiting results. */
+export function resultsForArea(
+  results: readonly DocsSearchResult[],
+  area: DocsArea | "all",
+): readonly DocsSearchResult[] {
+  return area === "all"
+    ? results
+    : results.filter((result) => (result.area ?? docsArea(result.href)) === area)
 }

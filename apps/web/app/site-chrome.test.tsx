@@ -44,7 +44,7 @@ describe("site footer", () => {
   })
 
   it("is hidden by CSS only where the docs layout renders its marker", () => {
-    expect(read("docs/layout.tsx")).toMatch(/<div data-docs-layout>/)
+    expect(read("docs/layout.tsx")).toMatch(/<div data-docs-layout(?:\s[^>]*)?>/)
     expect(read("styles/base.css")).toMatch(
       /body:has\(\[data-docs-layout\]\) \[data-site-footer\] \{\s*display: none;/,
     )

@@ -1,0 +1,16 @@
+# Demo aircraft: N734ST
+
+The aircraft this planner assumes when the pilot has not said otherwise. What the pilot says in
+the request wins; then what this pilot asked the planner to remember; then this file.
+
+| Item | Value | Source |
+|---|---|---|
+| Tail number | N734ST | Demo aircraft |
+| Type | Cessna 172N (1978) | Demo aircraft |
+| Tanks | Long range | Demo aircraft |
+| Usable fuel | 50 US gal | [poh/weights-and-fuel.md] (standard tanks: 40 US gal) |
+| Cruise power | 2400 RPM | Demo aircraft |
+| Start, taxi and takeoff | 1.1 US gal | [poh/time-fuel-distance-to-climb.md, Figure 5-6] |
+| Reserve | 45 min at planned cruise burn | [regs/vfr-fuel-reserves.md] |
+
+"Full tanks" means all usable fuel. A pilot who says "standard tanks" has 40 US gal usable.
