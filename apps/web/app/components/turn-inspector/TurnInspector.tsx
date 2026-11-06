@@ -1,5 +1,5 @@
 "use client"
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { Capture } from "../../../lib/turn-inspector/capture-types"
 import type { LessonSource } from "../../../lib/turn-inspector/lesson-types"
 import {
@@ -39,6 +39,15 @@ export function TurnInspector({
   const [announcement, setAnnouncement] = useState("")
   const [follow, setFollow] = useState(true)
   const conversation = useRef<HTMLDivElement>(null)
+  const details = useRef<HTMLElement>(null)
+  const focusDetails = useRef(false)
+  useLayoutEffect(() => {
+    if (!focusDetails.current) return
+    focusDetails.current = false
+    // Use the applied container-query style, not the viewport width.
+    if (conversation.current && getComputedStyle(conversation.current).display === "none")
+      details.current?.querySelector<HTMLButtonElement>("button")?.focus()
+  })
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)")
     if (!media) return
@@ -88,6 +97,10 @@ export function TurnInspector({
     if (moment) selectMoment(moment.id)
   }, [moment, selectMoment])
   const state = useMemo(() => stateAt(capture, playback.index), [capture, playback.index])
+  const currentMoment = [...capture.moments].reverse().find((m) => m.eventIndex <= playback.index)
+  const momentHash = currentMoment
+    ? `#inspect/${encodeURIComponent(capture.id)}/${encodeURIComponent(currentMoment.id)}`
+    : ""
   useEffect(() => {
     const el = conversation.current
     if (el && follow && playback.playing && playback.index >= 0) el.scrollTop = el.scrollHeight
@@ -125,14 +138,14 @@ export function TurnInspector({
           </fieldset>
         )}
         {openHref && (
-          <a className={styles.openLink} href={openHref}>
+          <a className={styles.openLink} href={`${openHref}${momentHash}`}>
             Open inspector ↗
           </a>
         )}
       </header>
 
       {mode === "source" ? (
-        <SourcePane sources={sources} moment={moment?.id} />
+        <SourcePane sources={sources} moment={currentMoment?.id} />
       ) : (
         <>
           <div className={styles.toolbar}>
@@ -187,6 +200,7 @@ export function TurnInspector({
                 turnId={playback.selectedTurnId}
                 selectedId={playback.selectedItemId}
                 onSelect={(itemId) => {
+                  focusDetails.current = true
                   dispatch({ type: "selectActivity", id: itemId })
                   setPane("details")
                 }}
@@ -205,6 +219,7 @@ export function TurnInspector({
               )}
             </div>
             <aside
+              ref={details}
               className={styles.details}
               data-visible={pane === "details"}
               aria-label="Activity details"

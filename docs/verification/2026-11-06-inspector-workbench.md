@@ -14,3 +14,9 @@ Implemented the approved Hashbrown-style workbench using B4 semantic colors, Han
 ## Scope
 
 Published capture artifacts and source revisions are unchanged. JSON string parsing is explicitly labeled as derived; Event exposes the normalized observed item. No new inference, account, service, dependency, upload or deployment. Full repository CI was not rerun for this presentation change; the earlier capture matrix retains its unrelated sandbox timeout limitations. Reduced-motion behavior was checked by automated tests, not by changing the owner's OS preference.
+
+## Pre-merge review
+
+Focused review corrected stale source highlights and full-page links after selecting a player moment, added focus transfer when a narrow layout hides the selected conversation control, and extended structured-credential screening. Each regression failed before its fix. Final inspector checks passed: 45 tests across 12 files, website typecheck, scoped formatting/lint and whitespace checks.
+
+The final full local validation attempt passed release integrity, lint, all build tasks and 59 typecheck/build prerequisites. Its unrestricted source-test phase saturated the host (load above 300) and was stopped. PR CI must supply the remaining full source, package and harness results; no gate or timeout was weakened.

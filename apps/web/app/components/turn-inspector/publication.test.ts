@@ -65,3 +65,19 @@ test("rejects synthetic captures and unreviewed manifests", () => {
   manifest.lesson.digest = sha(bytes)
   expect(() => publish(manifest, dir, join(dir, "out"))).toThrow(/Synthetic/)
 })
+
+test.each(["token", "id_token"])("rejects structured %s credentials before publication", (key) => {
+  const { dir, manifest, sha } = setup()
+  const capture = JSON.parse(readFileSync(join(dir, "capture.json"), "utf8"))
+  capture.initial.notices.push({
+    code: "credential",
+    text: "Observed data",
+    [key]: "private-value",
+  })
+  const bytes = JSON.stringify(capture)
+  writeFileSync(join(dir, "capture.json"), bytes)
+  manifest.lesson.digest = sha(bytes)
+  const output = join(dir, "out")
+  expect(() => publish(manifest, dir, output, false)).toThrow(/structured secret/)
+  expect(() => readFileSync(join(output, `${manifest.lesson.digest}.json`))).toThrow()
+})

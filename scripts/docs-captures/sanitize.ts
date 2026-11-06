@@ -14,7 +14,7 @@ export function assertSafeValues(value: unknown): void {
   else if (value && typeof value === "object")
     for (const [key, child] of Object.entries(value)) {
       if (
-        /^(?:authorization|grant|api[_-]?key|access_token|refresh_token|password|secret)$/i.test(
+        /^(?:authorization|grant|api[_-]?key|token|id_token|access_token|refresh_token|password|secret)$/i.test(
           key,
         ) &&
         child !== "[redacted]"
