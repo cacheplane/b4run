@@ -269,7 +269,8 @@ async function prepareRuleIntents(
 ): Promise<readonly PreparedRuleBatch[]> {
   const run = snapshot.runs.find((row) => row.run.run_id === runId),
     thread = snapshot.thread
-  if (!run || !thread) throw new ProtocolError("not_found")
+  if (!run?.run.agent_id || !thread) throw new ProtocolError("not_found")
+  await options.authorizeAgent(request, run.run.agent_id)
   for (const item of snapshot.pending.filter((item) => item.disposition === "pending")) {
     if (!item.proposal?.agentId) throw new ProtocolError("approval_changed")
     await options.authorizeAgent(request, item.proposal.agentId)

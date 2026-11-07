@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { wrapToolWithConstraint } from "@b4run/core"
 import { createPermissionsStore } from "@b4run/permissions/node"
@@ -28,6 +28,7 @@ async function setup(
     rules?: boolean
     constraint?: boolean
     agentId?: string
+    onRuleResolve?: () => void
   } = {},
 ) {
   const f = await fixtures.create()
@@ -37,9 +38,18 @@ async function setup(
     config: undefined,
     mode: "interactive",
   })
+  let ruleResolutions = 0
   const serviceOptions = {
     ...f.authority,
-    ...(options.rules ? { resolvePermissions: async () => rules } : {}),
+    ...(options.rules
+      ? {
+          resolvePermissions: async () => {
+            ruleResolutions++
+            options.onRuleResolve?.()
+            return rules
+          },
+        }
+      : {}),
   }
   const proposals: PermissionProposal[] = Array.from({ length: count }, (_, i) => ({
     interruptId: `prompt-${i}`,
@@ -142,6 +152,7 @@ async function setup(
     command,
     service,
     rules: () => rules,
+    ruleResolutionCount: () => ruleResolutions,
     ruleDomain(appRoot = f.directory) {
       rules = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     },
@@ -605,16 +616,92 @@ it("rolls back durable rule intents with a failed acceptance and reconciles a lo
   await f.host.idle()
   expect(f.effects()).toBe(1)
 })
-it("groups a full nested Always batch in one original configured rule domain", async () => {
-  const f = await setup(2, { rules: true })
-  const result = await f.respond(
-    f.command(
-      f.answers.map((answer) => ({
-        ...answer,
-        response: { ...answer.response, decision: "always" },
-      })),
+it("authorizes the original root before any external nested Always preparation", async () => {
+  const f = await setup(2, { rules: true, agentId: "/other#agent" })
+  const path = join(f.f.directory, ".b4", "permissions.json")
+  const gitignore = join(f.f.directory, ".gitignore")
+  expect(existsSync(path)).toBe(false)
+  expect(existsSync(gitignore)).toBe(false)
+  f.f.removeAgent("/chat#agent")
+  await expect(
+    f.respond(
+      f.command(
+        f.answers.map((answer) => ({
+          ...answer,
+          response: { ...answer.response, decision: "always" },
+        })),
+      ),
     ),
+  ).rejects.toMatchObject({ code: "not_found" })
+  const snapshot = await f.f.snapshot(f.accepted.threadId)
+  expect({
+    resolutions: f.ruleResolutionCount(),
+    ruleFile: existsSync(path),
+    gitignore: existsSync(gitignore),
+  }).toEqual({ resolutions: 0, ruleFile: false, gitignore: false })
+  expect(snapshot.grants).toEqual(f.paused.grants)
+  expect(snapshot.pending).toEqual(f.paused.pending)
+  expect(snapshot.runs).toHaveLength(1)
+  expect(snapshot.receipts).toHaveLength(1)
+  expect(snapshot.inbox.some((row) => row.kind === "rule_intent")).toBe(false)
+  await f.host.tick()
+  await f.host.idle()
+  expect(f.effects()).toBe(0)
+})
+for (const agentId of ["/chat#agent", "/other#agent"]) {
+  it(`rechecks ${agentId} inside acceptance after authorized rule preparation`, async () => {
+    let revoke = () => {}
+    const f = await setup(2, {
+      rules: true,
+      agentId: "/other#agent",
+      onRuleResolve: () => revoke(),
+    })
+    revoke = () => f.f.removeAgent(agentId)
+    await expect(
+      f.respond(
+        f.command(
+          f.answers.map((answer) => ({
+            ...answer,
+            response: { ...answer.response, decision: "always" },
+          })),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(f.ruleResolutionCount()).toBeGreaterThan(0)
+    const snapshot = await f.f.snapshot(f.accepted.threadId)
+    expect(snapshot.grants).toEqual(f.paused.grants)
+    expect(snapshot.pending).toEqual(f.paused.pending)
+    expect(snapshot.runs).toHaveLength(1)
+    expect(snapshot.receipts).toHaveLength(1)
+    await f.host.tick()
+    await f.host.idle()
+    expect(f.effects()).toBe(0)
+  })
+}
+it("groups a full nested Always batch in one original configured rule domain", async () => {
+  const f = await setup(2, { rules: true, agentId: "/other#agent" })
+  const command = f.command(
+    f.answers.map((answer) => ({
+      ...answer,
+      response: { ...answer.response, decision: "always" },
+    })),
   )
+  const result = await f.respond(command)
+  let retryResolutions = 0
+  const retry = createPermissionService({
+    ...f.f.authority,
+    grants: "required",
+    resolvePermissions: async () => {
+      retryResolutions++
+      throw new Error("Exact retry must reconcile before preparation")
+    },
+  })
+  const replay = await f.f.trackWork("permission-retry", () =>
+    retry.respond(f.f.request(), f.accepted.threadId, f.accepted.runId, command),
+  )
+  expect(replay.runId).toBe(result.runId)
+  expect(replay.responseMeta.b4.receipt.replayed).toBe(true)
+  expect(retryResolutions).toBe(0)
   const snapshot = await f.f.snapshot(f.accepted.threadId)
   expect(
     snapshot.inbox.filter((entry) => entry.kind === "rule_intent" && entry.runId === result.runId),
