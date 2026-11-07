@@ -117,9 +117,9 @@
       "recordDigest": "ed335a186f36d246daff928e95c194150092f40122f7eaf3724a3929cc65f5b9"
     },
     "/docs/api/sdk": {
-      "lastModified": "2026-11-06T23:05:37.000Z",
-      "sourceDigest": "580b887dd5eaf61946007853803e287635115ccb91955586ec8b0b813e651307",
-      "recordDigest": "11685642ede392a478448ec42a54f0c12d2d4bc70f4b0567a4b531e7a8217871"
+      "lastModified": "2026-11-07T00:55:51.000Z",
+      "sourceDigest": "2a819af0a770a1170f9d9bbed73f2924ccfedf7c36ae979a179af580184e83c6",
+      "recordDigest": "c453eea1950d665be386cf8ab17027091b1c00b24ecf64e6e758b0edfe9fdeb8"
     },
     "/docs/api/sqlite-storage": {
       "lastModified": "2026-11-06T23:05:37.000Z",
