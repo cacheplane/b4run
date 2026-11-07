@@ -749,11 +749,16 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       const finishRetainedControl = async (
         fresh: NonNullable<Awaited<ReturnType<typeof findRun>>>,
       ) => {
+        if (fresh.subject?.thread?.thread_id !== threadId) throw new ProtocolError("not_found")
+        // Minimal committed discovery must authorize the explicit full payload
+        // capability. Actual stored facts and current policy are checked again.
+        await authorizeFacts(fresh.agentId, fresh.authority, fresh.subject, true)
         const retained = await registration.temporary?.readRun(runId)
         if (
           !retained ||
           retained.scope.threadId !== threadId ||
           retained.scope.generation !== candidate.scope.generation ||
+          retained.subject?.thread?.thread_id !== threadId ||
           retained.record.run.run_id !== runId ||
           retained.record.run.agent_id !== fresh.agentId
         )

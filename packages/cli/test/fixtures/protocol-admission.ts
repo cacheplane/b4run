@@ -290,6 +290,57 @@ export async function fixture(
           [threadId],
         )
       },
+      async corruptRetainedControlFacts(
+        threadId: string,
+        generation: string,
+        runId: string,
+        kind: "subject-id" | "subject-provenance" | "root" | "lineage",
+        value: string,
+      ) {
+        const isSubject = kind === "subject-id" || kind === "subject-provenance",
+          table = isSubject ? "retained_subjects" : "retained_runs",
+          keys = isSubject ? [threadId, generation] : [threadId, generation, runId]
+        const change = (payload: string) => {
+          const row = JSON.parse(payload)
+          if (kind === "subject-id") row.thread.thread_id = value
+          else if (kind === "subject-provenance")
+            row.protectedMetadata.provenance = {
+              ...row.protectedMetadata.provenance,
+              sourceThreadId: value,
+            }
+          else if (kind === "root") row.run.agent_id = value
+          else row.metadata.previousRunId = value
+          return JSON.stringify(row)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_${table}`,
+            where = `thread_id=$1 AND generation=$2${isSubject ? "" : " AND id=$3"}`,
+            rows = await postgres.first.query(`SELECT payload FROM ${name} WHERE ${where}`, keys)
+          if (rows.rows.length !== 1)
+            throw new Error("Missing exact retained control fixture facts")
+          const updated = await postgres.first.query(
+            `UPDATE ${name} SET payload=$${keys.length + 1} WHERE ${where}`,
+            [...keys, change(rows.rows[0].payload)],
+          )
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const where = `thread_id=? AND generation=?${isSubject ? "" : " AND id=?"}`,
+            row = db.prepare(`SELECT payload FROM ${table} WHERE ${where}`).get(...keys)
+          if (!row) throw new Error("Missing exact retained control fixture facts")
+          expect(
+            db
+              .prepare(`UPDATE ${table} SET payload=? WHERE ${where}`)
+              .run(change(String(row.payload)), ...keys).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
       async corruptRetainedPermissionAgents(
         threadId: string,
         generation: string,

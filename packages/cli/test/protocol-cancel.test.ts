@@ -9,6 +9,158 @@ import { body, fixture } from "./fixtures/protocol-admission.ts"
 // Choose this integration budget before the first execution; old cases stay unchanged.
 const budget = 30_000
 const cleanups: (() => Promise<void>)[] = []
+it.each(["root", "child", "thread"] as const)(
+  "authorizes denied retained %s before the explicit full Run/result read",
+  async (authority) => {
+    const s = await retainedChild()
+    if (authority === "thread") s.f.deny()
+    else s.f.removeAgent(authority === "root" ? "/chat#agent" : "/other#agent")
+    const audit = auditedRetainedControl(s.f)
+    const before = await s.f.native.scopeRecord(s.accepted.threadId)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(audit.events).not.toContain("retained_payload_read")
+    expect(audit.events).not.toContain("native_bind")
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(before)
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
+it.each(["minimal", "full"] as const)(
+  "rejects a corrupt retained %s subject ID at its own read boundary",
+  async (phase) => {
+    const s = await retainedChild()
+    const corrupt = () =>
+      s.f.native.corruptRetainedControlFacts(
+        s.accepted.threadId,
+        s.generation,
+        s.resumed.runId,
+        "subject-id",
+        crypto.randomUUID(),
+      )
+    if (phase === "minimal") await corrupt()
+    const audit = auditedRetainedControl(s.f, phase === "full" ? corrupt : undefined)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    if (phase === "minimal") expect(audit.events).not.toContain("retained_payload_read")
+    else expect(audit.events.filter((e) => e === "retained_payload_read")).toHaveLength(1)
+    expect(audit.events).not.toContain("native_bind")
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
+it(
+  "gates the full retained payload and then reauthorizes the actual stored facts",
+  async () => {
+    const s = await retainedChild(),
+      audit = auditedRetainedControl(s.f)
+    const before = await s.f.native.scopeRecord(s.accepted.threadId)
+    await audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, {
+      wait: true,
+    })
+    expect(audit.events).toEqual([
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "thread_gate",
+      "retained_payload_read",
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "thread_gate",
+    ])
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(before)
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
+it.each([
+  ["before-read", "root"],
+  ["before-read", "child"],
+  ["before-read", "thread"],
+  ["after-read", "root"],
+  ["after-read", "child"],
+  ["after-read", "thread"],
+] as const)(
+  "reauthorizes retained authority %s when %s is revoked",
+  async (phase, authority) => {
+    const s = await retainedChild()
+    const revoke = async () => {
+      if (authority === "thread") s.f.deny()
+      else s.f.removeAgent(authority === "root" ? "/chat#agent" : "/other#agent")
+    }
+    const audit = auditedRetainedControl(
+      s.f,
+      phase === "before-read" ? revoke : undefined,
+      phase === "after-read" ? revoke : undefined,
+    )
+    const before = await s.f.native.scopeRecord(s.accepted.threadId)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(audit.events.slice(0, 4)).toEqual([
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "thread_gate",
+      "retained_payload_read",
+    ])
+    const second =
+      authority === "root"
+        ? ["authorize:/chat#agent"]
+        : authority === "child"
+          ? ["authorize:/chat#agent", "authorize:/other#agent"]
+          : ["authorize:/chat#agent", "authorize:/other#agent", "thread_gate"]
+    expect(audit.events.slice(4)).toEqual(second)
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(before)
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
+it.each(["map", "provenance", "root", "lineage"] as const)(
+  "rejects actual retained %s facts changed after minimal authorization",
+  async (kind) => {
+    const s = await retainedChild(),
+      blockedOrigin = crypto.randomUUID()
+    s.f.revokeOrigin(blockedOrigin)
+    const change = async () => {
+      if (kind === "map")
+        await s.f.native.corruptRetainedPermissionAgents(
+          s.accepted.threadId,
+          s.generation,
+          s.resumed.runId,
+          undefined,
+        )
+      else
+        await s.f.native.corruptRetainedControlFacts(
+          s.accepted.threadId,
+          s.generation,
+          s.resumed.runId,
+          kind === "provenance" ? "subject-provenance" : kind,
+          kind === "provenance"
+            ? blockedOrigin
+            : kind === "root"
+              ? "/changed#agent"
+              : s.resumed.runId,
+        )
+    }
+    const audit = auditedRetainedControl(s.f, change)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true }),
+    ).rejects.toMatchObject({
+      code: kind === "root" || kind === "provenance" ? "not_found" : "storage_unavailable",
+    })
+    expect(audit.events.slice(0, 4)).toEqual([
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "thread_gate",
+      "retained_payload_read",
+    ])
+    expect(audit.events.filter((e) => e === "retained_payload_read")).toHaveLength(1)
+    expect(audit.events).not.toContain("native_bind")
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
 it.each(["allowed", "revoked"] as const)(
   "checks canonical child authority before exact control binding when child is %s",
   async (authority) => {
@@ -249,7 +401,20 @@ it.each(["allowed", "revoked"] as const)(
       "completed",
     )
     const afterCleanup = await s.f.native.scopeRecord(s.accepted.threadId),
-      bindsBeforeRelease = audit.events.filter((e) => e === "native_bind").length
+      bindsBeforeRelease = audit.events.filter((e) => e === "native_bind").length,
+      temporary = backend.temporary
+    if (!temporary) throw new Error("Missing actual retained capability")
+    const read = temporary.readRun
+    let payloadReads = 0
+    Object.assign(temporary, {
+      readRun(...args: Parameters<typeof read>) {
+        payloadReads++
+        return read(...args)
+      },
+    })
+    cleanups.push(async () => {
+      Object.assign(temporary, { readRun: read })
+    })
     if (authority === "revoked") s.f.removeAgent("/other#agent")
     release.release()
     const result = await waiting
@@ -257,6 +422,7 @@ it.each(["allowed", "revoked"] as const)(
       expect(result).toMatchObject({ ok: false, error: { code: "not_found" } })
     else expect(result).toEqual({ ok: true })
     expect(audit.events.filter((e) => e === "native_bind")).toHaveLength(bindsBeforeRelease + 1)
+    expect(payloadReads).toBe(authority === "revoked" ? 0 : 1)
     expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(afterCleanup)
     expect(s.invocations()).toBe(3)
   },
@@ -997,4 +1163,54 @@ function auditedControl(
     async () => restore(),
   )
   return { controller, events, restore }
+}
+
+async function retainedChild() {
+  const s = await continuedChild()
+  await s.host.tick()
+  await s.host.idle()
+  const generation = (await s.f.snapshot(s.accepted.threadId)).scope.generation
+  await s.f.admit(
+    body({
+      thread_id: s.accepted.threadId,
+      on_completion: "delete",
+      metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+    }),
+  )
+  await s.host.tick()
+  await s.host.idle()
+  expect(
+    await runtimeStorageRegistration(s.f.storage).readThread(s.accepted.threadId),
+  ).toBeUndefined()
+  return { ...s, generation }
+}
+function auditedRetainedControl(
+  f: Awaited<ReturnType<typeof fixture>>,
+  beforeRead?: () => Promise<void>,
+  afterRead?: () => Promise<void>,
+) {
+  const policy = f.authority.policy
+  const audit = auditedControl(f, undefined, {
+    ...policy,
+    async fallback(request) {
+      if (request.operation === "run.cancel") audit.events.push("thread_gate")
+      return policy.fallback(request)
+    },
+  })
+  const temporary = runtimeStorageRegistration(f.storage).temporary
+  if (!temporary) throw new Error("Missing actual native retained capability")
+  const read = temporary.readRun
+  Object.assign(temporary, {
+    async readRun(...args: Parameters<typeof read>) {
+      audit.events.push("retained_payload_read")
+      await beforeRead?.()
+      const value = await read(...args)
+      await afterRead?.()
+      return value
+    },
+  })
+  cleanups.push(async () => {
+    Object.assign(temporary, { readRun: read })
+  })
+  return audit
 }
