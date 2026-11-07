@@ -245,7 +245,13 @@ execution hooks fail execution readiness closed. `RuntimeRunRecord.execution`
 retains private owner/fence identity and is excluded from public Run metadata.
 `RuntimePendingRecord.proposal` holds optional private server-derived proposal
 and rule facts; actionable permission acceptance requires them. They are excluded
-from `PendingInput` projection. `RuntimeTransaction.grants.consume()` keeps expiry
+from `PendingInput` projection. `RuntimeTransaction.pending.get()` takes the full
+private identity: `ownerRunId`, `pausedGeneration`, `namespace`, `inputId`, and
+`proposalHash`. It never looks up a bare public interrupt ID. Distinct namespaces
+and historical pauses retain separate pending and grant records. Native backends
+use a bounded private hash key while preserving and comparing the full identity;
+`RuntimeGrantRecord.inputId` remains the public interrupt ID.
+`RuntimeTransaction.grants.consume()` keeps expiry
 checks by default; its optional `"deny"` third argument permits only authenticated
 negative abandonment after expiry, retaining every current pause/proposal/owner
 predicate. These contracts do not activate the server bindings or certify an execution host.

@@ -274,7 +274,16 @@ export interface RuntimeTransaction {
     delete(runId: string): Promise<void>
   }
   readonly checkpoints: RuntimeRecords<RuntimeCheckpointRecord>
-  readonly pending: RuntimeRecords<RuntimePendingRecord>
+  readonly pending: Omit<RuntimeRecords<RuntimePendingRecord>, "get"> & {
+    /** Exact private record identity, never a bare public interruptId. Historical
+     * pauses and different namespaces retain independent pending records. */
+    get(
+      identity: Pick<
+        RuntimeGrantRecord,
+        "ownerRunId" | "pausedGeneration" | "namespace" | "inputId" | "proposalHash"
+      >,
+    ): Promise<RuntimePendingRecord | undefined>
+  }
   readonly grants: RuntimeRecords<RuntimeGrantRecord> & {
     /** Conditional unconsumed -> consumed transition. False never mutates a row.
      * Validate exact pause/proposal/namespace/expiry before the transition. */

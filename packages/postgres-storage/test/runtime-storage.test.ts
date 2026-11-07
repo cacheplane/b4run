@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { assertPendingGrantIdentities } from "../../../test/agent-protocol/runtime-pending-identities.ts"
 import { bound, ids, realBackend, runtime, sharedContract } from "./fixtures/runtime-backend.ts"
 
 describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime conformance", () => {
@@ -447,6 +448,44 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       expect(
         (await backend.second.query(`SELECT through_seq FROM ${table}_projections`)).rows,
       ).toEqual([{ through_seq: "1" }])
+    } finally {
+      await fixture.close()
+    }
+  })
+  it("rejects a pending identity whose canonical owner belongs to another scope", async () => {
+    const fixture = await bound(backend)
+    const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+    const { run } = await import("./fixtures/runtime-data.ts")
+    try {
+      await fixture.store.transaction((tx) => tx.runs.put(run))
+      const other = await bindRuntimeStore(
+        fixture.owner,
+        createRuntimeBinding(fixture.owner, {
+          threadId: crypto.randomUUID(),
+          generation: crypto.randomUUID(),
+          fence: 1,
+        }),
+      )
+      await expect(
+        other.transaction((tx) =>
+          tx.pending.get({
+            ownerRunId: run.run.run_id,
+            pausedGeneration: "pause",
+            namespace: [],
+            inputId: "public-input",
+            proposalHash: "proposal",
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "scope_mismatch" })
+    } finally {
+      await fixture.close()
+    }
+  })
+  it("keeps exact compound pending identities and immutable historical grants", async () => {
+    const fixture = await bound(backend)
+    const { run, thread } = await import("./fixtures/runtime-data.ts")
+    try {
+      await assertPendingGrantIdentities(fixture.store, run, thread)
     } finally {
       await fixture.close()
     }

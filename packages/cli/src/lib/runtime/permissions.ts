@@ -92,7 +92,7 @@ export async function parkPermissions(
     row.metadata.phase !== "running" ||
     row.execution?.fence !== tx.scope.fence ||
     proposals.length === 0 ||
-    new Set(proposals.map((entry) => entry.interruptId)).size !== proposals.length
+    new Set(proposals.map(key)).size !== proposals.length
   )
     throw new ProtocolError("stale_generation")
   const pausedGeneration = crypto.randomUUID(),

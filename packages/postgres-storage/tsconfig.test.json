@@ -10,6 +10,7 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
-    "../../test/agent-protocol/runtime-storage-contract.ts"
+    "../../test/agent-protocol/runtime-storage-contract.ts",
+    "../../test/agent-protocol/runtime-pending-identities.ts"
   ]
 }

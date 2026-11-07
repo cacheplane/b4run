@@ -2,24 +2,22 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import { join } from "node:path"
 import { wrapToolWithConstraint } from "@b4run/core"
 import { createPermissionsStore } from "@b4run/permissions/node"
-import { afterEach, expect, it } from "vitest"
+import { expect, it } from "vitest"
 import { createExecutionHost } from "../src/lib/runtime/executor.ts"
 import {
   createPermissionService,
   type PermissionProposal,
   parkPermissions,
 } from "../src/lib/runtime/permissions.ts"
-import { fixture } from "./fixtures/protocol-admission.ts"
+import { sharedPermissionFixtures } from "./fixtures/protocol-admission.ts"
 
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Missing required test fixture value")
   return value
 }
 
-const cleanups: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const close of cleanups.splice(0).reverse()) await close()
-})
+const fixtures = sharedPermissionFixtures()
+
 async function setup(
   count = 2,
   options: {
@@ -32,8 +30,7 @@ async function setup(
     agentId?: string
   } = {},
 ) {
-  const f = await fixture()
-  cleanups.push(() => f.close())
+  const f = await fixtures.create()
   const accepted = await f.admit()
   let rules = createPermissionsStore({
     appRoot: f.directory,
@@ -104,7 +101,7 @@ async function setup(
       return {}
     },
   })
-  cleanups.push(() => host.close())
+  f.ownHost(host)
   await host.tick()
   await host.idle()
   const paused = await f.snapshot(accepted.threadId)
@@ -149,7 +146,9 @@ async function setup(
       rules = createPermissionsStore({ appRoot, config: undefined, mode: "interactive" })
     },
     respond: (body: unknown = command()) =>
-      service.respond(f.request(), accepted.threadId, accepted.runId, body),
+      f.trackWork("permission", () =>
+        service.respond(f.request(), accepted.threadId, accepted.runId, body),
+      ),
     effects: () => effects,
     failBeforeCommit() {
       fail = "beforeCommit"
@@ -205,6 +204,9 @@ it("accepts InputRespondOne and treats batch answer order as a set on exact retr
   const one = await setup(1)
   const a = await one.respond()
   expect(a.runId).not.toBe(one.accepted.runId)
+  await one.host.tick()
+  await one.host.idle()
+  expect(one.effects()).toBe(1)
   const many = await setup()
   const command = many.command()
   const first = await many.respond(command)
@@ -249,9 +251,23 @@ it("rejects malformed responses, protected edits, and changed proposal bindings 
       },
     }),
   ).rejects.toMatchObject({ code: "invalid_argument" })
+  const store = await f.f.store(f.accepted.threadId)
+  const original = (await store.snapshot()).pending.find(
+    (row) => row.input.data.interruptId === "prompt-1",
+  )
+  if (!original?.proposal) throw new Error("Missing protected proposal")
+  const originalProposal = original.proposal
+  await store.transaction((tx) =>
+    tx.pending.put({ ...original, proposal: { ...originalProposal, value: { changed: true } } }),
+  )
+  await expect(f.respond(command)).rejects.toMatchObject({ code: "approval_changed" })
+  await store.transaction((tx) => tx.pending.put(original))
   await (await f.f.store(f.accepted.threadId)).transaction(async (tx) => {
-    const pending = await tx.pending.get("prompt-1")
+    const pending = (await tx.pending.list()).find(
+      (row) => row.input.data.interruptId === "prompt-1",
+    )
     if (!pending) throw new Error("Missing pending prompt")
+    await tx.pending.put({ ...pending, disposition: "retired" })
     await tx.pending.put({
       ...pending,
       input: {
@@ -305,6 +321,9 @@ it("serializes concurrent complete answers and concurrent exact retries", async 
   const command = f.command()
   const [a, b] = await Promise.all([f.respond(command), f.respond(command)])
   expect(a.runId).toBe(b.runId)
+  await f.host.tick()
+  await f.host.idle()
+  expect(f.effects()).toBe(1)
   const g = await setup()
   const results = await Promise.allSettled([g.respond(), g.respond()])
   expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)

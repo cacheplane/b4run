@@ -122,6 +122,10 @@ The [auth middleware recipe](https://b4.run/docs/recipes/auth-middleware) walks 
 
 The `agent-protocol` storage contracts keep server-derived protected proposal/rule
 facts in `RuntimePendingRecord.proposal`, outside projected `PendingInput`.
+`RuntimeTransaction.pending.get` requires the full owner, paused generation,
+namespace, public input ID and proposal hash. A public interrupt ID alone is
+ambiguous across namespaces and later pauses. Native private storage keys are
+bounded hashes; full identities and historical pending/grant rows are retained.
 `RuntimeTransaction.grants.consume` enforces expiry normally; only its optional
 `"deny"` argument permits authenticated negative abandonment while preserving the
 current owner, namespace, proposal and paused-generation predicates.

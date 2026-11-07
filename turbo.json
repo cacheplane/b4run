@@ -229,12 +229,17 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
         "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
-        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts"
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-pending-identities.ts"
       ]
     },
     "@b4run/postgres-storage#typecheck": {
       "dependsOn": ["build"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-pending-identities.ts"
+      ]
     },
     "@b4run/sdk#test": {
       "dependsOn": ["build", "^test"],
@@ -265,7 +270,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts",
-        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts"
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-pending-identities.ts"
       ]
     },
     "@b4run/sdk#typecheck": {
@@ -280,6 +286,14 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/agent-protocol/fixtures/**"],
       "outputs": ["dist/**"]
+    },
+    "@b4run/sqlite-storage#typecheck": {
+      "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
+        "$TURBO_ROOT$/test/agent-protocol/runtime-pending-identities.ts"
+      ]
     }
   }
 }

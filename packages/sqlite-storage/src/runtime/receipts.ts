@@ -2,19 +2,42 @@ import type {
   RuntimeGrantRecord,
   RuntimePendingRecord,
   RuntimeReceiptRecord,
+  RuntimeStorageScope,
 } from "@b4run/sdk/agent-protocol"
+import { sha256Hex } from "@b4run/sdk/pure"
 import { type RecordSpec, requireSame } from "./transaction.js"
+/** Private physical key. Payload inputId remains the public namespace-local
+ * interrupt ID; this exact projection also owns grant references and CAS. */
+export function pendingKey(
+  scope: RuntimeStorageScope,
+  identity: Pick<
+    RuntimeGrantRecord,
+    "ownerRunId" | "pausedGeneration" | "namespace" | "inputId" | "proposalHash"
+  >,
+): string {
+  return sha256Hex(
+    JSON.stringify([
+      scope.threadId,
+      scope.generation,
+      identity.ownerRunId,
+      identity.pausedGeneration,
+      identity.namespace,
+      identity.inputId,
+      identity.proposalHash,
+    ]),
+  )
+}
 export const grantSpec: RecordSpec<RuntimeGrantRecord> = {
   table: "grants",
   fields(row, access) {
     access.reference("runs", row.ownerRunId)
     access.reference("runs", row.consumedByRunId)
-    access.reference("pending", row.inputId)
+    access.reference("pending", pendingKey(access.scope, row))
     return {
       id: row.grantId,
       ownerRunId: row.ownerRunId,
       namespace: row.namespace,
-      inputId: row.inputId,
+      inputId: pendingKey(access.scope, row),
       pausedGeneration: row.pausedGeneration,
       consumedByRunId: row.consumedByRunId,
     }
@@ -28,7 +51,13 @@ export const pendingSpec: RecordSpec<RuntimePendingRecord> = {
     access.reference("runs", row.ownerRunId)
     access.reference("runs", row.input.turnId)
     return {
-      id: row.input.data.interruptId,
+      id: pendingKey(access.scope, {
+        ownerRunId: row.ownerRunId,
+        namespace: row.namespace,
+        inputId: row.input.data.interruptId,
+        pausedGeneration: row.input.data.b4.pausedGeneration,
+        proposalHash: row.input.data.b4.proposalHash,
+      }),
       ownerRunId: row.ownerRunId,
       namespace: row.namespace,
       status: row.disposition,

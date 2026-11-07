@@ -609,7 +609,12 @@ export async function checkRuntimeApprovalGrant(args: {
 }): Promise<import("@b4run/sdk/agent-protocol").RuntimeGrantRecord | undefined> {
   if (args.mode === "off") return undefined
   const matching = args.records.filter(
-    (record) => record.inputId === args.pending.input.data.interruptId,
+    (record) =>
+      record.inputId === args.pending.input.data.interruptId &&
+      record.ownerRunId === args.pending.ownerRunId &&
+      record.pausedGeneration === args.pending.input.data.b4.pausedGeneration &&
+      record.proposalHash === args.pending.input.data.b4.proposalHash &&
+      JSON.stringify(record.namespace) === JSON.stringify(args.pending.namespace),
   )
   if (matching.length > 1) throw new ProtocolError("grant_invalid")
   const grant = matching[0]

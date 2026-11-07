@@ -12,6 +12,7 @@
     "src/**/*.tsx",
     "test/**/*.ts",
     "test/**/*.tsx",
-    "../../test/agent-protocol/runtime-storage-contract.ts"
+    "../../test/agent-protocol/runtime-storage-contract.ts",
+    "../../test/agent-protocol/runtime-pending-identities.ts"
   ]
 }

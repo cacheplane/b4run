@@ -20,7 +20,7 @@ import {
 } from "./index.js"
 import { makeJournal } from "./journal.js"
 import { maintenanceSpec } from "./maintenance.js"
-import { grantSpec, pendingSpec, receiptSpec } from "./receipts.js"
+import { grantSpec, pendingKey, pendingSpec, receiptSpec } from "./receipts.js"
 import { runSpec } from "./runs.js"
 import { table } from "./schema.js"
 import { makeThread } from "./threads.js"
@@ -196,7 +196,24 @@ function makeTransaction(access: Access): RuntimeTransaction {
       },
     },
     checkpoints: makeRecords(access, checkpointSpec),
-    pending: makeRecords(access, pendingSpec),
+    pending: {
+      ...makeRecords(access, pendingSpec),
+      async get(identity) {
+        access.check()
+        await access.reference("runs", identity.ownerRunId)
+        const row = await makeRecords(access, pendingSpec).get(pendingKey(scope, identity))
+        // The bounded hash is an index key, not authority. Compare every
+        // original identity field against the retained payload as well.
+        return row &&
+          row.ownerRunId === identity.ownerRunId &&
+          row.input.data.b4.pausedGeneration === identity.pausedGeneration &&
+          row.input.data.b4.proposalHash === identity.proposalHash &&
+          row.input.data.interruptId === identity.inputId &&
+          JSON.stringify(row.namespace) === JSON.stringify(identity.namespace)
+          ? row
+          : undefined
+      },
+    },
     grants: {
       ...grants,
       async consume(id, continuationRunId, negativeDecision) {
@@ -204,7 +221,7 @@ function makeTransaction(access: Access): RuntimeTransaction {
         const grant = await grants.get(id)
         if (!grant || grant.consumedByRunId !== null) return false
         const current = await thread.get(),
-          pending = await tx.pending.get(grant.inputId)
+          pending = await tx.pending.get(grant)
         if (
           !current ||
           current.pausedGeneration !== grant.pausedGeneration ||
@@ -212,6 +229,7 @@ function makeTransaction(access: Access): RuntimeTransaction {
           !pending ||
           pending.disposition !== "pending" ||
           pending.ownerRunId !== grant.ownerRunId ||
+          pending.input.data.interruptId !== grant.inputId ||
           pending.input.data.b4?.pausedGeneration !== grant.pausedGeneration ||
           pending.input.data.b4?.proposalHash !== grant.proposalHash ||
           JSON.stringify(pending.namespace) !== JSON.stringify(grant.namespace) ||
@@ -234,7 +252,7 @@ function makeTransaction(access: Access): RuntimeTransaction {
             grant.ownerRunId,
             grant.pausedGeneration,
             JSON.stringify(current),
-            grant.inputId,
+            pendingKey(scope, grant),
             scope.threadId,
             scope.generation,
             grant.ownerRunId,

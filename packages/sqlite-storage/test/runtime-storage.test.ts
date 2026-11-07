@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, expect, it } from "vitest"
+import { assertPendingGrantIdentities } from "../../../test/agent-protocol/runtime-pending-identities.ts"
 import { declareRuntimeStorageContract } from "../../../test/agent-protocol/runtime-storage-contract.ts"
 
 const roots: string[] = []
@@ -152,6 +153,17 @@ it("rejects forged bindings, escaped transaction contexts, and cross-scope IDs i
       generation: "20000000-0000-4000-8000-000000000002",
     }),
   )
+  await expect(
+    other.transaction((tx) =>
+      tx.pending.get({
+        ownerRunId: data.runId,
+        pausedGeneration: "pause",
+        namespace: [],
+        inputId: "public-input",
+        proposalHash: "proposal",
+      }),
+    ),
+  ).rejects.toMatchObject({ code: "scope_mismatch" })
   await expect(other.transaction((tx) => tx.runs.get(data.runId))).rejects.toMatchObject({
     code: "scope_mismatch",
   })
@@ -897,6 +909,10 @@ it.each([
 ])("does not consume a grant after invalid %s", async (invalid) => {
   const { store, grant, pending, paused, first, data } = await grantFixture()
   await store.transaction(async (tx) => {
+    // Different immutable identities coexist; simulating replacement retires
+    // the old prompt rather than deleting or overwriting its history.
+    if (["namespace", "input owner", "input pause", "proposal"].includes(invalid))
+      await tx.pending.put({ ...pending, disposition: "retired" })
     if (invalid === "thread pause")
       await tx.thread.put({ ...paused, pausedGeneration: "other-pause" })
     else if (invalid === "current owner") await tx.thread.put({ ...paused, currentRunId: first })
@@ -1029,4 +1045,14 @@ it("retains queued lease protection after an earlier same-scope lease completes"
     await transaction?.catch(() => undefined)
   }
   assertNoLeases(owner)
+})
+
+it("keeps exact compound pending identities and immutable historical grants", async () => {
+  const { openRuntimeInstallation } = await runtime()
+  const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+  const data = await import("./fixtures/runtime-data.ts")
+  const owner = openRuntimeInstallation(root())
+  cleanup.push(() => owner.close())
+  const store = bindRuntimeStore(owner, createRuntimeBinding(owner, data.scope), () => data.now)
+  await assertPendingGrantIdentities(store, data.run, data.thread)
 })

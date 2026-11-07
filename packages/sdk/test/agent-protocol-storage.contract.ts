@@ -119,3 +119,19 @@ function useProfile(store: RuntimeStoreProfile): void {
   }
 }
 void useProfile
+
+// Public interrupt IDs are namespace-local and may recur in later pauses.
+const pendingIdentity = {
+  ownerRunId: "run",
+  pausedGeneration: "pause",
+  namespace: ["child"],
+  inputId: "same-public-id",
+  proposalHash: "proposal",
+}
+tx.pending.get(pendingIdentity)
+// @ts-expect-error bare public interrupt IDs cannot identify durable pending records.
+tx.pending.get("same-public-id")
+// @ts-expect-error an address without owner/pause/proposal is ambiguous.
+tx.pending.get({ namespace: ["child"], inputId: "same-public-id" })
+// @ts-expect-error the current proposal identity is mandatory.
+tx.pending.get({ ownerRunId: "run", pausedGeneration: "pause", namespace: [], inputId: "id" })
