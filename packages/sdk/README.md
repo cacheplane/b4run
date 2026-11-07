@@ -118,6 +118,14 @@ The [auth middleware recipe](https://b4.run/docs/recipes/auth-middleware) walks 
 - `@b4run/sdk/agent-protocol` is a supported, dependency-free edge-safe contract surface for tooling.
 - `@b4run/sdk/testing` is a supported Node-only scenario-authoring surface. It is separate from `@b4run/testing`.
 
+## Private coordinated permission records
+
+The `agent-protocol` storage contracts keep server-derived protected proposal/rule
+facts in `RuntimePendingRecord.proposal`, outside projected `PendingInput`.
+`RuntimeTransaction.grants.consume` enforces expiry normally; only its optional
+`"deny"` argument permits authenticated negative abandonment while preserving the
+current owner, namespace, proposal and paused-generation predicates.
+
 ## Related
 
 - [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli) develops, tests, builds, and serves routes declared with the SDK.

@@ -1,4 +1,9 @@
 export { matchPermission } from "./pattern-matching.js"
+export type {
+  PermissionRule,
+  RememberedRuleCoordinator,
+  RememberedRuleIntent,
+} from "./rule-intents.js"
 export {
   subagentPermissionPattern,
   suggestedCommandPattern,

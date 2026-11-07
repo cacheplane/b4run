@@ -118,7 +118,19 @@ describe("subagent interrupt replay", () => {
       version: 1,
       allow: { subagent: [pattern] },
       deny: {},
+      _b4RuleCoordinator: {
+        v: 1,
+        scopeId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        ),
+        revision: 1,
+        contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        receipts: expect.any(Object),
+      },
     })
+    expect(Object.values(persisted._b4RuleCoordinator.receipts)).toEqual([
+      { fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/), outcome: "applied" },
+    ])
 
     const reloaded = await permissionStore(appRoot)
     expect(reloaded.match("subagent", pattern)).toBe("allow")

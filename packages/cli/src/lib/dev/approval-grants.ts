@@ -35,6 +35,7 @@ import {
 } from "@b4run/sdk"
 import { resolvePositiveMs } from "./client-tool-runtime.js"
 import type { PendingInterrupt } from "./pending-interrupts.js"
+import { ProtocolError } from "./protocol/errors.js"
 import { createRequestErrorBody } from "./server-errors.js"
 
 /**
@@ -595,4 +596,40 @@ export async function gateResumeWithGrants(args: {
     ...(args.now ? { now: args.now } : {}),
   })
   return failure ? grantRejectionResponse(failure) : undefined
+}
+
+/** Coordinated runtime verifier. Called only after current C5/Agent authority
+ * and complete pending-set validation. Consumption belongs to the caller's
+ * RuntimeTransaction; the legacy independent grant store is never enlisted. */
+export async function checkRuntimeApprovalGrant(args: {
+  readonly mode: ApprovalGrantMode
+  readonly pending: import("@b4run/sdk/agent-protocol").RuntimePendingRecord
+  readonly records: readonly import("@b4run/sdk/agent-protocol").RuntimeGrantRecord[]
+  readonly response: import("@b4run/sdk/agent-protocol").PermissionResponseV1
+}): Promise<import("@b4run/sdk/agent-protocol").RuntimeGrantRecord | undefined> {
+  if (args.mode === "off") return undefined
+  const matching = args.records.filter(
+    (record) => record.inputId === args.pending.input.data.interruptId,
+  )
+  if (matching.length > 1) throw new ProtocolError("grant_invalid")
+  const grant = matching[0]
+  if (!grant && args.mode === "optional") return undefined
+  if (
+    !grant ||
+    !isApprovalGrantShape(args.response.grant) ||
+    !timingSafeHexEqual(await hashApprovalGrant(args.response.grant), grant.tokenHash) ||
+    grant.consumedByRunId !== null ||
+    grant.ownerRunId !== args.pending.ownerRunId ||
+    grant.pausedGeneration !== args.pending.input.data.b4.pausedGeneration ||
+    grant.proposalHash !== args.pending.input.data.b4.proposalHash ||
+    JSON.stringify(grant.namespace) !== JSON.stringify(args.pending.namespace)
+  )
+    throw new ProtocolError("grant_invalid")
+  if (
+    args.response.decision !== "deny" &&
+    grant.expiresAt !== null &&
+    (!Number.isFinite(Date.parse(grant.expiresAt)) || Date.parse(grant.expiresAt) <= Date.now())
+  )
+    throw new ProtocolError("grant_expired")
+  return grant
 }

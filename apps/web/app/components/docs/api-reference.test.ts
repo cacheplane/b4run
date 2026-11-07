@@ -107,7 +107,9 @@ const EXPECTED_CATALOG_AND_INTERNAL_IMPORTS = [
   ["@b4run/sdk", "./agent-protocol.schema.json", "catalog-only"],
   ["@b4run/sdk", "./agent-protocol.fixtures.json", "catalog-only"],
   ["@b4run/core", "./internal/compiler", "internal"],
+  ["@b4run/core", "./internal/permission-continuation", "internal"],
   ["@b4run/ag-ui", "./styles.css", "catalog-only"],
+  ["@b4run/permissions", "./internal/rule-coordinator", "internal"],
   ["@b4run/config-biome", ".", "internal"],
   ["@b4run/config-biome", "./biome", "internal"],
   ["@b4run/config-typescript", ".", "internal"],
@@ -729,7 +731,7 @@ describe("artifact registry", { timeout: 30_000 }, () => {
   it("uses unique keys in separate import and operated address spaces", () => {
     const addresses = ARTIFACT_REGISTRY.map(artifactAddressFor)
     expect(new Set(addresses).size).toBe(addresses.length)
-    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(58)
+    expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import")).toHaveLength(60)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated")).toHaveLength(3)
     expect(ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated")).toEqual([
       GENERATED_ROUTES_ARTIFACT,

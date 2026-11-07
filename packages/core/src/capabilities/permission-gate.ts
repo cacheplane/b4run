@@ -5,6 +5,7 @@ import {
   suggestedMemoryPattern,
   suggestedPathPattern,
 } from "@b4run/permissions"
+import { permissionRuleForRequest } from "@b4run/permissions/internal/rule-coordinator"
 import {
   type B4ErrorCode,
   type ConstraintContext,
@@ -15,7 +16,12 @@ import {
 } from "@b4run/sdk"
 import { POSIX_SEP } from "@b4run/sdk/pure"
 import { interrupt } from "@langchain/langgraph"
-import { mintGrantForPark } from "./approval-grants.js"
+import {
+  assertPermissionContinuationContext,
+  confirmRememberedPermission,
+  mintGrantForPark,
+} from "./approval-grants.js"
+import { protectedToolProposal, withProtectedToolProposal } from "./permission-continuation.js"
 
 export type PathOperation = "readFile" | "writeFile" | "listDir"
 
@@ -95,9 +101,19 @@ export async function gatePathOp(
   workspaceRoot: string,
   opts?: { readonly interruptCapable?: boolean } & GateCallOptions,
 ): Promise<GateResult> {
+  assertPermissionContinuationContext()
+  const approval: InterruptArgs = {
+    kind: "path",
+    operation,
+    path: absPath,
+    ...callFields(opts),
+    ...(permissions ? { permissions } : {}),
+  }
+  const coordinated = await continuationApplies(approval)
+  if (coordinated && permissions) await permissions.load()
   // If permissions store is absent, allow (legacy behavior — capability used without permissions context).
-  if (!permissions) return { allowed: true }
-  if (permissions.mode === "bypass") return { allowed: true }
+  if (!permissions && !coordinated) return { allowed: true }
+  if (permissions?.mode === "bypass" && !coordinated) return { allowed: true }
 
   // Both operands are POSIX-normalized absolute paths (the node lane converts
   // at its boundary), so containment compares against an explicit "/" rather
@@ -106,19 +122,31 @@ export async function gatePathOp(
   const insideWorkspace = absPath === workspaceRoot || absPath.startsWith(workspaceRoot + POSIX_SEP)
 
   // Inside workspace: always allow silently.
-  if (insideWorkspace) return { allowed: true }
+  if (insideWorkspace && !coordinated) return { allowed: true }
 
   // Outside workspace: consult the store.
-  const rule = permissions.match(operation, absPath)
-  if (rule === "allow") return { allowed: true }
+  const rule = insideWorkspace
+    ? "allow"
+    : permissions?.mode === "bypass"
+      ? "unknown"
+      : (permissions?.match(operation, absPath) ?? "unknown")
+  if (rule === "allow" && !coordinated) return { allowed: true }
   if (rule === "deny") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return { allowed: false, reason: `Permission denied by user: ${absPath}` }
   }
   // rule === "unknown"
-  if (permissions.mode === "non-interactive") {
+  if (permissions?.mode === "non-interactive" && !insideWorkspace) {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return { allowed: false, reason: `Permission denied (fail-closed): ${absPath}` }
   }
-  if (opts?.interruptCapable === false) {
+  if (
+    opts?.interruptCapable === false &&
+    !insideWorkspace &&
+    permissions?.mode !== "bypass" &&
+    permissions !== undefined
+  ) {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return {
       allowed: false,
       reason:
@@ -128,13 +156,12 @@ export async function gatePathOp(
     }
   }
   // Interactive: emit LangGraph interrupt and await user decision.
-  const decision = await emitPermissionInterrupt({
-    kind: "path",
-    operation,
-    path: absPath,
-    ...callFields(opts),
-    permissions,
-  })
+  const decision = await emitPermissionInterrupt(
+    approval,
+    coordinated,
+    undefined,
+    !permissions || permissions.mode === "bypass" || insideWorkspace,
+  )
   if (decision === "deny") {
     return { allowed: false, reason: `Permission denied by user: ${absPath}`, decision }
   }
@@ -146,23 +173,35 @@ export async function gateBashOp(
   command: string,
   opts?: GateCallOptions,
 ): Promise<GateResult> {
-  if (!permissions) return { allowed: true }
-  if (permissions.mode === "bypass") return { allowed: true }
-
-  const rule = permissions.match("bash", command)
-  if (rule === "allow") return { allowed: true }
-  if (rule === "deny") {
-    return { allowed: false, reason: `Permission denied by user: ${command}` }
-  }
-  if (permissions.mode === "non-interactive") {
-    return { allowed: false, reason: `Permission denied (fail-closed): ${command}` }
-  }
-  const decision = await emitPermissionInterrupt({
+  assertPermissionContinuationContext()
+  const approval: InterruptArgs = {
     kind: "command",
     command,
     ...callFields(opts),
-    permissions,
-  })
+    ...(permissions ? { permissions } : {}),
+  }
+  const coordinated = await continuationApplies(approval)
+  if (coordinated && permissions) await permissions.load()
+  if (!permissions && !coordinated) return { allowed: true }
+  if (permissions?.mode === "bypass" && !coordinated) return { allowed: true }
+
+  const rule =
+    permissions?.mode === "bypass" ? "unknown" : (permissions?.match("bash", command) ?? "unknown")
+  if (rule === "allow" && !coordinated) return { allowed: true }
+  if (rule === "deny") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
+    return { allowed: false, reason: `Permission denied by user: ${command}` }
+  }
+  if (permissions?.mode === "non-interactive") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
+    return { allowed: false, reason: `Permission denied (fail-closed): ${command}` }
+  }
+  const decision = await emitPermissionInterrupt(
+    approval,
+    coordinated,
+    undefined,
+    !permissions || permissions.mode === "bypass",
+  )
   if (decision === "deny") {
     return { allowed: false, reason: `Permission denied by user: ${command}`, decision }
   }
@@ -188,36 +227,78 @@ export interface ToolGateOptions extends GateCallOptions {
  * under the reserved "tool" key in .b4/permissions.json (exact-name match —
  * see @b4run/permissions pattern-matching).
  */
+function toolPermissionArgs(
+  permissions: PermissionsStore | undefined,
+  toolName: string,
+  argsPreview: string,
+  opts: ToolGateOptions | undefined,
+): InterruptArgs {
+  return {
+    kind: "tool",
+    toolName,
+    argsPreview,
+    protectedProposal: protectedToolProposal(opts),
+    ...(opts?.allowAlways === false ? { allowAlways: false as const } : {}),
+    ...callFields(opts),
+    ...(permissions ? { permissions } : {}),
+  }
+}
 export async function gateToolOp(
   permissions: PermissionsStore | undefined,
   toolName: string,
   argsPreview: string,
   opts?: ToolGateOptions,
 ): Promise<GateResult> {
-  if (!permissions) return { allowed: true }
-  if (permissions.mode === "bypass") return { allowed: true }
-
+  assertPermissionContinuationContext()
+  const approval = toolPermissionArgs(permissions, toolName, argsPreview, opts)
+  return gatePreparedToolOp(
+    permissions,
+    toolName,
+    opts,
+    approval,
+    await continuationApplies(approval),
+  )
+}
+async function gatePreparedToolOp(
+  permissions: PermissionsStore | undefined,
+  toolName: string,
+  opts: ToolGateOptions | undefined,
+  approval: InterruptArgs,
+  coordinated: boolean,
+): Promise<GateResult> {
   const everyCall = opts?.allowAlways === false
-  const rule = permissions.match("tool", toolName)
+  if (coordinated && permissions) await permissions.load()
+  if (!permissions && !coordinated) return { allowed: true }
+  if (permissions?.mode === "bypass" && !coordinated) return { allowed: true }
+
+  const rule =
+    permissions?.mode === "bypass" ? "unknown" : (permissions?.match("tool", toolName) ?? "unknown")
   // A standing approval must not exist for an every-call tool: an allow rule
   // (configured, or persisted by an "always" answer before the route opted
   // in) falls through to the prompt like an unknown one.
-  if (rule === "allow" && !everyCall) return { allowed: true }
+  if (rule === "allow" && !everyCall && !coordinated) return { allowed: true }
   if (rule === "deny") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return {
       allowed: false,
       reason: `Permission denied by user: tool ${toolName}`,
       code: "B4_E3001",
     }
   }
-  if (permissions.mode === "non-interactive") {
+  if (permissions?.mode === "non-interactive") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return {
       allowed: false,
       reason: `Permission denied (fail-closed): tool ${toolName}`,
       code: "B4_E3001",
     }
   }
-  if (opts?.interruptCapable === false) {
+  if (
+    opts?.interruptCapable === false &&
+    permissions?.mode !== "bypass" &&
+    permissions !== undefined
+  ) {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return {
       allowed: false,
       reason:
@@ -227,14 +308,12 @@ export async function gateToolOp(
       code: "B4_E3001",
     }
   }
-  const decision = await emitPermissionInterrupt({
-    kind: "tool",
-    toolName,
-    argsPreview,
-    ...(everyCall ? { allowAlways: false as const } : {}),
-    ...callFields(opts),
-    permissions,
-  })
+  const decision = await emitPermissionInterrupt(
+    approval,
+    coordinated,
+    undefined,
+    !permissions || permissions.mode === "bypass",
+  )
   if (decision === "deny") {
     return {
       allowed: false,
@@ -262,20 +341,41 @@ export async function gateSubagentOp(
   request: SubagentGateRequest,
   opts: { readonly interruptCapable: boolean },
 ): Promise<GateResult> {
-  if (permissions?.mode === "bypass") return { allowed: true }
-
+  assertPermissionContinuationContext()
   const suggestedPattern = subagentPermissionPattern(request.parentRouteId, request.subagentName)
+  const approval: InterruptArgs = {
+    kind: "subagent",
+    callId: request.callId,
+    parentRouteId: request.parentRouteId,
+    subagentName: request.subagentName,
+    subagentRouteId: request.subagentRouteId,
+    inputPreview: truncateDisplay(request.input),
+    ...(request.reason !== undefined ? { reason: request.reason } : {}),
+    suggestedPattern,
+    threadId: request.threadId ?? "",
+    ...(permissions ? { permissions } : {}),
+    protectedProposal: request,
+  }
+  const coordinated = await continuationApplies(approval)
+  if (coordinated && permissions) await permissions.load()
+  if (permissions?.mode === "bypass" && !coordinated) return { allowed: true }
+
   if (permissions) {
-    const rule = permissions.match("subagent", suggestedPattern)
-    if (rule === "allow") return { allowed: true }
+    const rule =
+      permissions?.mode === "bypass"
+        ? "unknown"
+        : (permissions?.match("subagent", suggestedPattern) ?? "unknown")
+    if (rule === "allow" && !coordinated) return { allowed: true }
     if (rule === "deny") {
+      if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
       return {
         allowed: false,
         reason: `Permission denied by user: subagent ${request.subagentName}`,
         code: "B4_E3002",
       }
     }
-    if (permissions.mode === "non-interactive") {
+    if (permissions?.mode === "non-interactive") {
+      if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
       return {
         allowed: false,
         reason: `Permission denied (fail-closed): subagent ${request.subagentName}`,
@@ -290,6 +390,7 @@ export async function gateSubagentOp(
     request.threadId === undefined ||
     request.threadId.trim().length === 0
   ) {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
     return {
       allowed: false,
       reason:
@@ -300,18 +401,12 @@ export async function gateSubagentOp(
     }
   }
 
-  const decision = await emitPermissionInterrupt({
-    kind: "subagent",
-    callId: request.callId,
-    parentRouteId: request.parentRouteId,
-    subagentName: request.subagentName,
-    subagentRouteId: request.subagentRouteId,
-    inputPreview: truncateDisplay(request.input),
-    ...(request.reason !== undefined ? { reason: request.reason } : {}),
-    suggestedPattern,
-    threadId: request.threadId,
-    permissions,
-  })
+  const decision = await emitPermissionInterrupt(
+    approval,
+    coordinated,
+    undefined,
+    !permissions || permissions.mode === "bypass",
+  )
   if (decision === "deny") {
     return {
       allowed: false,
@@ -350,23 +445,36 @@ export async function gateMemorySupersede(
   detail: MemorySupersedeDetail,
   opts?: GateCallOptions,
 ): Promise<GateResult> {
-  if (!permissions) return { allowed: true }
-  if (permissions.mode === "bypass") return { allowed: true }
-
-  const rule = permissions.match("memory", `${detail.namespace}|`)
-  if (rule === "allow") return { allowed: true }
-  if (rule === "deny") {
-    return { allowed: false, reason: `approval denied for this route's memory overwrites` }
-  }
-  // unknown + headless → allow through (ask ≡ auto without a human).
-  if (permissions.mode === "non-interactive") return { allowed: true }
-
-  const decision = await emitPermissionInterrupt({
+  assertPermissionContinuationContext()
+  const approval: InterruptArgs = {
     kind: "memory",
     ...detail,
     ...callFields(opts),
-    permissions,
-  })
+    ...(permissions ? { permissions } : {}),
+  }
+  const coordinated = await continuationApplies(approval)
+  if (coordinated && permissions) await permissions.load()
+  if (!permissions && !coordinated) return { allowed: true }
+  if (permissions?.mode === "bypass" && !coordinated) return { allowed: true }
+
+  const rule =
+    permissions?.mode === "bypass"
+      ? "unknown"
+      : (permissions?.match("memory", `${detail.namespace}|`) ?? "unknown")
+  if (rule === "allow" && !coordinated) return { allowed: true }
+  if (rule === "deny") {
+    if (coordinated) await emitPermissionInterrupt(approval, true, "deny")
+    return { allowed: false, reason: `approval denied for this route's memory overwrites` }
+  }
+  // unknown + headless → allow through (ask ≡ auto without a human).
+  if (permissions?.mode === "non-interactive" && !coordinated) return { allowed: true }
+
+  const decision = await emitPermissionInterrupt(
+    approval,
+    coordinated,
+    undefined,
+    !permissions || permissions.mode === "bypass",
+  )
   if (decision === "deny") {
     return { allowed: false, reason: `approval denied`, decision }
   }
@@ -423,10 +531,18 @@ export function wrapToolWithApproval<
     ...tool,
     b4ExecutionGated: true,
     run: async (input: unknown, context: C) => {
-      const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), {
-        ...opts,
-        ...gateCallOptions(context),
-      })
+      const gate = await gateToolOp(
+        permissions,
+        tool.name,
+        buildArgsPreview(input),
+        withProtectedToolProposal(
+          {
+            ...opts,
+            ...gateCallOptions(context),
+          },
+          input,
+        ),
+      )
       reportGateDecision(context, gate)
       if (!gate.allowed) return toolDenial(codedReason(gate))
       await reportExecutionStart(tool, context)
@@ -494,36 +610,41 @@ export function wrapToolWithConstraint<
         ...(context.threadId ? { threadId: context.threadId } : {}),
         ...(context.params ? { params: context.params } : {}),
       }
-      let verdict: Awaited<ReturnType<ConstraintPredicate>>
+      let verdict: Awaited<ReturnType<ConstraintPredicate>> | undefined
+      let failed = false
       try {
         verdict = await predicate(input, ctx)
       } catch {
-        return toolDenial(CONSTRAINT_FAILED_REASON)
+        failed = true
+      }
+      const escalated =
+        typeof verdict === "object" &&
+        verdict !== null &&
+        (verdict as { approve?: unknown }).approve === true
+      const opts = withProtectedToolProposal(gateCallOptions(context), input)
+      if (escalated) {
+        const gate = await gateToolOp(permissions, tool.name, buildArgsPreview(input), opts)
+        reportGateDecision(context, gate)
+        if (!gate.allowed) return toolDenial(codedReason(gate))
+        await reportExecutionStart(tool, context)
+        return tool.run(input, context)
+      }
+      const approval = toolPermissionArgs(permissions, tool.name, buildArgsPreview(input), opts)
+      const coordinated = await continuationApplies(approval)
+      if (coordinated) {
+        if (failed || verdict !== true) {
+          await emitPermissionInterrupt(approval, true, "deny")
+        } else {
+          const gate = await gatePreparedToolOp(permissions, tool.name, opts, approval, true)
+          reportGateDecision(context, gate)
+          if (!gate.allowed) return toolDenial(codedReason(gate))
+        }
       }
       if (verdict === true) {
         await reportExecutionStart(tool, context)
         return tool.run(input, context)
       }
       if (typeof verdict === "string") return toolDenial(verdict)
-      // Escalate to HITL ONLY on a genuine { approve: true } verdict.
-      if (
-        typeof verdict === "object" &&
-        verdict !== null &&
-        (verdict as { approve?: unknown }).approve === true
-      ) {
-        const gate = await gateToolOp(
-          permissions,
-          tool.name,
-          buildArgsPreview(input),
-          gateCallOptions(context),
-        )
-        reportGateDecision(context, gate)
-        if (!gate.allowed) return toolDenial(codedReason(gate))
-        await reportExecutionStart(tool, context)
-        return tool.run(input, context)
-      }
-      // Any other value (false, undefined, { approve: false }, a number, …) is
-      // off-contract — fail closed rather than silently escalate or allow.
       return toolDenial(CONSTRAINT_FAILED_REASON)
     },
   }
@@ -532,13 +653,12 @@ export function wrapToolWithConstraint<
 // Discriminated union: each kind's required fields are enforced at the call
 // site, so a `kind: "tool"` call without toolName is a compile error rather
 // than a silently blank interrupt payload.
-type InterruptArgs =
+type InterruptArgs = (
   | {
       kind: "command"
       command: string
       toolCallId?: string | undefined
       step?: GateStepDisplay | undefined
-      permissions: PermissionsStore
     }
   | {
       kind: "path"
@@ -546,7 +666,6 @@ type InterruptArgs =
       path: string
       toolCallId?: string | undefined
       step?: GateStepDisplay | undefined
-      permissions: PermissionsStore
     }
   | {
       kind: "tool"
@@ -556,7 +675,6 @@ type InterruptArgs =
       allowAlways?: false
       toolCallId?: string | undefined
       step?: GateStepDisplay | undefined
-      permissions: PermissionsStore
     }
   | {
       kind: "subagent"
@@ -568,7 +686,6 @@ type InterruptArgs =
       reason?: string
       suggestedPattern: string
       threadId: string
-      permissions: PermissionsStore
     }
   | {
       kind: "memory"
@@ -579,11 +696,10 @@ type InterruptArgs =
       newContent: string
       toolCallId?: string | undefined
       step?: GateStepDisplay | undefined
-      permissions: PermissionsStore
     }
+) & { readonly protectedProposal?: unknown; readonly permissions?: PermissionsStore }
 
-async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecision> {
-  const interruptId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+function preparePermissionPayload(args: InterruptArgs, interruptId: string) {
   const suggestedPattern =
     args.kind === "command"
       ? suggestedCommandPattern(args.command)
@@ -636,6 +752,40 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
                 }
               : { operation: args.operation, path: args.path, suggestedPattern },
   }
+  return payload
+}
+function actualPermissionProposal(args: InterruptArgs): unknown {
+  return args.kind === "tool" || args.kind === "subagent"
+    ? args.protectedProposal
+    : args.kind === "command"
+      ? { command: args.command }
+      : args.kind === "path"
+        ? { operation: args.operation, path: args.path }
+        : {
+            namespace: args.namespace,
+            identity: args.identity,
+            oldId: args.oldId,
+            oldContent: args.oldContent,
+            newContent: args.newContent,
+          }
+}
+async function continuationApplies(args: InterruptArgs): Promise<boolean> {
+  const { interruptId: _id, ...request } = preparePermissionPayload(args, "")
+  return confirmRememberedPermission(
+    request,
+    actualPermissionProposal(args),
+    permissionRuleForRequest(request),
+  )
+}
+async function emitPermissionInterrupt(
+  args: InterruptArgs,
+  coordinated: boolean,
+  forcedDecision?: "deny",
+  currentPolicyAllows = false,
+): Promise<GateDecision> {
+  assertPermissionContinuationContext()
+  const interruptId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const payload = preparePermissionPayload(args, interruptId)
   // Mint the single-use approval grant for this park, BEFORE the interrupt
   // throw, so that under `approvals.grants: "required"` a run with no minter
   // aborts the turn instead of parking a prompt nobody can answer safely.
@@ -654,7 +804,10 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
   // as `metadata` — the schema-defined field a 1.0 client leaves intact.
   // There is no top-level copy.
   //
-  // KNOWN COST, accepted rather than hidden: on the RESUME pass LangGraph
+  // A proven coordinated binding already consumed its grant in the shared
+  // acceptance transaction, so it never mints into the independent legacy
+  // ledger. A new/unmatched gate still requires the configured park minter.
+  // KNOWN legacy cost: on the RESUME pass LangGraph
   // re-executes this node from the top, `interruptId` is regenerated (it
   // always has been), and this mints one more grant row that is never
   // disclosed and never presented. It is swept by `voidOutstanding` when the
@@ -663,25 +816,37 @@ async function emitPermissionInterrupt(args: InterruptArgs): Promise<GateDecisio
   // replay — trades a bounded, self-cleaning write for a dependency on an
   // unexported internal, which is the worse bargain at the one site that must
   // stay obviously correct.
-  const grant = await mintGrantForPark(interruptId)
+  const grant = coordinated ? undefined : await mintGrantForPark(interruptId)
   const answered = interrupt(grant === undefined ? payload : { ...payload, grant }) as GateDecision
   // Fail safe: a client that answers "always" to a prompt that offered no
   // such answer gets "once" — the call runs, nothing is persisted, and the
   // step records "once".
   const decision: GateDecision =
-    answered === "always" && args.kind === "tool" && args.allowAlways === false ? "once" : answered
+    forcedDecision ??
+    (answered === "always" && args.kind === "tool" && args.allowAlways === false
+      ? "once"
+      : answered)
   if (decision === "always") {
-    const tool =
-      args.kind === "command"
-        ? "bash"
-        : args.kind === "tool"
-          ? "tool"
-          : args.kind === "subagent"
-            ? "subagent"
-            : args.kind === "memory"
-              ? "memory"
-              : args.operation
-    await args.permissions.addAllow(tool, suggestedPattern)
+    const rule = permissionRuleForRequest(payload)
+    if (coordinated) {
+      // A prior apply receipt is not current policy authority. Re-read the
+      // configured scope; never re-add a rule removed after intent application.
+      if (currentPolicyAllows) return decision
+      if (!args.permissions) return "deny"
+      await args.permissions.load()
+      const candidate =
+        args.kind === "command"
+          ? args.command
+          : args.kind === "path"
+            ? args.path
+            : args.kind === "tool"
+              ? args.toolName
+              : args.kind === "subagent"
+                ? args.suggestedPattern
+                : `${args.namespace}|`
+      if (args.permissions.match(rule.tool, candidate) !== "allow") return "deny"
+    } else if (args.permissions) await args.permissions.addAllow(rule.tool, rule.pattern)
+    else return "deny"
   }
   return decision
 }

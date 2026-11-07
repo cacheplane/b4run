@@ -1037,6 +1037,12 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/core:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./node", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/core:./internal/compiler", "internal", "surfaceKind", "typescript-runtime"],
+  [
+    "import:@b4run/core:./internal/permission-continuation",
+    "internal",
+    "surfaceKind",
+    "typescript-runtime",
+  ],
   ["import:@b4run/ag-ui:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./sse", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/ag-ui:./client", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1059,6 +1065,12 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/evals:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/permissions:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/permissions:./node", "detailed", "surfaceKind", "typescript-runtime"],
+  [
+    "import:@b4run/permissions:./internal/rule-coordinator",
+    "internal",
+    "surfaceKind",
+    "typescript-runtime",
+  ],
   ["import:@b4run/workspace:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/workspace:./node", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sandbox:.", "detailed", "surfaceKind", "typescript-runtime"],
@@ -1384,6 +1396,7 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/sdk:./pure",
   "import:@b4run/cli:./fetch",
   "import:@b4run/core:.",
+  "import:@b4run/core:./internal/permission-continuation",
   "import:@b4run/ag-ui:.",
   "import:@b4run/ag-ui:./sse",
   "import:@b4run/ag-ui:./client",
@@ -1393,6 +1406,7 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/memory:./reconcile",
   "import:@b4run/postgres-storage:.",
   "import:@b4run/permissions:.",
+  "import:@b4run/permissions:./internal/rule-coordinator",
   "import:@b4run/workspace:.",
   "import:@b4run/langgraph:.",
   "import:@b4run/langgraph:./define-entry",
@@ -1820,8 +1834,8 @@ const checks = [
   {
     file: "apps/web/content/docs/api/permissions.mdx",
     patterns: [
-      "Call and await `store.load()` before any store use, especially before `addAllow()` or other persistence",
-      "Calling `addAllow()` first can overwrite grants already present in the runtime file",
+      "Call and await `store.load()` before matching",
+      "Every persistence operation independently reads the current authoritative file and preserves unrelated rules",
       "Reserved subagent identities match exactly rather than by prefix",
     ],
   },
@@ -1924,9 +1938,13 @@ const permissionsApiSource = readFileSync(
   resolve(repoRoot, "apps/web/content/docs/api/permissions.mdx"),
   "utf8",
 )
-if (/\b(?:load|load\(\)|`load\(\)`)\b[^.\n]{0,80}\bbefore matching\b/i.test(permissionsApiSource)) {
+if (
+  /Calling `addAllow\(\)` first can overwrite grants|Only `addAllow\(\)` persists/.test(
+    permissionsApiSource,
+  )
+) {
   failures.push(
-    "apps/web/content/docs/api/permissions.mdx must require load before every store use, not only before matching",
+    "apps/web/content/docs/api/permissions.mdx must describe the authoritative coordinator writer rather than obsolete cached-write behavior",
   )
 }
 
@@ -4328,15 +4346,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 62 || new Set(artifactAddresses).size !== 62) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 62 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 64 || new Set(artifactAddresses).size !== 64) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 64 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 58 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 60 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 58 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 60 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

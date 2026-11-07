@@ -10,10 +10,12 @@
  */
 
 import { existsSync } from "node:fs"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-
+import { readPermissionFile, withPermissionFile, writePermissionFile } from "./file-coordinator.js"
 import { matchPermission } from "./pattern-matching.js"
+import { existingRuleReceipt, readRuleCoordinator, withRuleReceipt } from "./rule-coordinator.js"
+import { type RememberedRuleIntent, ruleDenied } from "./rule-intents.js"
 import type { PermissionMode, PermissionsFile, PermissionsStore } from "./types.js"
 
 const PERMISSIONS_DIR = ".b4"
@@ -76,43 +78,38 @@ export function createPermissionsStore(opts: CreateOptions): PermissionsStore {
     state.configDeny = cloneMap(config.deny)
   }
 
-  let writeQueue: Promise<void> = Promise.resolve()
-
+  function maps(document: Record<string, unknown>) {
+    const allow = document.allow ?? {},
+      deny = document.deny ?? {}
+    for (const map of [allow, deny]) {
+      if (
+        !map ||
+        typeof map !== "object" ||
+        Array.isArray(map) ||
+        Object.values(map).some(
+          (value) => !Array.isArray(value) || value.some((item) => typeof item !== "string"),
+        )
+      )
+        throw new Error("Malformed permissions.json rule map")
+    }
+    return {
+      allow: cloneMap(allow as Record<string, readonly string[]>),
+      deny: cloneMap(deny as Record<string, readonly string[]>),
+    }
+  }
+  function publish(document: Record<string, unknown>) {
+    const current = maps(document)
+    state.runtimeAllow = current.allow
+    state.runtimeDeny = current.deny
+  }
   async function loadRuntimeFile(): Promise<void> {
-    const filePath = join(appRoot, PERMISSIONS_DIR, PERMISSIONS_FILE)
-    if (!existsSync(filePath)) return
-    let raw: string
-    try {
-      raw = await readFile(filePath, "utf8")
-    } catch (err) {
-      throw new Error(`Failed to read permissions.json: ${(err as Error).message}`)
-    }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch (err) {
-      throw new Error(`Malformed permissions.json: ${(err as Error).message}`)
-    }
-    const p = parsed as Partial<PermissionsFile>
-    if (p.allow && typeof p.allow === "object") {
-      state.runtimeAllow = cloneMap(p.allow as Record<string, readonly string[]>)
-    }
-    if (p.deny && typeof p.deny === "object") {
-      state.runtimeDeny = cloneMap(p.deny as Record<string, readonly string[]>)
-    }
+    publish(await readPermissionFile(join(appRoot, PERMISSIONS_DIR, PERMISSIONS_FILE)))
   }
-
-  async function persistRuntimeFile(): Promise<void> {
-    const dir = join(appRoot, PERMISSIONS_DIR)
-    await mkdir(dir, { recursive: true })
-    const file: PermissionsFile = {
-      version: 1,
-      allow: state.runtimeAllow,
-      deny: state.runtimeDeny,
-    }
-    await writeFile(join(dir, PERMISSIONS_FILE), `${JSON.stringify(file, null, 2)}\n`, "utf8")
+  async function persist(path: string, document: Record<string, unknown>) {
+    await ensureGitignoreEntry()
+    await writePermissionFile(path, document)
+    publish(document)
   }
-
   async function ensureGitignoreEntry(): Promise<void> {
     const gitignorePath = join(appRoot, ".gitignore")
     let content = ""
@@ -127,8 +124,62 @@ export function createPermissionsStore(opts: CreateOptions): PermissionsStore {
     await writeFile(gitignorePath, content, "utf8")
   }
 
-  return {
+  const store: PermissionsStore = {
     mode,
+    rememberedRules: {
+      async prepare(operationId, rules) {
+        return withPermissionFile(appRoot, async (path) => {
+          const document = await readPermissionFile(path),
+            current = maps(document)
+          const coordinator = readRuleCoordinator(document._b4RuleCoordinator, current)
+          publish(document)
+          const intent: RememberedRuleIntent = {
+            operationId,
+            scopeId: coordinator.scopeId,
+            revision: String(coordinator.revision),
+            rules,
+          }
+          // Validate the same private payload that apply and native stores use.
+          withRuleReceipt(coordinator, intent, "superseded", current)
+          if (mode !== "interactive" || ruleDenied(store, rules))
+            throw new Error("Permission rule cannot be remembered")
+          await persist(path, { ...document, _b4RuleCoordinator: coordinator })
+          return intent
+        })
+      },
+      async apply(intent) {
+        return withPermissionFile(appRoot, async (path) => {
+          const document = await readPermissionFile(path),
+            current = maps(document)
+          const coordinator = readRuleCoordinator(document._b4RuleCoordinator, current)
+          const existing = existingRuleReceipt(coordinator, intent)
+          if (existing) {
+            publish(document)
+            return existing
+          }
+          publish(document)
+          const outcome =
+            coordinator.scopeId === intent.scopeId &&
+            String(coordinator.revision) === intent.revision &&
+            mode === "interactive" &&
+            !ruleDenied(store, intent.rules)
+              ? "applied"
+              : "superseded"
+          if (outcome === "applied")
+            for (const rule of intent.rules) {
+              const list = current.allow[rule.tool] ?? []
+              if (!list.includes(rule.pattern)) current.allow[rule.tool] = [...list, rule.pattern]
+            }
+          const updated = {
+            ...document,
+            ...current,
+            _b4RuleCoordinator: withRuleReceipt(coordinator, intent, outcome, current),
+          }
+          await persist(path, updated)
+          return outcome
+        })
+      },
+    },
     match(tool: string, candidate: string) {
       return matchPermission(
         tool,
@@ -143,15 +194,25 @@ export function createPermissionsStore(opts: CreateOptions): PermissionsStore {
       }
     },
     async addAllow(tool: string, pattern: string) {
-      const job = async () => {
-        const list = state.runtimeAllow[tool] ?? []
-        if (!list.includes(pattern)) list.push(pattern)
-        state.runtimeAllow[tool] = list
-        await persistRuntimeFile()
-        await ensureGitignoreEntry()
-      }
-      writeQueue = writeQueue.then(job, job)
-      await writeQueue
+      await withPermissionFile(appRoot, async (path) => {
+        const document = await readPermissionFile(path),
+          current = maps(document)
+        const coordinator = readRuleCoordinator(document._b4RuleCoordinator, current)
+        const intent = {
+          operationId: crypto.randomUUID(),
+          scopeId: coordinator.scopeId,
+          revision: String(coordinator.revision),
+          rules: [{ tool, pattern }],
+        }
+        const list = current.allow[tool] ?? []
+        if (!list.includes(pattern)) current.allow[tool] = [...list, pattern]
+        await persist(path, {
+          ...document,
+          ...current,
+          _b4RuleCoordinator: withRuleReceipt(coordinator, intent, "applied", current),
+        })
+      })
     },
   }
+  return store
 }

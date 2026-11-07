@@ -161,7 +161,7 @@ function makeTransaction(access: Access): RuntimeTransaction {
     pending: makeRecords(access, pendingSpec),
     grants: {
       ...grants,
-      async consume(id, continuationRunId) {
+      async consume(id, continuationRunId, negativeDecision) {
         access.check()
         access.reference("runs", continuationRunId)
         const grant = await grants.get(id)
@@ -178,7 +178,9 @@ function makeTransaction(access: Access): RuntimeTransaction {
           pending.input.data.b4?.pausedGeneration !== grant.pausedGeneration ||
           pending.input.data.b4?.proposalHash !== grant.proposalHash ||
           JSON.stringify(pending.namespace) !== JSON.stringify(grant.namespace) ||
-          (grant.expiresAt !== null && Date.parse(grant.expiresAt) <= Date.parse(access.now()))
+          (negativeDecision !== "deny" &&
+            grant.expiresAt !== null &&
+            Date.parse(grant.expiresAt) <= Date.parse(access.now()))
         )
           return false
         access.check()

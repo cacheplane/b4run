@@ -109,6 +109,7 @@ export async function fixture(
   }
   let allowed = true
   let agent = "/chat#agent"
+  const unavailableAgents = new Set<string>()
   let originalAvailable = true
   let messages = true
   let configDefaults: Readonly<Record<string, unknown>> = {}
@@ -151,7 +152,7 @@ export async function fixture(
   const registry = () => ({
     appRoot: directory,
     entries: ["/chat#agent", "/changed#agent", "/other#agent"]
-      .filter((id) => originalAvailable || id !== "/chat#agent")
+      .filter((id) => (originalAvailable || id !== "/chat#agent") && !unavailableAgents.has(id))
       .map((id) => ({
         assistantId: id,
         routeId: id.split("#")[0] ?? id,
@@ -209,6 +210,14 @@ export async function fixture(
     },
   })
   return {
+    authority: {
+      storage,
+      deploymentId: "deployment-test",
+      policy,
+      authorizeAgent: (request: Request, id: string) =>
+        authorizeProtocolAgent({ request, registry: registry(), middleware: undefined }, id),
+    },
+    directory,
     storage,
     service,
     request,
@@ -242,6 +251,9 @@ export async function fixture(
     },
     deny() {
       allowed = false
+    },
+    removeAgent(id: string) {
+      unavailableAgents.add(id)
     },
     removeOriginalAgent() {
       originalAvailable = false

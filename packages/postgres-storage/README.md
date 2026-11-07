@@ -173,6 +173,16 @@ respective service tasks. Unsupported state controls fail before mutation. This
 persistence foundation does not certify full host activation or extend the
 root entry's edge qualification.
 
+## Conditional permission rules
+
+The permissions store's optional `rememberedRules` coordinator shares one scope
+lock and transaction with every `addAllow` writer. An appended migration preserves
+existing rules and adds private scope/revision/receipt state. Exact intent retries
+never re-add a later removed rule. The staged runtime commits remembered-rule
+intents with batch acceptance, then verifies/applies the actual configured domain
+before started execution. Shared-runtime activation requires the same authoritative
+rule backend on each worker; a local file on a different worker is insufficient.
+
 ## Related
 
 - [Postgres Storage API reference](https://b4.run/docs/api/postgres-storage) — exact options, stores, and lifecycle.

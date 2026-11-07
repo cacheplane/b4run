@@ -324,6 +324,14 @@ export function openWorkspaceInstallation(appRoot: string): WorkspaceInstallatio
           requireOpen()
           sandboxes.addGrant(threadId, tool, pattern)
         },
+        prepareRuleIntent(threadId, operationId, rules) {
+          requireOpen()
+          return sandboxes.prepareRuleIntent(threadId, operationId, rules)
+        },
+        applyRuleIntent(threadId, intent) {
+          requireOpen()
+          return sandboxes.applyRuleIntent(threadId, intent)
+        },
       },
       staged: {
         upload(bundle, now, maxStagedBytes, uploader) {

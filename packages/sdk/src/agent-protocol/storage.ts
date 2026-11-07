@@ -78,6 +78,13 @@ export interface RuntimePendingRecord {
   readonly namespace: Namespace
   readonly disposition: "pending" | "answered" | "retired"
   readonly decision: unknown
+  /** Server-derived protected proposal. Never projected or read from caller
+   * metadata. Permission acceptance requires this for actionable rows. */
+  readonly proposal?: {
+    readonly agentId: string
+    readonly value: unknown
+    readonly rule: { readonly tool: string; readonly pattern: string }
+  }
 }
 
 /** Only hashes are persisted here; grants are not public scope credentials. */
@@ -271,7 +278,13 @@ export interface RuntimeTransaction {
   readonly grants: RuntimeRecords<RuntimeGrantRecord> & {
     /** Conditional unconsumed -> consumed transition. False never mutates a row.
      * Validate exact pause/proposal/namespace/expiry before the transition. */
-    consume(grantId: string, continuationRunId: string): Promise<boolean>
+    consume(
+      grantId: string,
+      continuationRunId: string,
+      /** Only an already authenticated negative answer may abandon an expired
+       * prompt. All other current owner/pause/proposal predicates still apply. */
+      negativeDecision?: "deny",
+    ): Promise<boolean>
   }
   readonly receipts: RuntimeRecords<RuntimeReceiptRecord>
   readonly journal: {

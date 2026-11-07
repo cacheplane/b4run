@@ -1,5 +1,17 @@
-import type { PermissionMode, PermissionsFile, PermissionsStore } from "@b4run/permissions"
+import type {
+  PermissionMode,
+  PermissionsFile,
+  PermissionsStore,
+  RememberedRuleIntent,
+} from "@b4run/permissions"
 import { matchPermission } from "@b4run/permissions"
+import {
+  existingRuleReceipt,
+  type RuleCoordinatorState,
+  readRuleCoordinator,
+  withRuleReceipt,
+} from "@b4run/permissions/internal/rule-coordinator"
+import { withTransaction } from "./internal/tx.js"
 import type { PostgresStoreOptions } from "./options.js"
 import {
   assertIdentifier,
@@ -9,6 +21,7 @@ import {
   qualify,
   runMigrations,
 } from "./schema.js"
+import type { SqlClient } from "./sql.js"
 import { throwNoPool } from "./sql.js"
 
 export interface PostgresPermissionsStoreOptions extends PostgresStoreOptions {
@@ -66,7 +79,10 @@ export function createPostgresPermissionsStore(
   const prefix = options.tablePrefix ?? DEFAULT_TABLE_PREFIX
   assertIdentifier("schema", schema)
   assertIdentifier("tablePrefix", prefix)
+  assertIdentifier("permissions table", `${prefix}_permissions`)
+  assertIdentifier("permission coordinator table", `${prefix}_perm_rules`)
   const table = qualify({ schema, prefix }, "permissions")
+  const coordinators = qualify({ schema, prefix }, "perm_rules")
   const mode: PermissionMode = options.mode ?? "interactive"
   const ownsPool = options.ownsPool ?? false
   const pool = options.pool ?? throwNoPool()
@@ -110,8 +126,103 @@ export function createPostgresPermissionsStore(
     return out
   }
 
-  return {
+  function fromRows(rows: readonly PermissionRow[]) {
+    const allow: MutableMap = {},
+      deny: MutableMap = {}
+    for (const row of rows) {
+      const target = row.kind === "deny" ? deny : allow
+      target[row.tool] = [...(target[row.tool] ?? []), row.pattern]
+    }
+    return { allow, deny }
+  }
+  function denied(current: { allow: MutableMap; deny: MutableMap }, intent: RememberedRuleIntent) {
+    return intent.rules.some(
+      (rule) =>
+        matchPermission(
+          rule.tool,
+          rule.pattern,
+          effective(configAllow, current.allow),
+          effective(configDeny, current.deny),
+        ) === "deny",
+    )
+  }
+  async function coordinated<T>(
+    callback: (
+      client: SqlClient,
+      current: { allow: MutableMap; deny: MutableMap },
+      state: RuleCoordinatorState,
+    ) => Promise<{ value: T; state: RuleCoordinatorState }>,
+  ) {
+    await ready()
+    const result = await withTransaction(pool, async (client) => {
+      // Every framework rule writer uses this exact domain lock. Native row
+      // mutation, monotonic revision and its intent receipt commit together.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+        `b4-permission-rules:${schema}.${prefix}.runtime`,
+      ])
+      const rows = await client.query<PermissionRow>(
+        `SELECT kind,tool,pattern FROM ${table} WHERE scope='runtime' ORDER BY kind,tool,pattern`,
+      )
+      const current = fromRows(rows.rows)
+      const persisted = await client.query<{ payload: RuleCoordinatorState }>(
+        `SELECT payload FROM ${coordinators} WHERE scope='runtime' FOR UPDATE`,
+      )
+      const state = readRuleCoordinator(persisted.rows[0]?.payload, current)
+      const next = await callback(client, current, state)
+      await client.query(
+        `INSERT INTO ${coordinators}(scope,payload) VALUES ('runtime',$1) ON CONFLICT(scope) DO UPDATE SET payload=EXCLUDED.payload`,
+        [JSON.stringify(next.state)],
+      )
+      return { value: next.value, current }
+    })
+    runtimeAllow = result.current.allow
+    runtimeDeny = result.current.deny
+    return result.value
+  }
+  const store: PostgresPermissionsStore = {
     mode,
+    rememberedRules: {
+      async prepare(operationId, rules) {
+        return coordinated(async (_client, current, state) => {
+          const intent = {
+            operationId,
+            scopeId: state.scopeId,
+            revision: String(state.revision),
+            rules,
+          }
+          withRuleReceipt(state, intent, "superseded", current)
+          if (mode !== "interactive" || denied(current, intent))
+            throw new Error("Permission rule cannot be remembered")
+          return { value: intent, state }
+        })
+      },
+      async apply(intent) {
+        return coordinated(async (client, current, state) => {
+          const receipt = existingRuleReceipt(state, intent)
+          if (receipt) return { value: receipt, state }
+          const outcome =
+            state.scopeId === intent.scopeId &&
+            String(state.revision) === intent.revision &&
+            mode === "interactive" &&
+            !denied(current, intent)
+              ? "applied"
+              : "superseded"
+          if (outcome === "applied")
+            for (const rule of intent.rules) {
+              await client.query(
+                `INSERT INTO ${table}(scope,kind,tool,pattern,created_at) VALUES ('runtime','allow',$1,$2,$3) ON CONFLICT(scope,kind,tool,pattern) DO NOTHING`,
+                [rule.tool, rule.pattern, new Date().toISOString()],
+              )
+              if (!current.allow[rule.tool]?.includes(rule.pattern))
+                current.allow[rule.tool] = [
+                  ...(current.allow[rule.tool] ?? []),
+                  rule.pattern,
+                ].sort()
+            }
+          return { value: outcome, state: withRuleReceipt(state, intent, outcome, current) }
+        })
+      },
+    },
     ready,
     async close() {
       if (ownsPool) await pool.end()
@@ -153,18 +264,22 @@ export function createPostgresPermissionsStore(
     },
 
     async addAllow(tool: string, pattern: string) {
-      await ready()
-      await pool.query(
-        `INSERT INTO ${table} (scope, kind, tool, pattern, created_at)
-         VALUES ('runtime', 'allow', $1, $2, $3)
-         ON CONFLICT (scope, kind, tool, pattern) DO NOTHING`,
-        [tool, pattern, new Date().toISOString()],
-      )
-      // The cache update is what makes the grant visible to the synchronous
-      // match() the instant this resolves — no reload in between.
-      const list = runtimeAllow[tool] ?? []
-      if (!list.includes(pattern)) list.push(pattern)
-      runtimeAllow[tool] = list
+      await coordinated(async (client, current, state) => {
+        const intent = {
+          operationId: crypto.randomUUID(),
+          scopeId: state.scopeId,
+          revision: String(state.revision),
+          rules: [{ tool, pattern }],
+        }
+        await client.query(
+          `INSERT INTO ${table}(scope,kind,tool,pattern,created_at) VALUES ('runtime','allow',$1,$2,$3) ON CONFLICT(scope,kind,tool,pattern) DO NOTHING`,
+          [tool, pattern, new Date().toISOString()],
+        )
+        if (!current.allow[tool]?.includes(pattern))
+          current.allow[tool] = [...(current.allow[tool] ?? []), pattern].sort()
+        return { value: undefined, state: withRuleReceipt(state, intent, "applied", current) }
+      })
     },
   }
+  return store
 }

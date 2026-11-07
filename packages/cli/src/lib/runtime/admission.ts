@@ -1,8 +1,4 @@
-import {
-  THREAD_ACCESS_METADATA_KEY,
-  type ThreadAccessPolicy,
-  type ThreadAccessRequest,
-} from "@b4run/sdk"
+import { THREAD_ACCESS_METADATA_KEY, type ThreadAccessPolicy } from "@b4run/sdk"
 import type {
   B4RunStream,
   ReceiptV1,
@@ -12,7 +8,6 @@ import type {
   RuntimeThreadRecord,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
-import { sha256Hex } from "@b4run/sdk/pure"
 import { requestPrincipal } from "../dev/auth.js"
 import type { AgentCatalog } from "../dev/protocol/catalog.js"
 import { ProtocolError } from "../dev/protocol/errors.js"
@@ -31,9 +26,20 @@ import {
 } from "../dev/protocol/metadata.js"
 import { parseProtocolRequest } from "../dev/protocol/validate.js"
 import type { RuntimeRegistryEntry } from "../dev/runtime-registry-core.js"
-import { createThreadAccessContext, snapshotThreadProvenance } from "../dev/thread-access.js"
+import { createThreadAccessContext } from "../dev/thread-access.js"
 import { makeProtocolThreadGate } from "../dev/thread-gate.js"
+import {
+  type AdmissionResult,
+  authorizeSavedPermissionAgents,
+  canonical,
+  hash,
+  operationPayload,
+  replayOperationReceipt,
+  subject,
+} from "./operation-ledger.js"
 import { type RuntimeStorageHost, runtimeStorageRegistration } from "./storage-host.js"
+
+export type { AdmissionResult } from "./operation-ledger.js"
 
 const services = new WeakSet<AdmissionService>()
 /** Internal boot/request bridge; structural request objects are never services. */
@@ -41,12 +47,6 @@ export function isAdmissionService(value: AdmissionService): boolean {
   return services.has(value)
 }
 
-export interface AdmissionResult {
-  readonly runId: string
-  /** Internal target for observers; run.start's closed result remains {runId}. */
-  readonly threadId: string
-  readonly responseMeta: { readonly b4: { readonly v: 1; readonly receipt: ReceiptV1 } }
-}
 export interface AdmissionServiceOptions {
   readonly storage: RuntimeStorageHost
   readonly deploymentId: string
@@ -66,51 +66,12 @@ export interface AdmissionService {
   admit(request: Request, body: unknown): Promise<AdmissionResult>
   searchRuns(request: Request, query: unknown): Promise<readonly Run[]>
 }
-function canonical(value: unknown): string {
-  if (value === undefined) return "null"
-  if (value === null || typeof value !== "object") return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
-    .join(",")}}`
-}
-function hash(value: unknown): string {
-  return sha256Hex(canonical(value))
-}
 function deterministicThread(key: string): string {
   const bytes = hash(key).slice(0, 32).split("")
   bytes[12] = "4"
   bytes[16] = "8"
   const h = bytes.join("")
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
-}
-function provenance(
-  row: RuntimeThreadRecord | undefined,
-): NonNullable<ThreadAccessRequest["provenance"]> | undefined {
-  const value = row?.protectedMetadata.provenance
-  return value && typeof value === "object"
-    ? snapshotThreadProvenance(value as NonNullable<ThreadAccessRequest["provenance"]>)
-    : undefined
-}
-function subject(
-  row: RuntimeThreadRecord | undefined,
-  original?: Readonly<Record<string, unknown>>,
-) {
-  const origin = original ? snapshotThreadProvenance(original) : provenance(row)
-  return { ...(row ? { thread: row.thread } : {}), ...(origin ? { provenance: origin } : {}) }
-}
-/** Correlation/transport members never change the operation's identity. Caller
- * annotations and expected generation/head remain part of the fingerprint. */
-function operationPayload(value: Record<string, unknown>): Record<string, unknown> {
-  const { id: _id, trace_id: _traceId, trace: _trace, ...payload } = value
-  const metadata = { ...((payload.metadata ?? {}) as Record<string, unknown>) }
-  if (metadata.b4 && typeof metadata.b4 === "object") {
-    const { submissionId: _token, ...b4 } = metadata.b4 as Record<string, unknown>
-    if (b4.expected !== undefined) metadata.b4 = b4
-    else delete metadata.b4
-  }
-  return { ...payload, metadata }
 }
 const mechanicalKeys = ["on_disconnect", "on_completion", "if_not_exists", "stream_mode"] as const
 /** Compare protocol semantics before adapter/schema processing, using the
@@ -147,36 +108,9 @@ async function replayReceipt(
   raw: Record<string, unknown>,
   ownerKey: string,
 ): Promise<AdmissionResult> {
-  const operation = record.operation
-  if (
-    !operation ||
-    operation.scopeKey !== ownerKey ||
-    !operation.normalization ||
-    typeof operation.normalization.messages !== "boolean"
+  return replayOperationReceipt(tx, record, ownerKey, (operation) =>
+    protocolOperationIdentity(incoming, raw, operation.resolved, operation.normalization),
   )
-    throw new ProtocolError("receipt_expired")
-  let fingerprint: string
-  try {
-    fingerprint = hash([
-      ownerKey,
-      operation.method,
-      canonical(
-        protocolOperationIdentity(incoming, raw, operation.resolved, operation.normalization),
-      ),
-      tx.scope.generation,
-    ])
-  } catch {
-    throw new ProtocolError("submission_conflict")
-  }
-  if (fingerprint !== record.fingerprint) throw new ProtocolError("submission_conflict")
-  const run = await tx.runs.get(record.receipt.runId)
-  if (!run) throw new ProtocolError("submission_target_gone")
-  if (record.state !== "accepted") throw new ProtocolError("receipt_expired")
-  return {
-    runId: record.receipt.runId,
-    threadId: tx.scope.threadId,
-    responseMeta: { b4: { v: 1, receipt: { ...record.receipt, replayed: true } } },
-  }
 }
 function publicRun(row: import("@b4run/sdk/agent-protocol").RuntimeRunRecord): Run {
   const { lookup: _lookup, ...metadata } = row.metadata
@@ -606,6 +540,25 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
                 const operation = receipt.operation
                 if (!operation?.method || !operation.operationThreadId || !operation.targetRunId)
                   return { ...opaqueGone, unavailable: true }
+                if (
+                  operation.method === "input.respond" &&
+                  operation.resolved.permissionAgents !== undefined
+                ) {
+                  try {
+                    await authorizeSavedPermissionAgents(receipt, (id) =>
+                      options.authorizeAgent(request, id),
+                    )
+                  } catch (error) {
+                    if (
+                      error &&
+                      typeof error === "object" &&
+                      "code" in error &&
+                      error.code === "not_found"
+                    )
+                      return undefined
+                    throw error
+                  }
+                }
                 const identity = canonical([
                   "operation",
                   operation.method,
@@ -687,10 +640,21 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
               ...subject(actual),
             })
             if (!recheck.ok) return
+            const permissionReceipts = (await tx.receipts.list()).filter(
+              (receipt) =>
+                receipt.operation?.method === "input.respond" &&
+                receipt.operation.resolved.permissionAgents !== undefined,
+            )
             for (const row of await tx.runs.list()) {
               if (typeof row.run.agent_id !== "string") continue
               try {
                 await options.authorizeAgent(request, row.run.agent_id)
+                for (const receipt of permissionReceipts.filter(
+                  (receipt) => receipt.receipt.runId === row.run.run_id,
+                ))
+                  await authorizeSavedPermissionAgents(receipt, (id) =>
+                    options.authorizeAgent(request, id),
+                  )
               } catch (error) {
                 if (
                   error &&

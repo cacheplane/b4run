@@ -224,6 +224,15 @@ export const PERMISSIONS_MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    up: (naming) => `
+      CREATE TABLE IF NOT EXISTS ${qualify(naming, "perm_rules")} (
+        scope text PRIMARY KEY,
+        payload jsonb NOT NULL
+      );
+    `,
+  },
 ]
 
 /**

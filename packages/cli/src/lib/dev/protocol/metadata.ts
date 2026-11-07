@@ -125,6 +125,7 @@ function jsonEqual(left: unknown, right: unknown): boolean {
   return Object.keys(l).length === Object.keys(r).length && matchesLiteralFilters(l, r)
 }
 const protectedConfig = new Set([
+  "__b4PermissionContinuation",
   "b4",
   "thread_id",
   "run_id",

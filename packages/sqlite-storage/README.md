@@ -80,6 +80,14 @@ may transact in another Thread when it has no held or queued read lease;
 otherwise the backend rejects before queuing to avoid a cycle. Independent
 top-level leases and transactions retain their ordinary queueing.
 
+## Conditional thread permission rules
+
+The native workspace thread grant backend provides `prepareRuleIntent` and
+`applyRuleIntent` alongside `addGrant`. Grant mutation, bounded revision and
+idempotency receipt share one savepoint; deletion/recreation replaces the private
+rule scope. The optional thread permissions coordinator delegates to these
+actual guarded backend methods. App-wide permission files remain a separate domain.
+
 ## Related
 
 - [SQLite Storage API reference](https://b4.run/docs/api/sqlite-storage) — exact checkpoint and thread-store contracts.

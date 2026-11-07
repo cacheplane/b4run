@@ -153,3 +153,10 @@ export async function mintGrantForPark(interruptId: string): Promise<string | un
   }
   return await minter.mint({ interruptId, checkpointNs: readCheckpointNs() })
 }
+
+// The core gate shares this private continuation identity with the coordinated
+// adapter. It does not make a second grant/policy decision or serialize proofs.
+export {
+  assertPermissionContinuationContext,
+  confirmRememberedPermission,
+} from "./permission-continuation.js"

@@ -144,6 +144,16 @@ recovery materialization, copy/state, rollback/deletion and retention/webhooks
 remain required downstream work. Unsupported state controls fail before mutation;
 the coordinated persistence profile alone is not full host or edge certification.
 
+The permissions store implements the optional `PermissionsStore.rememberedRules`
+port. An appended migration retains existing permission rows and adds private
+coordinator state. All `addAllow()` and intent writers use one scope lock; rule
+mutations, bounded revisions and operation receipts commit in that permission
+transaction. Applied receipts do not re-add rules removed by later user edits.
+This domain remains separate from runtime acceptance, which saves durable intents
+and applies them before protected execution. Shared-runtime activation must resolve
+a compatible authoritative rule domain on every worker; a local file on another
+worker cannot satisfy a shared PostgreSQL Always intent.
+
 ## Key contracts
 
 ### `PostgresStoreOptions`

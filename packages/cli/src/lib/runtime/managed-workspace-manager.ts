@@ -596,6 +596,11 @@ export class ManagedWorkspaceManager {
       grants: {
         list: () => sandboxes.grants(threadId),
         add: (tool, pattern) => sandboxes.addGrant(threadId, tool, pattern),
+        rememberedRules: {
+          prepare: async (operationId, rules) =>
+            sandboxes.prepareRuleIntent(threadId, operationId, rules),
+          apply: async (intent) => sandboxes.applyRuleIntent(threadId, intent),
+        },
       },
     }
   }

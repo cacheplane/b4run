@@ -2231,10 +2231,14 @@ describe("package API reference pages", { timeout: 30_000 }, () => {
     expect(permissions).toContain(
       "Reserved `tool`, `subagent` and `clientTool` keys use exact matching",
     )
-    expect(permissions).toContain("await `store.load()` before any store use")
-    expect(permissions).toContain("especially before `addAllow()`")
-    expect(permissions).not.toContain("Call `load()` before matching")
-    expect(permissions).toContain("Only `addAllow()` persists a runtime decision")
+    expect(permissions).toContain("Call and await `store.load()` before matching")
+    expect(permissions).toContain(
+      "Every persistence operation independently reads the current authoritative file and preserves unrelated rules",
+    )
+    expect(permissions).not.toContain("Calling `addAllow()` first can overwrite")
+    expect(permissions).toContain(
+      "`addAllow()` and conditional intent application share the same serialized writer",
+    )
     expect(permissions).toContain("inline input object is public. `CreateOptions` is not exported")
 
     const workspace = foundationalContent("workspace")

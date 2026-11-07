@@ -1236,6 +1236,9 @@ importers:
 
   packages/sqlite-storage:
     dependencies:
+      '@b4run/permissions':
+        specifier: workspace:*
+        version: link:../permissions
       '@b4run/sdk':
         specifier: workspace:*
         version: link:../sdk

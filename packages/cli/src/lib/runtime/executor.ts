@@ -15,6 +15,11 @@ import {
   type LiveExecution,
   staleOwnership,
 } from "./ownership.js"
+import {
+  isPermissionService,
+  type PermissionExecutionPreparation,
+  type PermissionService,
+} from "./permissions.js"
 import type { RuntimeStorageHost } from "./storage-host.js"
 
 export interface ExecutionOutcome {
@@ -87,6 +92,7 @@ export async function settleExecution(
   })
 }
 export interface ExecutionHostOptions {
+  readonly permissions?: PermissionService
   readonly storage: RuntimeStorageHost
   /** R8 binds the shared adapter here only after retiring the legacy owners. */
   readonly invoke: (context: {
@@ -106,6 +112,8 @@ export interface ExecutionHost {
 /** Staged shared execution service. It does not activate HTTP/AG-UI bindings or
  * infer execution ownership from transports, registries or an empty live map. */
 export function createExecutionHost(options: ExecutionHostOptions): ExecutionHost {
+  if (options.permissions && !isPermissionService(options.permissions))
+    throw new Error("Unrecognized permission service")
   const backend = executionStorage(options.storage),
     clock = options.clock ?? executionClock
   const ownerId = crypto.randomUUID()
@@ -121,6 +129,14 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
     for (const threadId of await backend.listCandidates()) {
       if (closed) return
       let selected: RuntimeRunRecord | undefined
+      let preparation: PermissionExecutionPreparation | undefined, preparationError: unknown
+      if (options.permissions) {
+        try {
+          preparation = await options.permissions.prepareExecution(threadId)
+        } catch (error) {
+          preparationError = error
+        }
+      }
       const lease = await backend.claim(threadId, ownerId, async (tx) => {
         const thread = await tx.thread.get()
         if (!thread?.currentRunId) return
@@ -138,6 +154,38 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
             clock.now(),
           )
           return
+        }
+        const intents = (await tx.inbox.list()).filter(
+          (entry) => entry.kind === "rule_intent" && entry.runId === run.run.run_id,
+        )
+        if (intents.length || run.metadata.previousRunId !== undefined) {
+          if (preparationError) return
+          if (!options.permissions || !preparation)
+            throw new Error("Remembered rule execution requires its configured coordinator")
+          const outcome = await options.permissions.completePreparation(
+            tx,
+            run.run.run_id,
+            preparation,
+          )
+          if (outcome === "deferred") return
+          if (outcome === "refused") {
+            for (const entry of await tx.inbox.list()) {
+              if (
+                entry.kind === "dispatch" &&
+                entry.runId === run.run.run_id &&
+                entry.status === "accepted"
+              )
+                await tx.inbox.put({ ...entry, status: "not_applied" })
+            }
+            await tx.runs.put({ ...run, execution })
+            await settleExecution(
+              tx,
+              run.run.run_id,
+              { status: "error", reason: "execution_error", effectsUncertain: false },
+              clock.now(),
+            )
+            return
+          }
         }
         const dispatches = (await tx.inbox.list()).filter(
           (entry) =>
@@ -157,6 +205,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       if (!lease) continue
       if (!selected) {
         await lease.release()
+        if (preparationError) throw preparationError
         continue
       }
       const run = selected,

@@ -37,6 +37,10 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./dist/node.js"
+    },
+    "./internal/rule-coordinator": {
+      "types": "./dist/rule-coordinator.d.ts",
+      "default": "./dist/rule-coordinator.js"
     }
   },
   "publishConfig": {

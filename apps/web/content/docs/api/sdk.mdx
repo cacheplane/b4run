@@ -243,7 +243,12 @@ resolved defaults and protected provenance; public receipt responses omit it.
 boot hooks for atomic execution claim, heartbeat and fenced release. Missing
 execution hooks fail execution readiness closed. `RuntimeRunRecord.execution`
 retains private owner/fence identity and is excluded from public Run metadata.
-These contracts do not activate the server bindings or certify an execution host.
+`RuntimePendingRecord.proposal` holds optional private server-derived proposal
+and rule facts; actionable permission acceptance requires them. They are excluded
+from `PendingInput` projection. `RuntimeTransaction.grants.consume()` keeps expiry
+checks by default; its optional `"deny"` third argument permits only authenticated
+negative abandonment after expiry, retaining every current pause/proposal/owner
+predicate. These contracts do not activate the server bindings or certify an execution host.
 
 ### `@b4run/sdk/pure`
 

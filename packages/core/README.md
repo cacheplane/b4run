@@ -28,9 +28,19 @@ export const declarations = renderB4Types({ appRoot: "/app", routes: [] }, [])
 
 - `@b4run/core` is an edge-safe, low-level integration surface.
 - `@b4run/core/node` is a Node-only, low-level surface for filesystem discovery and compiler-backed extraction.
+- `@b4run/core/internal/permission-continuation` is edge-safe and internal.
 - `@b4run/core/internal/compiler` is Node-only and internal. Application and integration code must not depend on it.
 
 Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stays free of that filesystem-loader edge so static runtimes can seed configuration instead.
+
+## Internal permission continuation hook
+
+`@b4run/core/internal/permission-continuation` is portable internal adapter
+plumbing. Each execution receives an opaque context whose resolver verifies its
+canonical continuation, actual namespace and protected proposal before skipping
+a duplicate remembered-rule write. Unknown identities fail closed and current
+rule/constraint checks remain. R8 shared adapter assembly must recreate this
+context after restore; existing native handlers are not activated by this hook.
 
 ## Related
 

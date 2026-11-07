@@ -59,7 +59,7 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, `quota_exceeded`, or `uploader_invalid`. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
-| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote, and keep that thread's "Always" grants. |
+| `WorkspaceThreadSandboxStore` | Read a thread's sandbox, retain its grants, and conditionally prepare/apply rule intents in the native grant transaction. |
 
 
 The runtime installation uses `.b4/agent-protocol/v1/runtime.sqlite` with WAL,
@@ -70,6 +70,12 @@ remain intact. This opening API does not mint request authority or replace the
 current CLI boot owners. The C5 authority bridge and coordinated cutover remain
 required; state copy, rollback/deletion and recovery projection await their
 respective service owners and are not advertised by this installation API.
+
+The native `WorkspaceThreadSandboxStore.prepareRuleIntent(threadId, operationId,
+rules)` and `applyRuleIntent(threadId, intent)` methods share the grant writer's
+savepoint with private scope/revision/receipt state. Removing and recreating a
+thread cannot reuse an old prepared rule scope. The guarded installation delegates
+these methods to its actual backend; independent app-wide rules remain separate.
 
 ## Key contracts
 
