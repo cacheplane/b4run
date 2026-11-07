@@ -271,6 +271,27 @@ function makeTransaction(access: Access): RuntimeTransaction {
   return tx
 }
 
+/** Check callback reentry before any host or store waits on a writer/scope
+ * queue. This is the established queue policy, not a global busy check. */
+export function assertRuntimeQueueEntry(
+  installation: RuntimeInstallation,
+  scopeKey?: string,
+): void {
+  const context = installationContext(installation)
+  const current = context.activity.getStore()
+  if (
+    current?.kind === "transaction" ||
+    (current?.kind === "lease" && current.scopeKey === scopeKey)
+  )
+    throw new Error("Nested runtime transaction or lease would deadlock")
+  if (
+    current?.kind === "lease" &&
+    scopeKey !== undefined &&
+    (context.leaseRequests.get(scopeKey)?.count ?? 0) > 0
+  )
+    throw new Error("Lease callback cannot wait behind another scoped lease")
+}
+
 export interface BoundRuntimeStore extends RuntimeStore {
   committedReader(): Pick<RuntimeStore, "snapshot">
   advanceFence(): Promise<BoundRuntimeStore>
@@ -290,14 +311,7 @@ export function makeRuntimeStore(
   const context = installationContext(installation)
   const scopeKey = JSON.stringify([scope.threadId, scope.generation])
   async function scopeExclusive<T>(callback: () => Promise<T>): Promise<T> {
-    const current = context.activity.getStore()
-    if (
-      current?.kind === "transaction" ||
-      (current?.kind === "lease" && current.scopeKey === scopeKey)
-    )
-      throw new Error("Nested runtime transaction or lease would deadlock")
-    if (current?.kind === "lease" && (context.leaseRequests.get(scopeKey)?.count ?? 0) > 0)
-      throw new Error("Lease callback cannot wait behind another scoped lease")
+    assertRuntimeQueueEntry(installation, scopeKey)
     const previous = context.scopeTails.get(scopeKey) ?? Promise.resolve()
     let release!: () => void
     const tail = new Promise<void>((resolve) => {

@@ -7,7 +7,7 @@ import type {
 } from "@b4run/sdk/agent-protocol"
 import { bindRuntimeStore, createRuntimeBinding } from "./binding.js"
 import { installationContext, openRuntimeInstallation } from "./index.js"
-import { makeRuntimeStore } from "./transaction.js"
+import { assertRuntimeQueueEntry, makeRuntimeStore } from "./transaction.js"
 
 /** One installation registered with a trusted execution host at boot. No
  * package-exported scope binder and no request-controlled authorization hook. */
@@ -47,6 +47,22 @@ export function sqliteRuntimeStorage(
               .get(id, generation)
       return row ? JSON.parse(String(row.payload)) : undefined
     }
+    const waitForWriter = async (id: string, selectedGeneration?: string): Promise<void> => {
+      const context = installationContext(installation)
+      // Reject self-tail reentry before waiting. Committed generation discovery
+      // supplies only a queue key; the canonical scope is reread after waiting.
+      assertRuntimeQueueEntry(installation)
+      const generation =
+        selectedGeneration ??
+        read(
+          (db) =>
+            db.prepare("SELECT generation FROM scopes WHERE thread_id=? AND deleted=0").get(id)
+              ?.generation,
+        )
+      if (generation !== undefined)
+        assertRuntimeQueueEntry(installation, JSON.stringify([id, String(generation)]))
+      await context.tail
+    }
     try {
       return register({
         installationId: installation.installationId,
@@ -63,7 +79,7 @@ export function sqliteRuntimeStorage(
             )
           },
           async claim(id, ownerId, callback) {
-            await installationContext(installation).tail
+            await waitForWriter(id)
             const scope = read((db) =>
               db
                 .prepare("SELECT generation,fence FROM scopes WHERE thread_id=? AND deleted=0")
@@ -146,8 +162,7 @@ export function sqliteRuntimeStorage(
           if (!scope) scope = { thread_id: id, generation: randomUUID(), fence: 1 }
           // If a transaction is active, wait through a harmless committed scope
           // read using its serialized queue rather than binding in its middle.
-          const context = installationContext(installation)
-          await context.tail
+          await waitForWriter(id, String(scope.generation))
           const canonical =
             read((db) =>
               db

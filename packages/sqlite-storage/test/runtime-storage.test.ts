@@ -559,6 +559,151 @@ function acquisitionOutcome(promise: Promise<unknown>) {
     new Promise<{ status: string }>((resolve) => setImmediate(() => resolve({ status: "queued" }))),
   ])
 }
+async function registeredRuntime() {
+  const { sqliteRuntimeStorage } = await import("../src/runtime/host.ts")
+  let registration!: import("@b4run/sdk/agent-protocol").RuntimeStorageRegistrationOptions
+  await sqliteRuntimeStorage(root())((value) => {
+    registration = value
+    return { installationId: value.installationId }
+  })
+  cleanup.push(() => {
+    void registration.close()
+  })
+  const store = await registration.openThread("host-queue-first", true)
+  if (!store || !registration.execution) throw new Error("Missing registered SQLite runtime")
+  return { registration, store, execution: registration.execution }
+}
+it.each(["claim", "open existing", "open missing"] as const)(
+  "rejects registered host %s before waiting on its active outer transaction",
+  async (operation) => {
+    const { registration, store, execution } = await registeredRuntime()
+    let nested: Promise<unknown> | undefined
+    let active = false,
+      claimCallbacks = 0
+    try {
+      await store.transaction(async () => {
+        active = true
+        nested =
+          operation === "claim"
+            ? execution.claim("host-queue-first", "nested-owner", async () => {
+                claimCallbacks++
+              })
+            : registration.openThread(
+                operation === "open existing" ? "host-queue-first" : "host-queue-new",
+                operation === "open missing",
+              )
+        const outcome = await acquisitionOutcome(nested)
+        expect(active, "rejection must precede the outer transaction's unwind").toBe(true)
+        expect(outcome).toMatchObject({
+          status: "rejected",
+          reason: expect.objectContaining({
+            message: expect.stringMatching(/nested.*transaction|transaction.*deadlock/i),
+          }),
+        })
+        active = false
+      })
+    } finally {
+      active = false
+      await nested?.catch(() => undefined)
+    }
+    expect(claimCallbacks).toBe(0)
+    expect((await store.snapshot()).scope.fence).toBe(1)
+    const lease = await execution.claim("host-queue-first", "normal-owner", async () => {})
+    expect(lease).toBeDefined()
+    await lease?.heartbeat()
+    await lease?.release()
+    const current = await registration.openThread("host-queue-first", false)
+    expect(current).toBeDefined()
+    await current?.transaction(async () => {})
+    await registration.close()
+  },
+)
+it.each(["claim", "open"] as const)(
+  "allows an unrelated registered host %s to queue behind a normal active writer",
+  async (operation) => {
+    const { registration, store, execution } = await registeredRuntime()
+    await registration.openThread("host-queue-second", true)
+    let entered!: () => void, release!: () => void
+    const enteredWriter = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const releaseWriter = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writer = store.transaction(async () => {
+      entered()
+      await releaseWriter
+    })
+    await enteredWriter
+    const waiting =
+      operation === "claim"
+        ? execution.claim("host-queue-second", "queued-owner", async () => {})
+        : registration.openThread("host-queue-second", false)
+    try {
+      expect(await acquisitionOutcome(waiting)).toEqual({ status: "queued" })
+    } finally {
+      release()
+      await writer
+    }
+    const result = await waiting
+    expect(result).toBeDefined()
+    if (result && "release" in result) await result.release()
+    await store.transaction(async () => {})
+    await registration.close()
+  },
+)
+it("allows registered host opening and claiming a free foreign scope inside an inspection callback", async () => {
+  const { registration, store, execution } = await registeredRuntime()
+  await registration.openThread("host-queue-second", true)
+  await store.withReadLease(async () => {
+    const other = await registration.openThread("host-queue-second", false)
+    expect(other).toBeDefined()
+    const lease = await execution.claim("host-queue-second", "foreign-owner", async () => {})
+    expect(lease).toBeDefined()
+    await lease?.heartbeat()
+    await lease?.release()
+  })
+  await store.transaction(async () => {})
+  await registration.close()
+})
+it.each(["claim", "open"] as const)(
+  "rejects registered host %s for its held scope before an unrelated writer can delay the lease guard",
+  async (operation) => {
+    const { registration, store, execution } = await registeredRuntime()
+    const other = await registration.openThread("host-queue-second", true)
+    if (!other) throw new Error("Missing foreign scope")
+    await store.withReadLease(async () => {
+      let entered!: () => void, release!: () => void
+      const enteredWriter = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      const releaseWriter = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const writer = other.transaction(async () => {
+        entered()
+        await releaseWriter
+      })
+      await enteredWriter
+      const nested =
+        operation === "claim"
+          ? execution.claim("host-queue-first", "inspection-owner", async () => {})
+          : registration.openThread("host-queue-first", false)
+      try {
+        expect(await acquisitionOutcome(nested)).toMatchObject({
+          status: "rejected",
+          reason: expect.objectContaining({ message: expect.stringMatching(/nested.*lease/i) }),
+        })
+      } finally {
+        release()
+        await writer
+        await nested.catch(() => undefined)
+      }
+    })
+    await store.transaction(async () => {})
+    await registration.close()
+  },
+)
 function assertNoLeases(owner: { readonly path: string; close(): void }) {
   const db = new DatabaseSync(owner.path, { readOnly: true })
   try {
