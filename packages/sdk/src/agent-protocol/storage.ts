@@ -39,6 +39,8 @@ export interface RuntimeThreadRecord {
   readonly pausedGeneration: string | null
   /** Protected host lineage/access stamp, opaque to storage. Never client metadata. */
   readonly protectedMetadata: Readonly<Record<string, unknown>>
+  /** Binding-owned intent; REST creation replaces it, continuation preserves it. */
+  readonly cleanupIntent?: { readonly intentId: string; readonly onCompletion: "delete" | "keep" }
 }
 
 export interface RuntimeRunRecord {
@@ -49,6 +51,15 @@ export interface RuntimeRunRecord {
   readonly result: RunWaitResponse | null
   /** Private execution identity; never projected as caller metadata. */
   readonly execution?: { readonly ownerId: string; readonly fence: number }
+  /** Actual provider unwind proved in the owned native release transaction. */
+  readonly unwoundAt?: string
+  /** Current ownership reconciliation; historical settled outcome stays intact. */
+  readonly ownershipLoss?: {
+    readonly detectedAt: string
+    readonly ownerId: string
+    readonly fence: number
+    readonly effectsUncertain: true
+  }
 }
 
 export interface RuntimeCheckpointRecord {
@@ -111,6 +122,11 @@ export interface RuntimeReceiptRecord {
   readonly operation?: RuntimeOperationContext
 }
 export interface RuntimeOperationContext {
+  /** Trusted server entrypoint provenance, excluded from caller fingerprints. */
+  readonly binding?: {
+    readonly kind: "background" | "rest_creation" | "native_creation"
+    readonly onDisconnect: "cancel" | "continue"
+  }
   readonly scopeKey: string
   readonly method: string
   readonly operationThreadId: string
@@ -154,11 +170,76 @@ export interface RuntimeOperationCandidate {
   readonly receiptId: string
   readonly agentId?: string
   readonly provenance?: Readonly<Record<string, unknown>>
+  readonly retainedSubject?: RuntimeRetainedSubject
+}
+/** Private policy subject after automatic cleanup, never a public ghost Thread. */
+export interface RuntimeRetainedSubject {
+  readonly thread: Pick<Thread, "thread_id" | "created_at" | "updated_at" | "status" | "metadata">
+  readonly protectedMetadata: Readonly<Record<string, unknown>>
+}
+export interface RuntimeRetainedRun {
+  readonly scope: Pick<RuntimeStorageScope, "threadId" | "generation">
+  readonly subject: RuntimeRetainedSubject
+  readonly record: RuntimeRunRecord
+  readonly retainedAt: string
+  readonly retainedUntil: string
+}
+export interface RuntimeRetainedOperation {
+  readonly scope: Pick<RuntimeStorageScope, "threadId" | "generation">
+  readonly subject: RuntimeRetainedSubject
+  readonly receipt: RuntimeReceiptRecord
+  readonly run: RuntimeRunRecord | undefined
+}
+/** Trusted server-prepared ownership facts. No provider work runs in a runtime TX. */
+export type RuntimeProviderTeardownPlan = {
+  readonly installationId: string
+  readonly threadId: string
+  readonly generation: string
+} & (
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "owned"
+      readonly resources: readonly {
+        readonly associationId: string
+        readonly revision: string
+        readonly reference: string
+        readonly exclusiveOwnershipProof: string
+      }[]
+    }
+)
+export interface RuntimeTemporaryCleanupPlan {
+  readonly threadId: string
+  readonly generation: string
+  readonly runId: string
+  readonly headCheckpointId: string | null
+  readonly cleanupIntentId: string
+  readonly provider: RuntimeProviderTeardownPlan
+}
+export interface RuntimeTemporaryStorage {
+  candidates(): Promise<readonly Omit<RuntimeTemporaryCleanupPlan, "provider">[]>
+  finalize(plan: RuntimeTemporaryCleanupPlan): Promise<boolean>
+  readRun(runId: string): Promise<RuntimeRetainedRun | undefined>
+  listRuns(): Promise<readonly RuntimeRetainedRun[]>
+  /** One immutable committed cut, only after current original-subject authority. */
+  readOperation(query: {
+    readonly threadId: string
+    readonly generation: string
+    readonly receiptId: string
+  }): Promise<RuntimeRetainedOperation | undefined>
 }
 export interface RuntimeStorageRegistrationOptions {
   readonly installationId: string
   close(): void | Promise<void>
   readThread(threadId: string): Promise<RuntimeThreadRecord | undefined>
+  findRun?(runId: string): Promise<
+    | {
+        readonly scope: Pick<RuntimeStorageScope, "threadId" | "generation">
+        readonly subject: RuntimeRetainedSubject
+        readonly agentId: string
+        readonly location: "live" | "retained"
+      }
+    | undefined
+  >
   searchOperations(query: RuntimeOperationSearch): Promise<readonly RuntimeOperationCandidate[]>
   listThreads(): Promise<readonly RuntimeThreadRecord[]>
   /** Called by the trusted host only AFTER its common authorization gate.
@@ -166,11 +247,18 @@ export interface RuntimeStorageRegistrationOptions {
   openThread(threadId: string, create: boolean): Promise<RuntimeStore | undefined>
   /** Optional trusted boot capability. Absence must fail execution readiness. */
   readonly execution?: RuntimeExecutionStorage
+  readonly temporary?: RuntimeTemporaryStorage
 }
 
 /** Private host/backend plumbing, not request authority or a wire API. */
 export interface RuntimeExecutionStorage {
   listCandidates(): Promise<readonly string[]>
+  /** Committed exact control progress without opening/renewing a writer scope. */
+  controlProgress?(
+    scope: Pick<RuntimeStorageScope, "threadId" | "generation">,
+    entryId: string,
+    runId: string,
+  ): Promise<"pending" | "completed" | "uncertain">
   /** Claim only an unowned or authoritatively lost Thread. Increment the fence
    * and await the started/recovery callback in the SAME transaction. A live
    * owner, including this same ownerId, returns undefined without mutation. */
@@ -185,7 +273,7 @@ export interface RuntimeExecutionLease {
   /** Backend clock/owner proof, never a per-request clock or support flag. */
   heartbeat(): Promise<void>
   /** Revoke the bound fence before releasing durable ownership. */
-  release(): Promise<void>
+  release(callback?: (tx: RuntimeTransaction) => Promise<void>): Promise<void>
 }
 
 export interface RuntimeJournalRecord {
@@ -265,6 +353,8 @@ export interface RuntimeRollbackPlan {
  * human input is allowed inside the callback. */
 export interface RuntimeTransaction {
   readonly scope: RuntimeStorageScope
+  /** Existing authoritative native column, read under the same Thread lock. */
+  executionOwner(): Promise<string | null>
   readonly thread: {
     get(): Promise<RuntimeThreadRecord | undefined>
     put(record: RuntimeThreadRecord): Promise<void>

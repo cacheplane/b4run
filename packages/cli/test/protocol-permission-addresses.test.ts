@@ -1,13 +1,31 @@
 import { expect, it } from "vitest"
 import { createExecutionHost } from "../src/lib/runtime/executor.ts"
 import { createPermissionService, parkPermissions } from "../src/lib/runtime/permissions.ts"
-import { sharedPermissionFixtures } from "./fixtures/protocol-admission.ts"
+import { runtimeStorageRegistration } from "../src/lib/runtime/storage-host.ts"
+import { body, sharedPermissionFixtures } from "./fixtures/protocol-admission.ts"
 
 function required<T>(value: T | undefined | null): T {
   if (value == null) throw new Error("Missing current permission fixture fact")
   return value
 }
-const fixtures = sharedPermissionFixtures()
+const fixtures = sharedPermissionFixtures({ onCompletion: "keep" })
+it("isolates new logical boot admission after closing one host over the real shared installation", async () => {
+  const first = await fixtures.create(),
+    initial = await first.admit()
+  const host = createExecutionHost({ ...first.authority, invoke: async () => ({}) })
+  first.ownHost(host)
+  await host.close()
+  const next = body({
+    thread_id: initial.threadId,
+    if_not_exists: "create",
+    on_completion: "keep",
+    metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+  })
+  await expect(first.admit(next)).rejects.toMatchObject({ code: "storage_unavailable" })
+  const second = await fixtures.create()
+  expect((await second.admit()).runId).toEqual(expect.any(String))
+  await expect(first.admit(next)).rejects.toMatchObject({ code: "storage_unavailable" })
+}, 30_000)
 
 async function scenario(namespaces: readonly (readonly string[])[], pauses = 1) {
   const f = await fixtures.create()
@@ -216,7 +234,15 @@ it("rejects a genuinely duplicate current namespace and interrupt address before
 it("removes only drained owned test scopes before the next scenario can see or execute them", async () => {
   const first = await scenario([[]]),
     second = await scenario([[]])
-  expect(first.f.storage).toBe(second.f.storage)
+  const physicalHooks = runtimeStorageRegistration(first.f.storage)
+  expect(first.f.storage).not.toBe(second.f.storage)
+  expect(first.f.storage.installationId).toBe(second.f.storage.installationId)
+  expect(runtimeStorageRegistration(first.f.storage).openThread).toBe(
+    runtimeStorageRegistration(second.f.storage).openThread,
+  )
+  expect(runtimeStorageRegistration(first.f.storage).execution).toBe(
+    runtimeStorageRegistration(second.f.storage).execution,
+  )
   const firstCommand = await first.command(first.initial.runId)
   const secondCommand = await second.command(second.initial.runId)
   const foreign = {
@@ -253,7 +279,10 @@ it("removes only drained owned test scopes before the next scenario can see or e
   expect(second.effects()).toBe(0)
   const fresh = await fixtures.create()
   const freshRun = await fresh.admit()
-  expect(fresh.storage).toBe(first.f.storage)
+  expect(fresh.storage).not.toBe(first.f.storage)
+  expect(fresh.storage.installationId).toBe(first.f.storage.installationId)
+  expect(runtimeStorageRegistration(fresh.storage).openThread).toBe(physicalHooks.openThread)
+  expect(runtimeStorageRegistration(fresh.storage).execution).toBe(physicalHooks.execution)
   expect((await fresh.search({})).map((row) => row.run_id)).toEqual([freshRun.runId])
   expect(await fixtures.candidates()).toEqual([freshRun.threadId])
   expect(first.effects()).toBe(0)

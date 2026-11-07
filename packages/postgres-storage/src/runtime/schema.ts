@@ -25,7 +25,9 @@ CREATE TABLE journal(thread_id TEXT NOT NULL, generation TEXT NOT NULL, id TEXT 
 CREATE TABLE leases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence BIGINT NOT NULL, revision BIGINT NOT NULL, through_seq BIGINT NOT NULL, owner_nonce TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
 CREATE TABLE aliases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
 CREATE TABLE checkpoint_writes(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, checkpoint_id TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, CONSTRAINT owner_run_id_fkey FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, through_seq BIGINT NOT NULL, revision BIGINT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));`
+CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, through_seq BIGINT NOT NULL, revision BIGINT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
+CREATE TABLE retained_subjects(thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
+CREATE TABLE retained_runs(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, retained_until TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));`
     .split(";")
     .map((sql) => sql.trim())
     .filter(Boolean),
@@ -49,6 +51,8 @@ const names = [
   "aliases",
   "checkpoint_writes",
   "projections",
+  "retained_subjects",
+  "retained_runs",
   ...RECORD_TABLES,
   "native_checkpoints",
   "native_writes",

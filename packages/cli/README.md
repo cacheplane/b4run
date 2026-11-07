@@ -100,6 +100,21 @@ adapter assembly retires those owners. R8 must enlist actual checkpoint/pause
 writes and map real protected tasks/namespaces into fresh per-execution contexts;
 B1 must validate a compatible configured rule domain on every worker.
 
+The staged executor accepts exact-Run durable controls, distinguishes owning
+creation stream closure from passive observation, and waits for actual provider
+unwind before releasing ownership. Deadlines and configured shutdown drain use
+the same control path. Shutdown closes new Run and permission acceptance on its
+local boot host; authorized accepted receipts remain reconcilable.
+
+REST creation replaces completion intent; permission continuation preserves it.
+Automatic cleanup requires a trusted boot resource preparation capability,
+actual unwind, and native generation/head/intent/lease checks. It retains
+independent protected Run/results for seven days and commits a durable owned
+provider teardown obligation. R8 must wire the real workspace association bridge;
+R11 still owns physical teardown retries and explicit deletion, and R12 owns
+pruning. The staged producer does not destroy provider resources or activate the
+existing handlers. Unknown ownership refuses cleanup.
+
 ## Related
 
 - [`@b4run/sdk`](https://www.npmjs.com/package/@b4run/sdk) supplies the route and runtime contracts consumed by the CLI.

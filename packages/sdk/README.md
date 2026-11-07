@@ -130,6 +130,13 @@ bounded hashes; full identities and historical pending/grant rows are retained.
 `"deny"` argument permits authenticated negative abandonment while preserving the
 current owner, namespace, proposal and paused-generation predicates.
 
+The private storage contracts also expose the current native execution owner and
+an optional callback in the existing fenced release transaction. Actual provider
+unwind and owner release commit together; uncertain ownership loss cannot mint
+that proof. Temporary cleanup uses separate private retained authorization
+subjects and Run/results, with coherent immutable original-operation reads.
+These hooks do not implement explicit Thread deletion or activate transports.
+
 ## Related
 
 - [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli) develops, tests, builds, and serves routes declared with the SDK.

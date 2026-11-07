@@ -1,9 +1,11 @@
 import type {
   RuntimeExecutionLease,
   RuntimeRecords,
+  RuntimeRetainedSubject,
   RuntimeSnapshot,
   RuntimeStorageScope,
   RuntimeStore,
+  RuntimeTemporaryCleanupPlan,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
 import { B4PostgresSaver } from "../checkpointer.js"
@@ -183,6 +185,13 @@ function makeTransaction(access: Access): RuntimeTransaction {
     thread = makeThread(access)
   const tx: RuntimeTransaction = {
     scope,
+    async executionOwner() {
+      const result = await access.query<{ execution_owner: string | null }>(
+        "SELECT execution_owner FROM scopes WHERE thread_id=? AND generation=?",
+        [scope.threadId, scope.generation],
+      )
+      return result.rows[0]?.execution_owner ?? null
+    },
     thread,
     runs: {
       ...runs,
@@ -324,7 +333,11 @@ export interface BoundRuntimeStore extends RuntimeStore {
     ownerId: string,
     callback: (tx: RuntimeTransaction) => Promise<void>,
   ): Promise<RuntimeExecutionLease | undefined>
-  releaseExecution(ownerId: string): Promise<void>
+  releaseExecution(
+    ownerId: string,
+    callback?: (tx: RuntimeTransaction) => Promise<void>,
+  ): Promise<void>
+  finalizeTemporary(plan: RuntimeTemporaryCleanupPlan): Promise<boolean>
 }
 /** Internal capability binder only. The coordinated label describes this
  * transaction domain, not activated host/protocol or deferred service support. */
@@ -443,7 +456,12 @@ export function makeRuntimeStore(
   })
   const transaction = async <T>(
     callback: (tx: RuntimeTransaction) => Promise<T>,
-    transition?: { claimOwner?: string; releaseOwner?: string; renewIdle?: true },
+    transition?: {
+      claimOwner?: string
+      releaseOwner?: string
+      renewIdle?: true
+      temporary?: RuntimeTemporaryCleanupPlan
+    },
   ): Promise<T> => {
     usable()
     assertRuntimeWriteEntry(owner, scope)
@@ -455,7 +473,7 @@ export function makeRuntimeStore(
         await lockScope(raw)
         await validate(raw, true, transition !== undefined)
         let effectiveScope = scope
-        if (transition) {
+        if (transition && !transition.temporary) {
           const rows = await raw.query<{ execution_owner: string | null; live: boolean }>(
             `SELECT execution_owner,lease_expires_at>clock_timestamp() AS live FROM ${scopes} WHERE thread_id=$1 AND generation=$2 FOR UPDATE`,
             [scope.threadId, scope.generation],
@@ -467,19 +485,21 @@ export function makeRuntimeStore(
             throw diagnostic("owner_busy", "Runtime Thread has a live execution owner")
           if (transition.releaseOwner && row?.execution_owner !== transition.releaseOwner)
             throw diagnostic("stale_fence", "Execution owner changed")
-          const result = await raw.query(
-            `UPDATE ${scopes} SET fence=fence+1,lease_expires_at=clock_timestamp()+interval '60 seconds',execution_owner=$4 WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND fence<9007199254740991 RETURNING fence`,
-            [
-              scope.threadId,
-              scope.generation,
-              scope.fence,
-              transition.claimOwner ??
-                (transition.releaseOwner ? null : (row?.execution_owner ?? null)),
-            ],
-          )
-          if (result.rows.length !== 1)
-            throw diagnostic("stale_fence", "Cannot advance runtime fence")
-          effectiveScope = { ...scope, fence: scope.fence + 1 }
+          if (!transition.releaseOwner) {
+            const result = await raw.query(
+              `UPDATE ${scopes} SET fence=fence+1,lease_expires_at=clock_timestamp()+interval '60 seconds',execution_owner=$4 WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND fence<9007199254740991 RETURNING fence`,
+              [
+                scope.threadId,
+                scope.generation,
+                scope.fence,
+                transition.claimOwner ??
+                  (transition.releaseOwner ? null : (row?.execution_owner ?? null)),
+              ],
+            )
+            if (result.rows.length !== 1)
+              throw diagnostic("stale_fence", "Cannot advance runtime fence")
+            effectiveScope = { ...scope, fence: scope.fence + 1 }
+          }
         }
         const validateTransaction = (client: SqlClient) =>
           validate(client, true, false, effectiveScope)
@@ -524,6 +544,22 @@ export function makeRuntimeStore(
           )
           if (activity.failure) throw activity.failure.error
           await validateTransaction(raw)
+          if (transition?.temporary && result === true) {
+            const changed = await raw.query(
+              `UPDATE ${scopes} SET deleted=1,fence=fence+1 WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND execution_owner IS NULL AND fence<9007199254740991 RETURNING fence`,
+              [scope.threadId, scope.generation, scope.fence],
+            )
+            if (changed.rows.length !== 1)
+              throw diagnostic("stale_fence", "Temporary cleanup lost its native fence")
+          }
+          if (transition?.releaseOwner) {
+            const released = await raw.query(
+              `UPDATE ${scopes} SET fence=fence+1,lease_expires_at=clock_timestamp()+interval '60 seconds',execution_owner=NULL WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND execution_owner=$4 AND fence<9007199254740991 RETURNING fence`,
+              [scope.threadId, scope.generation, scope.fence, transition.releaseOwner],
+            )
+            if (released.rows.length !== 1)
+              throw diagnostic("stale_fence", "Cannot release runtime execution owner")
+          }
           return result
         } finally {
           active = false
@@ -577,6 +613,110 @@ export function makeRuntimeStore(
     pool,
     transaction,
     snapshot: () => transaction((tx) => tx.snapshot()),
+    finalizeTemporary(plan) {
+      return transaction(
+        async (tx) => {
+          const thread = await tx.thread.get(),
+            run = await tx.runs.get(plan.runId)
+          if (
+            plan.threadId !== scope.threadId ||
+            plan.generation !== scope.generation ||
+            thread?.currentRunId !== plan.runId ||
+            thread.headCheckpointId !== plan.headCheckpointId ||
+            thread.cleanupIntent?.intentId !== plan.cleanupIntentId ||
+            thread.cleanupIntent.onCompletion !== "delete" ||
+            thread.pausedGeneration ||
+            !run?.unwoundAt ||
+            run.metadata.phase !== "settled" ||
+            run.metadata.continuation !== "closed" ||
+            (await tx.executionOwner()) !== null
+          )
+            return false
+          if (
+            plan.provider.installationId !== owner.installationId ||
+            plan.provider.threadId !== scope.threadId ||
+            plan.provider.generation !== scope.generation ||
+            (plan.provider.kind === "owned" &&
+              (!plan.provider.resources.length ||
+                plan.provider.resources.some(
+                  (r) =>
+                    !r.associationId || !r.revision || !r.reference || !r.exclusiveOwnershipProof,
+                )))
+          )
+            throw diagnostic(
+              "scope_mismatch",
+              "Provider cleanup requires exact prepared ownership facts",
+            )
+          const retainedAt = now(),
+            retainedUntil = new Date(Date.parse(retainedAt) + 7 * 24 * 60 * 60 * 1000).toISOString()
+          const { thread_id, created_at, updated_at, status, metadata } = thread.thread
+          const permissionAgentsByRun = Object.fromEntries(
+            (await tx.receipts.list())
+              .filter(
+                (r) =>
+                  r.operation?.method === "input.respond" &&
+                  Array.isArray(r.operation.resolved.permissionAgents),
+              )
+              .map((r) => [r.receipt.runId, r.operation?.resolved.permissionAgents]),
+          )
+          const subject: RuntimeRetainedSubject = {
+            thread: { thread_id, created_at, updated_at, status, metadata },
+            protectedMetadata: {
+              ...(thread.protectedMetadata.provenance === undefined
+                ? {}
+                : { provenance: thread.protectedMetadata.provenance }),
+              permissionAgentsByRun,
+            },
+          }
+          const client = context.host.activity.getStore()?.client
+          if (!client) throw new Error("Missing native cleanup transaction")
+          const name = (value: string) => table(context.naming, value)
+          await client.query(`INSERT INTO ${name("retained_subjects")} VALUES ($1,$2,$3,$4)`, [
+            scope.threadId,
+            scope.generation,
+            JSON.stringify(subject),
+            retainedAt,
+          ])
+          for (const row of await tx.runs.list())
+            await client.query(`INSERT INTO ${name("retained_runs")} VALUES ($1,$2,$3,$4,$5,$6)`, [
+              row.run.run_id,
+              scope.threadId,
+              scope.generation,
+              JSON.stringify(row),
+              retainedAt,
+              retainedUntil,
+            ])
+          await tx.maintenance.put({
+            jobId: `temporary:${plan.cleanupIntentId}`,
+            kind: "provider_teardown",
+            runId: plan.runId,
+            status: plan.provider.kind === "none" ? "complete" : "pending",
+            payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
+          })
+          for (const value of [
+            "native_writes",
+            "native_checkpoints",
+            "checkpoint_writes",
+            "aliases",
+            "projections",
+            "journal",
+            "checkpoint_lineage",
+            "grants",
+            "pending",
+            "inbox",
+            "checkpoints",
+            "runs",
+            "threads",
+          ])
+            await client.query(`DELETE FROM ${name(value)} WHERE thread_id=$1 AND generation=$2`, [
+              scope.threadId,
+              scope.generation,
+            ])
+          return true
+        },
+        { temporary: plan },
+      )
+    },
     committedReader() {
       usable()
       return { snapshot: committedSnapshot }
@@ -693,8 +833,8 @@ export function makeRuntimeStore(
       await transaction(async () => {}, { renewIdle: true })
       return makeRuntimeStore(owner, { ...scope, fence: scope.fence + 1 }, now)
     },
-    async releaseExecution(ownerId) {
-      await transaction(async () => {}, { releaseOwner: ownerId })
+    async releaseExecution(ownerId, callback) {
+      await transaction(callback ?? (async () => {}), { releaseOwner: ownerId })
     },
     async claimExecution(ownerId, callback) {
       if (!ownerId) throw new Error("Execution owner identity is required")
@@ -725,9 +865,9 @@ export function makeRuntimeStore(
             if (result.rows.length !== 1) throw diagnostic("stale_fence", "Execution owner changed")
           })
         },
-        async release() {
+        async release(callback) {
           if (released) return
-          await claimed.releaseExecution(ownerId)
+          await claimed.releaseExecution(ownerId, callback)
           released = true
         },
       }

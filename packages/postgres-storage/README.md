@@ -166,6 +166,17 @@ accepted work. Expired owners cannot heartbeat or write; started work settles as
 `execution_lost` with uncertain effects instead of replaying. Unowned idle scopes
 renew with a new fence, preserving authorized retained-receipt lookup.
 
+The owned release transaction can record actual provider unwind atomically with
+the fence advance and owner clear. Lost ownership cannot write clean unwind
+proof. Settled-but-still-owned permission pauses are reconciled after lease loss
+without invoking their graph or rewriting their historical permission outcome.
+Automatic temporary cleanup rechecks exact generation/Run/head/completion intent,
+owner and unwind under the same native exclusion used by inspection leases. It
+atomically retains independent protected Run/results and retry subjects before
+removing Thread/runtime payloads and recording a durable provider teardown job.
+Retention pruning, the actual provider association bridge/worker, and explicit
+Thread deletion remain staged; these hooks do not claim physical erasure.
+
 The runtime cutover and shared server assembly remain required. Adapter
 safe-boundary hooks, coherent recovery materialization,
 copy/state operations, rollback/deletion and retention/webhooks await their

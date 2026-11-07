@@ -8,7 +8,7 @@ import {
 } from "../../postgres-storage/dist/node.js"
 import { createExecutionHost } from "../src/lib/runtime/executor.ts"
 import { createPermissionService, parkPermissions } from "../src/lib/runtime/permissions.ts"
-import { fixture } from "./fixtures/protocol-admission.ts"
+import { body, fixture } from "./fixtures/protocol-admission.ts"
 
 describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")(
   "native PostgreSQL permission composition",
@@ -27,7 +27,7 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")(
         f = await fixture(
           postgresRuntimeStorage({ pool, schema: "r6_runtime", tablePrefix: "b4_ap_v1_native" }),
         )
-        const accepted = await f.admit()
+        const accepted = await f.admit(body({ on_completion: "keep" }))
         let rules = createPostgresPermissionsStore({
           pool,
           schema: "r6_rules",

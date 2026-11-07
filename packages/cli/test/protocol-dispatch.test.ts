@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "n
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { fixture } from "./fixtures/protocol-admission.ts"
+import { body, fixture } from "./fixtures/protocol-admission.ts"
 
 async function executor() {
   return import("../src/lib/runtime/executor.ts")
@@ -23,7 +23,7 @@ async function setup() {
 }
 it("dispatches an accepted never-started Run after reopening the execution host", async () => {
   const { f, counter } = await setup()
-  const accepted = await f.admit()
+  const accepted = await f.admit(body({ on_completion: "keep" }))
   const { createExecutionHost } = await executor()
   const host = createExecutionHost({
     storage: f.storage,
@@ -81,7 +81,7 @@ it("uses durable polling after a missed wakeup with unchanged product intervals"
   })
   cleanups.push(() => host.close())
   await host.start()
-  const accepted = await f.admit()
+  const accepted = await f.admit(body({ on_completion: "keep" }))
   expect(existsSync(counter)).toBe(false)
   expect([...scheduled.values()].map((timer) => timer.delay)).toContain(1_000)
   for (const timer of scheduled.values()) if (timer.delay === 1_000) timer.callback()
@@ -91,7 +91,7 @@ it("uses durable polling after a missed wakeup with unchanged product intervals"
 })
 it("preserves the committed terminal winner when an invocation reports a late error", async () => {
   const { f } = await setup()
-  const accepted = await f.admit()
+  const accepted = await f.admit(body({ on_completion: "keep" }))
   const { createExecutionHost, settleExecution } = await executor()
   const host = createExecutionHost({
     storage: f.storage,

@@ -1,11 +1,27 @@
 import type {
   RunReason,
   RunStatus,
+  RuntimeInboxRecord,
   RuntimeRunRecord,
   RuntimeStore,
   RuntimeTransaction,
   RunWaitResponse,
 } from "@b4run/sdk/agent-protocol"
+import { ProtocolError } from "../dev/protocol/errors.js"
+import { canonicalProtocolId } from "../dev/protocol/metadata.js"
+import { parseProtocolRequest } from "../dev/protocol/validate.js"
+import { makeProtocolThreadGate } from "../dev/thread-gate.js"
+import {
+  type AdmissionService,
+  type AdmissionServiceOptions,
+  isAdmissionService,
+} from "./admission.js"
+import {
+  type AdmissionResult,
+  admissionBinding,
+  authorizeSavedPermissionAgents,
+  subject,
+} from "./operation-ledger.js"
 import {
   EXECUTION_HEARTBEAT_MS,
   EXECUTION_POLL_MS,
@@ -19,8 +35,73 @@ import {
   isPermissionService,
   type PermissionExecutionPreparation,
   type PermissionService,
+  retirePermissionPause,
 } from "./permissions.js"
-import type { RuntimeStorageHost } from "./storage-host.js"
+import {
+  closeRuntimeAdmission,
+  type RuntimeStorageHost,
+  runtimeStorageRegistration,
+  temporaryCleanupPreparation,
+} from "./storage-host.js"
+
+type StopReason = "user_stop" | "client_disconnect" | "server_shutdown" | "deadline"
+interface StopPayload {
+  readonly generation: string
+  readonly reason: StopReason
+}
+function stopPayload(entry: RuntimeInboxRecord): StopPayload {
+  return entry.payload as StopPayload
+}
+/** Exact-target selection and retirement share the same native Thread lock as
+ * resume. No graph invocation, grant consumption or synthetic permission answer. */
+async function acceptStop(
+  tx: RuntimeTransaction,
+  runId: string,
+  reason: StopReason,
+  timestamp: string,
+) {
+  const run = await tx.runs.get(runId),
+    thread = await tx.thread.get()
+  if (!run || !thread) throw new ProtocolError("not_found", { resource: "run" })
+  const existing = (await tx.inbox.list()).find(
+    (entry) => entry.kind === "control" && entry.runId === runId,
+  )
+  if (existing) return existing.entryId
+  const entryId = crypto.randomUUID()
+  let status: RuntimeInboxRecord["status"] = "accepted"
+  if (
+    thread.currentRunId !== runId ||
+    (run.metadata.phase === "settled" && run.metadata.continuation !== "waiting")
+  )
+    status = "not_applied"
+  else if (run.metadata.phase === "accepted" && run.metadata.startedAt === undefined) {
+    for (const entry of await tx.inbox.list())
+      if (entry.runId === runId && entry.status === "accepted")
+        await tx.inbox.put({ ...entry, status: "not_applied" })
+    await settleExecution(
+      tx,
+      runId,
+      { status: reason === "deadline" ? "timeout" : "interrupted", reason },
+      timestamp,
+    )
+    const retired = await tx.runs.get(runId)
+    if (retired) await tx.runs.put({ ...retired, unwoundAt: timestamp })
+    status = "applied"
+  } else if (run.metadata.continuation === "waiting" && thread.pausedGeneration) {
+    await retirePermissionPause(tx, runId, timestamp)
+    if (run.unwoundAt || !run.metadata.startedAt) status = "applied"
+  }
+  await tx.inbox.put({
+    entryId,
+    kind: "control",
+    runId,
+    namespace: run.namespace,
+    status,
+    payload: { generation: tx.scope.generation, reason } satisfies StopPayload,
+    createdAt: timestamp,
+  })
+  return entryId
+}
 
 export interface ExecutionOutcome {
   readonly status: Exclude<RunStatus, "pending">
@@ -38,7 +119,10 @@ export async function settleExecution(
 ): Promise<void> {
   const row = await tx.runs.get(runId)
   if (!row || row.metadata.phase === "settled") return
-  if (!row.execution || row.execution.fence !== tx.scope.fence)
+  if (
+    (row.execution && row.execution.fence !== tx.scope.fence) ||
+    (!row.execution && row.metadata.startedAt !== undefined)
+  )
     throw Object.assign(new Error("Execution settlement has a stale owner fence"), {
       code: "stale_fence",
     })
@@ -70,7 +154,7 @@ export async function settleExecution(
       thread: {
         ...thread.thread,
         updated_at: timestamp,
-        status: outcome.status === "success" ? "idle" : "error",
+        status: outcome.status === "error" ? "error" : "idle",
       },
     })
   await tx.journal.append({
@@ -92,6 +176,12 @@ export async function settleExecution(
   })
 }
 export interface ExecutionHostOptions {
+  readonly admission?: AdmissionService
+  /** Host-configured execution deadline; never inferred from caller metadata. */
+  readonly deadlineMs?: number
+  readonly deploymentId?: AdmissionServiceOptions["deploymentId"]
+  readonly policy?: AdmissionServiceOptions["policy"]
+  readonly authorizeAgent?: AdmissionServiceOptions["authorizeAgent"]
   readonly permissions?: PermissionService
   readonly storage: RuntimeStorageHost
   /** R8 binds the shared adapter here only after retiring the legacy owners. */
@@ -107,11 +197,27 @@ export interface ExecutionHost {
   start(): Promise<void>
   tick(): Promise<void>
   idle(): Promise<void>
-  close(): Promise<void>
+  cancel(request: Request, threadId: string, runId: string, query: unknown): Promise<void>
+  bindRestCreation(
+    result: AdmissionResult,
+    signal: AbortSignal,
+  ): Promise<{ readonly closed: Promise<void>; dispose(): void }>
+  bindNativeCreation(
+    result: AdmissionResult,
+    signal: AbortSignal,
+  ): Promise<{ readonly closed: Promise<void>; dispose(): void }>
+  close(options?: { readonly drainMs: number }): Promise<void>
 }
 /** Staged shared execution service. It does not activate HTTP/AG-UI bindings or
  * infer execution ownership from transports, registries or an empty live map. */
 export function createExecutionHost(options: ExecutionHostOptions): ExecutionHost {
+  if (options.admission && !isAdmissionService(options.admission))
+    throw new Error("Unrecognized admission service")
+  if (
+    options.deadlineMs !== undefined &&
+    (!Number.isSafeInteger(options.deadlineMs) || options.deadlineMs <= 0)
+  )
+    throw new Error("Execution deadline must be a positive integer")
   if (options.permissions && !isPermissionService(options.permissions))
     throw new Error("Unrecognized permission service")
   const backend = executionStorage(options.storage),
@@ -122,10 +228,124 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
   let closed = false,
     poll: unknown,
     ticking: Promise<void> | undefined
+  let closing: Promise<void> | undefined
   const report = (error: unknown) => {
     if (!staleOwnership(error)) failures.push(error)
   }
+  const registration = runtimeStorageRegistration(options.storage)
+  const stopped = new Map<string, StopReason>()
+  const finalizing = new Map<string, Promise<void>>()
+  const finalizationFailures = new Map<string, unknown>()
+  function finalize(threadId: string, runId: string): Promise<void> {
+    const key = JSON.stringify([threadId, runId])
+    const existing = finalizing.get(key)
+    if (existing) return existing
+    finalizationFailures.delete(key)
+    const work = (async () => {
+      const plan = (await registration.temporary?.candidates())?.find(
+        (p) => p.threadId === threadId && p.runId === runId,
+      )
+      if (!plan) return
+      const context = {
+        installationId: options.storage.installationId,
+        threadId,
+        generation: plan.generation,
+        cleanupIntentId: plan.cleanupIntentId,
+      }
+      const prepare = temporaryCleanupPreparation(options.storage)
+      if (!prepare) throw new ProtocolError("not_supported")
+      const provider = await prepare(context)
+      await registration.temporary?.finalize({ ...plan, provider })
+    })()
+      .catch((error) => {
+        finalizationFailures.set(key, error)
+        throw error
+      })
+      .finally(() => {
+        finalizing.delete(key)
+      })
+    finalizing.set(key, work)
+    return work
+  }
+  async function observeControls() {
+    for (const [key, entry] of live) {
+      let control: RuntimeInboxRecord | undefined
+      try {
+        control = await entry.lease.store.transaction(async (tx) =>
+          (await tx.inbox.list()).find(
+            (row) =>
+              row.kind === "control" &&
+              row.runId === key &&
+              row.status === "accepted" &&
+              stopPayload(row).generation === tx.scope.generation,
+          ),
+        )
+      } catch (error) {
+        if (!staleOwnership(error)) throw error
+        entry.controller.abort(error)
+        continue
+      }
+      if (control && !stopped.has(key)) {
+        stopped.set(key, stopPayload(control).reason)
+        entry.controller.abort(new Error(stopPayload(control).reason))
+      }
+    }
+  }
+  async function bindCreation(
+    result: AdmissionResult,
+    signal: AbortSignal,
+    kind: "rest_creation" | "native_creation",
+  ) {
+    const proof = admissionBinding(result, options.storage, kind)
+    let resolve!: () => void,
+      reject!: (error: unknown) => void,
+      closed = false
+    const completion = new Promise<void>((yes, no) => {
+      resolve = yes
+      reject = no
+    })
+    const disconnect = () => {
+      if (closed) return
+      closed = true
+      signal.removeEventListener("abort", disconnect)
+      void (async () => {
+        if (kind === "native_creation" || proof.binding.onDisconnect === "cancel") {
+          const candidate = await registration.findRun?.(proof.runId)
+          if (candidate?.location === "live" && candidate.scope.generation === proof.generation) {
+            const store = await registration.openThread(proof.threadId, false)
+            if (store)
+              await store.transaction(async (tx) => {
+                if (tx.scope.generation === proof.generation)
+                  await acceptStop(tx, proof.runId, "client_disconnect", clock.now())
+              })
+            await observeControls()
+          }
+        }
+      })().then(resolve, reject)
+    }
+    if (signal.aborted) disconnect()
+    else signal.addEventListener("abort", disconnect, { once: true })
+    return {
+      closed: completion,
+      dispose() {
+        if (closed) return
+        closed = true
+        signal.removeEventListener("abort", disconnect)
+        resolve()
+      },
+    }
+  }
+  async function stopLive(runId: string, reason: StopReason) {
+    const entry = live.get(runId)
+    if (!entry) return
+    await entry.lease.store.transaction((tx) => acceptStop(tx, runId, reason, clock.now()))
+    await observeControls()
+    // A committed terminal can precede actual provider unwind. Shutdown and
+    // deadline still signal this same owned promise; settlement keeps its winner.
+    if (!entry.controller.signal.aborted) entry.controller.abort(new Error(reason))
+  }
   async function dispatch() {
+    await observeControls()
     for (const threadId of await backend.listCandidates()) {
       if (closed) return
       let selected: RuntimeRunRecord | undefined
@@ -141,18 +361,53 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         const thread = await tx.thread.get()
         if (!thread?.currentRunId) return
         const run = await tx.runs.get(thread.currentRunId)
-        if (!run || run.metadata.phase === "settled") return
+        if (!run) return
         const execution = { ownerId, fence: tx.scope.fence }
         if (run.metadata.startedAt !== undefined || run.metadata.phase !== "accepted") {
+          if (!run.execution) throw new ProtocolError("storage_unavailable")
+          const ownershipLoss = run.ownershipLoss ?? {
+            detectedAt: clock.now(),
+            ownerId: run.execution.ownerId,
+            fence: run.execution.fence,
+            effectsUncertain: true as const,
+          }
+          if (run.metadata.phase === "settled") {
+            await retirePermissionPause(tx, run.run.run_id, clock.now())
+            const historical = await tx.runs.get(run.run.run_id)
+            if (!historical) throw new ProtocolError("storage_unavailable")
+            await tx.runs.put({ ...historical, execution, ownershipLoss })
+            const current = await tx.thread.get()
+            if (current?.currentRunId === run.run.run_id)
+              await tx.thread.put({
+                ...current,
+                revision: current.revision + 1,
+                thread: { ...current.thread, status: "error" },
+              })
+            for (const entry of await tx.inbox.list())
+              if (
+                entry.kind === "control" &&
+                entry.runId === run.run.run_id &&
+                entry.status === "accepted"
+              )
+                await tx.inbox.put({ ...entry, status: "applied" })
+            return
+          }
           // Fencing was already applied under the same backend row lock. Even
           // a crash before the first actual effect must never replay this Run.
-          await tx.runs.put({ ...run, execution })
+          await tx.runs.put({ ...run, execution, ownershipLoss })
           await settleExecution(
             tx,
             run.run.run_id,
             { status: "error", reason: "execution_lost", effectsUncertain: true },
             clock.now(),
           )
+          for (const entry of await tx.inbox.list())
+            if (
+              entry.kind === "control" &&
+              entry.runId === run.run.run_id &&
+              entry.status === "accepted"
+            )
+              await tx.inbox.put({ ...entry, status: "applied" })
           return
         }
         const intents = (await tx.inbox.list()).filter(
@@ -210,7 +465,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       }
       const run = selected,
         controller = new AbortController()
-      const key = JSON.stringify([run.run.run_id, ownerId])
+      const key = run.run.run_id
       let heartbeating: Promise<void> | undefined
       const heartbeat = clock.setInterval(() => {
         if (heartbeating) return
@@ -224,6 +479,13 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
             heartbeating = undefined
           })
       }, EXECUTION_HEARTBEAT_MS)
+      const deadline =
+        options.deadlineMs === undefined
+          ? undefined
+          : clock.setInterval(() => {
+              clock.clearInterval(deadline)
+              void stopLive(key, "deadline").catch(report)
+            }, options.deadlineMs)
       // This continuation runs only AFTER the claim/started transaction commits.
       const work = Promise.resolve()
         .then(async () => {
@@ -233,29 +495,66 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
               store: lease.store,
               signal: controller.signal,
             })
-            await lease.store.transaction((tx) =>
-              settleExecution(
+            await lease.store.transaction(async (tx) => {
+              const control = (await tx.inbox.list()).find(
+                (row) => row.kind === "control" && row.runId === key && row.status === "accepted",
+              )
+              const reason = control ? stopPayload(control).reason : undefined
+              if (reason) await retirePermissionPause(tx, key, clock.now())
+              await settleExecution(
                 tx,
                 run.run.run_id,
-                { status: "success", reason: "completed", result },
+                reason
+                  ? { status: reason === "deadline" ? "timeout" : "interrupted", reason }
+                  : { status: "success", reason: "completed", result },
                 clock.now(),
-              ),
-            )
+              )
+            })
           } catch (error) {
             if (!staleOwnership(error))
-              await lease.store.transaction((tx) =>
-                settleExecution(
+              await lease.store.transaction(async (tx) => {
+                const control = (await tx.inbox.list()).find(
+                  (row) => row.kind === "control" && row.runId === key && row.status === "accepted",
+                )
+                const reason = control ? stopPayload(control).reason : undefined
+                if (reason) await retirePermissionPause(tx, key, clock.now())
+                await settleExecution(
                   tx,
                   run.run.run_id,
-                  { status: "error", reason: "execution_error" },
+                  reason
+                    ? { status: reason === "deadline" ? "timeout" : "interrupted", reason }
+                    : { status: "error", reason: "execution_error" },
                   clock.now(),
-                ),
-              )
+                )
+              })
           } finally {
             clock.clearInterval(heartbeat)
+            if (deadline !== undefined) clock.clearInterval(deadline)
             await heartbeating
             try {
-              await lease.release()
+              await lease.release(async (tx) => {
+                const row = await tx.runs.get(key)
+                if (
+                  row?.execution?.ownerId !== ownerId ||
+                  row.execution.fence !== tx.scope.fence ||
+                  (await tx.executionOwner()) !== ownerId
+                )
+                  throw Object.assign(
+                    new Error("Cannot prove actual unwind for another execution"),
+                    { code: "stale_fence" },
+                  )
+                await tx.runs.put({ ...row, unwoundAt: clock.now() })
+                const thread = await tx.thread.get()
+                if (thread?.cleanupIntent?.onCompletion !== "delete")
+                  for (const entry of await tx.inbox.list())
+                    if (
+                      entry.kind === "control" &&
+                      entry.runId === key &&
+                      entry.status === "accepted"
+                    )
+                      await tx.inbox.put({ ...entry, status: "applied" })
+              })
+              await finalize(threadId, key)
             } catch (error) {
               report(error)
             }
@@ -264,12 +563,17 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         .catch(report)
         .finally(() => {
           live.delete(key)
+          stopped.delete(key)
         })
       live.set(key, { lease, controller, work })
     }
+    for (const plan of (await registration.temporary?.candidates()) ?? [])
+      await finalize(plan.threadId, plan.runId)
   }
   const host: ExecutionHost = {
     ownerId,
+    bindRestCreation: (result, signal) => bindCreation(result, signal, "rest_creation"),
+    bindNativeCreation: (result, signal) => bindCreation(result, signal, "native_creation"),
     async start() {
       if (closed) throw new Error("Execution host is closed")
       if (poll !== undefined) return
@@ -288,16 +592,138 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
     async idle() {
       await ticking
       await Promise.all([...live.values()].map((entry) => entry.work))
+      await Promise.all([...finalizing.values()])
       if (failures.length) throw failures.shift()
     },
-    async close() {
-      if (closed) return
+    async cancel(request, threadId, runId, query) {
+      canonicalProtocolId(threadId)
+      canonicalProtocolId(runId)
+      const command = parseProtocolRequest("cancel", query)
+      if (command.wait && !backend.controlProgress) throw new ProtocolError("not_supported")
+      if (command.action !== "interrupt")
+        throw new ProtocolError("not_supported", { feature: "rollback" })
+      if (!options.deploymentId || !options.authorizeAgent)
+        throw new Error("Exact Run control requires trusted authority wiring")
+      const authorizeAgent = options.authorizeAgent
+      if (!registration.findRun) throw new ProtocolError("not_supported")
+      const candidate = await registration.findRun(runId)
+      if (!candidate || candidate.scope.threadId !== threadId) throw new ProtocolError("not_found")
+      await authorizeAgent(request, candidate.agentId)
+      const authorizeRetainedChildren = async (metadata: Readonly<Record<string, unknown>>) => {
+        const saved = (metadata.permissionAgentsByRun as Record<string, unknown> | undefined)?.[
+          runId
+        ]
+        if (saved === undefined) return
+        if (!Array.isArray(saved) || saved.some((id) => typeof id !== "string"))
+          throw new ProtocolError("storage_unavailable")
+        for (const id of saved) await authorizeAgent(request, id)
+      }
+      if (candidate.location === "retained")
+        await authorizeRetainedChildren(candidate.subject.protectedMetadata)
+      const gate = makeProtocolThreadGate(options.policy, request, {
+        deploymentId: options.deploymentId,
+      })
+      const current =
+        candidate.location === "retained"
+          ? candidate.subject
+          : await registration.readThread(threadId)
+      if (
+        !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(current) }))
+          .ok ||
+        !current
+      )
+        throw new ProtocolError("not_found")
+      if (candidate.location === "retained") {
+        const retained = await registration.temporary?.readRun(runId)
+        if (
+          !retained ||
+          retained.scope.generation !== candidate.scope.generation ||
+          !(
+            await gate({
+              action: "update",
+              operation: "run.cancel",
+              threadId,
+              ...subject(retained.subject),
+            })
+          ).ok
+        )
+          throw new ProtocolError("not_found")
+        await authorizeRetainedChildren(retained.subject.protectedMetadata)
+        return
+      }
+      const store = await registration.openThread(threadId, false)
+      if (!store) throw new ProtocolError("not_found")
+      const entryId = await store.transaction(async (tx) => {
+        const thread = await tx.thread.get(),
+          run = await tx.runs.get(runId)
+        if (
+          !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(thread) }))
+            .ok ||
+          !run?.run.agent_id
+        )
+          throw new ProtocolError("not_found")
+        if (tx.scope.generation !== candidate.scope.generation) throw new ProtocolError("not_found")
+        await authorizeAgent(request, run.run.agent_id)
+        for (const receipt of await tx.receipts.list())
+          if (receipt.receipt.runId === runId && receipt.operation?.method === "input.respond")
+            await authorizeSavedPermissionAgents(receipt, (id) => authorizeAgent(request, id))
+        return acceptStop(tx, runId, "user_stop", clock.now())
+      })
+      await observeControls()
+      if (!command.wait) return
+      void finalize(threadId, runId).catch(report)
+      for (;;) {
+        const finalizationFailure = finalizationFailures.get(JSON.stringify([threadId, runId]))
+        if (finalizationFailure) throw finalizationFailure
+        if (!backend.controlProgress) throw new ProtocolError("not_supported")
+        const progress = await backend.controlProgress(candidate.scope, entryId, runId)
+        if (progress === "uncertain") throw new ProtocolError("storage_unavailable")
+        if (progress === "completed") return
+        await new Promise<void>((resolve, reject) => {
+          if (request.signal.aborted) {
+            reject(request.signal.reason)
+            return
+          }
+          const abort = () => {
+            clearTimeout(timer)
+            reject(request.signal.reason)
+          }
+          const timer = setTimeout(() => {
+            request.signal.removeEventListener("abort", abort)
+            resolve()
+          }, EXECUTION_POLL_MS)
+          request.signal.addEventListener("abort", abort, { once: true })
+        })
+      }
+    },
+    close(configuration) {
+      if (closing) return closing
+      const drainMs = configuration?.drainMs ?? 0
+      if (!Number.isSafeInteger(drainMs) || drainMs < 0)
+        return Promise.reject(new Error("Shutdown drain budget must be a nonnegative integer"))
       closed = true
+      closeRuntimeAdmission(options.storage)
+      options.admission?.close()
       if (poll !== undefined) clock.clearInterval(poll)
-      await ticking
-      for (const entry of live.values())
-        entry.controller.abort(new Error("Execution host shutdown"))
-      await host.idle()
+      closing = (async () => {
+        await ticking
+        if (drainMs > 0 && live.size) {
+          let timer: unknown
+          try {
+            await Promise.race([
+              host.idle(),
+              new Promise<void>((resolve) => {
+                timer = clock.setInterval(resolve, drainMs)
+              }),
+            ])
+          } finally {
+            if (timer !== undefined) clock.clearInterval(timer)
+          }
+        }
+        for (const runId of live.keys()) await stopLive(runId, "server_shutdown")
+        await host.idle()
+      })()
+      return closing
     },
   }
   return Object.freeze(host)

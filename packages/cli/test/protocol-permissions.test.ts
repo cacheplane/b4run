@@ -16,7 +16,7 @@ function required<T>(value: T | undefined): T {
   return value
 }
 
-const fixtures = sharedPermissionFixtures()
+const fixtures = sharedPermissionFixtures({ onCompletion: "keep" })
 
 async function setup(
   count = 2,

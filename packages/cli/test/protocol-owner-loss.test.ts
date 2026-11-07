@@ -8,12 +8,12 @@ import { Pool } from "pg"
 import { afterEach, expect, it } from "vitest"
 import { postgresRuntimeStorage } from "../../postgres-storage/dist/node.js"
 import { runtimeStorageRegistration } from "../src/lib/runtime/storage-host.ts"
-import { fixture } from "./fixtures/protocol-admission.ts"
+import { body, fixture } from "./fixtures/protocol-admission.ts"
 
 it("provides private backend-owned atomic claim, heartbeat and fenced release", async () => {
   const f = await fixture()
   try {
-    const accepted = await f.admit()
+    const accepted = await f.admit(body({ on_completion: "keep" }))
     const ownership = runtimeStorageRegistration(f.storage).execution
     expect(
       ownership,
@@ -246,7 +246,7 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
         metadata: { reason: "execution_lost", effectsUncertain: true },
         result: { values: { partial: "durably retained" } },
       })
-      const retained = await f.admit()
+      const retained = await f.admit(body({ on_completion: "keep" }))
       // Finish the new accepted case through the same executor, then verify an
       // exact retained receipt survives a real DB-clock idle expiry.
       const { createExecutionHost } = await import("../src/lib/runtime/executor.ts")
@@ -259,7 +259,7 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
         `UPDATE "${schema}"."${tablePrefix}_scopes" SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE thread_id=$1`,
         [retained.threadId],
       )
-      expect((await f.admit()).runId).toBe(retained.runId)
+      expect((await f.admit(body({ on_completion: "keep" }))).runId).toBe(retained.runId)
       await expect(old.transaction(async () => {})).rejects.toMatchObject({ code: "stale_fence" })
     } finally {
       await f.close()
@@ -329,7 +329,7 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
     })
     try {
       await pollingHost.start()
-      const accepted = await polling.admit()
+      const accepted = await polling.admit(body({ on_completion: "keep" }))
       // No notification is sent and no direct tick is called after acceptance.
       // The actual default one-second durable poll is the only dispatcher.
       let deadline: ReturnType<typeof setTimeout> | undefined
@@ -358,7 +358,7 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
       postgresRuntimeStorage({ pool, schema, tablePrefix: heartbeatPrefix }),
     )
     try {
-      const accepted = await heartbeatFixture.admit()
+      const accepted = await heartbeatFixture.admit(body({ on_completion: "keep" }))
       const backend = runtimeStorageRegistration(heartbeatFixture.storage).execution
       if (!backend) throw new Error("Missing real Postgres execution backend")
       const beforeClaim = await heartbeatFixture.snapshot(accepted.threadId)
@@ -479,7 +479,7 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
     )
     let independent: Awaited<ReturnType<typeof fixture>> | undefined
     try {
-      const accepted = await guarded.admit()
+      const accepted = await guarded.admit(body({ on_completion: "keep" }))
       const store = await guarded.store(accepted.threadId)
       const registration = runtimeStorageRegistration(guarded.storage)
       const execution = registration.execution

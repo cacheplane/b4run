@@ -9,6 +9,7 @@ import type {
   AspInputRespondParams,
   PermissionPayloadV1,
   PermissionResponseV1,
+  RuntimeOperationContext,
   RuntimePendingRecord,
   RuntimeRunRecord,
   RuntimeSnapshot,
@@ -29,6 +30,8 @@ import {
   canonical,
   hash,
   operationPayload,
+  rememberAdmissionBinding,
+  replayOperationFacts,
   replayOperationReceipt,
   subject,
 } from "./operation-ledger.js"
@@ -38,7 +41,7 @@ import {
   permissionAddress as key,
   permissionResponse as response,
 } from "./pending-interrupts.js"
-import { runtimeStorageRegistration } from "./storage-host.js"
+import { runtimeAdmissionOpen, runtimeStorageRegistration } from "./storage-host.js"
 
 export interface PermissionServiceOptions
   extends Pick<AdmissionServiceOptions, "storage" | "deploymentId" | "policy" | "authorizeAgent"> {
@@ -233,6 +236,71 @@ export async function parkPermissions(
     },
   })
 }
+/** Retire only the exact current pause, preserving the historical permission
+ * settlement. Stop/loss never answer a prompt, consume a grant or invoke a graph. */
+export async function retirePermissionPause(
+  tx: RuntimeTransaction,
+  runId: string,
+  timestamp: string,
+): Promise<void> {
+  const thread = await tx.thread.get(),
+    run = await tx.runs.get(runId)
+  if (
+    !thread?.pausedGeneration ||
+    thread.currentRunId !== runId ||
+    !run ||
+    run.metadata.continuation !== "waiting"
+  )
+    return
+  const pause = thread.pausedGeneration
+  for (const pending of await tx.pending.list())
+    if (
+      pending.ownerRunId === runId &&
+      pending.input.data.b4.pausedGeneration === pause &&
+      pending.disposition === "pending"
+    ) {
+      const { grant: _grant, ...metadata } = pending.input.data.b4
+      await tx.pending.put({
+        ...pending,
+        disposition: "retired",
+        input: {
+          ...pending.input,
+          data: { ...pending.input.data, b4: { ...metadata, status: "abandoned" } },
+        },
+      })
+    }
+  const metadata = { ...run.metadata, continuation: "closed" as const }
+  await tx.runs.put({
+    ...run,
+    metadata,
+    result: run.result
+      ? { ...run.result, run: { ...run.run, metadata: { ...run.run.metadata, b4: metadata } } }
+      : null,
+  })
+  await tx.thread.put({
+    ...thread,
+    pausedGeneration: null,
+    revision: thread.revision + 1,
+    thread: { ...thread.thread, status: "idle", updated_at: timestamp },
+  })
+  await tx.journal.append({
+    eventId: crypto.randomUUID(),
+    namespace: run.namespace,
+    ownerRunId: runId,
+    event: {
+      type: "event",
+      method: "custom",
+      params: {
+        namespace: run.namespace,
+        timestamp: Date.parse(timestamp),
+        data: {
+          name: "b4.run",
+          payload: { ...metadata, runId, agentId: run.run.agent_id, status: run.run.status },
+        },
+      },
+    },
+  })
+}
 function compareCanonical(a: unknown, b: unknown): number {
   const left = canonical(a),
     right = canonical(b)
@@ -347,6 +415,12 @@ export interface PermissionService {
     runId: string,
     body: unknown,
   ): Promise<AdmissionResult>
+  respondNativeCreation(
+    request: Request,
+    threadId: string,
+    runId: string,
+    body: unknown,
+  ): Promise<AdmissionResult>
   prepareExecution(threadId: string): Promise<PermissionExecutionPreparation>
   completePreparation(
     tx: RuntimeTransaction,
@@ -368,6 +442,453 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
       outcome: "ready" | "refused"
     }
   >()
+  async function respond(
+    request: Request,
+    threadId: string,
+    runId: string,
+    body: unknown,
+    bindingKind: NonNullable<RuntimeOperationContext["binding"]>["kind"],
+  ): Promise<AdmissionResult> {
+    canonicalProtocolId(threadId)
+    canonicalProtocolId(runId)
+    const command = parseProtocolRequest("command", body)
+    if (command.method !== "input.respond") throw new ProtocolError("invalid_argument")
+    const params: AspInputRespondParams = JSON.parse(JSON.stringify(command.params))
+    const envelope =
+      params.metadata?.b4 === undefined
+        ? { v: 1 as const }
+        : parseRequestMetadata(params.metadata.b4)
+    const token = envelope.submissionId ?? crypto.randomUUID()
+    const ownerKey = hash(
+      createThreadAccessContext(options.deploymentId, requestPrincipal(request)),
+    )
+    const receiptId = hash([ownerKey, "input.respond", threadId, runId, token])
+    const gate = makeProtocolThreadGate(options.policy, request, {
+      deploymentId: options.deploymentId,
+    })
+    const reconcile = async (): Promise<AdmissionResult | undefined> => {
+      const candidates = await backend.searchOperations({
+        scopeKey: ownerKey,
+        submissionId: token,
+        submissionKind: "b4",
+        operationThreadId: threadId,
+        targetRunId: runId,
+        method: "input.respond",
+      })
+      const candidate = candidates.find((row) => row.receiptId === receiptId)
+      if (!candidate) return undefined
+      if (candidate.agentId) await options.authorizeAgent(request, candidate.agentId)
+      const decision = await gate({
+        action: "update",
+        operation: "input.respond",
+        threadId,
+        resuming: true,
+        ...subject(candidate.thread ?? candidate.retainedSubject, candidate.provenance),
+      })
+      if (!decision.ok) throw new ProtocolError("not_found")
+      if (candidate.retainedSubject) {
+        const facts = await backend.temporary?.readOperation({
+          threadId,
+          generation: candidate.scope.generation,
+          receiptId,
+        })
+        if (!facts) throw new ProtocolError("receipt_expired")
+        if (
+          !(
+            await gate({
+              action: "update",
+              operation: "input.respond",
+              threadId,
+              resuming: true,
+              ...subject(facts.subject, candidate.provenance),
+            })
+          ).ok
+        )
+          throw new ProtocolError("not_found")
+        await authorizeSavedPermissionAgents(facts.receipt, (id) =>
+          options.authorizeAgent(request, id),
+        )
+        return rememberAdmissionBinding(
+          replayOperationFacts(facts.scope, facts.receipt, facts.run, ownerKey, () =>
+            identity(params, threadId, runId),
+          ),
+          options.storage,
+          facts.scope.generation,
+          facts.receipt.operation?.binding,
+        )
+      }
+      const store = await backend.openThread(threadId, false)
+      if (!store) throw new ProtocolError("submission_target_gone")
+      return store.transaction(async (tx) => {
+        const thread = await tx.thread.get()
+        if (
+          !(
+            await gate({
+              action: "update",
+              operation: "input.respond",
+              threadId,
+              resuming: true,
+              ...subject(thread, candidate.provenance),
+            })
+          ).ok
+        )
+          throw new ProtocolError("not_found")
+        if (tx.scope.generation !== candidate.scope.generation)
+          throw new ProtocolError("submission_target_gone")
+        const receipt = await tx.receipts.get(receiptId)
+        if (!receipt) throw new ProtocolError("receipt_expired")
+        await authorizeSavedPermissionAgents(receipt, (id) => options.authorizeAgent(request, id))
+        return rememberAdmissionBinding(
+          await replayOperationReceipt(tx, receipt, ownerKey, () =>
+            identity(params, threadId, runId),
+          ),
+          options.storage,
+          tx.scope.generation,
+          receipt.operation?.binding,
+        )
+      })
+    }
+    const previousReceipt = await reconcile()
+    if (previousReceipt) return previousReceipt
+    if (!runtimeAdmissionOpen(options.storage)) throw new ProtocolError("storage_unavailable")
+    let result: AdmissionResult
+    try {
+      const current = await backend.readThread(threadId)
+      const decision = await gate({
+        action: "update",
+        operation: "input.respond",
+        threadId,
+        resuming: true,
+        ...subject(current),
+      })
+      if (!decision.ok || !current) throw new ProtocolError("not_found", { resource: "input" })
+      const store = await backend.openThread(threadId, false)
+      if (!store) throw new ProtocolError("not_found", { resource: "input" })
+      const prepared = await prepareRuleIntents(
+        options,
+        request,
+        await store.snapshot(),
+        runId,
+        params,
+        receiptId,
+      )
+      result = await store.transaction(async (tx): Promise<AdmissionResult> => {
+        const thread = await tx.thread.get()
+        const access = await gate({
+          action: "update",
+          operation: "input.respond",
+          threadId,
+          resuming: true,
+          ...subject(thread),
+        })
+        if (!access.ok || !thread) throw new ProtocolError("not_found", { resource: "input" })
+        const existing = await tx.receipts.get(receiptId)
+        if (existing) {
+          const agentId = existing.operation?.resolved.agent_id
+          if (typeof agentId !== "string") throw new ProtocolError("receipt_expired")
+          await options.authorizeAgent(request, agentId)
+          await authorizeSavedPermissionAgents(existing, (id) =>
+            options.authorizeAgent(request, id),
+          )
+          return rememberAdmissionBinding(
+            await replayOperationReceipt(tx, existing, ownerKey, () =>
+              identity(params, threadId, runId),
+            ),
+            options.storage,
+            tx.scope.generation,
+            existing.operation?.binding,
+          )
+        }
+        const previous = await tx.runs.get(runId)
+        if (!runtimeAdmissionOpen(options.storage)) throw new ProtocolError("storage_unavailable")
+        if (!previous) throw new ProtocolError("not_found", { resource: "input" })
+        if (!previous.run.agent_id) throw new ProtocolError("not_found")
+        await options.authorizeAgent(request, previous.run.agent_id)
+        if (await tx.executionOwner()) throw new ProtocolError("thread_busy")
+        const expected = envelope.expected
+        if (
+          thread.currentRunId !== runId ||
+          !thread.pausedGeneration ||
+          previous.metadata.reason !== "permission" ||
+          previous.metadata.continuation !== "waiting" ||
+          (expected?.generation && expected.generation !== tx.scope.generation) ||
+          (expected?.runId && expected.runId !== runId) ||
+          (expected?.pausedGeneration && expected.pausedGeneration !== thread.pausedGeneration)
+        )
+          throw new ProtocolError("stale_generation", { resource: "input" })
+        const pending = (await tx.pending.list()).filter((entry) => entry.disposition === "pending")
+        const byAddress = completePermissionResponses(pending, params)
+        if (params.update !== undefined || params.goto !== undefined || params.config !== undefined)
+          throw new ProtocolError("approval_changed")
+        const verified: {
+          pending: RuntimePendingRecord
+          decision: PermissionResponseV1["decision"]
+          grantId?: string
+        }[] = []
+        const grants = await tx.grants.list()
+        for (const item of pending) {
+          if (
+            item.ownerRunId !== runId ||
+            item.input.data.b4.pausedGeneration !== thread.pausedGeneration
+          )
+            throw new ProtocolError("stale_generation", { resource: "input" })
+          const payload = item.input.data.payload as PermissionPayloadV1
+          if (payload?.type !== "b4.permission" || payload.v !== 1)
+            throw new ProtocolError("not_supported")
+          const answer = response(
+            byAddress.get(
+              key({ namespace: item.namespace, interruptId: item.input.data.interruptId }),
+            )?.response,
+          )
+          const normalized =
+            answer.decision === "always" && !payload.allowAlways ? "once" : answer.decision
+          if (
+            !item.proposal?.agentId ||
+            protectedProposalHash(item) !== item.input.data.b4.proposalHash
+          )
+            throw new ProtocolError("approval_changed")
+          await options.authorizeAgent(request, item.proposal.agentId)
+          if (
+            normalized === "always" &&
+            !prepared.some((batch) =>
+              batch.bindings.some((binding) => canonical(binding.pending) === canonical(item)),
+            )
+          )
+            throw new ProtocolError("approval_changed")
+          if (
+            normalized !== "deny" &&
+            item.input.data.b4.expiresAt &&
+            Date.parse(item.input.data.b4.expiresAt) <= Date.now()
+          )
+            throw new ProtocolError("grant_expired")
+          const grant = await checkRuntimeApprovalGrant({
+            mode,
+            pending: item,
+            records: grants,
+            response: { ...answer, decision: normalized },
+          })
+          verified.push({
+            pending: item,
+            decision: normalized,
+            ...(grant && mode !== "off" ? { grantId: grant.grantId } : {}),
+          })
+        }
+        const timestamp = new Date().toISOString(),
+          continuationRunId = crypto.randomUUID()
+        const metadata = {
+          v: 1 as const,
+          generation: tx.scope.generation,
+          turnId: previous.metadata.turnId,
+          previousRunId: runId,
+          phase: "accepted" as const,
+          continuation: "none" as const,
+          submissionId: token,
+          submissionKind: "b4" as const,
+          acceptedAt: timestamp,
+          effectsUncertain: false,
+        }
+        const run = {
+          ...previous.run,
+          run_id: continuationRunId,
+          created_at: timestamp,
+          updated_at: timestamp,
+          status: "pending" as const,
+        }
+        await tx.runs.put({
+          run,
+          metadata,
+          namespace: previous.namespace,
+          preRunCheckpointId: thread.headCheckpointId,
+          result: null,
+        })
+        for (const entry of verified) {
+          if (entry.grantId) {
+            if (
+              !(await tx.grants.consume(
+                entry.grantId,
+                continuationRunId,
+                entry.decision === "deny" ? "deny" : undefined,
+              ))
+            )
+              throw new ProtocolError("grant_invalid")
+            await options.failpoint?.("afterConsume")
+          }
+        }
+        for (const entry of verified) {
+          const { grant: _grant, ...pendingMetadata } = entry.pending.input.data.b4
+          await tx.pending.put({
+            ...entry.pending,
+            disposition: "answered",
+            decision: entry.decision,
+            input: {
+              ...entry.pending.input,
+              data: {
+                ...entry.pending.input.data,
+                b4: {
+                  ...pendingMetadata,
+                  status:
+                    entry.decision === "deny"
+                      ? entry.pending.input.data.b4.expiresAt &&
+                        Date.parse(entry.pending.input.data.b4.expiresAt) <= Date.now()
+                        ? "abandoned"
+                        : "denied"
+                      : "resolved",
+                },
+              },
+            },
+          })
+        }
+        for (const batch of prepared)
+          await tx.inbox.put({
+            entryId: batch.intent.operationId,
+            kind: "rule_intent",
+            runId: continuationRunId,
+            namespace: previous.namespace,
+            status: "accepted",
+            payload: {
+              intent: batch.intent,
+              bindings: batch.bindings.map(({ pending }) => ({
+                inputId: pending.input.data.interruptId,
+                ownerRunId: pending.ownerRunId,
+                namespace: pending.namespace,
+                proposalHash: pending.input.data.b4.proposalHash,
+              })),
+            } satisfies RuleIntentPayload,
+            createdAt: timestamp,
+          })
+        const predecessorMetadata = { ...previous.metadata, continuation: "closed" as const }
+        await tx.runs.put({
+          ...previous,
+          metadata: predecessorMetadata,
+          result: previous.result
+            ? {
+                ...previous.result,
+                run: {
+                  ...previous.run,
+                  metadata: { ...previous.run.metadata, b4: predecessorMetadata },
+                },
+              }
+            : null,
+        })
+        await tx.thread.put({
+          ...thread,
+          currentRunId: continuationRunId,
+          pausedGeneration: null,
+          revision: thread.revision + 1,
+          thread: { ...thread.thread, status: "busy", updated_at: timestamp },
+        })
+        await tx.journal.append({
+          eventId: crypto.randomUUID(),
+          ownerRunId: runId,
+          namespace: previous.namespace,
+          event: {
+            type: "event",
+            method: "custom",
+            params: {
+              namespace: previous.namespace,
+              timestamp: Date.parse(timestamp),
+              data: {
+                name: "b4.run",
+                payload: {
+                  ...predecessorMetadata,
+                  runId,
+                  agentId: previous.run.agent_id,
+                  status: previous.run.status,
+                },
+              },
+            },
+          },
+        })
+        const resolved = {
+          ...previous.run,
+          agent_id: previous.run.agent_id,
+          permissionAgents: [
+            ...new Set(verified.map((entry) => entry.pending.proposal?.agentId)),
+          ].sort(),
+          responses: verified.map((entry) => ({
+            namespace: entry.pending.namespace,
+            interruptId: entry.pending.input.data.interruptId,
+            response: entry.decision,
+          })),
+        }
+        await tx.inbox.put({
+          entryId: crypto.randomUUID(),
+          kind: "dispatch",
+          runId: continuationRunId,
+          namespace: previous.namespace,
+          status: "accepted",
+          payload: resolved,
+          createdAt: timestamp,
+        })
+        await tx.journal.append({
+          eventId: crypto.randomUUID(),
+          ownerRunId: continuationRunId,
+          namespace: previous.namespace,
+          event: {
+            type: "event",
+            method: "custom",
+            params: {
+              namespace: previous.namespace,
+              timestamp: Date.parse(timestamp),
+              data: {
+                name: "b4.run",
+                payload: {
+                  ...metadata,
+                  runId: continuationRunId,
+                  agentId: run.agent_id,
+                  status: "pending",
+                },
+              },
+            },
+          },
+        })
+        const receipt = {
+          submissionId: token,
+          submissionKind: "b4" as const,
+          runId: continuationRunId,
+          turnId: previous.metadata.turnId,
+          acceptedAt: timestamp,
+          replayed: false,
+          disposition: "accepted" as const,
+        }
+        await tx.receipts.put({
+          receiptId,
+          fingerprint: hash([
+            ownerKey,
+            "input.respond",
+            canonical(identity(params, threadId, runId)),
+            tx.scope.generation,
+          ]),
+          receipt,
+          state: "accepted",
+          operation: {
+            binding: { kind: bindingKind, onDisconnect: previous.run.on_disconnect ?? "cancel" },
+            scopeKey: ownerKey,
+            method: "input.respond",
+            operationThreadId: threadId,
+            targetRunId: runId,
+            normalization: { messages: false, mechanicalDefaults: {}, configDefaults: {} },
+            resolved,
+            provenance: thread.protectedMetadata.provenance as Readonly<Record<string, unknown>>,
+          },
+        })
+        await options.failpoint?.("beforeCommit")
+        if (!runtimeAdmissionOpen(options.storage)) throw new ProtocolError("storage_unavailable")
+        return rememberAdmissionBinding(
+          { runId: continuationRunId, threadId, responseMeta: { b4: { v: 1, receipt } } },
+          options.storage,
+          tx.scope.generation,
+          { kind: bindingKind, onDisconnect: previous.run.on_disconnect ?? "cancel" },
+        )
+      })
+    } catch (error) {
+      const accepted = await reconcile()
+      if (!accepted) throw error
+      result = accepted
+    }
+    await options.failpoint?.("afterCommit")
+    return result
+  }
   const service: PermissionService = {
     async prepareExecution(threadId) {
       const store = await backend.openThread(threadId, false)
@@ -498,402 +1019,10 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         })
       return proof.outcome
     },
-    async respond(request, threadId, runId, body) {
-      canonicalProtocolId(threadId)
-      canonicalProtocolId(runId)
-      const command = parseProtocolRequest("command", body)
-      if (command.method !== "input.respond") throw new ProtocolError("invalid_argument")
-      const params: AspInputRespondParams = JSON.parse(JSON.stringify(command.params))
-      const envelope =
-        params.metadata?.b4 === undefined
-          ? { v: 1 as const }
-          : parseRequestMetadata(params.metadata.b4)
-      const token = envelope.submissionId ?? crypto.randomUUID()
-      const ownerKey = hash(
-        createThreadAccessContext(options.deploymentId, requestPrincipal(request)),
-      )
-      const receiptId = hash([ownerKey, "input.respond", threadId, runId, token])
-      const gate = makeProtocolThreadGate(options.policy, request, {
-        deploymentId: options.deploymentId,
-      })
-      const reconcile = async (): Promise<AdmissionResult | undefined> => {
-        const candidates = await backend.searchOperations({
-          scopeKey: ownerKey,
-          submissionId: token,
-          submissionKind: "b4",
-          operationThreadId: threadId,
-          targetRunId: runId,
-          method: "input.respond",
-        })
-        const candidate = candidates.find((row) => row.receiptId === receiptId)
-        if (!candidate) return undefined
-        if (candidate.agentId) await options.authorizeAgent(request, candidate.agentId)
-        const decision = await gate({
-          action: "update",
-          operation: "input.respond",
-          threadId,
-          resuming: true,
-          ...subject(candidate.thread, candidate.provenance),
-        })
-        if (!decision.ok) throw new ProtocolError("not_found")
-        const store = await backend.openThread(threadId, false)
-        if (!store) throw new ProtocolError("submission_target_gone")
-        return store.transaction(async (tx) => {
-          const thread = await tx.thread.get()
-          if (
-            !(
-              await gate({
-                action: "update",
-                operation: "input.respond",
-                threadId,
-                resuming: true,
-                ...subject(thread, candidate.provenance),
-              })
-            ).ok
-          )
-            throw new ProtocolError("not_found")
-          if (tx.scope.generation !== candidate.scope.generation)
-            throw new ProtocolError("submission_target_gone")
-          const receipt = await tx.receipts.get(receiptId)
-          if (!receipt) throw new ProtocolError("receipt_expired")
-          await authorizeSavedPermissionAgents(receipt, (id) => options.authorizeAgent(request, id))
-          return replayOperationReceipt(tx, receipt, ownerKey, () =>
-            identity(params, threadId, runId),
-          )
-        })
-      }
-      const previousReceipt = await reconcile()
-      if (previousReceipt) return previousReceipt
-      let result: AdmissionResult
-      try {
-        const current = await backend.readThread(threadId)
-        const decision = await gate({
-          action: "update",
-          operation: "input.respond",
-          threadId,
-          resuming: true,
-          ...subject(current),
-        })
-        if (!decision.ok || !current) throw new ProtocolError("not_found", { resource: "input" })
-        const store = await backend.openThread(threadId, false)
-        if (!store) throw new ProtocolError("not_found", { resource: "input" })
-        const prepared = await prepareRuleIntents(
-          options,
-          request,
-          await store.snapshot(),
-          runId,
-          params,
-          receiptId,
-        )
-        result = await store.transaction(async (tx): Promise<AdmissionResult> => {
-          const thread = await tx.thread.get()
-          const access = await gate({
-            action: "update",
-            operation: "input.respond",
-            threadId,
-            resuming: true,
-            ...subject(thread),
-          })
-          if (!access.ok || !thread) throw new ProtocolError("not_found", { resource: "input" })
-          const existing = await tx.receipts.get(receiptId)
-          if (existing) {
-            const agentId = existing.operation?.resolved.agent_id
-            if (typeof agentId !== "string") throw new ProtocolError("receipt_expired")
-            await options.authorizeAgent(request, agentId)
-            await authorizeSavedPermissionAgents(existing, (id) =>
-              options.authorizeAgent(request, id),
-            )
-            return replayOperationReceipt(tx, existing, ownerKey, () =>
-              identity(params, threadId, runId),
-            )
-          }
-          const previous = await tx.runs.get(runId)
-          if (!previous) throw new ProtocolError("not_found", { resource: "input" })
-          if (!previous.run.agent_id) throw new ProtocolError("not_found")
-          await options.authorizeAgent(request, previous.run.agent_id)
-          const expected = envelope.expected
-          if (
-            thread.currentRunId !== runId ||
-            !thread.pausedGeneration ||
-            previous.metadata.reason !== "permission" ||
-            previous.metadata.continuation !== "waiting" ||
-            (expected?.generation && expected.generation !== tx.scope.generation) ||
-            (expected?.runId && expected.runId !== runId) ||
-            (expected?.pausedGeneration && expected.pausedGeneration !== thread.pausedGeneration)
-          )
-            throw new ProtocolError("stale_generation", { resource: "input" })
-          const pending = (await tx.pending.list()).filter(
-            (entry) => entry.disposition === "pending",
-          )
-          const byAddress = completePermissionResponses(pending, params)
-          if (
-            params.update !== undefined ||
-            params.goto !== undefined ||
-            params.config !== undefined
-          )
-            throw new ProtocolError("approval_changed")
-          const verified: {
-            pending: RuntimePendingRecord
-            decision: PermissionResponseV1["decision"]
-            grantId?: string
-          }[] = []
-          const grants = await tx.grants.list()
-          for (const item of pending) {
-            if (
-              item.ownerRunId !== runId ||
-              item.input.data.b4.pausedGeneration !== thread.pausedGeneration
-            )
-              throw new ProtocolError("stale_generation", { resource: "input" })
-            const payload = item.input.data.payload as PermissionPayloadV1
-            if (payload?.type !== "b4.permission" || payload.v !== 1)
-              throw new ProtocolError("not_supported")
-            const answer = response(
-              byAddress.get(
-                key({ namespace: item.namespace, interruptId: item.input.data.interruptId }),
-              )?.response,
-            )
-            const normalized =
-              answer.decision === "always" && !payload.allowAlways ? "once" : answer.decision
-            if (
-              !item.proposal?.agentId ||
-              protectedProposalHash(item) !== item.input.data.b4.proposalHash
-            )
-              throw new ProtocolError("approval_changed")
-            await options.authorizeAgent(request, item.proposal.agentId)
-            if (
-              normalized === "always" &&
-              !prepared.some((batch) =>
-                batch.bindings.some((binding) => canonical(binding.pending) === canonical(item)),
-              )
-            )
-              throw new ProtocolError("approval_changed")
-            if (
-              normalized !== "deny" &&
-              item.input.data.b4.expiresAt &&
-              Date.parse(item.input.data.b4.expiresAt) <= Date.now()
-            )
-              throw new ProtocolError("grant_expired")
-            const grant = await checkRuntimeApprovalGrant({
-              mode,
-              pending: item,
-              records: grants,
-              response: { ...answer, decision: normalized },
-            })
-            verified.push({
-              pending: item,
-              decision: normalized,
-              ...(grant && mode !== "off" ? { grantId: grant.grantId } : {}),
-            })
-          }
-          const timestamp = new Date().toISOString(),
-            continuationRunId = crypto.randomUUID()
-          const metadata = {
-            v: 1 as const,
-            generation: tx.scope.generation,
-            turnId: previous.metadata.turnId,
-            previousRunId: runId,
-            phase: "accepted" as const,
-            continuation: "none" as const,
-            submissionId: token,
-            submissionKind: "b4" as const,
-            acceptedAt: timestamp,
-            effectsUncertain: false,
-          }
-          const run = {
-            ...previous.run,
-            run_id: continuationRunId,
-            created_at: timestamp,
-            updated_at: timestamp,
-            status: "pending" as const,
-          }
-          await tx.runs.put({
-            run,
-            metadata,
-            namespace: previous.namespace,
-            preRunCheckpointId: thread.headCheckpointId,
-            result: null,
-          })
-          for (const entry of verified) {
-            if (entry.grantId) {
-              if (
-                !(await tx.grants.consume(
-                  entry.grantId,
-                  continuationRunId,
-                  entry.decision === "deny" ? "deny" : undefined,
-                ))
-              )
-                throw new ProtocolError("grant_invalid")
-              await options.failpoint?.("afterConsume")
-            }
-          }
-          for (const entry of verified) {
-            const { grant: _grant, ...pendingMetadata } = entry.pending.input.data.b4
-            await tx.pending.put({
-              ...entry.pending,
-              disposition: "answered",
-              decision: entry.decision,
-              input: {
-                ...entry.pending.input,
-                data: {
-                  ...entry.pending.input.data,
-                  b4: {
-                    ...pendingMetadata,
-                    status:
-                      entry.decision === "deny"
-                        ? entry.pending.input.data.b4.expiresAt &&
-                          Date.parse(entry.pending.input.data.b4.expiresAt) <= Date.now()
-                          ? "abandoned"
-                          : "denied"
-                        : "resolved",
-                  },
-                },
-              },
-            })
-          }
-          for (const batch of prepared)
-            await tx.inbox.put({
-              entryId: batch.intent.operationId,
-              kind: "rule_intent",
-              runId: continuationRunId,
-              namespace: previous.namespace,
-              status: "accepted",
-              payload: {
-                intent: batch.intent,
-                bindings: batch.bindings.map(({ pending }) => ({
-                  inputId: pending.input.data.interruptId,
-                  ownerRunId: pending.ownerRunId,
-                  namespace: pending.namespace,
-                  proposalHash: pending.input.data.b4.proposalHash,
-                })),
-              } satisfies RuleIntentPayload,
-              createdAt: timestamp,
-            })
-          const predecessorMetadata = { ...previous.metadata, continuation: "closed" as const }
-          await tx.runs.put({
-            ...previous,
-            metadata: predecessorMetadata,
-            result: previous.result
-              ? {
-                  ...previous.result,
-                  run: {
-                    ...previous.run,
-                    metadata: { ...previous.run.metadata, b4: predecessorMetadata },
-                  },
-                }
-              : null,
-          })
-          await tx.thread.put({
-            ...thread,
-            currentRunId: continuationRunId,
-            pausedGeneration: null,
-            revision: thread.revision + 1,
-            thread: { ...thread.thread, status: "busy", updated_at: timestamp },
-          })
-          await tx.journal.append({
-            eventId: crypto.randomUUID(),
-            ownerRunId: runId,
-            namespace: previous.namespace,
-            event: {
-              type: "event",
-              method: "custom",
-              params: {
-                namespace: previous.namespace,
-                timestamp: Date.parse(timestamp),
-                data: {
-                  name: "b4.run",
-                  payload: {
-                    ...predecessorMetadata,
-                    runId,
-                    agentId: previous.run.agent_id,
-                    status: previous.run.status,
-                  },
-                },
-              },
-            },
-          })
-          const resolved = {
-            ...previous.run,
-            agent_id: previous.run.agent_id,
-            permissionAgents: [
-              ...new Set(verified.map((entry) => entry.pending.proposal?.agentId)),
-            ].sort(),
-            responses: verified.map((entry) => ({
-              namespace: entry.pending.namespace,
-              interruptId: entry.pending.input.data.interruptId,
-              response: entry.decision,
-            })),
-          }
-          await tx.inbox.put({
-            entryId: crypto.randomUUID(),
-            kind: "dispatch",
-            runId: continuationRunId,
-            namespace: previous.namespace,
-            status: "accepted",
-            payload: resolved,
-            createdAt: timestamp,
-          })
-          await tx.journal.append({
-            eventId: crypto.randomUUID(),
-            ownerRunId: continuationRunId,
-            namespace: previous.namespace,
-            event: {
-              type: "event",
-              method: "custom",
-              params: {
-                namespace: previous.namespace,
-                timestamp: Date.parse(timestamp),
-                data: {
-                  name: "b4.run",
-                  payload: {
-                    ...metadata,
-                    runId: continuationRunId,
-                    agentId: run.agent_id,
-                    status: "pending",
-                  },
-                },
-              },
-            },
-          })
-          const receipt = {
-            submissionId: token,
-            submissionKind: "b4" as const,
-            runId: continuationRunId,
-            turnId: previous.metadata.turnId,
-            acceptedAt: timestamp,
-            replayed: false,
-            disposition: "accepted" as const,
-          }
-          await tx.receipts.put({
-            receiptId,
-            fingerprint: hash([
-              ownerKey,
-              "input.respond",
-              canonical(identity(params, threadId, runId)),
-              tx.scope.generation,
-            ]),
-            receipt,
-            state: "accepted",
-            operation: {
-              scopeKey: ownerKey,
-              method: "input.respond",
-              operationThreadId: threadId,
-              targetRunId: runId,
-              normalization: { messages: false, mechanicalDefaults: {}, configDefaults: {} },
-              resolved,
-              provenance: thread.protectedMetadata.provenance as Readonly<Record<string, unknown>>,
-            },
-          })
-          await options.failpoint?.("beforeCommit")
-          return { runId: continuationRunId, threadId, responseMeta: { b4: { v: 1, receipt } } }
-        })
-      } catch (error) {
-        const accepted = await reconcile()
-        if (!accepted) throw error
-        result = accepted
-      }
-      await options.failpoint?.("afterCommit")
-      return result
-    },
+    respond: (request, threadId, runId, body) =>
+      respond(request, threadId, runId, body, "background"),
+    respondNativeCreation: (request, threadId, runId, body) =>
+      respond(request, threadId, runId, body, "native_creation"),
   }
   services.add(service)
   return service

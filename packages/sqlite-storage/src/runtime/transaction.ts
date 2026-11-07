@@ -3,9 +3,11 @@ import { DatabaseSync } from "node:sqlite"
 import type {
   RuntimeExecutionLease,
   RuntimeRecords,
+  RuntimeRetainedSubject,
   RuntimeSnapshot,
   RuntimeStorageScope,
   RuntimeStore,
+  RuntimeTemporaryCleanupPlan,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
 import { checkpointSpec } from "./checkpoints.js"
@@ -144,6 +146,12 @@ function makeTransaction(access: Access): RuntimeTransaction {
   const thread = makeThread(access)
   const tx: RuntimeTransaction = {
     scope,
+    async executionOwner() {
+      access.check()
+      return db
+        .prepare("SELECT execution_owner FROM scopes WHERE thread_id=? AND generation=?")
+        .get(scope.threadId, scope.generation)?.execution_owner as string | null
+    },
     thread,
     runs: {
       ...runs,
@@ -319,7 +327,11 @@ export interface BoundRuntimeStore extends RuntimeStore {
     ownerId: string,
     callback: (tx: RuntimeTransaction) => Promise<void>,
   ): Promise<RuntimeExecutionLease | undefined>
-  releaseExecution(ownerId: string): Promise<void>
+  releaseExecution(
+    ownerId: string,
+    callback?: (tx: RuntimeTransaction) => Promise<void>,
+  ): Promise<void>
+  finalizeTemporary(plan: RuntimeTemporaryCleanupPlan): Promise<boolean>
 }
 /** Called only by the internal capability binder, never from public config. */
 export function makeRuntimeStore(
@@ -364,7 +376,10 @@ export function makeRuntimeStore(
       release()
     }
   }
-  async function transaction<T>(callback: (tx: RuntimeTransaction) => Promise<T>): Promise<T> {
+  async function transaction<T>(
+    callback: (tx: RuntimeTransaction) => Promise<T>,
+    temporary?: RuntimeTemporaryCleanupPlan,
+  ): Promise<T> {
     return scopeExclusive(() =>
       exclusive(async () => {
         let active = true
@@ -374,6 +389,15 @@ export function makeRuntimeStore(
           access.check()
           const result = await callback(makeTransaction(access))
           access.check()
+          if (temporary && result === true) {
+            const changed = context.db
+              .prepare(
+                "UPDATE scopes SET deleted=1,fence=fence+1 WHERE thread_id=? AND generation=? AND fence=? AND execution_owner IS NULL AND fence<9007199254740991",
+              )
+              .run(scope.threadId, scope.generation, scope.fence)
+            if (changed.changes !== 1)
+              throw diagnostic("stale_fence", "Temporary cleanup lost its native fence")
+          }
           active = false
           context.db.exec("COMMIT")
           return result
@@ -390,6 +414,7 @@ export function makeRuntimeStore(
   async function transitionFence(
     claim?: { ownerId: string; callback: (tx: RuntimeTransaction) => Promise<void> },
     releaseOwner?: string,
+    onRelease?: (tx: RuntimeTransaction) => Promise<void>,
   ): Promise<BoundRuntimeStore | undefined> {
     const changed = await scopeExclusive(() =>
       exclusive(async () => {
@@ -417,6 +442,8 @@ export function makeRuntimeStore(
               row.execution_nonce !== context.lock.identity.nonce)
           )
             throw diagnostic("stale_fence", "Execution owner changed")
+          if (releaseOwner && onRelease)
+            await onRelease(makeTransaction(makeAccess(installation, db, scope, now, () => active)))
           const result = db
             .prepare(
               "UPDATE scopes SET fence=fence+1,execution_owner=?,execution_nonce=? WHERE thread_id=? AND generation=? AND fence=? AND fence<9007199254740991",
@@ -461,6 +488,103 @@ export function makeRuntimeStore(
     profile: "coordinated",
     transaction,
     snapshot: () => transaction((tx) => tx.snapshot()),
+    finalizeTemporary(plan) {
+      return transaction(async (tx) => {
+        const thread = await tx.thread.get(),
+          run = await tx.runs.get(plan.runId)
+        if (
+          plan.threadId !== scope.threadId ||
+          plan.generation !== scope.generation ||
+          thread?.currentRunId !== plan.runId ||
+          thread.headCheckpointId !== plan.headCheckpointId ||
+          thread.cleanupIntent?.intentId !== plan.cleanupIntentId ||
+          thread.cleanupIntent.onCompletion !== "delete" ||
+          thread.pausedGeneration ||
+          !run?.unwoundAt ||
+          run.metadata.phase !== "settled" ||
+          run.metadata.continuation !== "closed" ||
+          (await tx.executionOwner()) !== null
+        )
+          return false
+        if (
+          plan.provider.installationId !== installation.installationId ||
+          plan.provider.threadId !== scope.threadId ||
+          plan.provider.generation !== scope.generation ||
+          (plan.provider.kind === "owned" &&
+            (!plan.provider.resources.length ||
+              plan.provider.resources.some(
+                (r) =>
+                  !r.associationId || !r.revision || !r.reference || !r.exclusiveOwnershipProof,
+              )))
+        )
+          throw diagnostic(
+            "scope_mismatch",
+            "Provider cleanup requires exact prepared ownership facts",
+          )
+        const retainedAt = now(),
+          retainedUntil = new Date(Date.parse(retainedAt) + 7 * 24 * 60 * 60 * 1000).toISOString()
+        const { thread_id, created_at, updated_at, status, metadata } = thread.thread
+        const permissionAgentsByRun = Object.fromEntries(
+          (await tx.receipts.list())
+            .filter(
+              (r) =>
+                r.operation?.method === "input.respond" &&
+                Array.isArray(r.operation.resolved.permissionAgents),
+            )
+            .map((r) => [r.receipt.runId, r.operation?.resolved.permissionAgents]),
+        )
+        const subject: RuntimeRetainedSubject = {
+          thread: { thread_id, created_at, updated_at, status, metadata },
+          protectedMetadata: {
+            ...(thread.protectedMetadata.provenance === undefined
+              ? {}
+              : { provenance: thread.protectedMetadata.provenance }),
+            permissionAgentsByRun,
+          },
+        }
+        const db = context.db
+        db.prepare("INSERT INTO retained_subjects VALUES (?,?,?,?)").run(
+          scope.threadId,
+          scope.generation,
+          JSON.stringify(subject),
+          retainedAt,
+        )
+        for (const row of await tx.runs.list())
+          db.prepare("INSERT INTO retained_runs VALUES (?,?,?,?,?,?)").run(
+            row.run.run_id,
+            scope.threadId,
+            scope.generation,
+            JSON.stringify(row),
+            retainedAt,
+            retainedUntil,
+          )
+        await tx.maintenance.put({
+          jobId: `temporary:${plan.cleanupIntentId}`,
+          kind: "provider_teardown",
+          runId: plan.runId,
+          status: plan.provider.kind === "none" ? "complete" : "pending",
+          payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
+        })
+        for (const name of [
+          "checkpoint_writes",
+          "aliases",
+          "projections",
+          "journal",
+          "checkpoint_lineage",
+          "grants",
+          "pending",
+          "inbox",
+          "checkpoints",
+          "runs",
+          "threads",
+        ])
+          db.prepare(`DELETE FROM ${name} WHERE thread_id=? AND generation=?`).run(
+            scope.threadId,
+            scope.generation,
+          )
+        return true
+      }, plan)
+    },
     committedReader() {
       installationContext(installation)
       return {
@@ -493,8 +617,8 @@ export function makeRuntimeStore(
       if (!next) throw new Error("Runtime fence did not advance")
       return next
     },
-    async releaseExecution(ownerId) {
-      await transitionFence(undefined, ownerId)
+    async releaseExecution(ownerId, callback) {
+      await transitionFence(undefined, ownerId, callback)
     },
     async claimExecution(ownerId, callback) {
       if (!ownerId) throw new Error("Execution owner identity is required")
@@ -519,10 +643,10 @@ export function makeRuntimeStore(
               throw diagnostic("stale_fence", "Execution owner changed")
           })
         },
-        async release() {
+        async release(callback) {
           if (released) return
           // Use the same transition algorithm at the newly claimed fence.
-          await makeRuntimeStore(installation, nextScope, now).releaseExecution(ownerId)
+          await makeRuntimeStore(installation, nextScope, now).releaseExecution(ownerId, callback)
           released = true
         },
       }

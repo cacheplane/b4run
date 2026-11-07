@@ -7,12 +7,13 @@ import { setRequestPrincipal } from "../../src/lib/dev/auth.ts"
 import { authorizeProtocolAgent, createAgentCatalog } from "../../src/lib/dev/protocol/catalog.ts"
 import { createAdmissionService } from "../../src/lib/runtime/admission.ts"
 import { createExecutionHost } from "../../src/lib/runtime/executor.ts"
+import { parkPermissions } from "../../src/lib/runtime/permissions.ts"
 import { createRuntimeStorageHost } from "../../src/lib/runtime/storage-host.ts"
 
 type Boot = {
   root: string
   counter: string
-  mode: "accept" | "marker" | "effect" | "run"
+  mode: "accept" | "marker" | "effect" | "run" | "park-gap" | "park-released"
   connectionString?: string
   schema?: string
   tablePrefix?: string
@@ -66,8 +67,27 @@ let captured: RuntimeStore | undefined
 let unwind: (() => void) | undefined
 const host = createExecutionHost({
   storage,
-  async invoke({ store, signal }) {
+  async invoke({ store, signal, run }) {
     captured = store
+    if (boot.mode === "park-gap" || boot.mode === "park-released") {
+      await store.transaction((tx) =>
+        parkPermissions(tx, run.run.run_id, [
+          {
+            interruptId: "permission",
+            namespace: [],
+            request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+            protectedProposal: {},
+          },
+        ]),
+      )
+      process.send?.({ status: "parked" })
+      if (boot.mode === "park-gap")
+        await new Promise<void>((resolve) => {
+          unwind = resolve
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+      return {}
+    }
     if (boot.mode === "marker") process.send?.({ status: "marker" })
     else {
       if (boot.mode === "effect")
@@ -91,7 +111,7 @@ process.on("message", async (command) => {
   try {
     if (command === "tick") {
       await host.tick()
-      if (boot.mode === "run") await host.idle()
+      if (boot.mode === "run" || boot.mode === "park-released") await host.idle()
       process.send?.({ status: "ticked" })
     } else if (command === "stale-write") {
       if (!captured) {
@@ -124,6 +144,7 @@ if (boot.mode === "accept") {
   setRequestPrincipal(request, { id: "alice" })
   const accepted = await admission.admit(request, {
     input: { value: 1 },
+    on_completion: "keep",
     metadata: { b4: { v: 1, submissionId: "10000000-0000-4000-8000-000000000010" } },
   })
   process.send?.({ status: "accepted", threadId: accepted.threadId, runId: accepted.runId })

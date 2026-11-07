@@ -14,7 +14,10 @@ import { authorizeProtocolAgent, createAgentCatalog } from "../../src/lib/dev/pr
 import { mergePublicMessages } from "../../src/lib/dev/protocol/messages.ts"
 import { createAdmissionService } from "../../src/lib/runtime/admission.ts"
 import type { ExecutionHost } from "../../src/lib/runtime/executor.ts"
-import { createRuntimeStorageHost } from "../../src/lib/runtime/storage-host.ts"
+import {
+  createRuntimeStorageHost,
+  type TemporaryCleanupPreparation,
+} from "../../src/lib/runtime/storage-host.ts"
 
 /** Real lifecycle only: admission and reconciliation always call production. */
 function realBackend() {
@@ -67,6 +70,10 @@ function realBackend() {
     get first() {
       return first
     },
+    get connectionString() {
+      if (!container) throw new Error("Missing owned test container")
+      return container.getConnectionUri()
+    },
     naming() {
       return { schema: "r4_protocol", tablePrefix: `b4_ap_v1_case_${++counter}` }
     },
@@ -84,25 +91,53 @@ export const body = (extra: Record<string, unknown> = {}) => ({
 export async function fixture(
   factory = undefined as import("@b4run/sdk/agent-protocol").RuntimeStorageFactory | undefined,
   borrowed?: BorrowedFixture,
+  options: { readonly prepareTemporaryCleanup?: TemporaryCleanupPreparation | false } = {},
 ) {
   const bootStarted = performance.now()
   const directory = mkdtempSync(join(tmpdir(), "b4-admission-"))
   if (borrowed) borrowed.directory = directory
   let registration = borrowed?.owner
     .registration as import("@b4run/sdk/agent-protocol").RuntimeStorageRegistrationOptions
+  const nativeNaming = !factory && !borrowed && postgres ? postgres.naming() : undefined
   const chosen =
     factory ??
-    (postgres
-      ? postgresRuntimeStorage({ pool: postgres.first, ...postgres.naming() })
+    (postgres && nativeNaming
+      ? postgresRuntimeStorage({ pool: postgres.first, ...nativeNaming })
       : sqliteRuntimeStorage(directory))
-  const storage =
-    borrowed?.owner.storage ??
-    (await createRuntimeStorageHost(async (register) =>
-      chosen((value) => {
-        registration = value
-        return register(value)
-      }),
-    ))
+  const preparation =
+    options.prepareTemporaryCleanup === false
+      ? {}
+      : {
+          prepareTemporaryCleanup:
+            options.prepareTemporaryCleanup ??
+            (async ({
+              installationId,
+              threadId,
+              generation,
+            }: Parameters<TemporaryCleanupPreparation>[0]) => ({
+              kind: "none" as const,
+              installationId,
+              threadId,
+              generation,
+            })),
+        }
+  // TEST ONLY: each logical boot has its own host lifecycle while every hook
+  // below still calls the same actual native installation/transactions. Only
+  // the outer owner closes that physical installation, once afterAll.
+  const storage = borrowed
+    ? await createRuntimeStorageHost(
+        (register) => register({ ...borrowed.owner.registration, close() {} }),
+        preparation,
+      )
+    : await createRuntimeStorageHost(
+        async (register) =>
+          chosen((value) => {
+            registration = value
+            return register(value)
+          }),
+        preparation,
+      )
+  if (borrowed) borrowed.storage = storage
   if (process.env.B4_ADMISSION_TIMINGS === "1")
     process.stdout.write(`R4 fixture boot ${Math.round(performance.now() - bootStarted)}ms\n`)
   const work = borrowed?.work ?? new Set<Promise<unknown>>()
@@ -225,6 +260,41 @@ export async function fixture(
     },
   })
   return {
+    native: {
+      workerBoot:
+        nativeNaming && postgres
+          ? { connectionString: postgres.connectionString, ...nativeNaming }
+          : undefined,
+      async expireOwner(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("Only actual owned Postgres fixtures can expire DB leases")
+        await postgres.first.query(
+          `UPDATE ${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE thread_id=$1`,
+          [threadId],
+        )
+      },
+      async maintenance(threadId: string, generation: string) {
+        if (nativeNaming && postgres)
+          return (
+            await postgres.first.query(
+              `SELECT payload FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_maintenance WHERE thread_id=$1 AND generation=$2`,
+              [threadId, generation],
+            )
+          ).rows.map((r) => JSON.parse(r.payload))
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+          { readOnly: true },
+        )
+        try {
+          return db
+            .prepare("SELECT payload FROM maintenance WHERE thread_id=? AND generation=?")
+            .all(threadId, generation)
+            .map((r) => JSON.parse(String(r.payload)))
+        } finally {
+          db.close()
+        }
+      },
+    },
     authority: {
       storage,
       deploymentId: "deployment-test",
@@ -241,6 +311,7 @@ export async function fixture(
         ? body({
             thread_id: borrowed.threadId,
             if_not_exists: "create",
+            ...(borrowed.onCompletion ? { on_completion: borrowed.onCompletion } : {}),
             metadata: { b4: { v: 1, submissionId: borrowed.submissionId } },
           })
         : body(),
@@ -347,6 +418,8 @@ interface BorrowedGroup {
   closePromise?: Promise<void>
 }
 interface BorrowedFixture {
+  storage?: import("../../src/lib/runtime/storage-host.ts").RuntimeStorageHost
+  readonly onCompletion?: "keep"
   readonly owner: SharedPermissionOwner
   readonly group: BorrowedGroup
   readonly threadId: string
@@ -377,7 +450,7 @@ async function closeSharedOwners(): Promise<void> {
 
 /** R6-only lifecycle. One actual server installation, independent fresh scopes;
  * no candidate/read filters or per-fixture execution dispatcher. */
-export function sharedPermissionFixtures() {
+export function sharedPermissionFixtures(options: { readonly onCompletion?: "keep" } = {}) {
   let owner: SharedPermissionOwner
   let group: BorrowedGroup | undefined
   async function closeGroup(value: BorrowedGroup): Promise<void> {
@@ -406,6 +479,7 @@ export function sharedPermissionFixtures() {
       const scopes = [...value.fixtures].flatMap((f) =>
         [...f.scopes].map(([threadId, generation]) => ({ threadId, generation })),
       )
+      for (const f of value.fixtures) await f.storage?.close()
       await deleteOwnedPermissionScopes(owner, scopes)
       for (const f of value.fixtures)
         if (f.directory) rmSync(f.directory, { recursive: true, force: true })
@@ -424,11 +498,20 @@ export function sharedPermissionFixtures() {
       postgres && naming
         ? postgresRuntimeStorage({ pool: postgres.first, ...naming })
         : sqliteRuntimeStorage(root)
-    const storage = await createRuntimeStorageHost((register) =>
-      chosen((value) => {
-        registration = value
-        return register(value)
-      }),
+    const storage = await createRuntimeStorageHost(
+      (register) =>
+        chosen((value) => {
+          registration = value
+          return register(value)
+        }),
+      {
+        prepareTemporaryCleanup: async ({ installationId, threadId, generation }) => ({
+          kind: "none",
+          installationId,
+          threadId,
+          generation,
+        }),
+      },
     )
     let closePromise: Promise<void> | undefined
     owner = {
@@ -490,6 +573,7 @@ export function sharedPermissionFixtures() {
       const current = group
       const state: BorrowedFixture = {
         owner,
+        ...(options.onCompletion ? { onCompletion: options.onCompletion } : {}),
         group: current,
         threadId: crypto.randomUUID(),
         submissionId: crypto.randomUUID(),

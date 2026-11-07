@@ -3,18 +3,58 @@ import type {
   ReceiptV1,
   RuntimeOperationContext,
   RuntimeReceiptRecord,
+  RuntimeRetainedSubject,
+  RuntimeRunRecord,
+  RuntimeStorageScope,
   RuntimeThreadRecord,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
 import { sha256Hex } from "@b4run/sdk/pure"
 import { ProtocolError } from "../dev/protocol/errors.js"
 import { snapshotThreadProvenance } from "../dev/thread-access.js"
+import type { RuntimeStorageHost } from "./storage-host.js"
 
 export interface AdmissionResult {
   readonly runId: string
   /** Internal target for observers; run.start's closed result remains {runId}. */
   readonly threadId: string
   readonly responseMeta: { readonly b4: { readonly v: 1; readonly receipt: ReceiptV1 } }
+}
+const executionBindings = new WeakMap<
+  AdmissionResult,
+  {
+    storage: RuntimeStorageHost
+    threadId: string
+    runId: string
+    generation: string
+    binding: NonNullable<RuntimeOperationContext["binding"]>
+  }
+>()
+/** Internal acceptance bridge only. A returned wire-shaped copy is not proof. */
+export function rememberAdmissionBinding(
+  result: AdmissionResult,
+  storage: RuntimeStorageHost,
+  generation: string,
+  binding: RuntimeOperationContext["binding"],
+): AdmissionResult {
+  executionBindings.set(result, {
+    storage,
+    threadId: result.threadId,
+    runId: result.runId,
+    generation,
+    binding: binding ?? { kind: "background", onDisconnect: "continue" },
+  })
+  return result
+}
+export function admissionBinding(
+  result: AdmissionResult,
+  storage: RuntimeStorageHost,
+  kind: "rest_creation" | "native_creation",
+) {
+  const proof = executionBindings.get(result)
+  if (!proof || proof.storage !== storage || proof.binding.kind !== kind)
+    throw new Error("Unrecognized owning stream")
+  return proof
 }
 
 export function canonical(value: unknown): string {
@@ -31,7 +71,7 @@ export function hash(value: unknown): string {
 }
 
 function provenance(
-  row: RuntimeThreadRecord | undefined,
+  row: RuntimeThreadRecord | RuntimeRetainedSubject | undefined,
 ): NonNullable<ThreadAccessRequest["provenance"]> | undefined {
   const value = row?.protectedMetadata.provenance
   return value && typeof value === "object"
@@ -39,7 +79,7 @@ function provenance(
     : undefined
 }
 export function subject(
-  row: RuntimeThreadRecord | undefined,
+  row: RuntimeThreadRecord | RuntimeRetainedSubject | undefined,
   original?: Readonly<Record<string, unknown>>,
 ): {
   readonly thread?: RuntimeThreadRecord["thread"]
@@ -70,6 +110,23 @@ export async function replayOperationReceipt(
   ownerKey: string,
   identity: (operation: RuntimeOperationContext) => Record<string, unknown>,
 ): Promise<AdmissionResult> {
+  return replayOperationFacts(
+    tx.scope,
+    record,
+    await tx.runs.get(record.receipt.runId),
+    ownerKey,
+    identity,
+  )
+}
+/** The same original-normalization evaluator for live and independently retained
+ * immutable facts. No deleted-generation writer binding or synthetic TX. */
+export function replayOperationFacts(
+  scope: Pick<RuntimeStorageScope, "threadId" | "generation">,
+  record: RuntimeReceiptRecord,
+  run: RuntimeRunRecord | undefined,
+  ownerKey: string,
+  identity: (operation: RuntimeOperationContext) => Record<string, unknown>,
+): AdmissionResult {
   const operation = record.operation
   if (
     !operation ||
@@ -84,18 +141,17 @@ export async function replayOperationReceipt(
       ownerKey,
       operation.method,
       canonical(identity(operation)),
-      tx.scope.generation,
+      scope.generation,
     ])
   } catch {
     throw new ProtocolError("submission_conflict")
   }
   if (fingerprint !== record.fingerprint) throw new ProtocolError("submission_conflict")
-  const run = await tx.runs.get(record.receipt.runId)
   if (!run) throw new ProtocolError("submission_target_gone")
   if (record.state !== "accepted") throw new ProtocolError("receipt_expired")
   return {
     runId: record.receipt.runId,
-    threadId: tx.scope.threadId,
+    threadId: scope.threadId,
     responseMeta: { b4: { v: 1, receipt: { ...record.receipt, replayed: true } } },
   }
 }

@@ -67,6 +67,18 @@ effects; only proven never-started accepted work may dispatch. Release advances
 the fence before clearing ownership. Shared server assembly and adapter binding
 remain staged; these hooks do not activate HTTP or native AG-UI execution.
 
+Automatic temporary cleanup is a distinct native operation, not the deferred
+explicit Thread DELETE. Under the existing scoped exclusion it checks the exact
+generation, Run, head, completion intent, released owner and unwind proof, then
+atomically retains independent protected Run/results and receipt subjects,
+removes Thread/runtime payloads and records a provider cleanup obligation.
+Inspection leases block this finalizer until their callbacks actually unwind.
+Private authorization tombstones do not make the deleted Thread readable.
+Retained Run/results have a seven-day cleanup-based clock; pruning and physical
+provider teardown remain separate integration work. A lost owner in the
+permission-settlement/release gap closes unsafe eligibility while preserving
+the historical permission outcome and recording uncertain ownership loss.
+
 Internal transaction tests cover atomic grant
 consumption, asynchronous rollback, committed reads, and durable fences; they do
 not certify the full host profile. Copy/state operations await the state service;
