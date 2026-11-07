@@ -193,20 +193,25 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
       })
       const existing = candidates.find((candidate) => candidate.receiptId === receiptId)
       if (!existing) return undefined
-      if (existing.agentId) await options.authorizeAgent(request, existing.agentId)
-      const decision = await gate({
-        action: "update",
-        operation: "run.create",
-        threadId,
-        ...subject(existing.thread ?? existing.retainedSubject, existing.provenance),
-      })
-      if (!decision.ok) throw new ProtocolError("not_found")
-      if (existing.retainedSubject) {
+      const authorizeCandidate = async (minimal: typeof existing) => {
+        if (minimal.agentId) await options.authorizeAgent(request, minimal.agentId)
+        const decision = await gate({
+          action: "update",
+          operation: "run.create",
+          threadId,
+          ...subject(minimal.thread ?? minimal.retainedSubject, minimal.provenance),
+        })
+        if (!decision.ok) throw new ProtocolError("not_found")
+      }
+      const replayRetained = async (minimal: typeof existing): Promise<AdmissionResult> => {
+        if (!minimal.retainedSubject || minimal.scope.threadId !== threadId)
+          throw new ProtocolError("not_found")
+        await authorizeCandidate(minimal)
         await authorizeRetainedOperation(
           threadId,
-          existing.agentId,
-          existing.operationAuthority,
-          existing.retainedSubject,
+          minimal.agentId,
+          minimal.operationAuthority,
+          minimal.retainedSubject,
           (id) => options.authorizeAgent(request, id),
           async () =>
             (
@@ -214,13 +219,13 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
                 action: "update",
                 operation: "run.create",
                 threadId,
-                ...subject(existing.retainedSubject, existing.provenance),
+                ...subject(minimal.retainedSubject, minimal.provenance),
               })
             ).ok,
         )
         const facts = await backend.temporary?.readOperation({
           threadId,
-          generation: existing.scope.generation,
+          generation: minimal.scope.generation,
           receiptId,
         })
         if (!facts) throw new ProtocolError("receipt_expired")
@@ -253,7 +258,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
               })
             ).ok,
         )
-        validateRetainedOperationCut(existing, facts, ownerKey)
+        validateRetainedOperationCut(minimal, facts, ownerKey)
         return rememberAdmissionBinding(
           replayOperationFacts(facts.scope, facts.receipt, facts.run, ownerKey, (operation) =>
             protocolOperationIdentity(
@@ -268,10 +273,29 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           facts.receipt.operation?.binding,
         )
       }
+      if (existing.retainedSubject) return replayRetained(existing)
+      await authorizeCandidate(existing)
       // Discovery exposes no receipt. Current C5 and original Agent authority
       // precede the authoritative scope binding and private receipt read.
-      const store = await backend.openThread(threadId, false)
-      if (!store) throw new ProtocolError("submission_target_gone")
+      const store = await backend.openThread(threadId, false, existing.scope.generation)
+      if (!store) {
+        const fresh = (
+          await backend.searchOperations({
+            scopeKey: ownerKey,
+            submissionId: token,
+            submissionKind: "b4",
+            operationThreadId: threadId,
+            method: "run.create",
+          })
+        ).find(
+          (candidate) =>
+            candidate.receiptId === existing.receiptId &&
+            candidate.scope.threadId === threadId &&
+            candidate.scope.generation === existing.scope.generation,
+        )
+        if (fresh?.retainedSubject) return replayRetained(fresh)
+        throw new ProtocolError("submission_target_gone")
+      }
       return store.transaction(async (tx) => {
         const row = await tx.thread.get()
         const auth = await gate({
