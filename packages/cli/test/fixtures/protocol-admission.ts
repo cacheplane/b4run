@@ -29,6 +29,7 @@ function realBackend() {
     if (process.env.B4_TEST_PGSTORAGE !== "1")
       throw new Error("R4 Postgres fixtures require B4_TEST_PGSTORAGE=1")
     container = await new PostgreSqlContainer("postgres:16").withStartupTimeout(180_000).start()
+    process.stdout.write(`R4 created own container ${container.getId()}\n`)
     first = new Pool({ connectionString: container.getConnectionUri() })
     second = new Pool({ connectionString: container.getConnectionUri() })
     for (const pool of [first, second]) {
@@ -50,23 +51,39 @@ function realBackend() {
       b.release()
     }
   }, 240_000)
-  afterAll(async () => {
-    try {
+  let finishing: Promise<void> | undefined
+  function finish(): Promise<void> {
+    if (finishing) return finishing
+    finishing = (async () => {
+      const teardownErrors: unknown[] = []
       try {
         await closeSharedOwners()
-      } finally {
-        await Promise.all([first?.end(), second?.end()])
+      } catch (error) {
+        teardownErrors.push(error)
       }
-    } finally {
+      const pools = await Promise.allSettled([first?.end(), second?.end()])
+      for (const result of pools)
+        if (result.status === "rejected") teardownErrors.push(result.reason)
+      if (pools.every((result) => result.status === "fulfilled"))
+        process.stdout.write("R4 closed own PostgreSQL pools\n")
       if (container) {
         const id = container.getId()
-        await container.stop()
-        process.stdout.write(`R4 removed own container ${id}\n`)
+        try {
+          await container.stop()
+          process.stdout.write(`R4 removed own container ${id}\n`)
+        } catch (error) {
+          teardownErrors.push(error)
+        }
       }
-    }
-    expect(errors, "own SQL clients settle before fixture cleanup").toEqual([])
-  })
+      teardownErrors.push(...errors)
+      if (teardownErrors.length)
+        throw new AggregateError(teardownErrors, "Actual PostgreSQL fixture cleanup failed")
+    })()
+    return finishing
+  }
+  afterAll(finish)
   return {
+    finish,
     get first() {
       return first
     },
@@ -272,6 +289,24 @@ export async function fixture(
           `UPDATE ${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE thread_id=$1`,
           [threadId],
         )
+      },
+      async scopeRecord(threadId: string) {
+        if (nativeNaming && postgres)
+          return (
+            await postgres.first.query(
+              `SELECT * FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes WHERE thread_id=$1`,
+              [threadId],
+            )
+          ).rows
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+          { readOnly: true },
+        )
+        try {
+          return db.prepare("SELECT * FROM scopes WHERE thread_id=?").all(threadId)
+        } finally {
+          db.close()
+        }
       },
       async maintenance(threadId: string, generation: string) {
         if (nativeNaming && postgres)
@@ -541,6 +576,7 @@ export function sharedPermissionFixtures(options: { readonly onCompletion?: "kee
           }
           try {
             await storage.close()
+            process.stdout.write(`R6 closed own runtime installation ${storage.installationId}\n`)
           } catch (error) {
             owner.failed = true
             errors.push(error)
@@ -565,7 +601,11 @@ export function sharedPermissionFixtures(options: { readonly onCompletion?: "kee
     if (group) await closeGroup(group)
   })
   afterAll(async () => {
-    await owner?.close()
+    // Vitest stops stacked hooks at the first rejection. This same physical
+    // owner must drain/preserve every shared owner and finish pools/container
+    // before propagating any saved failure; the outer hook reuses its promise.
+    if (postgres) await postgres.finish()
+    else await owner?.close()
   })
   return {
     async create() {
@@ -743,7 +783,25 @@ async function preservePermissionFixture(
   }
   writeFileSync(
     join(owner.root, "teardown-failure.json"),
-    JSON.stringify({ scopes, errors: errors.map(String), records }, null, 2),
+    JSON.stringify(
+      {
+        scopes,
+        errors: errors.map(String),
+        errorCauses: errors.map((error) => fixtureError(error)),
+        records,
+      },
+      null,
+      2,
+    ),
     { mode: 0o600 },
   )
+}
+
+function fixtureError(error: unknown, depth = 0): unknown {
+  return error instanceof AggregateError && depth < 5
+    ? {
+        message: error.message,
+        errors: error.errors.map((cause) => fixtureError(cause, depth + 1)),
+      }
+    : String(error)
 }

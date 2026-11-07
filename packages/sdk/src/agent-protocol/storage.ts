@@ -51,7 +51,8 @@ export interface RuntimeRunRecord {
   readonly result: RunWaitResponse | null
   /** Private execution identity; never projected as caller metadata. */
   readonly execution?: { readonly ownerId: string; readonly fence: number }
-  /** Actual provider unwind proved in the owned native release transaction. */
+  /** Actual unwind or terminal never-started retirement proved by its
+   * authoritative native transaction. */
   readonly unwoundAt?: string
   /** Current ownership reconciliation; historical settled outcome stays intact. */
   readonly ownershipLoss?: {
@@ -243,8 +244,15 @@ export interface RuntimeStorageRegistrationOptions {
   searchOperations(query: RuntimeOperationSearch): Promise<readonly RuntimeOperationCandidate[]>
   listThreads(): Promise<readonly RuntimeThreadRecord[]>
   /** Called by the trusted host only AFTER its common authorization gate.
-   * Resolve/create the canonical generation under the backend's Thread lock. */
-  openThread(threadId: string, create: boolean): Promise<RuntimeStore | undefined>
+   * Resolve/create the canonical generation under the backend's Thread lock.
+   * An expected generation restricts binding to that existing generation before
+   * any renewal/write. It never creates or rebinds a replacement; create=true
+   * with an expected generation must refuse without mutation. */
+  openThread(
+    threadId: string,
+    create: boolean,
+    expectedGeneration?: string,
+  ): Promise<RuntimeStore | undefined>
   /** Optional trusted boot capability. Absence must fail execution readiness. */
   readonly execution?: RuntimeExecutionStorage
   readonly temporary?: RuntimeTemporaryStorage
@@ -258,7 +266,7 @@ export interface RuntimeExecutionStorage {
     scope: Pick<RuntimeStorageScope, "threadId" | "generation">,
     entryId: string,
     runId: string,
-  ): Promise<"pending" | "completed" | "uncertain">
+  ): Promise<"pending" | "completed" | "uncertain" | "execution_lost">
   /** Claim only an unowned or authoritatively lost Thread. Increment the fence
    * and await the started/recovery callback in the SAME transaction. A live
    * owner, including this same ownerId, returns undefined without mutation. */

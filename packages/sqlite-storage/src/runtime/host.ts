@@ -233,14 +233,16 @@ export function sqliteRuntimeStorage(
                   .get(runId, scope.threadId, scope.generation)
                 if (!retained) return "uncertain"
                 const proof = JSON.parse(String(retained.payload))
-                return proof.unwoundAt && !proof.ownershipLoss ? "completed" : "uncertain"
+                if (proof.ownershipLoss || proof.metadata.reason === "execution_lost")
+                  return "execution_lost"
+                return proof.unwoundAt ? "completed" : "uncertain"
               }
               const c = JSON.parse(String(row.control)),
                 r = JSON.parse(String(row.run)),
                 t = row.thread ? JSON.parse(String(row.thread)) : undefined
               if (c.runId !== runId) return "uncertain"
               return r.ownershipLoss || r.metadata.reason === "execution_lost"
-                ? "uncertain"
+                ? "execution_lost"
                 : c.status === "accepted" ||
                     (!!r.metadata.startedAt &&
                       !r.unwoundAt &&
@@ -338,7 +340,8 @@ export function sqliteRuntimeStorage(
               }))
           })
         },
-        async openThread(id, create) {
+        async openThread(id, create, expectedGeneration) {
+          if (expectedGeneration !== undefined && create) return undefined
           // A synchronous canonical generation selection cannot race a pending
           // same-process bind. SQLite itself is single execution-owner only.
           let scope = read((db) =>
@@ -348,6 +351,8 @@ export function sqliteRuntimeStorage(
               )
               .get(id),
           )
+          if (expectedGeneration !== undefined && scope?.generation !== expectedGeneration)
+            return undefined
           if (!scope && !create) return undefined
           if (!scope) scope = { thread_id: id, generation: randomUUID(), fence: 1 }
           // If a transaction is active, wait through a harmless committed scope
@@ -361,6 +366,8 @@ export function sqliteRuntimeStorage(
                 )
                 .get(id),
             ) ?? scope
+          if (expectedGeneration !== undefined && canonical.generation !== expectedGeneration)
+            return undefined
           return bindRuntimeStore(
             installation,
             createRuntimeBinding(installation, {

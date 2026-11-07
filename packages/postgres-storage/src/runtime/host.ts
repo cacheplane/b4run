@@ -195,14 +195,16 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                 )
                 if (!retained.rows[0]) return "uncertain"
                 const proof = JSON.parse(retained.rows[0].payload)
-                return proof.unwoundAt && !proof.ownershipLoss ? "completed" : "uncertain"
+                if (proof.ownershipLoss || proof.metadata.reason === "execution_lost")
+                  return "execution_lost"
+                return proof.unwoundAt ? "completed" : "uncertain"
               }
               const c = JSON.parse(row.control),
                 r = JSON.parse(row.run),
                 t = row.thread ? JSON.parse(row.thread) : undefined
               if (c.runId !== runId) return "uncertain"
               return r.ownershipLoss || r.metadata.reason === "execution_lost"
-                ? "uncertain"
+                ? "execution_lost"
                 : c.status === "accepted" ||
                     (!!r.metadata.startedAt &&
                       !r.unwoundAt &&
@@ -284,8 +286,9 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                 : {}),
             }))
           }),
-        openThread: (id, create) =>
+        openThread: (id, create, expectedGeneration) =>
           active(async () => {
+            if (expectedGeneration !== undefined && create) return undefined
             const scope = await withTransaction(context.pool, async (client) => {
               await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
                 `b4:runtime:bind:${installation.installationId}:${id}`,
@@ -301,6 +304,8 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                 [id],
               )
               const existing = rows.rows[0]
+              if (expectedGeneration !== undefined && existing?.generation !== expectedGeneration)
+                return undefined
               if (existing) {
                 if (!existing.live) {
                   if (existing.execution_owner)

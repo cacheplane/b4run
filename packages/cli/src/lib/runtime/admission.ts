@@ -39,6 +39,7 @@ import {
   replayOperationReceipt,
   subject,
 } from "./operation-ledger.js"
+import { retireSupersededControls } from "./ownership.js"
 import {
   closeRuntimeAdmission,
   type RuntimeStorageHost,
@@ -439,6 +440,8 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           ...subject(thread),
         })
         if (!createdGate.ok) throw new ProtocolError("not_found")
+        if (row?.currentRunId)
+          await retireSupersededControls(tx, row.currentRunId, tx.scope.generation)
         await tx.inbox.put({
           entryId: crypto.randomUUID(),
           kind: "dispatch",

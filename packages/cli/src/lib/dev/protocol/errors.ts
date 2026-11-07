@@ -53,6 +53,8 @@ const failures = {
 } as const satisfies Record<string, readonly [number, AspErrorCode, string]>
 export type ProtocolErrorCode = keyof typeof failures
 export interface ProtocolErrorOptions {
+  /** Trusted durable loss only. Never copied from arbitrary exception metadata. */
+  readonly executionLost?: true
   readonly resource?: "thread" | "run" | "checkpoint" | "input" | "namespace"
   readonly retryAfter?: number
   /** A trusted capability name, never a request value or protected target. */
@@ -91,6 +93,9 @@ export class ProtocolError extends Error {
     super(failures[code][2])
     this.name = "ProtocolError"
     this.options = Object.freeze({
+      ...(code === "storage_unavailable" && options.executionLost === true
+        ? { executionLost: true as const }
+        : {}),
       ...(options.resource !== undefined ? { resource: options.resource } : {}),
       ...(options.retryAfter !== undefined ? { retryAfter: options.retryAfter } : {}),
       ...(options.feature !== undefined && publicFeatures.has(options.feature)
@@ -112,8 +117,18 @@ export function protocolRestError(error: unknown): B4ErrorResponse {
   return {
     code: failure.code,
     message: failures[failure.code][2],
-    ...(failure.options.feature
-      ? { metadata: { b4: { v: 1, code: failure.code, feature: failure.options.feature } } }
+    ...(failure.options.feature || failure.options.executionLost
+      ? { metadata: { b4: diagnostic(failure) } }
+      : {}),
+  }
+}
+function diagnostic(failure: ProtocolError) {
+  return {
+    v: 1 as const,
+    code: failure.code,
+    ...(failure.options.feature ? { feature: failure.options.feature } : {}),
+    ...(failure.options.executionLost
+      ? { reason: "execution_lost" as const, effectsUncertain: true as const }
       : {}),
   }
 }
@@ -135,11 +150,7 @@ export function protocolAspError(error: unknown, id: number | null): AspErrorRes
     error: code,
     message: failures[failure.code][2],
     meta: {
-      b4: {
-        v: 1,
-        code: failure.code,
-        ...(failure.options.feature ? { feature: failure.options.feature } : {}),
-      },
+      b4: diagnostic(failure),
     },
   }
 }

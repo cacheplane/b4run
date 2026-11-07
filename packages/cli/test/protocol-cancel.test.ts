@@ -9,6 +9,32 @@ import { body, fixture } from "./fixtures/protocol-admission.ts"
 const budget = 30_000
 const cleanups: (() => Promise<void>)[] = []
 it(
+  "refuses a mismatched exact-generation bind without renewing or advancing the native scope",
+  async () => {
+    const { f, accepted } = await setup(),
+      backend = runtimeStorageRegistration(f.storage),
+      before = await f.snapshot(accepted.threadId),
+      nativeBefore = await f.native.scopeRecord(accepted.threadId)
+    expect(await backend.openThread(accepted.threadId, false, crypto.randomUUID())).toBeUndefined()
+    expect(await backend.openThread(accepted.threadId, true, crypto.randomUUID())).toBeUndefined()
+    expect(
+      await backend.openThread(accepted.threadId, true, before.scope.generation),
+    ).toBeUndefined()
+    const missing = crypto.randomUUID()
+    expect(await backend.openThread(missing, true, crypto.randomUUID())).toBeUndefined()
+    expect(await f.native.scopeRecord(missing)).toEqual([])
+    const after = await f.snapshot(accepted.threadId)
+    expect(await f.native.scopeRecord(accepted.threadId)).toEqual(nativeBefore)
+    expect(after.scope).toEqual(before.scope)
+    expect(after.thread).toEqual(before.thread)
+    const exact = await backend.openThread(accepted.threadId, false, before.scope.generation)
+    expect(exact).toBeDefined()
+    expect((await exact?.snapshot())?.scope).toEqual(before.scope)
+    expect(await exact?.transaction((tx) => tx.executionOwner())).toBeNull()
+  },
+  budget,
+)
+it(
   "retires a permission park that races an already accepted running Stop without another invocation",
   async () => {
     const { f, accepted } = await setup(),

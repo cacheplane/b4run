@@ -3,8 +3,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { sqliteRuntimeStorage } from "@b4run/sqlite-storage"
 import { afterEach, expect, it } from "vitest"
+import {
+  protocolAspError,
+  protocolErrorResponse,
+  protocolRestError,
+} from "../src/lib/dev/protocol/errors.ts"
 import { createExecutionHost, settleExecution } from "../src/lib/runtime/executor.ts"
 import { createPermissionService, parkPermissions } from "../src/lib/runtime/permissions.ts"
+import { runtimeStorageRegistration } from "../src/lib/runtime/storage-host.ts"
 import { body, fixture } from "./fixtures/protocol-admission.ts"
 import { runtimeWorker } from "./fixtures/protocol-owned-worker.ts"
 
@@ -259,9 +265,73 @@ it.each(["park-gap", "park-released"] as const)(
       expect(row?.ownershipLoss).toMatchObject({ effectsUncertain: true })
       expect(row?.unwoundAt).toBeUndefined()
       expect(snapshot.pending[0]).toMatchObject({ disposition: "retired", decision: null })
-      await expect(
-        host.cancel(recovered.request(), accepted.threadId, accepted.runId, { wait: true }),
-      ).rejects.toMatchObject({ code: "storage_unavailable" })
+      const failure = await host
+        .cancel(recovered.request(), accepted.threadId, accepted.runId, { wait: true })
+        .then(
+          () => undefined,
+          (error) => error,
+        )
+      expect(failure).toMatchObject({ code: "storage_unavailable" })
+      const diagnostic = {
+        v: 1,
+        code: "storage_unavailable",
+        reason: "execution_lost",
+        effectsUncertain: true,
+      }
+      expect(protocolRestError(failure)).toEqual({
+        code: "storage_unavailable",
+        message: "Storage unavailable",
+        metadata: { b4: diagnostic },
+      })
+      expect(protocolAspError(failure, 1)).toEqual({
+        type: "error",
+        id: 1,
+        error: "unknown_error",
+        message: "Storage unavailable",
+        meta: { b4: diagnostic },
+      })
+      const response = protocolErrorResponse(failure)
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual(protocolRestError(failure))
+      // A later successful segment can clean the Thread, but cannot erase the
+      // predecessor's proved loss or make its exact wait a clean completion.
+      await recovered.admit(
+        body({
+          thread_id: accepted.threadId,
+          on_completion: "delete",
+          metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+        }),
+      )
+      await host.tick()
+      await host.idle()
+      const backend = runtimeStorageRegistration(recovered.storage),
+        retained = await backend.temporary?.readRun(accepted.runId)
+      expect(await backend.readThread(accepted.threadId)).toBeUndefined()
+      expect(retained?.record.ownershipLoss).toMatchObject({ effectsUncertain: true })
+      expect(retained?.record.metadata).toMatchObject({
+        reason: "permission",
+        continuation: "closed",
+      })
+      expect(retained?.record.unwoundAt).toBeUndefined()
+      expect(
+        await backend.execution?.controlProgress?.(
+          { threadId: accepted.threadId, generation: snapshot.scope.generation },
+          crypto.randomUUID(),
+          accepted.runId,
+        ),
+      ).toBe("execution_lost")
+      const retainedFailure = await host
+        .cancel(recovered.request(), accepted.threadId, accepted.runId, { wait: true })
+        .then(
+          () => undefined,
+          (error) => error,
+        )
+      expect(protocolRestError(retainedFailure)).toEqual({
+        code: "storage_unavailable",
+        message: "Storage unavailable",
+        metadata: { b4: diagnostic },
+      })
+      expect(protocolAspError(retainedFailure, 1).meta?.b4).toEqual(diagnostic)
     } else {
       expect(row?.ownershipLoss).toBeUndefined()
       expect(row?.unwoundAt).toEqual(expect.any(String))

@@ -11,6 +11,69 @@ import {
   protocolErrorResponse,
   protocolRestError,
 } from "../src/lib/dev/protocol/errors.ts"
+
+it("serializes only trusted bounded execution loss diagnostics and keeps ordinary storage failures unchanged", async () => {
+  const failure = new ProtocolError("storage_unavailable", { executionLost: true })
+  const diagnostic = {
+    v: 1,
+    code: "storage_unavailable",
+    reason: "execution_lost",
+    effectsUncertain: true,
+  }
+  expect(protocolRestError(failure)).toEqual({
+    code: "storage_unavailable",
+    message: "Storage unavailable",
+    metadata: { b4: diagnostic },
+  })
+  expect(protocolAspError(failure, 7)).toEqual({
+    type: "error",
+    id: 7,
+    error: "unknown_error",
+    message: "Storage unavailable",
+    meta: { b4: diagnostic },
+  })
+  expect(validates("B4ErrorResponse", protocolRestError(failure))).toBe(true)
+  expect(validates("AspErrorResponse", protocolAspError(failure, 7))).toBe(true)
+  const response = protocolErrorResponse(failure)
+  expect(response.status).toBe(503)
+  expect(await response.json()).toEqual(protocolRestError(failure))
+  expect(protocolRestError(new ProtocolError("storage_unavailable"))).toEqual({
+    code: "storage_unavailable",
+    message: "Storage unavailable",
+  })
+  expect(
+    protocolRestError(
+      new ProtocolError("storage_unavailable", { executionLost: false as unknown as true }),
+    ),
+  ).toEqual({ code: "storage_unavailable", message: "Storage unavailable" })
+  expect(protocolRestError(new ProtocolError("not_found", { executionLost: true }))).toEqual({
+    code: "not_found",
+    message: "Resource not found",
+  })
+  const untrusted = Object.assign(new Error("SECRET"), {
+    code: "storage_unavailable",
+    options: { executionLost: true, ownerId: "SECRET" },
+    metadata: { b4: diagnostic },
+  })
+  expect(protocolRestError(untrusted)).toEqual({
+    code: "internal_error",
+    message: "Internal server error",
+  })
+  expect(protocolAspError(untrusted, 7).meta?.b4).toEqual({ v: 1, code: "internal_error" })
+  const trustedOptions = {
+    executionLost: true as const,
+    ownerId: "SECRET",
+    grant: "SECRET",
+    reason: "SECRET",
+  }
+  expect(
+    protocolRestError(new ProtocolError("storage_unavailable", trustedOptions)).metadata?.b4,
+  ).toEqual(diagnostic)
+  expect(
+    JSON.stringify(protocolAspError(new ProtocolError("storage_unavailable", trustedOptions), 1)),
+  ).not.toContain("SECRET")
+})
+
 import {
   matchesLiteralFilters,
   parseCallerMetadata,

@@ -29,6 +29,7 @@ import {
   executionClock,
   executionStorage,
   type LiveExecution,
+  retireSupersededControls,
   staleOwnership,
 } from "./ownership.js"
 import {
@@ -169,7 +170,12 @@ export async function settleExecution(
         timestamp: Date.parse(timestamp),
         data: {
           name: "b4.run",
-          payload: { ...metadata, runId, agentId: run.agent_id, status: run.status },
+          payload: {
+            ...metadata,
+            runId,
+            agentId: run.agent_id,
+            status: run.status,
+          },
         },
       },
     },
@@ -236,16 +242,35 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
   const stopped = new Map<string, StopReason>()
   const finalizing = new Map<string, Promise<void>>()
   const finalizationFailures = new Map<string, unknown>()
-  function finalize(threadId: string, runId: string): Promise<void> {
-    const key = JSON.stringify([threadId, runId])
+  async function reconcileSuperseded(
+    threadId: string,
+    runId: string,
+    generation: string,
+  ): Promise<void> {
+    // Never open/create an archived or replacement generation to complete old work.
+    const current = await registration.readThread(threadId)
+    if (
+      current?.generation !== generation ||
+      (current.currentRunId === runId &&
+        (current.cleanupIntent?.onCompletion === "delete" || current.thread.status === "busy"))
+    )
+      return
+    const store = await registration.openThread(threadId, false, generation)
+    if (store) await store.transaction((tx) => retireSupersededControls(tx, runId, generation))
+  }
+  function finalize(threadId: string, runId: string, generation: string): Promise<void> {
+    const key = JSON.stringify([threadId, generation, runId])
     const existing = finalizing.get(key)
     if (existing) return existing
     finalizationFailures.delete(key)
     const work = (async () => {
       const plan = (await registration.temporary?.candidates())?.find(
-        (p) => p.threadId === threadId && p.runId === runId,
+        (p) => p.threadId === threadId && p.runId === runId && p.generation === generation,
       )
-      if (!plan) return
+      if (!plan) {
+        await reconcileSuperseded(threadId, runId, generation)
+        return
+      }
       const context = {
         installationId: options.storage.installationId,
         threadId,
@@ -255,7 +280,8 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       const prepare = temporaryCleanupPreparation(options.storage)
       if (!prepare) throw new ProtocolError("not_supported")
       const provider = await prepare(context)
-      await registration.temporary?.finalize({ ...plan, provider })
+      if (!(await registration.temporary?.finalize({ ...plan, provider })))
+        await reconcileSuperseded(threadId, runId, generation)
     })()
       .catch((error) => {
         finalizationFailures.set(key, error)
@@ -312,7 +338,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         if (kind === "native_creation" || proof.binding.onDisconnect === "cancel") {
           const candidate = await registration.findRun?.(proof.runId)
           if (candidate?.location === "live" && candidate.scope.generation === proof.generation) {
-            const store = await registration.openThread(proof.threadId, false)
+            const store = await registration.openThread(proof.threadId, false, proof.generation)
             if (store)
               await store.transaction(async (tx) => {
                 if (tx.scope.generation === proof.generation)
@@ -349,6 +375,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
     for (const threadId of await backend.listCandidates()) {
       if (closed) return
       let selected: RuntimeRunRecord | undefined
+      let retiredBeforeStart: { runId: string; generation: string } | undefined
       let preparation: PermissionExecutionPreparation | undefined, preparationError: unknown
       if (options.permissions) {
         try {
@@ -398,7 +425,11 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           await settleExecution(
             tx,
             run.run.run_id,
-            { status: "error", reason: "execution_lost", effectsUncertain: true },
+            {
+              status: "error",
+              reason: "execution_lost",
+              effectsUncertain: true,
+            },
             clock.now(),
           )
           for (const entry of await tx.inbox.list())
@@ -436,9 +467,17 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
             await settleExecution(
               tx,
               run.run.run_id,
-              { status: "error", reason: "execution_error", effectsUncertain: false },
+              {
+                status: "error",
+                reason: "execution_error",
+                effectsUncertain: false,
+              },
               clock.now(),
             )
+            retiredBeforeStart = {
+              runId: run.run.run_id,
+              generation: tx.scope.generation,
+            }
             return
           }
         }
@@ -452,14 +491,46 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         selected = {
           ...run,
           execution,
-          metadata: { ...run.metadata, phase: "running", startedAt: clock.now() },
+          metadata: {
+            ...run.metadata,
+            phase: "running",
+            startedAt: clock.now(),
+          },
         }
         await tx.runs.put(selected)
         for (const entry of dispatches) await tx.inbox.put({ ...entry, status: "applied" })
       })
       if (!lease) continue
       if (!selected) {
-        await lease.release()
+        if (retiredBeforeStart) {
+          const retired = retiredBeforeStart
+          await lease.release(async (tx) => {
+            const row = await tx.runs.get(retired.runId),
+              dispatches = (await tx.inbox.list()).filter(
+                (entry) => entry.kind === "dispatch" && entry.runId === retired.runId,
+              )
+            if (
+              tx.scope.generation !== retired.generation ||
+              !row ||
+              row.metadata.phase !== "settled" ||
+              row.metadata.reason !== "execution_error" ||
+              row.metadata.continuation !== "closed" ||
+              row.metadata.startedAt !== undefined ||
+              row.ownershipLoss ||
+              row.execution?.ownerId !== ownerId ||
+              row.execution.fence !== tx.scope.fence ||
+              (await tx.executionOwner()) !== ownerId ||
+              dispatches.length !== 1 ||
+              dispatches[0]?.status !== "not_applied"
+            )
+              throw Object.assign(
+                new Error("Cannot prove exact never-started permission retirement"),
+                { code: "stale_fence" },
+              )
+            await tx.runs.put({ ...row, unwoundAt: clock.now() })
+          })
+          await finalize(threadId, retired.runId, retired.generation)
+        } else await lease.release()
         if (preparationError) throw preparationError
         continue
       }
@@ -505,7 +576,10 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                 tx,
                 run.run.run_id,
                 reason
-                  ? { status: reason === "deadline" ? "timeout" : "interrupted", reason }
+                  ? {
+                      status: reason === "deadline" ? "timeout" : "interrupted",
+                      reason,
+                    }
                   : { status: "success", reason: "completed", result },
                 clock.now(),
               )
@@ -522,7 +596,10 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                   tx,
                   run.run.run_id,
                   reason
-                    ? { status: reason === "deadline" ? "timeout" : "interrupted", reason }
+                    ? {
+                        status: reason === "deadline" ? "timeout" : "interrupted",
+                        reason,
+                      }
                     : { status: "error", reason: "execution_error" },
                   clock.now(),
                 )
@@ -554,7 +631,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                     )
                       await tx.inbox.put({ ...entry, status: "applied" })
               })
-              await finalize(threadId, key)
+              await finalize(threadId, key, run.metadata.generation)
             } catch (error) {
               report(error)
             }
@@ -568,7 +645,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       live.set(key, { lease, controller, work })
     }
     for (const plan of (await registration.temporary?.candidates()) ?? [])
-      await finalize(plan.threadId, plan.runId)
+      await finalize(plan.threadId, plan.runId, plan.generation)
   }
   const host: ExecutionHost = {
     ownerId,
@@ -608,7 +685,6 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       if (!registration.findRun) throw new ProtocolError("not_supported")
       const candidate = await registration.findRun(runId)
       if (!candidate || candidate.scope.threadId !== threadId) throw new ProtocolError("not_found")
-      await authorizeAgent(request, candidate.agentId)
       const authorizeRetainedChildren = async (metadata: Readonly<Record<string, unknown>>) => {
         const saved = (metadata.permissionAgentsByRun as Record<string, unknown> | undefined)?.[
           runId
@@ -618,26 +694,20 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           throw new ProtocolError("storage_unavailable")
         for (const id of saved) await authorizeAgent(request, id)
       }
-      if (candidate.location === "retained")
-        await authorizeRetainedChildren(candidate.subject.protectedMetadata)
       const gate = makeProtocolThreadGate(options.policy, request, {
         deploymentId: options.deploymentId,
       })
-      const current =
-        candidate.location === "retained"
-          ? candidate.subject
-          : await registration.readThread(threadId)
-      if (
-        !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(current) }))
-          .ok ||
-        !current
-      )
-        throw new ProtocolError("not_found")
-      if (candidate.location === "retained") {
+      const finishRetainedControl = async () => {
+        await authorizeAgent(request, candidate.agentId)
         const retained = await registration.temporary?.readRun(runId)
         if (
           !retained ||
-          retained.scope.generation !== candidate.scope.generation ||
+          retained.scope.threadId !== threadId ||
+          retained.scope.generation !== candidate.scope.generation
+        )
+          throw new ProtocolError("not_found")
+        await authorizeRetainedChildren(retained.subject.protectedMetadata)
+        if (
           !(
             await gate({
               action: "update",
@@ -648,37 +718,94 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           ).ok
         )
           throw new ProtocolError("not_found")
-        await authorizeRetainedChildren(retained.subject.protectedMetadata)
+        if (
+          command.wait &&
+          (retained.record.ownershipLoss || retained.record.metadata.reason === "execution_lost")
+        )
+          throw new ProtocolError("storage_unavailable", {
+            executionLost: true,
+          })
+        if (command.wait && !retained.record.unwoundAt)
+          throw new ProtocolError("storage_unavailable")
         return
       }
-      const store = await registration.openThread(threadId, false)
-      if (!store) throw new ProtocolError("not_found")
-      const entryId = await store.transaction(async (tx) => {
-        const thread = await tx.thread.get(),
-          run = await tx.runs.get(runId)
-        if (
-          !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(thread) }))
-            .ok ||
-          !run?.run.agent_id
-        )
-          throw new ProtocolError("not_found")
-        if (tx.scope.generation !== candidate.scope.generation) throw new ProtocolError("not_found")
-        await authorizeAgent(request, run.run.agent_id)
-        for (const receipt of await tx.receipts.list())
-          if (receipt.receipt.runId === runId && receipt.operation?.method === "input.respond")
-            await authorizeSavedPermissionAgents(receipt, (id) => authorizeAgent(request, id))
-        return acceptStop(tx, runId, "user_stop", clock.now())
-      })
+      if (candidate.location === "retained") return finishRetainedControl()
+      const acceptExactControl = async (): Promise<string | undefined> => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (request.signal.aborted) throw request.signal.reason
+          await authorizeAgent(request, candidate.agentId)
+          const fresh = await registration.readThread(threadId)
+          if (!fresh || fresh.generation !== candidate.scope.generation) {
+            const retained = await registration.temporary?.readRun(runId)
+            if (retained?.scope.generation === candidate.scope.generation) {
+              await finishRetainedControl()
+              return
+            }
+            throw new ProtocolError("not_found")
+          }
+          await authorizeRetainedChildren(fresh.protectedMetadata)
+          if (
+            !(
+              await gate({ action: "update", operation: "run.cancel", threadId, ...subject(fresh) })
+            ).ok
+          )
+            throw new ProtocolError("not_found")
+          try {
+            const store = await registration.openThread(threadId, false, candidate.scope.generation)
+            if (!store) continue
+            return await store.transaction(async (tx) => {
+              const thread = await tx.thread.get(),
+                run = await tx.runs.get(runId)
+              if (tx.scope.generation !== candidate.scope.generation || !run?.run.agent_id)
+                throw new ProtocolError("not_found")
+              await authorizeAgent(request, run.run.agent_id)
+              for (const receipt of await tx.receipts.list())
+                if (
+                  receipt.receipt.runId === runId &&
+                  receipt.operation?.method === "input.respond"
+                )
+                  await authorizeSavedPermissionAgents(receipt, (id) => authorizeAgent(request, id))
+              if (
+                !(
+                  await gate({
+                    action: "update",
+                    operation: "run.cancel",
+                    threadId,
+                    ...subject(thread),
+                  })
+                ).ok
+              )
+                throw new ProtocolError("not_found")
+              return acceptStop(tx, runId, "user_stop", clock.now())
+            })
+          } catch (error) {
+            if (!staleOwnership(error)) throw error
+            // Actual release may advance the fence between binding and the
+            // acceptance transaction. Retry only this authorized exact generation;
+            // never reopen an archived scope or select a successor by Thread head.
+            if (attempt === 2) throw new ProtocolError("storage_unavailable")
+          }
+        }
+        throw new ProtocolError("storage_unavailable")
+      }
+      const entryId = await acceptExactControl()
+      if (entryId === undefined) return
       await observeControls()
       if (!command.wait) return
-      void finalize(threadId, runId).catch(report)
+      void finalize(threadId, runId, candidate.scope.generation).catch(report)
       for (;;) {
-        const finalizationFailure = finalizationFailures.get(JSON.stringify([threadId, runId]))
-        if (finalizationFailure) throw finalizationFailure
         if (!backend.controlProgress) throw new ProtocolError("not_supported")
         const progress = await backend.controlProgress(candidate.scope, entryId, runId)
+        if (progress === "execution_lost")
+          throw new ProtocolError("storage_unavailable", {
+            executionLost: true,
+          })
         if (progress === "uncertain") throw new ProtocolError("storage_unavailable")
         if (progress === "completed") return
+        const finalizationFailure = finalizationFailures.get(
+          JSON.stringify([threadId, candidate.scope.generation, runId]),
+        )
+        if (finalizationFailure) throw finalizationFailure
         await new Promise<void>((resolve, reject) => {
           if (request.signal.aborted) {
             reject(request.signal.reason)

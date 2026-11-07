@@ -105,6 +105,9 @@ creation stream closure from passive observation, and waits for actual provider
 unwind before releasing ownership. Deadlines and configured shutdown drain use
 the same control path. Shutdown closes new Run and permission acceptance on its
 local boot host; authorized accepted receipts remain reconcilable.
+Proved execution loss uses the existing `storage_unavailable` error with bounded
+`reason: execution_lost` and `effectsUncertain: true` diagnostics, including when
+the exact Run is independently retained after a successor cleans its Thread.
 
 REST creation replaces completion intent; permission continuation preserves it.
 Automatic cleanup requires a trusted boot resource preparation capability,
