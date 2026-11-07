@@ -411,13 +411,47 @@ it(
   budget,
 )
 it.each(["stop", "resume"] as const)(
-  "serializes %s before its competing pause operation and never targets the successor",
+  "wins overlapping %s acceptance before its competing pause operation without targeting the successor",
   async (first) => {
     const { f, accepted } = await setup()
-    const permissions = createPermissionService({ ...f.authority, grants: "required" })
+    const winnerEntered = barrier(),
+      loserEntered = barrier(),
+      releaseWinner = barrier()
+    const policy = f.authority.policy
+    let stopGates = 0
+    const permissions = createPermissionService({
+      ...f.authority,
+      grants: "required",
+      policy: {
+        ...policy,
+        async fallback(request) {
+          if (first === "stop" && request.operation === "input.respond") loserEntered.release()
+          return policy.fallback(request)
+        },
+      },
+      async failpoint(point) {
+        if (first === "resume" && point === "beforeCommit") {
+          winnerEntered.release()
+          await releaseWinner.promise
+        }
+      },
+    })
     let effects = 0
     const host = createExecutionHost({
       ...f.authority,
+      policy: {
+        ...policy,
+        async fallback(request) {
+          if (request.operation === "run.cancel") {
+            stopGates++
+            if (first === "stop" && stopGates === 2) {
+              winnerEntered.release()
+              await releaseWinner.promise
+            } else if (first === "resume" && stopGates === 1) loserEntered.release()
+          }
+          return policy.fallback(request)
+        },
+      },
       permissions,
       async invoke({ run, store }) {
         effects++
@@ -443,7 +477,10 @@ it.each(["stop", "resume"] as const)(
         return {}
       },
     })
-    cleanups.push(() => host.close())
+    cleanups.push(
+      () => host.close(),
+      async () => releaseWinner.release(),
+    )
     await host.tick()
     await host.idle()
     const paused = await f.snapshot(accepted.threadId)
@@ -465,15 +502,22 @@ it.each(["stop", "resume"] as const)(
     }
     let successor: string | undefined
     if (first === "stop") {
-      await host.cancel(f.request(), accepted.threadId, accepted.runId, { wait: true })
-      await expect(
-        permissions.respond(f.request(), accepted.threadId, accepted.runId, answer),
-      ).rejects.toMatchObject({ code: "stale_generation" })
+      const winner = host.cancel(f.request(), accepted.threadId, accepted.runId, { wait: true })
+      await winnerEntered.promise
+      const loser = permissions.respond(f.request(), accepted.threadId, accepted.runId, answer)
+      const rejected = expect(loser).rejects.toMatchObject({ code: "stale_generation" })
+      await loserEntered.promise
+      releaseWinner.release()
+      await winner
+      await rejected
     } else {
-      successor = (
-        await permissions.respond(f.request(), accepted.threadId, accepted.runId, answer)
-      ).runId
-      await host.cancel(f.request(), accepted.threadId, accepted.runId, { wait: true })
+      const winner = permissions.respond(f.request(), accepted.threadId, accepted.runId, answer)
+      await winnerEntered.promise
+      const loser = host.cancel(f.request(), accepted.threadId, accepted.runId, { wait: true })
+      await loserEntered.promise
+      releaseWinner.release()
+      successor = (await winner).runId
+      await loser
     }
     await host.tick()
     await host.idle()
