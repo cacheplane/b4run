@@ -15,7 +15,7 @@ export const RECORD_TABLES = [
 const logicalStatements = [
   ...`CREATE TABLE runtime_installation(singleton INTEGER PRIMARY KEY CHECK(singleton=1), format TEXT NOT NULL, version INTEGER NOT NULL, installation_id TEXT NOT NULL, schema_name TEXT NOT NULL, table_prefix TEXT NOT NULL, layout TEXT NOT NULL, catalog TEXT NOT NULL);
 
-CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence BIGINT NOT NULL CHECK(fence>0), lease_expires_at TIMESTAMPTZ NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, through_seq BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation));
+CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence BIGINT NOT NULL CHECK(fence>0), lease_expires_at TIMESTAMPTZ NOT NULL, execution_owner TEXT, deleted INTEGER NOT NULL DEFAULT 0, through_seq BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation));
 CREATE UNIQUE INDEX current_generation ON scopes(thread_id) WHERE deleted=0;
 CREATE TABLE run_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
 CREATE TABLE checkpoint_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));

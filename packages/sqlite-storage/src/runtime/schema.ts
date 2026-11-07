@@ -16,7 +16,7 @@ export const RECORD_TABLES = [
 const schemaStatements = [
   ...`CREATE TABLE runtime_installation(singleton INTEGER PRIMARY KEY CHECK(singleton=1), format TEXT NOT NULL, version INTEGER NOT NULL, installation_id TEXT NOT NULL);
 CREATE TABLE runtime_owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), pid INTEGER NOT NULL, process_start TEXT NOT NULL, boot_identity TEXT NOT NULL, nonce TEXT NOT NULL);
-CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence INTEGER NOT NULL CHECK(fence>0), deleted INTEGER NOT NULL DEFAULT 0, through_seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation));
+CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence INTEGER NOT NULL CHECK(fence>0), execution_owner TEXT, execution_nonce TEXT, deleted INTEGER NOT NULL DEFAULT 0, through_seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation));
 CREATE UNIQUE INDEX current_generation ON scopes(thread_id) WHERE deleted=0;
 CREATE TABLE run_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
 CREATE TABLE checkpoint_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));

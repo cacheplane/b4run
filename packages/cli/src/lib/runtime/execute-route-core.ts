@@ -1,3 +1,4 @@
+import type { ExecutionHost } from "./executor.js"
 import type { RuntimeStorageHost } from "./storage-host.js"
 /**
  * The REQUEST-PATH core of route execution, with no `node:` imports of its
@@ -434,6 +435,9 @@ export interface BootResolvedInstances {
   /** Registered shared-runtime installation. Staged until the ExecutionHost
    * replaces legacy Node owners; independent legacy stores never fill it. */
   readonly runtimeStorage?: RuntimeStorageHost
+  /** Shared boot-owned dispatch service. R8 binds safe adapter execution before
+   * standard/native bindings replace the legacy execution owners. */
+  readonly executionHost?: ExecutionHost
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)

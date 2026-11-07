@@ -94,6 +94,11 @@ export function resolveServePort(
  * serveRuntime never watches the filesystem or restarts — it starts once and
  * stays up.
  *
+ * Coordinated protocol activation must assemble one RuntimeStorageHost and
+ * ExecutionHost in startRuntimeServer, retire the legacy mutable execution
+ * owners, and bind the shared adapter there. The staged R5 executor is not
+ * independently activated by this entrypoint.
+ *
  * Deliberately does NOT run typegen at boot. The host `b4 build` already
  * generated `.b4/*` (COPY'd into the image), and the runtime's schema
  * injection is best-effort with a fallback to discovered tools when those

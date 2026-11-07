@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 import type {
+  RuntimeExecutionLease,
   RuntimeRecords,
   RuntimeSnapshot,
   RuntimeStorageScope,
@@ -273,6 +274,11 @@ function makeTransaction(access: Access): RuntimeTransaction {
 export interface BoundRuntimeStore extends RuntimeStore {
   committedReader(): Pick<RuntimeStore, "snapshot">
   advanceFence(): Promise<BoundRuntimeStore>
+  claimExecution(
+    ownerId: string,
+    callback: (tx: RuntimeTransaction) => Promise<void>,
+  ): Promise<RuntimeExecutionLease | undefined>
+  releaseExecution(ownerId: string): Promise<void>
 }
 /** Called only by the internal capability binder, never from public config. */
 export function makeRuntimeStore(
@@ -345,6 +351,78 @@ export function makeRuntimeStore(
       }),
     )
   }
+  // All fence transitions, including execution claim/release, share the same
+  // scoped writer queue and physical transaction as ordinary runtime writes.
+  async function transitionFence(
+    claim?: { ownerId: string; callback: (tx: RuntimeTransaction) => Promise<void> },
+    releaseOwner?: string,
+  ): Promise<BoundRuntimeStore | undefined> {
+    const changed = await scopeExclusive(() =>
+      exclusive(async () => {
+        const db = context.db
+        let active = true
+        db.exec("BEGIN IMMEDIATE")
+        try {
+          makeAccess(installation, db, scope, now, () => active).check()
+          const row = db
+            .prepare(
+              "SELECT execution_owner,execution_nonce FROM scopes WHERE thread_id=? AND generation=?",
+            )
+            .get(scope.threadId, scope.generation)
+          if (
+            claim &&
+            row?.execution_owner &&
+            row.execution_nonce === context.lock.identity.nonce
+          ) {
+            db.exec("ROLLBACK")
+            return false
+          }
+          if (
+            releaseOwner &&
+            (row?.execution_owner !== releaseOwner ||
+              row.execution_nonce !== context.lock.identity.nonce)
+          )
+            throw diagnostic("stale_fence", "Execution owner changed")
+          const result = db
+            .prepare(
+              "UPDATE scopes SET fence=fence+1,execution_owner=?,execution_nonce=? WHERE thread_id=? AND generation=? AND fence=? AND fence<9007199254740991",
+            )
+            .run(
+              claim?.ownerId ?? (releaseOwner ? null : (row?.execution_owner ?? null)),
+              claim
+                ? context.lock.identity.nonce
+                : releaseOwner
+                  ? null
+                  : (row?.execution_nonce ?? null),
+              scope.threadId,
+              scope.generation,
+              scope.fence,
+            )
+          if (result.changes !== 1) throw diagnostic("stale_fence", "Cannot advance runtime fence")
+          const access = makeAccess(
+            installation,
+            db,
+            { ...scope, fence: scope.fence + 1 },
+            now,
+            () => active,
+          )
+          if (claim) await claim.callback(makeTransaction(access))
+          access.check()
+          active = false
+          db.exec("COMMIT")
+          return true
+        } catch (error) {
+          if (db.isTransaction) db.exec("ROLLBACK")
+          throw error
+        } finally {
+          active = false
+        }
+      }),
+    )
+    return changed
+      ? makeRuntimeStore(installation, { ...scope, fence: scope.fence + 1 }, now)
+      : undefined
+  }
   const store: BoundRuntimeStore = {
     profile: "coordinated",
     transaction,
@@ -377,33 +455,43 @@ export function makeRuntimeStore(
       }
     },
     async advanceFence() {
-      await scopeExclusive(() =>
-        exclusive(async () => {
-          context.db.exec("BEGIN IMMEDIATE")
-          try {
-            makeAccess(installation, context.db, scope, now, () => true).check()
-            const result = context.db
+      const next = await transitionFence()
+      if (!next) throw new Error("Runtime fence did not advance")
+      return next
+    },
+    async releaseExecution(ownerId) {
+      await transitionFence(undefined, ownerId)
+    },
+    async claimExecution(ownerId, callback) {
+      if (!ownerId) throw new Error("Execution owner identity is required")
+      const claimed = await transitionFence({ ownerId, callback })
+      if (!claimed) return undefined
+      const nextScope = { ...scope, fence: scope.fence + 1 }
+      let released = false
+      return {
+        store: claimed,
+        async heartbeat() {
+          if (released) throw diagnostic("stale_fence", "Execution lease released")
+          await claimed.transaction(async () => {
+            const row = context.db
               .prepare(
-                "UPDATE scopes SET fence=fence+1 WHERE thread_id=? AND generation=? AND fence=? AND fence<9007199254740991",
+                "SELECT execution_owner,execution_nonce FROM scopes WHERE thread_id=? AND generation=?",
               )
-              .run(scope.threadId, scope.generation, scope.fence)
-            if (result.changes !== 1)
-              throw diagnostic("stale_fence", "Cannot advance runtime fence")
-            makeAccess(
-              installation,
-              context.db,
-              { ...scope, fence: scope.fence + 1 },
-              now,
-              () => true,
-            ).check()
-            context.db.exec("COMMIT")
-          } catch (error) {
-            if (context.db.isTransaction) context.db.exec("ROLLBACK")
-            throw error
-          }
-        }),
-      )
-      return makeRuntimeStore(installation, { ...scope, fence: scope.fence + 1 }, now)
+              .get(scope.threadId, scope.generation)
+            if (
+              row?.execution_owner !== ownerId ||
+              row.execution_nonce !== context.lock.identity.nonce
+            )
+              throw diagnostic("stale_fence", "Execution owner changed")
+          })
+        },
+        async release() {
+          if (released) return
+          // Use the same transition algorithm at the newly claimed fence.
+          await makeRuntimeStore(installation, nextScope, now).releaseExecution(ownerId)
+          released = true
+        },
+      }
     },
     withReadLease: async (callback) => {
       installationContext(installation)

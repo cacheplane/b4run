@@ -21,6 +21,9 @@ export interface ExecuteRouteServerOptions {
 export async function executeRouteServer(
   options: ExecuteRouteServerOptions,
 ): Promise<RuntimeExecutionResult> {
+  // Legacy transport client pending the coordinated binding replacement. A
+  // timeout here cannot prove execution-owner loss or authorize graph replay;
+  // durable ownership/reconciliation belongs to the shared ExecutionHost.
   const startedAt = Date.now()
   const timeoutMs = options.timeoutMs ?? DEFAULT_SERVER_REQUEST_TIMEOUT_MS
   const controller = new AbortController()

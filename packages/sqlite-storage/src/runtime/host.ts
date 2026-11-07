@@ -7,6 +7,7 @@ import type {
 } from "@b4run/sdk/agent-protocol"
 import { bindRuntimeStore, createRuntimeBinding } from "./binding.js"
 import { installationContext, openRuntimeInstallation } from "./index.js"
+import { makeRuntimeStore } from "./transaction.js"
 
 /** One installation registered with a trusted execution host at boot. No
  * package-exported scope binder and no request-controlled authorization hook. */
@@ -50,6 +51,39 @@ export function sqliteRuntimeStorage(
       return register({
         installationId: installation.installationId,
         close: () => installation.close(),
+        execution: {
+          async listCandidates() {
+            return read((db) =>
+              db
+                .prepare(
+                  "SELECT DISTINCT t.thread_id FROM threads t JOIN scopes s USING(thread_id,generation) JOIN runs r ON r.id=t.current_run_id WHERE s.deleted=0 AND json_extract(r.payload,'$.metadata.phase')!='settled' ORDER BY t.thread_id",
+                )
+                .all()
+                .map((row) => String(row.thread_id)),
+            )
+          },
+          async claim(id, ownerId, callback) {
+            await installationContext(installation).tail
+            const scope = read((db) =>
+              db
+                .prepare("SELECT generation,fence FROM scopes WHERE thread_id=? AND deleted=0")
+                .get(id),
+            )
+            if (!scope) return undefined
+            try {
+              return await makeRuntimeStore(
+                installation,
+                { threadId: id, generation: String(scope.generation), fence: Number(scope.fence) },
+                () => new Date().toISOString(),
+              ).claimExecution(ownerId, callback)
+            } catch (error) {
+              // Concurrent same-process claims may have selected the same cut.
+              if (error instanceof Error && "code" in error && error.code === "stale_fence")
+                return undefined
+              throw error
+            }
+          },
+        },
         async readThread(id) {
           return read((db) => thread(db, id))
         },

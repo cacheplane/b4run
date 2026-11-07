@@ -1,4 +1,5 @@
 import type {
+  RuntimeExecutionLease,
   RuntimeRecords,
   RuntimeSnapshot,
   RuntimeStorageScope,
@@ -51,6 +52,17 @@ export interface Access {
 export function diagnostic(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code })
 }
+/** Discovery must not acquire a client before checking callback lifetime and
+ * actual spare capacity. These checks establish resources, never authority. */
+export function assertRuntimeHostEntry(owner: PostgresRuntimeInstallation): void {
+  const context = installationContext(owner)
+  const current = context.host.activity.getStore()
+  if (current && !current.active)
+    throw diagnostic("closed_transaction", "Runtime callback context is no longer active")
+  if (current?.failure) throw current.failure.error
+  if (current?.kind === "transaction") throw new Error("Nested runtime host access would deadlock")
+  if (current?.kind === "lease") context.host.assertWorkCapacity()
+}
 /** Reject callback reentry/resource waits before a write acquires a client or
  * changes pending accounting. Internal resource validation, not authority. */
 export function assertRuntimeWriteEntry(
@@ -61,7 +73,7 @@ export function assertRuntimeWriteEntry(
   const current = context.host.activity.getStore()
   if (current?.kind === "transaction" || current?.scopeKey === scopeKey(owner, scope))
     throw new Error("Nested runtime transaction or lease would deadlock")
-  if (current?.kind === "lease") context.host.assertWorkCapacity()
+  assertRuntimeHostEntry(owner)
 }
 export function requireSame(actual: unknown, expected: unknown): void {
   if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -287,6 +299,12 @@ export interface BoundRuntimeStore extends RuntimeStore {
   checkpointer(ownerRunId: string, namespace?: string): B4PostgresSaver
   committedReader(): Pick<RuntimeStore, "snapshot">
   advanceFence(): Promise<BoundRuntimeStore>
+  renewIdleScope(): Promise<BoundRuntimeStore>
+  claimExecution(
+    ownerId: string,
+    callback: (tx: RuntimeTransaction) => Promise<void>,
+  ): Promise<RuntimeExecutionLease | undefined>
+  releaseExecution(ownerId: string): Promise<void>
 }
 /** Internal capability binder only. The coordinated label describes this
  * transaction domain, not activated host/protocol or deferred service support. */
@@ -343,17 +361,22 @@ export function makeRuntimeStore(
         throw new Error("Lease callback cannot wait behind another scoped lease")
     } else await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,1))", [key])
   }
-  const validate = async (client: SqlClient, lock = true, allowExpired = false) => {
+  const validate = async (
+    client: SqlClient,
+    lock = true,
+    allowExpired = false,
+    selectedScope = scope,
+  ) => {
     usable()
     if (lock) await lockScope(client, true)
     const result = await client.query<{ fence: string; deleted: number; live: boolean }>(
       `SELECT fence,deleted,lease_expires_at>clock_timestamp() AS live FROM ${scopes} WHERE thread_id=$1 AND generation=$2${lock ? " FOR UPDATE" : ""}`,
-      [scope.threadId, scope.generation],
+      [selectedScope.threadId, selectedScope.generation],
     )
     const row = result.rows[0]
     if (
       !row ||
-      Number(row.fence) !== scope.fence ||
+      Number(row.fence) !== selectedScope.fence ||
       row.deleted !== 0 ||
       (!allowExpired && !row.live)
     )
@@ -398,7 +421,10 @@ export function makeRuntimeStore(
     validate,
     enlist,
   })
-  const transaction = async <T>(callback: (tx: RuntimeTransaction) => Promise<T>): Promise<T> => {
+  const transaction = async <T>(
+    callback: (tx: RuntimeTransaction) => Promise<T>,
+    transition?: { claimOwner?: string; releaseOwner?: string; renewIdle?: true },
+  ): Promise<T> => {
     usable()
     assertRuntimeWriteEntry(owner, scope)
     context.pending++
@@ -407,7 +433,36 @@ export function makeRuntimeStore(
       // enlisted record and native saver mutation shares until COMMIT.
       return await withTransaction(context.pool, async (raw) => {
         await lockScope(raw)
-        await validate(raw)
+        await validate(raw, true, transition !== undefined)
+        let effectiveScope = scope
+        if (transition) {
+          const rows = await raw.query<{ execution_owner: string | null; live: boolean }>(
+            `SELECT execution_owner,lease_expires_at>clock_timestamp() AS live FROM ${scopes} WHERE thread_id=$1 AND generation=$2 FOR UPDATE`,
+            [scope.threadId, scope.generation],
+          )
+          const row = rows.rows[0]
+          if (transition.renewIdle && (row?.execution_owner || row?.live))
+            throw diagnostic("stale_fence", "Idle renewal requires an unowned expired scope")
+          if (transition.claimOwner && row?.execution_owner && row.live)
+            throw diagnostic("owner_busy", "Runtime Thread has a live execution owner")
+          if (transition.releaseOwner && row?.execution_owner !== transition.releaseOwner)
+            throw diagnostic("stale_fence", "Execution owner changed")
+          const result = await raw.query(
+            `UPDATE ${scopes} SET fence=fence+1,lease_expires_at=clock_timestamp()+interval '60 seconds',execution_owner=$4 WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND fence<9007199254740991 RETURNING fence`,
+            [
+              scope.threadId,
+              scope.generation,
+              scope.fence,
+              transition.claimOwner ??
+                (transition.releaseOwner ? null : (row?.execution_owner ?? null)),
+            ],
+          )
+          if (result.rows.length !== 1)
+            throw diagnostic("stale_fence", "Cannot advance runtime fence")
+          effectiveScope = { ...scope, fence: scope.fence + 1 }
+        }
+        const validateTransaction = (client: SqlClient) =>
+          validate(client, true, false, effectiveScope)
         let active = true
         const activity: Activity = {
           owner,
@@ -426,7 +481,7 @@ export function makeRuntimeStore(
               )
           },
           active: () => true,
-          validate,
+          validate: validateTransaction,
           enlist: () => ({
             client: raw,
             check() {
@@ -445,10 +500,10 @@ export function makeRuntimeStore(
         Object.assign(activity, { client })
         try {
           const result = await context.host.activity.run(activity, () =>
-            callback(makeTransaction(makeAccess(owner, client, scope, now, () => active))),
+            callback(makeTransaction(makeAccess(owner, client, effectiveScope, now, () => active))),
           )
           if (activity.failure) throw activity.failure.error
-          await validate(raw)
+          await validateTransaction(raw)
           return result
         } finally {
           active = false
@@ -611,24 +666,51 @@ export function makeRuntimeStore(
       })
     },
     async advanceFence() {
-      usable()
-      assertRuntimeWriteEntry(owner, scope)
-      context.pending++
-      try {
-        await withTransaction(context.pool, async (client) => {
-          await lockScope(client)
-          await validate(client, true, true)
-          const result = await client.query(
-            `UPDATE ${scopes} SET fence=fence+1,lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND fence<9007199254740991 RETURNING fence`,
-            [scope.threadId, scope.generation, scope.fence],
-          )
-          if (result.rows.length !== 1)
-            throw diagnostic("stale_fence", "Cannot advance runtime fence")
-        })
-      } finally {
-        context.pending--
-      }
+      await transaction(async () => {}, {})
       return makeRuntimeStore(owner, { ...scope, fence: scope.fence + 1 }, now)
+    },
+    async renewIdleScope() {
+      await transaction(async () => {}, { renewIdle: true })
+      return makeRuntimeStore(owner, { ...scope, fence: scope.fence + 1 }, now)
+    },
+    async releaseExecution(ownerId) {
+      await transaction(async () => {}, { releaseOwner: ownerId })
+    },
+    async claimExecution(ownerId, callback) {
+      if (!ownerId) throw new Error("Execution owner identity is required")
+      try {
+        await transaction(callback, { claimOwner: ownerId })
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          (error.code === "owner_busy" || error.code === "stale_fence")
+        )
+          return undefined
+        throw error
+      }
+      const claimed = makeRuntimeStore(owner, { ...scope, fence: scope.fence + 1 }, now)
+      let released = false
+      return {
+        store: claimed,
+        async heartbeat() {
+          if (released) throw diagnostic("stale_fence", "Execution lease released")
+          await claimed.transaction(async () => {
+            const activity = context.host.activity.getStore()
+            if (!activity?.client) throw new Error("Missing execution heartbeat transaction")
+            const result = await activity.client.query(
+              `UPDATE ${scopes} SET lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE thread_id=$1 AND generation=$2 AND fence=$3 AND execution_owner=$4 RETURNING fence`,
+              [scope.threadId, scope.generation, scope.fence + 1, ownerId],
+            )
+            if (result.rows.length !== 1) throw diagnostic("stale_fence", "Execution owner changed")
+          })
+        },
+        async release() {
+          if (released) return
+          await claimed.releaseExecution(ownerId)
+          released = true
+        },
+      }
     },
     async withReadLease(callback) {
       usable()

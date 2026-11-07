@@ -158,8 +158,16 @@ for one-time shared host registration, using private fenced binders and indexed
 operation receipt discovery. The common C5 gate and original Agent middleware
 run before disclosure; admission commits its Run, projection, journal, dispatch
 and receipt in one transaction. Exact retries preserve original resolved defaults.
-The runtime cutover remains required. Execution dispatch,
-heartbeat/recovery, adapter safe-boundary hooks, recovery materialization,
+Private execution hooks atomically claim the Thread, advance its fence and
+record started/recovery facts under the same row lock. Leases use the database
+clock with a 60-second expiry; the shared executor heartbeats every 15 seconds
+and polls durable dispatch every second. A missed notification does not lose
+accepted work. Expired owners cannot heartbeat or write; started work settles as
+`execution_lost` with uncertain effects instead of replaying. Unowned idle scopes
+renew with a new fence, preserving authorized retained-receipt lookup.
+
+The runtime cutover and shared server assembly remain required. Adapter
+safe-boundary hooks, coherent recovery materialization,
 copy/state operations, rollback/deletion and retention/webhooks await their
 respective service tasks. Unsupported state controls fail before mutation. This
 persistence foundation does not certify full host activation or extend the

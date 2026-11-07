@@ -47,6 +47,8 @@ export interface RuntimeRunRecord {
   readonly namespace: Namespace
   readonly preRunCheckpointId: string | null
   readonly result: RunWaitResponse | null
+  /** Private execution identity; never projected as caller metadata. */
+  readonly execution?: { readonly ownerId: string; readonly fence: number }
 }
 
 export interface RuntimeCheckpointRecord {
@@ -155,6 +157,28 @@ export interface RuntimeStorageRegistrationOptions {
   /** Called by the trusted host only AFTER its common authorization gate.
    * Resolve/create the canonical generation under the backend's Thread lock. */
   openThread(threadId: string, create: boolean): Promise<RuntimeStore | undefined>
+  /** Optional trusted boot capability. Absence must fail execution readiness. */
+  readonly execution?: RuntimeExecutionStorage
+}
+
+/** Private host/backend plumbing, not request authority or a wire API. */
+export interface RuntimeExecutionStorage {
+  listCandidates(): Promise<readonly string[]>
+  /** Claim only an unowned or authoritatively lost Thread. Increment the fence
+   * and await the started/recovery callback in the SAME transaction. A live
+   * owner, including this same ownerId, returns undefined without mutation. */
+  claim(
+    threadId: string,
+    ownerId: string,
+    callback: (tx: RuntimeTransaction) => Promise<void>,
+  ): Promise<RuntimeExecutionLease | undefined>
+}
+export interface RuntimeExecutionLease {
+  readonly store: RuntimeStore
+  /** Backend clock/owner proof, never a per-request clock or support flag. */
+  heartbeat(): Promise<void>
+  /** Revoke the bound fence before releasing durable ownership. */
+  release(): Promise<void>
 }
 
 export interface RuntimeJournalRecord {

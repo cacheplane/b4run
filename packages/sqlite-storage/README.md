@@ -59,6 +59,14 @@ scope, then commits Run, input projection, journal, dispatch and receipt togethe
 Exact retries reuse the original target and resolved defaults. This factory does
 not expose a public scope binder or activate legacy handlers.
 
+The private execution hooks claim a Thread and mark started/recovery facts in one
+fenced transaction. A live execution owner cannot be reclaimed. After reopening,
+the existing kernel lifetime lock and changed owner nonce establish the previous
+installation's loss. Started Runs settle as `execution_lost` with uncertain
+effects; only proven never-started accepted work may dispatch. Release advances
+the fence before clearing ownership. Shared server assembly and adapter binding
+remain staged; these hooks do not activate HTTP or native AG-UI execution.
+
 Internal transaction tests cover atomic grant
 consumption, asynchronous rollback, committed reads, and durable fences; they do
 not certify the full host profile. Copy/state operations await the state service;
