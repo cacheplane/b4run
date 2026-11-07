@@ -22,8 +22,10 @@ import {
   type AdmissionResult,
   admissionBinding,
   exactRunPermissionAgents,
+  knownRunPermissionAgents,
   runAuthorityFacts,
   subject,
+  validateRetainedPermissionMap,
 } from "./operation-ledger.js"
 import {
   EXECUTION_HEARTBEAT_MS,
@@ -698,27 +700,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         retained: boolean,
       ) => {
         await authorizeAgent(request, agentId)
-        let children: readonly string[]
-        try {
-          children = exactRunPermissionAgents(threadId, runId, facts)
-          if (retained) {
-            const map = value.protectedMetadata.permissionAgentsByRun as
-                | Record<string, unknown>
-                | undefined,
-              saved = map?.[runId]
-            if (
-              children.length
-                ? !Array.isArray(saved) ||
-                  saved.length !== children.length ||
-                  saved.some((id) => typeof id !== "string") ||
-                  [...saved].sort().some((id, index) => id !== [...children].sort()[index])
-                : saved !== undefined
-            )
-              throw new ProtocolError("storage_unavailable")
-          }
-        } catch {
-          // Bad private facts cannot reveal a storage distinction to a caller
-          // denied the original Thread. Never bind or treat missing facts empty.
+        const hideFactError = async () => {
           if (
             !(
               await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) })
@@ -727,7 +709,20 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
             throw new ProtocolError("not_found")
           throw new ProtocolError("storage_unavailable")
         }
+        let children: readonly string[]
+        try {
+          children = knownRunPermissionAgents(facts)
+        } catch {
+          return hideFactError()
+        }
         for (const child of children) await authorizeAgent(request, child)
+        try {
+          exactRunPermissionAgents(threadId, runId, facts)
+          if (retained) validateRetainedPermissionMap(threadId, runId, children, value)
+        } catch (error) {
+          if (error instanceof ProtocolError && error.code === "not_found") throw error
+          return hideFactError()
+        }
         if (
           !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) }))
             .ok
@@ -864,7 +859,15 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       options.admission?.close()
       if (poll !== undefined) clock.clearInterval(poll)
       closing = (async () => {
-        await ticking
+        const errors: unknown[] = []
+        const save = (error: unknown) => {
+          if (!errors.includes(error)) errors.push(error)
+        }
+        try {
+          await ticking
+        } catch (error) {
+          save(error)
+        }
         if (drainMs > 0 && live.size) {
           let timer: unknown
           try {
@@ -874,12 +877,34 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                 timer = clock.setInterval(resolve, drainMs)
               }),
             ])
+          } catch (error) {
+            save(error)
           } finally {
             if (timer !== undefined) clock.clearInterval(timer)
           }
         }
-        for (const runId of live.keys()) await stopLive(runId, "server_shutdown")
-        await host.idle()
+        const owned = [...live.entries()]
+        await Promise.all(
+          owned.map(async ([runId, entry]) => {
+            try {
+              await stopLive(runId, "server_shutdown")
+            } catch (error) {
+              save(error)
+            } finally {
+              // A durable control failure cannot leave this process's actual
+              // provider promise running or skip another owned execution.
+              if (live.get(runId) === entry && !entry.controller.signal.aborted)
+                entry.controller.abort(new Error("server_shutdown"))
+            }
+          }),
+        )
+        for (const result of await Promise.allSettled(owned.map(([, entry]) => entry.work)))
+          if (result.status === "rejected") save(result.reason)
+        for (const result of await Promise.allSettled([...finalizing.values()]))
+          if (result.status === "rejected") save(result.reason)
+        for (const error of failures.splice(0)) save(error)
+        if (errors.length === 1) throw errors[0]
+        if (errors.length) throw new AggregateError(errors, "Execution host shutdown failed")
       })()
       return closing
     },

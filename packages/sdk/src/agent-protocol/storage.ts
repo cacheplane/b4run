@@ -163,12 +163,23 @@ export interface RuntimeOperationSearch {
   readonly targetRunId?: string
   readonly method?: string
 }
-/** Discovery is private to the host. Authorize the actual stored subject
- * before opening its fenced store or disclosing any receipt diagnostics. */
+/** Minimal original-operation authority survives independently of Run payloads.
+ * Derived only from the canonical receipt; no resolved input/config or result. */
+export interface RuntimeOperationAuthorityFacts {
+  readonly runId: string
+  readonly turnId: string
+  readonly method: unknown
+  readonly operationThreadId: unknown
+  readonly targetRunId: unknown
+  readonly permissionAgents: unknown
+}
+/** Private coherent discovery cut. Authorize current root, canonical saved
+ * children and original Thread before explicit full operation reads. */
 export interface RuntimeOperationCandidate {
   readonly scope: RuntimeStorageScope
   readonly thread: RuntimeThreadRecord | undefined
   readonly receiptId: string
+  readonly operationAuthority: RuntimeOperationAuthorityFacts
   readonly agentId?: string
   readonly provenance?: Readonly<Record<string, unknown>>
   readonly retainedSubject?: RuntimeRetainedSubject

@@ -386,6 +386,107 @@ export async function fixture(
           db.close()
         }
       },
+      async rejectControlInsert(runId: string) {
+        // Exact owned schema/Run only; the native transaction fails in real SQL.
+        if (!/^[0-9a-f-]{36}$/.test(runId)) throw new Error("Invalid fixture Run ID")
+        if (nativeNaming && postgres) {
+          const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_inbox`,
+            fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_fail_control`
+          await postgres.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.owner_run_id='${runId}' AND NEW.payload::jsonb->>'kind'='control' THEN RAISE EXCEPTION 'r7-owned-control-failure'; END IF; RETURN NEW; END $$`,
+          )
+          await postgres.first.query(
+            `CREATE TRIGGER r7_fail_control BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+          )
+          return async () => {
+            await postgres.first.query(`DROP TRIGGER r7_fail_control ON ${table}`)
+            await postgres.first.query(`DROP FUNCTION ${fn}()`)
+          }
+        }
+        const path = join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite")
+        const db = new DatabaseSync(path)
+        try {
+          db.exec(
+            `CREATE TRIGGER r7_fail_control BEFORE INSERT ON inbox WHEN NEW.owner_run_id='${runId}' AND json_extract(NEW.payload,'$.kind')='control' BEGIN SELECT RAISE(ABORT,'r7-owned-control-failure'); END`,
+          )
+        } finally {
+          db.close()
+        }
+        return async () => {
+          const cleanup = new DatabaseSync(path)
+          try {
+            cleanup.exec("DROP TRIGGER r7_fail_control")
+          } finally {
+            cleanup.close()
+          }
+        }
+      },
+      async alterRetainedOperation(
+        threadId: string,
+        generation: string,
+        runId: string,
+        agents: unknown,
+      ) {
+        const change = (payload: string) => {
+          const record = JSON.parse(payload)
+          record.operation.resolved.permissionAgents = agents
+          return JSON.stringify(record)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_receipts`
+          const rows = await postgres.first.query(
+            `SELECT id,payload FROM ${name} WHERE thread_id=$1 AND generation=$2 AND payload::jsonb->'receipt'->>'runId'=$3`,
+            [threadId, generation, runId],
+          )
+          if (rows.rows.length !== 1) throw new Error("Missing exact retained operation fixture")
+          const updated = await postgres.first.query(`UPDATE ${name} SET payload=$2 WHERE id=$1`, [
+            rows.rows[0].id,
+            change(rows.rows[0].payload),
+          ])
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare(
+              "SELECT id,payload FROM receipts WHERE thread_id=? AND generation=? AND json_extract(payload,'$.receipt.runId')=?",
+            )
+            .get(threadId, generation, runId)
+          if (!row) throw new Error("Missing exact retained operation fixture")
+          expect(
+            db
+              .prepare("UPDATE receipts SET payload=? WHERE id=?")
+              .run(change(String(row.payload)), String(row.id)).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async removeRetainedRun(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const removed = await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_retained_runs WHERE thread_id=$1 AND generation=$2 AND id=$3`,
+            [threadId, generation, runId],
+          )
+          expect(removed.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          expect(
+            db
+              .prepare("DELETE FROM retained_runs WHERE thread_id=? AND generation=? AND id=?")
+              .run(threadId, generation, runId).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
       async scopeRecord(threadId: string) {
         if (nativeNaming && postgres)
           return (

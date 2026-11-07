@@ -1,8 +1,11 @@
 import type { ThreadAccessRequest } from "@b4run/sdk"
 import type {
   ReceiptV1,
+  RuntimeOperationAuthorityFacts,
+  RuntimeOperationCandidate,
   RuntimeOperationContext,
   RuntimeReceiptRecord,
+  RuntimeRetainedOperation,
   RuntimeRetainedSubject,
   RuntimeRunAuthorityFacts,
   RuntimeRunRecord,
@@ -236,5 +239,169 @@ export function runAuthorityFacts(
         targetRunId: receipt.operation?.targetRunId ?? "",
         permissionAgents: receipt.operation?.resolved.permissionAgents,
       })),
+  }
+}
+
+/** Known canonical child identities must be checked before secondary stored
+ * lineage/map faults can disclose a diagnostic. Full validation is mandatory. */
+export function knownRunPermissionAgents(facts: RuntimeRunAuthorityFacts): readonly string[] {
+  try {
+    if (!Array.isArray(facts.permissionResponses)) throw new Error("Missing canonical facts")
+    if (!facts.permissionResponses.length) return []
+    if (facts.permissionResponses.length !== 1) throw new Error("Ambiguous canonical facts")
+    const agents = facts.permissionResponses[0]?.permissionAgents
+    if (
+      !Array.isArray(agents) ||
+      !agents.length ||
+      agents.some((a) => typeof a !== "string" || !a.length) ||
+      new Set(agents).size !== agents.length
+    )
+      throw new Error("Invalid canonical children")
+    return agents
+  } catch {
+    throw new ProtocolError("storage_unavailable")
+  }
+}
+export function validateRetainedPermissionMap(
+  threadId: string,
+  runId: string,
+  children: readonly string[],
+  value: RuntimeRetainedSubject,
+): void {
+  if (value.thread?.thread_id !== threadId) throw new ProtocolError("not_found")
+  const map = value.protectedMetadata.permissionAgentsByRun as Record<string, unknown> | undefined,
+    saved = map?.[runId],
+    sorted = [...children].sort()
+  if (
+    children.length
+      ? !Array.isArray(saved) ||
+        saved.length !== children.length ||
+        saved.some((id) => typeof id !== "string") ||
+        [...saved].sort().some((id, i) => id !== sorted[i])
+      : saved !== undefined
+  )
+    throw new ProtocolError("storage_unavailable")
+}
+
+export function operationAuthorityFacts(
+  receipt: RuntimeReceiptRecord,
+): RuntimeOperationAuthorityFacts {
+  return {
+    runId: receipt.receipt.runId,
+    turnId: receipt.receipt.turnId,
+    method: receipt.operation?.method ?? null,
+    operationThreadId: receipt.operation?.operationThreadId ?? null,
+    targetRunId: receipt.operation?.targetRunId ?? null,
+    permissionAgents: receipt.operation?.resolved.permissionAgents ?? null,
+  }
+}
+function operationChildren(facts: RuntimeOperationAuthorityFacts): readonly string[] {
+  if (facts?.method === "run.create") return []
+  if (facts?.method !== "input.respond") throw new ProtocolError("storage_unavailable")
+  return knownRunPermissionAgents({
+    turnId: facts.turnId,
+    previousRunId: null,
+    permissionResponses: [
+      {
+        runId: facts.runId,
+        turnId: facts.turnId,
+        operationThreadId: String(facts.operationThreadId),
+        targetRunId: String(facts.targetRunId),
+        permissionAgents: facts.permissionAgents,
+      },
+    ],
+  })
+}
+export function validateOperationAuthority(
+  threadId: string,
+  facts: RuntimeOperationAuthorityFacts,
+): void {
+  try {
+    canonicalProtocolId(facts.runId)
+    canonicalProtocolId(facts.turnId)
+    canonicalProtocolId(facts.operationThreadId)
+    canonicalProtocolId(facts.targetRunId)
+    if (facts.operationThreadId !== threadId) throw new Error("Cross-thread operation")
+    if (facts.method === "run.create") {
+      if (
+        facts.runId !== facts.turnId ||
+        facts.targetRunId !== facts.runId ||
+        (facts.permissionAgents !== undefined && facts.permissionAgents !== null)
+      )
+        throw new Error("Invalid initial operation")
+    } else if (facts.method === "input.respond") {
+      if (facts.runId === facts.turnId || facts.targetRunId === facts.runId)
+        throw new Error("Invalid continuation operation")
+      operationChildren(facts)
+    } else throw new Error("Unsupported retained operation proof")
+  } catch {
+    throw new ProtocolError("storage_unavailable")
+  }
+}
+/** Existing common service plumbing; discovery facts alone grant no authority. */
+export async function authorizeRetainedOperation(
+  threadId: string,
+  agentId: string | undefined,
+  facts: RuntimeOperationAuthorityFacts,
+  value: RuntimeRetainedSubject,
+  authorizeAgent: (id: string) => Promise<void>,
+  authorizeThread: () => Promise<boolean>,
+): Promise<void> {
+  if (!agentId || value.thread?.thread_id !== threadId) throw new ProtocolError("not_found")
+  await authorizeAgent(agentId)
+  const fail = async () => {
+    if (!(await authorizeThread())) throw new ProtocolError("not_found")
+    throw new ProtocolError("storage_unavailable")
+  }
+  let children: readonly string[]
+  try {
+    children = operationChildren(facts)
+  } catch {
+    return fail()
+  }
+  for (const child of children) await authorizeAgent(child)
+  try {
+    validateOperationAuthority(threadId, facts)
+    validateRetainedPermissionMap(threadId, facts.runId, children, value)
+  } catch (error) {
+    if (error instanceof ProtocolError && error.code === "not_found") throw error
+    return fail()
+  }
+  if (!(await authorizeThread())) throw new ProtocolError("not_found")
+}
+export function validateRetainedOperationCut(
+  candidate: RuntimeOperationCandidate,
+  cut: RuntimeRetainedOperation,
+  ownerKey: string,
+): void {
+  if (
+    cut.scope.threadId !== candidate.scope.threadId ||
+    cut.scope.generation !== candidate.scope.generation ||
+    cut.subject.thread?.thread_id !== candidate.scope.threadId ||
+    cut.receipt.receiptId !== candidate.receiptId ||
+    cut.receipt.operation?.resolved.agent_id !== candidate.agentId
+  )
+    throw new ProtocolError("not_found")
+  if (
+    cut.receipt.operation?.scopeKey !== ownerKey ||
+    canonical(operationAuthorityFacts(cut.receipt)) !== canonical(candidate.operationAuthority) ||
+    canonical(cut.receipt.operation?.provenance) !== canonical(candidate.provenance) ||
+    canonical(cut.subject.protectedMetadata.provenance) !==
+      canonical(candidate.retainedSubject?.protectedMetadata.provenance)
+  )
+    throw new ProtocolError("storage_unavailable")
+  if (cut.run) {
+    if (
+      cut.run.run.run_id !== candidate.operationAuthority.runId ||
+      cut.run.run.agent_id !== candidate.agentId ||
+      cut.run.run.thread_id !== candidate.scope.threadId ||
+      cut.run.metadata.generation !== candidate.scope.generation
+    )
+      throw new ProtocolError("not_found")
+    exactRunPermissionAgents(
+      candidate.scope.threadId,
+      candidate.operationAuthority.runId,
+      runAuthorityFacts(cut.run, [cut.receipt]),
+    )
   }
 }

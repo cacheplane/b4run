@@ -142,6 +142,10 @@ permission-response receipt authority facts in one immutable native read. The
 common service validates complete contributing Agent authority before writer
 binding and again in the native transaction. Missing or malformed continuation
 facts cannot fall back to root-only authority or caller Thread metadata.
+Private operation discovery also projects canonical receipt authority without
+input, config, grants or results. Retained retry and receipt lookup authorize
+that context before explicit full reads, then recheck the actual committed cut.
+The authority context remains usable when its independent Run payload is gone.
 
 ## Related
 

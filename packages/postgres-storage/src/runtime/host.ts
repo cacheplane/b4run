@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type {
+  RuntimeOperationAuthorityFacts,
   RuntimeRetainedRun,
   RuntimeRetainedSubject,
   RuntimeRunAuthorityFacts,
@@ -276,12 +277,14 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
               agent_id: string | null
               provenance: Record<string, unknown> | null
               retained_subject: string | null
+              operation_authority: RuntimeOperationAuthorityFacts
             }>(
-              `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,(r.payload::jsonb)->'operation'->'resolved'->>'agent_id' AS agent_id,(r.payload::jsonb)->'operation'->'provenance' AS provenance FROM ${name("receipts")} r JOIN ${name("scopes")} s USING(thread_id,generation) LEFT JOIN ${name("threads")} t USING(thread_id,generation) LEFT JOIN ${name("retained_subjects")} a USING(thread_id,generation) WHERE ${conditions.join(" AND ")} ORDER BY r.id`,
+              `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_build_object('runId',(r.payload::jsonb)->'receipt'->>'runId','turnId',(r.payload::jsonb)->'receipt'->>'turnId','method',(r.payload::jsonb)->'operation'->'method','operationThreadId',(r.payload::jsonb)->'operation'->'operationThreadId','targetRunId',(r.payload::jsonb)->'operation'->'targetRunId','permissionAgents',(r.payload::jsonb)->'operation'->'resolved'->'permissionAgents') AS operation_authority,(r.payload::jsonb)->'operation'->'resolved'->>'agent_id' AS agent_id,(r.payload::jsonb)->'operation'->'provenance' AS provenance FROM ${name("receipts")} r JOIN ${name("scopes")} s USING(thread_id,generation) LEFT JOIN ${name("threads")} t USING(thread_id,generation) LEFT JOIN ${name("retained_subjects")} a USING(thread_id,generation) WHERE ${conditions.join(" AND ")} ORDER BY r.id`,
               values,
             )
             return rows.rows.map((row) => ({
               receiptId: row.id,
+              operationAuthority: row.operation_authority,
               ...(row.agent_id ? { agentId: row.agent_id } : {}),
               ...(row.provenance ? { provenance: row.provenance } : {}),
               scope: {

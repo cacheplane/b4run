@@ -1,6 +1,7 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { createPermissionsStore } from "@b4run/permissions/node"
 import { sqliteRuntimeStorage } from "@b4run/sqlite-storage"
 import { afterEach, expect, it } from "vitest"
 import {
@@ -16,6 +17,189 @@ import { runtimeWorker } from "./fixtures/protocol-owned-worker.ts"
 
 const budget = 30_000
 const cleanups: (() => Promise<void>)[] = []
+it(
+  "aborts and awaits owned providers before rethrowing another candidate's actual preparation failure",
+  async () => {
+    const f = await fixture(),
+      entered = barrier(),
+      release = barrier(),
+      unwind = barrier()
+    let aborted = false,
+      finished = false,
+      invocations = 0
+    const second = await f.admit(
+      body({
+        thread_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+        if_not_exists: "create",
+        on_completion: "keep",
+        metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+      }),
+    )
+    const parker = createExecutionHost({
+      ...f.authority,
+      async invoke({ run, store }) {
+        await store.transaction((tx) =>
+          parkPermissions(tx, run.run.run_id, [
+            {
+              interruptId: "effect",
+              namespace: [],
+              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              protectedProposal: {},
+            },
+          ]),
+        )
+        return {}
+      },
+    })
+    let owner: ReturnType<typeof createExecutionHost> | undefined
+    try {
+      await parker.tick()
+      await parker.idle()
+      const permissions = createPermissionService({ ...f.authority })
+      const resumed = await permissions.respond(f.request(), second.threadId, second.runId, {
+        type: "command",
+        id: 1,
+        method: "input.respond",
+        params: {
+          responses: [{ namespace: [], interruptId: "effect", response: { decision: "once" } }],
+        },
+      })
+      const first = await f.admit(
+        body({
+          thread_id: "00000000-0000-4000-8000-000000000001",
+          if_not_exists: "create",
+          on_completion: "keep",
+          metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+        }),
+      )
+      mkdirSync(join(f.directory, ".b4", "permissions.json"), { recursive: true })
+      const rules = createPermissionsStore({
+        appRoot: f.directory,
+        config: undefined,
+        mode: "interactive",
+      })
+      owner = createExecutionHost({
+        ...f.authority,
+        permissions: createPermissionService({
+          ...f.authority,
+          async resolvePermissions() {
+            entered.release()
+            await release.promise
+            return rules
+          },
+        }),
+        async invoke({ run, signal }) {
+          expect(run.run.run_id).toBe(first.runId)
+          invocations++
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true
+              unwind.release()
+            },
+            { once: true },
+          )
+          await unwind.promise
+          finished = true
+          return {}
+        },
+      })
+      const ticking = owner.tick().then(
+        () => ({ ok: true }),
+        (error) => ({ ok: false, error }),
+      )
+      await entered.promise
+      const closing = owner.close().then(
+        () => ({ ok: true }),
+        (error) => ({ ok: false, error }),
+      )
+      release.release()
+      const tickResult = await ticking,
+        closeResult = await closing
+      expect(tickResult).toMatchObject({ ok: false })
+      expect(closeResult).toMatchObject({ ok: false })
+      if ("error" in tickResult && "error" in closeResult)
+        expect(closeResult.error).toBe(tickResult.error)
+      expect(aborted).toBe(true)
+      expect(finished).toBe(true)
+      expect(invocations).toBe(1)
+      const row = (await f.snapshot(second.threadId)).runs.find(
+        (r) => r.run.run_id === resumed.runId,
+      )
+      expect(row?.metadata.phase).toBe("accepted")
+      expect(row?.metadata.startedAt).toBeUndefined()
+      expect(row?.unwoundAt).toBeUndefined()
+    } finally {
+      release.release()
+      unwind.release()
+      await owner?.idle()
+      await owner?.close().catch(() => {})
+      await parker.close()
+      await f.close()
+    }
+  },
+  budget,
+)
+it(
+  "aborts every actual owned provider and waits for unwind when one durable shutdown control fails",
+  async () => {
+    const f = await fixture(),
+      both = barrier(),
+      release = barrier()
+    const first = await f.admit(body({ on_completion: "keep" })),
+      second = await f.admit(
+        body({
+          thread_id: crypto.randomUUID(),
+          if_not_exists: "create",
+          on_completion: "keep",
+          metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+        }),
+      )
+    const aborted = new Set<string>(),
+      finished = new Set<string>()
+    let invoked = 0
+    const host = createExecutionHost({
+      ...f.authority,
+      async invoke({ run, signal }) {
+        invoked++
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted.add(run.run.run_id)
+            if (aborted.size === 2) release.release()
+          },
+          { once: true },
+        )
+        if (invoked === 2) both.release()
+        await release.promise
+        finished.add(run.run.run_id)
+        return {}
+      },
+    })
+    let restore: (() => Promise<void>) | undefined
+    try {
+      await host.tick()
+      await both.promise
+      restore = await f.native.rejectControlInsert(first.runId)
+      await expect(host.close()).rejects.toThrow("r7-owned-control-failure")
+      expect([...aborted].sort()).toEqual([first.runId, second.runId].sort())
+      expect([...finished].sort()).toEqual([first.runId, second.runId].sort())
+      expect(invoked).toBe(2)
+      for (const target of [first, second]) {
+        const snapshot = await f.snapshot(target.threadId)
+        expect(snapshot.runs[0]?.unwoundAt).toEqual(expect.any(String))
+        expect(snapshot.runs[0]?.metadata.continuation).toBe("closed")
+      }
+    } finally {
+      release.release()
+      await restore?.()
+      await host.idle()
+      await host.close().catch(() => {})
+      await f.close()
+    }
+  },
+  budget,
+)
 it(
   "signals shutdown to a settled but still-unwinding provider and preserves its committed winner",
   async () => {

@@ -26,14 +26,17 @@ import { makeProtocolThreadGate } from "../dev/thread-gate.js"
 import type { AdmissionServiceOptions } from "./admission.js"
 import {
   type AdmissionResult,
+  authorizeRetainedOperation,
   authorizeSavedPermissionAgents,
   canonical,
   hash,
+  operationAuthorityFacts,
   operationPayload,
   rememberAdmissionBinding,
   replayOperationFacts,
   replayOperationReceipt,
   subject,
+  validateRetainedOperationCut,
 } from "./operation-ledger.js"
 import {
   completePermissionResponses,
@@ -477,37 +480,51 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
       })
       const candidate = candidates.find((row) => row.receiptId === receiptId)
       if (!candidate) return undefined
-      if (candidate.agentId) await options.authorizeAgent(request, candidate.agentId)
-      const decision = await gate({
-        action: "update",
-        operation: "input.respond",
-        threadId,
-        resuming: true,
-        ...subject(candidate.thread ?? candidate.retainedSubject, candidate.provenance),
-      })
-      if (!decision.ok) throw new ProtocolError("not_found")
-      if (candidate.retainedSubject) {
+      const replayRetained = async (minimal: typeof candidate): Promise<AdmissionResult> => {
+        if (!minimal.retainedSubject || minimal.scope.threadId !== threadId)
+          throw new ProtocolError("not_found")
+        const check = (
+          value: import("@b4run/sdk/agent-protocol").RuntimeRetainedSubject,
+          agentId = minimal.agentId,
+          authority = minimal.operationAuthority,
+        ) =>
+          authorizeRetainedOperation(
+            threadId,
+            agentId,
+            authority,
+            value,
+            (id) => options.authorizeAgent(request, id),
+            async () =>
+              (
+                await gate({
+                  action: "update",
+                  operation: "input.respond",
+                  threadId,
+                  resuming: true,
+                  ...subject(value),
+                })
+              ).ok,
+          )
+        await check(minimal.retainedSubject)
+        if (
+          minimal.operationAuthority.method !== "input.respond" ||
+          minimal.operationAuthority.targetRunId !== runId
+        )
+          throw new ProtocolError("not_found")
         const facts = await backend.temporary?.readOperation({
           threadId,
-          generation: candidate.scope.generation,
+          generation: minimal.scope.generation,
           receiptId,
         })
         if (!facts) throw new ProtocolError("receipt_expired")
-        if (
-          !(
-            await gate({
-              action: "update",
-              operation: "input.respond",
-              threadId,
-              resuming: true,
-              ...subject(facts.subject, candidate.provenance),
-            })
-          ).ok
+        await check(
+          facts.subject,
+          typeof facts.receipt.operation?.resolved.agent_id === "string"
+            ? facts.receipt.operation.resolved.agent_id
+            : undefined,
+          operationAuthorityFacts(facts.receipt),
         )
-          throw new ProtocolError("not_found")
-        await authorizeSavedPermissionAgents(facts.receipt, (id) =>
-          options.authorizeAgent(request, id),
-        )
+        validateRetainedOperationCut(minimal, facts, ownerKey)
         return rememberAdmissionBinding(
           replayOperationFacts(facts.scope, facts.receipt, facts.run, ownerKey, () =>
             identity(params, threadId, runId),
@@ -517,8 +534,40 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           facts.receipt.operation?.binding,
         )
       }
-      const store = await backend.openThread(threadId, false)
-      if (!store) throw new ProtocolError("submission_target_gone")
+      if (candidate.retainedSubject) return replayRetained(candidate)
+      if (candidate.agentId) await options.authorizeAgent(request, candidate.agentId)
+      if (
+        !(
+          await gate({
+            action: "update",
+            operation: "input.respond",
+            threadId,
+            resuming: true,
+            ...subject(candidate.thread, candidate.provenance),
+          })
+        ).ok
+      )
+        throw new ProtocolError("not_found")
+      const store = await backend.openThread(threadId, false, candidate.scope.generation)
+      if (!store) {
+        const fresh = (
+          await backend.searchOperations({
+            scopeKey: ownerKey,
+            submissionId: token,
+            submissionKind: "b4",
+            operationThreadId: threadId,
+            targetRunId: runId,
+            method: "input.respond",
+          })
+        ).find(
+          (row) =>
+            row.receiptId === receiptId &&
+            row.scope.generation === candidate.scope.generation &&
+            row.scope.threadId === threadId,
+        )
+        if (fresh?.retainedSubject) return replayRetained(fresh)
+        throw new ProtocolError("submission_target_gone")
+      }
       return store.transaction(async (tx) => {
         const thread = await tx.thread.get()
         if (

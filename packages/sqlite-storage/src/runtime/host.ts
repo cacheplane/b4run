@@ -305,11 +305,12 @@ export function sqliteRuntimeStorage(
             }
             return db
               .prepare(
-                `SELECT r.id,r.thread_id,r.generation,s.fence,json_extract(r.payload,'$.operation.resolved.agent_id') AS agent_id,json_extract(r.payload,'$.operation.provenance') AS provenance FROM receipts r JOIN scopes s USING(thread_id,generation) WHERE ${fields.join(" AND ")} ORDER BY r.id`,
+                `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_object('runId',json_extract(r.payload,'$.receipt.runId'),'turnId',json_extract(r.payload,'$.receipt.turnId'),'method',json_extract(r.payload,'$.operation.method'),'operationThreadId',json_extract(r.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(r.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(r.payload,'$.operation.resolved.permissionAgents')) AS operation_authority,json_extract(r.payload,'$.operation.resolved.agent_id') AS agent_id,json_extract(r.payload,'$.operation.provenance') AS provenance FROM receipts r JOIN scopes s USING(thread_id,generation) LEFT JOIN threads t USING(thread_id,generation) LEFT JOIN retained_subjects a USING(thread_id,generation) WHERE ${fields.join(" AND ")} ORDER BY r.id`,
               )
               .all(...values)
               .map((row) => ({
                 receiptId: String(row.id),
+                operationAuthority: JSON.parse(String(row.operation_authority)),
                 ...(typeof row.agent_id === "string" ? { agentId: row.agent_id } : {}),
                 ...(typeof row.provenance === "string"
                   ? { provenance: JSON.parse(row.provenance) }
@@ -319,15 +320,10 @@ export function sqliteRuntimeStorage(
                   generation: String(row.generation),
                   fence: Number(row.fence),
                 },
-                thread: thread(db, String(row.thread_id), String(row.generation)),
-                ...(() => {
-                  const subject = db
-                    .prepare(
-                      "SELECT payload FROM retained_subjects WHERE thread_id=? AND generation=?",
-                    )
-                    .get(String(row.thread_id), String(row.generation))
-                  return subject ? { retainedSubject: JSON.parse(String(subject.payload)) } : {}
-                })(),
+                thread: row.thread ? JSON.parse(String(row.thread)) : undefined,
+                ...(row.retained_subject
+                  ? { retainedSubject: JSON.parse(String(row.retained_subject)) }
+                  : {}),
               }))
           })
         },
