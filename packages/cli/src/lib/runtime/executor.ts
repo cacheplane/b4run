@@ -2,6 +2,8 @@ import type {
   RunReason,
   RunStatus,
   RuntimeInboxRecord,
+  RuntimeRetainedSubject,
+  RuntimeRunAuthorityFacts,
   RuntimeRunRecord,
   RuntimeStore,
   RuntimeTransaction,
@@ -19,7 +21,8 @@ import {
 import {
   type AdmissionResult,
   admissionBinding,
-  authorizeSavedPermissionAgents,
+  exactRunPermissionAgents,
+  runAuthorityFacts,
   subject,
 } from "./operation-ledger.js"
 import {
@@ -676,113 +679,136 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       canonicalProtocolId(threadId)
       canonicalProtocolId(runId)
       const command = parseProtocolRequest("cancel", query)
-      if (command.wait && !backend.controlProgress) throw new ProtocolError("not_supported")
       if (command.action !== "interrupt")
         throw new ProtocolError("not_supported", { feature: "rollback" })
       if (!options.deploymentId || !options.authorizeAgent)
         throw new Error("Exact Run control requires trusted authority wiring")
       const authorizeAgent = options.authorizeAgent
-      if (!registration.findRun) throw new ProtocolError("not_supported")
-      const candidate = await registration.findRun(runId)
+      const findRun = registration.findRun
+      if (!findRun) throw new ProtocolError("not_supported")
+      const candidate = await findRun(runId)
       if (!candidate || candidate.scope.threadId !== threadId) throw new ProtocolError("not_found")
-      const authorizeRetainedChildren = async (metadata: Readonly<Record<string, unknown>>) => {
-        const saved = (metadata.permissionAgentsByRun as Record<string, unknown> | undefined)?.[
-          runId
-        ]
-        if (saved === undefined) return
-        if (!Array.isArray(saved) || saved.some((id) => typeof id !== "string"))
-          throw new ProtocolError("storage_unavailable")
-        for (const id of saved) await authorizeAgent(request, id)
-      }
       const gate = makeProtocolThreadGate(options.policy, request, {
         deploymentId: options.deploymentId,
       })
-      const finishRetainedControl = async () => {
-        await authorizeAgent(request, candidate.agentId)
+      const authorizeFacts = async (
+        agentId: string,
+        facts: RuntimeRunAuthorityFacts,
+        value: RuntimeRetainedSubject,
+        retained: boolean,
+      ) => {
+        await authorizeAgent(request, agentId)
+        let children: readonly string[]
+        try {
+          children = exactRunPermissionAgents(threadId, runId, facts)
+          if (retained) {
+            const map = value.protectedMetadata.permissionAgentsByRun as
+                | Record<string, unknown>
+                | undefined,
+              saved = map?.[runId]
+            if (
+              children.length
+                ? !Array.isArray(saved) ||
+                  saved.length !== children.length ||
+                  saved.some((id) => typeof id !== "string") ||
+                  [...saved].sort().some((id, index) => id !== [...children].sort()[index])
+                : saved !== undefined
+            )
+              throw new ProtocolError("storage_unavailable")
+          }
+        } catch {
+          // Bad private facts cannot reveal a storage distinction to a caller
+          // denied the original Thread. Never bind or treat missing facts empty.
+          if (
+            !(
+              await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) })
+            ).ok
+          )
+            throw new ProtocolError("not_found")
+          throw new ProtocolError("storage_unavailable")
+        }
+        for (const child of children) await authorizeAgent(request, child)
+        if (
+          !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) }))
+            .ok
+        )
+          throw new ProtocolError("not_found")
+        if (command.wait && !backend.controlProgress) throw new ProtocolError("not_supported")
+      }
+      const exactCandidate = async () => {
+        const fresh = await findRun(runId)
+        if (
+          !fresh ||
+          fresh.scope.threadId !== threadId ||
+          fresh.scope.generation !== candidate.scope.generation ||
+          fresh.agentId !== candidate.agentId
+        )
+          throw new ProtocolError("not_found")
+        return fresh
+      }
+      const finishRetainedControl = async (
+        fresh: NonNullable<Awaited<ReturnType<typeof findRun>>>,
+      ) => {
         const retained = await registration.temporary?.readRun(runId)
         if (
           !retained ||
           retained.scope.threadId !== threadId ||
-          retained.scope.generation !== candidate.scope.generation
+          retained.scope.generation !== candidate.scope.generation ||
+          retained.record.run.run_id !== runId ||
+          retained.record.run.agent_id !== fresh.agentId
         )
           throw new ProtocolError("not_found")
-        await authorizeRetainedChildren(retained.subject.protectedMetadata)
-        if (
-          !(
-            await gate({
-              action: "update",
-              operation: "run.cancel",
-              threadId,
-              ...subject(retained.subject),
-            })
-          ).ok
+        await authorizeFacts(
+          fresh.agentId,
+          {
+            ...fresh.authority,
+            turnId: retained.record.metadata.turnId,
+            previousRunId: retained.record.metadata.previousRunId ?? null,
+          },
+          retained.subject,
+          true,
         )
-          throw new ProtocolError("not_found")
         if (
           command.wait &&
           (retained.record.ownershipLoss || retained.record.metadata.reason === "execution_lost")
         )
-          throw new ProtocolError("storage_unavailable", {
-            executionLost: true,
-          })
+          throw new ProtocolError("storage_unavailable", { executionLost: true })
         if (command.wait && !retained.record.unwoundAt)
           throw new ProtocolError("storage_unavailable")
-        return
       }
-      if (candidate.location === "retained") return finishRetainedControl()
       const acceptExactControl = async (): Promise<string | undefined> => {
         for (let attempt = 0; attempt < 3; attempt++) {
           if (request.signal.aborted) throw request.signal.reason
-          await authorizeAgent(request, candidate.agentId)
-          const fresh = await registration.readThread(threadId)
-          if (!fresh || fresh.generation !== candidate.scope.generation) {
-            const retained = await registration.temporary?.readRun(runId)
-            if (retained?.scope.generation === candidate.scope.generation) {
-              await finishRetainedControl()
-              return
-            }
-            throw new ProtocolError("not_found")
+          const fresh = await exactCandidate()
+          if (fresh.location === "retained") {
+            await finishRetainedControl(fresh)
+            return
           }
-          await authorizeRetainedChildren(fresh.protectedMetadata)
-          if (
-            !(
-              await gate({ action: "update", operation: "run.cancel", threadId, ...subject(fresh) })
-            ).ok
-          )
-            throw new ProtocolError("not_found")
+          await authorizeFacts(fresh.agentId, fresh.authority, fresh.subject, false)
           try {
             const store = await registration.openThread(threadId, false, candidate.scope.generation)
             if (!store) continue
             return await store.transaction(async (tx) => {
               const thread = await tx.thread.get(),
                 run = await tx.runs.get(runId)
-              if (tx.scope.generation !== candidate.scope.generation || !run?.run.agent_id)
-                throw new ProtocolError("not_found")
-              await authorizeAgent(request, run.run.agent_id)
-              for (const receipt of await tx.receipts.list())
-                if (
-                  receipt.receipt.runId === runId &&
-                  receipt.operation?.method === "input.respond"
-                )
-                  await authorizeSavedPermissionAgents(receipt, (id) => authorizeAgent(request, id))
               if (
-                !(
-                  await gate({
-                    action: "update",
-                    operation: "run.cancel",
-                    threadId,
-                    ...subject(thread),
-                  })
-                ).ok
+                tx.scope.generation !== candidate.scope.generation ||
+                !run?.run.agent_id ||
+                !thread
               )
                 throw new ProtocolError("not_found")
+              await authorizeFacts(
+                run.run.agent_id,
+                runAuthorityFacts(run, await tx.receipts.list()),
+                thread,
+                false,
+              )
               return acceptStop(tx, runId, "user_stop", clock.now())
             })
           } catch (error) {
             if (!staleOwnership(error)) throw error
-            // Actual release may advance the fence between binding and the
-            // acceptance transaction. Retry only this authorized exact generation;
-            // never reopen an archived scope or select a successor by Thread head.
+            // Only a known rolled-back native stale fence is retryable. Each
+            // attempt rediscovers canonical facts and reauthorizes exact scope.
             if (attempt === 2) throw new ProtocolError("storage_unavailable")
           }
         }

@@ -137,6 +137,12 @@ that proof. Temporary cleanup uses separate private retained authorization
 subjects and Run/results, with coherent immutable original-operation reads.
 These hooks do not implement explicit Thread deletion or activate transports.
 
+Private `findRun` discovery includes the exact Run lineage and minimal canonical
+permission-response receipt authority facts in one immutable native read. The
+common service validates complete contributing Agent authority before writer
+binding and again in the native transaction. Missing or malformed continuation
+facts cannot fall back to root-only authority or caller Thread metadata.
+
 ## Related
 
 - [`@b4run/cli`](https://www.npmjs.com/package/@b4run/cli) develops, tests, builds, and serves routes declared with the SDK.

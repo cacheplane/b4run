@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import type {
   RuntimeRetainedRun,
   RuntimeRetainedSubject,
+  RuntimeRunAuthorityFacts,
   RuntimeStorageFactory,
   RuntimeThreadRecord,
 } from "@b4run/sdk/agent-protocol"
@@ -19,6 +20,7 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
     const installation = await openPostgresRuntimeInstallation(options)
     const context = installationContext(installation)
     const name = (value: string) => table(context.naming, value)
+    const permissionResponseFacts = `COALESCE((SELECT json_agg(json_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents')) FROM ${name("receipts")} a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.respond'),'[]'::json) AS permission_responses`
     const active = async <T>(callback: () => Promise<T>): Promise<T> => {
       assertRuntimeHostEntry(installation)
       context.pending++
@@ -71,13 +73,15 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
               subject: string
               payload: string
               location: "live" | "retained"
+              permission_responses: RuntimeRunAuthorityFacts["permissionResponses"]
             }>(
-              `SELECT r.thread_id,r.generation,t.payload AS subject,r.payload,'live' AS location FROM ${name("runs")} r JOIN ${name("scopes")} s USING(thread_id,generation) JOIN ${name("threads")} t USING(thread_id,generation) WHERE r.id=$1 AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,s.payload AS subject,r.payload,'retained' AS location FROM ${name("retained_runs")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) WHERE r.id=$1`,
+              `SELECT r.thread_id,r.generation,t.payload AS subject,r.payload,'live' AS location,${permissionResponseFacts} FROM ${name("runs")} r JOIN ${name("scopes")} s USING(thread_id,generation) JOIN ${name("threads")} t USING(thread_id,generation) WHERE r.id=$1 AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,s.payload AS subject,r.payload,'retained' AS location,${permissionResponseFacts} FROM ${name("retained_runs")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) WHERE r.id=$1`,
               [id],
             )
             const row = rows.rows[0]
             if (!row) return undefined
-            const agentId = JSON.parse(row.payload).run.agent_id
+            const record = JSON.parse(row.payload),
+              agentId = record.run.agent_id
             return typeof agentId === "string"
               ? {
                   scope: { threadId: row.thread_id, generation: row.generation },
@@ -87,6 +91,11 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                       : JSON.parse(row.subject),
                   agentId,
                   location: row.location,
+                  authority: {
+                    turnId: record.metadata.turnId,
+                    previousRunId: record.metadata.previousRunId ?? null,
+                    permissionResponses: row.permission_responses,
+                  },
                 }
               : undefined
           }),

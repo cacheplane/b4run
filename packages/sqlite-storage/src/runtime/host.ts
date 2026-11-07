@@ -65,6 +65,7 @@ export function sqliteRuntimeStorage(
         assertRuntimeQueueEntry(installation, JSON.stringify([id, String(generation)]))
       await context.tail
     }
+    const permissionResponseFacts = `COALESCE((SELECT json_group_array(json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'))) FROM receipts a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.respond'),'[]') AS permission_responses`
     const authSubject = (row: RuntimeThreadRecord): RuntimeRetainedSubject => {
       const { thread_id, created_at, updated_at, status, metadata } = row.thread
       return {
@@ -88,38 +89,28 @@ export function sqliteRuntimeStorage(
         close: () => installation.close(),
         async findRun(id) {
           return read((db) => {
-            const live = db
-              .prepare(
-                "SELECT r.thread_id,r.generation,r.payload,t.payload AS subject FROM runs r JOIN scopes s USING(thread_id,generation) JOIN threads t USING(thread_id,generation) WHERE r.id=? AND s.deleted=0",
-              )
-              .get(id)
-            if (live) {
-              const agentId = JSON.parse(String(live.payload)).run.agent_id
-              return typeof agentId === "string"
-                ? {
-                    scope: {
-                      threadId: String(live.thread_id),
-                      generation: String(live.generation),
-                    },
-                    subject: authSubject(JSON.parse(String(live.subject))),
-                    agentId,
-                    location: "live" as const,
-                  }
-                : undefined
-            }
             const row = db
               .prepare(
-                "SELECT r.*,s.payload AS subject FROM retained_runs r JOIN retained_subjects s USING(thread_id,generation) WHERE r.id=?",
+                `SELECT r.thread_id,r.generation,r.payload,t.payload AS subject,'live' AS location,${permissionResponseFacts} FROM runs r JOIN scopes s USING(thread_id,generation) JOIN threads t USING(thread_id,generation) WHERE r.id=? AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,r.payload,s.payload AS subject,'retained' AS location,${permissionResponseFacts} FROM retained_runs r JOIN retained_subjects s USING(thread_id,generation) WHERE r.id=?`,
               )
-              .get(id)
+              .get(id, id)
             if (!row) return undefined
-            const agentId = JSON.parse(String(row.payload)).run.agent_id
+            const record = JSON.parse(String(row.payload)),
+              agentId = record.run.agent_id
             return typeof agentId === "string"
               ? {
                   scope: { threadId: String(row.thread_id), generation: String(row.generation) },
-                  subject: JSON.parse(String(row.subject)),
+                  subject:
+                    row.location === "live"
+                      ? authSubject(JSON.parse(String(row.subject)))
+                      : JSON.parse(String(row.subject)),
                   agentId,
-                  location: "retained" as const,
+                  location: row.location === "live" ? ("live" as const) : ("retained" as const),
+                  authority: {
+                    turnId: record.metadata.turnId,
+                    previousRunId: record.metadata.previousRunId ?? null,
+                    permissionResponses: JSON.parse(String(row.permission_responses)),
+                  },
                 }
               : undefined
           })

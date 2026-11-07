@@ -290,6 +290,51 @@ export async function fixture(
           [threadId],
         )
       },
+      async corruptRetainedPermissionAgents(
+        threadId: string,
+        generation: string,
+        runId: string,
+        agents: unknown,
+      ) {
+        const change = (payload: string) => {
+          const subject = JSON.parse(payload)
+          subject.protectedMetadata.permissionAgentsByRun = {
+            ...subject.protectedMetadata.permissionAgentsByRun,
+            [runId]: agents,
+          }
+          return JSON.stringify(subject)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_retained_subjects`
+          const rows = await postgres.first.query(
+            `SELECT payload FROM ${name} WHERE thread_id=$1 AND generation=$2`,
+            [threadId, generation],
+          )
+          if (rows.rows.length !== 1) throw new Error("Missing exact retained fixture subject")
+          const updated = await postgres.first.query(
+            `UPDATE ${name} SET payload=$3 WHERE thread_id=$1 AND generation=$2`,
+            [threadId, generation, change(rows.rows[0].payload)],
+          )
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare("SELECT payload FROM retained_subjects WHERE thread_id=? AND generation=?")
+            .get(threadId, generation)
+          if (!row) throw new Error("Missing exact retained fixture subject")
+          expect(
+            db
+              .prepare("UPDATE retained_subjects SET payload=? WHERE thread_id=? AND generation=?")
+              .run(change(String(row.payload)), threadId, generation).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
       async scopeRecord(threadId: string) {
         if (nativeNaming && postgres)
           return (

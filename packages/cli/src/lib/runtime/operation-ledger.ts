@@ -4,6 +4,7 @@ import type {
   RuntimeOperationContext,
   RuntimeReceiptRecord,
   RuntimeRetainedSubject,
+  RuntimeRunAuthorityFacts,
   RuntimeRunRecord,
   RuntimeStorageScope,
   RuntimeThreadRecord,
@@ -11,6 +12,7 @@ import type {
 } from "@b4run/sdk/agent-protocol"
 import { sha256Hex } from "@b4run/sdk/pure"
 import { ProtocolError } from "../dev/protocol/errors.js"
+import { canonicalProtocolId } from "../dev/protocol/metadata.js"
 import { snapshotThreadProvenance } from "../dev/thread-access.js"
 import type { RuntimeStorageHost } from "./storage-host.js"
 
@@ -167,4 +169,72 @@ export async function authorizeSavedPermissionAgents(
   if (!Array.isArray(agents) || !agents.length || agents.some((agent) => typeof agent !== "string"))
     throw new ProtocolError("receipt_expired")
   for (const agent of agents) await authorize(agent)
+}
+
+/** Validate the same canonical facts before a writer bind and again in its TX.
+ * A permission continuation cannot degrade to root-only when receipts expire,
+ * disappear or contain malformed/cross-target authority facts. */
+export function exactRunPermissionAgents(
+  threadId: string,
+  runId: string,
+  facts: RuntimeRunAuthorityFacts,
+): readonly string[] {
+  try {
+    canonicalProtocolId(facts.turnId)
+    if (!Array.isArray(facts.permissionResponses)) throw new Error("Missing authority facts")
+    if (facts.previousRunId === null) {
+      if (facts.turnId !== runId || facts.permissionResponses.length !== 0)
+        throw new Error("Invalid initial Run authority")
+      return []
+    }
+    canonicalProtocolId(facts.previousRunId)
+    if (
+      facts.previousRunId === runId ||
+      facts.turnId === runId ||
+      facts.permissionResponses.length !== 1
+    )
+      throw new Error("Invalid continuation authority")
+    const receipt = facts.permissionResponses[0]
+    if (
+      !receipt ||
+      receipt.runId !== runId ||
+      receipt.turnId !== facts.turnId ||
+      receipt.operationThreadId !== threadId ||
+      receipt.targetRunId !== facts.previousRunId
+    )
+      throw new Error("Cross-target authority")
+    const agents = receipt.permissionAgents
+    if (
+      !Array.isArray(agents) ||
+      !agents.length ||
+      agents.some((agent) => typeof agent !== "string" || !agent.length) ||
+      new Set(agents).size !== agents.length
+    )
+      throw new Error("Incomplete permission authority")
+    return agents
+  } catch {
+    throw new ProtocolError("storage_unavailable")
+  }
+}
+
+export function runAuthorityFacts(
+  run: RuntimeRunRecord,
+  receipts: readonly RuntimeReceiptRecord[],
+): RuntimeRunAuthorityFacts {
+  return {
+    turnId: run.metadata.turnId,
+    previousRunId: run.metadata.previousRunId ?? null,
+    permissionResponses: receipts
+      .filter(
+        (receipt) =>
+          receipt.receipt.runId === run.run.run_id && receipt.operation?.method === "input.respond",
+      )
+      .map((receipt) => ({
+        runId: receipt.receipt.runId,
+        turnId: receipt.receipt.turnId,
+        operationThreadId: receipt.operation?.operationThreadId ?? "",
+        targetRunId: receipt.operation?.targetRunId ?? "",
+        permissionAgents: receipt.operation?.resolved.permissionAgents,
+      })),
+  }
 }

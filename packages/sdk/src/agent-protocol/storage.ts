@@ -228,6 +228,20 @@ export interface RuntimeTemporaryStorage {
     readonly receiptId: string
   }): Promise<RuntimeRetainedOperation | undefined>
 }
+/** Immutable private authorization discovery, derived from the exact Run and
+ * its canonical permission-response receipts in one committed native snapshot.
+ * Raw Agent facts are validated by the common service, never caller metadata. */
+export interface RuntimeRunAuthorityFacts {
+  readonly turnId: string
+  readonly previousRunId: string | null
+  readonly permissionResponses: readonly {
+    readonly runId: string
+    readonly turnId: string
+    readonly operationThreadId: string
+    readonly targetRunId: string
+    readonly permissionAgents: unknown
+  }[]
+}
 export interface RuntimeStorageRegistrationOptions {
   readonly installationId: string
   close(): void | Promise<void>
@@ -238,6 +252,7 @@ export interface RuntimeStorageRegistrationOptions {
         readonly subject: RuntimeRetainedSubject
         readonly agentId: string
         readonly location: "live" | "retained"
+        readonly authority: RuntimeRunAuthorityFacts
       }
     | undefined
   >

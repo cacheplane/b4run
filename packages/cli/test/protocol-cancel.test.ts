@@ -1,3 +1,4 @@
+import type { RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { afterEach, expect, it } from "vitest"
 import { createExecutionHost, settleExecution } from "../src/lib/runtime/executor.ts"
 import { createPermissionService, parkPermissions } from "../src/lib/runtime/permissions.ts"
@@ -8,6 +9,294 @@ import { body, fixture } from "./fixtures/protocol-admission.ts"
 // Choose this integration budget before the first execution; old cases stay unchanged.
 const budget = 30_000
 const cleanups: (() => Promise<void>)[] = []
+it.each(["allowed", "revoked"] as const)(
+  "checks canonical child authority before exact control binding when child is %s",
+  async (authority) => {
+    const scenario = await continuedChild(),
+      { f, accepted, resumed } = scenario
+    if (authority === "revoked") f.removeAgent("/other#agent")
+    if (process.env.B4_ADMISSION_POSTGRES === "1") await f.native.expireOwner(accepted.threadId)
+    const before = await f.native.scopeRecord(accepted.threadId),
+      audit = auditedControl(f),
+      { controller, events } = audit
+    const cancelling = controller.cancel(f.request(), accepted.threadId, resumed.runId, {
+      wait: false,
+    })
+    if (authority === "revoked") {
+      await expect(cancelling).rejects.toMatchObject({ code: "not_found" })
+      expect(await f.native.scopeRecord(accepted.threadId)).toEqual(before)
+      expect(events).toEqual(["authorize:/chat#agent", "authorize:/other#agent"])
+    } else {
+      await cancelling
+      expect(events.indexOf("authorize:/other#agent")).toBeLessThan(events.indexOf("native_bind"))
+      audit.restore()
+      expect(
+        (await f.snapshot(accepted.threadId)).runs.find((r) => r.run.run_id === resumed.runId)
+          ?.metadata.reason,
+      ).toBe("user_stop")
+    }
+    expect(scenario.invocations()).toBe(1)
+  },
+  budget,
+)
+it.each([
+  "missing",
+  "empty",
+  "cross-turn",
+  "cross-target",
+  "cross-thread",
+  "duplicate",
+  "forged-map",
+  "denied-thread",
+] as const)(
+  "fails closed before binding canonical continuation authority with %s facts",
+  async (kind) => {
+    const s = await continuedChild()
+    await (await s.f.store(s.accepted.threadId)).transaction(async (tx) => {
+      const receipt = (await tx.receipts.list()).find((r) => r.receipt.runId === s.resumed.runId)
+      if (!receipt?.operation) throw new Error("Missing canonical continuation receipt")
+      if (kind === "forged-map") {
+        const thread = await tx.thread.get()
+        if (!thread) throw new Error("Missing exact Thread")
+        await tx.thread.put({
+          ...thread,
+          revision: thread.revision + 1,
+          protectedMetadata: {
+            ...thread.protectedMetadata,
+            permissionAgentsByRun: { [s.resumed.runId]: ["/chat#agent"] },
+          },
+          thread: {
+            ...thread.thread,
+            metadata: {
+              ...thread.thread.metadata,
+              permissionAgentsByRun: { [s.resumed.runId]: ["/chat#agent"] },
+            },
+          },
+        })
+      } else if (kind === "missing") {
+        const { operation: _operation, ...without } = receipt
+        await tx.receipts.put(without)
+      } else if (kind === "duplicate") {
+        await tx.receipts.put({ ...receipt, receiptId: crypto.randomUUID() })
+      } else if (kind === "cross-turn") {
+        await tx.receipts.put({
+          ...receipt,
+          receipt: { ...receipt.receipt, turnId: s.resumed.runId },
+        })
+      } else {
+        await tx.receipts.put({
+          ...receipt,
+          operation: {
+            ...receipt.operation,
+            ...(kind === "cross-target" ? { targetRunId: s.resumed.runId } : {}),
+            ...(kind === "cross-thread" ? { operationThreadId: crypto.randomUUID() } : {}),
+            ...(kind === "empty" || kind === "denied-thread"
+              ? { resolved: { ...receipt.operation.resolved, permissionAgents: [] } }
+              : {}),
+          },
+        })
+      }
+    })
+    if (kind === "forged-map") s.f.removeAgent("/other#agent")
+    if (kind === "denied-thread") s.f.deny()
+    if (process.env.B4_ADMISSION_POSTGRES === "1") await s.f.native.expireOwner(s.accepted.threadId)
+    const before = await s.f.native.scopeRecord(s.accepted.threadId),
+      audit = auditedControl(s.f)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: false }),
+    ).rejects.toMatchObject({
+      code: kind === "forged-map" || kind === "denied-thread" ? "not_found" : "storage_unavailable",
+    })
+    expect(audit.events).not.toContain("native_bind")
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(before)
+    expect(s.invocations()).toBe(1)
+  },
+  budget,
+)
+it.each(["before-tx", "during-retry"] as const)(
+  "rechecks canonical child authority when revoked %s without another writer or control",
+  async (phase) => {
+    const s = await continuedChild(),
+      backend = runtimeStorageRegistration(s.f.storage)
+    let changed = false,
+      afterRace: unknown
+    const audit = auditedControl(s.f, async () => {
+      if (changed) return
+      changed = true
+      if (phase === "during-retry") {
+        const lease = await backend.execution?.claim(
+          s.accepted.threadId,
+          crypto.randomUUID(),
+          async () => {},
+        )
+        if (!lease) throw new Error("Missing actual native test contention lease")
+        await lease.release()
+        if (process.env.B4_ADMISSION_POSTGRES === "1")
+          await s.f.native.expireOwner(s.accepted.threadId)
+      }
+      afterRace = await s.f.native.scopeRecord(s.accepted.threadId)
+      s.f.removeAgent("/other#agent")
+    })
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: false }),
+    ).rejects.toMatchObject({ code: "not_found" })
+    expect(audit.events).toEqual([
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "native_bind",
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+    ])
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(afterRace)
+    audit.restore()
+    const snapshot = await s.f.snapshot(s.accepted.threadId)
+    expect(snapshot.inbox.some((r) => r.kind === "control" && r.runId === s.resumed.runId)).toBe(
+      false,
+    )
+    expect(snapshot.runs.find((r) => r.run.run_id === s.resumed.runId)?.metadata.phase).toBe(
+      "accepted",
+    )
+    expect(s.invocations()).toBe(1)
+  },
+  budget,
+)
+it.each(["visible", "hidden"] as const)(
+  "rechecks actual canonical receipt facts inside the control transaction when Thread is %s",
+  async (policy) => {
+    const s = await continuedChild()
+    const audit = auditedControl(s.f, async (store) => {
+      if (!store) throw new Error("Missing actual bound store")
+      await store.transaction(async (tx) => {
+        const receipt = (await tx.receipts.list()).find((r) => r.receipt.runId === s.resumed.runId)
+        if (!receipt?.operation) throw new Error("Missing canonical continuation receipt")
+        await tx.receipts.put({
+          ...receipt,
+          operation: {
+            ...receipt.operation,
+            resolved: { ...receipt.operation.resolved, permissionAgents: [] },
+          },
+        })
+      })
+      if (policy === "hidden") s.f.deny()
+    })
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: false }),
+    ).rejects.toMatchObject({ code: policy === "hidden" ? "not_found" : "storage_unavailable" })
+    expect(audit.events).toEqual([
+      "authorize:/chat#agent",
+      "authorize:/other#agent",
+      "native_bind",
+      "authorize:/chat#agent",
+    ])
+    audit.restore()
+    const snapshot = await s.f.snapshot(s.accepted.threadId)
+    expect(snapshot.inbox.some((r) => r.kind === "control" && r.runId === s.resumed.runId)).toBe(
+      false,
+    )
+    expect(snapshot.runs.find((r) => r.run.run_id === s.resumed.runId)?.metadata.phase).toBe(
+      "accepted",
+    )
+    expect(s.invocations()).toBe(1)
+  },
+  budget,
+)
+it.each(["allowed", "revoked"] as const)(
+  "rechecks exact canonical child authority after live-to-retained transition when %s",
+  async (authority) => {
+    const s = await continuedChild()
+    await s.host.tick()
+    await s.host.idle()
+    const successor = await s.f.admit(
+      body({
+        thread_id: s.accepted.threadId,
+        on_completion: "delete",
+        metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+      }),
+    )
+    const entered = barrier(),
+      release = barrier(),
+      policy = s.f.authority.policy
+    let held = false
+    const audit = auditedControl(s.f, undefined, {
+      ...policy,
+      async fallback(request) {
+        if (request.operation === "run.cancel" && !held) {
+          held = true
+          entered.release()
+          await release.promise
+        }
+        return policy.fallback(request)
+      },
+    })
+    const waiting = audit.controller
+      .cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true })
+      .then(
+        () => ({ ok: true }),
+        (error) => ({ ok: false, error }),
+      )
+    cleanups.push(async () => {
+      release.release()
+      await waiting
+    })
+    await entered.promise
+    await s.host.tick()
+    await s.host.idle()
+    const backend = runtimeStorageRegistration(s.f.storage)
+    expect(await backend.readThread(s.accepted.threadId)).toBeUndefined()
+    const retained = await backend.temporary?.readRun(s.resumed.runId)
+    expect(retained?.record.metadata.reason).toBe("completed")
+    expect((await backend.temporary?.readRun(successor.runId))?.record.metadata.reason).toBe(
+      "completed",
+    )
+    const afterCleanup = await s.f.native.scopeRecord(s.accepted.threadId),
+      bindsBeforeRelease = audit.events.filter((e) => e === "native_bind").length
+    if (authority === "revoked") s.f.removeAgent("/other#agent")
+    release.release()
+    const result = await waiting
+    if (authority === "revoked")
+      expect(result).toMatchObject({ ok: false, error: { code: "not_found" } })
+    else expect(result).toEqual({ ok: true })
+    expect(audit.events.filter((e) => e === "native_bind")).toHaveLength(bindsBeforeRelease + 1)
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(afterCleanup)
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
+it.each(["missing", "forged"] as const)(
+  "refuses a retained continuation with a %s saved map instead of degrading its canonical authority",
+  async (kind) => {
+    const s = await continuedChild()
+    await s.host.tick()
+    await s.host.idle()
+    const generation = (await s.f.snapshot(s.accepted.threadId)).scope.generation
+    await s.f.admit(
+      body({
+        thread_id: s.accepted.threadId,
+        on_completion: "delete",
+        metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+      }),
+    )
+    await s.host.tick()
+    await s.host.idle()
+    const backend = runtimeStorageRegistration(s.f.storage)
+    expect(await backend.readThread(s.accepted.threadId)).toBeUndefined()
+    await s.f.native.corruptRetainedPermissionAgents(
+      s.accepted.threadId,
+      generation,
+      s.resumed.runId,
+      kind === "forged" ? ["/chat#agent"] : undefined,
+    )
+    const before = await s.f.native.scopeRecord(s.accepted.threadId),
+      audit = auditedControl(s.f)
+    await expect(
+      audit.controller.cancel(s.f.request(), s.accepted.threadId, s.resumed.runId, { wait: true }),
+    ).rejects.toMatchObject({ code: "storage_unavailable" })
+    expect(audit.events).not.toContain("native_bind")
+    expect(await s.f.native.scopeRecord(s.accepted.threadId)).toEqual(before)
+    expect(s.invocations()).toBe(3)
+  },
+  budget,
+)
 it(
   "refuses a mismatched exact-generation bind without renewing or advancing the native scope",
   async () => {
@@ -619,3 +908,93 @@ it(
   },
   budget,
 )
+
+async function continuedChild() {
+  const { f, accepted } = await setup()
+  let invocations = 0
+  const permissions = createPermissionService({ ...f.authority, grants: "required" })
+  const host = createExecutionHost({
+    ...f.authority,
+    permissions,
+    async invoke({ run, store }) {
+      invocations++
+      if (run.run.run_id === accepted.runId)
+        await store.transaction((tx) =>
+          parkPermissions(
+            tx,
+            run.run.run_id,
+            [
+              {
+                agentId: "/other#agent",
+                interruptId: "effect",
+                namespace: ["child"],
+                request: {
+                  kind: "tool",
+                  detail: { toolName: "effect", suggestedPattern: "effect" },
+                },
+                protectedProposal: {},
+              },
+            ],
+            "required",
+          ),
+        )
+      return {}
+    },
+  })
+  cleanups.push(() => host.close())
+  await host.tick()
+  await host.idle()
+  const pending = (await f.snapshot(accepted.threadId)).pending[0]
+  if (!pending) throw new Error("Missing exact child permission proposal")
+  const resumed = await permissions.respond(f.request(), accepted.threadId, accepted.runId, {
+    type: "command",
+    id: 1,
+    method: "input.respond",
+    params: {
+      responses: [
+        {
+          namespace: ["child"],
+          interruptId: "effect",
+          response: { decision: "once", grant: pending.input.data.b4.grant },
+        },
+      ],
+    },
+  })
+  return { f, accepted, resumed, host, invocations: () => invocations }
+}
+function auditedControl(
+  f: Awaited<ReturnType<typeof fixture>>,
+  onBind?: (store: RuntimeStore | undefined) => Promise<void>,
+  policy = f.authority.policy,
+) {
+  const backend = runtimeStorageRegistration(f.storage),
+    open = backend.openThread,
+    events: string[] = []
+  Object.assign(backend, {
+    async openThread(...args: Parameters<typeof open>) {
+      events.push("native_bind")
+      const store = await open(...args)
+      await onBind?.(store)
+      return store
+    },
+  })
+  const restore = () => {
+    Object.assign(backend, { openThread: open })
+  }
+  const controller = createExecutionHost({
+    ...f.authority,
+    policy,
+    async authorizeAgent(request, id) {
+      events.push(`authorize:${id}`)
+      await f.authority.authorizeAgent(request, id)
+    },
+    async invoke() {
+      throw new Error("Exact control must not invoke a provider")
+    },
+  })
+  cleanups.push(
+    () => controller.close(),
+    async () => restore(),
+  )
+  return { controller, events, restore }
+}
