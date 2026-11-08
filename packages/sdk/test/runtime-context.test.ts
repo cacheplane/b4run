@@ -16,6 +16,7 @@ describe("@b4run/sdk runtime-context type surface", () => {
 
     expectTypeOf<RuntimeContext<Tools>>().toEqualTypeOf<{
       readonly signal: AbortSignal
+      readonly stopSignal?: AbortSignal
       readonly tools: Tools
       readonly fs: WorkspaceFs
     }>()

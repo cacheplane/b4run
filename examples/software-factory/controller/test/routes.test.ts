@@ -1,8 +1,9 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { openRegistryReader } from "../src/lib/registry/reader.ts"
+import { controllerRuntime } from "../src/lib/runtime.ts"
 import { createFakeVerifier } from "./fake-verifier.ts"
 import { GOOD_DRAFT } from "./intake-fixtures.ts"
 import { FIRST_DRAFTER_THREAD, type ServedController, serveController } from "./serve-controller.ts"
@@ -140,13 +141,46 @@ describe("controller routes", () => {
     expect(second.status).toBe(409) // run_in_flight from the runtime
     expect(second.body).toMatchObject({ error: { details: { code: "run_in_flight" } } })
 
-    expect(await served.cancel(id)).toBe(200)
+    // Hold this invocation's actual domain-cancel cleanup after its worker RPC
+    // returns. The work-order row may be cancelled while the request still owns
+    // cleanup; a second command must remain excluded through that boundary.
+    const factory = await controllerRuntime().factory()
+    const originalCancel = factory.cancel.bind(factory)
+    let release!: () => void
+    let entered!: () => void
+    const cleanupHeld = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const cancelEntered = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const cancellation = vi.spyOn(factory, "cancel").mockImplementation(async (...args) => {
+      const outcome = await originalCancel(...args)
+      entered()
+      await cleanupHeld
+      return outcome
+    })
+    let responseSettled = false
+    void inflight.then(() => {
+      responseSettled = true
+    })
+    try {
+      expect(await served.cancel(id)).toBe(200)
+      await cancelEntered
+      expect(responseSettled).toBe(false)
+      const duringCleanup = await served.run(id, "/work-orders/cancel#workflow", { id })
+      expect(duringCleanup.status).toBe(409)
+      expect(duringCleanup.body).toMatchObject({ error: { details: { code: "run_in_flight" } } })
+    } finally {
+      release()
+      cancellation.mockRestore()
+    }
     const result = await inflight
     expect(result.status).toBe(409) // run_cancelled: the caller re-reads the row
     expect(result.body).toMatchObject({ error: { details: { code: "run_cancelled" } } })
 
-    // The 409 is sent while the route runs on, so the cancel it triggered is still finishing:
-    // the terminal row is what the operator waits for, not whatever the registry says now.
+    // The route observes Stop after its cancellation work settles. The domain
+    // row remains the operator's source for the confirmed work-order outcome.
     expect(await pollRow(served.stateDir, id, (state) => state === "cancelled")).toBe("cancelled")
   })
 

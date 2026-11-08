@@ -21,12 +21,25 @@ Use `@b4run/langgraph/define-entry` for the smallest entry-validation import and
 
 | Surface | Runtime | Purity | Audience | Stability |
 |---|---|---|---|---|
-| `@b4run/langgraph` | edge-safe | dependency-free | integration | supported |
+| `@b4run/langgraph` | edge-safe | not-claimed | integration | supported |
 | `@b4run/langgraph/define-entry` | edge-safe | dependency-free | integration | supported |
 | `@b4run/langgraph/route-module` | edge-safe | dependency-free | integration | supported |
 | `@b4run/langgraph/ui` | node-only | not-claimed | application | supported |
 
-The three route surfaces bundle without third-party runtime dependencies or Node globals. That covers importing and running these adapters. It says nothing about a graph, workflow, or tool your application supplies.
+The root remains edge-safe and imports SDK outcome helpers. Native graph-object
+execution lazily loads the optional `@langchain/langgraph` peer; importing the
+root or executing callable graphs/workflows does not require that peer. The
+`define-entry` and `route-module` subpaths remain dependency-free. Application
+graphs, workflows and tools have their own runtime requirements.
+
+Adapters accept optional `stopSignal` separately from hard `signal`. Native Stop
+finishes the active superstep with synchronous checkpoint durability, retires
+pending actions without running them and guards fresh input. This adds
+persistence latency before each next step. An opaque call can complete naturally
+or explicitly observe its Stop request. A standalone `null` input remains native
+checkpoint continuation; runtime fresh input conveys no resume authorization.
+Live permission parks still require their existing authorized resume. See
+[Stop semantics and limits](/docs/dev-server/agent-protocol#one-run-at-a-time-per-thread).
 
 ## Public exports
 

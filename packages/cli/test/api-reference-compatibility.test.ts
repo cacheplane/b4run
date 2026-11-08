@@ -1585,7 +1585,6 @@ describe("API reference compatibility guards", () => {
     const byAddress = new Map(artifacts.map((artifact) => [addressFor(artifact), artifact]))
 
     for (const address of [
-      "import:@b4run/langgraph:.",
       "import:@b4run/langgraph:./define-entry",
       "import:@b4run/langgraph:./route-module",
     ]) {
@@ -1604,6 +1603,32 @@ describe("API reference compatibility guards", () => {
         address,
       ).toEqual([])
     }
+
+    const rootAddress = "import:@b4run/langgraph:."
+    const rootArtifact = byAddress.get(rootAddress)
+    expect(rootArtifact).toMatchObject({
+      runtime: "edge-safe",
+      purity: "not-claimed",
+      guardIds: ["edge-import-bundle"],
+    })
+    await assertEdgeImport(rootArtifact as ImportArtifact)
+    const rootGraph = await browserGraph(rootArtifact as ImportArtifact)
+    expect(runtimeDependencyEdges(rootGraph), rootAddress).toEqual([
+      "@b4run/sdk",
+      "@langchain/langgraph",
+    ])
+    const allowedRoots = await Promise.all(
+      ["@b4run/langgraph", "@b4run/sdk"].map(
+        async (name) => `${await realpath(await packageDirectory(name))}/`,
+      ),
+    )
+    expect(
+      (await canonicalGraphInputs(rootGraph)).filter(
+        (input) => !allowedRoots.some((root) => input.startsWith(root)),
+      ),
+      rootAddress,
+    ).toEqual([])
+    expect((await analyzeGraphInputs(rootGraph)).unresolvedLoads, rootAddress).toEqual([])
 
     expect(byAddress.get("import:@b4run/langchain:.")).toMatchObject({
       runtime: "edge-safe",

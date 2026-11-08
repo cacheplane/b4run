@@ -14,7 +14,7 @@ import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { ToolMessage } from "@langchain/core/messages"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
-import { isGraphInterrupt } from "@langchain/langgraph"
+import { isGraphBubbleUp } from "@langchain/langgraph"
 import type { z } from "zod"
 import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
@@ -236,7 +236,7 @@ export function convertSubagentTaskToLangChain(
               childConfig,
             )
           } catch (error) {
-            if (isGraphInterrupt(error) || liveConfig.signal?.aborted || isAbortError(error)) {
+            if (isGraphBubbleUp(error) || liveConfig.signal?.aborted || isAbortError(error)) {
               throw error
             }
             const message = error instanceof Error ? error.message : String(error)

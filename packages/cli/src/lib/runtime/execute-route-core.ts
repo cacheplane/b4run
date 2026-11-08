@@ -1,3 +1,6 @@
+import { chainAdapter } from "@b4run/langchain"
+import { graphAdapter, workflowAdapter } from "@b4run/langgraph"
+import { isCooperativeStop } from "@b4run/sdk"
 /**
  * The REQUEST-PATH core of route execution, with no `node:` imports of its
  * own — this is the module the `@b4run/cli/fetch` entry reaches (graph
@@ -99,7 +102,7 @@ import { type B4Agent, isB4Agent, normalizeApproveEntries, type WorkspaceFs } fr
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import type { RunnableConfig } from "@langchain/core/runnables"
-import { isGraphInterrupt } from "@langchain/langgraph"
+import { isGraphBubbleUp } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { stripReservedThreadMetadata } from "../dev/thread-metadata.js"
 import { type ResolvedAgentsMdConfig, resolveAgentsMdConfig } from "./agents-md-config.js"
@@ -447,6 +450,7 @@ export type PrepareRouteExecutionOptions = Omit<BootResolvedInstances, "checkpoi
   readonly routeParams?: Readonly<Record<string, string>>
   readonly routePath: string
   readonly signal?: AbortSignal
+  readonly stopSignal?: AbortSignal
   readonly threadId?: string
   readonly sandboxManager?: SandboxManager
   /**
@@ -488,6 +492,7 @@ export async function executeResolvedRoute(
      */
     readonly sandboxThreadId?: string
     readonly signal?: AbortSignal
+    readonly stopSignal?: AbortSignal
     readonly threadId?: string
   },
 ): Promise<RuntimeExecutionResult> {
@@ -510,6 +515,7 @@ export type MaterializeResolvedRouteGraphOptions = Omit<BootResolvedInstances, "
   readonly sandboxManager?: SandboxManager
   readonly sandboxThreadId?: string
   readonly signal?: AbortSignal
+  readonly stopSignal?: AbortSignal
   /**
    * The thread the graph is materialized for, when it is one thread's (the
    * AG-UI handler's close of abandoned client tool calls): prepared as that
@@ -560,6 +566,7 @@ export async function invokeResolvedRoute(
     /** Sandbox scoping key override — see `executeResolvedRoute`. */
     readonly sandboxThreadId?: string
     readonly signal?: AbortSignal
+    readonly stopSignal?: AbortSignal
     readonly threadId?: string
   },
 ): Promise<RuntimeExecutionResult> {
@@ -599,6 +606,7 @@ export async function* streamResolvedRoute(
     /** Sandbox scoping key override — see `executeResolvedRoute`. */
     readonly sandboxThreadId?: string
     readonly signal?: AbortSignal
+    readonly stopSignal?: AbortSignal
     /**
      * Stable per-conversation identifier forwarded to the agent-adapter as
      * LangGraph's `thread_id`. When set, `interrupt()` calls park graph
@@ -666,8 +674,10 @@ export async function* streamResolvedRoute(
         ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
         ...(options.principal ? { principal: options.principal } : {}),
         fs: workspaceFs,
+        ...(options.threadId ? { threadId: options.threadId } : {}),
         tools,
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.stopSignal ? { stopSignal: options.stopSignal } : {}),
       })
       const { output } = await invokeEntry(
         normalized.kind,
@@ -714,6 +724,7 @@ export async function* streamResolvedRoute(
         ...(options.principal ? { principal: options.principal } : {}),
         routeParamNames,
         signal: options.signal ?? new AbortController().signal,
+        ...(options.stopSignal ? { stopSignal: options.stopSignal } : {}),
         ...(stateFields ? { stateFields } : {}),
         tools,
         ...(offload ? { offload } : {}),
@@ -819,14 +830,15 @@ export async function* streamResolvedRoute(
       }
     } catch (error) {
       recordedError = true
-      await recordRunEpisode({
-        memoryContext: prepared.memoryContext,
-        episodes: prepared.episodes,
-        outcome: "error",
-        input: options.input,
-        startedAt,
-        ...(options.threadId ? { threadId: options.threadId } : {}),
-      })
+      if (!isCooperativeStop(error))
+        await recordRunEpisode({
+          memoryContext: prepared.memoryContext,
+          episodes: prepared.episodes,
+          outcome: "error",
+          input: options.input,
+          startedAt,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        })
       throw error
     } finally {
       // The "ok" record lives in the finally, NOT after the loop: stream
@@ -2109,6 +2121,7 @@ export async function executeRouteAtResolvedPath(
     /** Sandbox scoping key override — see `executeResolvedRoute`. */
     readonly sandboxThreadId?: string
     readonly signal?: AbortSignal
+    readonly stopSignal?: AbortSignal
     readonly startedAt: number
     readonly threadId?: string
   },
@@ -2174,8 +2187,10 @@ export async function executeRouteAtResolvedPath(
       ...(options.middlewareContext ? { middleware: options.middlewareContext } : {}),
       ...(options.principal ? { principal: options.principal } : {}),
       fs: workspaceFs,
+      ...(options.threadId ? { threadId: options.threadId } : {}),
       tools,
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.stopSignal ? { stopSignal: options.stopSignal } : {}),
     })
 
     const { output, parked } = await invokeEntry(
@@ -2193,6 +2208,7 @@ export async function executeRouteAtResolvedPath(
         ...(offload ? { offload } : {}),
         ...(summarization ? { summarization } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.stopSignal ? { stopSignal: options.stopSignal } : {}),
         ...(promptFragments && promptFragments.length > 0 ? { promptFragments } : {}),
         ...(streamTransformers && streamTransformers.length > 0 ? { streamTransformers } : {}),
         ...(subagentResolver ? { subagentResolver } : {}),
@@ -2229,6 +2245,18 @@ export async function executeRouteAtResolvedPath(
     const kind = isBoundaryError(error) ? "unsupported_route_boundary" : "execution_error"
     const message = formatErrorMessage(error)
 
+    if (isCooperativeStop(error)) {
+      return createRuntimeSuccessResult({
+        appRoot: options.appRoot,
+        executionSource: "in-process",
+        mode: mode ?? "agent",
+        diagnostics: { cooperativeStop: true },
+        output: { cancelled: true },
+        routeId: options.routeId,
+        routePath: options.routePath,
+        startedAt: options.startedAt,
+      })
+    }
     await recordRunEpisode({
       memoryContext: epMemoryContext,
       episodes: epConfig,
@@ -2280,6 +2308,7 @@ async function invokeEntry(
     readonly summarization?: ResolvedSummarizationConfig
     readonly routeId: string
     readonly signal?: AbortSignal
+    readonly stopSignal?: AbortSignal
     readonly stateFields?: readonly ResolvedStateField[]
     readonly tools: ReadonlyArray<{
       readonly description?: string
@@ -2323,6 +2352,7 @@ async function invokeEntry(
       ...(agentContext?.principal ? { principal: agentContext.principal } : {}),
       routeParamNames,
       signal: agentContext?.signal ?? new AbortController().signal,
+      ...(agentContext?.stopSignal ? { stopSignal: agentContext.stopSignal } : {}),
       ...(agentContext?.stateFields ? { stateFields: agentContext.stateFields } : {}),
       tools: agentContext?.tools ?? [],
       ...(agentContext?.offload ? { offload: agentContext.offload } : {}),
@@ -2342,43 +2372,14 @@ async function invokeEntry(
     })
   }
 
-  if (kind === "workflow") {
-    if (typeof entry !== "function") {
-      throw new Error("Workflow entry must be a function")
-    }
-    return { output: await entry(input, context), parked: false }
-  }
-
-  if (kind === "chain") {
-    if (
-      typeof entry === "object" &&
-      entry !== null &&
-      "invoke" in entry &&
-      typeof (entry as { invoke?: unknown }).invoke === "function"
-    ) {
-      const output = await (entry as { invoke: (input: unknown) => unknown }).invoke(input)
-      return { output, parked: false }
-    }
-    throw new Error("Chain entry must expose invoke(input)")
-  }
-
-  if (typeof entry === "function") {
-    return { output: await entry(input, context), parked: false }
-  }
-
-  if (
-    typeof entry === "object" &&
-    entry !== null &&
-    "invoke" in entry &&
-    typeof (entry as { invoke?: unknown }).invoke === "function"
-  ) {
-    const output = await (
-      entry as { invoke: (input: unknown, context: unknown) => unknown }
-    ).invoke(input, context)
-    return { output, parked: false }
-  }
-
-  throw new Error("Graph entry must be a function or expose invoke(input)")
+  const adapter =
+    kind === "chain" ? chainAdapter : kind === "workflow" ? workflowAdapter : graphAdapter
+  const output = await adapter.execute(
+    entry,
+    input,
+    context as import("./b4-context.js").B4RouteContext,
+  )
+  return { output, parked: false }
 }
 
 function extractRouteParamNames(routeId: string): string[] {
@@ -2629,7 +2630,12 @@ function withEpisodeRecording(
         })
         return output
       } catch (error) {
-        if (!isGraphInterrupt(error) && !config.signal?.aborted && !isAbortError(error)) {
+        if (
+          !isGraphBubbleUp(error) &&
+          !isCooperativeStop(error) &&
+          !config.signal?.aborted &&
+          !isAbortError(error)
+        ) {
           await recordRunEpisode({
             memoryContext: prepared.memoryContext,
             episodes: prepared.episodes,

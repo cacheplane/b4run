@@ -32,6 +32,24 @@ attribution. Applications must render Google Search Suggestions unchanged.
 See [provider built-ins](https://b4.run/docs/agents#provider-built-ins). File search
 remains deferred; Anthropic fetch/code execution are disabled.
 
+## Cooperative Stop
+
+Adapters accept optional `stopSignal` separately from the hard `signal`. Native
+LangGraph Stop finishes the active superstep and checkpoint writes, then prevents
+the next step. Stop-capable calls use synchronous checkpoint durability; this
+adds persistence latency before each next step and preserves write failures.
+A request alone is not a stopped outcome: natural completion and independent
+errors keep their meanings. Awaited parallel tools, retries and opaque nested
+calls belong to their parent step. Detached callbacks, remote effects and
+subprocess quiescence are outside this guarantee.
+
+Supported compiled state graphs and adapter-materialized B4 agents retire
+pending actions without executing them before reporting Stop, and check again
+before fresh input. State/history and uncertainty remain; live permission parks
+require their existing explicit authorized `Command` resume. A standalone chain
+adapter's explicit `null` remains native continuation. Opaque invocation contexts
+receive `stopSignal`; B4 tool contexts keep their existing hard signal.
+
 ## Runtime and stability
 
 - `@b4run/langchain` is an edge-safe, supported integration surface.

@@ -1,3 +1,5 @@
+import { CooperativeStopError } from "@b4run/sdk"
+
 /**
  * Process-local registry of in-flight runs, keyed by thread id.
  *
@@ -13,7 +15,7 @@
  * thread forever (the stale "busy" would reject every later run). A fresh
  * process starts with an empty registry, so a crash self-heals.
  *
- * The shutdown-or-cancel composition is a manual listener rather than
+ * The hard-shutdown forwarding uses a manual listener rather than
  * `AbortSignal.any`: a composed signal is retained for the lifetime of its
  * *source* signals, and the shutdown signal lives as long as the process, so
  * one `AbortSignal.any` per run leaks without bound across the process's
@@ -24,23 +26,25 @@
  */
 
 export interface RunHandle {
-  /** Composed shutdown-or-cancel signal. Hand this to the route, not the raw shutdown signal. */
+  /** Hard shutdown/admission-loss signal. Hand this to the route, not the raw shutdown signal. */
   readonly signal: AbortSignal
-  /** True only when cancelled through the registry — server shutdown does not set this. */
+  /** Ordinary Stop requests draining; it never aborts running work. */
+  readonly stopSignal: AbortSignal
+  /** True when Stop was requested through the registry, not proof the run stopped. */
   readonly cancelled: boolean
   /** Idempotent, and safe to call from a `finally` block. */
   release(): void
 }
 
 export interface RunClaim {
-  /** Aborts the exact run this claim bound to. False when a later run replaced it. */
+  /** Requests Stop for the exact run this claim bound to. False when a later run replaced it. */
   cancel(reason?: string): boolean
 }
 
 export interface RunRegistry {
   /** Claims the thread's run slot. Returns undefined when a run is already in flight. */
   begin(threadId: string, shutdownSignal: AbortSignal): RunHandle | undefined
-  /** Aborts the in-flight run. Returns false when there is nothing to cancel. */
+  /** Requests cooperative Stop for the in-flight run. Returns false when there is nothing to cancel. */
   cancel(threadId: string, reason?: string): boolean
   /**
    * Bind to whatever run holds this thread's slot right now, synchronously.
@@ -70,7 +74,6 @@ export interface RunRegistry {
 
 export function createRunRegistry(): RunRegistry {
   interface Entry {
-    readonly controller: AbortController
     cancel(reason: string): void
   }
   const entries = new Map<string, Entry>()
@@ -82,6 +85,7 @@ export function createRunRegistry(): RunRegistry {
       if (entries.has(threadId)) return undefined
 
       const controller = new AbortController()
+      const stopController = new AbortController()
       let cancelled = false
 
       // Deliberately a manual listener rather than AbortSignal.any: a composed
@@ -93,10 +97,9 @@ export function createRunRegistry(): RunRegistry {
       else shutdownSignal.addEventListener("abort", onShutdown, { once: true })
 
       const entry: Entry = {
-        controller,
         cancel(reason) {
           cancelled = true
-          if (!controller.signal.aborted) controller.abort(new Error(reason))
+          if (!stopController.signal.aborted) stopController.abort(new CooperativeStopError(reason))
         },
       }
       entries.set(threadId, entry)
@@ -104,6 +107,7 @@ export function createRunRegistry(): RunRegistry {
       let released = false
       return {
         signal: controller.signal,
+        stopSignal: stopController.signal,
         get cancelled() {
           return cancelled
         },

@@ -259,7 +259,7 @@ export async function workflow(
 
 `ctx.tools.greet` has full IntelliSense for its input and return shapes.
 
-A callable `graph` function can accept the same B4.run `RuntimeContext` and use `ctx.tools`. A precompiled raw LangGraph object works differently. Its `.invoke()` treats the second argument as a LangGraph `RunnableConfig`, so it never sees `ctx.tools`. That graph uses the tools its code already owns or imports.
+A callable `graph` function can accept the same B4.run `RuntimeContext` and use `ctx.tools`. Its optional `ctx.stopSignal` requests cooperative Stop; `ctx.signal` is reserved for hard aborts. An opaque function can finish its current invocation naturally, or call `ctx.stopSignal?.throwIfAborted()` at a boundary it controls to report an observed Stop. Always await the work and cleanup that belong to that invocation. `B4ToolContext` keeps its existing hard `signal`: graph tools and their nested calls finish as awaited work inside the active parent superstep. A precompiled raw LangGraph object works differently. Its `.invoke()` treats the second argument as a LangGraph `RunnableConfig`, so it never sees `ctx.tools`. That graph uses the tools its code already owns or imports.
 
 In an `agent` route, the model calls the tools. `b4 build` wires the route's tools into the generated LangGraph entry.
 

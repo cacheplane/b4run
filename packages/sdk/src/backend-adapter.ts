@@ -5,11 +5,11 @@ export interface BackendAdapter {
   execute(
     entry: unknown,
     input: unknown,
-    context: { readonly signal: AbortSignal },
+    context: { readonly signal: AbortSignal; readonly stopSignal?: AbortSignal },
   ): Promise<unknown>
   stream(
     entry: unknown,
     input: unknown,
-    context: { readonly signal: AbortSignal },
+    context: { readonly signal: AbortSignal; readonly stopSignal?: AbortSignal },
   ): AsyncIterable<unknown>
 }
