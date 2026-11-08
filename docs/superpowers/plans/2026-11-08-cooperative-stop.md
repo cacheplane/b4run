@@ -57,6 +57,14 @@ failures are not this branch's baseline exceptions.
   never turn them into successful/error ToolMessages or error episodes.
 - `packages/langgraph/src/langgraph-adapter.ts`: native graph control with
   optional peers loaded only when needed; honest callable workflow boundary.
+- `apps/web/app/components/docs/api-reference.ts`, the generated API reference
+  tables, and `packages/cli/test/api-reference-compatibility.test.ts`: honestly
+  classify only LangGraph root purity as not-claimed while preserving edge-safe
+  runtime and strict dependency-free define-entry/route-module subpaths. Add an
+  exact allowed root dependency/input boundary and retain every platform guard.
+- `packages/langgraph/test/ui-packed-consumer.test.ts`: execute packed callable
+  graph/workflow adapters without optional native peers, including soft pre-stop
+  and owned outcome; test laziness rather than merely claiming it.
 - `packages/cli/src/lib/dev/run-registry.ts`: separate stop signal and hard
   signal, idempotent exact claims, release/listener cleanup.
 - `packages/cli/src/lib/dev/runtime-fetch-core.ts`: forward new handle fields

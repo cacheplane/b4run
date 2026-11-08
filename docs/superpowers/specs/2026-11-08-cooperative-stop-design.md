@@ -51,6 +51,12 @@ signal and an optional soft-stop signal; graph-backed runnable objects also
 receive native control. Opaque invocations may finish as one unit. Preserve
 receivers, state, ordinary schema/callback handling, and optional dependency
 loading. Do not misrepresent this as per-tool interruption of arbitrary code.
+The LangGraph package root remains edge-safe but now uses SDK runtime outcome
+code and optional native controls, so its former dependency-free purity claim
+becomes not-claimed. Preserve strict dependency-free route-contract subpaths,
+all existing runtime guards, and explicit allowed dependency/input boundaries.
+Packed callable graph/workflow consumers must work without optional peers;
+native peers load only when a native/stateful graph operation requires them.
 The optional soft signal belongs to route/adapter RuntimeContext; B4ToolContext
 continues to expose its existing hard signal. Opaque routes that explicitly
 observe the soft signal with throwIfAborted receive an owned cooperative reason.
