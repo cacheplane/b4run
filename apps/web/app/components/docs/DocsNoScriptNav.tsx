@@ -1,38 +1,43 @@
-import { Eyebrow } from "../ui/Eyebrow"
-import { DOCS_NAV } from "./nav"
+import { DOCS_AREAS } from "./doc-sections"
+import { navFor } from "./nav"
 
-/**
- * Below md the docs nav lives in the header's menu dialog, which needs
- * JavaScript. Without it, this plain disclosure of links stands in; with
- * JavaScript the `<noscript>` content is never rendered.
- */
+/** Complete ordinary-link fallback for both audiences without client routing. */
 export function DocsNoScriptNav() {
   return (
     <noscript>
-      <details data-docs-noscript-nav className="md:hidden mb-6 border border-rule">
+      <details data-docs-noscript-nav className="md:hidden mb-6 border border-rule-strong">
         <summary className="flex min-h-11 cursor-pointer items-center px-3">
-          <Eyebrow as="span">Documentation menu</Eyebrow>
+          Documentation menu
         </summary>
-        <nav aria-label="Documentation" className="border-t border-rule px-3 py-2">
-          {DOCS_NAV.map((section) => (
-            <div key={section.label} className="py-2">
-              <Eyebrow>{section.label}</Eyebrow>
-              <ul>
-                {section.items.map((item) => (
-                  <li key={item.href}>
-                    <a
-                      href={item.href}
-                      data-ui="nav-item"
-                      className="flex min-h-11 items-center px-3 text-sm"
-                    >
-                      {item.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
+        {DOCS_AREAS.map((area) => (
+          <nav
+            key={area.id}
+            aria-label={`${area.label} documentation`}
+            className="border-t border-rule px-3 py-2"
+          >
+            <a href={area.href} className="font-semibold">
+              {area.label}
+            </a>
+            {navFor(area.id).map((section) => (
+              <div key={section.label} className="py-2">
+                <p className="text-sm font-semibold">{section.label}</p>
+                <ul>
+                  {section.items.map((item) => (
+                    <li key={item.href}>
+                      <a
+                        href={item.href}
+                        data-ui="nav-item"
+                        className="flex min-h-11 items-center px-3 text-sm"
+                      >
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
+        ))}
       </details>
     </noscript>
   )

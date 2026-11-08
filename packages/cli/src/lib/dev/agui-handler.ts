@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { RunAgentInput } from "@ag-ui/core"
+import {
+  EventType,
+  type RunAgentInput,
+  type RunErrorEvent,
+  type RunFinishedEvent,
+} from "@ag-ui/core"
 import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
@@ -79,7 +84,7 @@ import {
   withoutClientToolParks,
 } from "./pending-interrupts.js"
 import { extractRouteParams } from "./request-context.js"
-import { claimRequestRun, releaseRequestRun, requestRunAdmission } from "./request-run-admission.js"
+import { claimRequestRun, releaseRequestRun } from "./request-run-admission.js"
 import { readResponseFormat, rejectResponseSchema } from "./response-schema.js"
 import { resolveRunEnvelopePolicy, validateRunEnvelope } from "./run-envelope.js"
 import type { RunRegistry } from "./run-registry.js"
@@ -396,9 +401,11 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     streamRoute = streamResolvedRoute,
   } = options
 
+  let stopClaim: import("./run-registry.js").RunClaim | undefined
   const requestController = new AbortController()
   const abortRequest = (message: string) => {
-    if (!requestController.signal.aborted) requestController.abort(new Error(message))
+    if (stopClaim) stopClaim.cancel(message)
+    else if (!requestController.signal.aborted) requestController.abort(new Error(message))
   }
   const onRequestAborted = () => abortRequest("AG-UI request aborted")
   if (request.signal.aborted) onRequestAborted()
@@ -413,7 +420,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
   // done. Every exit path releases it: the try/finally around the pre-stream
   // work covers the early returns, and once the stream is constructed,
   // ownership passes to its own finally/cancel.
-  const onShutdown = () => abortRequest("Server shutting down")
+  const onShutdown = () => requestController.abort(new Error("Server shutting down"))
   if (shutdownSignal.aborted) onShutdown()
   else shutdownSignal.addEventListener("abort", onShutdown, { once: true })
   const signal = requestController.signal
@@ -1086,7 +1093,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
       await threadsStore.createThread({ thread_id: threadId })
     }
 
-    const run = runRegistry.begin(threadId, signal)
+    signal.throwIfAborted()
+    const run = runRegistry.begin(threadId, shutdownSignal)
     if (!run) {
       return Response.json(
         createRequestErrorBody(`A run is already in flight for thread "${threadId}"`, {
@@ -1095,6 +1103,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         { status: 409 },
       )
     }
+    stopClaim = runRegistry.claim(threadId)
     releaseRunBeforeStream = run.release
 
     // A request that decided on a snapshot with NO client park may be about
@@ -1222,6 +1231,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // "deliberately left alone (tracked separately)" was pointing at; that note
     // is gone because this is the separate tracking, landed.
     let sawInterrupt = false
+    let observedStop = false
     // Capture the raw done, or project AG-UI's caught failure/cancellation
     // back into an AP terminal. The finally delivers it once to attachers,
     // without adding a terminal frame to the live turn's digest.
@@ -1253,7 +1263,8 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // From here on, the stream owns both the request listeners and any resume
     // claim. Its execution-finally path releases the claim only after the
     // interrupted route has actually unwound.
-    let sharedTerminal: Uint8Array | undefined
+    let deferredTerminal: Uint8Array | undefined
+    let terminalEvent: RunFinishedEvent | RunErrorEvent | undefined
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -1282,6 +1293,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               routeId: route.routeId,
               routePath: route.routePath,
               signal: run.signal,
+              stopSignal: run.stopSignal,
             })
             const abortableRouteStream = abortableAsyncIterable(
               routeStream,
@@ -1322,10 +1334,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 runId: input.runId,
               },
               {
-                // A cancel endpoint or a server shutdown stopped the turn; a
-                // client disconnect did not (nobody is listening for the
-                // frame, and attachers read the same terminal below).
-                cancelled: () => run.cancelled || shutdownSignal.aborted,
+                // Cooperative Stop is identified by the observed error. Keep
+                // the existing hard-shutdown wire outcome separate.
+                cancelled: () => shutdownSignal.aborted,
                 // The client-tool parks this turn left open, from the record:
                 // asked when RUN_FINISHED is built, after every raw chunk has
                 // been consumed, so `sawInterrupt` is final. Only rows this run
@@ -1345,6 +1356,12 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                     : [],
               },
             )) {
+              if (
+                event.type === "RUN_FINISHED" &&
+                event.outcome?.type === "cancelled" &&
+                !shutdownSignal.aborted
+              )
+                observedStop = true
               // A run that parks on an interrupt is a finished run here; per the
               // spec only a `cancelled` outcome is excluded.
               if (
@@ -1362,22 +1379,21 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 if (event.type === "RUN_ERROR") {
                   terminalChunk = { type: "done", output: { error: event.message } }
                 } else if (event.type === "RUN_FINISHED" && event.outcome?.type === "cancelled") {
-                  // Attachers read the Agent-Protocol projection, which the AP
-                  // handlers still spell `run.cancelled ? cancelled : error`;
-                  // a shutdown is cancelled on the AG-UI wire but an error here.
-                  terminalChunk = run.cancelled
-                    ? { type: "done", output: { cancelled: true } }
-                    : { type: "done", output: { error: "Server shutting down" } }
+                  // Preserve the existing hard-shutdown AP error projection;
+                  // an observed cooperative Stop has the cancelled payload.
+                  terminalChunk = shutdownSignal.aborted
+                    ? { type: "done", output: { error: "Server shutting down" } }
+                    : { type: "done", output: { cancelled: true } }
                 }
               }
               const encoded = encodeAgUiEvent(event, accept)
               if (
-                event.type === "RUN_FINISHED" &&
-                event.outcome?.type !== "cancelled" &&
-                requestRunAdmission(request)
-              )
-                sharedTerminal = encoded
-              else safeEnqueue(controller, encoded)
+                (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") &&
+                !run.signal.aborted
+              ) {
+                terminalEvent = event
+                deferredTerminal = encoded
+              } else safeEnqueue(controller, encoded)
             }
           } finally {
             // Unconditional, same as handleApStreamRequest: attachers must see
@@ -1385,7 +1401,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // identity guard inside `close` means a zombie route can never
             // write into a successor turn that has already replaced this
             // entry.
-            if (!sharedTerminal) liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
+            if (!deferredTerminal) liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
             // This finally covers BOTH the drained and the failed turn, which is
             // exactly the pair the Agent Protocol handlers cover with a
             // success-path call plus a catch-path retry: a turn that parked
@@ -1434,34 +1450,44 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // a turn that parked and then failed, or parked and then lost its
             // client, is still parked.
             //
-            // Deliberately not `run.cancelled`. AG-UI ends the run when the
-            // client goes away, and a disconnect leaves nothing durable to come
-            // back to, so it is not an interruption; what survives a disconnect
-            // is the park, which this already reports.
-            //
-            // Bounded by what the stream can see: a client that disconnects
-            // mid-superstep can abort the route after LangGraph has durably
-            // written `__interrupt__` but before the adapter yields the chunk
-            // for it, and that park still reads back as idle. Closing that needs
-            // a checkpoint read here rather than a flag.
-            //
-            // How the turn ended, for a thread restored from storage. The
-            // record describes the TURN, not the thread status, so unlike the
-            // status write it does key on how the run stopped: a cancel
-            // endpoint stop (projected into the terminal above) and a client
-            // disconnect are both "stopped" — the disconnect aborts the route
-            // with a RUN_ERROR on the wire, but nothing went wrong with the
-            // turn, somebody stopped listening to it. A shutdown keeps its
-            // error, and a parked turn gets no record at all. Only an agent
-            // route has a checkpointer to stamp; a graph route's head, if any,
-            // belongs to some other turn.
-            const disconnected = run.signal.aborted && !run.cancelled && !shutdownSignal.aborted
+            // Only the observed terminal describes how this turn ended. A
+            // disconnect merely requested Stop; shutdown/admission loss keep
+            // their hard error, and a permission park takes precedence.
+            try {
+              await threadsStore.updateStatus(
+                threadId,
+                terminalStatus({ cancelled: observedStop, sawInterrupt }),
+              )
+            } catch (persistenceError) {
+              // Only a provisional clean terminal can become this storage
+              // failure. An already independent source error keeps precedence.
+              // Hard-abort terminals already published retain their policy.
+              if (deferredTerminal && terminalEvent?.type !== EventType.RUN_ERROR) {
+                const message =
+                  persistenceError instanceof Error
+                    ? persistenceError.message
+                    : String(persistenceError)
+                terminalEvent = {
+                  type: EventType.RUN_ERROR,
+                  message,
+                  ...(terminalEvent?.usage !== undefined ? { usage: terminalEvent.usage } : {}),
+                  ...(persistenceError instanceof Error &&
+                  "code" in persistenceError &&
+                  typeof persistenceError.code === "string"
+                    ? { code: persistenceError.code }
+                    : {}),
+                }
+                deferredTerminal = encodeAgUiEvent(terminalEvent, accept)
+                terminalChunk = { type: "done", output: { error: message } }
+                observedStop = false
+              }
+            }
             const turnEnd =
               route.mode === "agent"
                 ? turnEndFor({
                     sawInterrupt,
-                    cancelled: disconnected || readTerminalCancelled(terminalChunk),
-                    error: disconnected ? undefined : readTerminalError(terminalChunk),
+                    cancelled: observedStop,
+                    error: readTerminalError(terminalChunk),
                   })
                 : undefined
             // Written now for a drained source; chased behind the route's own
@@ -1471,22 +1497,18 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 notBefore: anchorCheckpointId,
               })
             } else deferredTurnEnd = turnEnd
-            await threadsStore
-              .updateStatus(threadId, terminalStatus({ cancelled: false, sawInterrupt }))
-              .catch(() => undefined)
-            releaseSignalListeners()
           }
-          if (sharedTerminal) {
+          if (deferredTerminal) {
             if (!run.signal.aborted && !deferClientRecordVoid && !deferredTurnEnd) {
               await sourceCleanup
               await releaseRequestRun(request)
               liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
-              safeEnqueue(controller, sharedTerminal)
+              safeEnqueue(controller, deferredTerminal)
             } else {
-              // A disconnect during final persistence can arrive after the
-              // translator produced success. Its deferred void/stamp still
-              // owns the lease; the execution-finalizer below releases it.
-              liveTurn?.close({ type: "done", output: { cancelled: true } })
+              // Hard abort can arrive during final persistence. Preserve the
+              // observed terminal; it cannot manufacture a cooperative Stop.
+              // The execution finalizer still owns cleanup and release.
+              liveTurn?.close(terminalChunk ?? { type: "done", output: null })
             }
           }
           safeClose(controller)
@@ -1494,7 +1516,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
           // Mirrors the pre-refactor behavior: a mid-stream failure propagated
           // out of the handler after headers were sent, tearing the stream down
           // rather than framing an error event.
-          if (sharedTerminal)
+          if (deferredTerminal)
             liveTurn?.close({
               type: "done",
               output: { error: error instanceof Error ? error.message : String(error) },
@@ -1502,6 +1524,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
           controller.error(error)
         } finally {
           const releaseExecutionClaims = () => {
+            releaseSignalListeners()
             run.release()
             releaseClaimWhenSettled?.()
           }
@@ -1532,10 +1555,9 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
         }
       },
       cancel() {
-        // AG-UI is ephemeral: a disconnected client ends the run. The start
-        // finally releases any resume claim after execution settles.
+        // A disconnected observer requests Stop for its exact run. The start
+        // finally releases listeners and claims after execution settles.
         abortRequest("AG-UI response closed")
-        releaseSignalListeners()
       },
     })
 
@@ -1944,17 +1966,6 @@ function toAfterMessage(message: {
     content: message.content,
     ...(message.id !== undefined ? { id: message.id } : {}),
   }
-}
-
-/** Whether the AP projection of this turn's terminal says the run was cancelled. */
-function readTerminalCancelled(chunk: StreamChunk | undefined): boolean {
-  if (chunk === undefined || chunk.type !== "done") return false
-  const output = (chunk as { readonly output?: unknown }).output
-  return (
-    typeof output === "object" &&
-    output !== null &&
-    (output as { readonly cancelled?: unknown }).cancelled === true
-  )
 }
 
 function safeEnqueue(controller: ReadableStreamDefaultController<Uint8Array>, chunk: Uint8Array) {

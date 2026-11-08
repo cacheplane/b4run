@@ -1,4 +1,5 @@
 import { API_REFERENCE_PAGES } from "./api-reference-pages"
+import { type DocsArea, docsArea } from "./doc-sections"
 
 export interface DocsNavItem {
   readonly label: string
@@ -134,17 +135,68 @@ export const DOCS_NAV = [
   },
 ] as const
 
+// biome-ignore format: docs inventory guards read one item per line
+export const APP_DOCS_NAV = [
+  {
+    label: "Get started",
+    items: [
+      { label: "What is b4app?", href: "/docs/app" },
+      { label: "Install and sign in", href: "/docs/app/install" },
+      { label: "Connect Codex", href: "/docs/app/codex" },
+      { label: "Connect Claude Code", href: "/docs/app/claude-code" },
+    ],
+  },
+  {
+    label: "Use the app",
+    items: [
+      { label: "Your first conversation", href: "/docs/app/first-conversation" },
+      { label: "Manage your work", href: "/docs/app/manage-work" },
+    ],
+  },
+  {
+    label: "iPhone",
+    items: [
+      { label: "Use b4app on your iPhone", href: "/docs/app/iphone" },
+    ],
+  },
+  {
+    label: "Accounts and help",
+    items: [
+      { label: "Accounts, privacy, and sync", href: "/docs/app/accounts-and-data" },
+      { label: "Troubleshooting", href: "/docs/app/troubleshooting" },
+    ],
+  },
+  {
+    label: "B4 agents",
+    items: [
+      { label: "Use a B4 agent", href: "/docs/app/b4-agents" },
+    ],
+  },
+] as const
+
+/** One navigation source for desktop, mobile, search and no-script links. */
+export function navFor(area: DocsArea): readonly DocsNavSection[] {
+  return area === "app" ? APP_DOCS_NAV : DOCS_NAV
+}
+
 // Flat ordered list of pages — used for prev/next navigation.
 type JourneyDocsPage = (typeof DOCS_NAV)[number]["items"][number]
+type AppDocsPage = (typeof APP_DOCS_NAV)[number]["items"][number]
 type ApiDocsPage = (typeof API_REFERENCE_PAGES)[number]
 
 export const DOCS_PAGES: readonly JourneyDocsPage[] = DOCS_NAV.flatMap(
   (section) => section.items as readonly JourneyDocsPage[],
 )
 
-export const ALL_DOCS_PAGES: readonly (JourneyDocsPage | ApiDocsPage)[] = DOCS_PAGES.flatMap(
-  (page): readonly (JourneyDocsPage | ApiDocsPage)[] =>
-    page.href === "/docs/api" ? [page, ...API_REFERENCE_PAGES] : [page],
+export const APP_DOCS_PAGES: readonly AppDocsPage[] = APP_DOCS_NAV.flatMap(
+  (section) => section.items as readonly AppDocsPage[],
+)
+
+export const ALL_DOCS_PAGES: readonly (JourneyDocsPage | AppDocsPage | ApiDocsPage)[] = [
+  ...DOCS_PAGES,
+  ...APP_DOCS_PAGES,
+].flatMap((page): readonly (JourneyDocsPage | AppDocsPage | ApiDocsPage)[] =>
+  page.href === "/docs/api" ? [page, ...API_REFERENCE_PAGES] : [page],
 )
 
 export type DocsPageHref = (typeof ALL_DOCS_PAGES)[number]["href"]
@@ -154,48 +206,40 @@ export interface DocsCrumb {
   readonly href?: string
 }
 
-const DOCS_HOME = "/docs/getting-started"
-
-// Build breadcrumbs for a given href: Docs / <nav section> / <page>. The
-// section is a label, not a route, so it is left unlinked; every other
-// ancestor links to a real route and the current page is the final, unlinked
-// crumb. Docs links to the first page, so on that page Docs is unlinked too
-// rather than linking to itself.
+/** Breadcrumbs retain framework API hierarchy and identify the current audience. */
 export function breadcrumbsFor(href: string): readonly DocsCrumb[] {
-  const DOCS_CRUMB: DocsCrumb =
-    href === DOCS_HOME ? { label: "Docs" } : { label: "Docs", href: DOCS_HOME }
-  const referencePage = API_REFERENCE_PAGES.find((page) => page.href === href)
-  if (referencePage) {
-    const hub = sectionFor(referencePage.parent.href)
+  const area = docsArea(href)
+  if (!area) return [{ label: "Docs" }]
+  const home = area === "app" ? "/docs/app" : "/docs/getting-started"
+  const label = area === "app" ? "App" : "Framework"
+  const ancestors: DocsCrumb[] = [
+    { label: "Docs", href: "/docs" },
+    href === home ? { label } : { label, href: home },
+  ]
+  if (href === home) return ancestors
+  const reference = API_REFERENCE_PAGES.find((p) => p.href === href)
+  if (reference)
     return [
-      DOCS_CRUMB,
-      ...(hub ? [{ label: hub.label }] : []),
-      { label: referencePage.parent.label, href: referencePage.parent.href },
-      { label: referencePage.label },
+      ...ancestors,
+      { label: "Reference" },
+      { label: reference.parent.label, href: reference.parent.href },
+      { label: reference.label },
     ]
-  }
-
-  const page = DOCS_PAGES.find((item) => item.href === href)
-  const section = sectionFor(href)
+  const section = navFor(area).find((s) => s.items.some((p) => p.href === href))
+  const page = section?.items.find((p) => p.href === href)
   return [
-    DOCS_CRUMB,
+    ...ancestors,
     ...(section ? [{ label: section.label }] : []),
     ...(page ? [{ label: page.label }] : []),
   ]
-}
-
-function sectionFor(href: string): DocsNavSection | undefined {
-  return DOCS_NAV.find((section) => section.items.some((item) => item.href === href))
 }
 
 export function siblingsFor(href: string): {
   readonly prev: DocsNavItem | null
   readonly next: DocsNavItem | null
 } {
-  const idx = DOCS_PAGES.findIndex((p) => p.href === href)
+  const pages: readonly DocsNavItem[] = docsArea(href) === "app" ? APP_DOCS_PAGES : DOCS_PAGES
+  const idx = pages.findIndex((p) => p.href === href)
   if (idx < 0) return { prev: null, next: null }
-  return {
-    prev: idx > 0 ? (DOCS_PAGES[idx - 1] ?? null) : null,
-    next: idx < DOCS_PAGES.length - 1 ? (DOCS_PAGES[idx + 1] ?? null) : null,
-  }
+  return { prev: pages[idx - 1] ?? null, next: pages[idx + 1] ?? null }
 }

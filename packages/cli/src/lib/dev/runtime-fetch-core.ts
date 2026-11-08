@@ -14,7 +14,7 @@ import type {
   ThreadAccessPolicy,
   ThreadOperation,
 } from "@b4run/sdk"
-import { isAuthDefinition, THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import { isAuthDefinition, isCooperativeStop, THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import type { StagedWorkspaceReference } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -1045,6 +1045,7 @@ export async function createRuntimeFetchHandler(
               maybeSettle(lifetime)
             },
             signal: handle.signal,
+            stopSignal: handle.stopSignal,
           }
         },
         cancel: (threadId, reason) =>
@@ -2435,7 +2436,7 @@ export function buildRouteTable(ctx: {
           const outcome = await sandboxManager.inspectThread(
             threadId,
             parsed.request,
-            AbortSignal.any([slot.signal, request.signal]),
+            AbortSignal.any([slot.signal, slot.stopSignal, request.signal]),
           )
           return threadWorkspaceResponse(threadId, parsed.request, outcome)
         } catch (error) {
@@ -2953,15 +2954,14 @@ async function handleApStreamRequest(options: {
   // instead would discard streamed-but-not-yet-checkpointed state and leave
   // the thread behind what the user already saw (LangGraph issue #5672).
   //
-  // Cancellation is therefore explicit: POST /threads/:id/cancel. AG-UI takes
-  // the opposite default because it is ephemeral with nothing to reattach to.
+  // Stop is therefore explicit: POST /threads/:id/cancel. AG-UI instead
+  // requests cooperative Stop when its admitted viewer disconnects.
   // Rationale: docs/superpowers/specs/2026-08-06-ap-run-cancellation.md
   const encoder = new TextEncoder()
-  // Set only when abortableAsyncIterable stops CONSUMING the route on abort —
-  // it wins a race against iterator.next() and does not wait for the route's
-  // own `.return()` to settle. A route suspended at a non-abortable await
-  // (subprocess, non-abort-aware SDK, CPU-bound loop) keeps running after
-  // that race is won. See the finally below for why this matters.
+  // Tracks the route iterator's cleanup. A hard abort can stop consumption
+  // before that cleanup settles: a route suspended at a non-abortable await
+  // may keep running after the abort race wins. Cooperative Stop instead
+  // waits for the route's settled outcome. See the finally below.
   let sourceCleanup: Promise<void> | undefined
   // A parked turn takes the NORMAL completion path: the adapter yields the
   // interrupt chunk and then `done`, so a drained loop does not mean the turn
@@ -2998,6 +2998,7 @@ async function handleApStreamRequest(options: {
             routePath: route.routePath,
             ...(sandboxManager ? { sandboxManager } : {}),
             signal: run.signal,
+            stopSignal: run.stopSignal,
             ...(staticModules ? { staticModules } : {}),
             threadId,
             // Injected into config.configurable by the agent-adapter for the
@@ -3007,17 +3008,15 @@ async function handleApStreamRequest(options: {
             ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
             threadsStore,
           })
-          // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
-          // the route *and* wrap the iterator, so a route that ignores its
-          // ctx.signal still stops when the run is cancelled. The third
-          // argument lets us observe when the route's OWN cleanup finishes,
-          // independently of when this loop stops consuming it.
+          // Hard abort can stop consumption even if the route ignores
+          // ctx.signal. Soft Stop reaches the route through stopSignal and
+          // waits for its outcome. The callback tracks the route's cleanup
+          // separately from the lifetime of this consuming loop.
           for await (const chunk of abortableAsyncIterable(routeStream, run.signal, (p) => {
             sourceCleanup = p
           })) {
             if (chunk.type === "interrupt") sawInterrupt = true
-            if (chunk.type !== "done" || !requestRunAdmission(request))
-              safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+            if (chunk.type !== "done") safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
             // The terminal is never published to the digest — it is delivered
             // exactly once, via `close` in the `finally` below, so a live
             // subscriber never sees it twice (once from the digest tail, once
@@ -3076,12 +3075,12 @@ async function handleApStreamRequest(options: {
           )
           if (requestRunAdmission(request)) await sourceCleanup
           await releaseRequestRun(request)
-          if (requestRunAdmission(request) && terminalChunk)
-            safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
+          if (terminalChunk) safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
         } catch (error) {
+          let cooperativelyStopped = isCooperativeStop(error)
           // A cancelled run is not a failure: clients must be able to tell the
           // two apart without inferring it from a truncated stream.
-          terminalChunk = run.cancelled
+          terminalChunk = cooperativelyStopped
             ? { output: { cancelled: true }, type: "done" }
             : {
                 output: {
@@ -3089,7 +3088,6 @@ async function handleApStreamRequest(options: {
                 },
                 type: "done",
               }
-          safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
           // A turn that parked before failing is still parked, so the gate has
           // to be recorded here too — including when the failure IS the
           // success-path settle above. Retried, not skipped.
@@ -3114,41 +3112,64 @@ async function handleApStreamRequest(options: {
             threadId,
             threadsStore,
           }).catch(() => undefined)
-          // Same facts as the terminal chunk just sent: a cancelled run is
-          // "stopped", anything else "failed" with the error's message. The
-          // run's abort can only be a cancel or a shutdown here — this
-          // stream's `cancel()` is deliberately empty, so a client disconnect
-          // never reaches this catch. A cancelled run's route may still be
-          // unwinding, so its stamp is chased behind `sourceCleanup` below.
+          // A settled cooperative Stop is "stopped"; independent failures
+          // retain their error. Hard abort (shutdown or admission loss) may
+          // leave source cleanup pending, so defer its stamp until cleanup.
+          // Passive client disconnect does not abort this AP run.
+          if (!run.signal.aborted) await sourceCleanup
+          try {
+            await threadsStore.updateStatus(
+              threadId,
+              terminalStatus({ cancelled: cooperativelyStopped, sawInterrupt }),
+            )
+          } catch (persistenceError) {
+            // A drain is provisional until required runtime persistence settles.
+            // Preserve an earlier independent source error if both operations fail.
+            if (cooperativelyStopped) {
+              cooperativelyStopped = false
+              terminalChunk = {
+                type: "done",
+                output: {
+                  error:
+                    persistenceError instanceof Error
+                      ? persistenceError.message
+                      : String(persistenceError),
+                },
+              }
+            }
+          }
           const turnEnd =
             route.mode === "agent"
               ? turnEndFor({
                   sawInterrupt,
-                  cancelled: run.cancelled,
-                  error: run.cancelled ? undefined : readTerminalError(terminalChunk),
+                  cancelled: cooperativelyStopped,
+                  error: cooperativelyStopped ? undefined : readTerminalError(terminalChunk),
                 })
               : undefined
-          if (turnEnd && !run.cancelled && !(requestRunAdmission(request) && sourceCleanup))
+          if (turnEnd && !run.signal.aborted)
             await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
           else deferredTurnEnd = turnEnd
-          await threadsStore
-            .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
-            .catch(() => undefined)
+
+          if (!run.signal.aborted) {
+            await sourceCleanup
+            await releaseRequestRun(request)
+          }
+          safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
         }
       } finally {
         stopHeartbeat()
         // Unconditional — never deferred behind `sourceCleanup` the way
-        // `run.release()` is below for a cancelled run: attachers must see the
+        // `run.release()` is below when source cleanup remains: attachers see the
         // terminal frame exactly when the primary client does, since response
         // lifetime (not run-slot lifetime) is what viewers share. The identity
         // guard inside `close` means a zombie route can never write into a
         // successor turn that has already replaced this entry.
         liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
-        // The client's stream ends here regardless — safeClose below fires on
-        // this same tick either way, so cancellation still looks instant to
-        // the caller. What differs is when the run SLOT frees.
+        // A hard abort may close the response before source cleanup settles.
+        // Soft Stop reaches this point after its execution and required writes
+        // settle. Claims remain held through any outstanding cleanup and stamp.
         // Never throws (stampTurnEnd swallows); a no-op unless the catch
-        // deferred a cancelled turn's record.
+        // deferred the turn's record.
         const stampDeferredTurnEnd = async (): Promise<void> => {
           if (deferredTurnEnd)
             await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
@@ -3156,16 +3177,11 @@ async function handleApStreamRequest(options: {
             })
         }
         if (sourceCleanup && (run.cancelled || requestRunAdmission(request))) {
-          // The abort stopped us CONSUMING the route, not the route itself:
-          // abortableAsyncIterable wins a race against iterator.next(), and a
-          // generator suspended at a non-abortable await keeps going until that
-          // await settles. Hold the thread's slot until the source has genuinely
-          // unwound, or a newly admitted run would interleave checkpoint writes
-          // with it. The client's stream still ends immediately (above) —
-          // response lifetime and run lifetime are deliberately different here.
-          // The turn-end stamp waits for the same unwind, so a park the route
-          // lands late is seen (and leaves the head unstamped) rather than
-          // buried under a stamp written too early.
+          // After a hard abort, consumption may end while the route is still
+          // awaiting work. Keep ownership until cleanup and the deferred stamp
+          // settle, so a successor cannot interleave checkpoint writes. This
+          // also observes a late permission park before stamping. For soft
+          // Stop, source cleanup has already settled before terminal delivery.
           void sourceCleanup
             .then(stampDeferredTurnEnd, stampDeferredTurnEnd)
             .finally(() => run.release())
@@ -3436,8 +3452,7 @@ async function handleApWaitRequest(options: {
   // /runs/wait has not sent anything yet and can still use a status code, so
   // it does — 409 rather than 503, which would conflate cancellation with
   // server shutdown, the exact ambiguity this feature removes.
-  const respondCancelled = async (): Promise<Response> => {
-    await threadsStore.updateStatus(threadId, "interrupted").catch(() => undefined)
+  const respondCancelled = (): Response => {
     return Response.json(
       createRequestErrorBody(`Run cancelled for thread "${threadId}"`, {
         code: "run_cancelled",
@@ -3498,7 +3513,6 @@ async function handleApWaitRequest(options: {
 
   // Set only when the route is abandoned (detached, not stopped) rather than
   // genuinely settled — see the finally below.
-  let abandoned = false
   // Set when the route is STILL EXECUTING as this handler returns. The settle
   // then cannot happen at return time: the route may not have written its
   // interrupt yet, and reading the checkpoint now would miss a park that lands
@@ -3521,6 +3535,7 @@ async function handleApWaitRequest(options: {
       routePath: route.routePath,
       ...(sandboxManager ? { sandboxManager } : {}),
       signal: run.signal,
+      stopSignal: run.stopSignal,
       ...(staticModules ? { staticModules } : {}),
       threadId,
       // Injected into config.configurable by the agent-adapter for the
@@ -3534,25 +3549,9 @@ async function handleApWaitRequest(options: {
     const result = await raceRequestAgainstShutdown(resultPromise, run.signal)
 
     if (result === SHUTDOWN_ABORTED) {
-      // Neither arm below has a settled route: raceRequestAgainstShutdown stops
-      // WAITING for resultPromise, it never stops the route. So both defer the
-      // gate write until the route genuinely unwinds.
+      // Hard shutdown/admission loss may detach the observer. Ownership still
+      // belongs to the execution until its real work and writes settle.
       settleAfterRouteUnwinds = true
-
-      // A cancelled run is not server shutdown: the caller asked to wait for
-      // a result that no longer exists because someone cancelled the run —
-      // that is a conflict, not a 503.
-      if (run.cancelled) {
-        // raceRequestAgainstShutdown only detaches resultPromise
-        // (`execution.catch(() => undefined)`) — it never stops the route.
-        // Unlike /runs/stream there is no abortable iterator here to drive
-        // the route's own cleanup, so it may still be executing and writing
-        // checkpoints. The slot must stay held until it genuinely settles
-        // (see the finally below), or a newly admitted run on this thread
-        // would interleave with it.
-        abandoned = true
-        return await respondCancelled()
-      }
       await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
       return Response.json(createRequestErrorBody("Request canceled during server shutdown"), {
         status: 503,
@@ -3571,8 +3570,8 @@ async function handleApWaitRequest(options: {
       const turnEnd = canPark
         ? turnEndFor({
             sawInterrupt: parked,
-            cancelled: run.cancelled,
-            error: run.cancelled ? undefined : result.error.message,
+            cancelled: false,
+            error: result.error.message,
           })
         : undefined
       if (turnEnd)
@@ -3585,9 +3584,6 @@ async function handleApWaitRequest(options: {
       // settled by the time we get here, though, so — unlike the branch
       // above — there is no orphaned work and the slot releases normally.
       if (run.signal.aborted) {
-        if (run.cancelled) {
-          return await respondCancelled()
-        }
         await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
         return Response.json(
           createRequestErrorBody("Request canceled during server shutdown", {
@@ -3625,15 +3621,27 @@ async function handleApWaitRequest(options: {
     // the same post-hoc diff the gate just used, since this handler has no
     // interrupt chunk to watch for.
     // Agent routes only: a graph route has no checkpointer to stamp.
-    const turnEnd = canPark ? turnEndFor({ sawInterrupt: parked, cancelled: false }) : undefined
+    const stopped = result.diagnostics?.cooperativeStop === true
+    try {
+      await threadsStore.updateStatus(threadId, stopped ? "interrupted" : "idle")
+    } catch (persistenceError) {
+      const message =
+        persistenceError instanceof Error ? persistenceError.message : String(persistenceError)
+      const failedEnd = canPark
+        ? turnEndFor({ sawInterrupt: parked, cancelled: false, error: message })
+        : undefined
+      if (failedEnd)
+        await stampTurnEnd(checkpointer, threadId, failedEnd, { notBefore: anchorCheckpointId })
+      // This status failure is the primary error; cleanup must not replace it.
+      await releaseRequestRun(request).catch(() => undefined)
+      return Response.json(createExecutionErrorBody(message), { status: 500 })
+    }
+    const turnEnd = canPark ? turnEndFor({ sawInterrupt: parked, cancelled: stopped }) : undefined
     if (turnEnd)
       await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
 
-    // Deliberately unconditional, unlike the streaming handlers' terminalStatus:
-    // the spec scopes parked-status honesty to the streaming endpoints, so a
-    // /runs/wait turn that parks still reads "idle" here. Clients detect that
-    // case via GET /threads/:id/pending_interrupts.
-    await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
+    if (stopped) return respondCancelled()
+
     // `result.output` is literally the route's return value, so a route that
     // returns nothing lands here as `undefined` — which `Response.json` throws
     // on, turning a fine run into a 500 while `/runs/stream` reports the same
@@ -3665,18 +3673,8 @@ async function handleApWaitRequest(options: {
     }
   } finally {
     if (settleAfterRouteUnwinds && resultPromise) {
-      // The route outlived this response. Its park — if it parks at all — may
-      // land AFTER the 409 was sent, so the gate write chases the route rather
-      // than the response: settle once resultPromise has genuinely unwound.
-      // `.catch` first so a rejected route still reaches the settle; the
-      // outcome itself is discarded, since nobody is waiting on it anymore.
-      //
-      // Best-effort on the shutdown arm specifically, which (as before this
-      // change) frees the slot without waiting: another run could in principle
-      // be admitted before this settles. Not tightened here because holding a
-      // slot open across shutdown would delay process exit, and the arm that
-      // an unauthenticated caller can actually drive — cancel — is the one
-      // that keeps its slot.
+      // Hard shutdown detached the observer. The run still owns its stores
+      // and slot until its execution and final persistence have settled.
       void resultPromise
         .then(
           (result) => result,
@@ -3690,9 +3688,9 @@ async function handleApWaitRequest(options: {
           const turnEnd = canPark
             ? turnEndFor({
                 sawInterrupt: parked,
-                cancelled: run.cancelled,
+                cancelled: result?.diagnostics?.cooperativeStop === true,
                 error:
-                  run.cancelled || result === undefined || result.status !== "failed"
+                  result === undefined || result.status !== "failed"
                     ? undefined
                     : result.error.message,
               })
@@ -3702,12 +3700,9 @@ async function handleApWaitRequest(options: {
         })
         .catch(() => undefined)
         .finally(() => {
-          // Hold the slot until the abandoned route genuinely finishes rather
-          // than freeing it the instant the 409 is decided, or a newly admitted
-          // run would interleave checkpoint writes with it.
-          if (abandoned || requestRunAdmission(request)) run.release()
+          // A later run cannot interleave writes with this execution.
+          run.release()
         })
-      if (!abandoned && !requestRunAdmission(request)) run.release()
     } else {
       run.release()
     }
@@ -4588,7 +4583,7 @@ async function handleResumeRequest(options: {
     // The terminal `done` chunk the primary emitted — see
     // handleApStreamRequest for why this is never published to the digest.
     let terminalChunk: StreamChunk | undefined
-    // A cancelled turn's record, chased behind `sourceCleanup` — see
+    // A hard-aborted turn's deferred record, chased behind `sourceCleanup` — see
     // handleApStreamRequest.
     let deferredTurnEnd: PersistedTurnEnd | undefined
     const stream = new ReadableStream<Uint8Array>({
@@ -4612,6 +4607,7 @@ async function handleResumeRequest(options: {
               routePath: route.routePath,
               ...(sandboxManager ? { sandboxManager } : {}),
               signal: run.signal,
+              stopSignal: run.stopSignal,
               ...(staticModules ? { staticModules } : {}),
               threadId,
               // Injected into config.configurable by the agent-adapter for the
@@ -4621,17 +4617,15 @@ async function handleResumeRequest(options: {
               ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               threadsStore,
             })
-            // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
-            // the route *and* wrap the iterator, so a route that ignores its
-            // ctx.signal still stops when the run is cancelled. The third
-            // argument lets us observe when the route's OWN cleanup finishes,
-            // independently of when this loop stops consuming it.
+            // Hard abort can stop consumption even if the route ignores
+            // ctx.signal. Soft Stop reaches the route through stopSignal and
+            // waits for its outcome. Track source cleanup separately, as in
+            // handleApStreamRequest.
             for await (const chunk of abortableAsyncIterable(routeStream, run.signal, (p) => {
               sourceCleanup = p
             })) {
               if (chunk.type === "interrupt") sawInterrupt = true
-              if (chunk.type !== "done" || !requestRunAdmission(request))
-                safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
+              if (chunk.type !== "done") safeEnqueue(controller, encoder.encode(toSseEvent(chunk)))
               // See handleApStreamRequest: the terminal is never published to
               // the digest — `close` in the `finally` delivers it exactly once.
               if (chunk.type === "done") terminalChunk = chunk
@@ -4684,12 +4678,12 @@ async function handleResumeRequest(options: {
             )
             if (requestRunAdmission(request)) await sourceCleanup
             await releaseRequestRun(request)
-            if (requestRunAdmission(request) && terminalChunk)
-              safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
+            if (terminalChunk) safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
           } catch (error) {
+            let cooperativelyStopped = isCooperativeStop(error)
             // A cancelled run is not a failure: clients must be able to tell the
             // two apart without inferring it from a truncated stream.
-            terminalChunk = run.cancelled
+            terminalChunk = cooperativelyStopped
               ? { output: { cancelled: true }, type: "done" }
               : {
                   output: {
@@ -4697,7 +4691,6 @@ async function handleResumeRequest(options: {
                   },
                   type: "done",
                 }
-            safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
             await settleParkedRoute({
               ...(approvalGrants.mode === "off"
                 ? {}
@@ -4719,31 +4712,56 @@ async function handleResumeRequest(options: {
               threadId,
               threadsStore,
             }).catch(() => undefined)
-            // Same facts as the terminal chunk just sent; see
-            // handleApStreamRequest's catch (a cancel or a shutdown, never a
-            // disconnect — this stream has no `cancel()` either).
+            // Match the settled outcome; only hard abort can leave cleanup
+            // pending here. Passive disconnect does not abort this AP run.
+            // See handleApStreamRequest's catch.
+            if (!run.signal.aborted) await sourceCleanup
+            try {
+              await threadsStore.updateStatus(
+                threadId,
+                terminalStatus({ cancelled: cooperativelyStopped, sawInterrupt }),
+              )
+            } catch (persistenceError) {
+              // A drain is provisional until required runtime persistence settles.
+              // Preserve an earlier independent source error if both operations fail.
+              if (cooperativelyStopped) {
+                cooperativelyStopped = false
+                terminalChunk = {
+                  type: "done",
+                  output: {
+                    error:
+                      persistenceError instanceof Error
+                        ? persistenceError.message
+                        : String(persistenceError),
+                  },
+                }
+              }
+            }
             const turnEnd =
               route.mode === "agent"
                 ? turnEndFor({
                     sawInterrupt,
-                    cancelled: run.cancelled,
-                    error: run.cancelled ? undefined : readTerminalError(terminalChunk),
+                    cancelled: cooperativelyStopped,
+                    error: cooperativelyStopped ? undefined : readTerminalError(terminalChunk),
                   })
                 : undefined
-            if (turnEnd && !run.cancelled && !(requestRunAdmission(request) && sourceCleanup))
+            if (turnEnd && !run.signal.aborted)
               await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
             else deferredTurnEnd = turnEnd
-            await threadsStore
-              .updateStatus(threadId, terminalStatus({ cancelled: run.cancelled, sawInterrupt }))
-              .catch(() => undefined)
+
+            if (!run.signal.aborted) {
+              await sourceCleanup
+              await releaseRequestRun(request)
+            }
+            safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
           }
         } finally {
           stopHeartbeat()
           // Unconditional, same as handleApStreamRequest: attachers must see
           // the terminal frame exactly when the primary client does.
           liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
-          // The client's stream ends here regardless — response lifetime and run
-          // lifetime are deliberately different; see handleApStreamRequest.
+          // Hard abort may end the response before cleanup; soft Stop waits
+          // for execution and required writes. See handleApStreamRequest.
           const releaseExecutionClaims = () => {
             run.release()
             releaseResumeClaim()

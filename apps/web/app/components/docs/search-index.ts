@@ -14,7 +14,8 @@ import remarkGfm from "remark-gfm"
 import { webContentRoot } from "../../../lib/content-root"
 import { ARTIFACT_REGISTRY, PACKAGE_CATALOG } from "./api-reference"
 import { API_REFERENCE_PAGES } from "./api-reference-pages"
-import { ALL_DOCS_PAGES, DOCS_NAV, type DocsNavItem } from "./nav"
+import { type DocsArea, docsArea } from "./doc-sections"
+import { ALL_DOCS_PAGES, APP_DOCS_NAV, DOCS_NAV, type DocsNavItem } from "./nav"
 
 export interface DocsSearchHeading {
   readonly text: string
@@ -35,6 +36,7 @@ export interface DocsSearchSection {
 }
 
 export interface DocsSearchEntry {
+  readonly area: DocsArea
   readonly href: string
   readonly title: string
   readonly section: string
@@ -473,7 +475,10 @@ function buildEntry(
   const exportAliases = item.href.startsWith("/docs/api/")
     ? parsePublicExportAliases(mdx, item.href, expectedOwnershipTables)
     : { aliases: [], canonicalAliases: [], aliasSurfaces: {} }
+  const area = docsArea(item.href)
+  if (!area) throw new Error(`Unscoped documentation page: ${item.href}`)
   return {
+    area,
     href: item.href,
     title: h1?.text ?? item.label,
     section,
@@ -489,7 +494,9 @@ function buildIndex(): readonly DocsSearchEntry[] {
   const aliasesByHref = registryAliasesByHref()
   const ownershipTables = ownershipTablesByHref()
   const sectionByHref = new Map<string, string>(
-    DOCS_NAV.flatMap((section) => section.items.map((item) => [item.href, section.label])),
+    [...DOCS_NAV, ...APP_DOCS_NAV].flatMap((section) =>
+      section.items.map((item) => [item.href, section.label]),
+    ),
   )
   const apiReferenceSectionByHref = new Map<string, string>(
     API_REFERENCE_PAGES.map(({ href, parent }) => [href, parent.label]),

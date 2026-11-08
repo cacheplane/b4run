@@ -1,6 +1,5 @@
 "use client"
 
-import { Eyebrow } from "../ui/Eyebrow"
 import { useDocsHeadings } from "./use-docs-headings"
 
 export function DocsTOC() {
@@ -10,7 +9,7 @@ export function DocsTOC() {
 
   return (
     <nav aria-label="On this page" className="w-full hidden lg:block text-sm">
-      <Eyebrow className="mb-3">On this page</Eyebrow>
+      <p className="mb-3 font-semibold text-ink-muted">On this page</p>
       <ul className="space-y-2 border-l border-rule">
         {headings.map((h) => (
           <li key={h.id}>

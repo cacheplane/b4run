@@ -694,7 +694,7 @@ response.write(encodeAgUiEvent(event, request.headers.accept))
 | `usage` (one per model call, root or subagent) | none on its own; aggregated into `usage` on the terminal event |
 | `interrupt` | terminal `RUN_FINISHED` with `outcome.type: "interrupt"`; each interrupt's approval grant is at `metadata.grant` |
 | `done` | terminal `RUN_FINISHED` with `outcome.type: "success"`; when this run left client-provided tool calls parked, `outcome.pendingToolCallIds` names them; a null route result is omitted, never `null` |
-| `POST /threads/:id/cancel` or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
+| an observed cooperative Stop, or a server shutdown during the run | terminal `RUN_FINISHED` with `outcome.type: "cancelled"` |
 | upstream error | terminal `RUN_ERROR` |
 
 ### Tool calls and their message
@@ -934,17 +934,30 @@ B4.run execution middleware gates AG-UI route execution the same way it gates Ag
 
 <Callout type="warn" title="No reconnect or replay support">
   Each POST gets one SSE response. B4.run doesn't buffer emitted AG-UI events
-  or support last-event-id replay. If the connection drops, B4.run aborts that
-  AG-UI run, and the client cannot reattach to its event stream. A later
-  request on the same thread starts a new run from the latest completed
-  checkpoint.
+  or support last-event-id replay. If the connection drops after admission,
+  B4.run requests cooperative Stop for that exact run. The client cannot reattach
+  to its event stream. A later request on the same thread waits for execution
+  and persistence to settle before it can start a fresh turn.
 </Callout>
 
-Aborting the run keeps any park it already reached. A permission prompt raised before the disconnect is durable, so the thread stays `interrupted` and the next request can resume it.
+Stopping the run keeps any park it already reached. A permission prompt raised before the disconnect is durable, so the thread stays `interrupted` and the next request can resume it.
 
-The two surfaces differ here. Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects abort the run. For Agent Protocol, closing a `runs/stream`, `runs/wait`, or `resume` connection only detaches the viewer, so stop the run explicitly with `POST /threads/:thread_id/cancel`. Server shutdown also aborts in-flight work.
+Agent Protocol viewer disconnects continue the run. AG-UI viewer disconnects request cooperative Stop
+after admission. A disconnect before admission prevents dispatch. Stop lets the
+active graph superstep finish without a hard abort. The observer may close while the run finishes its
+awaited tools, nested calls, cleanup and checkpoint writes. The thread and its
+request stores remain owned throughout, and another run receives `409` until
+settlement. Server shutdown and admission loss retain their separate hard-abort
+behavior.
 
-A client disconnect emits nothing further, since no one is left to receive it. A run stopped by `POST /threads/:thread_id/cancel` or by a server shutdown ends on the AG-UI stream with `RUN_FINISHED` and `outcome.type: "cancelled"`, not `RUN_ERROR`. Agent Protocol attach viewers of an AG-UI-started run see `{ cancelled: true }` for a cancel and an error for a shutdown or a disconnect.
+A Stop request is not itself a stopped outcome. Natural completion can win, and
+an independent error remains `RUN_ERROR`. An observed cooperative Stop ends with
+`RUN_FINISHED { outcome: { type: "cancelled" } }`; a shutdown retains its existing
+cancelled wire outcome. A disconnected observer receives no further events.
+Agent Protocol attach viewers see `{ cancelled: true }` for an observed Stop,
+and an error for hard shutdown. Both SSE and protobuf retain the same event
+formats. See [Agent Protocol Stop](/docs/dev-server/agent-protocol#one-run-at-a-time-per-thread)
+for checkpoint retirement, fresh-turn safety and the limits on detached work.
 
 ## Related
 

@@ -30,14 +30,31 @@ const result = await graphAdapter.execute(route.graph, { name: "B4.run" }, {
 - `@b4run/langgraph/define-entry` is an edge-safe, supported entry-validation subpath.
 - `@b4run/langgraph/route-module` is an edge-safe, supported normalization and route-type subpath.
 
-These three route surfaces contain no third-party runtime dependencies or Node globals. That boundary does not classify graphs, workflows, or tools supplied by an application.
+These route surfaces have no Node globals. Graph-object execution lazily loads
+the optional native LangGraph peer; importing the root and calling opaque
+functions does not load it. That boundary does not classify application graphs,
+workflows or tools.
+
+The adapters accept optional `stopSignal` separately from hard `signal`. Native
+graphs finish their active superstep and use synchronous checkpoint durability
+before stopping; this adds persistence latency and keeps checkpoint errors
+truthful. Awaited nested work, parallel calls and retries inside a node belong
+to that parent step. Opaque functions can complete naturally or explicitly
+observe `ctx.stopSignal.throwIfAborted()`. A Stop request does not guarantee a
+stopped outcome or quiescence of detached callbacks, remote effects or processes.
+
+Supported compiled state graphs retire pending actions without running them and
+check again before fresh input. State/history remain, live permission parks
+require explicit authorized resume, and an unsupported retirement fails closed.
+Standalone `null` still means native checkpoint continuation; runtime HTTP null
+is fresh input and conveys no approval.
 
 ## Plain LangGraph tool activity
 
 `@b4run/langgraph/ui` is a node-only, supported producer surface. It uses optional
 peers `@langchain/core` 1.2.12, `langchain` 1.5.12 and `@langchain/langgraph` 1.4.17;
-install them only for this subpath. It needs no B4 agent, CLI or filesystem routes.
-The root and route subpaths never import these peers.
+install the UI peers for this subpath. It needs no B4 agent, CLI or filesystem routes.
+The contract-only route subpaths never import these peers.
 
 ```bash
 pnpm add @b4run/langgraph @langchain/core@1.2.12 langchain@1.5.12 @langchain/langgraph@1.4.17

@@ -105,7 +105,7 @@ export function HeaderInner({ repoUrl }: HeaderInnerProps) {
           className={`hidden md:flex items-center gap-6 text-sm ${homepageStyles.nav}`}
         >
           <Link
-            href="/docs/getting-started"
+            href="/docs"
             data-cta-id="header_get_started"
             className={linkClass(docsActive)}
             {...(docsActive ? { "aria-current": "page" as const } : {})}

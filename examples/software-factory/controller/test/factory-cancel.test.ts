@@ -97,8 +97,13 @@ describe("cancel", () => {
     const { id } = await factory.create({ taskId: "cli-flags" })
     await factory.dispatch(id)
     await factory.waitFor(id, (r) => r.state === "running")
-    const outcome = await factory.cancel(id)
+    const acknowledgements: string[] = []
+    const outcome = await factory.cancel(id, undefined, (status) => {
+      expect(factory.show(id)?.state).toBe("cancelled")
+      acknowledgements.push(status)
+    })
     expect(outcome).toEqual({ ok: true, state: "cancelled", message: "Cancelled" })
+    expect(acknowledgements).toEqual(["confirmed"])
     expect(cancels()).toHaveLength(1)
     const events = factory
       .events(id)
@@ -241,10 +246,14 @@ describe("cancel", () => {
     const { id } = await factory.create({ taskId: "cli-flags" })
     const first = await factory.cancel(id, "cancel-1")
     expect(await factory.cancel(id, "cancel-1")).toEqual(first)
-    expect(await factory.cancel(id, "cancel-2")).toMatchObject({
+    const acknowledgements: string[] = []
+    expect(
+      await factory.cancel(id, "cancel-2", (status) => acknowledgements.push(status)),
+    ).toMatchObject({
       ok: false,
       message: expect.stringMatching(/terminal/),
     })
+    expect(acknowledgements).toEqual([])
   })
 
   it("refuses an approve that arrives after the work order was cancelled", async () => {
@@ -300,12 +309,24 @@ describe("cancel", () => {
     await factory.waitFor(id, (r) => r.state === "running")
     // The worker is gone before the cancel is even attempted: nothing may record `cancelled`.
     await fake.close()
-    const outcome = await factory.cancel(id, "cancel-1")
+    const acknowledgements: string[] = []
+    const acknowledge = (status: string) => {
+      expect(factory.show(id)?.state).toBe("cancel_requested")
+      acknowledgements.push(status)
+    }
+    const outcome = await factory.cancel(id, "cancel-1", acknowledge)
     expect(outcome).toMatchObject({
       ok: false,
       state: "cancel_requested",
       message: expect.stringMatching(/Cancel not confirmed/),
     })
+    expect(acknowledgements).toEqual(["requested"])
+    expect(await factory.cancel(id, "cancel-2", acknowledge)).toMatchObject({
+      ok: false,
+      state: "cancel_requested",
+      message: "Cancel already in progress",
+    })
+    expect(acknowledgements).toEqual(["requested", "requested"])
     expect(factory.show(id)?.state).toBe("cancel_requested")
     await factory.close()
 

@@ -190,10 +190,11 @@ export function assertExactRobots(text) {
       !isDeepStrictEqual(group.directives, [
         ["allow", "/"],
         ["disallow", "/api/"],
+        ["disallow", "/ingest/"],
       ])
     ) {
       throw new Error(
-        `robots group ${group.agent} must contain exactly Allow: / and Disallow: /api/`,
+        `robots group ${group.agent} must contain exactly Allow: / and Disallow: /api/, /ingest/`,
       )
     }
   }
@@ -278,9 +279,9 @@ export function lastmodSourceFailures(entries, records, posts) {
   })
 }
 
-function extractJourneyDocs() {
+function extractJourneyDocs(registry = "DOCS_NAV") {
   const source = readFileSync(join(appRoot, "app", "components", "docs", "nav.ts"), "utf8")
-  const start = source.indexOf("export const DOCS_NAV = [")
+  const start = source.indexOf(`export const ${registry} = [`)
   const end = source.indexOf("] as const", start)
   if (start < 0 || end < 0) throw new Error("Cannot locate DOCS_NAV source inventory")
   const records = []
@@ -309,11 +310,16 @@ function extractApiDocs() {
 
 function docsSourcePath(path) {
   const slug = path.replace(/^\/docs\//, "")
-  return join(appRoot, "content", "docs", slug === "recipes" ? "recipes/index.mdx" : `${slug}.mdx`)
+  return join(
+    appRoot,
+    "content",
+    "docs",
+    slug === "recipes" || slug === "app" ? `${slug}/index.mdx` : `${slug}.mdx`,
+  )
 }
 
 function sourceDocsInventory() {
-  const journey = extractJourneyDocs()
+  const journey = [...extractJourneyDocs(), ...extractJourneyDocs("APP_DOCS_NAV")]
   const api = extractApiDocs()
   const records = journey.flatMap((record) =>
     record.path === "/docs/api" ? [record, ...api] : [record],
@@ -389,7 +395,10 @@ function sourceInventory(asOf) {
   const blog = sourceBlogInventory(asOf)
   const paths = [
     "/",
+    "/docs",
     "/blog",
+    "/privacy",
+    "/updates",
     ...docs.map((record) => record.path),
     ...blog.visiblePosts.map((post) => `/blog/${post.slug}`),
     ...blog.tags.map((tag) => `/blog/tags/${tag}`),
@@ -420,7 +429,7 @@ function parseSitemap(xml) {
 }
 
 function typeForPath(path) {
-  if (path === "/") return "WebPage"
+  if (["/", "/docs", "/privacy", "/updates"].includes(path)) return "WebPage"
   if (path === "/blog" || path.startsWith("/blog/tags/")) return "CollectionPage"
   if (path.startsWith("/blog/")) return "BlogPosting"
   return "TechArticle"
@@ -497,7 +506,7 @@ function assertPage(path, parsed) {
     throw new Error(`${expectedType} JSON-LD description differs from the meta description`)
   }
   const webPages = parsed.jsonLdEntities.filter((entity) => entity["@type"] === "WebPage")
-  if (path !== "/" && webPages.length > 0)
+  if (expectedType !== "WebPage" && webPages.length > 0)
     throw new Error("homepage WebPage leaked onto a non-home route")
 
   const breadcrumbs = parsed.jsonLdEntities.filter((entity) => entity["@type"] === "BreadcrumbList")
@@ -660,8 +669,8 @@ export async function auditBuiltSeo({ asOf, baseUrl }) {
       readFileSync(join(appRoot, "app/seo/lastmod.generated.json"), "utf8"),
     ).routes
     failures.push(...lastmodSourceFailures(sitemapEntries, records, inventory.visiblePosts))
-    if (actualUrls.some((url) => new URL(url).pathname === "/docs")) {
-      failures.push("sitemap contains the /docs redirect")
+    if (!actualUrls.some((url) => new URL(url).pathname === "/docs")) {
+      failures.push("sitemap is missing the /docs entrance")
     }
     for (const hidden of inventory.hiddenPosts) {
       if (actualUrls.includes(`${productionOrigin}/blog/${hidden.slug}`)) {

@@ -13,6 +13,8 @@
   --color-rule: #d6d6cc; /* decorative rules only, never a control boundary */
   --color-rule-strong: #75796a; /* control boundaries: 4.1:1 on page */
 
+  --color-inspector-surface: #fdfcfb; /* light reading surface in the docs workbench */
+
   /* Ink */
   --color-ink: #111111; /* 17.2:1 on page */
   --color-ink-muted: #595b53; /* 6.3:1 on page; the only secondary text colour */
@@ -81,6 +83,11 @@
 }
 
 :root {
+  /* Approved LLA workbench shape; scoped to the turn inspector. */
+  --inspector-radius-frame: 16px;
+  --inspector-radius-panel: 12px;
+  --inspector-radius-control: 8px;
+  --inspector-radius-message: 10px;
   /* Chrome height — the header bar is a fixed 71px row + 1px border at every
      width (header.module.css .bar). Used by ReadingLayout sticky offsets and
      anchor scroll padding. */

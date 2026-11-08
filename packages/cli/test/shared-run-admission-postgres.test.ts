@@ -138,8 +138,9 @@ async function replicas(
     await writeFile(
       join(routeDir, "index.ts"),
       [
-        "export const graph = async () => {",
+        "export const graph = async (_input, ctx) => {",
         `  await globalThis[${JSON.stringify(executionKey)}].wait()`,
+        "  ctx.stopSignal?.throwIfAborted()",
         "  return { ok: true }",
         "}",
       ].join("\n"),
@@ -389,11 +390,15 @@ function blockingWaitRequest(threadId: string) {
 
 for (const stop of ["cancel", "shutdown"] as const) {
   test.skipIf(!enabled)(
-    `Postgres ownership outlives an AP wait response after ${stop} until the graph actually unwinds`,
+    `Postgres ownership survives ${stop} until the AP wait graph actually unwinds`,
     async () => {
       const r = await replicas(true)
       const threadId = `noncooperative-${stop}`
       const waiting = r.a.fetch(blockingWaitRequest(threadId))
+      let responseSettled = false
+      void waiting.then(() => {
+        responseSettled = true
+      })
       await r.execution.entered
       const ownerPool = [...r.pools][0]
       if (!ownerPool) throw new Error("expected the original run's request-owned pool")
@@ -406,9 +411,15 @@ for (const stop of ["cancel", "shutdown"] as const) {
       } else {
         await r.a.close()
       }
-      const stopped = await waiting
-      expect(stopped.status).toBe(stop === "cancel" ? 409 : 503)
-      await stopped.text()
+      if (stop === "cancel") {
+        // Soft Stop waits for this opaque invocation to observe its request.
+        expect(responseSettled).toBe(false)
+      } else {
+        // Hard shutdown can finish the response before the route unwinds.
+        const stopped = await waiting
+        expect(stopped.status).toBe(503)
+        await stopped.text()
+      }
       expect(r.disposed.has(ownerPool)).toBe(false)
       const conflict = await r.b.fetch(blockingWaitRequest(threadId))
       expect(conflict.status).toBe(409)
@@ -416,6 +427,13 @@ for (const stop of ["cancel", "shutdown"] as const) {
       expect(r.disposed.has(ownerPool)).toBe(false)
 
       r.execution.release()
+      if (stop === "cancel") {
+        const stopped = await waiting
+        expect(stopped.status).toBe(409)
+        expect(await stopped.json()).toMatchObject({
+          error: { details: { code: "run_cancelled" } },
+        })
+      }
       await vi.waitFor(() => expect(r.disposed.has(ownerPool)).toBe(true))
       const successor = await r.b.fetch(blockingWaitRequest(threadId))
       expect(successor.status).toBe(200)
@@ -505,7 +523,9 @@ test.skipIf(!enabled)(
     settling.release()
     await vi.waitFor(() => expect(atRelease).toBeDefined())
 
-    expect(atRelease).toMatchObject({ voided: true, turn: { status: "stopped" } })
+    // The graph completed before disconnect requested Stop. Its real outcome
+    // stays done, while durable voids and the stamp still precede lease release.
+    expect(atRelease).toMatchObject({ voided: true, turn: { status: "done" } })
     expect(warnings.mock.calls.map((args) => args.map(String).join(" "))).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/could not (void|prune|stamp)/)]),
     )

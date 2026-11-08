@@ -8,6 +8,9 @@ import { CodeGroup } from "./app/components/mdx/CodeGroup"
 import { HeadingAnchor } from "./app/components/mdx/HeadingAnchor"
 import { Step, Steps } from "./app/components/mdx/Steps"
 import { Tab, Tabs } from "./app/components/mdx/Tabs"
+import { DocsVideo } from "./app/components/turn-inspector/DocsVideo"
+import { InspectMoment } from "./app/components/turn-inspector/InspectMoment"
+import { InspectorLoader } from "./app/components/turn-inspector/InspectorLoader"
 import { getPrompt, type PromptSlug } from "./content/prompts"
 
 /** Plain text of a heading's children, for the self-link's accessible name. */
@@ -21,6 +24,9 @@ function textOf(node: ReactNode): string {
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
     Callout,
+    DocsVideo,
+    TurnInspector: InspectorLoader,
+    InspectMoment,
     CodeGroup,
     Steps,
     Step,

@@ -91,7 +91,9 @@ describe("docs Open Graph images", () => {
     const eyebrow = (path: keyof typeof DOCS_SEO_PAGES) =>
       image.docsImageEyebrow(DOCS_SEO_PAGES[path])
 
-    expect(eyebrow("/docs/getting-started")).toBe("Docs · Get Started")
+    expect(eyebrow("/docs/getting-started")).toBe("Docs · Framework")
+    expect(eyebrow("/docs/app")).toBe("Docs · App")
+    expect(eyebrow("/docs/app/install")).toBe("Docs · Get started")
     expect(eyebrow("/docs/memory/long-term")).toBe("Docs · Memory")
     expect(eyebrow("/docs/api")).toBe("Docs · Reference")
     expect(eyebrow("/docs/api/postgres-storage")).toBe("Docs · API Reference")

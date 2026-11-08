@@ -1,6 +1,7 @@
 "use client"
 
 import { DocsNavGroups } from "./DocsNavGroups"
+import { DocsSectionSwitcher } from "./DocsSectionSwitcher"
 
 interface Props {
   readonly pathname: string
@@ -8,5 +9,10 @@ interface Props {
 }
 
 export function MobileDocsNav({ pathname, onNavigate }: Props) {
-  return <DocsNavGroups pathname={pathname} variant="menu" onNavigate={onNavigate} />
+  return (
+    <>
+      <DocsSectionSwitcher pathname={pathname} onNavigate={onNavigate} />
+      <DocsNavGroups pathname={pathname} variant="menu" onNavigate={onNavigate} />
+    </>
+  )
 }

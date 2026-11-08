@@ -844,17 +844,19 @@ it.each([
   expect(Object.keys(result.captured[0] as object)).not.toContain(TASK_UUID_2)
 })
 
-it("aborts route execution on client disconnect and restores the thread to idle", async () => {
+it("requests soft Stop on client disconnect and records its observed outcome", async () => {
   let observedSignal: AbortSignal | undefined
+  let observedStop: AbortSignal | undefined
   let resolveRouteAborted: (() => void) | undefined
   const routeAborted = new Promise<void>((resolve) => {
     resolveRouteAborted = resolve
   })
   const streamRoute: typeof streamResolvedRoute = async function* (options) {
     observedSignal = options.signal
+    observedStop = options.stopSignal
     yield { type: "chunk", data: "started" }
     await new Promise<void>((resolve) => {
-      options.signal?.addEventListener(
+      options.stopSignal?.addEventListener(
         "abort",
         () => {
           resolveRouteAborted?.()
@@ -863,6 +865,7 @@ it("aborts route execution on client disconnect and restores the thread to idle"
         { once: true },
       )
     })
+    options.stopSignal?.throwIfAborted()
   }
   const { port } = await setupControlledServer({ streamRoute })
   const controller = new AbortController()
@@ -893,14 +896,15 @@ it("aborts route execution on client disconnect and restores the thread to idle"
 
   controller.abort()
   await routeAborted
-  expect(observedSignal?.aborted).toBe(true)
+  expect(observedSignal?.aborted).toBe(false)
+  expect(observedStop?.aborted).toBe(true)
 
   await expect
     .poll(async () => {
       const thread = await fetch(`http://127.0.0.1:${port}/threads/disconnect-thread`)
       return thread.ok ? ((await thread.json()) as { status: string }).status : "missing"
     })
-    .toBe("idle")
+    .toBe("interrupted")
 })
 
 it("holds a resume claim until a disconnected route source unwinds", async () => {
@@ -923,7 +927,7 @@ it("holds a resume claim until a disconnected route source unwinds", async () =>
   const streamRoute: typeof streamResolvedRoute = async function* (options) {
     calls += 1
     if (calls === 1) {
-      options.signal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
+      options.stopSignal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
       yield { type: "chunk", data: "started" }
       markBlocked?.()
       await released
@@ -1014,7 +1018,7 @@ it("stamps a turn whose client disconnected as stopped, once the route source un
     { source: "loop", step: 0, parents: {} } as never,
   )
   const streamRoute: typeof streamResolvedRoute = async function* (options) {
-    options.signal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
+    options.stopSignal?.addEventListener("abort", () => markRouteAborted?.(), { once: true })
     await saver.put(
       prior,
       checkpoint("c2") as never,
@@ -1023,6 +1027,7 @@ it("stamps a turn whose client disconnected as stopped, once the route source un
     yield { type: "chunk", data: "started", messageId: "m1" }
     markBlocked?.()
     await released
+    options.stopSignal?.throwIfAborted()
     yield { type: "done", output: { ok: true } }
   }
   const readTurnEnd = async () => {
@@ -1212,7 +1217,7 @@ it("keeps a parked thread interrupted when the client disconnects after the park
     // disconnect below is guaranteed to land AFTER the park was observed.
     markParked?.()
     await new Promise<void>((resolve) => {
-      options.signal?.addEventListener("abort", () => resolve(), { once: true })
+      options.stopSignal?.addEventListener("abort", () => resolve(), { once: true })
     })
   }
   const { port } = await setupControlledServer({ streamRoute })
@@ -1273,11 +1278,13 @@ it.each(["failure", "cancellation", "shutdown"])(
     const attachment = liveTurnHub.attach("attach-terminal")
     try {
       if (!attachment) throw new Error("Expected live turn attachment")
-      if (mode === "cancellation") expect(runRegistry.cancel("attach-terminal")).toBe(true)
-      else if (mode === "shutdown") shutdownController.abort()
+      if (mode === "cancellation") {
+        expect(runRegistry.cancel("attach-terminal")).toBe(true)
+        release()
+      } else if (mode === "shutdown") shutdownController.abort()
       else release()
       const { events } = await running
-      if (mode === "cancellation" || mode === "shutdown") {
+      if (mode === "shutdown") {
         // AG-UI 1.0: a cancel ends the run as cancelled, not as a failure.
         expect(events.map((event) => event.type)).not.toContain("RUN_ERROR")
         expect(events.at(-1)).toMatchObject({
@@ -1290,11 +1297,9 @@ it.each(["failure", "cancellation", "shutdown"])(
       expect(await attachment.next()).toEqual({
         type: "done",
         output:
-          mode === "cancellation"
-            ? { cancelled: true }
-            : mode === "shutdown"
-              ? { error: "Server shutting down" }
-              : { error: "route failed during live attach" },
+          mode === "shutdown"
+            ? { error: "Server shutting down" }
+            : { error: "route failed during live attach" },
       })
       expect(await attachment.next()).toBeNull()
     } finally {

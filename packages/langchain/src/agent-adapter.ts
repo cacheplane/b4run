@@ -14,6 +14,7 @@ import type {
 import {
   APPROVAL_GRANT_MINTER_KEY,
   CLIENT_TOOL_RECORDER_KEY,
+  CooperativeStopError,
   isB4Agent,
   isContentPart,
   readToolStep,
@@ -24,7 +25,7 @@ import {
   type MessageContent,
   SystemMessage,
 } from "@langchain/core/messages"
-import { Command } from "@langchain/langgraph"
+import { Command, isGraphDrained } from "@langchain/langgraph"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { resolveBuiltInTools } from "./built-in-tools-config.js"
 import { type CanonicalJsonStream, createCanonicalJsonStream } from "./canonical-json-stream.js"
@@ -52,6 +53,11 @@ import {
   trackModelPrimitives,
   trackToolPrimitive,
 } from "./execution-work.js"
+import {
+  cooperativeControl,
+  registerCooperativeGraph,
+  retirePendingActions,
+} from "./cooperative-stop.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
@@ -444,6 +450,7 @@ async function materializeAgent(
       ? { checkpointer, drainWrites: () => trackCheckpointWrites(checkpointer).settled() }
       : {}),
   })
+  registerCooperativeGraph(compiled)
   materializedModality.set(compiled as unknown as AgentLike, modality)
 
   if (cacheKey) {
@@ -1520,6 +1527,7 @@ export interface AgentOptions {
   readonly retry?: RetryConfig
   readonly routeParamNames: readonly string[]
   readonly signal: AbortSignal
+  readonly stopSignal?: AbortSignal
   readonly stateFields?: readonly ResolvedStateField[]
   readonly tools: readonly B4ToolDefinition[]
   readonly promptFragments?: readonly PromptFragment[]
@@ -1631,98 +1639,116 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
     )
   }
 
-  // If the caller is passing a Command directly (resume path), forward it
-  // verbatim without the usual input preparation and message extraction.
-  const isCommandInput = options.input instanceof Command
-  const { agentInput, config } = prepareAgentCall(options)
+  options.signal.throwIfAborted()
+  const run = options.stopSignal ? cooperativeControl(options.stopSignal) : undefined
+  try {
+    // If the caller is passing a Command directly (resume path), forward it
+    // verbatim without the usual input preparation and message extraction.
+    const isCommandInput = options.input instanceof Command
+    const { agentInput, config } = prepareAgentCall(options)
+    if (run) config.control = run.control
+    if (options.stopSignal) config.durability = "sync"
+    if (options.stopSignal) config.stopSignal = options.stopSignal
 
-  const resolver = options.subagentResolver
-  const hasTaskTool = options.tools.some((t) => t.name === "task")
+    const resolver = options.subagentResolver
+    const hasTaskTool = options.tools.some((t) => t.name === "task")
 
-  // B4Agent descriptor path — materialize on first use
-  if (isB4Agent(options.entry)) {
-    // Resolver and sandbox-backed tools close over route-preparation state, so
-    // they must not be reused from another materialized route invocation.
-    const materializedAgent = await materializeAgent(
-      options.entry,
-      options.tools,
-      options.checkpointer,
-      {
-        ...(options.activeInput ? { activeInput: options.activeInput } : {}),
-        ...(options.stateFields ? { stateFields: options.stateFields } : {}),
-        ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
-        ...(options.principal ? { principal: options.principal } : {}),
-        ...(options.promptFragments ? { promptFragments: options.promptFragments } : {}),
-        ...((resolver && hasTaskTool) || options.bypassCache || options.sandboxed
-          ? { bypassCache: true }
-          : {}),
-        ...(options.offload ? { offload: options.offload } : {}),
-        ...(options.summarization ? { summarization: options.summarization } : {}),
-        routeParamNames: options.routeParamNames,
-        ...(options.streamTransformers ? { streamTransformers: options.streamTransformers } : {}),
-        ...(resolver ? { subagentResolver: resolver } : {}),
-        ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
-      },
+    // B4Agent descriptor path — materialize on first use
+    if (isB4Agent(options.entry)) {
+      // Resolver and sandbox-backed tools close over route-preparation state, so
+      // they must not be reused from another materialized route invocation.
+      const materializedAgent = await materializeAgent(
+        options.entry,
+        options.tools,
+        options.checkpointer,
+        {
+          ...(options.activeInput ? { activeInput: options.activeInput } : {}),
+          ...(options.stateFields ? { stateFields: options.stateFields } : {}),
+          ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
+          ...(options.principal ? { principal: options.principal } : {}),
+          ...(options.promptFragments ? { promptFragments: options.promptFragments } : {}),
+          ...((resolver && hasTaskTool) || options.bypassCache || options.sandboxed
+            ? { bypassCache: true }
+            : {}),
+          ...(options.offload ? { offload: options.offload } : {}),
+          ...(options.summarization ? { summarization: options.summarization } : {}),
+          routeParamNames: options.routeParamNames,
+          ...(options.streamTransformers ? { streamTransformers: options.streamTransformers } : {}),
+          ...(resolver ? { subagentResolver: resolver } : {}),
+          ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
+        },
+      )
+      const modality = materializedModality.get(materializedAgent) ?? RAW_RUNNABLE_MODALITY
+      const extracted = isCommandInput
+        ? NO_EXTRACTED_MESSAGES
+        : extractMessages(agentInput, modality)
+      // Announced before the model turn: the run continues without the dropped parts.
+      if (extracted.dropped.length > 0) yield droppedPartsChunk(modality, extracted.dropped)
+      // `retry` is applied per model call inside the graph (the model's
+      // `maxRetries` and B4's capacity-429 middleware), never to the whole run.
+      const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
+      const checkpointWrites = trackCheckpointWrites(options.checkpointer)
+      await retirePendingActions(materializedAgent, config, options.input)
+      yield* streamFromRunnable(
+        materializedAgent,
+        runnableInput,
+        config,
+        undefined,
+        () => checkpointWrites.settled(options.threadId),
+        options.checkpointer,
+      )
+      return
+    }
+
+    // Legacy path — raw Runnable with .invoke()
+    assertAgentLike(options.entry)
+    if (options.responseFormat) {
+      throw new Error(
+        "A response format can only be bound on an agent() descriptor route: a raw LangChain runnable owns its own model.",
+      )
+    }
+
+    const langchainTools = options.tools.map((tool) =>
+      tool.name === "task" && resolver
+        ? convertSubagentTaskToLangChain(tool, resolver)
+        : convertToolToLangChain(
+            tool,
+            options.middlewareContext,
+            options.offload,
+            options.routeParamNames,
+            options.streamTransformers ?? [],
+            RAW_RUNNABLE_MODALITY,
+            options.principal,
+          ),
     )
-    const modality = materializedModality.get(materializedAgent) ?? RAW_RUNNABLE_MODALITY
-    const extracted = isCommandInput ? NO_EXTRACTED_MESSAGES : extractMessages(agentInput, modality)
-    // Announced before the model turn: the run continues without the dropped parts.
-    if (extracted.dropped.length > 0) yield droppedPartsChunk(modality, extracted.dropped)
-    // `retry` is applied per model call inside the graph (the model's
-    // `maxRetries` and B4's capacity-429 middleware), never to the whole run.
+    if (langchainTools.length > 0) {
+      config.tools = langchainTools
+    }
+
+    const extracted = isCommandInput
+      ? NO_EXTRACTED_MESSAGES
+      : extractMessages(agentInput, RAW_RUNNABLE_MODALITY)
+    if (extracted.dropped.length > 0) {
+      yield droppedPartsChunk(RAW_RUNNABLE_MODALITY, extracted.dropped)
+    }
     const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
-    const checkpointWrites = trackCheckpointWrites(options.checkpointer)
+    await retirePendingActions(options.entry, config, options.input)
     yield* streamFromRunnable(
-      materializedAgent,
+      options.entry,
       runnableInput,
       config,
-      undefined,
-      () => checkpointWrites.settled(),
+      options.retry,
+      () => trackCheckpointWrites(options.checkpointer).settled(options.threadId),
       options.checkpointer,
     )
-    return
+  } catch (error) {
+    // Checkpoint persistence failures outrank a native GraphDrained bubble.
+    await trackCheckpointWrites(options.checkpointer).settled(options.threadId)
+    if (run?.stopped(error)) throw new CooperativeStopError()
+    throw error
+  } finally {
+    run?.release()
   }
-
-  // Legacy path — raw Runnable with .invoke()
-  assertAgentLike(options.entry)
-  if (options.responseFormat) {
-    throw new Error(
-      "A response format can only be bound on an agent() descriptor route: a raw LangChain runnable owns its own model.",
-    )
-  }
-
-  const langchainTools = options.tools.map((tool) =>
-    tool.name === "task" && resolver
-      ? convertSubagentTaskToLangChain(tool, resolver)
-      : convertToolToLangChain(
-          tool,
-          options.middlewareContext,
-          options.offload,
-          options.routeParamNames,
-          options.streamTransformers ?? [],
-          RAW_RUNNABLE_MODALITY,
-          options.principal,
-        ),
-  )
-  if (langchainTools.length > 0) {
-    config.tools = langchainTools
-  }
-
-  const extracted = isCommandInput
-    ? NO_EXTRACTED_MESSAGES
-    : extractMessages(agentInput, RAW_RUNNABLE_MODALITY)
-  if (extracted.dropped.length > 0) {
-    yield droppedPartsChunk(RAW_RUNNABLE_MODALITY, extracted.dropped)
-  }
-  const runnableInput = isCommandInput ? options.input : { messages: extracted.messages }
-  yield* streamFromRunnable(
-    options.entry,
-    runnableInput,
-    config,
-    options.retry,
-    undefined,
-    options.checkpointer,
-  )
 }
 
 function prepareAgentCall(options: AgentOptions): {
@@ -1919,6 +1945,7 @@ async function* streamFromRunnable(
       if (!(invocationConfig.signal as AbortSignal | undefined)?.aborted) {
         await drainWrites?.()
       }
+      if (isGraphDrained(error) && config.control) await retirePendingActions(runnable, config)
       throw error instanceof Error ? error : new Error(String(error))
     }
   }

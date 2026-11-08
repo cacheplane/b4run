@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createThreadsStore } from "@b4run/sqlite-storage"
@@ -14,44 +15,51 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 // Fixture: a route that blocks until released, so a run can be held in
 // flight while a second request arrives to probe the concurrency gate. It
-// deliberately ignores its `ctx.signal` — a later task (per-run cancellation)
-// relies on that — and self-releases after 15s so a bug here can never hang
-// the suite forever.
+// uses a real native graph and a release barrier. Stop must finish the active
+// node without aborting it; cleanup releases every barrier on a failed test.
 // ---------------------------------------------------------------------------
 
-const BLOCKING_ROUTE = [
-  'import { readFile, writeFile } from "node:fs/promises"',
-  "export const graph = async (",
-  "  input: { startedFile?: string; releaseFile?: string } | undefined,",
-  "  _ctx: { signal: AbortSignal },",
-  ") => {",
-  "  if (input?.startedFile) await writeFile(input.startedFile, 'started')",
-  "  const deadline = Date.now() + 15000",
-  "  while (Date.now() < deadline) {",
-  "    if (!input?.releaseFile) break",
-  "    try { await readFile(input.releaseFile, 'utf8'); break } catch {}",
-  "    await new Promise((r) => setTimeout(r, 25))",
-  "  }",
-  "  return { ok: true }",
-  "}",
-  "",
-].join("\n")
+function blockingGraphSource(startedFile?: string, releaseFile?: string): string {
+  return `
+import {readFile, writeFile} from "node:fs/promises"
+import {Annotation, StateGraph, START, END} from ${JSON.stringify(
+    createRequire(import.meta.url)
+      .resolve("@langchain/langgraph")
+      .replace(/\.cjs$/, ".js"),
+  )}
+const input = Annotation.Root({startedFile:Annotation(),releaseFile:Annotation()})
+const output = Annotation.Root({ok:Annotation()})
+const state = Annotation.Root({...input.spec,...output.spec})
+export const graph = new StateGraph({stateSchema:state,input,output})
+.addNode("active",async (value) => {
+ const started = value.startedFile ?? ${JSON.stringify(startedFile) ?? "undefined"}
+ const release = value.releaseFile ?? ${JSON.stringify(releaseFile) ?? "undefined"}
+ if (started) await writeFile(started,"started")
+ while (release) {
+  try {await readFile(release,"utf8");break} catch {}
+  await new Promise(resolve => setTimeout(resolve,10))
+ }
+ return {ok:true}
+})
+.addNode("next",() => ({ok:true}))
+.addEdge(START,"active").addEdge("active","next").addEdge("next",END).compile()
+`
+}
+const BLOCKING_ROUTE = blockingGraphSource()
+// Keep an opaque hard-abort-ignoring call for the shutdown ownership test.
+const OPAQUE_ROUTE = `
+import {readFile,writeFile} from "node:fs/promises"
+export const graph = async (input) => {
+ await writeFile(input.startedFile,"started")
+ for (;;) {try {await readFile(input.releaseFile,"utf8");break} catch {} await new Promise(resolve=>setTimeout(resolve,10))}
+ return {ok:true}
+}
+`
 
 // A trivial second route, used only to prove that a route recorded in thread
 // metadata by a REJECTED request (one that lost the concurrency gate) is not
 // the one actually running.
 const OTHER_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join("\n")
-
-// A route that sleeps long enough for a cancel to land, then returns. Used
-// by the AG-UI cancelled-outcome test; AG-UI runs cannot pass the blocking
-// route its release file.
-const SLEEPY_ROUTE = [
-  "export const graph = async () => {",
-  "  await new Promise((r) => setTimeout(r, 5000))",
-  "  return { ok: true }",
-  "}",
-  "",
-].join("\n")
 
 // A route that fails immediately, used to prove the run slot is released on
 // the failure path too — not just on normal completion and cancellation.
@@ -123,7 +131,11 @@ async function setupBlockingRoute(options: { readonly apSseHeartbeatIntervalMs?:
     "src/app/blocking/index.ts": BLOCKING_ROUTE,
     "src/app/boom/index.ts": BOOM_ROUTE,
     "src/app/other/index.ts": OTHER_ROUTE,
-    "src/app/sleepy/index.ts": SLEEPY_ROUTE,
+    "src/app/opaque/index.ts": OPAQUE_ROUTE,
+    "src/app/sleepy/index.ts": blockingGraphSource(
+      join(appRoot, "started.json"),
+      join(appRoot, "release.json"),
+    ),
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -149,6 +161,8 @@ async function setupBlockingRoute(options: { readonly apSseHeartbeatIntervalMs?:
   const startedFile = join(appRoot, "started.json")
   const releaseFile = join(appRoot, "release.json")
 
+  cleanup.push(() => writeFile(releaseFile, "release"))
+
   return {
     appRoot,
     handler,
@@ -172,6 +186,7 @@ async function setupFaultyThreadsStore() {
     "b4.config.ts": FAULTY_THREADS_STORE_CONFIG,
     "package.json": '{ "name": "run-cancellation-faulty-fixture", "type": "module" }\n',
     "src/app/other/index.ts": OTHER_ROUTE,
+    "src/app/opaque/index.ts": OPAQUE_ROUTE,
   }
   for (const [rel, body] of Object.entries(files)) {
     const filePath = join(appRoot, rel)
@@ -260,24 +275,6 @@ async function readSseReaderText(reader: ReadableStreamDefaultReader<Uint8Array>
   }
 }
 
-async function waitForBusy(
-  handler: Awaited<ReturnType<typeof createRuntimeFetchHandler>>,
-  threadId: string,
-): Promise<void> {
-  const deadline = Date.now() + 5000
-  while (Date.now() < deadline) {
-    const response = await handler.fetch(new Request(`http://localhost/threads/${threadId}`))
-    if (response.status === 200) {
-      const body = (await response.json()) as { status?: string }
-      if (body.status === "busy") return
-    } else {
-      await response.text()
-    }
-    await new Promise((r) => setTimeout(r, 25))
-  }
-  throw new Error(`thread ${threadId} never became busy`)
-}
-
 function sseFrames(text: string): Array<Record<string, unknown>> {
   return text
     .split("\n\n")
@@ -340,24 +337,7 @@ const RESUME_CHECKPOINTER_CONFIG = [
 ].join("\n")
 
 function resumeBlockingRoute(startedFile: string, releaseFile: string): string {
-  return [
-    'import { readFile, writeFile } from "node:fs/promises"',
-    `const STARTED_FILE = ${JSON.stringify(startedFile)}`,
-    `const RELEASE_FILE = ${JSON.stringify(releaseFile)}`,
-    "export const graph = async (",
-    "  _input: unknown,",
-    "  _ctx: { signal: AbortSignal },",
-    ") => {",
-    "  await writeFile(STARTED_FILE, 'started')",
-    "  const deadline = Date.now() + 15000",
-    "  while (Date.now() < deadline) {",
-    "    try { await readFile(RELEASE_FILE, 'utf8'); break } catch {}",
-    "    await new Promise((r) => setTimeout(r, 25))",
-    "  }",
-    "  return { ok: true }",
-    "}",
-    "",
-  ].join("\n")
+  return blockingGraphSource(startedFile, releaseFile)
 }
 
 async function setupResumeInterrupt(options: { readonly apSseHeartbeatIntervalMs?: number } = {}) {
@@ -390,6 +370,8 @@ async function setupResumeInterrupt(options: { readonly apSseHeartbeatIntervalMs
       : {}),
   })
   cleanup.push(() => handler.close())
+
+  cleanup.push(() => writeFile(releaseFile, "release"))
 
   return {
     appRoot,
@@ -510,6 +492,7 @@ describe("AP SSE keepalives", () => {
       await waitForFile(startedFile)
 
       expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
+      await releaseRoute()
       expect(await readSseText(response)).toBe(
         'event: done\ndata: {"output":{"cancelled":true}}\n\n',
       )
@@ -533,6 +516,7 @@ describe("AP SSE keepalives", () => {
       await waitForFile(startedFile)
 
       expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
+      await releaseRoute()
       expect(await readSseText(response)).toBe(
         'event: done\ndata: {"output":{"cancelled":true}}\n\n',
       )
@@ -711,15 +695,16 @@ describe("AP concurrency gate", () => {
 
 describe("POST /threads/:id/cancel", () => {
   it("ends an AG-UI run with RUN_FINISHED cancelled, not RUN_ERROR", async () => {
-    const { handler } = await setupBlockingRoute()
+    const { handler, startedFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-agui-cancelled-outcome"
 
     const runPromise = handler.fetch(agUiRunRequest(threadId, "/sleepy#graph"))
-    await waitForBusy(handler, threadId)
+    await waitForFile(startedFile)
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
     await cancelResponse.json()
 
+    await releaseRoute()
     const run = await runPromise
     expect(run.status).toBe(200)
     const frames = sseFrames(await run.text())
@@ -764,7 +749,7 @@ describe("POST /threads/:id/cancel", () => {
   }, 30_000)
 
   it("cancels an in-flight run and reports interrupted", async () => {
-    const { handler, startedFile, releaseFile } = await setupBlockingRoute()
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-cancel-reports-interrupted"
 
     const runResponse = await handler.fetch(runStreamRequest(threadId, startedFile, releaseFile))
@@ -776,6 +761,7 @@ describe("POST /threads/:id/cancel", () => {
     const body = await cancelResponse.json()
     expect(body).toEqual({ status: "interrupted", thread_id: threadId })
 
+    await releaseRoute()
     await drain(runResponse)
   }, 10_000)
 
@@ -789,6 +775,7 @@ describe("POST /threads/:id/cancel", () => {
 
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
+    await releaseRoute()
     await drain(runResponse)
 
     // The blocking route ignores ctx.signal and keeps running past
@@ -825,13 +812,6 @@ describe("AP run slot held until a cancelled route genuinely stops", () => {
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
 
-    // The client's stream must still end promptly with the cancelled chunk,
-    // even though the route itself (which ignores ctx.signal) is still
-    // running — response lifetime and run lifetime are deliberately
-    // different.
-    const text = await readSseText(runResponse)
-    expect(text).toBe('event: done\ndata: {"output":{"cancelled":true}}\n\n')
-
     // The blocking route is still executing at this point (never told to
     // release) — a new run on the same thread must still be rejected, or a
     // second run would start interleaving checkpoint writes with the first.
@@ -847,6 +827,9 @@ describe("AP run slot held until a cancelled route genuinely stops", () => {
     // Once the route actually finishes, the slot frees and a new run is
     // admitted — proving the hold is temporary, not a leak.
     await releaseRoute()
+    expect(await readSseText(runResponse)).toBe(
+      'event: done\ndata: {"output":{"cancelled":true}}\n\n',
+    )
     let admitted: Response | undefined
     const deadline = Date.now() + 5_000
     while (Date.now() < deadline) {
@@ -864,9 +847,9 @@ describe("AP run slot held until a cancelled route genuinely stops", () => {
   }, 15_000)
 })
 
-describe("AP per-run abort", () => {
-  it("stops a route that ignores ctx.signal", async () => {
-    const { handler, startedFile, releaseFile } = await setupBlockingRoute()
+describe("AP cooperative Stop", () => {
+  it("drains a native route while its hard ctx.signal stays live", async () => {
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-abort-ignores-signal"
 
     const runResponse = await handler.fetch(runStreamRequest(threadId, startedFile, releaseFile))
@@ -876,19 +859,17 @@ describe("AP per-run abort", () => {
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
 
-    // Reads to completion — if the wrapper didn't stop the stream, this would
-    // hang until the fixture's 15s self-release (well past this test's 10s
-    // timeout, so a regression fails fast rather than passing slowly).
+    // Stop settles only after the test releases the active graph node.
+    await releaseRoute()
     const text = await readSseText(runResponse)
     expect(text).toBe('event: done\ndata: {"output":{"cancelled":true}}\n\n')
 
-    // The route itself is still blocked (never told to release) — proves the
-    // wrapper, not route cooperation, is what stopped the stream.
-    await expect(readFile(releaseFile, "utf8")).rejects.toThrow()
+    // The barrier was released explicitly; no abort abandoned the active node.
+    expect(await readFile(releaseFile, "utf8")).toBe("release")
   }, 10_000)
 
   it("marks the thread interrupted after cancellation", async () => {
-    const { handler, startedFile, releaseFile } = await setupBlockingRoute()
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-abort-marks-interrupted"
 
     const runResponse = await handler.fetch(runStreamRequest(threadId, startedFile, releaseFile))
@@ -897,6 +878,7 @@ describe("AP per-run abort", () => {
 
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
+    await releaseRoute()
     await drain(runResponse)
 
     const threadResponse = await handler.fetch(new Request(`http://localhost/threads/${threadId}`))
@@ -967,7 +949,7 @@ describe("run slot release on setup failure", () => {
 
 describe("/runs/wait cancellation", () => {
   it("returns 409 run_cancelled when the in-flight run is cancelled", async () => {
-    const { handler, startedFile, releaseFile } = await setupBlockingRoute()
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-wait-cancelled"
 
     const waitPromise = handler.fetch(runWaitRequest(threadId, startedFile, releaseFile))
@@ -976,6 +958,7 @@ describe("/runs/wait cancellation", () => {
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
 
+    await releaseRoute()
     const waitResponse = await waitPromise
     expect(waitResponse.status).toBe(409)
     const body = (await waitResponse.json()) as {
@@ -986,7 +969,7 @@ describe("/runs/wait cancellation", () => {
   }, 10_000)
 
   it("marks the thread interrupted after a cancelled wait", async () => {
-    const { handler, startedFile, releaseFile } = await setupBlockingRoute()
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-wait-cancelled-interrupted"
 
     const waitPromise = handler.fetch(runWaitRequest(threadId, startedFile, releaseFile))
@@ -994,6 +977,7 @@ describe("/runs/wait cancellation", () => {
 
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
+    await releaseRoute()
     await waitPromise
 
     const threadResponse = await handler.fetch(new Request(`http://localhost/threads/${threadId}`))
@@ -1003,14 +987,8 @@ describe("/runs/wait cancellation", () => {
   }, 10_000)
 
   it("holds the run slot until an abandoned wait genuinely settles, then frees it", async () => {
-    // The blocking fixture deliberately ignores ctx.signal, so cancelling
-    // /runs/wait only detaches it (raceRequestAgainstShutdown never stops the
-    // route — there is no abortable iterator here like /runs/stream has).
-    // The slot must stay held while that abandoned route is still running,
-    // or a newly admitted run on the same thread would interleave checkpoint
-    // writes with it. This replaces the old "frees the run slot after a
-    // cancelled wait" test: under the corrected behavior, the slot is
-    // deliberately NOT free immediately after cancellation.
+    // Stop requests draining without aborting the held native node. Keep
+    // ownership through the barrier, then report the settled stopped outcome.
     const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-wait-cancelled-holds-slot"
 
@@ -1019,13 +997,6 @@ describe("/runs/wait cancellation", () => {
 
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
-
-    const waitResponse = await waitPromise
-    expect(waitResponse.status).toBe(409)
-    const waitBody = (await waitResponse.json()) as {
-      error: { message: string; details?: { code?: string } }
-    }
-    expect(waitBody.error.details?.code).toBe("run_cancelled")
 
     // The abandoned route is still running at this point — a new run on the
     // same thread must still be rejected.
@@ -1041,6 +1012,13 @@ describe("/runs/wait cancellation", () => {
     // Once the abandoned route actually finishes, the slot frees and a new
     // run is admitted — proving the hold is temporary, not a leak.
     await releaseRoute()
+    const waitResponse = await waitPromise
+    expect(waitResponse.status).toBe(409)
+    const waitBody = (await waitResponse.json()) as {
+      error: { message: string; details?: { code?: string } }
+    }
+    expect(waitBody.error.details?.code).toBe("run_cancelled")
+
     let admitted: Response | undefined
     const deadline = Date.now() + 5_000
     while (Date.now() < deadline) {
@@ -1057,23 +1035,20 @@ describe("/runs/wait cancellation", () => {
   }, 15_000)
 
   it("close() drains an abandoned wait's run before releasing sandboxes", async () => {
-    // A cancelled /runs/wait answers with plain JSON, so the fetch wrapper —
-    // which only holds an in-flight slot for text/event-stream bodies — has
-    // already decremented activeRequests by the time close() runs. Draining on
-    // activeRequests alone would therefore call sandboxManager.releaseAll()
-    // while the abandoned route is still executing against its sandbox, yanking
-    // it mid-tool-call. close() must drain on in-flight RUNS as well.
+    // An opaque call can keep running after hard shutdown detached its
+    // waiter. close() must also drain execution ownership before resources.
     const { handler, startedFile, releaseFile, releaseRoute } = await setupBlockingRoute()
     const threadId = "t-close-waits-for-abandoned-wait"
 
-    const waitPromise = handler.fetch(runWaitRequest(threadId, startedFile, releaseFile))
+    const waitPromise = handler.fetch(
+      runWaitRequest(threadId, startedFile, releaseFile, "/opaque#graph"),
+    )
     await waitForFile(startedFile)
 
     expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
-    expect((await waitPromise).status).toBe(409)
 
     // The HTTP side has fully settled...
-    expect(handler.state.activeRequests).toBe(0)
+    expect(handler.state.activeRequests).toBe(1)
 
     // ...but the run has not, so close() must NOT treat this as drained. The
     // fixture's 250ms deadline bounds the wait; hitting it (and warning about
@@ -1089,12 +1064,13 @@ describe("/runs/wait cancellation", () => {
     }
 
     await releaseRoute()
+    expect((await waitPromise).status).toBe(503)
   }, 15_000)
 })
 
 describe("/resume cancellation", () => {
   it("terminates a cancelled resume stream with cancelled:true", async () => {
-    const { handler, startedFile, releaseFile } = await setupResumeInterrupt()
+    const { handler, startedFile, releaseFile, releaseRoute } = await setupResumeInterrupt()
     const threadId = "t-resume-cancelled"
 
     const resumeResponse = await handler.fetch(resumeRequest(threadId))
@@ -1104,24 +1080,18 @@ describe("/resume cancellation", () => {
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
 
-    // Reads to completion — if the wrapper didn't stop the stream, this would
-    // hang until the fixture's 15s self-release (well past this test's 10s
-    // timeout, so a regression fails fast rather than passing slowly).
+    // Stop settles only after the test releases the active graph node.
+    await releaseRoute()
     const text = await readSseText(resumeResponse)
     expect(text).toBe('event: done\ndata: {"output":{"cancelled":true}}\n\n')
 
-    // The route itself is still blocked (never told to release) — proves the
-    // wrapper, not route cooperation, is what stopped the stream.
-    await expect(readFile(releaseFile, "utf8")).rejects.toThrow()
+    // The barrier was released explicitly; no abort abandoned the active node.
+    expect(await readFile(releaseFile, "utf8")).toBe("release")
   }, 10_000)
 
   it("holds the run slot until a cancelled resume's route genuinely stops, then frees it", async () => {
-    // Same defect and fix as the /runs/stream test above, exercised through
-    // /resume instead: the resumed route ignores ctx.signal, so cancellation
-    // only stops abortableAsyncIterable from CONSUMING it, not the route
-    // itself. The slot must stay held until the route genuinely unwinds, or a
-    // newly admitted run on this thread would interleave checkpoint writes
-    // with the still-running resumed one.
+    // A resumed turn uses the same native drain boundary and keeps its run
+    // slot and resume claim until the active node has finished.
     const { handler, startedFile, releaseRoute } = await setupResumeInterrupt()
     const threadId = "t-resume-cancelled-holds-slot"
 
@@ -1131,7 +1101,6 @@ describe("/resume cancellation", () => {
 
     const cancelResponse = await handler.fetch(cancelRequest(threadId))
     expect(cancelResponse.status).toBe(200)
-    await drain(resumeResponse)
 
     // The resumed route is still running at this point (never told to
     // release) — a new run on the same thread must still be rejected.
@@ -1145,6 +1114,9 @@ describe("/resume cancellation", () => {
     // Once the resumed route actually finishes, the slot frees and a new
     // resume is admitted — proving the hold is temporary, not a leak.
     await releaseRoute()
+    expect(await readSseText(resumeResponse)).toBe(
+      'event: done\ndata: {"output":{"cancelled":true}}\n\n',
+    )
     let admitted: Response | undefined
     const deadline = Date.now() + 5_000
     while (Date.now() < deadline) {

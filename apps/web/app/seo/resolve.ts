@@ -103,10 +103,13 @@ export function buildSeoPageInventory(
   if (!privacy) throw new Error("Privacy SEO page is not registered")
   const updates = resolveStaticSeoPage("/updates")
   if (!updates) throw new Error("Updates SEO page is not registered")
+  const docsHome = resolveStaticSeoPage("/docs")
+  if (!docsHome) throw new Error("Docs entrance SEO page is not registered")
   const visiblePosts = selectVisiblePosts(posts, currentDate)
 
   return [
     home,
+    docsHome,
     resolveBlogIndexSeoPage(),
     privacy,
     updates,

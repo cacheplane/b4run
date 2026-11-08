@@ -12,6 +12,7 @@ const tokens = themeTokens(tokensCss)
 describe("token values", () => {
   it.each([
     ["--color-page", "#f5f4f0"],
+    ["--color-inspector-surface", "#fdfcfb"],
     ["--color-surface", "#eeeee7"],
     ["--color-surface-sunk", "#e8e8df"],
     ["--color-rule", "#d6d6cc"],
@@ -67,6 +68,8 @@ describe("TS mirror", () => {
 describe("contrast (WCAG AA)", () => {
   const text: Array<[string, string]> = [
     ["ink", "page"],
+    ["ink", "inspector-surface"],
+    ["ink-muted", "inspector-surface"],
     ["ink-muted", "page"],
     ["ink-muted", "surface"],
     ["olive", "page"],
@@ -199,12 +202,29 @@ describe("guard: the old palette and its classes stay gone", () => {
     expect(elsewhere).toEqual([])
   })
 
-  it("has no border-radius other than 0 or 50% in CSS", () => {
+  it("allows only the approved workbench radius tokens inside the inspector", () => {
+    for (const [name, value] of Object.entries({
+      frame: "16px",
+      panel: "12px",
+      control: "8px",
+      message: "10px",
+    }))
+      expect(tokensCss).toContain(`--inspector-radius-${name}: ${value};`)
+  })
+
+  it("keeps square site shapes and allows only scoped inspector radius tokens", () => {
     const hits = sources
       .filter(({ path }) => path.endsWith(".css"))
       .flatMap(({ path, text }) =>
         [...text.matchAll(/border-radius:\s*([^;]+);/g)]
-          .filter((m) => !/^(0|50%)$/.test((m[1] as string).trim()))
+          .filter((m) => {
+            const value = (m[1] as string).trim()
+            if (/^(0|50%)$/.test(value)) return false
+            return !(
+              path.endsWith("components/turn-inspector/inspector.module.css") &&
+              /^var\(--inspector-radius-(frame|panel|control|message)\)$/.test(value)
+            )
+          })
           .map((m) => `${path}: ${m[0]}`),
       )
     expect(hits).toEqual([])
@@ -217,7 +237,9 @@ describe("contract: every referenced token is declared", () => {
     const missing = sources.flatMap(({ path, text }) =>
       [...text.matchAll(/var\((--(?:color|text|font)-[\w-]+)/g)]
         .map((m) => m[1] as string)
-        .filter((name) => !declared.has(name) && !/^--font-(inter|jetbrains-mono)$/.test(name))
+        .filter(
+          (name) => !declared.has(name) && !/^--font-(inter|jetbrains-mono|hanken)$/.test(name),
+        )
         .map((name) => `${path}: ${name}`),
     )
     expect([...new Set(missing)]).toEqual([])

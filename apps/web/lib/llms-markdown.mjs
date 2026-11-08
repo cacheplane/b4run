@@ -140,6 +140,33 @@ export function mdxToMarkdown(source, options = {}) {
       continue
     }
 
+    if (trimmed.startsWith("<DocsVideo")) {
+      push(
+        "[Watch the captioned Navlog demo and read its transcript](https://b4.run/docs/app/first-conversation)",
+      )
+      continue
+    }
+    if (trimmed.startsWith("<TurnInspector")) {
+      const lesson = attribute(trimmed, "lesson")
+      if (lesson)
+        push(
+          `[Explore the recorded turn](https://b4.run/docs/app/inspect/${encodeURIComponent(lesson)})`,
+        )
+      continue
+    }
+    if (line.includes("<InspectMoment")) {
+      push(
+        line.replace(/<InspectMoment\s+([^>]+)>(.*?)<\/InspectMoment>/g, (_match, attrs, label) => {
+          const lesson = attribute(attrs, "lesson"),
+            moment = attribute(attrs, "moment")
+          return lesson && moment
+            ? `[${label}](https://b4.run/docs/app/inspect/${encodeURIComponent(lesson)}#inspect/${encodeURIComponent(lesson)}/${encodeURIComponent(moment)})`
+            : label
+        }),
+      )
+      continue
+    }
+
     const heading = line.match(/^(#{1,6})\s+(.*)$/)
     if (heading !== null) {
       const authoredLevel = (heading[1] ?? "#").length

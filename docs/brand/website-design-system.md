@@ -129,3 +129,7 @@ only, and `[data-code-frame]` in `ui.css` shows the pattern (it restates
 `--color-ink`, `--color-ink-muted`, `--color-rule`, `--color-rule-strong` and
 `--color-focus` for the panel). Add `color-scheme: dark` in the same block and
 a second contrast table to the test.
+
+## Documentation workbench exception
+
+The November 6, 2026 approved inspector design adopts the shared LLA/Hashbrown workbench shape while retaining B4 colors. Only `components/turn-inspector/inspector.module.css` may use the four `--inspector-radius-*` tokens (frame 16px, panel 12px, control 8px, message 10px). Its light reading surface is `--color-inspector-surface`; ink contrast remains checked. These values live in `tokens.css`, with the color mirrored in `lib/design-tokens.ts`. The design guard enforces this exact scope and token set; other site surfaces retain the square shape contract.

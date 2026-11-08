@@ -19,7 +19,7 @@ it("renders the same header, with the install command, on every page", () => {
   const home = render("/")
   expect(home).not.toContain("Get the blueprint")
   expect(home).toContain("npm create b4-app@latest my-agent")
-  expect(home).toContain("/docs/getting-started")
+  expect(home).toContain('href="/docs"')
   // Only the active-link state and the column the bar aligns to (data-layout)
   // differ between pages. Compare the visible bar only; the mobile menu adds
   // the docs nav on docs pages.

@@ -67,7 +67,9 @@ import { scenarios } from "@b4run/sdk/testing"
 | `normalizeApproveEntries` | Normalize `tools.approve` entries to `{ tool, allowAlways }`. |
 | `agent` | Declare an agent route. |
 | `isB4Agent` | Test whether a value is an authored B4.run agent. |
-| `BackendAdapter` | Define a route backend adapter contract, including declared protocol support and actual owned-work completion. |
+| `BackendAdapter` | Define a route backend contract with hard `signal` and optional cooperative `stopSignal`. |
+| `CooperativeStopError` | Represent an explicitly observed cooperative Stop after owned work settles. |
+| `isCooperativeStop` | Distinguish the owned Stop outcome from an independent error. |
 | `BackendActiveInput` | Describe the invocation-local runtime bridge that selects accepted messages before a model step; it is never caller-supplied graph input or config. |
 | `B4ErrorCode` | Name a registered B4.run error. |
 | `B4ErrorDescriptor` | Describe a registered B4.run error. |
@@ -176,7 +178,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `RouteKind` | Name a supported route kind. |
 | `RouteStateMap` | Expose an open compatibility interface for route state. |
 | `RouteToolMap` | Expose an open compatibility interface for route tools. |
-| `RuntimeContext` | Provide request-scoped runtime data. |
+| `RuntimeContext` | Provide request-scoped tools, filesystem, hard `signal`, and optional cooperative `stopSignal`. |
 | `RuntimeTool` | Describe a runtime tool callable. |
 | `ToolRegistry` | Map runtime tool names to callables. |
 | `Prettify` | Flatten an object type for editor display. |

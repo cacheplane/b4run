@@ -408,7 +408,9 @@ describe("generated documentation bundle", () => {
       match[1] && match[2] ? [{ title: match[1], file: match[2] }] : [],
     )
     const expectedFiles = EXPECTED_DOCS.map((entry) =>
-      entry.slug === "recipes" ? "recipes/index.md" : `${entry.slug}.md`,
+      entry.slug === "recipes" || entry.slug === "app"
+        ? `${entry.slug}/index.md`
+        : `${entry.slug}.md`,
     )
     const actualFiles = readdirSync(join(repoRoot, "packages/cli/docs"), {
       recursive: true,

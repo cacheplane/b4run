@@ -1,0 +1,36 @@
+---
+title: "What is b4app?"
+description: "Use your existing agents in one workspace on your Mac."
+---
+
+# What is b4app?
+
+Agent Workspace, or b4app, brings Codex, Claude Code, and B4 conversations into one Mac app. You choose an agent, give it a task, and follow its work in a conversation.
+
+If you already use Codex or Claude Code, start with that agent. You do not need to build a B4 agent to use the app.
+
+<DocsVideo clip="overview" />
+
+This example shows Navlog connected through B4. Your coding agent follows the same request, activity, and response pattern.
+
+## Start with your agent
+
+[Install and sign in](/docs/app/install), then [connect Codex](/docs/app/codex) or [connect Claude Code](/docs/app/claude-code). Each connection uses the corresponding runtime installed on your Mac.
+
+Your app account and your provider account have different jobs. The app account connects your devices. Your provider login lets its runtime work with the provider. Signing in to one does not sign you in to the other.
+
+## Follow a conversation
+
+A conversation holds your messages and the agent's work. Each request starts a turn. A turn may include several tool calls, a request for your approval, and a final response.
+
+Let's start by [following one conversation](/docs/app/first-conversation). You can then [organize your work](/docs/app/manage-work) or [connect your iPhone](/docs/app/iphone).
+
+## Where the work runs
+
+The Mac runs your local agent processes. Those agents may call model providers over the network. App conversations sync through the hub so your phone can follow them. The phone does not run the Mac's agent processes.
+
+Read [accounts, privacy, and sync](/docs/app/accounts-and-data) for the boundaries between your files, agent providers, and synced conversations.
+
+## Bring your own B4 agent
+
+B4 developers can [connect an agent](/docs/app/b4-agents). We use Navlog, the maintained flight-planning example, to explain how requests, tools, and responses fit together. The [framework guides](/docs/getting-started) teach how to build the agent itself.

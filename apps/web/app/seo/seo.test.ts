@@ -50,7 +50,7 @@ const REPO_ROOT = resolve(seoDirectory, "../../../..")
 
 function docsSourcePath(href: string): string {
   const slug = href.replace(/^\/docs\//, "")
-  return `apps/web/content/docs/${slug === "recipes" ? "recipes/index" : slug}.mdx`
+  return `apps/web/content/docs/${slug === "recipes" || slug === "app" ? `${slug}/index` : slug}.mdx`
 }
 
 function authoredPosts(): readonly Post[] {
@@ -348,6 +348,7 @@ describe("production SEO inventory", () => {
 
     expect(pages.map(({ path }) => path)).toEqual([
       "/",
+      "/docs",
       "/blog",
       "/privacy",
       "/updates",
@@ -366,6 +367,7 @@ describe("production SEO inventory", () => {
     ])
     expect(pages.map(({ routeKind }) => routeKind)).toEqual([
       "home",
+      "page",
       "blog-index",
       "legal",
       "page",
@@ -749,8 +751,8 @@ describe("static SEO pages", () => {
     expect(techArticleJsonLd(page).url).toBe(page.canonical)
   })
 
-  it("derives valid BreadcrumbList trails from the visible breadcrumbs for all 75 docs routes", () => {
-    for (const { href, label } of ALL_DOCS_PAGES) {
+  it("derives valid BreadcrumbList trails from the visible breadcrumbs for every docs route", () => {
+    for (const { href } of ALL_DOCS_PAGES) {
       const page = resolveStaticSeoPage(href)
       expect(page, `${href} SEO page`).toBeDefined()
       if (!page) continue
@@ -778,7 +780,7 @@ describe("static SEO pages", () => {
       expect(breadcrumbItems.at(-1), `${href} current-page crumb`).toEqual({
         "@type": "ListItem",
         position: breadcrumbItems.length,
-        name: label,
+        name: visibleBreadcrumbs.at(-1)?.label,
       })
 
       const ancestorItems = breadcrumbItems.slice(0, -1).map(({ item }) => item)

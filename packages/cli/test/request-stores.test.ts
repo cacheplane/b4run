@@ -325,10 +325,9 @@ describe("per-request stores", () => {
 // ---------------------------------------------------------------------------
 // Run lifetime vs response lifetime
 //
-// A request's stores must outlive its RESPONSE, because route work does. Three
-// paths keep executing after the body settles — an aborted AG-UI stream, an
-// abandoned /runs/wait, a cancelled AP stream — and all three keep writing
-// through the very stores a response-triggered dispose would tear down.
+// A request's stores follow execution lifetime. An AG-UI viewer may disconnect
+// before its route settles; a soft-stopped /runs/wait waits for its route's
+// observation boundary. Both must keep stores live through final writes.
 // `close()` already draws this distinction (it drains on the run registry as
 // well as on activeRequests); disposal must draw it too.
 //
@@ -342,7 +341,7 @@ const BLOCKING_ROUTE = [
   'import { readFile, rename, writeFile } from "node:fs/promises"',
   "export const graph = async (",
   "  input: { startedFile?: string; releaseFile?: string } | undefined,",
-  "  _ctx: { signal: AbortSignal },",
+  "  ctx: { signal: AbortSignal; stopSignal?: AbortSignal },",
   ") => {",
   "  if (input?.startedFile) {",
   ...atomicWriteLines("input.startedFile", "'started'", "    "),
@@ -353,6 +352,7 @@ const BLOCKING_ROUTE = [
   "    try { await readFile(input.releaseFile, 'utf8'); break } catch {}",
   "    await new Promise((r) => setTimeout(r, 25))",
   "  }",
+  "  ctx.stopSignal?.throwIfAborted()",
   "  return { ok: true }",
   "}",
   "",
@@ -475,14 +475,15 @@ async function setupBlockingApp() {
 }
 
 describe("per-request stores outlive the response when the run does", () => {
-  it("holds an abandoned /runs/wait's stores until the detached route settles", async () => {
-    // The worst of the three paths: the 409 is a NON-stream response, so the
-    // fetch wrapper's finally fires immediately while invokeResolvedRoute keeps
-    // running against this request's checkpointer and threads store.
+  it("holds a stopped /runs/wait's stores until its awaited work settles", async () => {
+    // An opaque route observes Stop only after its awaited work finishes.
+    // Its stores and run ownership must remain live through that boundary.
     const { disposals, handler, releaseFile, releaseRoute, startedFile, useAfterDispose } =
       await setupBlockingApp()
-    const threadId = "t-abandoned-wait"
+    const threadId = "t-stopped-wait"
     const waitPath = `/threads/${threadId}/runs/wait`
+    cleanup.push(releaseRoute)
+    let responseSettled = false
 
     const waitPromise = handler.fetch(
       new Request(`http://localhost${waitPath}`, {
@@ -494,6 +495,9 @@ describe("per-request stores outlive the response when the run does", () => {
         method: "POST",
       }),
     )
+    void waitPromise.then(() => {
+      responseSettled = true
+    })
     await waitForFile(startedFile, { what: "started probe" })
 
     const cancelResponse = await handler.fetch(
@@ -501,30 +505,40 @@ describe("per-request stores outlive the response when the run does", () => {
     )
     expect(cancelResponse.status).toBe(200)
 
-    const waitResponse = await waitPromise
-    expect(waitResponse.status).toBe(409)
-
-    // The response has settled, but the detached route is still executing — its
-    // stores must still be open.
+    expect(responseSettled).toBe(false)
     expect(disposals).not.toContain(waitPath)
     // The cancel request, which started no run, disposed normally.
     expect(disposals).toContain(`/threads/${threadId}/cancel`)
+    const conflict = await handler.fetch(
+      new Request(`http://localhost/threads/${threadId}/runs/stream`, {
+        body: JSON.stringify({ route: "/blocking#graph", input: {} }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    )
+    expect(conflict.status).toBe(409)
+    expect(disposals).not.toContain(waitPath)
 
     await releaseRoute()
-    await waitUntil(() => disposals.includes(waitPath), "the abandoned run's stores to dispose")
+    const waitResponse = await waitPromise
+    expect(waitResponse.status).toBe(409)
+    expect(await waitResponse.json()).toMatchObject({
+      error: { details: { code: "run_cancelled" } },
+    })
+    await waitUntil(() => disposals.includes(waitPath), "the stopped run's stores to dispose")
 
     expect(disposals.filter((path) => path === waitPath)).toEqual([waitPath])
     expect(useAfterDispose).toEqual([])
   }, 60_000)
 
   it("holds an aborted AG-UI turn's stores until the route unwinds", async () => {
-    // Client disconnect is the ordinary case at the edge. On abort the
-    // rejection propagates past safeClose into controller.error(), settling the
-    // body, while the route's own cleanup has only just been attached — and the
-    // handler's finally still writes the thread's status through these stores.
+    // A viewer disconnect settles its body and requests cooperative Stop.
+    // This opaque route may finish naturally after its held work, and final
+    // runtime writes must still use live request stores.
     const { disposals, handler, literalStartedFile, releaseRoute, useAfterDispose } =
       await setupBlockingApp()
     const threadId = "t-aborted-agui"
+    cleanup.push(releaseRoute)
     const aguiPath = `/agui/${encodeURIComponent("/literal#graph")}`
 
     const response = await handler.fetch(

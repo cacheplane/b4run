@@ -1,7 +1,7 @@
 import type { RuntimeContext } from "@b4run/sdk"
 import { RejectIntakeInput } from "../../../lib/routes/input.js"
 import { command } from "../../../lib/routes/outcome.js"
-import { intakeSettle, settleOutcome } from "../../../lib/routes/settle.js"
+import { intakeSettle, settleOutcome, withRuntimeStop } from "../../../lib/routes/settle.js"
 import { controllerRuntime } from "../../../lib/runtime.js"
 
 /**
@@ -12,28 +12,30 @@ import { controllerRuntime } from "../../../lib/runtime.js"
  * unless the redraft parked a new draft.
  */
 export async function workflow(input: unknown, ctx: RuntimeContext) {
-  return command(
-    RejectIntakeInput,
-    input,
-    () => controllerRuntime().factory(),
-    async ({ id, note, operationKey }, factory) => {
-      await factory.reconcileWorkOrder(id)
-      const outcome = await factory.rejectIntake(id, {
-        note,
-        ...(operationKey ? { operationKey } : {}),
-      })
-      if (!outcome.ok) return { ...outcome, row: factory.show(id) }
-      // The factory calls an exhausted rejection a success (the rejection was recorded); for
-      // a script the row is `blocked`, which is not a draft to approve, so `ok` is false and
-      // the message says why rather than keeping the factory's wording.
-      if (outcome.state !== "intake_running")
-        return {
-          ...outcome,
-          ok: false,
-          message: "Intake rejected; no drafter attempts remain, the work order is blocked",
-          row: factory.show(id),
-        }
-      return settleOutcome(factory, id, ctx.signal, intakeSettle(id, "Redraft"))
-    },
+  return withRuntimeStop(ctx, (signal, observeStop) =>
+    command(
+      RejectIntakeInput,
+      input,
+      () => controllerRuntime().factory(),
+      async ({ id, note, operationKey }, factory) => {
+        await factory.reconcileWorkOrder(id)
+        const outcome = await factory.rejectIntake(id, {
+          note,
+          ...(operationKey ? { operationKey } : {}),
+        })
+        if (!outcome.ok) return { ...outcome, row: factory.show(id) }
+        // The factory calls an exhausted rejection a success (the rejection was recorded); for
+        // a script the row is `blocked`, which is not a draft to approve, so `ok` is false and
+        // the message says why rather than keeping the factory's wording.
+        if (outcome.state !== "intake_running")
+          return {
+            ...outcome,
+            ok: false,
+            message: "Intake rejected; no drafter attempts remain, the work order is blocked",
+            row: factory.show(id),
+          }
+        return settleOutcome(factory, id, signal, intakeSettle(id, "Redraft"), observeStop)
+      },
+    ),
   )
 }

@@ -1,0 +1,30 @@
+---
+title: "Connect Codex"
+description: "Use the Codex runtime installed on your Mac."
+---
+
+# Connect Codex
+
+If you already work with Codex, the app uses that runtime on your Mac. Let's check the connection before asking it to do anything.
+
+## Before you start
+
+Complete [app setup](/docs/app/install). Install and authenticate the Codex CLI using its official installation and sign-in instructions. The app does not install the runtime for you.
+
+Your app account and Codex account are separate. The Codex runtime owns its provider credentials.
+
+## Add the connection
+
+Open **Settings**, then **Connections**. Use the add-connection control and choose Codex. The app checks whether the executable is available and whether it is authenticated.
+
+If the connection asks you to sign in, choose **Sign in with ChatGPT** and complete the official browser flow. An existing valid local login can be reused.
+
+## Check the result
+
+The connection should be available before you send a message. If it says **Not installed**, check that the runtime is installed and open **Diagnostics** for the executable check. If authentication is required, complete sign-in and check the connection again.
+
+## Start new work
+
+Choose the connection and a working folder when starting a conversation. The folder determines where the local agent works. The app manages conversations created through the app; do not expect your existing terminal conversations to be imported automatically.
+
+Continue with [your first conversation](/docs/app/first-conversation). Permission and model choices should match the work you intend to give the agent. Leaving the runtime defaults in place lets its existing configuration apply.

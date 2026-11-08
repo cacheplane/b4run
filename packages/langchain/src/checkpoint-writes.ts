@@ -16,7 +16,7 @@ export interface TrackedCheckpointer {
   /** The checkpointer to hand the graph; it records every write it forwards. */
   readonly saver: BaseCheckpointSaver
   /** Resolves once every write the graph has issued so far has settled. */
-  settled(): Promise<void>
+  settled(threadId?: string): Promise<void>
 }
 
 const tracked = new WeakMap<BaseCheckpointSaver, TrackedCheckpointer>()
@@ -48,14 +48,20 @@ export function trackCheckpointWrites(saver: BaseCheckpointSaver): TrackedCheckp
   const existing = tracked.get(saver)
   if (existing) return existing
 
-  const inFlight = new Set<Promise<unknown>>()
-  const record = <T>(promise: Promise<T>): Promise<T> => {
+  const inFlight = new Map<Promise<unknown>, string | undefined>()
+  const failures: { threadId: string | undefined; error: unknown }[] = []
+  const record = <T>(promise: Promise<T>, threadId: string | undefined): Promise<T> => {
     promise = new OwnedWritePromise<T>((resolve, reject) => {
       promise.then(resolve, reject)
     })
-    inFlight.add(promise)
-    const forget = () => inFlight.delete(promise)
-    promise.then(forget, forget)
+    inFlight.set(promise, threadId)
+    promise.then(
+      () => inFlight.delete(promise),
+      (error) => {
+        failures.push({ threadId, error })
+        inFlight.delete(promise)
+      },
+    )
     return promise
   }
 
@@ -65,7 +71,10 @@ export function trackCheckpointWrites(saver: BaseCheckpointSaver): TrackedCheckp
       if (typeof value !== "function") return value
       if (property === "put" || property === "putWrites") {
         return (...args: unknown[]) =>
-          record(Promise.resolve((value as (...a: unknown[]) => unknown).apply(target, args)))
+          record(
+            Promise.resolve((value as (...a: unknown[]) => unknown).apply(target, args)),
+            (args[0] as { configurable?: { thread_id?: string } })?.configurable?.thread_id,
+          )
       }
       // Bound to the real saver so private fields and `this`-sensitive
       // methods behave exactly as they do unwrapped.
@@ -75,16 +84,26 @@ export function trackCheckpointWrites(saver: BaseCheckpointSaver): TrackedCheckp
 
   const entry: TrackedCheckpointer = {
     saver: proxy,
-    async settled() {
-      // LangGraph issues its remaining writes from promise continuations of
-      // the failure itself, so yield a macrotask to let them START before
-      // waiting for what is in flight. Bounded: a write that is still being
-      // issued after a few rounds is not part of this turn's teardown.
-      for (let round = 0; round < 3; round += 1) {
+    async settled(threadId) {
+      // A graph can issue writes from teardown continuations. Wait for all of
+      // this thread's writes, without turning a rejected write into success.
+      for (;;) {
         await new Promise((resolve) => setTimeout(resolve, 0))
-        if (inFlight.size === 0) return
-        await Promise.allSettled([...inFlight])
+        const pending = [...inFlight]
+          .filter(([, owner]) => threadId === undefined || owner === threadId)
+          .map(([promise]) => promise)
+        if (pending.length === 0) break
+        await Promise.allSettled(pending)
       }
+      const selected = failures.filter(
+        (failure) => threadId === undefined || failure.threadId === threadId,
+      )
+      for (let index = failures.length - 1; index >= 0; index--) {
+        if (threadId === undefined || failures[index]?.threadId === threadId)
+          failures.splice(index, 1)
+      }
+      const first = selected[0]
+      if (first) throw first.error
     },
   }
   tracked.set(saver, entry)

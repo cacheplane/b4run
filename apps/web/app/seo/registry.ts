@@ -616,6 +616,76 @@ export const DOCS_SEO_ENTRIES = [
       "Get direct answers about B4.run's LangGraph foundation, TypeScript scope, model providers, build targets, production status, and migration.",
     sourcePath: "apps/web/content/docs/faq.mdx",
   },
+  {
+    path: "/docs/app",
+    title: "What is b4app?",
+    description:
+      "Bring Codex, Claude Code, and B4 conversations into one workspace on your Mac, with projects and an iPhone companion.",
+    sourcePath: "apps/web/content/docs/app/index.mdx",
+  },
+  {
+    path: "/docs/app/install",
+    title: "Install and sign in",
+    description:
+      "Prepare your Mac for b4app, check release availability, and understand how the app account differs from your agent provider login.",
+    sourcePath: "apps/web/content/docs/app/install.mdx",
+  },
+  {
+    path: "/docs/app/codex",
+    title: "Connect Codex",
+    description:
+      "Connect the Codex runtime installed on your Mac to b4app, check its login, and choose a project for your first conversation.",
+    sourcePath: "apps/web/content/docs/app/codex.mdx",
+  },
+  {
+    path: "/docs/app/claude-code",
+    title: "Connect Claude Code",
+    description:
+      "Connect your existing Claude Code installation to b4app and understand where runtime authentication and project access are managed.",
+    sourcePath: "apps/web/content/docs/app/claude-code.mdx",
+  },
+  {
+    path: "/docs/app/first-conversation",
+    title: "Your first conversation",
+    description:
+      "Start a b4app conversation and follow your request through a turn, tool activity, an approval, and the agent response.",
+    sourcePath: "apps/web/content/docs/app/first-conversation.mdx",
+  },
+  {
+    path: "/docs/app/manage-work",
+    title: "Manage your work",
+    description:
+      "Organize b4app projects and conversations so you can find work, follow its progress, and return to a thread with its context.",
+    sourcePath: "apps/web/content/docs/app/manage-work.mdx",
+  },
+  {
+    path: "/docs/app/iphone",
+    title: "Use b4app on your iPhone",
+    description:
+      "Understand how the b4app iPhone companion follows conversations running on your Mac, including pairing, sync, and availability.",
+    sourcePath: "apps/web/content/docs/app/iphone.mdx",
+  },
+  {
+    path: "/docs/app/accounts-and-data",
+    title: "Accounts, privacy, and sync",
+    description:
+      "Understand the b4app account, provider credentials, local conversation data, and what sync means for your Mac and iPhone.",
+    sourcePath: "apps/web/content/docs/app/accounts-and-data.mdx",
+  },
+  {
+    path: "/docs/app/troubleshooting",
+    title: "Troubleshooting",
+    description:
+      "Match b4app connection, login, and conversation states to concrete recovery steps, starting with the runtime on your Mac.",
+    sourcePath: "apps/web/content/docs/app/troubleshooting.mdx",
+  },
+  {
+    path: "/docs/app/b4-agents",
+    title: "Use a B4 agent",
+    description:
+      "Connect a B4 server to b4app, explore the maintained Navlog example, and continue into the framework guides for building agents.",
+    sourcePath: "apps/web/content/docs/app/b4-agents.mdx",
+  },
 ] as const satisfies readonly DocsSeoEntry[]
 
 function toStaticDocsSeoPage(entry: DocsSeoEntry): StaticDocsSeoPage {
@@ -690,8 +760,20 @@ export const UPDATES_SEO_PAGE: StaticWebSeoPage = {
   lastModified: requireValidLastModified(STATIC_LASTMOD, "/updates"),
   sourcePath: "apps/web/content/updates.mdx",
 }
+export const DOCS_HOME_SEO_PAGE: StaticWebSeoPage = {
+  path: "/docs",
+  canonical: "https://b4.run/docs",
+  title: "Documentation | B4.run",
+  description: "Use Agent Workspace on your Mac and iPhone, or build agents with the B4 framework.",
+  kind: "WebPage",
+  routeKind: "page",
+  breadcrumbs: [{ label: "Home", href: "/" }, { label: "Docs" }],
+  lastModified: requireValidLastModified(STATIC_LASTMOD, "/docs"),
+  sourcePath: "apps/web/app/docs/page.tsx",
+}
 export const STATIC_SEO_PAGES: Readonly<Record<string, SeoPage>> = {
   [HOME_SEO_PAGE.path]: HOME_SEO_PAGE,
+  [DOCS_HOME_SEO_PAGE.path]: DOCS_HOME_SEO_PAGE,
   [PRIVACY_SEO_PAGE.path]: PRIVACY_SEO_PAGE,
   [UPDATES_SEO_PAGE.path]: UPDATES_SEO_PAGE,
   ...DOCS_SEO_PAGES,
