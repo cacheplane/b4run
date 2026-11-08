@@ -35,12 +35,12 @@ const ECHO_ROUTE = ["export const graph = async () => ({ ok: true })", ""].join(
 
 /** Blocking graph route (same shape as run-cancellation.test.ts): holds the
  * run slot until a release file appears, so a cancel can land mid-run. It
- * deliberately ignores ctx.signal and self-releases after 15s. */
+ * observes ctx.stopSignal only after that awaited work finishes. */
 const BLOCKING_ROUTE = [
   'import { readFile, rename, writeFile } from "node:fs/promises"',
   "export const graph = async (",
   "  input: { startedFile?: string; releaseFile?: string } | undefined,",
-  "  _ctx: { signal: AbortSignal },",
+  "  ctx: { signal: AbortSignal; stopSignal?: AbortSignal },",
   ") => {",
   "  if (input?.startedFile) {",
   ...atomicWriteLines("input.startedFile", "'started'", "    "),
@@ -51,6 +51,7 @@ const BLOCKING_ROUTE = [
   "    try { await readFile(input.releaseFile, 'utf8'); break } catch {}",
   "    await new Promise((r) => setTimeout(r, 25))",
   "  }",
+  "  ctx.stopSignal?.throwIfAborted()",
   "  return { ok: true }",
   "}",
   "",
@@ -789,12 +790,17 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     const saver = new MemorySaver()
     const handler = await createHandler(appRoot, saver)
     const threadId = "t-wait-cancel-park"
+    cleanup.push(() => writeFile(releaseFile, "release"))
+    let responseSettled = false
 
     // Deliberately not awaited: the whole point is to act while it is in flight.
     const waitPromise = handler.fetch(
       parkWaitRequest(threadId, "deploy to staging", { "x-admin": "1" }),
     )
 
+    void waitPromise.then(() => {
+      responseSettled = true
+    })
     // Both preconditions, proven rather than slept for: the ordinary tool is
     // running, and the permission interrupt is already DURABLE in the
     // checkpoint. The second is the attacker's oracle — everything the endpoint
@@ -806,21 +812,24 @@ describe("GET /threads/:thread_id/pending_interrupts — gating", () => {
     // reachable without credentials. Gating them is tracked separately; this
     // test only pins that reaching it wins the attacker nothing.
     expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
-    const waitResponse = await waitPromise
-    expect(waitResponse.status).toBe(409)
-    expect(((await waitResponse.json()) as ErrorBody).error.details?.code).toBe("run_cancelled")
+    expect(responseSettled).toBe(false)
+    const conflict = await handler.fetch(runStreamRequest(threadId, "/echo#graph"))
+    expect(conflict.status).toBe(409)
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
 
-    // The cancelled arm returns while the route is STILL EXECUTING, so the
-    // settle cannot happen at return time — it has to wait for the abandoned
-    // route to unwind. Releasing the tool is what lets that finally happen.
+    // Finish the active superstep. Its durable permission park wins over the
+    // Stop request; neither requesting Stop nor settling it grants approval.
     await writeFile(releaseFile, "release")
+    const waitResponse = await waitPromise
+    expect(waitResponse.status).toBe(200)
+    await waitResponse.json()
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
 
     const swap = await handler.fetch(runStreamRequest(threadId, "/echo#graph"))
     expect(swap.status).toBe(200)
     await drain(swap)
 
-    // Polled, not read once: the settle is deferred behind the abandoned
-    // route's own unwind, so "eventually" is the honest contract here.
+    // The parking route keeps owning authorization after another route runs.
     await waitFor(async () => {
       const refused = await handler.fetch(pendingInterruptsRequest(threadId))
       expect(refused.status).toBe(403)
@@ -998,22 +1007,27 @@ describe("thread status after a parked or cancelled turn", () => {
     const threadId = "t-cancelled-status"
     const startedFile = join(appRoot, "cancelled-started.json")
     const releaseFile = join(appRoot, "cancelled-release.json")
+    cleanup.push(() => writeFile(releaseFile, "release"))
 
     const runResponse = await handler.fetch(
       runStreamRequest(threadId, "/blocking#graph", { releaseFile, startedFile }),
     )
     await waitForFile(startedFile, { what: "started probe" })
+    const terminal = readSseText(runResponse)
+    let responseSettled = false
+    void terminal.then(() => {
+      responseSettled = true
+    })
     expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
-    await drain(runResponse)
+    expect(responseSettled).toBe(false)
+    expect(await threadStatus(handler, threadId)).toBe("busy")
+    expect((await handler.fetch(runStreamRequest(threadId, "/echo#graph"))).status).toBe(409)
+    await writeFile(releaseFile, "release")
+    expect(await terminal).toContain('"cancelled":true')
 
     expect(await threadStatus(handler, threadId)).toBe("interrupted")
     const body = await readPendingInterruptsBody(handler, threadId)
     expect(body.interrupts).toEqual([])
-
-    // The cancel stopped us CONSUMING the route, not the route itself: without
-    // this the abandoned loop keeps polling for 15s past teardown, against a
-    // tmpdir afterEach has already removed.
-    await writeFile(releaseFile, "release")
   }, 30_000)
 
   it("still reports idle after a turn that completes without parking", async () => {
@@ -1115,20 +1129,24 @@ describe("turn end stamp on the head checkpoint", () => {
     const saver = new MemorySaver()
     const handler = await createHandler(appRoot, saver)
     const threadId = "t-cancelled-turn"
+    cleanup.push(() => writeFile(releaseFile, "release"))
 
     const streamPromise = handler.fetch(parkRunRequest(threadId, "ping slowly"))
     await waitForFile(startedFile, { what: "started probe" })
+    const terminal = readSseText(await streamPromise)
+    let responseSettled = false
+    void terminal.then(() => {
+      responseSettled = true
+    })
     expect((await handler.fetch(cancelRequest(threadId))).status).toBe(200)
-    const text = await readSseText(await streamPromise)
+    expect(responseSettled).toBe(false)
+    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
+    expect((await handler.fetch(runStreamRequest(threadId, "/echo#graph"))).status).toBe(409)
+    await writeFile(releaseFile, "release")
+    const text = await terminal
     expect(text).toContain('"cancelled":true')
 
-    // The response has ended but the tool is still running: the stamp waits
-    // for the route to unwind, so the head is not stamped yet...
-    expect(await readHeadTurnEnd(saver, threadId)).toBeUndefined()
-    await writeFile(releaseFile, "release")
-
-    // ...and lands once it has. Polled: the stamp is chained behind the
-    // route's own cleanup, which nothing in the response waits for.
+    // The terminal and stamp both wait for the active tool to settle.
     await waitFor(async () => {
       expect((await readHeadTurnEnd(saver, threadId))?.status).toBe("stopped")
     })
