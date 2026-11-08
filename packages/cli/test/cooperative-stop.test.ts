@@ -546,12 +546,10 @@ it.each(["stream", "wait", "agui-sse", "agui-proto"])(
   "%s preserves a primary source error when its final status write also fails",
   async (mode) => {
     const f = await fixture(false, "failure", true)
-    const consumption = f.handler
-      .fetch(request(mode, f.route))
-      .then(async (response) => ({
-        status: response.status,
-        bytes: new Uint8Array(await response.arrayBuffer()),
-      }))
+    const consumption = f.handler.fetch(request(mode, f.route)).then(async (response) => ({
+      status: response.status,
+      bytes: new Uint8Array(await response.arrayBuffer()),
+    }))
     await f.entered.promise
     await f.handler.fetch(new Request("http://localhost/threads/owned/cancel", { method: "POST" }))
     f.held.release()
