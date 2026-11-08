@@ -111,6 +111,10 @@ try {
   stop request to cancellation. Actual drain must retain distinct identity and
   must settle checkpoint writes before classification. Capture cause/error
   truthfully; no class-name authority for permissions or run ownership.
+  For stop-capable native calls, use public per-invocation sync durability and
+  prove Stop plus rejected checkpoint persistence remains an error. Document
+  its checkpoint latency cost. Opaque RuntimeContext gets an owned cooperative
+  soft reason; B4ToolContext retains only its existing hard signal.
 - [ ] Extend all real CLI execution paths, registry wrapper, and AP/AG-UI
   handlers. Manual Stop must not abort abortableAsyncIterable's source signal.
   Keep observers closable and resources alive while execution drains. AG-UI
@@ -131,6 +135,9 @@ try {
   recheck safety before any model/tool code even if previous retirement failed.
   Unsupported rebinding fails closed. Never clear a live permission park as if
   approved. Do not copy the unrelated durable R8 protocol services.
+  Preserve standalone explicit null as native continuation, and test stateless
+  compiled graphs without a checkpointer. HTTP null must not bypass permission
+  validation. A clean Stop retires pending actions before it is reported.
 - [ ] Add real HTTP integration tests in
   `packages/cli/test/cooperative-stop.test.ts` and extend
   `run-cancellation.test.ts`, `run-registry.test.ts`,

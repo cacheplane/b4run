@@ -35,6 +35,11 @@ An already requested stop prevents first-node dispatch. The current superstep
 finishes and persistence settles before later supersteps stop. Do not call
 iterator.return or AbortController.abort to implement a soft stop.
 
+Stop-capable native invocations use public synchronous checkpoint durability.
+This waits for persistence between supersteps and preserves checkpoint failures
+that native drain can otherwise mask. It is a per-invocation setting, not a
+mutation of a shared graph or saver; it can add checkpoint latency between steps.
+
 The boundary is deliberately a superstep. Parallel work, retries, nested calls,
 and operations inside a running node may finish before it returns. Detached
 third-party work that the tool does not await is outside this guarantee.
@@ -46,6 +51,9 @@ signal and an optional soft-stop signal; graph-backed runnable objects also
 receive native control. Opaque invocations may finish as one unit. Preserve
 receivers, state, ordinary schema/callback handling, and optional dependency
 loading. Do not misrepresent this as per-tool interruption of arbitrary code.
+The optional soft signal belongs to route/adapter RuntimeContext; B4ToolContext
+continues to expose its existing hard signal. Opaque routes that explicitly
+observe the soft signal with throwIfAborted receive an owned cooperative reason.
 
 ## Outcome and persistence
 
@@ -78,6 +86,11 @@ pending action, or clone/reuse a grant. If a state cannot safely be rebound,
 fail before model/tool execution. Guard subsequent fresh turns as well so a
 failed retirement cannot silently resume unsafe pending tasks. Do not introduce
 a second durable owner, operation ledger, or scheduler for this feature.
+
+Standalone graph adapters preserve an explicit null input as native checkpoint
+continuation. A fresh non-null input is subject to the safe-head guard; a clean
+Stop retires its pending actions before being reported. HTTP permission and
+resume authorization remain mandatory and cannot be bypassed with null input.
 
 Hard abort behavior remains distinguishable from clean cooperative settlement.
 An HTTP wait ending is not proof that execution stopped. Preserve existing
