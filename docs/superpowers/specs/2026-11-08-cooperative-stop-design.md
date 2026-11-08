@@ -61,6 +61,17 @@ The optional soft signal belongs to route/adapter RuntimeContext; B4ToolContext
 continues to expose its existing hard signal. Opaque routes that explicitly
 observe the soft signal with throwIfAborted receive an owned cooperative reason.
 
+The software-factory controller explicitly adapts its existing cancel-aware
+dispatch, intake, and redraft operations to this opaque route contract. Its
+app-local operation signal combines the hard and soft requests; the framework's
+hard signal remains unchanged. The route awaits both its operation and the
+factory cancellation cleanup it starts. It observes the owned soft reason at
+the normal controller cancellation boundary, preserving independent errors,
+refusals, and natural completion rather than classifying from a row's state.
+An acknowledged cancel_requested state describes the controller's request,
+not proof that remote work has stopped. This preserves its operator cancel command
+without making a universal remote-effect completion or rollback guarantee.
+
 ## Outcome and persistence
 
 Stop requested is not the same fact as stopped. A native GraphDrained outcome,

@@ -77,6 +77,17 @@ failures are not this branch's baseline exceptions.
   uniformly. Never leave the local chain `.invoke(input)` path uncontrolled.
 - Existing turn-end/stream helpers may get a narrowly shared stopped-outcome
   classifier. `abortable-iterable.ts` remains a hard-abort mechanism, not soft Stop.
+- `examples/software-factory/controller/src/lib/routes/settle.ts` and the
+  existing `work-orders/{dispatch,intake,reject-intake}` route modules: explicitly
+  adapt app-owned cancel-aware operations to optional RuntimeContext stopSignal.
+  Join both operation and triggered factory cancellation cleanup; preserve
+  independent failures and natural outcomes before reporting an observed Stop.
+  Keep the framework hard signal unchanged. Preserve the existing operator CLI
+  cancel, row truth, image cancellation, and serialized command behavior.
+- The controller's `src/cli.ts`, `test/routes.test.ts`, and new
+  `test/routes-settle.test.ts`: accurate acknowledgement wording and meaningful
+  delayed-cleanup, error-precedence, pre-stop, and late-stop evidence, retaining
+  existing CLI cancellation assertions. No global runtime or worker changes.
 - Add focused real-runtime tests below and a patch changeset for affected
   publishable packages. Update existing author/runtime docs and regenerate SEO
   lastmod after committing site content. No unrelated CI/release script changes.
