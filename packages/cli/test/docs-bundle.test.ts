@@ -327,6 +327,8 @@ describe("loadDocsPages()", () => {
     expect(EXPECTED_DOCS.length).toBeGreaterThan(0)
     const stagedDirectory = mkdtempSync(join(tmpdir(), "navlog-docker-docs-"))
     try {
+      // Keep the navigation source's ESM scope when importing it outside the repo.
+      copyFileSync(join(repoRoot, "apps/web/package.json"), join(stagedDirectory, "package.json"))
       for (const source of copiedModules) {
         expect(resolve(repoRoot, source)).toBe(join(repoRoot, docsDirectory, basename(source)))
         copyFileSync(join(repoRoot, source), join(stagedDirectory, basename(source)))
