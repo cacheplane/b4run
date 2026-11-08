@@ -1,6 +1,7 @@
 import { CooperativeStopError } from "@b4run/sdk"
 import { expect, it, vi } from "vitest"
 import type { Factory } from "../src/lib/controller/factory.ts"
+import { CommandInFlightError } from "../src/lib/domain/errors.ts"
 import type { WorkOrderRow } from "../src/lib/domain/work-order.ts"
 import { type SettleOptions, settleOutcome, withRuntimeStop } from "../src/lib/routes/settle.ts"
 
@@ -25,7 +26,7 @@ const options: SettleOptions = {
 function fixture() {
   const execution = deferred<WorkOrderRow>()
   const cancellation = deferred<Awaited<ReturnType<Factory["cancel"]>>>()
-  const cancel = vi.fn(() => cancellation.promise)
+  const cancel = vi.fn<Factory["cancel"]>(() => cancellation.promise)
   const factory = {
     show: () => row("running"),
     settle: () => execution.promise,
@@ -226,4 +227,138 @@ it("does not infer an owned Stop from a previously cancelled row", async () => {
   expect(await pending).toMatchObject({ state: "cancelled" })
   expect(f.cancel).not.toHaveBeenCalled()
   expect(observeStop).not.toHaveBeenCalled()
+})
+
+it.each([
+  { ok: false, state: "cancelled" as const, message: "Work order is terminal (cancelled)" },
+  {
+    ok: false,
+    state: "cancel_requested" as const,
+    message: "Cancel failed: independent persistence failure",
+  },
+])("preserves the actual non-acknowledged cancel result: $message", async (refusal) => {
+  const f = fixture()
+  const stop = new AbortController()
+  const pending = withRuntimeStop(
+    { signal: new AbortController().signal, stopSignal: stop.signal },
+    (signal, observeStop) => settleOutcome(f.factory, "owned", signal, options, observeStop),
+  )
+  stop.abort(new CooperativeStopError("operator Stop"))
+  f.execution.resolve(row(refusal.state))
+  f.cancellation.resolve(refusal)
+  expect(await pending).toBe(refusal)
+})
+
+it("preserves hard admission loss arriving during acknowledged cancel cleanup", async () => {
+  const f = fixture()
+  const hard = new AbortController()
+  const stop = new AbortController()
+  const reason = new Error("hard admission loss")
+  f.cancel.mockImplementation(async (_id, _key, acknowledged) => {
+    const outcome = await f.cancellation.promise
+    acknowledged?.("confirmed")
+    return outcome
+  })
+  const pending = withRuntimeStop(
+    { signal: hard.signal, stopSignal: stop.signal },
+    (signal, observeStop) => settleOutcome(f.factory, "owned", signal, options, observeStop),
+  )
+  const assertion = expect(pending).rejects.toBe(reason)
+  stop.abort(new CooperativeStopError("operator Stop"))
+  f.execution.resolve(row("cancelled"))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  hard.abort(reason)
+  f.cancellation.resolve({ ok: true, state: "cancelled", message: "Cancelled" })
+  await assertion
+})
+
+it("observes an explicitly acknowledged cancel whose worker confirmation is pending", async () => {
+  const f = fixture()
+  const stop = new AbortController()
+  const reason = new CooperativeStopError("operator Stop")
+  f.cancel.mockImplementation(async (_id, _key, acknowledged) => {
+    const outcome = await f.cancellation.promise
+    acknowledged?.("requested")
+    return outcome
+  })
+  const pending = withRuntimeStop(
+    { signal: new AbortController().signal, stopSignal: stop.signal },
+    (signal, observeStop) => settleOutcome(f.factory, "owned", signal, options, observeStop),
+  )
+  const assertion = expect(pending).rejects.toBe(reason)
+  stop.abort(reason)
+  f.execution.resolve(row("cancel_requested"))
+  f.cancellation.resolve({
+    ok: false,
+    state: "cancel_requested",
+    message:
+      "Cancel not confirmed; the worker was unreachable. Reconciliation will finish it on restart",
+  })
+  await assertion
+})
+
+it("preserves an independent operation failure over a resolved cancel refusal", async () => {
+  const f = fixture()
+  const pending = settleOutcome(f.factory, "owned", f.controller.signal, options)
+  f.controller.abort()
+  f.execution.resolve(row("blocked"))
+  f.cancellation.resolve({
+    ok: false,
+    state: "cancel_requested",
+    message: "Cancel failed: secondary failure",
+  })
+  expect(await pending).toMatchObject({ ok: false, state: "blocked", message: "Settled" })
+})
+
+it("preserves a stale in-flight cancel key as a typed refusal, never an acknowledged Stop", async () => {
+  const f = fixture()
+  const error = new CommandInFlightError(options.abortKey)
+  const observeStop = vi.fn(() => {
+    throw new CooperativeStopError()
+  })
+  const pending = settleOutcome(f.factory, "owned", f.controller.signal, options, observeStop)
+  f.controller.abort()
+  f.execution.resolve(row("cancelled"))
+  f.cancellation.reject(error)
+  await expect(pending).rejects.toBe(error)
+  expect(observeStop).not.toHaveBeenCalled()
+})
+
+it("preserves late hard admission loss when an older cancel result supplies no acknowledgement", async () => {
+  const f = fixture()
+  const hard = new AbortController()
+  const stop = new AbortController()
+  const reason = new Error("hard admission loss")
+  const pending = withRuntimeStop(
+    { signal: hard.signal, stopSignal: stop.signal },
+    (signal, observeStop) => settleOutcome(f.factory, "owned", signal, options, observeStop),
+  )
+  const assertion = expect(pending).rejects.toBe(reason)
+  stop.abort(new CooperativeStopError("operator Stop"))
+  f.execution.resolve(row("cancelled"))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  hard.abort(reason)
+  f.cancellation.resolve({ ok: true, state: "cancelled", message: "Cancelled" })
+  await assertion
+})
+
+it("preserves an independent returned cancel failure when hard abort also arrives during cleanup", async () => {
+  const f = fixture()
+  const hard = new AbortController()
+  const stop = new AbortController()
+  const failure = {
+    ok: false,
+    state: "cancel_requested" as const,
+    message: "Cancel failed: primary storage failure",
+  }
+  const pending = withRuntimeStop(
+    { signal: hard.signal, stopSignal: stop.signal },
+    (signal, observeStop) => settleOutcome(f.factory, "owned", signal, options, observeStop),
+  )
+  stop.abort(new CooperativeStopError("operator Stop"))
+  f.execution.resolve(row("cancel_requested"))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  hard.abort(new Error("hard admission loss"))
+  f.cancellation.resolve(failure)
+  expect(await pending).toBe(failure)
 })

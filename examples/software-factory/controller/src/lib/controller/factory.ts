@@ -277,7 +277,12 @@ export interface Factory {
     id: string,
     input: { revision: number; bundleDigest: string; operationKey?: string },
   ): Promise<CommandOutcome>
-  cancel(id: string, operationKey?: string): Promise<CommandOutcome>
+  /** A transient acknowledgement after local persistence, not remote quiescence. */
+  cancel(
+    id: string,
+    operationKey?: string,
+    acknowledged?: (status: "requested" | "confirmed") => void,
+  ): Promise<CommandOutcome>
   show(id: string): WorkOrderRow | null
   list(): WorkOrderRow[]
   events(id: string): FactoryEvent[]
@@ -2326,7 +2331,7 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       return answerDelivery(id, key, { command: "redeliver", args: { revision, bundleDigest } })
     },
 
-    async cancel(id, operationKey) {
+    async cancel(id, operationKey, acknowledged) {
       const row = mustGet(id)
       const key = operationKey ?? `cancel:${id}:${row.revision}`
       const begun = commands.begin(key, id, { command: "cancel", args: {} }, iso())
@@ -2338,12 +2343,15 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
           state: row.state,
           message: `Work order is terminal (${row.state})`,
         })
-      if (row.state === "cancel_requested")
-        return finish(key, {
+      if (row.state === "cancel_requested") {
+        const outcome = finish(key, {
           ok: false,
           state: row.state,
           message: "Cancel already in progress",
         })
+        acknowledged?.("requested")
+        return outcome
+      }
       // Recorded before any worker call: a crash in between leaves cancel_requested, which is
       // exactly what reconciliation knows how to finish.
       try {
@@ -2366,9 +2374,12 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
       }
       // The row, not the call, is the outcome: an unconfirmed cancel is still cancel_requested,
       // and reconciliation finishes it on the next boot.
-      if (final.state === "cancelled")
-        return finish(key, { ok: true, state: final.state, message: "Cancelled" })
-      return finish(key, {
+      if (final.state === "cancelled") {
+        const outcome = finish(key, { ok: true, state: final.state, message: "Cancelled" })
+        acknowledged?.("confirmed")
+        return outcome
+      }
+      const outcome = finish(key, {
         ok: false,
         state: final.state,
         message:
@@ -2376,6 +2387,8 @@ export async function createFactory(options: FactoryOptions): Promise<Factory> {
             ? "Cancel not confirmed; the worker was unreachable. Reconciliation will finish it on restart"
             : `Cancel did not complete; work order is ${final.state}`,
       })
+      if (final.state === "cancel_requested") acknowledged?.("requested")
+      return outcome
     },
 
     show: (id) => store.get(id),
