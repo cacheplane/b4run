@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
   lstat,
@@ -16,6 +17,7 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 
 import { parse, stringify } from "yaml"
 import { classifyReleaseWorkflowAbandonment } from "../abandonment-reachability.mjs"
@@ -2563,6 +2565,796 @@ test("dependency security workflow mutations fail closed", async (t) => {
       )
     })
   }
+})
+
+test("navlog deploy watches every docs module copied into its image", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const dockerfile = await readFile(
+    path.join(ROOT, "examples/navlog/server/Dockerfile.railway"),
+    "utf8",
+  )
+  const copy =
+    /^COPY (apps\/web\/app\/components\/docs\/[^\n]+) \.\/apps\/web\/app\/components\/docs\/$/mu.exec(
+      dockerfile,
+    )
+  assert.ok(copy, "the Dockerfile docs module copy must be recognized")
+  const modules = copy[1].split(/\s+/u)
+  assert.ok(modules.length > 0)
+  for (const module of modules) {
+    assert.ok(workflow.on.push.paths.includes(module), `navlog deploy must watch ${module}`)
+  }
+})
+
+test("navlog diagnostic dispatch and deployment are mutually exclusive", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  assert.ok(workflow.on.workflow_dispatch?.inputs, "diagnostic dispatch inputs are required")
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs.diagnose, {
+    description: "Read build logs without deploying",
+    type: "boolean",
+    default: false,
+  })
+  assert.equal(workflow.on.workflow_dispatch.inputs.deployment_id.type, "string")
+  assert.equal(workflow.on.workflow_dispatch.inputs.deployment_id.required, false)
+  assert.equal(
+    workflow.on.workflow_dispatch.inputs.deployment_id.default,
+    "fac8e87f-5b1a-49b8-a951-c92c576fb40c",
+  )
+  assert.ok(workflow.jobs.diagnose, "a read-only diagnostic job is required")
+  for (const [event, diagnose, deployExpected, diagnoseExpected] of [
+    ["push", undefined, true, false],
+    ["push", true, true, false],
+    ["workflow_dispatch", false, true, false],
+    ["workflow_dispatch", true, false, true],
+  ]) {
+    const context = { github: { event_name: event }, inputs: { diagnose } }
+    assert.equal(evaluateExpression(workflow.jobs.deploy.if, context), deployExpected)
+    assert.equal(evaluateExpression(workflow.jobs.diagnose.if, context), diagnoseExpected)
+  }
+  const job = workflow.jobs.diagnose
+  assert.equal(job["timeout-minutes"], 2)
+  assert.equal(job.steps.length, 2, "diagnosis must not check out or install code")
+  assert.equal(job.steps[0].uses, ACTIONS.node)
+  assert.deepEqual(job.steps[0].with, { "node-version": "24.19.0" })
+  assert.deepEqual(job.steps[1].env, {
+    RAILWAY_TOKEN: workflowExpression("secrets.RAILWAY_NAVLOG_TOKEN"),
+    DEPLOYMENT_ID: workflowExpression("inputs.deployment_id"),
+  })
+})
+
+const NAVLOG_DIAGNOSTIC_ID = "fac8e87f-5b1a-49b8-a951-c92c576fb40c"
+const NAVLOG_DIAGNOSTIC_TOKEN = "synthetic-project-token-for-tests"
+const NAVLOG_BUILD_LOG = {
+  timestamp: "2026-11-08T10:00:00Z",
+  message: "Docker build failed at pnpm build",
+  severity: "ERROR",
+}
+
+const NAVLOG_DIAGNOSTIC_DATA = {
+  deployment: {
+    id: NAVLOG_DIAGNOSTIC_ID,
+    status: "FAILED",
+    environmentId: "environment-test_1",
+    snapshotId: null,
+    createdAt: "2026-11-08T20:22:09Z",
+    statusUpdatedAt: null,
+  },
+  deploymentEvents: { edges: [], pageInfo: { hasNextPage: false } },
+}
+const NAVLOG_DEPLOYMENT_EVENT = {
+  id: "event-first",
+  step: "BUILD_IMAGE",
+  createdAt: "2026-11-08T20:22:09Z",
+  completedAt: "2026-11-08T20:22:42Z",
+  payload: {
+    error: "Build exited with code 1",
+    detail: null,
+    reason: null,
+    durationMs: 33000,
+    attempt: 1,
+    maxAttempts: 2,
+    skipped: false,
+  },
+}
+
+const NAVLOG_SCOPED_DEPLOYMENT = {
+  ...NAVLOG_DIAGNOSTIC_DATA.deployment,
+  snapshotId: "a".repeat(64),
+  statusUpdatedAt: "2026-11-08T20:22:44.500Z",
+}
+const NAVLOG_SCOPED_BUILD_LOG = { ...NAVLOG_BUILD_LOG, message: "Preferred scoped build tail" }
+
+function navlogDiagnosticResponse(overrides = {}) {
+  return Response.json({
+    data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: [NAVLOG_BUILD_LOG], ...overrides },
+  })
+}
+
+async function exerciseNavlogDiagnostic({
+  id = NAVLOG_DIAGNOSTIC_ID,
+  token = NAVLOG_DIAGNOSTIC_TOKEN,
+  response = Response.json({ data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: [NAVLOG_BUILD_LOG] } }),
+  fetchError,
+  secondResponse = Response.json({ data: { environmentLogs: [NAVLOG_SCOPED_BUILD_LOG] } }),
+  secondFetchError,
+} = {}) {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  assert.ok(workflow.jobs.diagnose, "a read-only diagnostic job is required")
+  const run = workflow.jobs.diagnose.steps.find((step) => step.run)?.run
+  const source = /^node - <<'JS'\n([\s\S]*)\nJS\n$/u.exec(run)?.[1]
+  assert.ok(source, "execute the exact inline diagnostic JavaScript")
+  const calls = []
+  const stdout = []
+  const stderr = []
+  let timeoutCalls = 0
+  const process = {
+    env: { DEPLOYMENT_ID: id, RAILWAY_TOKEN: token },
+    exitCode: 0,
+  }
+  await runInNewContext(
+    `(async () => {\n${source}\n})()`,
+    {
+      process,
+      console: {
+        log: (...args) => stdout.push(args.join(" ")),
+        error: (...args) => stderr.push(args.join(" ")),
+      },
+      TextDecoder,
+      TextEncoder,
+      AbortSignal: {
+        timeout: (milliseconds) => {
+          assert.equal(milliseconds, 30000)
+          timeoutCalls++
+          return AbortSignal.timeout(milliseconds)
+        },
+      },
+      fetch: async (...args) => {
+        calls.push(args)
+        if (calls.length === 1) {
+          if (fetchError) throw fetchError
+          return response
+        }
+        assert.equal(calls.length, 2, "at most two fixed read-only requests")
+        if (secondFetchError) throw secondFetchError
+        return secondResponse
+      },
+    },
+    { timeout: 1000 },
+  )
+  const logs = stdout.filter((line) => line.startsWith("Railway build log: "))
+  return { calls, stdout, logs, stderr, timeoutCalls, exitCode: process.exitCode }
+}
+
+test("navlog diagnostic rejects invalid IDs and missing credentials before fetching", async () => {
+  for (const id of [
+    "",
+    "not-a-uuid",
+    `${NAVLOG_DIAGNOSTIC_ID}\n`,
+    "$(echo injected)",
+    "a".repeat(36),
+  ]) {
+    const result = await exerciseNavlogDiagnostic({ id })
+    assert.equal(result.exitCode, 1)
+    assert.equal(result.calls.length, 0)
+    assert.match(result.stderr.join("\n"), /deployment UUID/u)
+  }
+  const result = await exerciseNavlogDiagnostic({ token: "" })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 0)
+})
+
+test("navlog diagnostic executes only the fixed bounded read-only Railway query", async () => {
+  const result = await exerciseNavlogDiagnostic()
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.calls.length, 1)
+  const [[url, options]] = result.calls
+  assert.equal(url, "https://backboard.railway.com/graphql/v2")
+  assert.equal(options.method, "POST")
+  assert.equal(options.redirect, "error")
+  assert.equal(options.headers["project-access-token"], NAVLOG_DIAGNOSTIC_TOKEN)
+  assert.equal(options.headers["content-type"], "application/json")
+  assert.equal(options.signal.aborted, false)
+  assert.deepEqual(JSON.parse(options.body), {
+    query:
+      "query($deploymentId: String!, $limit: Int) { deployment(id: $deploymentId) { id status environmentId snapshotId createdAt statusUpdatedAt } deploymentEvents(id: $deploymentId, first: 100) { edges { node { id step createdAt completedAt payload { error detail reason durationMs attempt maxAttempts skipped } } } pageInfo { hasNextPage } } buildLogs(deploymentId: $deploymentId, limit: $limit) { timestamp message severity } }",
+    variables: { deploymentId: NAVLOG_DIAGNOSTIC_ID, limit: 500 },
+  })
+  assert.equal(result.logs.length, 1)
+  assert.deepEqual(JSON.parse(result.logs[0].slice("Railway build log: ".length)), NAVLOG_BUILD_LOG)
+})
+
+test("navlog diagnostic fetches only snapshot-scoped logs with one shared deadline", async () => {
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({
+      deployment: { ...NAVLOG_SCOPED_DEPLOYMENT, createdAt: "2026-11-08T12:22:09-08:00" },
+      deploymentEvents: {
+        edges: [{ node: NAVLOG_DEPLOYMENT_EVENT }],
+        pageInfo: { hasNextPage: false },
+      },
+    }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.calls.length, 2)
+  assert.equal(result.timeoutCalls, 1)
+  assert.equal(result.calls[0][1].signal, result.calls[1][1].signal)
+  const [url, options] = result.calls[1]
+  assert.equal(url, "https://backboard.railway.com/graphql/v2")
+  assert.equal(options.method, "POST")
+  assert.equal(options.redirect, "error")
+  assert.equal(options.headers["project-access-token"], NAVLOG_DIAGNOSTIC_TOKEN)
+  assert.deepEqual(JSON.parse(options.body), {
+    query:
+      "query($environmentId: String!, $filter: String!, $beforeDate: String!, $anchorDate: String!) { environmentLogs(environmentId: $environmentId, filter: $filter, beforeLimit: 500, beforeDate: $beforeDate, anchorDate: $anchorDate, afterDate: $anchorDate, afterLimit: 0) { timestamp message severity } }",
+    variables: {
+      environmentId: NAVLOG_SCOPED_DEPLOYMENT.environmentId,
+      filter: `(@snapshot:${NAVLOG_SCOPED_DEPLOYMENT.snapshotId} OR @replica:${NAVLOG_SCOPED_DEPLOYMENT.snapshotId})`,
+      beforeDate: "2026-11-08T20:17:09.000Z",
+      anchorDate: "2026-11-08T20:27:44.500Z",
+    },
+  })
+  assert.deepEqual(
+    result.logs.map((line) => JSON.parse(line.slice("Railway build log: ".length))),
+    [NAVLOG_SCOPED_BUILD_LOG],
+  )
+  assert.ok(result.stdout[0].startsWith("Railway deployment: "))
+  assert.ok(result.stdout[1].startsWith("Railway deployment event: "))
+  assert.ok(result.stdout[2].startsWith("Railway build log: "))
+})
+
+test("navlog diagnostic uses only bounded legacy logs when nullable snapshot metadata is absent", async () => {
+  for (const deployment of [
+    NAVLOG_DIAGNOSTIC_DATA.deployment,
+    { ...NAVLOG_SCOPED_DEPLOYMENT, snapshotId: null },
+    { ...NAVLOG_SCOPED_DEPLOYMENT, statusUpdatedAt: null },
+  ]) {
+    const result = await exerciseNavlogDiagnostic({
+      response: navlogDiagnosticResponse({ deployment }),
+    })
+    assert.equal(result.exitCode, 0)
+    assert.equal(result.calls.length, 1)
+    assert.equal(result.logs.length, 1)
+    assert.deepEqual(
+      JSON.parse(result.logs[0].slice("Railway build log: ".length)),
+      NAVLOG_BUILD_LOG,
+    )
+    assert.ok(result.stderr.some((line) => /legacy build logs may be incomplete/u.test(line)))
+  }
+})
+
+test("navlog diagnostic refuses invalid scope metadata before a second fetch or provider output", async (t) => {
+  const cases = [
+    ["wrong bound deployment", { id: "another-deployment" }],
+    ["null required environment", { environmentId: null }],
+    ["missing required environment", { environmentId: undefined }],
+    ["unsafe environment", { environmentId: "environment OR another" }],
+    ["unsafe snapshot filter", { snapshotId: "hash) OR @snapshot:*" }],
+    ["oversize snapshot", { snapshotId: "a".repeat(257) }],
+    ["missing nullable snapshot", { snapshotId: undefined }],
+    ["null required creation date", { createdAt: null }],
+    [
+      "all metadata null",
+      { environmentId: null, createdAt: null, snapshotId: null, statusUpdatedAt: null },
+    ],
+    ["invalid creation date", { createdAt: "not-a-date" }],
+    ["rolled date", { createdAt: "2026-02-30T20:22:09Z" }],
+    ["missing date timezone", { createdAt: "2026-11-08T20:22:09" }],
+    ["invalid update date", { statusUpdatedAt: "not-a-date" }],
+    ["update predates creation", { statusUpdatedAt: "2026-11-08T20:00:00Z" }],
+    ["missing nullable update date", { statusUpdatedAt: undefined }],
+  ]
+  for (const [name, override] of cases) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogDiagnostic({
+        response: navlogDiagnosticResponse({
+          deployment: { ...NAVLOG_SCOPED_DEPLOYMENT, ...override },
+        }),
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 1)
+      assert.equal(result.stdout.length, 0)
+      assert.equal(result.stderr.length, 1)
+    })
+  }
+})
+
+test("navlog diagnostic validates the entire scoped response before printing first-response facts", async (t) => {
+  const cases = [
+    ["HTTP failure", new Response(NAVLOG_DIAGNOSTIC_TOKEN, { status: 403 })],
+    ["GraphQL failure", Response.json({ errors: [{ message: NAVLOG_DIAGNOSTIC_TOKEN }] })],
+    [
+      "partial GraphQL error",
+      Response.json({ errors: [{}], data: { environmentLogs: [NAVLOG_SCOPED_BUILD_LOG] } }),
+    ],
+    ["invalid JSON", new Response("not-json")],
+    ["missing data", Response.json({})],
+    ["null logs", Response.json({ data: { environmentLogs: null } })],
+    ["non-array logs", Response.json({ data: { environmentLogs: {} } })],
+    [
+      "too many logs",
+      Response.json({ data: { environmentLogs: Array(502).fill(NAVLOG_SCOPED_BUILD_LOG) } }),
+    ],
+    [
+      "invalid severity",
+      Response.json({
+        data: { environmentLogs: [{ ...NAVLOG_SCOPED_BUILD_LOG, severity: false }] },
+      }),
+    ],
+    [
+      "missing required message",
+      Response.json({ data: { environmentLogs: [{ timestamp: "now", severity: null }] } }),
+    ],
+    ["response bytes exceeded", new Response("x".repeat(2 * 1024 * 1024 + 1))],
+  ]
+  for (const [name, secondResponse] of cases) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogDiagnostic({
+        response: navlogDiagnosticResponse({ deployment: NAVLOG_SCOPED_DEPLOYMENT }),
+        secondResponse,
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 2)
+      assert.equal(result.stdout.length, 0)
+      assert.equal(result.stderr.length, 1)
+      assert.ok(!result.stderr[0].includes(NAVLOG_DIAGNOSTIC_TOKEN))
+    })
+  }
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({ deployment: NAVLOG_SCOPED_DEPLOYMENT }),
+    secondFetchError: new Error(NAVLOG_DIAGNOSTIC_TOKEN),
+  })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.stdout.length, 0)
+  assert.ok(!result.stderr.join("\n").includes(NAVLOG_DIAGNOSTIC_TOKEN))
+})
+
+test("navlog diagnostic preserves nullable severity in both bounded log views", async () => {
+  const log = { ...NAVLOG_SCOPED_BUILD_LOG, severity: null }
+  const legacy = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({ buildLogs: [log] }),
+  })
+  const scoped = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({ deployment: NAVLOG_SCOPED_DEPLOYMENT }),
+    secondResponse: Response.json({ data: { environmentLogs: [log] } }),
+  })
+  for (const result of [legacy, scoped]) {
+    assert.equal(result.exitCode, 0)
+    assert.deepEqual(JSON.parse(result.logs[0].slice("Railway build log: ".length)), log)
+  }
+})
+
+test("navlog diagnostic keeps only the preferred scoped tail and sanitizes its fields", async () => {
+  const rows = Array.from({ length: 501 }, (_, index) => ({
+    ...NAVLOG_SCOPED_BUILD_LOG,
+    message: `Scoped line ${index}`,
+  }))
+  const tail = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({ deployment: NAVLOG_SCOPED_DEPLOYMENT }),
+    secondResponse: Response.json({ data: { environmentLogs: rows } }),
+  })
+  assert.equal(tail.exitCode, 0)
+  assert.equal(tail.logs.length, 500)
+  assert.deepEqual(
+    tail.logs.map((line) => JSON.parse(line.slice("Railway build log: ".length))),
+    rows.slice(1),
+  )
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({ deployment: NAVLOG_SCOPED_DEPLOYMENT }),
+    secondResponse: Response.json({
+      data: {
+        environmentLogs: [
+          {
+            timestamp: "##[error]::error::timestamp",
+            message: `##[stop-commands]::stop-commands::${NAVLOG_DIAGNOSTIC_TOKEN}\nend`,
+            severity: "API_KEY=scoped-secret",
+          },
+        ],
+      },
+    }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.logs.length, 1)
+  assert.ok(!result.logs[0].includes("##[") && !result.logs[0].includes("\n"))
+  assert.ok(
+    !result.logs[0].includes(NAVLOG_DIAGNOSTIC_TOKEN) && !result.logs[0].includes("scoped-secret"),
+  )
+  const decoded = JSON.parse(result.logs[0].slice("Railway build log: ".length))
+  assert.equal(decoded.timestamp, "##[error]::error::timestamp")
+  assert.match(decoded.message, /\[REDACTED\]/u)
+  assert.equal(decoded.severity, "[REDACTED credential-bearing line]")
+})
+
+test("navlog diagnostic emits typed event facts without choosing a retry error as root cause", async () => {
+  const events = [
+    NAVLOG_DEPLOYMENT_EVENT,
+    {
+      ...NAVLOG_DEPLOYMENT_EVENT,
+      id: "event-retry",
+      createdAt: "2026-11-08T20:23:00Z",
+      completedAt: null,
+      payload: {
+        error: null,
+        detail: null,
+        reason: null,
+        durationMs: null,
+        attempt: 2,
+        maxAttempts: null,
+        skipped: null,
+      },
+    },
+    { ...NAVLOG_DEPLOYMENT_EVENT, id: "event-no-payload", completedAt: null, payload: null },
+  ]
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({
+      deploymentEvents: {
+        edges: events.map((node) => ({ node })),
+        pageInfo: { hasNextPage: false },
+      },
+    }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.stdout.length, 5)
+  assert.deepEqual(JSON.parse(result.stdout[0].slice("Railway deployment: ".length)), {
+    id: NAVLOG_DIAGNOSTIC_ID,
+    status: "FAILED",
+  })
+  for (const [index, event] of events.entries()) {
+    const line = result.stdout[index + 1]
+    assert.ok(line.startsWith("Railway deployment event: {"))
+    assert.deepEqual(JSON.parse(line.slice("Railway deployment event: ".length)), event)
+  }
+  assert.ok(!result.stdout.join("\n").includes("rootCause"))
+  assert.ok(result.stdout[4].startsWith("Railway build log: "))
+})
+
+test("navlog diagnostic rejects malformed deployment event shapes before emitting provider data", async (t) => {
+  const connection = (node) => ({ edges: [{ node }], pageInfo: { hasNextPage: false } })
+  const cases = [
+    ["null deployment", { deployment: null }],
+    [
+      "wrong deployment ID",
+      { deployment: { ...NAVLOG_DIAGNOSTIC_DATA.deployment, id: "different" } },
+    ],
+    [
+      "invalid deployment status",
+      { deployment: { ...NAVLOG_DIAGNOSTIC_DATA.deployment, status: null } },
+    ],
+    ["null events", { deploymentEvents: null }],
+    [
+      "too many events",
+      {
+        deploymentEvents: {
+          edges: Array(101).fill({ node: NAVLOG_DEPLOYMENT_EVENT }),
+          pageInfo: { hasNextPage: false },
+        },
+      },
+    ],
+    ["null event", { deploymentEvents: connection(null) }],
+    [
+      "null required timestamp",
+      { deploymentEvents: connection({ ...NAVLOG_DEPLOYMENT_EVENT, createdAt: null }) },
+    ],
+    [
+      "missing nullable completedAt",
+      { deploymentEvents: connection({ ...NAVLOG_DEPLOYMENT_EVENT, completedAt: undefined }) },
+    ],
+    ["invalid step", { deploymentEvents: connection({ ...NAVLOG_DEPLOYMENT_EVENT, step: null }) }],
+    [
+      "invalid payload",
+      { deploymentEvents: connection({ ...NAVLOG_DEPLOYMENT_EVENT, payload: "raw-secret" }) },
+    ],
+    [
+      "invalid error type",
+      {
+        deploymentEvents: connection({
+          ...NAVLOG_DEPLOYMENT_EVENT,
+          payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, error: 1 },
+        }),
+      },
+    ],
+    [
+      "invalid integer",
+      {
+        deploymentEvents: connection({
+          ...NAVLOG_DEPLOYMENT_EVENT,
+          payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, durationMs: 1.5 },
+        }),
+      },
+    ],
+    [
+      "out of range integer",
+      {
+        deploymentEvents: connection({
+          ...NAVLOG_DEPLOYMENT_EVENT,
+          payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, attempt: 2147483648 },
+        }),
+      },
+    ],
+    [
+      "invalid detail type",
+      {
+        deploymentEvents: connection({
+          ...NAVLOG_DEPLOYMENT_EVENT,
+          payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, detail: false },
+        }),
+      },
+    ],
+    [
+      "invalid nullable boolean",
+      {
+        deploymentEvents: connection({
+          ...NAVLOG_DEPLOYMENT_EVENT,
+          payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, skipped: "false" },
+        }),
+      },
+    ],
+    ["invalid page info", { deploymentEvents: { edges: [], pageInfo: { hasNextPage: "false" } } }],
+  ]
+  for (const [name, overrides] of cases) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogDiagnostic({
+        response: navlogDiagnosticResponse(overrides),
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.stdout.length, 0)
+      assert.equal(result.stderr.length, 1)
+      assert.ok(!result.stderr[0].includes("raw-secret"))
+    })
+  }
+})
+
+test("navlog diagnostic redacts and escapes event summaries and reports bounded pagination", async () => {
+  const event = {
+    ...NAVLOG_DEPLOYMENT_EVENT,
+    id: "##[error]::error::event",
+    createdAt: "##[add-mask]::add-mask::timestamp",
+    completedAt: "##[stop-commands]::stop-commands::completed",
+    payload: {
+      ...NAVLOG_DEPLOYMENT_EVENT.payload,
+      error: `before ${NAVLOG_DIAGNOSTIC_TOKEN}\n##[error]::error::provider`,
+      reason: "API_KEY=event-secret",
+      detail: `detail ##[warning]::warning::${NAVLOG_DIAGNOSTIC_TOKEN}`,
+    },
+  }
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({
+      deploymentEvents: { edges: [{ node: event }], pageInfo: { hasNextPage: true } },
+    }),
+  })
+  assert.equal(result.exitCode, 0)
+  const line = result.stdout.find((value) => value.startsWith("Railway deployment event: "))
+  assert.ok(line)
+  assert.ok(!line.includes("##[") && !line.includes("\n") && !line.includes("\r"))
+  assert.ok(!line.includes(NAVLOG_DIAGNOSTIC_TOKEN) && !line.includes("event-secret"))
+  const decoded = JSON.parse(line.slice("Railway deployment event: ".length))
+  assert.equal(decoded.id, event.id)
+  assert.equal(decoded.createdAt, event.createdAt)
+  assert.equal(decoded.completedAt, event.completedAt)
+  assert.match(decoded.payload.error, /\[REDACTED\]/u)
+  assert.equal(decoded.payload.reason, "[REDACTED credential-bearing line]")
+  assert.match(decoded.payload.detail, /\[REDACTED\]/u)
+  assert.ok(result.stderr.some((value) => /deployment events truncated.*100/u.test(value)))
+})
+
+test("navlog diagnostic shares one aggregate byte cap between events and build logs", async () => {
+  const result = await exerciseNavlogDiagnostic({
+    response: navlogDiagnosticResponse({
+      deployment: NAVLOG_SCOPED_DEPLOYMENT,
+      deploymentEvents: {
+        edges: Array.from({ length: 100 }, (_, index) => ({
+          node: {
+            ...NAVLOG_DEPLOYMENT_EVENT,
+            id: `event-${index}`,
+            payload: { ...NAVLOG_DEPLOYMENT_EVENT.payload, error: "x".repeat(1500) },
+          },
+        })),
+        pageInfo: { hasNextPage: false },
+      },
+    }),
+    secondResponse: Response.json({
+      data: {
+        environmentLogs: Array(100).fill({ ...NAVLOG_BUILD_LOG, message: "x".repeat(1500) }),
+      },
+    }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(
+    result.stdout.filter((line) => line.startsWith("Railway deployment event: ")).length,
+    100,
+  )
+  assert.ok(result.logs.length > 0 && result.logs.length < 100)
+  assert.ok(Buffer.byteLength(result.stdout.join("\n")) <= 256 * 1024)
+  assert.ok(result.stderr.some((line) => line.includes("output truncated at 256 KiB")))
+})
+
+test("navlog diagnostic fails safely on provider errors and malformed or excessive responses", async (t) => {
+  const cases = [
+    ["HTTP failure", new Response(NAVLOG_DIAGNOSTIC_TOKEN, { status: 403 })],
+    ["GraphQL failure", Response.json({ errors: [{ message: NAVLOG_DIAGNOSTIC_TOKEN }] })],
+    [
+      "partial GraphQL failure",
+      Response.json({
+        errors: [{}],
+        data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: [NAVLOG_BUILD_LOG] },
+      }),
+    ],
+    ["invalid JSON", new Response("not json")],
+    ["missing data", Response.json({})],
+    ["non-array logs", Response.json({ data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: {} } })],
+    [
+      "malformed row",
+      Response.json({
+        data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: [{ ...NAVLOG_BUILD_LOG, severity: false }] },
+      }),
+    ],
+    [
+      "too many rows",
+      Response.json({
+        data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: Array(502).fill(NAVLOG_BUILD_LOG) },
+      }),
+    ],
+    ["oversize response", new Response("x".repeat(2 * 1024 * 1024 + 1))],
+  ]
+  for (const [name, response] of cases) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogDiagnostic({ response })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.stdout.length, 0)
+      assert.equal(result.stderr.length, 1)
+      assert.ok(result.stderr[0].startsWith("Railway diagnostic: "))
+      assert.ok(!result.stderr[0].includes(NAVLOG_DIAGNOSTIC_TOKEN))
+    })
+  }
+  const result = await exerciseNavlogDiagnostic({
+    fetchError: new Error(NAVLOG_DIAGNOSTIC_TOKEN),
+  })
+  assert.equal(result.exitCode, 1)
+  assert.ok(!result.stderr.join("\n").includes(NAVLOG_DIAGNOSTIC_TOKEN))
+})
+
+test("navlog diagnostic redacts credentials and prevents provider workflow commands", async () => {
+  const messages = [
+    `echo ${NAVLOG_DIAGNOSTIC_TOKEN} ${NAVLOG_DIAGNOSTIC_TOKEN}`,
+    "API_KEY=credential-value",
+    '{"apiKey":"credential-value"}',
+    "Authorization: Bearer credential-value",
+    "DATABASE_URL=postgresql://user:credential-value@database/app",
+    "::error::injected\n::add-mask::injected\r::warning::injected",
+  ]
+  const response = Response.json({
+    data: {
+      ...NAVLOG_DIAGNOSTIC_DATA,
+      buildLogs: messages.map((message) => ({ ...NAVLOG_BUILD_LOG, message })),
+    },
+  })
+  const result = await exerciseNavlogDiagnostic({ response })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.logs.length, messages.length)
+  for (const line of result.logs) {
+    assert.ok(line.startsWith("Railway build log: {"))
+    assert.ok(!line.includes("\n") && !line.includes("\r"))
+    assert.ok(!line.includes(NAVLOG_DIAGNOSTIC_TOKEN))
+    assert.ok(!line.includes("credential-value"))
+  }
+  assert.match(result.logs[0], /\[REDACTED\]/u)
+  assert.match(result.logs[5], /::error::injected\\n::add-mask::injected\\n/u)
+})
+
+test("navlog diagnostic escapes legacy runner command openers in every provider field", async () => {
+  // ActionCommand.TryParse searches for ##[ anywhere, including inside serialized JSON.
+  const logs = ["timestamp", "message", "severity"].flatMap((field) =>
+    ["error", "add-mask", "stop-commands"].map((command) => ({
+      ...NAVLOG_BUILD_LOG,
+      [field]: `before ##[${command}]injected after`,
+    })),
+  )
+  const result = await exerciseNavlogDiagnostic({
+    response: Response.json({ data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: logs } }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.logs.length, logs.length)
+  for (const [index, line] of result.logs.entries()) {
+    assert.ok(line.startsWith("Railway build log: {"))
+    assert.ok(!line.includes("##["), "legacy runner commands must be escaped before output")
+    assert.deepEqual(JSON.parse(line.slice("Railway build log: ".length)), logs[index])
+  }
+})
+
+test("navlog diagnostic accepts the Railway extra row and emits only the last 500", async () => {
+  const logs = Array.from({ length: 501 }, (_, index) => ({
+    ...NAVLOG_BUILD_LOG,
+    message: `Build line ${index}`,
+  }))
+  const result = await exerciseNavlogDiagnostic({
+    response: Response.json({ data: { ...NAVLOG_DIAGNOSTIC_DATA, buildLogs: logs } }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.logs.length, 500)
+  const emitted = result.logs.map((line) => JSON.parse(line.slice("Railway build log: ".length)))
+  assert.deepEqual(emitted, logs.slice(1))
+  assert.equal(JSON.parse(result.calls[0][1].body).variables.limit, 500)
+})
+
+test("navlog diagnostic bounds CPU for long lines while detecting credentials beyond the output cap", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const run = workflow.jobs.diagnose.steps.find((step) => step.run)?.run
+  const source = /^node - <<'JS'\n([\s\S]*)\nJS\n$/u.exec(run)?.[1]
+  assert.ok(source)
+  // A separate process provides a hard deadline across fetch's asynchronous continuation.
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import { readFileSync } from "node:fs"
+       const prefix = "x-".repeat(250000)
+       globalThis.fetch = async () => Response.json({ data: {
+         deployment: { id: process.env.DEPLOYMENT_ID, status: "FAILED", environmentId: "environment-test_1", snapshotId: null, createdAt: "2026-11-08T20:22:09Z", statusUpdatedAt: null },
+         deploymentEvents: { edges: [], pageInfo: { hasNextPage: false } },
+         buildLogs: [
+         prefix,
+         prefix + " API_KEY=long-key-credential",
+         prefix + " postgresql://user:long-uri-credential@database/app",
+         "x".repeat(8180) + process.env.RAILWAY_TOKEN,
+         "https://registry.npmjs.org/@angular/core",
+         "https://registry.npmjs.org:443/@angular/core",
+       ].map((message) => ({ timestamp: "2026-11-08T10:00:00Z", severity: "ERROR", message })) } })
+       const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+       await new AsyncFunction(readFileSync(0, "utf8"))()`,
+    ],
+    {
+      input: source,
+      encoding: "utf8",
+      timeout: 3000,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+      env: { DEPLOYMENT_ID: NAVLOG_DIAGNOSTIC_ID, RAILWAY_TOKEN: NAVLOG_DIAGNOSTIC_TOKEN },
+    },
+  )
+  assert.ifError(result.error)
+  assert.equal(result.signal, null)
+  assert.equal(result.status, 0, result.stderr)
+  const logs = result.stdout
+    .trimEnd()
+    .split("\n")
+    .filter((line) => line.startsWith("Railway build log: "))
+    .map((line) => {
+      assert.ok(line.startsWith("Railway build log: {"))
+      return JSON.parse(line.slice("Railway build log: ".length))
+    })
+  assert.equal(logs.length, 6)
+  assert.ok(logs[0].message.startsWith("x-".repeat(4000)))
+  assert.match(logs[0].message, /truncated/u)
+  assert.equal(logs[1].message, "[REDACTED credential-bearing line]")
+  assert.equal(logs[2].message, "[REDACTED credential-bearing line]")
+  assert.ok(!logs[3].message.includes(NAVLOG_DIAGNOSTIC_TOKEN.slice(0, 10)))
+  assert.equal(logs[4].message, "https://registry.npmjs.org/@angular/core")
+  assert.equal(logs[5].message, "https://registry.npmjs.org:443/@angular/core")
+})
+
+test("navlog diagnostic caps individual messages and total emitted log bytes", async () => {
+  const response = Response.json({
+    data: {
+      ...NAVLOG_DIAGNOSTIC_DATA,
+      buildLogs: Array(500).fill({
+        ...NAVLOG_BUILD_LOG,
+        message: "x".repeat(3000),
+      }),
+    },
+  })
+  const result = await exerciseNavlogDiagnostic({ response })
+  assert.equal(result.exitCode, 0)
+  assert.ok(result.stdout.length > 0 && result.stdout.length < 500)
+  assert.ok(Buffer.byteLength(result.stdout.join("\n")) <= 256 * 1024)
+  const long = await exerciseNavlogDiagnostic({
+    response: Response.json({
+      data: {
+        ...NAVLOG_DIAGNOSTIC_DATA,
+        buildLogs: [{ ...NAVLOG_BUILD_LOG, message: "x".repeat(20000) }],
+      },
+    }),
+  })
+  assert.equal(long.exitCode, 0)
+  assert.ok(long.logs[0].length < 9000)
+  assert.match(long.logs[0], /truncated/u)
 })
 
 test("every workflow executable entrypoint matches the readable audited allowlist", async () => {
