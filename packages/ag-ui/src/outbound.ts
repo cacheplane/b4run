@@ -31,6 +31,7 @@ import {
   type B4ToolStep,
   type B4ToolStepUpdate,
   isContentPartArray,
+  isCooperativeStop,
   mergeToolStep,
   readToolStep,
 } from "@b4run/sdk"
@@ -1122,7 +1123,7 @@ export async function* toAguiEvents(
     yield* finishSuccess(undefined)
   } catch (err) {
     yield* flushEveryOwner()
-    if (options.cancelled?.() === true) {
+    if (isCooperativeStop(err) || options.cancelled?.() === true) {
       yield* closeOpenSubagents({ kind: "cancelled" })
       yield* ledger.settle()
       yield {

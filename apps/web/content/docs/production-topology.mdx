@@ -37,7 +37,7 @@ AG-UI sends its `threadId` in the request body to `/agui/:routeId`, so a plain p
 
 Agent Protocol runs outlive their viewer. If the client disconnects from `/runs/stream` or abandons `/runs/wait`, the run keeps going until it completes, is cancelled, or the runtime shuts down. Route cancellation to the owning process.
 
-AG-UI is ephemeral. Disconnecting or cancelling its response aborts the request's run. Configure proxies to pass server-sent events through unbuffered, keep heartbeat traffic, and allow timeouts long enough for your turns. Test disconnects at the browser, the proxy and the runtime, as well as with a direct local request.
+AG-UI is ephemeral. Disconnecting or cancelling its response requests cooperative Stop for the request's exact run. Configure proxies to pass server-sent events through unbuffered, keep heartbeat traffic, and allow timeouts long enough for your turns. Test disconnects at the browser, the proxy and the runtime, as well as with a direct local request.
 
 ## Health and readiness
 

@@ -222,9 +222,44 @@ curl -sS -X POST "$BASE_URL/threads/$THREAD_ID/cancel"
 
 Cancel returns `404` with `thread_not_found` for an unknown thread, and `409`
 with `no_run_in_flight` when the thread exists on this process but nothing is
-running. Cancelling keeps the checkpointed state, with no rollback.
+running. The 200 response acknowledges a Stop request; it does not mean the
+execution has stopped. Stop keeps checkpointed state, with no rollback.
 
-How a cancelled run reports it depends on the endpoint. A cancelled SSE run or
+For a native LangGraph invocation, Stop lets the active superstep finish and
+persist before preventing the next superstep. That includes all awaited work
+inside its nodes: parallel tool calls, retries, cleanup and nested calls. A
+nested graph invoked inside an opaque tool can finish its own internal steps
+before the parent reaches its boundary. Stop-capable graph calls use synchronous
+checkpoint durability, so persistence latency is paid before the next step and
+a checkpoint failure remains an error even when Stop was requested.
+
+The thread remains owned until execution, checkpoint writes and runtime
+persistence settle. A new run on that thread returns `409` while they are still
+active, even if its HTTP viewer has gone away. There is no Stop deadline or
+automatic force release. Server shutdown, shared-admission loss and an explicit
+hard `AbortSignal` remain separate hard-abort paths.
+
+A requested Stop can lose to natural completion, and an independent execution or
+storage error remains an error. An opaque chain or workflow is observable only
+at its invocation boundary: it can finish naturally, or explicitly observe
+`ctx.stopSignal` with `throwIfAborted()`. Its `ctx.signal` stays live during
+ordinary Stop. B4 tool contexts retain their hard signal; their awaited work is
+part of the active graph step.
+
+After an observed native Stop, supported compiled state graphs and B4 agents
+retire scheduled actions through a non-executing state update. Fresh user input
+checks the head again before any model or tool work, including after a failed
+retirement; unsupported rebinding fails closed. State and history remain, and a
+missing result means execution or effects may be unknown. Permission parks are
+never retired by this guard, and their existing authorized resume remains
+required. Standalone adapter callers can still explicitly pass `null` for native
+checkpoint continuation; an HTTP null input is a fresh payload, not resume
+authorization.
+
+Stop does not guarantee quiescence of detached third-party callbacks, remote
+side effects or subprocesses. It adds no coordinated protocol activation.
+
+How an observed stopped run reports it depends on the endpoint. A stopped SSE run or
 resume ends the stream with:
 
 ```text
@@ -352,7 +387,7 @@ See [Production Topology](/docs/production-topology),
 
 AG-UI uses `POST /agui/{routeId}` with an encoded assistant id and an AG-UI
 `RunAgentInput`, and turns B4.run chunks into AG-UI events. It handles
-disconnects the other way around: the run stops when its viewer disconnects,
+disconnects the other way around: a viewer disconnect requests cooperative Stop,
 and there's no event replay. See [AG-UI and Web Clients](/docs/ag-ui) for that
 endpoint and lifecycle.
 

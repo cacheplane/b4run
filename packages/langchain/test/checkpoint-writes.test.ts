@@ -64,3 +64,34 @@ describe("trackCheckpointWrites", () => {
     await expect(tracked.settled()).resolves.toBeUndefined()
   })
 })
+
+it("reports rejected checkpoint writes even after native execution has swallowed the rejection", async () => {
+  class FailingSaver extends MemorySaver {
+    override async putWrites(): Promise<void> {
+      throw new Error("checkpoint storage failed")
+    }
+  }
+  const tracked = trackCheckpointWrites(new FailingSaver())
+  await tracked.saver.putWrites(config, [["x", 1]], "task").catch(() => undefined)
+  await expect(tracked.settled()).rejects.toThrow("checkpoint storage failed")
+})
+
+it("consumes all settled failures for one thread without consuming another thread's failure", async () => {
+  class FailingSaver extends MemorySaver {
+    override async putWrites(): Promise<void> {
+      throw new Error("write failed")
+    }
+  }
+  const tracked = trackCheckpointWrites(new FailingSaver())
+  await Promise.all(
+    ["a", "a", "b"].map((thread_id) =>
+      tracked.saver
+        .putWrites({ configurable: { thread_id } }, [["x", 1]], "task")
+        .catch(() => undefined),
+    ),
+  )
+  await expect(tracked.settled("a")).rejects.toThrow("write failed")
+  await expect(tracked.settled("a")).resolves.toBeUndefined()
+  await expect(tracked.settled("b")).rejects.toThrow("write failed")
+  await expect(tracked.settled("b")).resolves.toBeUndefined()
+})

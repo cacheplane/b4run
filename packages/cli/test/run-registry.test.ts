@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { isCooperativeStop } from "@b4run/sdk"
+import { describe, expect, it, vi } from "vitest"
 import { createRunRegistry } from "../src/lib/dev/run-registry.js"
 
 const shutdown = () => new AbortController().signal
@@ -40,11 +41,12 @@ describe("createRunRegistry", () => {
     expect(second).toBeDefined()
   })
 
-  it("cancel aborts the run signal and reports success", () => {
+  it("cancel requests cooperative stop while leaving the hard signal live and reports success", () => {
     const registry = createRunRegistry()
     const run = registry.begin("t1", shutdown())
     expect(registry.cancel("t1")).toBe(true)
-    expect(run?.signal.aborted).toBe(true)
+    expect(run?.signal.aborted).toBe(false)
+    expect(run?.stopSignal.aborted).toBe(true)
     expect(run?.cancelled).toBe(true)
   })
 
@@ -89,13 +91,14 @@ describe("RunRegistry.claim", () => {
     expect(registry.claim("t1")).toBeUndefined()
   })
 
-  it("aborts the exact run it bound to", () => {
+  it("stops the exact run it bound to", () => {
     const registry = createRunRegistry()
     const run = registry.begin("t1", shutdown())
     const claim = registry.claim("t1")
     expect(claim?.cancel()).toBe(true)
     expect(run?.cancelled).toBe(true)
-    expect(run?.signal.aborted).toBe(true)
+    expect(run?.signal.aborted).toBe(false)
+    expect(run?.stopSignal.aborted).toBe(true)
   })
 
   it("refuses to abort a later run that replaced the one it bound to", () => {
@@ -109,6 +112,7 @@ describe("RunRegistry.claim", () => {
     expect(claim?.cancel()).toBe(false)
     expect(second?.cancelled).toBe(false)
     expect(second?.signal.aborted).toBe(false)
+    expect(second?.stopSignal.aborted).toBe(false)
     second?.release()
   })
 
@@ -119,4 +123,70 @@ describe("RunRegistry.claim", () => {
     expect(run?.cancelled).toBe(true)
     expect(registry.cancel("t-absent")).toBe(false)
   })
+})
+
+it("preserves the first Stop reason and keeps ownership until release", () => {
+  const registry = createRunRegistry()
+  const run = registry.begin("t", shutdown())
+  if (!run) throw new Error("Expected admitted run")
+  registry.cancel("t", "first")
+  registry.cancel("t", "second")
+  expect(run.stopSignal.reason.message).toBe("first")
+  expect(registry.begin("t", shutdown())).toBeUndefined()
+  expect(registry.activeCount()).toBe(1)
+  run.release()
+  expect(registry.activeCount()).toBe(0)
+})
+
+it("exposes an owned cooperative reason to opaque callers observing Stop", () => {
+  const registry = createRunRegistry(),
+    run = registry.begin("observed", shutdown())
+  if (!run) throw new Error("Expected admitted run")
+  registry.cancel("observed", "author observed Stop")
+  let observed: unknown
+  try {
+    run.stopSignal.throwIfAborted()
+  } catch (error) {
+    observed = error
+  }
+  expect(isCooperativeStop(observed)).toBe(true)
+  expect((observed as Error).message).toBe("author observed Stop")
+  expect(run.signal.aborted).toBe(false)
+  run.release()
+})
+
+it("bounds shutdown listeners across released runs, including repeated Stop requests", () => {
+  const registry = createRunRegistry(),
+    controller = new AbortController()
+  const add = vi.spyOn(controller.signal, "addEventListener"),
+    remove = vi.spyOn(controller.signal, "removeEventListener")
+  try {
+    for (let index = 0; index < 1000; index++) {
+      const run = registry.begin("bounded", controller.signal)
+      if (!run) throw new Error("Expected admitted run")
+      registry.cancel("bounded")
+      registry.cancel("bounded")
+      run.release()
+      run.release()
+    }
+    expect(add).toHaveBeenCalledTimes(1000)
+    expect(remove).toHaveBeenCalledTimes(1000)
+    expect(registry.activeCount()).toBe(0)
+  } finally {
+    add.mockRestore()
+    remove.mockRestore()
+  }
+})
+
+it("hard shutdown remains live after an ordinary Stop request", () => {
+  const registry = createRunRegistry(),
+    controller = new AbortController(),
+    run = registry.begin("both", controller.signal)
+  if (!run) throw new Error("Expected admitted run")
+  registry.cancel("both", "first")
+  const reason = new Error("hard shutdown")
+  controller.abort(reason)
+  expect(run.signal.reason).toBe(reason)
+  expect(run.stopSignal.reason.message).toBe("first")
+  run.release()
 })

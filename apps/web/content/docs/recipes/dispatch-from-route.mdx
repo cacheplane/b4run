@@ -100,6 +100,12 @@ export async function workflow(state: OrchestratorState, _ctx: RuntimeContext) {
 - **Cancellation stays local.** Cancelling or shutting down the parent leaves the remote Agent Protocol run going. Dropping the wait request only disconnects a viewer. To pass cancellation along, keep the remote thread id and call `POST /threads/:thread_id/cancel` when the caller's own `ctx.signal` aborts.
 - **Use `/threads/:id/runs/stream` for long-running children.** It takes the same body and returns SSE. See [Stream Output](/docs/recipes/stream-output).
 
+The forwarded `ctx.signal` carries hard aborts. Ordinary parent Stop uses the
+separate optional `ctx.stopSignal` and may wait for this awaited remote
+invocation to finish. A route can explicitly observe that request at a boundary
+it controls, but forwarding a signal does not establish remote cancellation,
+joining, or quiescence of remote effects.
+
 ## Related
 
 <RelatedCards items={[

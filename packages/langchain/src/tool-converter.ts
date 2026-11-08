@@ -28,7 +28,7 @@ import { dispatchCustomEvent } from "@langchain/core/callbacks/dispatch/web"
 import { type MessageContent, ToolMessage } from "@langchain/core/messages"
 import { patchConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
-import { Command, isGraphInterrupt } from "@langchain/langgraph"
+import { Command, isGraphBubbleUp } from "@langchain/langgraph"
 import { z } from "zod"
 import { toolErrorMessage } from "./agent-middleware.js"
 import { DEFAULT_MODALITY_SUPPORT, type ModalitySupport } from "./chat-model-factory.js"
@@ -222,7 +222,7 @@ export function convertToolToLangChain(
           // Anything else is this call's failed step, built here (with the
           // content the agent middleware's safety-net catch would produce) so
           // the checkpointed ToolMessage carries it for a restored thread.
-          if (isGraphInterrupt(error) || signal.aborted) throw error
+          if (isGraphBubbleUp(error) || signal.aborted) throw error
           const failed = toolErrorMessage(error, tool.name, toolCallId)
           const reason = error instanceof Error ? error.message : String(error)
           const failedStep: B4ToolStep = {

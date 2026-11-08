@@ -15,11 +15,41 @@ test("packed route entrypoints work without optional LangChain peers", {
     await writeFile(
       script,
       `
-import { defineEntry } from "@b4run/langgraph";
+import { defineEntry, graphAdapter, workflowAdapter } from "@b4run/langgraph";
+import { CooperativeStopError, isCooperativeStop } from "@b4run/sdk";
 import { defineEntry as subpath } from "@b4run/langgraph/define-entry";
 import { normalizeRouteModule } from "@b4run/langgraph/route-module";
 const entry = defineEntry({ graph: () => "ok" });
 if (subpath(entry) !== entry || normalizeRouteModule(entry).kind !== "graph") throw Error("entry failed");
+const signal = new AbortController().signal;
+for (const adapter of [graphAdapter, workflowAdapter]) {
+  const stop = new AbortController();
+  const context = { signal, stopSignal: stop.signal };
+  const output = await adapter.execute(async (input, received) => {
+    if (received !== context) throw Error("lost opaque context");
+    return input;
+  }, "opaque", context);
+  if (output !== "opaque") throw Error("opaque execution failed");
+  let dispatched = false;
+  stop.abort(new CooperativeStopError("pre-stopped"));
+  try {
+    await adapter.execute(async () => { dispatched = true; }, {}, context);
+    throw Error("pre-stopped invocation dispatched");
+  } catch (error) {
+    if (!isCooperativeStop(error) || dispatched) throw error;
+  }
+  const observed = new AbortController();
+  try {
+    await adapter.execute(async (_, received) => {
+      observed.abort(new CooperativeStopError("observed Stop"));
+      received.stopSignal.throwIfAborted();
+    }, {}, { signal, stopSignal: observed.signal });
+    throw Error("owned Stop was lost");
+  } catch (error) {
+    if (!isCooperativeStop(error) || error.message !== "observed Stop" || signal.aborted) throw error;
+  }
+}
+
 for (const peer of ["@langchain/core", "langchain", "@langchain/langgraph"]) {
   try { import.meta.resolve(peer); throw Error("unexpected optional peer " + peer); }
   catch (error) { if (error.code !== "ERR_MODULE_NOT_FOUND") throw error; }

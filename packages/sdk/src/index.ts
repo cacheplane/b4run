@@ -70,6 +70,7 @@ export type {
   B4UrlSource,
 } from "./content-parts.js"
 export { contentPartsText, isContentPart, isContentPartArray } from "./content-parts.js"
+export { CooperativeStopError, isCooperativeStop } from "./cooperative-stop.js"
 export type { B4ErrorCode, B4ErrorDescriptor } from "./errors.js"
 export { B4_ERRORS, describeError, errorDocsUrl } from "./errors.js"
 export type {

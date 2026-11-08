@@ -1339,7 +1339,6 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/sdk:./pure",
   "import:@b4run/memory:./browse",
   "import:@b4run/workspace:.",
-  "import:@b4run/langgraph:.",
   "import:@b4run/langgraph:./define-entry",
   "import:@b4run/langgraph:./route-module",
 ])
@@ -2876,7 +2875,7 @@ const accuracyContracts = [
       "ordinary run-slot collision",
       "resume_in_progress",
       "Agent Protocol viewer disconnects continue",
-      "AG-UI viewer disconnects abort",
+      "AG-UI viewer disconnects request cooperative Stop",
     ],
     forbidden: ["/docs/dev-server#ag-ui-endpoint", "the competing request"],
   },

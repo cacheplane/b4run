@@ -7,7 +7,7 @@ import {
   SystemMessage,
   ToolMessage,
 } from "@langchain/core/messages"
-import { isGraphInterrupt } from "@langchain/langgraph"
+import { isGraphBubbleUp } from "@langchain/langgraph"
 import { type AgentMiddleware, createMiddleware } from "langchain"
 import { z } from "zod"
 import {
@@ -122,7 +122,7 @@ function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddlew
       } catch (error) {
         // A human-in-the-loop interrupt is a pause, not a failure, and an
         // aborted run must stop rather than hand the model an error to read.
-        if (isGraphInterrupt(error) || request.runtime.signal?.aborted) throw error
+        if (isGraphBubbleUp(error) || request.runtime.signal?.aborted) throw error
         return toolErrorMessage(error, request.toolCall.name, request.toolCall.id)
       }
     },
@@ -177,7 +177,7 @@ export function answerDanglingToolCalls(messages: BaseMessage[]): BaseMessage[] 
           new ToolMessage({
             status: "error",
             content:
-              "Error: this tool call did not run; the run that made it ended first. Its result is unknown.",
+              "Error: the run ended before this tool call returned a recorded result. Its execution and effects are unknown.",
             name: call.name,
             tool_call_id: call.id,
           }),

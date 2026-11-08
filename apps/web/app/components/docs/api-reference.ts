@@ -1293,7 +1293,7 @@ export const ARTIFACT_REGISTRY = [
     "edge-safe",
     "integration",
     "supported",
-    "dependency-free",
+    "not-claimed",
   ),
   runtimeImport(
     "@b4run/langgraph",
