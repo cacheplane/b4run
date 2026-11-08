@@ -30,6 +30,7 @@ import { createThreadAccessContext } from "../dev/thread-access.js"
 import { makeProtocolThreadGate } from "../dev/thread-gate.js"
 import {
   type AdmissionResult,
+  authorizeCurrentOperation,
   authorizeRetainedOperation,
   authorizeSavedPermissionAgents,
   canonical,
@@ -38,14 +39,19 @@ import {
   knownRunPermissionAgents,
   operationAuthorityFacts,
   operationPayload,
+  operationRunAgents,
   rememberAdmissionBinding,
   replayOperationFacts,
   replayOperationReceipt,
+  runAuthorityFacts,
+  sameOperationAuthority,
   subject,
+  validateOperationRunAuthority,
   validateRetainedOperationCut,
   validateRetainedPermissionMap,
 } from "./operation-ledger.js"
 import { retireSupersededControls } from "./ownership.js"
+import { captureProtectedSource } from "./protected-source.js"
 import {
   closeRuntimeAdmission,
   type RuntimeStorageHost,
@@ -128,7 +134,12 @@ async function replayReceipt(
   raw: Record<string, unknown>,
   ownerKey: string,
   storage: RuntimeStorageHost,
+  authorize: (agentId: string) => Promise<void>,
 ): Promise<AdmissionResult> {
+  // The caller has already authorized its Agent and actual Thread. A record
+  // without private operation context cannot yield any Run/result or replay.
+  if (!record.operation) throw new ProtocolError("receipt_expired")
+  await authorizeCurrentOperation(tx, record, authorize)
   return rememberAdmissionBinding(
     await replayOperationReceipt(tx, record, ownerKey, (operation) =>
       protocolOperationIdentity(incoming, raw, operation.resolved, operation.normalization),
@@ -195,6 +206,8 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
       if (!existing) return undefined
       const authorizeCandidate = async (minimal: typeof existing) => {
         if (minimal.agentId) await options.authorizeAgent(request, minimal.agentId)
+        for (const agent of operationRunAgents(minimal.operationAuthority))
+          await options.authorizeAgent(request, agent)
         const decision = await gate({
           action: "update",
           operation: "run.create",
@@ -202,6 +215,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           ...subject(minimal.thread ?? minimal.retainedSubject, minimal.provenance),
         })
         if (!decision.ok) throw new ProtocolError("not_found")
+        validateOperationRunAuthority(minimal.scope.threadId, minimal.operationAuthority)
       }
       const replayRetained = async (minimal: typeof existing): Promise<AdmissionResult> => {
         if (!minimal.retainedSubject || minimal.scope.threadId !== threadId)
@@ -245,7 +259,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           typeof facts.receipt.operation?.resolved.agent_id === "string"
             ? facts.receipt.operation.resolved.agent_id
             : undefined,
-          operationAuthorityFacts(facts.receipt),
+          operationAuthorityFacts(facts.receipt, facts.runAuthority),
           facts.subject,
           (id) => options.authorizeAgent(request, id),
           async () =>
@@ -309,7 +323,15 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           throw new ProtocolError("submission_target_gone")
         const record = await tx.receipts.get(receiptId)
         if (!record) throw new ProtocolError("receipt_expired")
-        return replayReceipt(tx, record, identityRequest, rawShape, ownerKey, options.storage)
+        return replayReceipt(
+          tx,
+          record,
+          identityRequest,
+          rawShape,
+          ownerKey,
+          options.storage,
+          (id) => options.authorizeAgent(request, id),
+        )
       })
     }
     const previous = await reconcile()
@@ -330,6 +352,28 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
       if (!decision.ok) throw new ProtocolError("not_found")
       if (!current && requestedThread && normalized.if_not_exists !== "create")
         throw new ProtocolError("not_found")
+      if (current?.headCheckpointId) {
+        if (!current.currentRunId) throw new ProtocolError("storage_unavailable")
+        const source = await backend.findRun?.(current.currentRunId)
+        if (!source) throw new ProtocolError("storage_unavailable")
+        await options.authorizeAgent(request, source.agentId)
+        for (const agent of knownRunPermissionAgents(source.authority))
+          await options.authorizeAgent(request, agent)
+        if (
+          !(
+            await gate({
+              action: "update",
+              operation: "run.create",
+              threadId,
+              ...subject(source.subject),
+            })
+          ).ok
+        )
+          throw new ProtocolError("not_found")
+        exactRunPermissionAgents(threadId, current.currentRunId, source.authority)
+        if (source.scope.threadId !== threadId || source.scope.generation !== current.generation)
+          throw new ProtocolError("stale_generation")
+      }
       if (normalized.webhook !== undefined) throw new ProtocolError("not_supported")
       const catalog = await options.catalog(request)
       const route = catalog.select(normalized.agent_id)
@@ -408,10 +452,16 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
             rawShape,
             ownerKey,
             options.storage,
+            (id) => options.authorizeAgent(request, id),
           )
         }
         if (!runtimeAdmissionOpen(options.storage)) throw new ProtocolError("storage_unavailable")
         if (await tx.executionOwner()) throw new ProtocolError("thread_busy")
+        if (
+          row?.headCheckpointId !== current?.headCheckpointId ||
+          row?.currentRunId !== current?.currentRunId
+        )
+          throw new ProtocolError("stale_generation")
         const expected = envelope.expected
         if (
           (expected?.generation && expected.generation !== tx.scope.generation) ||
@@ -426,9 +476,27 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
             (active.metadata.phase !== "settled" || active.metadata.continuation === "waiting")
           )
             throw new ProtocolError("thread_busy")
+          if (active && active.metadata.reason !== "completed" && row.headCheckpointId) {
+            const head = await tx.checkpoints.get(row.headCheckpointId)
+            const native = head?.payload as {
+              kind?: unknown
+              safeHead?: unknown
+              reboundFrom?: { runId?: unknown }
+            } | null
+            if (
+              native?.kind === "langgraph" &&
+              (head?.ownerRunId !== null ||
+                native.safeHead !== true ||
+                native.reboundFrom?.runId !== active.run.run_id)
+            )
+              throw new ProtocolError("not_supported")
+          }
         }
         const timestamp = now(),
           runId = crypto.randomUUID()
+        const protectedSource = await captureProtectedSource(tx, row, runId, (id) =>
+          options.authorizeAgent(request, id),
+        )
         const correlation = {
           v: 1 as const,
           generation: tx.scope.generation,
@@ -458,6 +526,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           preRunCheckpointId: row?.headCheckpointId ?? null,
           result: null,
         })
+        if (protectedSource) await tx.protectedSources.put(protectedSource)
         const trustedProvenance = {
           deploymentId: options.deploymentId,
           ...(principal ? { principalId: principal.id } : {}),
@@ -580,6 +649,9 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           receipt,
           state: "accepted",
           operation: {
+            protectedSource: protectedSource
+              ? { aliasId: protectedSource.aliasId, digest: protectedSource.digest }
+              : null,
             binding: { kind: bindingKind, onDisconnect: resolved.on_disconnect ?? "cancel" },
             scopeKey: ownerKey,
             method: "run.create",
@@ -674,6 +746,8 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           if (candidate.agentId) {
             try {
               await options.authorizeAgent(request, candidate.agentId)
+              for (const agent of operationRunAgents(candidate.operationAuthority))
+                await options.authorizeAgent(request, agent)
             } catch (error) {
               if (
                 error &&
@@ -691,7 +765,10 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
             threadId: candidate.scope.threadId,
             ...subject(candidate.thread ?? candidate.retainedSubject, candidate.provenance),
           })
-          if (decision.ok) authorized.push(candidate)
+          if (decision.ok) {
+            validateOperationRunAuthority(candidate.scope.threadId, candidate.operationAuthority)
+            authorized.push(candidate)
+          }
         }
         type LookupOutcome = {
           readonly identity: string
@@ -813,7 +890,7 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
                 typeof facts.receipt.operation?.resolved.agent_id === "string"
                   ? facts.receipt.operation.resolved.agent_id
                   : undefined,
-                operationAuthorityFacts(facts.receipt),
+                operationAuthorityFacts(facts.receipt, facts.runAuthority),
               )
               validateRetainedOperationCut(minimal, facts, scopeKey(request))
               return lookupFacts(facts.receipt, facts.run)
@@ -849,6 +926,16 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
                 if (tx.scope.generation !== candidate.scope.generation) return opaqueGone
                 const receipt = await tx.receipts.get(candidate.receiptId)
                 if (!receipt) return undefined
+                try {
+                  const facts = await authorizeCurrentOperation(tx, receipt, (id) =>
+                    options.authorizeAgent(request, id),
+                  )
+                  if (!sameOperationAuthority(facts, candidate.operationAuthority))
+                    throw new ProtocolError("storage_unavailable")
+                } catch (error) {
+                  if (error instanceof ProtocolError && error.code === "not_found") return undefined
+                  throw error
+                }
                 return lookupFacts(receipt, await tx.runs.get(receipt.receipt.runId))
               })
             else {
@@ -907,21 +994,20 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
               ...subject(actual),
             })
             if (!recheck.ok) return
-            const permissionReceipts = (await tx.receipts.list()).filter(
-              (receipt) =>
-                receipt.operation?.method === "input.respond" &&
-                receipt.operation.resolved.permissionAgents !== undefined,
-            )
+            const receipts = await tx.receipts.list()
             for (const row of await tx.runs.list()) {
               if (typeof row.run.agent_id !== "string") continue
               try {
                 await options.authorizeAgent(request, row.run.agent_id)
-                for (const receipt of permissionReceipts.filter(
-                  (receipt) => receipt.receipt.runId === row.run.run_id,
-                ))
-                  await authorizeSavedPermissionAgents(receipt, (id) =>
-                    options.authorizeAgent(request, id),
-                  )
+                const authority = runAuthorityFacts(
+                  row,
+                  receipts,
+                  await tx.nativeNamespaces.list(),
+                  await tx.protectedSources.list(),
+                )
+                for (const agent of knownRunPermissionAgents(authority))
+                  await options.authorizeAgent(request, agent)
+                exactRunPermissionAgents(id, row.run.run_id, authority)
               } catch (error) {
                 if (
                   error &&

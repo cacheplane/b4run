@@ -23,6 +23,7 @@ const failures = {
   malformed_json: [400, "invalid_argument", "Malformed JSON"],
   invalid_argument: [422, "invalid_argument", "Invalid request"],
   auth_required: [401, "permission_denied", "Authentication required"],
+  permission_denied: [403, "permission_denied", "Permission denied"],
   not_found: [404, "no_such_run", "Resource not found"],
   thread_exists: [409, "invalid_argument", "Thread already exists"],
   thread_busy: [409, "invalid_argument", "Thread is busy"],

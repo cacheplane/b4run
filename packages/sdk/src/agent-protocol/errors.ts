@@ -18,6 +18,7 @@ export const B4_ERROR_CODES = [
   "malformed_json",
   "invalid_argument",
   "auth_required",
+  "permission_denied",
   "not_found",
   "thread_exists",
   "thread_busy",

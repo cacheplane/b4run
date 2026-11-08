@@ -34,6 +34,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./internal/runtime": {
+      "types": "./dist/internal-runtime.d.ts",
+      "default": "./dist/internal-runtime.js"
+    },
     "./package.json": "./package.json"
   },
   "imports": {

@@ -34,6 +34,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./internal/execution-work": {
+      "types": "./dist/internal/execution-work.d.ts",
+      "default": "./dist/internal/execution-work.js"
+    },
     "./pure": {
       "types": "./dist/pure/index.d.ts",
       "default": "./dist/pure/index.js"
@@ -49,7 +53,11 @@
       "default": "./dist/agent-protocol/index.js"
     },
     "./agent-protocol.schema.json": "./dist/agent-protocol.schema.json",
-    "./agent-protocol.fixtures.json": "./dist/agent-protocol.fixtures.json"
+    "./agent-protocol.fixtures.json": "./dist/agent-protocol.fixtures.json",
+    "./internal/runtime-identity": {
+      "types": "./dist/internal/runtime-identity.d.ts",
+      "default": "./dist/internal/runtime-identity.js"
+    }
   },
   "publishConfig": {
     "access": "public"

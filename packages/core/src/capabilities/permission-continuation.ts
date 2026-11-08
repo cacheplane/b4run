@@ -5,6 +5,9 @@ export const PERMISSION_CONTINUATION_KEY = "__b4PermissionContinuation"
 export interface PermissionContinuationRequest {
   readonly runId: string
   readonly checkpointNs: string
+  readonly nativeTaskId: string
+  readonly interruptIndex: number
+  readonly checkpointId: string
   readonly request: Readonly<Record<string, unknown>>
   readonly protectedProposal: unknown
   readonly rule: PermissionRule
@@ -28,7 +31,15 @@ export function createPermissionContinuationContext(options: ContinuationContext
   contexts.set(context, { runId: options.runId, resolve: options.resolve })
   return context
 }
-function ambientContext(): { context: ContinuationContext; checkpointNs: string } | undefined {
+function ambientContext():
+  | {
+      context: ContinuationContext
+      checkpointNs: string
+      nativeTaskId: string
+      interruptIndex: number
+      checkpointId: string
+    }
+  | undefined {
   let config: Record<string, unknown> | undefined
   try {
     config = getConfig()?.configurable
@@ -40,7 +51,28 @@ function ambientContext(): { context: ContinuationContext; checkpointNs: string 
   const context = candidate && typeof candidate === "object" ? contexts.get(candidate) : undefined
   if (!context || typeof config.checkpoint_ns !== "string")
     throw new Error("Invalid permission continuation")
-  return { context, checkpointNs: config.checkpoint_ns }
+  const task = config.__pregel_task_id
+  const scratchpad = config.__pregel_scratchpad as { interruptCounter?: unknown } | undefined
+  if (
+    typeof task !== "string" ||
+    typeof scratchpad?.interruptCounter !== "number" ||
+    !Number.isSafeInteger(scratchpad.interruptCounter) ||
+    scratchpad.interruptCounter < -1
+  )
+    throw new Error("Invalid permission continuation")
+  const namespace = config.checkpoint_ns.split("|").slice(0, -1).join("|")
+  const checkpointId =
+    (config.checkpoint_map as Record<string, unknown> | undefined)?.[namespace] ??
+    config.checkpoint_id
+  if (typeof checkpointId !== "string" || !checkpointId.length)
+    throw new Error("Invalid permission continuation")
+  return {
+    context,
+    checkpointNs: config.checkpoint_ns,
+    nativeTaskId: task,
+    interruptIndex: scratchpad.interruptCounter + 1,
+    checkpointId,
+  }
 }
 export function assertPermissionContinuationContext(): void {
   ambientContext()
@@ -62,6 +94,9 @@ export async function confirmRememberedPermission(
   const accepted = await ambient.context.resolve({
     runId: ambient.context.runId,
     checkpointNs: ambient.checkpointNs,
+    nativeTaskId: ambient.nativeTaskId,
+    interruptIndex: ambient.interruptIndex,
+    checkpointId: ambient.checkpointId,
     request,
     protectedProposal,
     rule,

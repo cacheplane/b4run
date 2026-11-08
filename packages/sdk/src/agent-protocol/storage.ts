@@ -96,6 +96,14 @@ export interface RuntimePendingRecord {
     readonly agentId: string
     readonly value: unknown
     readonly rule: { readonly tool: string; readonly pattern: string }
+    readonly nativeBinding?: {
+      readonly checkpointId: string
+      readonly taskId: string
+      readonly interruptId: string
+      readonly checkpointNs: string
+      readonly namespaceGeneration: string
+      readonly interruptIndex: number
+    }
   }
 }
 
@@ -123,6 +131,10 @@ export interface RuntimeReceiptRecord {
   readonly operation?: RuntimeOperationContext
 }
 export interface RuntimeOperationContext {
+  /** Exact immutable native permission acceptance cut; never a reusable grant. */
+  readonly permissionBindings?: readonly RuntimeAcceptedPermissionBinding[]
+  /** Immutable server-captured authority of the selected pre-run root head. */
+  readonly protectedSource?: { readonly aliasId: string; readonly digest: string } | null
   /** Trusted server entrypoint provenance, excluded from caller fingerprints. */
   readonly binding?: {
     readonly kind: "background" | "rest_creation" | "native_creation"
@@ -143,6 +155,20 @@ export interface RuntimeOperationContext {
    * Receipt identity is the pure protocol fingerprint, not a rehash of this. */
   readonly resolved: Readonly<Record<string, unknown>>
   readonly provenance: Readonly<Record<string, unknown>>
+}
+export interface RuntimeAcceptedPermissionBinding {
+  readonly v: 1
+  readonly ownerRunId: string
+  readonly pausedGeneration: string
+  readonly namespace: Namespace
+  readonly inputId: string
+  readonly proposalHash: string
+  readonly nativeBinding: NonNullable<
+    NonNullable<RuntimePendingRecord["proposal"]>["nativeBinding"]
+  >
+  readonly decision: "once" | "always" | "deny"
+  readonly grantId: string | null
+  readonly grantMode: "off" | "optional" | "required"
 }
 /** Trusted boot wiring only. Public requests never receive this registration
  * callback or its storage hooks. A registration is not a policy decision. */
@@ -172,6 +198,10 @@ export interface RuntimeOperationAuthorityFacts {
   readonly operationThreadId: unknown
   readonly targetRunId: unknown
   readonly permissionAgents: unknown
+  readonly namespace: unknown
+  readonly namespaceGeneration: unknown
+  readonly injectionAgent: unknown
+  readonly runAuthority: RuntimeRunAuthorityFacts | null
 }
 /** Private coherent discovery cut. Authorize current root, canonical saved
  * children and original Thread before explicit full operation reads. */
@@ -201,6 +231,7 @@ export interface RuntimeRetainedOperation {
   readonly subject: RuntimeRetainedSubject
   readonly receipt: RuntimeReceiptRecord
   readonly run: RuntimeRunRecord | undefined
+  readonly runAuthority: RuntimeRunAuthorityFacts | null
 }
 /** Trusted server-prepared ownership facts. No provider work runs in a runtime TX. */
 export type RuntimeProviderTeardownPlan = {
@@ -245,6 +276,24 @@ export interface RuntimeTemporaryStorage {
 export interface RuntimeRunAuthorityFacts {
   readonly turnId: string
   readonly previousRunId: string | null
+  readonly protectedSource: {
+    readonly reference: unknown
+    readonly records: readonly RuntimeProtectedSourceRecord[]
+  }
+  readonly nativeNamespaces: readonly (Pick<
+    RuntimeNamespaceRecord,
+    "v" | "kind" | "runId" | "namespace" | "agentId" | "namespaceGeneration" | "parentCheckpointId"
+  > & { readonly source: RuntimeNamespaceSourceReference | null })[]
+  readonly inputInjections: readonly {
+    readonly runId: string
+    readonly turnId: string
+    readonly operationThreadId: string
+    readonly targetRunId: string
+    readonly permissionAgents: unknown
+    readonly namespace: unknown
+    readonly namespaceGeneration: unknown
+    readonly injectionAgent: unknown
+  }[]
   readonly permissionResponses: readonly {
     readonly runId: string
     readonly turnId: string
@@ -252,6 +301,82 @@ export interface RuntimeRunAuthorityFacts {
     readonly targetRunId: string
     readonly permissionAgents: unknown
   }[]
+}
+/** Immutable selected-head source identity, retained independently of payloads. */
+export interface RuntimeProtectedSourceRecord {
+  readonly v: 1
+  readonly kind: "protected_source"
+  readonly aliasId: string
+  readonly threadId: string
+  readonly generation: string
+  readonly runId: string
+  readonly preRunCheckpointId: string
+  readonly sourceRunId: string
+  readonly sourceCheckpointId: string
+  readonly checkpointOwnerRunId: string
+  readonly stoppedSource: RuntimeStoppedSourceProof | null
+  readonly sourceDigest: string | null
+  readonly sourceRunIds: readonly string[]
+  readonly agents: readonly string[]
+  readonly digest: string
+}
+/** Administrative provenance only; never executable permission authority. */
+interface RuntimeStoppedSourceBase {
+  readonly v: 1
+  readonly creatorMethod: "run.create" | "input.respond"
+  readonly path: readonly {
+    readonly runId: string
+    readonly previousRunId: string | null
+    readonly receiptId: string
+    readonly selectedHead: string
+    readonly protectedSource: { readonly aliasId: string; readonly digest: string } | null
+  }[]
+}
+export type RuntimeStoppedSourceWitness =
+  | { readonly kind: "accepted_not_started" }
+  | {
+      readonly kind: "started_unwound"
+      readonly execution: { readonly ownerId: string; readonly fence: number }
+      readonly startedAt: string
+      readonly unwoundAt: string
+    }
+  | {
+      readonly kind: "ownership_lost"
+      readonly execution: { readonly ownerId: string; readonly fence: number }
+      readonly startedAt: string
+      readonly ownershipLoss: NonNullable<RuntimeRunRecord["ownershipLoss"]>
+    }
+export type RuntimeStoppedSourceProof = RuntimeStoppedSourceBase & RuntimeStoppedSourceWitness
+/** Minimal native namespace correspondence, never executable checkpoint state. */
+export interface RuntimeNamespaceBinding {
+  readonly namespace: readonly string[]
+  readonly agentId: string
+  readonly namespaceGeneration: string
+  readonly parentCheckpointId: string
+  readonly checkpointId: string
+  readonly status: "running" | "parked" | "closed" | "retired"
+  readonly revision: number
+  readonly source?: RuntimeNamespaceSourceReference
+}
+/** Immutable selected native source for an explicitly accepted continuation. */
+export interface RuntimeNamespaceSourceReference {
+  readonly v: 1
+  readonly kind: "permission_continuation"
+  readonly threadId: string
+  readonly generation: string
+  readonly runId: string
+  readonly aliasId: string
+  readonly namespaceGeneration: string
+  readonly checkpointId: string
+  readonly parentCheckpointId: string
+  readonly receiptId: string
+}
+/** Tagged proof in the existing aliases identity domain; no execution data. */
+export interface RuntimeNamespaceRecord extends RuntimeNamespaceBinding {
+  readonly v: 1
+  readonly kind: "native_namespace"
+  readonly aliasId: string
+  readonly runId: string
 }
 export interface RuntimeStorageRegistrationOptions {
   readonly installationId: string
@@ -264,6 +389,7 @@ export interface RuntimeStorageRegistrationOptions {
         readonly agentId: string
         readonly location: "live" | "retained"
         readonly authority: RuntimeRunAuthorityFacts
+        readonly namespaceBindings: readonly RuntimeNamespaceBinding[]
       }
     | undefined
   >
@@ -398,6 +524,8 @@ export interface RuntimeTransaction {
     delete(runId: string): Promise<void>
   }
   readonly checkpoints: RuntimeRecords<RuntimeCheckpointRecord>
+  readonly nativeNamespaces: RuntimeRecords<RuntimeNamespaceRecord>
+  readonly protectedSources: RuntimeRecords<RuntimeProtectedSourceRecord>
   readonly pending: Omit<RuntimeRecords<RuntimePendingRecord>, "get"> & {
     /** Exact private record identity, never a bare public interruptId. Historical
      * pauses and different namespaces retain independent pending records. */

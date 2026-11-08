@@ -35,6 +35,7 @@ remains deferred; Anthropic fetch/code execution are disabled.
 ## Runtime and stability
 
 - `@b4run/langchain` is an edge-safe, supported integration surface.
+- `@b4run/langchain/internal/runtime` is edge-safe internal boot-owned adapter binding; it is not an application route or caller-configurable execution API.
 - Edge-safe describes B4.run's emitted edge target; it is not a promise that every provider integration, application tool, or dynamically loaded package is browser-portable.
 - `@b4run/langchain/package.json` exposes package metadata for tooling, not runtime code.
 

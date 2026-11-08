@@ -59,12 +59,28 @@ describe("indexed operation receipt search", () => {
       await f.seedReceipt(accepted.threadId, {
         ...original,
         receiptId: `${original.receiptId}-${method}`,
-        receipt: { ...original.receipt, submissionId: operationId, disposition: "applied" },
+        receipt: {
+          ...original.receipt,
+          submissionId: operationId,
+          disposition: "applied",
+          ...(method === "input.inject" ? { inputId: crypto.randomUUID() } : {}),
+        },
         operation: {
           ...required(original.operation),
           method,
           targetRunId: accepted.runId,
           operationThreadId: accepted.threadId,
+          ...(method === "input.inject"
+            ? {
+                resolved: {
+                  ...required(original.operation).resolved,
+                  namespace: [],
+                  namespaceGeneration: accepted.runId,
+                  injectionAgent: "/chat#agent",
+                  permissionAgents: [],
+                },
+              }
+            : {}),
         },
       })
       expect((await f.lookup(operationId))[0]?.run_id).toBe(accepted.runId)
@@ -245,8 +261,18 @@ it("keeps different operation methods distinct even when both target selectors m
   await f.seedReceipt(accepted.threadId, {
     ...original,
     receiptId: `${original.receiptId}-inject`,
-    receipt: { ...original.receipt, disposition: "applied" },
-    operation: { ...required(original.operation), method: "input.inject" },
+    receipt: { ...original.receipt, disposition: "applied", inputId: crypto.randomUUID() },
+    operation: {
+      ...required(original.operation),
+      method: "input.inject",
+      resolved: {
+        ...required(original.operation).resolved,
+        namespace: [],
+        namespaceGeneration: accepted.runId,
+        injectionAgent: "/chat#agent",
+        permissionAgents: [],
+      },
+    },
   })
   await expect(
     f.lookup(token, {

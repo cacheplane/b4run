@@ -10,11 +10,14 @@ import type {
   RuntimeTemporaryCleanupPlan,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
+import { isProtectedSource } from "@b4run/sdk/internal/runtime-identity"
 import { checkpointSpec } from "./checkpoints.js"
 import { inboxSpec } from "./inbox.js"
 import { installationContext, type RuntimeInstallation } from "./index.js"
 import { makeJournal } from "./journal.js"
 import { maintenanceSpec } from "./maintenance.js"
+import { makeNamespaces } from "./namespaces.js"
+import { makeProtectedSources } from "./protected-sources.js"
 import { grantSpec, pendingKey, pendingSpec, receiptSpec } from "./receipts.js"
 import { runSpec } from "./runs.js"
 import { makeThread } from "./threads.js"
@@ -166,6 +169,8 @@ function makeTransaction(access: Access): RuntimeTransaction {
       },
     },
     checkpoints: makeRecords(access, checkpointSpec),
+    nativeNamespaces: makeNamespaces(access),
+    protectedSources: makeProtectedSources(access),
     pending: {
       ...makeRecords(access, pendingSpec),
       async get(identity) {
@@ -318,6 +323,32 @@ export function assertRuntimeQueueEntry(
     (context.leaseRequests.get(scopeKey)?.count ?? 0) > 0
   )
     throw new Error("Lease callback cannot wait behind another scoped lease")
+}
+
+/** Reserve the SAME installation writer queue before yielding. A tail read is
+ * insufficient: a scoped writer may reserve a new tail while that read awaits.
+ * The binding callback is synchronous and never runs inside an active TX. */
+export async function runtimeBindingTurn<T>(
+  installation: RuntimeInstallation,
+  scopeKey: string,
+  callback: () => T,
+): Promise<T> {
+  assertRuntimeQueueEntry(installation, scopeKey)
+  const context = installationContext(installation),
+    previous = context.tail
+  let release!: () => void
+  context.tail = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  context.pending++
+  await previous
+  try {
+    installationContext(installation)
+    return callback()
+  } finally {
+    context.pending--
+    release()
+  }
 }
 
 export interface BoundRuntimeStore extends RuntimeStore {
@@ -524,15 +555,27 @@ export function makeRuntimeStore(
         const retainedAt = now(),
           retainedUntil = new Date(Date.parse(retainedAt) + 7 * 24 * 60 * 60 * 1000).toISOString()
         const { thread_id, created_at, updated_at, status, metadata } = thread.thread
-        const permissionAgentsByRun = Object.fromEntries(
-          (await tx.receipts.list())
-            .filter(
-              (r) =>
-                r.operation?.method === "input.respond" &&
-                Array.isArray(r.operation.resolved.permissionAgents),
-            )
-            .map((r) => [r.receipt.runId, r.operation?.resolved.permissionAgents]),
-        )
+        const permissionAgentsByRun: Record<string, string[]> = {}
+        for (const proof of await tx.protectedSources.list()) {
+          if (!isProtectedSource(proof)) throw new Error("Invalid canonical protected source")
+          permissionAgentsByRun[proof.runId] = [...proof.agents]
+        }
+        for (const receipt of await tx.receipts.list()) {
+          if (!["input.respond", "input.inject"].includes(receipt.operation?.method ?? "")) continue
+          const children = receipt.operation?.resolved.permissionAgents
+          if (!Array.isArray(children)) throw new Error("Missing canonical contributor authority")
+          if (!children.length) continue
+          const key = receipt.receipt.runId
+          permissionAgentsByRun[key] = [
+            ...new Set([...(permissionAgentsByRun[key] ?? []), ...children]),
+          ]
+        }
+        for (const binding of await tx.nativeNamespaces.list()) {
+          const key = binding.runId
+          permissionAgentsByRun[key] = [
+            ...new Set([...(permissionAgentsByRun[key] ?? []), binding.agentId]),
+          ]
+        }
         const subject: RuntimeRetainedSubject = {
           thread: { thread_id, created_at, updated_at, status, metadata },
           protectedMetadata: {
@@ -565,9 +608,11 @@ export function makeRuntimeStore(
           status: plan.provider.kind === "none" ? "complete" : "pending",
           payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
         })
+        db.prepare(
+          "DELETE FROM aliases WHERE thread_id=? AND generation=? AND COALESCE(json_extract(payload,'$.kind'),'') NOT IN ('native_namespace','protected_source')",
+        ).run(scope.threadId, scope.generation)
         for (const name of [
           "checkpoint_writes",
-          "aliases",
           "projections",
           "journal",
           "checkpoint_lineage",

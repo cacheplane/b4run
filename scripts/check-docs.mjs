@@ -1022,6 +1022,13 @@ const EXPECTED_API_REFERENCE_PAGE_TUPLES = [
 
 const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/sdk:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/sdk:./internal/execution-work", "internal", "surfaceKind", "typescript-runtime"],
+  [
+    "import:@b4run/sdk:./internal/runtime-identity",
+    "internal",
+    "surfaceKind",
+    "typescript-runtime",
+  ],
   ["import:@b4run/sdk:./pure", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./tool-step.schema.json", "detailed", "surfaceKind", "metadata"],
@@ -1080,6 +1087,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/langgraph:./route-module", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/langgraph:./ui", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/langchain:.", "detailed", "surfaceKind", "typescript-runtime"],
+  ["import:@b4run/langchain:./internal/runtime", "internal", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/langchain:./package.json", "detailed", "surfaceKind", "metadata"],
   ["import:@b4run/sqlite-storage:.", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/config-biome:.", "internal", "surfaceKind", "config-artifact"],
@@ -1381,6 +1389,8 @@ function apiArtifactAddress(artifact) {
 }
 
 const DEPENDENCY_FREE_API_ADDRESSES = new Set([
+  "import:@b4run/sdk:./internal/execution-work",
+  "import:@b4run/sdk:./internal/runtime-identity",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/sdk:./pure",
   "import:@b4run/memory:./browse",
@@ -1390,6 +1400,8 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/langgraph:./route-module",
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
+  "import:@b4run/sdk:./internal/execution-work",
+  "import:@b4run/sdk:./internal/runtime-identity",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/ag-ui:./copilotkit-runtime",
   "import:@b4run/sdk:.",
@@ -1412,6 +1424,7 @@ const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/langgraph:./define-entry",
   "import:@b4run/langgraph:./route-module",
   "import:@b4run/langchain:.",
+  "import:@b4run/langchain:./internal/runtime",
 ])
 
 // Browser bundles only, so no edge or Node guard applies. The React CopilotKit
@@ -4346,15 +4359,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 64 || new Set(artifactAddresses).size !== 64) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 64 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 67 || new Set(artifactAddresses).size !== 67) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 67 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 60 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 63 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 60 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 63 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

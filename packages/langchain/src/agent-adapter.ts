@@ -5,6 +5,8 @@ import type {
   B4Agent,
   B4ContentPart,
   B4Principal,
+  BackendActiveInput,
+  BackendAdapter,
   BuiltInModelProviderId,
   ClientToolRecorder,
   RetryConfig,
@@ -44,6 +46,12 @@ import {
   toLangChainContent,
   V1_RESPONSE_METADATA,
 } from "./content-parts.js"
+import {
+  ExecutionWork,
+  trackGraphCompletion,
+  trackModelPrimitives,
+  trackToolPrimitive,
+} from "./execution-work.js"
 import { readLogicalToolCallId } from "./logical-tool-call-id.js"
 import { providerMaxRetries, resolveModelRetryPolicy } from "./model-call-retry.js"
 import { resolveProvider } from "./model-provider-resolver.js"
@@ -97,6 +105,99 @@ function assertAgentLike(entry: unknown): asserts entry is AgentLike {
   ) {
     throw new Error("Agent entry must expose invoke(input) — expected a LangChain agent")
   }
+}
+
+interface BuiltInGraphContext {
+  readonly checkpointer?: BaseCheckpointSaver
+  readonly drainWrites?: () => Promise<void>
+  readonly invocationLocal: boolean
+  config?: Readonly<Record<string, unknown>>
+}
+const builtInGraphs = new WeakMap<object, BuiltInGraphContext>()
+function copyInvocationConfig(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const copy = { ...config }
+  for (const key of ["configurable", "metadata"])
+    if (isRecord(config[key])) copy[key] = { ...config[key] }
+  for (const key of ["tags", "callbacks"])
+    if (Array.isArray(config[key])) copy[key] = [...config[key]]
+  return copy
+}
+/** Internal runtime subpath only. Configuration never confers saver/Core authority. */
+export function bindMaterializedAgentRuntime(
+  entry: unknown,
+  checkpointer: BaseCheckpointSaver,
+  config: Readonly<Record<string, unknown>>,
+): void {
+  const binding = entry && typeof entry === "object" ? builtInGraphs.get(entry) : undefined
+  if (
+    !binding?.invocationLocal ||
+    binding.checkpointer !== checkpointer ||
+    binding.config ||
+    !isRecord(config) ||
+    !isRecord(config.configurable)
+  )
+    throw Object.assign(
+      new Error("Native agent configuration cannot be bound to this materialization"),
+      { code: "not_supported" },
+    )
+  const snapshot = copyInvocationConfig(config)
+  for (const key of ["configurable", "metadata", "tags", "callbacks"])
+    if (
+      snapshot[key] !== config[key] &&
+      typeof snapshot[key] === "object" &&
+      snapshot[key] !== null
+    )
+      Object.freeze(snapshot[key])
+  binding.config = Object.freeze(snapshot)
+}
+function invocationConfig(entry: unknown, signal: AbortSignal): Record<string, unknown> {
+  const binding = entry && typeof entry === "object" ? builtInGraphs.get(entry) : undefined
+  return { ...copyInvocationConfig(binding?.config ?? {}), signal, durability: "sync" }
+}
+/** Declared controls belong to graphs compiled here, never inferred from an
+ * arbitrary runnable exposing similarly named methods. */
+export const agentBackendAdapter: BackendAdapter = {
+  kind: "agent",
+  protocol: {
+    injection: "before_model",
+    async rebindCheckpoint(entry, config) {
+      if (typeof entry !== "object" || entry === null || !builtInGraphs.has(entry))
+        throw Object.assign(new Error("Checkpoint rebinding is not supported for this adapter"), {
+          code: "not_supported",
+        })
+      const graph = entry as {
+        updateState(
+          config: unknown,
+          values: unknown,
+          asNode: string,
+        ): Promise<Record<string, unknown>>
+      }
+      // Replace invocation-local input markers through their public reducer.
+      // This revision and END are enclosed by the runtime's one native TX.
+      const cleared = await graph.updateState(config, { _b4AppliedInputIds: [] }, "model_request")
+      // LangGraph's public END special case retires tasks only with null values.
+      return graph.updateState(cleared, null, "__end__")
+    },
+  },
+  async execute(entry, input, context) {
+    assertAgentLike(entry)
+    return entry.invoke(input, invocationConfig(entry, context.signal))
+  },
+  async *stream(entry, input, context) {
+    if (typeof entry !== "object" || entry === null || !builtInGraphs.has(entry))
+      throw Object.assign(new Error("Streaming requires a built-in compiled agent graph"), {
+        code: "not_supported",
+      })
+    const binding = builtInGraphs.get(entry)!
+    yield* streamFromRunnable(
+      entry as AgentLike,
+      input,
+      invocationConfig(entry, context.signal),
+      undefined,
+      binding.drainWrites,
+      binding.checkpointer,
+    )
+  },
 }
 
 /**
@@ -184,6 +285,7 @@ async function materializeAgent(
     readonly streamTransformers?: readonly StreamTransformer[]
     readonly subagentResolver?: SubagentResolver
     readonly responseFormat?: JsonSchemaResponseFormat
+    readonly activeInput?: BackendActiveInput
   } = {},
 ): Promise<AgentLike> {
   // Converted tools capture middleware context and the request principal —
@@ -194,6 +296,7 @@ async function materializeAgent(
   // cached graph would either carry one request's schema into the next or
   // hand a format-bound request the unbound graph.
   const bypassCache =
+    opts.activeInput !== undefined ||
     opts.middlewareContext !== undefined ||
     opts.principal !== undefined ||
     opts.subagentResolver !== undefined ||
@@ -236,10 +339,12 @@ async function materializeAgent(
     provider,
     model: descriptor.model,
   }
+  const work = opts.activeInput ? new ExecutionWork() : undefined
 
   const langchainTools = tools.map((tool) => {
     if (tool.name === "task" && opts.subagentResolver) {
-      return convertSubagentTaskToLangChain(tool, opts.subagentResolver)
+      const converted = convertSubagentTaskToLangChain(tool, opts.subagentResolver)
+      return work ? trackToolPrimitive(converted, work) : converted
     }
     const converted = convertToolToLangChain(
       tool,
@@ -253,7 +358,7 @@ async function materializeAgent(
     // `createAgent` ends the run on a flagged tool's result by name, error or
     // not; B4's loop-entry middleware routes these instead (`endsOnReturnDirect`).
     converted.returnDirect = false
-    return converted
+    return work ? trackToolPrimitive(converted, work) : converted
   })
 
   const runningSummaryField: ResolvedStateField = {
@@ -264,15 +369,41 @@ async function materializeAgent(
   const effectiveStateFields: readonly ResolvedStateField[] = opts.summarization
     ? [...(opts.stateFields ?? []).filter((f) => f.name !== "runningSummary"), runningSummaryField]
     : (opts.stateFields ?? [])
+  const fragments = work
+    ? (opts.promptFragments ?? []).map((fragment) => ({
+        ...fragment,
+        ...(fragment.renderAsync
+          ? {
+              renderAsync: (state: Parameters<PromptFragment["render"]>[0]) =>
+                work.run(() => fragment.renderAsync!(state)),
+            }
+          : {}),
+      }))
+    : opts.promptFragments
+  const summarization =
+    work && opts.summarization
+      ? {
+          ...opts.summarization,
+          tokenCounter: (text: string) => work.run(() => opts.summarization!.tokenCounter(text)),
+          summarize: (args: Parameters<ResolvedSummarizationConfig["summarize"]>[0]) =>
+            work.run(() =>
+              opts.summarization!.summarize({
+                ...args,
+                trackModel: (model) => trackModelPrimitives(model, work),
+              }),
+            ),
+        }
+      : opts.summarization
 
   const middleware = createB4AgentMiddleware({
+    ...(opts.activeInput ? { activeInput: opts.activeInput } : {}),
     provider,
     systemPrompt: descriptor.systemPrompt,
     // Fragments re-render on every model turn so they can reflect live state
     // (e.g., the current todos list).
-    promptFragments: opts.promptFragments ?? [],
+    promptFragments: fragments ?? [],
     stateFieldNames: effectiveStateFields.map((f) => f.name),
-    ...(opts.summarization ? { summarization: opts.summarization } : {}),
+    ...(summarization ? { summarization } : {}),
     returnDirectToolNames: new Set(
       tools.filter((tool) => tool.returnDirect === true).map((tool) => tool.name),
     ),
@@ -280,7 +411,7 @@ async function materializeAgent(
   })
 
   const agentOptions: Record<string, unknown> = {
-    model: modelForAgent(llm),
+    model: work ? trackModelPrimitives(modelForAgent(llm), work) : modelForAgent(llm),
     tools: [...langchainTools, ...resolveBuiltInTools(provider, descriptor.builtInTools).tools],
     // One graph task per tool call (the default, pinned): parallel calls run,
     // checkpoint and interrupt independently.
@@ -300,6 +431,19 @@ async function materializeAgent(
 
   // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options don't satisfy createAgent's inferred generics
   const compiled = createAgent(agentOptions as any)
+  if (work)
+    trackGraphCompletion(
+      compiled,
+      work,
+      checkpointer ? () => trackCheckpointWrites(checkpointer).settled() : undefined,
+      checkpointer ? trackCheckpointWrites(checkpointer).saver : undefined,
+    )
+  builtInGraphs.set(compiled, {
+    invocationLocal: !!opts.activeInput,
+    ...(checkpointer
+      ? { checkpointer, drainWrites: () => trackCheckpointWrites(checkpointer).settled() }
+      : {}),
+  })
   materializedModality.set(compiled as unknown as AgentLike, modality)
 
   if (cacheKey) {
@@ -314,6 +458,7 @@ async function materializeAgent(
 }
 
 export async function materializeAgentGraph(options: {
+  readonly activeInput?: BackendActiveInput
   /** Bypass the compiled-graph cache when tools close over invocation-local state. */
   readonly bypassCache?: boolean
   readonly checkpointer?: BaseCheckpointSaver
@@ -339,6 +484,7 @@ export async function materializeAgentGraph(options: {
   readonly sandboxed?: boolean
 }): Promise<unknown> {
   return materializeAgent(options.descriptor, options.tools ?? [], options.checkpointer, {
+    ...(options.activeInput ? { activeInput: options.activeInput } : {}),
     ...(options.stateFields ? { stateFields: options.stateFields } : {}),
     ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
     ...(options.principal ? { principal: options.principal } : {}),
@@ -1342,6 +1488,7 @@ function parseInterruptStringMessage(text: string): readonly RawInterruptEntry[]
 }
 
 export interface AgentOptions {
+  readonly activeInput?: BackendActiveInput
   /** Bypass the compiled-graph cache when tools close over invocation-local state. */
   readonly bypassCache?: boolean
   /**
@@ -1501,6 +1648,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
       options.tools,
       options.checkpointer,
       {
+        ...(options.activeInput ? { activeInput: options.activeInput } : {}),
         ...(options.stateFields ? { stateFields: options.stateFields } : {}),
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
         ...(options.principal ? { principal: options.principal } : {}),
@@ -1595,6 +1743,7 @@ function prepareAgentCall(options: AgentOptions): {
 
   const config: Record<string, unknown> = {
     signal: options.signal,
+    ...(options.activeInput ? { durability: "sync" } : {}),
   }
   // Per-agent super-step ceiling. LangGraph's Pregel reads config.recursionLimit
   // (default 25); deep agents (coordinator + subagents + many tool calls) can

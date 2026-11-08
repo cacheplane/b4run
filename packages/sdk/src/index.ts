@@ -31,7 +31,7 @@ export type {
   B4Register,
 } from "./auth.js"
 export { defineAuth, isAuthDefinition } from "./auth.js"
-export type { BackendAdapter } from "./backend-adapter.js"
+export type { BackendActiveInput, BackendAdapter } from "./backend-adapter.js"
 export type {
   AnthropicWebSearchOptions,
   BuiltInToolsConfig,

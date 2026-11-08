@@ -9,11 +9,15 @@ import type {
 } from "@b4run/sdk/agent-protocol"
 import { withTransaction } from "../internal/tx.js"
 import type { PostgresRuntimeOptions } from "../options.js"
-import { bindRuntimeStore, createRuntimeBinding } from "./binding.js"
 import { installationContext } from "./index.js"
 import { openPostgresRuntimeInstallation } from "./node.js"
 import { table } from "./schema.js"
-import { assertRuntimeHostEntry, diagnostic, makeRuntimeStore } from "./transaction.js"
+import {
+  assertRuntimeHostEntry,
+  assertRuntimeWriteEntry,
+  diagnostic,
+  makeRuntimeStore,
+} from "./transaction.js"
 
 /** Node-only trusted boot registration; PG's root edge graph never loads it. */
 export function postgresRuntimeStorage(options: PostgresRuntimeOptions): RuntimeStorageFactory {
@@ -21,9 +25,23 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
     const installation = await openPostgresRuntimeInstallation(options)
     const context = installationContext(installation)
     const name = (value: string) => table(context.naming, value)
-    const permissionResponseFacts = `COALESCE((SELECT json_agg(json_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents')) FROM ${name("receipts")} a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.respond'),'[]'::json) AS permission_responses`
-    const active = async <T>(callback: () => Promise<T>): Promise<T> => {
-      assertRuntimeHostEntry(installation)
+    const permissionResponseFacts = `COALESCE((SELECT jsonb_agg(jsonb_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents')) FROM ${name("receipts")} a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.respond'),'[]'::jsonb) AS permission_responses, COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents','namespace',(a.payload::jsonb)->'operation'->'resolved'->'namespace','namespaceGeneration',(a.payload::jsonb)->'operation'->'resolved'->'namespaceGeneration','injectionAgent',(a.payload::jsonb)->'operation'->'resolved'->'injectionAgent')) FROM ${name("receipts")} a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.inject'),'[]'::jsonb) AS input_injections`
+    const namespaceBindings = `COALESCE((SELECT jsonb_agg(n.payload::jsonb) FROM ${name("aliases")} n WHERE n.run_id=r.id AND n.thread_id=r.thread_id AND n.generation=r.generation AND n.id LIKE 'namespace:%'),'[]'::jsonb) AS namespace_bindings`
+    const nativeNamespaceProofs = `COALESCE((SELECT jsonb_agg(jsonb_build_object('v',(n.payload::jsonb)->'v','kind',(n.payload::jsonb)->>'kind','runId',n.run_id,'namespace',n.namespace::jsonb,'agentId',(n.payload::jsonb)->>'agentId','namespaceGeneration',(n.payload::jsonb)->>'namespaceGeneration','parentCheckpointId',(n.payload::jsonb)->>'parentCheckpointId','source',(n.payload::jsonb)->'source')) FROM ${name("aliases")} n WHERE n.run_id=r.id AND n.thread_id=r.thread_id AND n.generation=r.generation AND n.id LIKE 'namespace:%'),'[]'::jsonb)`
+    const protectedSourceRecords = `COALESCE((SELECT jsonb_agg(p.payload::jsonb) FROM ${name("aliases")} p WHERE p.run_id=r.id AND p.thread_id=r.thread_id AND p.generation=r.generation AND p.id LIKE 'source:%'),'[]'::jsonb)`
+    const protectedSourceReference = `(SELECT (c.payload::jsonb)->'operation'->'protectedSource' FROM ${name("receipts")} c WHERE c.owner_run_id=r.id AND c.thread_id=r.thread_id AND c.generation=r.generation AND (c.payload::jsonb)->'operation'->>'method' IN ('run.create','input.respond') LIMIT 1)`
+    const protectedSourceFacts = `jsonb_build_object('reference',${protectedSourceReference},'records',${protectedSourceRecords})`
+    const operationSourceRecords = protectedSourceRecords.replace(
+      "p.run_id=r.id",
+      "p.run_id=(r.payload::jsonb)->'receipt'->>'runId'",
+    )
+    const operationNamespaceProofs = nativeNamespaceProofs.replace(
+      "n.run_id=r.id",
+      "n.run_id=(r.payload::jsonb)->'receipt'->>'runId'",
+    )
+    const canonicalRunAuthority = `(SELECT json_build_object('turnId',(c.payload::jsonb)->'receipt'->>'turnId','previousRunId',CASE WHEN (c.payload::jsonb)->'operation'->>'method'='input.respond' THEN (c.payload::jsonb)->'operation'->>'targetRunId' ELSE NULL END,'protectedSource',jsonb_build_object('reference',(c.payload::jsonb)->'operation'->'protectedSource','records',${operationSourceRecords}),'nativeNamespaces',${operationNamespaceProofs},'permissionResponses',COALESCE((SELECT jsonb_agg(jsonb_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents')) FROM ${name("receipts")} a WHERE a.owner_run_id=(r.payload::jsonb)->'receipt'->>'runId' AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.respond'),'[]'::jsonb),'inputInjections',COALESCE((SELECT jsonb_agg(DISTINCT jsonb_build_object('runId',(a.payload::jsonb)->'receipt'->>'runId','turnId',(a.payload::jsonb)->'receipt'->>'turnId','operationThreadId',(a.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(a.payload::jsonb)->'operation'->>'targetRunId','permissionAgents',(a.payload::jsonb)->'operation'->'resolved'->'permissionAgents','namespace',(a.payload::jsonb)->'operation'->'resolved'->'namespace','namespaceGeneration',(a.payload::jsonb)->'operation'->'resolved'->'namespaceGeneration','injectionAgent',(a.payload::jsonb)->'operation'->'resolved'->'injectionAgent')) FROM ${name("receipts")} a WHERE a.owner_run_id=(r.payload::jsonb)->'receipt'->>'runId' AND a.thread_id=r.thread_id AND a.generation=r.generation AND (a.payload::jsonb)->'operation'->>'method'='input.inject'),'[]'::jsonb)) FROM ${name("receipts")} c WHERE c.owner_run_id=(r.payload::jsonb)->'receipt'->>'runId' AND c.thread_id=r.thread_id AND c.generation=r.generation AND (c.payload::jsonb)->'operation'->>'method' IN ('run.create','input.respond') AND (SELECT COUNT(DISTINCT jsonb_build_object('method',(c2.payload::jsonb)->'operation'->>'method','turnId',(c2.payload::jsonb)->'receipt'->>'turnId','threadId',(c2.payload::jsonb)->'operation'->>'operationThreadId','targetRunId',(c2.payload::jsonb)->'operation'->>'targetRunId')) FROM ${name("receipts")} c2 WHERE c2.owner_run_id=(r.payload::jsonb)->'receipt'->>'runId' AND c2.thread_id=r.thread_id AND c2.generation=r.generation AND (c2.payload::jsonb)->'operation'->>'method' IN ('run.create','input.respond'))=1 LIMIT 1)`
+    const active = async <T>(callback: () => Promise<T>, bindingThreadId?: string): Promise<T> => {
+      assertRuntimeHostEntry(installation, bindingThreadId)
       context.pending++
       try {
         return await callback()
@@ -75,8 +93,12 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
               payload: string
               location: "live" | "retained"
               permission_responses: RuntimeRunAuthorityFacts["permissionResponses"]
+              input_injections: RuntimeRunAuthorityFacts["inputInjections"]
+              native_namespaces: RuntimeRunAuthorityFacts["nativeNamespaces"]
+              protected_source: RuntimeRunAuthorityFacts["protectedSource"]
+              namespace_bindings: import("@b4run/sdk/agent-protocol").RuntimeNamespaceBinding[]
             }>(
-              `SELECT r.thread_id,r.generation,t.payload AS subject,r.payload,'live' AS location,${permissionResponseFacts} FROM ${name("runs")} r JOIN ${name("scopes")} s USING(thread_id,generation) JOIN ${name("threads")} t USING(thread_id,generation) WHERE r.id=$1 AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,s.payload AS subject,r.payload,'retained' AS location,${permissionResponseFacts} FROM ${name("retained_runs")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) WHERE r.id=$1`,
+              `SELECT r.thread_id,r.generation,t.payload AS subject,r.payload,'live' AS location,${permissionResponseFacts},${namespaceBindings},${nativeNamespaceProofs} AS native_namespaces,${protectedSourceFacts} AS protected_source FROM ${name("runs")} r JOIN ${name("scopes")} s USING(thread_id,generation) JOIN ${name("threads")} t USING(thread_id,generation) WHERE r.id=$1 AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,s.payload AS subject,r.payload,'retained' AS location,${permissionResponseFacts},${namespaceBindings},${nativeNamespaceProofs} AS native_namespaces,${protectedSourceFacts} AS protected_source FROM ${name("retained_runs")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) WHERE r.id=$1`,
               [id],
             )
             const row = rows.rows[0]
@@ -92,10 +114,14 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                       : JSON.parse(row.subject),
                   agentId,
                   location: row.location,
+                  namespaceBindings: row.namespace_bindings,
                   authority: {
                     turnId: record.metadata.turnId,
                     previousRunId: record.metadata.previousRunId ?? null,
                     permissionResponses: row.permission_responses,
+                    inputInjections: row.input_injections,
+                    nativeNamespaces: row.native_namespaces,
+                    protectedSource: row.protected_source,
                   },
                 }
               : undefined
@@ -171,8 +197,9 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                 receipt: string
                 subject: string
                 run: string | null
+                run_authority: RuntimeRunAuthorityFacts | null
               }>(
-                `SELECT r.payload AS receipt,s.payload AS subject,u.payload AS run FROM ${name("receipts")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) LEFT JOIN ${name("retained_runs")} u ON u.id=(r.payload::jsonb)->'receipt'->>'runId' AND u.thread_id=r.thread_id AND u.generation=r.generation WHERE r.id=$1 AND r.thread_id=$2 AND r.generation=$3`,
+                `SELECT r.payload AS receipt,s.payload AS subject,u.payload AS run,${canonicalRunAuthority} AS run_authority FROM ${name("receipts")} r JOIN ${name("retained_subjects")} s USING(thread_id,generation) LEFT JOIN ${name("retained_runs")} u ON u.id=(r.payload::jsonb)->'receipt'->>'runId' AND u.thread_id=r.thread_id AND u.generation=r.generation WHERE r.id=$1 AND r.thread_id=$2 AND r.generation=$3`,
                 [query.receiptId, query.threadId, query.generation],
               )
               const row = rows.rows[0]
@@ -182,6 +209,7 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                     subject: JSON.parse(row.subject),
                     receipt: JSON.parse(row.receipt),
                     run: row.run ? JSON.parse(row.run) : undefined,
+                    runAuthority: row.run_authority,
                   }
                 : undefined
             }),
@@ -279,7 +307,7 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
               retained_subject: string | null
               operation_authority: RuntimeOperationAuthorityFacts
             }>(
-              `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_build_object('runId',(r.payload::jsonb)->'receipt'->>'runId','turnId',(r.payload::jsonb)->'receipt'->>'turnId','method',(r.payload::jsonb)->'operation'->'method','operationThreadId',(r.payload::jsonb)->'operation'->'operationThreadId','targetRunId',(r.payload::jsonb)->'operation'->'targetRunId','permissionAgents',(r.payload::jsonb)->'operation'->'resolved'->'permissionAgents') AS operation_authority,(r.payload::jsonb)->'operation'->'resolved'->>'agent_id' AS agent_id,(r.payload::jsonb)->'operation'->'provenance' AS provenance FROM ${name("receipts")} r JOIN ${name("scopes")} s USING(thread_id,generation) LEFT JOIN ${name("threads")} t USING(thread_id,generation) LEFT JOIN ${name("retained_subjects")} a USING(thread_id,generation) WHERE ${conditions.join(" AND ")} ORDER BY r.id`,
+              `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_build_object('runId',(r.payload::jsonb)->'receipt'->>'runId','turnId',(r.payload::jsonb)->'receipt'->>'turnId','method',(r.payload::jsonb)->'operation'->'method','operationThreadId',(r.payload::jsonb)->'operation'->'operationThreadId','targetRunId',(r.payload::jsonb)->'operation'->'targetRunId','permissionAgents',(r.payload::jsonb)->'operation'->'resolved'->'permissionAgents','namespace',(r.payload::jsonb)->'operation'->'resolved'->'namespace','namespaceGeneration',(r.payload::jsonb)->'operation'->'resolved'->'namespaceGeneration','injectionAgent',(r.payload::jsonb)->'operation'->'resolved'->'injectionAgent','runAuthority',${canonicalRunAuthority}) AS operation_authority,(r.payload::jsonb)->'operation'->'resolved'->>'agent_id' AS agent_id,(r.payload::jsonb)->'operation'->'provenance' AS provenance FROM ${name("receipts")} r JOIN ${name("scopes")} s USING(thread_id,generation) LEFT JOIN ${name("threads")} t USING(thread_id,generation) LEFT JOIN ${name("retained_subjects")} a USING(thread_id,generation) WHERE ${conditions.join(" AND ")} ORDER BY r.id`,
               values,
             )
             return rows.rows.map((row) => ({
@@ -319,6 +347,12 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
               if (expectedGeneration !== undefined && existing?.generation !== expectedGeneration)
                 return undefined
               if (existing) {
+                const binding = Object.freeze({
+                  threadId: existing.thread_id,
+                  generation: existing.generation,
+                  fence: Number(existing.fence),
+                })
+                assertRuntimeWriteEntry(installation, binding)
                 if (!existing.live) {
                   if (existing.execution_owner)
                     throw diagnostic(
@@ -327,15 +361,22 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                     )
                   return { ...existing, renewIdle: true as const }
                 }
-                return existing
+                return {
+                  ...existing,
+                  store: makeRuntimeStore(installation, binding, () => new Date().toISOString()),
+                }
               }
               if (!create) return undefined
               const generation = randomUUID()
+              const selected = Object.freeze({ threadId: id, generation, fence: 1 })
+              assertRuntimeWriteEntry(installation, selected)
               await client.query(
                 `INSERT INTO ${name("scopes")}(thread_id,generation,fence,lease_expires_at) VALUES ($1,$2,1,clock_timestamp()+interval '60 seconds')`,
                 [id, generation],
               )
-              return { thread_id: id, generation, fence: "1" }
+              return {
+                store: makeRuntimeStore(installation, selected, () => new Date().toISOString()),
+              }
             })
             if (!scope) return undefined
             if ("renewIdle" in scope && scope.renewIdle) {
@@ -353,23 +394,26 @@ export function postgresRuntimeStorage(options: PostgresRuntimeOptions): Runtime
                   () => new Date().toISOString(),
                 ).renewIdleScope()
               } catch (error) {
-                if (error instanceof Error && "code" in error && error.code === "stale_fence")
+                if (error instanceof Error && "code" in error && error.code === "stale_fence") {
+                  if (expectedGeneration !== undefined) {
+                    const current = await context.pool.query<{ generation: string }>(
+                      `SELECT generation FROM ${name("scopes")} WHERE thread_id=$1 AND deleted=0`,
+                      [id],
+                    )
+                    if (current.rows[0]?.generation !== expectedGeneration) return undefined
+                  }
                   throw diagnostic(
                     "storage_unavailable",
                     "Runtime scope changed during idle renewal; retry",
                   )
+                }
                 throw error
               }
             }
-            return bindRuntimeStore(
-              installation,
-              createRuntimeBinding(installation, {
-                threadId: scope.thread_id,
-                generation: scope.generation,
-                fence: Number(scope.fence),
-              }),
-            )
-          }),
+            // Selection, validation and handle construction share the row lock.
+            // Only the pool and immutable binding survive COMMIT, never client.
+            return "store" in scope ? scope.store : undefined
+          }, id),
       })
     } catch (error) {
       await installation.close()

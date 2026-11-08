@@ -199,8 +199,11 @@
       "dependsOn": ["build", "^test"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/test/harness/**"]
     },
+    "@b4run/langchain#typecheck": {
+      "dependsOn": ["build", "@b4run/langgraph#build"]
+    },
     "@b4run/langchain#test": {
-      "dependsOn": ["build", "^test"],
+      "dependsOn": ["build", "^test", "@b4run/langgraph#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",

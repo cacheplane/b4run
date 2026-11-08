@@ -154,6 +154,8 @@ export default {
 - overlaps with `deny` (a dead entry, since deny wins), or
 - approves a capability tool on a subagent that the subagent hasn't also granted itself via `allow` (a no-op until allow-listed).
 
+An explicit approval resumes the pending LangGraph node from its beginning. A tool approval followed by a file or workspace approval can run the intervening code again. Place external effects after the required checks, or make earlier effects idempotent. See [LangGraph’s guidance on effects before interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts#side-effects-called-before-interrupt-must-be-idempotent).
+
 ## Subagent approval
 
 A parent route can require approval before dispatching a direct child with `delegation`. Omitting `delegation` allows dispatch by default. `default: "deny"` creates an allowlist, and `default: "approve"` requires review for every child without an explicit rule:

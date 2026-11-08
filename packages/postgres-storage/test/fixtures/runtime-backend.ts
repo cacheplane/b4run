@@ -20,10 +20,13 @@ export function realBackend() {
     if (process.env.B4_TEST_PGSTORAGE !== "1")
       throw new Error("Runtime Postgres tests require B4_TEST_PGSTORAGE=1 and local Docker")
     container = await new PostgreSqlContainer("postgres:16").withStartupTimeout(180_000).start()
+    process.stdout.write(`R8 created own runtime conformance container ${container.getId()}\n`)
     first = new Pool({ connectionString: container.getConnectionUri() })
     second = new Pool({ connectionString: container.getConnectionUri() })
-    first.on("error", () => {})
-    second.on("error", () => {})
+    for (const pool of [first, second]) {
+      pool.on("error", (error) => clientErrors.push(error))
+      pool.on("connect", (client) => client.on("error", (error) => clientErrors.push(error)))
+    }
     const engine = await first.query<{ version: string }>("SELECT version()")
     process.stdout.write(`R3 engine: ${engine.rows[0]?.version}; container ${container.getId()}\n`)
     const [a, b] = await Promise.all([first.connect(), second.connect()])
@@ -40,24 +43,31 @@ export function realBackend() {
     }
   }, 240_000)
   afterAll(async () => {
-    try {
-      await Promise.all([first?.end(), second?.end(), ...[...ownedPools].map((pool) => pool.end())])
-    } finally {
-      if (container) {
-        const id = container.getId()
+    const failures: unknown[] = []
+    const pools = [first, second, ...ownedPools].filter((pool): pool is Pool => !!pool)
+    const results = await Promise.allSettled(pools.map((pool) => pool.end()))
+    for (const result of results) if (result.status === "rejected") failures.push(result.reason)
+    if (results.every((result) => result.status === "fulfilled"))
+      process.stdout.write(
+        `R8 closed all ${pools.length} own runtime conformance PostgreSQL pools\n`,
+      )
+    if (container) {
+      const id = container.getId()
+      try {
         await container.stop()
         process.stdout.write(`R3 removed own container ${id}\n`)
+      } catch (error) {
+        failures.push(error)
       }
     }
-    expect(
-      clientErrors,
-      "all checked-out scratch clients must settle before container removal",
-    ).toEqual([])
+    failures.push(...clientErrors)
+    if (failures.length)
+      throw new AggregateError(failures, "Runtime conformance resource cleanup failed")
   })
   return {
     pool(options: PoolConfig) {
       const pool = new Pool({ ...options, connectionString: container.getConnectionUri() })
-      pool.on("error", () => {})
+      pool.on("error", (error) => clientErrors.push(error))
       pool.on("connect", (client) => client.on("error", (error) => clientErrors.push(error)))
       const end = pool.end.bind(pool)
       let ending: Promise<void> | undefined

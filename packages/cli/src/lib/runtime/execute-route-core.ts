@@ -1,5 +1,324 @@
+import { bindMaterializedAgentRuntime } from "@b4run/langchain/internal/runtime"
+import type { RuntimeStore } from "@b4run/sdk/agent-protocol"
+import { ProtocolError } from "../dev/protocol/errors.js"
+import { makeProtocolThreadGate } from "../dev/thread-gate.js"
+import type { AdmissionServiceOptions } from "./admission.js"
+import {
+  enlistRuntimeAdministrativeSource,
+  runtimeCheckpointOwner,
+  runtimeChildExecutionConfig,
+  withRuntimeCheckpointTransaction,
+} from "./checkpoint-saver.js"
 import type { ExecutionHost } from "./executor.js"
+import { childInputExecution } from "./inputs.js"
+import {
+  exactRunPermissionAgents,
+  hash,
+  knownRunPermissionAgents,
+  runAuthorityFacts,
+  subject,
+} from "./operation-ledger.js"
+import { verifyStoppedNativePermissionSource } from "./permissions.js"
+import { acceptedInitialStoppedSource } from "./protected-source.js"
 import type { RuntimeStorageHost } from "./storage-host.js"
+import { runtimeStorageRegistration } from "./storage-host.js"
+/** Only a currently owned native invocation may bind the original compiled graph. */
+export async function bindProtocolAgentExecution(options: {
+  readonly store: RuntimeStore
+  readonly runId: string
+  readonly checkpointer: BaseCheckpointSaver
+  readonly entry: unknown
+  readonly config: Readonly<Record<string, unknown>>
+}): Promise<void> {
+  const owner = runtimeCheckpointOwner(options.checkpointer)
+  if (!owner || owner.store !== options.store || owner.runId !== options.runId)
+    throw new ProtocolError("not_supported")
+  await options.store.transaction(async (tx) => {
+    const run = await tx.runs.get(options.runId),
+      thread = await tx.thread.get()
+    const config = options.config.configurable as Record<string, unknown> | undefined
+    if (
+      !run ||
+      thread?.currentRunId !== options.runId ||
+      run.metadata.phase !== "running" ||
+      run.metadata.generation !== tx.scope.generation ||
+      run.execution?.fence !== tx.scope.fence ||
+      run.execution.ownerId !== (await tx.executionOwner()) ||
+      (await tx.inbox.list()).some(
+        (row) => row.kind === "control" && row.runId === options.runId && row.status === "accepted",
+      )
+    )
+      throw new ProtocolError("stale_generation")
+    if (
+      !config ||
+      config.thread_id !== tx.scope.threadId ||
+      config.checkpoint_ns !== owner.namespace.join("|")
+    )
+      throw new ProtocolError("not_found")
+    if (owner.namespace.length === 0) {
+      if (thread.headCheckpointId !== run.preRunCheckpointId)
+        throw new ProtocolError("stale_generation")
+      const map = config.checkpoint_map
+      if (map !== undefined) {
+        if (
+          !map ||
+          typeof map !== "object" ||
+          Array.isArray(map) ||
+          Object.entries(map).some(
+            ([namespace, checkpoint]) => namespace !== "" || checkpoint !== thread.headCheckpointId,
+          )
+        )
+          throw new ProtocolError("stale_generation")
+      }
+    }
+    if (config.checkpoint_id !== undefined) {
+      const head = owner.namespace.length
+        ? (
+            await tx.nativeNamespaces.get(
+              `namespace:${hash([tx.scope.threadId, tx.scope.generation, options.runId, owner.namespace])}`,
+            )
+          )?.checkpointId
+        : thread.headCheckpointId
+      if (config.checkpoint_id !== head) throw new ProtocolError("stale_generation")
+    }
+    let invocation = options.config
+    if (owner.namespace.length === 0) {
+      // Execution uses the accepted canonical head implicitly. Explicit native
+      // own selectors enable replay and bypass completed-task write matching.
+      const { checkpoint_id: _selected, checkpoint_map: _map, ...configurable } = config
+      invocation = { ...options.config, configurable }
+    }
+    bindMaterializedAgentRuntime(options.entry, options.checkpointer, invocation)
+  })
+}
+/** Staged shared-runtime hook. No HTTP binding or inference is activated here. */
+export async function rebindStoppedCheckpoint(
+  options: {
+    readonly request: Request
+    readonly store: RuntimeStore
+    readonly runId: string
+    readonly checkpointer: BaseCheckpointSaver
+    readonly adapter: import("@b4run/sdk").BackendAdapter
+    readonly entry: unknown
+    readonly config: Readonly<Record<string, unknown>>
+    readonly failpoint?: () => void | Promise<void>
+  } & Pick<AdmissionServiceOptions, "storage" | "deploymentId" | "policy" | "authorizeAgent">,
+): Promise<Readonly<Record<string, unknown>>> {
+  const candidate = await runtimeStorageRegistration(options.storage).findRun?.(options.runId)
+  if (!candidate || candidate.location !== "live") throw new ProtocolError("not_found")
+  const authorize = (id: string) => options.authorizeAgent(options.request, id)
+  const gate = makeProtocolThreadGate(options.policy, options.request, {
+    deploymentId: options.deploymentId,
+  })
+  await authorize(candidate.agentId)
+  for (const agent of knownRunPermissionAgents(candidate.authority)) await authorize(agent)
+  if (
+    !(
+      await gate({
+        action: "update",
+        operation: "run.create",
+        threadId: candidate.scope.threadId,
+        ...subject(candidate.subject),
+      })
+    ).ok
+  )
+    throw new ProtocolError("not_found")
+  exactRunPermissionAgents(candidate.scope.threadId, options.runId, candidate.authority)
+  const seen = new Set([options.runId])
+  let previous = candidate.authority.previousRunId
+  while (previous) {
+    if (seen.has(previous)) throw new ProtocolError("storage_unavailable")
+    seen.add(previous)
+    const source = await runtimeStorageRegistration(options.storage).findRun?.(previous)
+    if (
+      !source ||
+      source.scope.threadId !== candidate.scope.threadId ||
+      source.scope.generation !== candidate.scope.generation
+    )
+      throw new ProtocolError("not_found")
+    await authorize(source.agentId)
+    for (const agent of knownRunPermissionAgents(source.authority)) await authorize(agent)
+    if (
+      !(
+        await gate({
+          action: "update",
+          operation: "run.create",
+          threadId: source.scope.threadId,
+          ...subject(source.subject),
+        })
+      ).ok
+    )
+      throw new ProtocolError("not_found")
+    exactRunPermissionAgents(source.scope.threadId, previous, source.authority)
+    previous = source.authority.previousRunId
+  }
+  const rebind = options.adapter.protocol?.rebindCheckpoint
+  if (!rebind) throw new ProtocolError("not_supported")
+  return options.store.transaction(async (tx) => {
+    if (
+      candidate.scope.threadId !== tx.scope.threadId ||
+      candidate.scope.generation !== tx.scope.generation
+    )
+      throw new ProtocolError("not_found")
+    const run = await tx.runs.get(options.runId),
+      thread = await tx.thread.get()
+    if (
+      !run ||
+      !thread ||
+      thread.currentRunId !== options.runId ||
+      run.metadata.phase !== "settled" ||
+      run.metadata.continuation !== "closed" ||
+      (await tx.executionOwner()) !== null ||
+      (!run.unwoundAt && !run.ownershipLoss)
+    )
+      throw new ProtocolError("thread_busy")
+    if (!run.run.agent_id) throw new ProtocolError("storage_unavailable")
+    await authorize(run.run.agent_id)
+    const authority = runAuthorityFacts(
+      run,
+      await tx.receipts.list(),
+      await tx.nativeNamespaces.list(),
+      await tx.protectedSources.list(),
+    )
+    for (const agent of knownRunPermissionAgents(authority)) await authorize(agent)
+    if (
+      !(
+        await gate({
+          action: "update",
+          operation: "run.create",
+          threadId: tx.scope.threadId,
+          ...subject(thread),
+        })
+      ).ok
+    )
+      throw new ProtocolError("not_found")
+    exactRunPermissionAgents(tx.scope.threadId, options.runId, authority)
+    for (const sourceId of seen) {
+      if (sourceId === options.runId) continue
+      const source = await tx.runs.get(sourceId)
+      if (!source?.run.agent_id) throw new ProtocolError("not_found")
+      await authorize(source.run.agent_id)
+      const facts = runAuthorityFacts(
+        source,
+        await tx.receipts.list(),
+        await tx.nativeNamespaces.list(),
+        await tx.protectedSources.list(),
+      )
+      for (const agent of knownRunPermissionAgents(facts)) await authorize(agent)
+      exactRunPermissionAgents(tx.scope.threadId, sourceId, facts)
+    }
+    const runHead = thread.headCheckpointId
+      ? await tx.checkpoints.get(thread.headCheckpointId)
+      : undefined
+    if (!runHead) {
+      if (
+        run.metadata.startedAt === undefined &&
+        run.preRunCheckpointId === null &&
+        !run.metadata.previousRunId
+      )
+        return options.config
+      throw new ProtocolError("not_supported")
+    }
+    if (runHead.namespace.length) throw new ProtocolError("not_supported")
+    let origin = {
+      checkpointId: runHead.state.checkpoint.checkpoint_id,
+      checkpointOwnerRunId: options.runId,
+      stoppedSource: null as import("@b4run/sdk/agent-protocol").RuntimeStoppedSourceProof | null,
+    }
+    const result = await withRuntimeCheckpointTransaction(
+      options.checkpointer,
+      options.store,
+      tx,
+      async () => {
+        if (runHead.ownerRunId !== options.runId)
+          origin = run.metadata.previousRunId
+            ? await verifyStoppedNativePermissionSource(
+                options.store,
+                options.checkpointer,
+                options.runId,
+                tx,
+              )
+            : await acceptedInitialStoppedSource(tx, options.runId)
+        await enlistRuntimeAdministrativeSource(options.checkpointer, options.store, tx)
+        return rebind(options.entry, options.config)
+      },
+    )
+    const head = (await tx.thread.get())?.headCheckpointId
+    const safe = head ? await tx.checkpoints.get(head) : undefined
+    if (
+      !safe ||
+      safe.ownerRunId !== null ||
+      typeof safe.payload !== "object" ||
+      safe.payload === null
+    )
+      throw new ProtocolError("storage_unavailable")
+    await tx.checkpoints.put({
+      ...safe,
+      payload: {
+        ...safe.payload,
+        safeHead: true,
+        reboundFrom: {
+          runId: run.run.run_id,
+          ...origin,
+          reason: run.metadata.reason,
+          effectsUncertain: !!(
+            run.ownershipLoss?.effectsUncertain ||
+            run.metadata.effectsUncertain ||
+            (runHead.payload as { reboundFrom?: { effectsUncertain?: boolean } } | null)
+              ?.reboundFrom?.effectsUncertain ||
+            (await tx.runs.get(origin.checkpointOwnerRunId))?.metadata.effectsUncertain
+          ),
+        },
+      },
+    })
+    await options.failpoint?.()
+    const timestamp = new Date().toISOString()
+    const retiredOwners =
+      origin.stoppedSource?.creatorMethod === "input.respond"
+        ? [
+            ...new Set([
+              options.runId,
+              ...origin.stoppedSource.path.flatMap((entry) =>
+                entry.previousRunId ? [entry.previousRunId] : [],
+              ),
+            ]),
+          ]
+        : [options.runId]
+    for (const pending of await tx.pending.list()) {
+      if (pending.ownerRunId !== options.runId || pending.disposition !== "pending") continue
+      const { grant: _grant, ...b4 } = pending.input.data.b4
+      await tx.pending.put({
+        ...pending,
+        disposition: "retired",
+        input: {
+          ...pending.input,
+          data: { ...pending.input.data, b4: { ...b4, status: "abandoned" } },
+        },
+      })
+    }
+    for (const grant of await tx.grants.list())
+      if (
+        retiredOwners.includes(grant.ownerRunId) &&
+        grant.consumedByRunId === null &&
+        (grant.expiresAt === null || grant.expiresAt > timestamp)
+      )
+        await tx.grants.put({ ...grant, expiresAt: timestamp })
+    const current = await tx.thread.get()
+    if (!current) throw new ProtocolError("storage_unavailable")
+    const namespaces = await tx.nativeNamespaces.list()
+    for (const owner of retiredOwners)
+      for (const namespace of namespaces)
+        if (namespace.runId === owner)
+          await tx.nativeNamespaces.put({
+            ...namespace,
+            status: "retired",
+            revision: current.revision + 1,
+          })
+    await tx.thread.put({ ...current, revision: current.revision + 1 })
+    return result
+  })
+}
+
 /**
  * The REQUEST-PATH core of route execution, with no `node:` imports of its
  * own — this is the module the `@b4run/cli/fetch` entry reaches (graph
@@ -92,6 +411,7 @@ import type {
   AuthDefinition,
   B4Middleware,
   B4Principal,
+  BackendActiveInput,
   ClientToolCallStore,
   ClientToolRecorder,
   InterruptGrantStore,
@@ -438,6 +758,8 @@ export interface BootResolvedInstances {
   /** Shared boot-owned dispatch service. R8 binds safe adapter execution before
    * standard/native bindings replace the legacy execution owners. */
   readonly executionHost?: ExecutionHost
+  /** Trusted invocation-local owner boundary, never request config/input. */
+  readonly activeInput?: BackendActiveInput
   readonly checkpointer?: BaseCheckpointSaver
   readonly threadsStore?: ThreadsStore
   readonly permissionsStore?: PermissionsStore | (() => Promise<PermissionsStore>)
@@ -552,7 +874,12 @@ export async function materializeResolvedRouteGraph(
     checkpointer: options.checkpointer ?? false,
   })
   if (!prepared.ok) throw new Error(prepared.message)
-  return await materializePreparedAgentGraph(prepared, options.middlewareContext, options.principal)
+  return await materializePreparedAgentGraph(
+    prepared,
+    options.middlewareContext,
+    options.principal,
+    options.activeInput,
+  )
 }
 
 /**
@@ -730,6 +1057,7 @@ export async function* streamResolvedRoute(
     try {
       for await (const chunk of streamAgent({
         checkpointer,
+        ...(options.activeInput ? { activeInput: options.activeInput } : {}),
         entry: normalized.entry,
         input: agentInput,
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
@@ -1963,9 +2291,15 @@ async function prepareRouteExecutionForInvocation(
         prepareChild: async (entry, context) => {
           const route = routeById.get(entry.routeId)
           if (!route) throw new Error(`Validated subagent route "${entry.routeId}" is unavailable.`)
+          const childExecution = await childInputExecution(
+            resolvedCheckpointer,
+            createRouteAssistantId(route.id, route.kind),
+            context.nativeConfig,
+          )
           const childPrepared = await prepareRouteExecution({
             appRoot: options.appRoot,
-            checkpointer: false,
+            checkpointer: childExecution?.checkpointer ?? false,
+            ...(childExecution ? { activeInput: childExecution.activeInput } : {}),
             permissionsStore: appPermissionsStore,
             routeManifest,
             ...(options.threadsStore ? { threadsStore: options.threadsStore } : {}),
@@ -1990,10 +2324,14 @@ async function prepareRouteExecutionForInvocation(
             childPrepared,
             options.middlewareContext,
             options.principal,
+            childExecution?.activeInput,
           )
           assertResolvedSubagentGraph(graph)
+          const recorded = withEpisodeRecording(graph, childPrepared)
           return {
-            graph: withEpisodeRecording(graph, childPrepared),
+            graph: childExecution
+              ? bindProtocolChildGraph(recorded, childExecution, childPrepared.checkpointer)
+              : recorded,
             routeId: route.id,
             routeKey: createRouteAssistantId(route.id, route.kind),
             ...(entry.description !== "" ? { description: entry.description } : {}),
@@ -2216,6 +2554,7 @@ export async function executeRouteAtResolvedPath(
       routeInput,
       context,
       {
+        ...(options.activeInput ? { activeInput: options.activeInput } : {}),
         ...(checkpointer ? { checkpointer } : {}),
         ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
         ...(options.principal ? { principal: options.principal } : {}),
@@ -2308,6 +2647,7 @@ async function invokeEntry(
   input: unknown,
   context: unknown,
   agentContext?: {
+    readonly activeInput?: BackendActiveInput
     readonly bypassCache?: boolean
     readonly checkpointer?: BaseCheckpointSaver
     readonly middlewareContext?: Readonly<Record<string, unknown>>
@@ -2352,6 +2692,7 @@ async function invokeEntry(
     // completion — the interrupt surfaces only as a chunk on this path.
     return await executeAgentTurn({
       checkpointer: agentContext.checkpointer,
+      ...(agentContext.activeInput ? { activeInput: agentContext.activeInput } : {}),
       entry,
       input,
       ...(agentContext?.middlewareContext
@@ -2505,6 +2846,7 @@ export interface ChildPreparationContext {
   readonly params: Readonly<Record<string, string>>
   readonly rootSandboxKey?: string
   readonly signal: AbortSignal
+  readonly nativeConfig: RunnableConfig
 }
 
 const MAX_CHILD_GRAPH_CACHE_ENTRIES = 32
@@ -2550,6 +2892,7 @@ export function buildGuardedSubagentResolver(args: {
       registry: args.registry,
       resolve: async (entry) => {
         const context: ChildPreparationContext = {
+          nativeConfig: request.config,
           callId: request.callId,
           depth: parentDepth + 1,
           params,
@@ -2600,6 +2943,7 @@ function childGraphCacheKey(entry: ResolvedSubagent, context: ChildPreparationCo
     entry.routeId,
     context.depth,
     context.rootSandboxKey ?? null,
+    context.nativeConfig.configurable?.checkpoint_ns ?? null,
     Object.entries(context.params).sort(([left], [right]) => left.localeCompare(right)),
   ])
 }
@@ -2608,6 +2952,7 @@ async function materializePreparedAgentGraph(
   prepared: PreparedRoute,
   middlewareContext?: Readonly<Record<string, unknown>>,
   principal?: B4Principal,
+  activeInput?: BackendActiveInput,
 ): Promise<unknown> {
   if (prepared.normalized.kind !== "agent" || !isB4Agent(prepared.normalized.entry)) {
     throw new Error(
@@ -2615,6 +2960,7 @@ async function materializePreparedAgentGraph(
     )
   }
   return materializeAgentGraph({
+    ...(activeInput ? { activeInput } : {}),
     ...(prepared.bypassCache ? { bypassCache: true } : {}),
     ...(prepared.checkpointer ? { checkpointer: prepared.checkpointer } : {}),
     descriptor: prepared.normalized.entry,
@@ -2642,6 +2988,34 @@ function assertResolvedSubagentGraph(
     typeof value.invoke !== "function"
   ) {
     throw new Error("Materialized subagent graph does not expose invoke(input, config).")
+  }
+}
+
+/** Only an already guarded/owner-bound child receives this internal handle. */
+export function bindProtocolChildGraph(
+  graph: ResolvedSubagentGraph["graph"],
+  execution: NonNullable<Awaited<ReturnType<typeof childInputExecution>>>,
+  saver: BaseCheckpointSaver | undefined = execution.checkpointer,
+): ResolvedSubagentGraph["graph"] {
+  return {
+    async invoke(input, config) {
+      const invocation = await runtimeChildExecutionConfig(execution.checkpointer, config)
+      let reason = "namespace_completed"
+      try {
+        const result = await graph.invoke(input, {
+          ...invocation,
+          configurable: { ...invocation.configurable, __pregel_checkpointer: saver },
+        })
+        if (typeof result === "object" && result !== null && "__interrupt__" in result)
+          reason = "namespace_parked"
+        return result
+      } catch (error) {
+        reason = isGraphInterrupt(error) ? "namespace_parked" : "namespace_stopped"
+        throw error
+      } finally {
+        await execution.retire(reason)
+      }
+    },
   }
 }
 

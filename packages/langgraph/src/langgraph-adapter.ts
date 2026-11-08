@@ -1,8 +1,10 @@
 import type { BackendAdapter } from "@b4run/sdk"
+import { ownRunnableExecution } from "@b4run/sdk/internal/execution-work"
 
 export function createLangGraphAdapter(kind: "graph" | "workflow"): BackendAdapter {
   return {
     kind,
+    protocol: { injection: false },
 
     async execute(
       entry: unknown,
@@ -26,10 +28,10 @@ export function createLangGraphAdapter(kind: "graph" | "workflow"): BackendAdapt
         "invoke" in entry &&
         typeof (entry as { invoke?: unknown }).invoke === "function"
       ) {
-        return await (entry as { invoke: (input: unknown, context: unknown) => unknown }).invoke(
-          input,
-          { signal: context.signal },
-        )
+        const owned = ownRunnableExecution(entry)
+        return await (
+          owned.entry as { invoke: (input: unknown, context: unknown) => unknown }
+        ).invoke(input, { signal: context.signal })
       }
 
       throw new Error("Graph entry must be a function or expose invoke(input)")

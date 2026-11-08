@@ -1,4 +1,5 @@
 import type { BackendAdapter } from "@b4run/sdk"
+import { ownRunnableExecution } from "@b4run/sdk/internal/execution-work"
 
 interface RunnableLike {
   readonly invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<unknown>
@@ -28,7 +29,8 @@ export const chainAdapter: BackendAdapter = {
     context: { readonly signal: AbortSignal },
   ): Promise<unknown> {
     assertRunnableLike(entry)
-    return await entry.invoke(input, { signal: context.signal })
+    const owned = ownRunnableExecution(entry).entry
+    return await owned.invoke(input, { signal: context.signal })
   },
 
   async *stream(
@@ -37,13 +39,14 @@ export const chainAdapter: BackendAdapter = {
     context: { readonly signal: AbortSignal },
   ): AsyncIterable<unknown> {
     assertRunnableLike(entry)
+    const owned = ownRunnableExecution(entry).entry
 
-    if (typeof entry.stream !== "function") {
-      yield await entry.invoke(input, { signal: context.signal })
+    if (typeof owned.stream !== "function") {
+      yield await owned.invoke(input, { signal: context.signal })
       return
     }
 
-    const streamResult = entry.stream(input, { signal: context.signal })
+    const streamResult = owned.stream(input, { signal: context.signal })
     const iterable = streamResult instanceof Promise ? await streamResult : streamResult
 
     for await (const chunk of iterable) {

@@ -18,6 +18,7 @@ import {
   type AdmissionServiceOptions,
   isAdmissionService,
 } from "./admission.js"
+import { retireActiveInputs } from "./inputs.js"
 import {
   type AdmissionResult,
   admissionBinding,
@@ -82,7 +83,7 @@ async function acceptStop(
     status = "not_applied"
   else if (run.metadata.phase === "accepted" && run.metadata.startedAt === undefined) {
     for (const entry of await tx.inbox.list())
-      if (entry.runId === runId && entry.status === "accepted")
+      if (entry.kind !== "inject" && entry.runId === runId && entry.status === "accepted")
         await tx.inbox.put({ ...entry, status: "not_applied" })
     await settleExecution(
       tx,
@@ -125,6 +126,7 @@ export async function settleExecution(
 ): Promise<void> {
   const row = await tx.runs.get(runId)
   if (!row || row.metadata.phase === "settled") return
+  await retireActiveInputs(tx, runId, outcome.reason)
   if (
     (row.execution && row.execution.fence !== tx.scope.fence) ||
     (!row.execution && row.metadata.startedAt !== undefined)
@@ -799,7 +801,12 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                 throw new ProtocolError("not_found")
               await authorizeFacts(
                 run.run.agent_id,
-                runAuthorityFacts(run, await tx.receipts.list()),
+                runAuthorityFacts(
+                  run,
+                  await tx.receipts.list(),
+                  await tx.nativeNamespaces.list(),
+                  await tx.protectedSources.list(),
+                ),
                 thread,
                 false,
               )

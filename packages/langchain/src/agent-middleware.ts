@@ -1,7 +1,8 @@
 import type { PromptFragment } from "@b4run/core"
-import { normalizeProviderMessage } from "@b4run/sdk"
+import { type BackendActiveInput, normalizeProviderMessage } from "@b4run/sdk"
 import {
   type BaseMessage,
+  HumanMessage,
   isAIMessage,
   isToolMessage,
   SystemMessage,
@@ -46,6 +47,7 @@ export interface B4AgentMiddlewareOptions {
   readonly returnDirectToolNames: ReadonlySet<string>
   /** The route's `retry`, resolved; defaults to 3 attempts and a 1s base delay. */
   readonly retry?: ModelRetryPolicy
+  readonly activeInput?: BackendActiveInput
 }
 
 /**
@@ -73,13 +75,61 @@ export function createB4AgentMiddleware(options: B4AgentMiddlewareOptions): Agen
   // `wrapModelCall` middleware added after it would hand it that 429 inside
   // a `MiddlewareError`, which `isCapacityRateLimitError` looks through.
   const middleware: AgentMiddleware[] = [modelAndToolMiddleware(options)]
+  if (options.activeInput && options.returnDirectToolNames.size) {
+    middleware.push(
+      createMiddleware({
+        name: "B4ActiveInputEligibility",
+        stateSchema: z.object({ _b4InputEligible: z.boolean().optional() }),
+        beforeModel: {
+          canJumpTo: ["end"],
+          hook: (state) =>
+            endsOnReturnDirect(
+              (state as { messages: BaseMessage[] }).messages,
+              options.returnDirectToolNames,
+            )
+              ? { jumpTo: "end" }
+              : undefined,
+        },
+      }) as AgentMiddleware,
+    )
+  }
+  if (options.activeInput) middleware.push(activeInputMiddleware(options.activeInput))
   const loopEntry = loopEntryMiddleware(options)
   if (loopEntry) middleware.push(loopEntry)
   return middleware
 }
 
+/** A separate node writes only new messages, through the existing ID reducer.
+ * The sync saver commits this update and its input disposition before model. */
+function activeInputMiddleware(input: BackendActiveInput): AgentMiddleware {
+  return createMiddleware({
+    name: "B4ActiveInput",
+    stateSchema: z.object({ _b4AppliedInputIds: z.array(z.string()).optional() }),
+    beforeModel: async () => {
+      const selected = await input.beforeModel()
+      return selected
+        ? {
+            messages: selected.messages.map((message) => {
+              if (typeof message.content !== "string" || !["user", "system"].includes(message.role))
+                throw new Error("Active input requires user/system text messages")
+              const Message = message.role === "system" ? SystemMessage : HumanMessage
+              return new Message({
+                ...(message.id ? { id: message.id } : {}),
+                content: message.content,
+              })
+            }),
+            _b4AppliedInputIds: [...selected.inputIds],
+          }
+        : { _b4AppliedInputIds: [] }
+    },
+  }) as AgentMiddleware
+}
+
 function modelAndToolMiddleware(options: B4AgentMiddlewareOptions): AgentMiddleware {
-  const readable: Record<string, z.ZodTypeAny> = { [LLM_INPUT_MESSAGES]: z.any().optional() }
+  const readable: Record<string, z.ZodTypeAny> = {
+    [LLM_INPUT_MESSAGES]: z.any().optional(),
+    _b4AppliedInputIds: z.array(z.string()).optional(),
+  }
   for (const name of options.stateFieldNames) readable[name] = z.any().optional()
   const composesPrompt = options.promptFragments.length > 0
   const retry = options.retry ?? resolveModelRetryPolicy(undefined)
@@ -177,7 +227,7 @@ export function answerDanglingToolCalls(messages: BaseMessage[]): BaseMessage[] 
           new ToolMessage({
             status: "error",
             content:
-              "Error: this tool call did not run; the run that made it ended first. Its result is unknown.",
+              "Error: the run ended before this tool call had a durable result. Its execution outcome is unknown; do not retry it automatically.",
             name: call.name,
             tool_call_id: call.id,
           }),

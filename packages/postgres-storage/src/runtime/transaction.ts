@@ -8,6 +8,7 @@ import type {
   RuntimeTemporaryCleanupPlan,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
+import { isProtectedSource } from "@b4run/sdk/internal/runtime-identity"
 import { B4PostgresSaver } from "../checkpointer.js"
 import { createFencedPool } from "../internal/fenced-pool.js"
 import { rollbackQuietly, withTransaction } from "../internal/tx.js"
@@ -22,6 +23,8 @@ import {
 } from "./index.js"
 import { makeJournal } from "./journal.js"
 import { maintenanceSpec } from "./maintenance.js"
+import { makeNamespaces } from "./namespaces.js"
+import { makeProtectedSources } from "./protected-sources.js"
 import { grantSpec, pendingKey, pendingSpec, receiptSpec } from "./receipts.js"
 import { runSpec } from "./runs.js"
 import { table } from "./schema.js"
@@ -56,14 +59,32 @@ export function diagnostic(code: string, message: string): Error & { code: strin
 }
 /** Discovery must not acquire a client before checking callback lifetime and
  * actual spare capacity. These checks establish resources, never authority. */
-export function assertRuntimeHostEntry(owner: PostgresRuntimeInstallation): void {
+export function assertRuntimeHostEntry(
+  owner: PostgresRuntimeInstallation,
+  bindingThreadId?: string,
+): void {
   const context = installationContext(owner)
   const current = context.host.activity.getStore()
   if (current && !current.active)
     throw diagnostic("closed_transaction", "Runtime callback context is no longer active")
   if (current?.failure) throw current.failure.error
   if (current?.kind === "transaction") throw new Error("Nested runtime host access would deadlock")
-  if (current?.kind === "lease") context.host.assertWorkCapacity()
+  if (current?.kind === "lease") {
+    if (bindingThreadId !== undefined) {
+      const identity: unknown = JSON.parse(current.scopeKey)
+      if (
+        !Array.isArray(identity) ||
+        identity.length !== 3 ||
+        identity.some((part) => typeof part !== "string" || !part) ||
+        JSON.stringify(identity) !== current.scopeKey ||
+        identity[0] !== current.installationId
+      )
+        throw diagnostic("closed_transaction", "Invalid runtime callback scope")
+      if (identity[0] === owner.installationId && identity[1] === bindingThreadId)
+        throw new Error("Nested runtime transaction or lease would deadlock")
+    }
+    context.host.assertWorkCapacity()
+  }
 }
 /** Reject callback reentry/resource waits before a write acquires a client or
  * changes pending accounting. Internal resource validation, not authority. */
@@ -205,6 +226,8 @@ function makeTransaction(access: Access): RuntimeTransaction {
       },
     },
     checkpoints: makeRecords(access, checkpointSpec),
+    nativeNamespaces: makeNamespaces(access),
+    protectedSources: makeProtectedSources(access),
     pending: {
       ...makeRecords(access, pendingSpec),
       async get(identity) {
@@ -650,15 +673,28 @@ export function makeRuntimeStore(
           const retainedAt = now(),
             retainedUntil = new Date(Date.parse(retainedAt) + 7 * 24 * 60 * 60 * 1000).toISOString()
           const { thread_id, created_at, updated_at, status, metadata } = thread.thread
-          const permissionAgentsByRun = Object.fromEntries(
-            (await tx.receipts.list())
-              .filter(
-                (r) =>
-                  r.operation?.method === "input.respond" &&
-                  Array.isArray(r.operation.resolved.permissionAgents),
-              )
-              .map((r) => [r.receipt.runId, r.operation?.resolved.permissionAgents]),
-          )
+          const permissionAgentsByRun: Record<string, string[]> = {}
+          for (const proof of await tx.protectedSources.list()) {
+            if (!isProtectedSource(proof)) throw new Error("Invalid canonical protected source")
+            permissionAgentsByRun[proof.runId] = [...proof.agents]
+          }
+          for (const receipt of await tx.receipts.list()) {
+            if (!["input.respond", "input.inject"].includes(receipt.operation?.method ?? ""))
+              continue
+            const children = receipt.operation?.resolved.permissionAgents
+            if (!Array.isArray(children)) throw new Error("Missing canonical contributor authority")
+            if (!children.length) continue
+            const key = receipt.receipt.runId
+            permissionAgentsByRun[key] = [
+              ...new Set([...(permissionAgentsByRun[key] ?? []), ...children]),
+            ]
+          }
+          for (const binding of await tx.nativeNamespaces.list()) {
+            const key = binding.runId
+            permissionAgentsByRun[key] = [
+              ...new Set([...(permissionAgentsByRun[key] ?? []), binding.agentId]),
+            ]
+          }
           const subject: RuntimeRetainedSubject = {
             thread: { thread_id, created_at, updated_at, status, metadata },
             protectedMetadata: {
@@ -693,11 +729,14 @@ export function makeRuntimeStore(
             status: plan.provider.kind === "none" ? "complete" : "pending",
             payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
           })
+          await client.query(
+            `DELETE FROM ${name("aliases")} WHERE thread_id=$1 AND generation=$2 AND COALESCE((payload::jsonb)->>'kind','') NOT IN ('native_namespace','protected_source')`,
+            [scope.threadId, scope.generation],
+          )
           for (const value of [
             "native_writes",
             "native_checkpoints",
             "checkpoint_writes",
-            "aliases",
             "projections",
             "journal",
             "checkpoint_lineage",

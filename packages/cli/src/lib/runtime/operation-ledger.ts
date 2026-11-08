@@ -1,9 +1,11 @@
 import type { ThreadAccessRequest } from "@b4run/sdk"
 import type {
   ReceiptV1,
+  RuntimeNamespaceRecord,
   RuntimeOperationAuthorityFacts,
   RuntimeOperationCandidate,
   RuntimeOperationContext,
+  RuntimeProtectedSourceRecord,
   RuntimeReceiptRecord,
   RuntimeRetainedOperation,
   RuntimeRetainedSubject,
@@ -13,6 +15,7 @@ import type {
   RuntimeThreadRecord,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
+import { canonicalRuntimeValue, isProtectedSource } from "@b4run/sdk/internal/runtime-identity"
 import { sha256Hex } from "@b4run/sdk/pure"
 import { ProtocolError } from "../dev/protocol/errors.js"
 import { canonicalProtocolId } from "../dev/protocol/metadata.js"
@@ -62,15 +65,7 @@ export function admissionBinding(
   return proof
 }
 
-export function canonical(value: unknown): string {
-  if (value === undefined) return "null"
-  if (value === null || typeof value !== "object") return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
-    .join(",")}}`
-}
+export const canonical = canonicalRuntimeValue
 export function hash(value: unknown): string {
   return sha256Hex(canonical(value))
 }
@@ -184,53 +179,266 @@ export function exactRunPermissionAgents(
 ): readonly string[] {
   try {
     canonicalProtocolId(facts.turnId)
-    if (!Array.isArray(facts.permissionResponses)) throw new Error("Missing authority facts")
+    if (
+      !Array.isArray(facts.permissionResponses) ||
+      !Array.isArray(facts.inputInjections) ||
+      !Array.isArray(facts.nativeNamespaces)
+    )
+      throw new Error("Missing authority facts")
+    const agents: string[] = [...sourceAgents(threadId, runId, facts.protectedSource)]
+    const namespaces = new Set<string>()
+    for (const binding of facts.nativeNamespaces) {
+      if (
+        binding.v !== 1 ||
+        binding.kind !== "native_namespace" ||
+        binding.runId !== runId ||
+        !Array.isArray(binding.namespace) ||
+        !binding.namespace.length ||
+        binding.namespace.some((part: unknown) => typeof part !== "string" || !part.length) ||
+        typeof binding.agentId !== "string" ||
+        !binding.agentId ||
+        namespaces.has(canonical(binding.namespace))
+      )
+        throw new Error("Invalid native namespace authority")
+      canonicalProtocolId(binding.parentCheckpointId)
+      canonicalProtocolId(binding.namespaceGeneration)
+      if (binding.source) {
+        const source = binding.source
+        if (
+          source.v !== 1 ||
+          source.kind !== "permission_continuation" ||
+          source.threadId !== threadId ||
+          source.runId !== facts.previousRunId ||
+          source.parentCheckpointId !== binding.parentCheckpointId ||
+          source.namespaceGeneration === binding.namespaceGeneration ||
+          source.aliasId !==
+            `namespace:${hash([threadId, source.generation, source.runId, binding.namespace])}` ||
+          !/^[0-9a-f]{64}$/.test(source.receiptId)
+        )
+          throw new Error("Invalid native continuation source")
+        for (const id of [
+          source.generation,
+          source.runId,
+          source.namespaceGeneration,
+          source.checkpointId,
+          source.parentCheckpointId,
+        ])
+          canonicalProtocolId(id)
+        if (
+          Object.keys(source).some(
+            (key) =>
+              ![
+                "v",
+                "kind",
+                "threadId",
+                "generation",
+                "runId",
+                "aliasId",
+                "namespaceGeneration",
+                "checkpointId",
+                "parentCheckpointId",
+                "receiptId",
+              ].includes(key),
+          )
+        )
+          throw new Error("Invalid native continuation source fields")
+      } else if (binding.namespace.at(-1)?.split(":").at(-1) !== binding.namespaceGeneration)
+        throw new Error("Native namespace generation mismatch")
+      namespaces.add(canonical(binding.namespace))
+      agents.push(binding.agentId)
+    }
     if (facts.previousRunId === null) {
       if (facts.turnId !== runId || facts.permissionResponses.length !== 0)
         throw new Error("Invalid initial Run authority")
-      return []
+    } else {
+      canonicalProtocolId(facts.previousRunId)
+      if (
+        facts.previousRunId === runId ||
+        facts.turnId === runId ||
+        facts.permissionResponses.length !== 1
+      )
+        throw new Error("Invalid continuation authority")
+      const receipt = facts.permissionResponses[0]
+      if (
+        !receipt ||
+        receipt.runId !== runId ||
+        receipt.turnId !== facts.turnId ||
+        receipt.operationThreadId !== threadId ||
+        receipt.targetRunId !== facts.previousRunId
+      )
+        throw new Error("Cross-target authority")
+      agents.push(...authorityChildren(receipt.permissionAgents, false))
     }
-    canonicalProtocolId(facts.previousRunId)
-    if (
-      facts.previousRunId === runId ||
-      facts.turnId === runId ||
-      facts.permissionResponses.length !== 1
-    )
-      throw new Error("Invalid continuation authority")
-    const receipt = facts.permissionResponses[0]
-    if (
-      !receipt ||
-      receipt.runId !== runId ||
-      receipt.turnId !== facts.turnId ||
-      receipt.operationThreadId !== threadId ||
-      receipt.targetRunId !== facts.previousRunId
-    )
-      throw new Error("Cross-target authority")
-    const agents = receipt.permissionAgents
-    if (
-      !Array.isArray(agents) ||
-      !agents.length ||
-      agents.some((agent) => typeof agent !== "string" || !agent.length) ||
-      new Set(agents).size !== agents.length
-    )
-      throw new Error("Incomplete permission authority")
-    return agents
+    for (const receipt of facts.inputInjections) {
+      if (
+        receipt.runId !== runId ||
+        receipt.targetRunId !== runId ||
+        receipt.turnId !== facts.turnId ||
+        receipt.operationThreadId !== threadId
+      )
+        throw new Error("Cross-target injection authority")
+      agents.push(...injectionChildren(receipt))
+    }
+    return [...new Set(agents)]
   } catch {
     throw new ProtocolError("storage_unavailable")
   }
+}
+function authorityChildren(value: unknown, empty: boolean): string[] {
+  if (
+    !Array.isArray(value) ||
+    (!empty && !value.length) ||
+    value.some((id) => typeof id !== "string" || !id.length) ||
+    new Set(value).size !== value.length
+  )
+    throw new ProtocolError("storage_unavailable")
+  return value
+}
+function injectionChildren(
+  facts: Pick<
+    RuntimeOperationAuthorityFacts,
+    "permissionAgents" | "namespace" | "namespaceGeneration" | "injectionAgent"
+  >,
+): string[] {
+  const agents = authorityChildren(facts.permissionAgents, true)
+  if (
+    !Array.isArray(facts.namespace) ||
+    facts.namespace.some((part) => typeof part !== "string" || !part.length) ||
+    typeof facts.injectionAgent !== "string" ||
+    !facts.injectionAgent.length
+  )
+    throw new ProtocolError("storage_unavailable")
+  canonicalProtocolId(facts.namespaceGeneration)
+  if (
+    facts.namespace.length
+      ? agents.length !== 1 || agents[0] !== facts.injectionAgent
+      : agents.length !== 0
+  )
+    throw new ProtocolError("storage_unavailable")
+  return agents
 }
 
 export function runAuthorityFacts(
   run: RuntimeRunRecord,
   receipts: readonly RuntimeReceiptRecord[],
+  namespaces: readonly RuntimeNamespaceRecord[],
+  sources: readonly RuntimeProtectedSourceRecord[],
 ): RuntimeRunAuthorityFacts {
-  return {
-    turnId: run.metadata.turnId,
-    previousRunId: run.metadata.previousRunId ?? null,
+  return authorityFor(
+    run.run.run_id,
+    run.metadata.turnId,
+    run.metadata.previousRunId ?? null,
+    receipts,
+    namespaces,
+    sources,
+  )
+}
+/** Canonical creator skeletons remain genuine after Run-payload removal. */
+export function receiptRunAuthorityFacts(
+  runId: string,
+  receipts: readonly RuntimeReceiptRecord[],
+  namespaces: readonly RuntimeNamespaceRecord[],
+  sources: readonly RuntimeProtectedSourceRecord[],
+): RuntimeRunAuthorityFacts {
+  const creators = new Map(
+    receipts
+      .filter(
+        (row) =>
+          row.receipt.runId === runId &&
+          ["run.create", "input.respond"].includes(row.operation?.method ?? ""),
+      )
+      .map((row) => {
+        const facts = {
+          method: row.operation?.method,
+          turnId: row.receipt.turnId,
+          threadId: row.operation?.operationThreadId,
+          targetRunId: row.operation?.targetRunId,
+        }
+        return [canonical(facts), facts] as const
+      }),
+  )
+  if (creators.size !== 1) throw new ProtocolError("storage_unavailable")
+  const creator = [...creators.values()][0]!
+  return authorityFor(
+    runId,
+    creator.turnId,
+    creator.method === "input.respond" ? String(creator.targetRunId) : null,
+    receipts,
+    namespaces,
+    sources,
+  )
+}
+function authorityFor(
+  runId: string,
+  turnId: string,
+  previousRunId: string | null,
+  receipts: readonly RuntimeReceiptRecord[],
+  namespaces: readonly RuntimeNamespaceRecord[],
+  sources: readonly RuntimeProtectedSourceRecord[],
+): RuntimeRunAuthorityFacts {
+  const facts: RuntimeRunAuthorityFacts = {
+    turnId: turnId,
+    previousRunId: previousRunId,
+    protectedSource: {
+      reference: (() => {
+        const references = new Map(
+          receipts
+            .filter(
+              (row) =>
+                row.receipt.runId === runId &&
+                ["run.create", "input.respond"].includes(row.operation?.method ?? ""),
+            )
+            .map((row) => [
+              canonical(row.operation?.protectedSource ?? null),
+              row.operation?.protectedSource ?? null,
+            ]),
+        )
+        return references.size === 1 ? [...references.values()][0] : "invalid_creator"
+      })(),
+      records: sources.filter((row) => row.runId === runId),
+    },
+    nativeNamespaces: namespaces
+      .filter((row) => row.runId === runId)
+      .map(
+        ({
+          v,
+          kind,
+          runId,
+          namespace,
+          agentId,
+          namespaceGeneration,
+          parentCheckpointId,
+          source,
+        }) => ({
+          v,
+          kind,
+          runId,
+          namespace,
+          agentId,
+          namespaceGeneration,
+          parentCheckpointId,
+          source: source ?? null,
+        }),
+      ),
+    inputInjections: receipts
+      .filter(
+        (receipt) =>
+          receipt.receipt.runId === runId && receipt.operation?.method === "input.inject",
+      )
+      .map((receipt) => ({
+        runId: receipt.receipt.runId,
+        turnId: receipt.receipt.turnId,
+        operationThreadId: receipt.operation?.operationThreadId ?? "",
+        targetRunId: receipt.operation?.targetRunId ?? "",
+        permissionAgents: receipt.operation?.resolved.permissionAgents,
+        namespace: receipt.operation?.resolved.namespace,
+        namespaceGeneration: receipt.operation?.resolved.namespaceGeneration,
+        injectionAgent: receipt.operation?.resolved.injectionAgent,
+      })),
     permissionResponses: receipts
       .filter(
         (receipt) =>
-          receipt.receipt.runId === run.run.run_id && receipt.operation?.method === "input.respond",
+          receipt.receipt.runId === runId && receipt.operation?.method === "input.respond",
       )
       .map((receipt) => ({
         runId: receipt.receipt.runId,
@@ -240,28 +448,56 @@ export function runAuthorityFacts(
         permissionAgents: receipt.operation?.resolved.permissionAgents,
       })),
   }
+  const unique = <T>(items: readonly T[]) => [
+    ...new Map(items.map((item) => [canonical(item), item])).values(),
+  ]
+  return { ...facts, inputInjections: unique(facts.inputInjections) }
 }
 
 /** Known canonical child identities must be checked before secondary stored
  * lineage/map faults can disclose a diagnostic. Full validation is mandatory. */
 export function knownRunPermissionAgents(facts: RuntimeRunAuthorityFacts): readonly string[] {
-  try {
-    if (!Array.isArray(facts.permissionResponses)) throw new Error("Missing canonical facts")
-    if (!facts.permissionResponses.length) return []
-    if (facts.permissionResponses.length !== 1) throw new Error("Ambiguous canonical facts")
-    const agents = facts.permissionResponses[0]?.permissionAgents
-    if (
-      !Array.isArray(agents) ||
-      !agents.length ||
-      agents.some((a) => typeof a !== "string" || !a.length) ||
-      new Set(agents).size !== agents.length
-    )
-      throw new Error("Invalid canonical children")
-    return agents
-  } catch {
-    throw new ProtocolError("storage_unavailable")
+  const agents: string[] = []
+  for (const collection of [facts?.permissionResponses, facts?.inputInjections]) {
+    if (!Array.isArray(collection)) continue
+    for (const receipt of collection) {
+      const saved = receipt?.permissionAgents
+      if (Array.isArray(saved))
+        for (const agent of saved) if (typeof agent === "string" && agent) agents.push(agent)
+    }
   }
+  if (Array.isArray(facts?.nativeNamespaces))
+    for (const binding of facts.nativeNamespaces)
+      if (typeof binding?.agentId === "string" && binding.agentId) agents.push(binding.agentId)
+  if (Array.isArray(facts?.protectedSource?.records))
+    for (const proof of facts.protectedSource.records)
+      if (Array.isArray(proof?.agents))
+        for (const agent of proof.agents) if (typeof agent === "string" && agent) agents.push(agent)
+  return [...new Set(agents)]
 }
+
+function sourceAgents(
+  threadId: string,
+  runId: string,
+  source: RuntimeRunAuthorityFacts["protectedSource"],
+): readonly string[] {
+  if (!source || !Array.isArray(source.records)) throw new ProtocolError("storage_unavailable")
+  if (source.reference === null && source.records.length === 0) return []
+  if (source.records.length !== 1 || !source.reference || typeof source.reference !== "object")
+    throw new ProtocolError("storage_unavailable")
+  const proof = source.records[0]!,
+    reference = source.reference as { aliasId?: unknown; digest?: unknown }
+  if (
+    !isProtectedSource(proof) ||
+    proof.threadId !== threadId ||
+    proof.runId !== runId ||
+    reference.aliasId !== proof.aliasId ||
+    reference.digest !== proof.digest
+  )
+    throw new ProtocolError("storage_unavailable")
+  return authorityChildren(proof.agents, false)
+}
+
 export function validateRetainedPermissionMap(
   threadId: string,
   runId: string,
@@ -285,6 +521,7 @@ export function validateRetainedPermissionMap(
 
 export function operationAuthorityFacts(
   receipt: RuntimeReceiptRecord,
+  runAuthority: RuntimeRunAuthorityFacts | null,
 ): RuntimeOperationAuthorityFacts {
   return {
     runId: receipt.receipt.runId,
@@ -293,24 +530,83 @@ export function operationAuthorityFacts(
     operationThreadId: receipt.operation?.operationThreadId ?? null,
     targetRunId: receipt.operation?.targetRunId ?? null,
     permissionAgents: receipt.operation?.resolved.permissionAgents ?? null,
+    namespace: receipt.operation?.resolved.namespace ?? null,
+    namespaceGeneration: receipt.operation?.resolved.namespaceGeneration ?? null,
+    injectionAgent: receipt.operation?.resolved.injectionAgent ?? null,
+    runAuthority,
   }
 }
 function operationChildren(facts: RuntimeOperationAuthorityFacts): readonly string[] {
   if (facts?.method === "run.create") return []
+  if (facts?.method === "input.inject") return injectionChildren(facts)
   if (facts?.method !== "input.respond") throw new ProtocolError("storage_unavailable")
-  return knownRunPermissionAgents({
-    turnId: facts.turnId,
-    previousRunId: null,
-    permissionResponses: [
-      {
-        runId: facts.runId,
-        turnId: facts.turnId,
-        operationThreadId: String(facts.operationThreadId),
-        targetRunId: String(facts.targetRunId),
-        permissionAgents: facts.permissionAgents,
-      },
-    ],
-  })
+  return authorityChildren(facts.permissionAgents, false)
+}
+
+function operationRunChildren(facts: RuntimeOperationAuthorityFacts): readonly string[] {
+  const saved = Array.isArray(facts?.permissionAgents)
+    ? facts.permissionAgents.filter((id): id is string => typeof id === "string" && !!id)
+    : []
+  return [
+    ...new Set([
+      ...saved,
+      ...knownRunPermissionAgents(facts?.runAuthority as RuntimeRunAuthorityFacts),
+    ]),
+  ]
+}
+export const operationRunAgents = operationRunChildren
+function normalizedOperationAuthority(facts: RuntimeOperationAuthorityFacts) {
+  const authority = facts.runAuthority
+  const sorted = <T>(items: readonly T[]) =>
+    [...items].sort((a, b) => canonical(a).localeCompare(canonical(b)))
+  return {
+    ...facts,
+    runAuthority: authority
+      ? {
+          ...authority,
+          nativeNamespaces: sorted(authority.nativeNamespaces),
+          inputInjections: sorted(authority.inputInjections),
+          permissionResponses: sorted(authority.permissionResponses),
+        }
+      : null,
+  }
+}
+export function sameOperationAuthority(
+  left: RuntimeOperationAuthorityFacts,
+  right: RuntimeOperationAuthorityFacts,
+): boolean {
+  return (
+    canonical(normalizedOperationAuthority(left)) === canonical(normalizedOperationAuthority(right))
+  )
+}
+export async function authorizeCurrentOperation(
+  tx: RuntimeTransaction,
+  receipt: RuntimeReceiptRecord,
+  authorize: (agentId: string) => Promise<void>,
+): Promise<RuntimeOperationAuthorityFacts> {
+  const root = receipt.operation?.resolved.agent_id
+  if (typeof root !== "string") throw new ProtocolError("storage_unavailable")
+  await authorize(root)
+  const receipts = await tx.receipts.list(),
+    namespaces = await tx.nativeNamespaces.list(),
+    sources = await tx.protectedSources.list(),
+    run = await tx.runs.get(receipt.receipt.runId)
+  const authority = run
+    ? runAuthorityFacts(run, receipts, namespaces, sources)
+    : receiptRunAuthorityFacts(receipt.receipt.runId, receipts, namespaces, sources)
+  const facts = operationAuthorityFacts(receipt, authority)
+  for (const agent of operationRunAgents(facts)) await authorize(agent)
+  validateOperationRunAuthority(tx.scope.threadId, facts)
+  return facts
+}
+export function validateOperationRunAuthority(
+  threadId: string,
+  facts: RuntimeOperationAuthorityFacts,
+): void {
+  if (facts?.method === null) throw new ProtocolError("receipt_expired")
+  if (!facts?.runAuthority || facts.turnId !== facts.runAuthority.turnId)
+    throw new ProtocolError("storage_unavailable")
+  exactRunPermissionAgents(threadId, facts.runId, facts.runAuthority)
 }
 export function validateOperationAuthority(
   threadId: string,
@@ -322,17 +618,28 @@ export function validateOperationAuthority(
     canonicalProtocolId(facts.operationThreadId)
     canonicalProtocolId(facts.targetRunId)
     if (facts.operationThreadId !== threadId) throw new Error("Cross-thread operation")
+    if (!facts.runAuthority || facts.runAuthority.turnId !== facts.turnId)
+      throw new Error("Missing canonical Run authority")
+    exactRunPermissionAgents(threadId, facts.runId, facts.runAuthority)
     if (facts.method === "run.create") {
       if (
         facts.runId !== facts.turnId ||
         facts.targetRunId !== facts.runId ||
+        facts.runAuthority.previousRunId !== null ||
         (facts.permissionAgents !== undefined && facts.permissionAgents !== null)
       )
         throw new Error("Invalid initial operation")
     } else if (facts.method === "input.respond") {
-      if (facts.runId === facts.turnId || facts.targetRunId === facts.runId)
+      if (
+        facts.runId === facts.turnId ||
+        facts.targetRunId === facts.runId ||
+        facts.runAuthority.previousRunId !== facts.targetRunId
+      )
         throw new Error("Invalid continuation operation")
       operationChildren(facts)
+    } else if (facts.method === "input.inject") {
+      if (facts.targetRunId !== facts.runId) throw new Error("Cross-target injection operation")
+      injectionChildren(facts)
     } else throw new Error("Unsupported retained operation proof")
   } catch {
     throw new ProtocolError("storage_unavailable")
@@ -355,11 +662,19 @@ export async function authorizeRetainedOperation(
   }
   let children: readonly string[]
   try {
-    children = operationChildren(facts)
+    children = operationRunChildren(facts)
   } catch {
     return fail()
   }
   for (const child of children) await authorizeAgent(child)
+  const savedMap = value.protectedMetadata.permissionAgentsByRun as
+    | Record<string, unknown>
+    | undefined
+  const savedChildren = savedMap?.[facts?.runId]
+  if (Array.isArray(savedChildren))
+    for (const child of savedChildren)
+      if (typeof child === "string" && child && !children.includes(child))
+        await authorizeAgent(child)
   try {
     validateOperationAuthority(threadId, facts)
     validateRetainedPermissionMap(threadId, facts.runId, children, value)
@@ -384,7 +699,10 @@ export function validateRetainedOperationCut(
     throw new ProtocolError("not_found")
   if (
     cut.receipt.operation?.scopeKey !== ownerKey ||
-    canonical(operationAuthorityFacts(cut.receipt)) !== canonical(candidate.operationAuthority) ||
+    !sameOperationAuthority(
+      operationAuthorityFacts(cut.receipt, cut.runAuthority),
+      candidate.operationAuthority,
+    ) ||
     canonical(cut.receipt.operation?.provenance) !== canonical(candidate.provenance) ||
     canonical(cut.subject.protectedMetadata.provenance) !==
       canonical(candidate.retainedSubject?.protectedMetadata.provenance)
@@ -398,10 +716,12 @@ export function validateRetainedOperationCut(
       cut.run.metadata.generation !== candidate.scope.generation
     )
       throw new ProtocolError("not_found")
-    exactRunPermissionAgents(
-      candidate.scope.threadId,
-      candidate.operationAuthority.runId,
-      runAuthorityFacts(cut.run, [cut.receipt]),
+    if (
+      !cut.runAuthority ||
+      cut.run.metadata.turnId !== cut.runAuthority.turnId ||
+      (cut.run.metadata.previousRunId ?? null) !== cut.runAuthority.previousRunId
     )
+      throw new ProtocolError("storage_unavailable")
+    exactRunPermissionAgents(candidate.scope.threadId, cut.run.run.run_id, cut.runAuthority)
   }
 }

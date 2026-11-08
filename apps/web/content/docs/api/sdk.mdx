@@ -67,7 +67,8 @@ import { scenarios } from "@b4run/sdk/testing"
 | `normalizeApproveEntries` | Normalize `tools.approve` entries to `{ tool, allowAlways }`. |
 | `agent` | Declare an agent route. |
 | `isB4Agent` | Test whether a value is an authored B4.run agent. |
-| `BackendAdapter` | Define a route backend adapter contract. |
+| `BackendAdapter` | Define a route backend adapter contract, including declared protocol support and actual owned-work completion. |
+| `BackendActiveInput` | Describe the invocation-local runtime bridge that selects accepted messages before a model step; it is never caller-supplied graph input or config. |
 | `B4ErrorCode` | Name a registered B4.run error. |
 | `B4ErrorDescriptor` | Describe a registered B4.run error. |
 | `B4_ERRORS` | Read the error descriptor registry. |

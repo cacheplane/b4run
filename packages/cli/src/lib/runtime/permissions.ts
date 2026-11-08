@@ -1,3 +1,7 @@
+import {
+  createPermissionContinuationContext,
+  PERMISSION_CONTINUATION_KEY,
+} from "@b4run/core/internal/permission-continuation"
 import type { PermissionsStore, RememberedRuleIntent } from "@b4run/permissions"
 import {
   permissionCandidateForRequest,
@@ -13,9 +17,13 @@ import type {
   RuntimePendingRecord,
   RuntimeRunRecord,
   RuntimeSnapshot,
+  RuntimeStore,
   RuntimeThreadRecord,
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
+import { runtimePermissionProposalHash } from "@b4run/sdk/internal/runtime-identity"
+import { Command } from "@langchain/langgraph"
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
 import { checkRuntimeApprovalGrant } from "../dev/approval-grants.js"
 import { requestPrincipal } from "../dev/auth.js"
 import { ProtocolError } from "../dev/protocol/errors.js"
@@ -25,17 +33,32 @@ import { createThreadAccessContext } from "../dev/thread-access.js"
 import { makeProtocolThreadGate } from "../dev/thread-gate.js"
 import type { AdmissionServiceOptions } from "./admission.js"
 import {
+  bindRuntimePermissionContinuation,
+  bindRuntimeStoppedContinuation,
+  createRuntimeNativeParkMinter,
+  runtimeNativeParkGrant,
+  runtimePermissionResolver,
+  verifyRuntimeNativePermission,
+} from "./checkpoint-saver.js"
+import { retireActiveInputs } from "./inputs.js"
+import {
   type AdmissionResult,
+  authorizeCurrentOperation,
   authorizeRetainedOperation,
   authorizeSavedPermissionAgents,
   canonical,
+  exactRunPermissionAgents,
   hash,
+  knownRunPermissionAgents,
   operationAuthorityFacts,
   operationPayload,
+  operationRunAgents,
   rememberAdmissionBinding,
   replayOperationFacts,
   replayOperationReceipt,
+  runAuthorityFacts,
   subject,
+  validateOperationRunAuthority,
   validateRetainedOperationCut,
 } from "./operation-ledger.js"
 import {
@@ -66,19 +89,24 @@ export interface PermissionProposal {
   readonly protectedProposal: unknown
   readonly allowAlways?: boolean
   readonly expiresAt?: string
+  readonly nativeBinding?: NonNullable<
+    NonNullable<RuntimePendingRecord["proposal"]>["nativeBinding"]
+  >
 }
 
-function protectedProposalHash(item: RuntimePendingRecord): string {
-  const payload = item.input.data.payload as PermissionPayloadV1
-  return hash({
-    ownerRunId: item.ownerRunId,
-    namespace: item.namespace,
-    inputId: item.input.data.interruptId,
-    pausedGeneration: item.input.data.b4.pausedGeneration,
-    request: payload.request,
-    allowAlways: payload.allowAlways,
-    expiresAt: item.input.data.b4.expiresAt ?? null,
-    proposal: item.proposal,
+const protectedProposalHash = runtimePermissionProposalHash
+export function verifyStoppedNativePermissionSource(
+  store: RuntimeStore,
+  checkpointer: BaseCheckpointSaver,
+  runId: string,
+  tx: RuntimeTransaction,
+) {
+  return bindRuntimeStoppedContinuation({
+    store,
+    checkpointer,
+    runId,
+    tx,
+    proposalHash: protectedProposalHash,
   })
 }
 /** Safe-boundary hook for the adapter. The caller enlists its native checkpoint
@@ -88,6 +116,7 @@ export async function parkPermissions(
   runId: string,
   proposals: readonly PermissionProposal[],
   grants: "off" | "optional" | "required" = "off",
+  checkpointer?: BaseCheckpointSaver,
 ): Promise<void> {
   const row = await tx.runs.get(runId),
     thread = await tx.thread.get()
@@ -101,8 +130,22 @@ export async function parkPermissions(
     new Set(proposals.map(key)).size !== proposals.length
   )
     throw new ProtocolError("stale_generation")
+  const nativeGrants = new Map<
+    PermissionProposal,
+    Awaited<ReturnType<typeof createApprovalGrant>>
+  >()
+  for (const proposal of proposals)
+    if (proposal.nativeBinding) {
+      await verifyRuntimeNativePermission(checkpointer, tx, runId, proposal)
+      if (grants !== "off")
+        nativeGrants.set(
+          proposal,
+          runtimeNativeParkGrant(checkpointer, proposal.nativeBinding, proposal.interruptId),
+        )
+    }
   const pausedGeneration = crypto.randomUUID(),
     timestamp = new Date().toISOString()
+  await retireActiveInputs(tx, runId, "permission")
   const responseSchema = {
     type: "object",
     additionalProperties: false,
@@ -112,7 +155,12 @@ export async function parkPermissions(
   for (const proposal of proposals) {
     const expired =
       proposal.expiresAt !== undefined && Date.parse(proposal.expiresAt) <= Date.parse(timestamp)
-    const minted = grants === "off" ? undefined : await createApprovalGrant()
+    const minted =
+      grants === "off"
+        ? undefined
+        : proposal.nativeBinding
+          ? nativeGrants.get(proposal)!
+          : await createApprovalGrant()
     const payload: PermissionPayloadV1 = {
       type: "b4.permission",
       v: 1,
@@ -131,6 +179,7 @@ export async function parkPermissions(
         agentId: proposal.agentId ?? row.run.agent_id,
         value: proposal.protectedProposal,
         rule: permissionRuleForRequest(proposal.request),
+        ...(proposal.nativeBinding ? { nativeBinding: proposal.nativeBinding } : {}),
       },
       input: {
         namespace: proposal.namespace,
@@ -412,6 +461,23 @@ interface RuleIntentPayload {
   }[]
 }
 export interface PermissionService {
+  createNativeParkMinter(
+    store: RuntimeStore,
+    checkpointer: BaseCheckpointSaver,
+    runId: string,
+  ): {
+    readonly minter?: import("@b4run/sdk").ApprovalGrantMinter
+    readonly configurable: Readonly<Record<string, unknown>>
+    dispose(): void
+  }
+  prepareNativeContinuation(
+    store: RuntimeStore,
+    checkpointer: BaseCheckpointSaver,
+    runId: string,
+  ): Promise<{
+    readonly input: Command
+    readonly configurable: Readonly<Record<string, unknown>>
+  }>
   respond(
     request: Request,
     threadId: string,
@@ -522,7 +588,7 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           typeof facts.receipt.operation?.resolved.agent_id === "string"
             ? facts.receipt.operation.resolved.agent_id
             : undefined,
-          operationAuthorityFacts(facts.receipt),
+          operationAuthorityFacts(facts.receipt, facts.runAuthority),
         )
         validateRetainedOperationCut(minimal, facts, ownerKey)
         return rememberAdmissionBinding(
@@ -536,6 +602,8 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
       }
       if (candidate.retainedSubject) return replayRetained(candidate)
       if (candidate.agentId) await options.authorizeAgent(request, candidate.agentId)
+      for (const agent of operationRunAgents(candidate.operationAuthority))
+        await options.authorizeAgent(request, agent)
       if (
         !(
           await gate({
@@ -548,6 +616,7 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         ).ok
       )
         throw new ProtocolError("not_found")
+      validateOperationRunAuthority(threadId, candidate.operationAuthority)
       const store = await backend.openThread(threadId, false, candidate.scope.generation)
       if (!store) {
         const fresh = (
@@ -587,6 +656,7 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         const receipt = await tx.receipts.get(receiptId)
         if (!receipt) throw new ProtocolError("receipt_expired")
         await authorizeSavedPermissionAgents(receipt, (id) => options.authorizeAgent(request, id))
+        await authorizeCurrentOperation(tx, receipt, (id) => options.authorizeAgent(request, id))
         return rememberAdmissionBinding(
           await replayOperationReceipt(tx, receipt, ownerKey, () =>
             identity(params, threadId, runId),
@@ -602,6 +672,12 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
     if (!runtimeAdmissionOpen(options.storage)) throw new ProtocolError("storage_unavailable")
     let result: AdmissionResult
     try {
+      const candidate = await backend.findRun?.(runId)
+      if (!candidate || candidate.scope.threadId !== threadId || candidate.location !== "live")
+        throw new ProtocolError("not_found", { resource: "input" })
+      await options.authorizeAgent(request, candidate.agentId)
+      for (const agent of knownRunPermissionAgents(candidate.authority))
+        await options.authorizeAgent(request, agent)
       const current = await backend.readThread(threadId)
       const decision = await gate({
         action: "update",
@@ -611,7 +687,8 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         ...subject(current),
       })
       if (!decision.ok || !current) throw new ProtocolError("not_found", { resource: "input" })
-      const store = await backend.openThread(threadId, false)
+      exactRunPermissionAgents(threadId, runId, candidate.authority)
+      const store = await backend.openThread(threadId, false, candidate.scope.generation)
       if (!store) throw new ProtocolError("not_found", { resource: "input" })
       const prepared = await prepareRuleIntents(
         options,
@@ -639,6 +716,7 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           await authorizeSavedPermissionAgents(existing, (id) =>
             options.authorizeAgent(request, id),
           )
+          await authorizeCurrentOperation(tx, existing, (id) => options.authorizeAgent(request, id))
           return rememberAdmissionBinding(
             await replayOperationReceipt(tx, existing, ownerKey, () =>
               identity(params, threadId, runId),
@@ -653,6 +731,15 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         if (!previous) throw new ProtocolError("not_found", { resource: "input" })
         if (!previous.run.agent_id) throw new ProtocolError("not_found")
         await options.authorizeAgent(request, previous.run.agent_id)
+        const priorAuthority = runAuthorityFacts(
+          previous,
+          await tx.receipts.list(),
+          await tx.nativeNamespaces.list(),
+          await tx.protectedSources.list(),
+        )
+        for (const agent of knownRunPermissionAgents(priorAuthority))
+          await options.authorizeAgent(request, agent)
+        const priorAgents = exactRunPermissionAgents(threadId, runId, priorAuthority)
         if (await tx.executionOwner()) throw new ProtocolError("thread_busy")
         const expected = envelope.expected
         if (
@@ -724,6 +811,23 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
         }
         const timestamp = new Date().toISOString(),
           continuationRunId = crypto.randomUUID()
+        const native = verified.some((entry) => entry.pending.proposal?.nativeBinding)
+        if (native && verified.some((entry) => !entry.pending.proposal?.nativeBinding))
+          throw new ProtocolError("not_supported")
+        const permissionBindings = native
+          ? verified.map((entry) => ({
+              v: 1 as const,
+              ownerRunId: entry.pending.ownerRunId,
+              pausedGeneration: entry.pending.input.data.b4.pausedGeneration,
+              namespace: entry.pending.namespace,
+              inputId: entry.pending.input.data.interruptId,
+              proposalHash: entry.pending.input.data.b4.proposalHash,
+              nativeBinding: entry.pending.proposal!.nativeBinding!,
+              decision: entry.decision,
+              grantId: entry.grantId ?? null,
+              grantMode: mode,
+            }))
+          : undefined
         const metadata = {
           v: 1 as const,
           generation: tx.scope.generation,
@@ -852,7 +956,10 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           ...previous.run,
           agent_id: previous.run.agent_id,
           permissionAgents: [
-            ...new Set(verified.map((entry) => entry.pending.proposal?.agentId)),
+            ...new Set([
+              ...priorAgents,
+              ...verified.map((entry) => entry.pending.proposal?.agentId),
+            ]),
           ].sort(),
           responses: verified.map((entry) => ({
             namespace: entry.pending.namespace,
@@ -911,6 +1018,7 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           receipt,
           state: "accepted",
           operation: {
+            ...(permissionBindings ? { permissionBindings } : {}),
             binding: { kind: bindingKind, onDisconnect: previous.run.on_disconnect ?? "cancel" },
             scopeKey: ownerKey,
             method: "input.respond",
@@ -939,6 +1047,27 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
     return result
   }
   const service: PermissionService = {
+    createNativeParkMinter(store, checkpointer, runId) {
+      const invocation = createRuntimeNativeParkMinter(store, checkpointer, runId, mode !== "off")
+      const context = createPermissionContinuationContext({
+        runId,
+        resolve: runtimePermissionResolver(checkpointer),
+      })
+      return { ...invocation, configurable: { [PERMISSION_CONTINUATION_KEY]: context } }
+    },
+    async prepareNativeContinuation(store, checkpointer, runId) {
+      const proof = await bindRuntimePermissionContinuation({
+        store,
+        checkpointer,
+        runId,
+        proposalHash: protectedProposalHash,
+      })
+      const context = createPermissionContinuationContext({ runId, resolve: proof.resolve })
+      return {
+        input: new Command({ resume: proof.resume }),
+        configurable: { [PERMISSION_CONTINUATION_KEY]: context },
+      }
+    },
     async prepareExecution(threadId) {
       const store = await backend.openThread(threadId, false)
       if (!store) throw new ProtocolError("storage_unavailable")

@@ -21,6 +21,25 @@ export interface TrackedCheckpointer {
 
 const tracked = new WeakMap<BaseCheckpointSaver, TrackedCheckpointer>()
 
+/** Pinned LangGraph stores a rejection-rethrow continuation and awaits it only
+ * after sibling tasks finish. Observe that SAME rejected promise immediately;
+ * its eventual await still rejects with the original write error. Scoped to
+ * owned writes, with native Promise species and no global rejection handler. */
+class OwnedWritePromise<T> extends Promise<T> {
+  static override get [Symbol.species]() {
+    return Promise
+  }
+  // biome-ignore lint/suspicious/noThenProperty: This Promise subclass intentionally observes each unchanged derived rejection.
+  override then<TResult1 = T, TResult2 = never>(
+    onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
+    const child = super.then(onfulfilled, onrejected)
+    void Promise.prototype.then.call(child, undefined, () => undefined)
+    return child
+  }
+}
+
 /**
  * The tracked form of `saver`, one per saver instance, so a graph cached per
  * checkpointer and the adapter that drains it always share the same tracker.
@@ -31,6 +50,9 @@ export function trackCheckpointWrites(saver: BaseCheckpointSaver): TrackedCheckp
 
   const inFlight = new Set<Promise<unknown>>()
   const record = <T>(promise: Promise<T>): Promise<T> => {
+    promise = new OwnedWritePromise<T>((resolve, reject) => {
+      promise.then(resolve, reject)
+    })
     inFlight.add(promise)
     const forget = () => inFlight.delete(promise)
     promise.then(forget, forget)

@@ -9,7 +9,7 @@ import type {
 } from "@b4run/sdk/agent-protocol"
 import { bindRuntimeStore, createRuntimeBinding } from "./binding.js"
 import { installationContext, openRuntimeInstallation } from "./index.js"
-import { assertRuntimeQueueEntry, makeRuntimeStore } from "./transaction.js"
+import { assertRuntimeQueueEntry, makeRuntimeStore, runtimeBindingTurn } from "./transaction.js"
 
 /** One installation registered with a trusted execution host at boot. No
  * package-exported scope binder and no request-controlled authorization hook. */
@@ -65,7 +65,21 @@ export function sqliteRuntimeStorage(
         assertRuntimeQueueEntry(installation, JSON.stringify([id, String(generation)]))
       await context.tail
     }
-    const permissionResponseFacts = `COALESCE((SELECT json_group_array(json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'))) FROM receipts a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.respond'),'[]') AS permission_responses`
+    const permissionResponseFacts = `COALESCE((SELECT json_group_array(json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'))) FROM receipts a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.respond'),'[]') AS permission_responses, COALESCE((SELECT json_group_array(DISTINCT json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'),'namespace',json_extract(a.payload,'$.operation.resolved.namespace'),'namespaceGeneration',json_extract(a.payload,'$.operation.resolved.namespaceGeneration'),'injectionAgent',json_extract(a.payload,'$.operation.resolved.injectionAgent'))) FROM receipts a WHERE a.owner_run_id=r.id AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.inject'),'[]') AS input_injections`
+    const namespaceBindings = `COALESCE((SELECT json_group_array(json(n.payload)) FROM aliases n WHERE n.run_id=r.id AND n.thread_id=r.thread_id AND n.generation=r.generation AND n.id LIKE 'namespace:%'),'[]') AS namespace_bindings`
+    const nativeNamespaceProofs = `COALESCE((SELECT json_group_array(json_object('v',json_extract(n.payload,'$.v'),'kind',json_extract(n.payload,'$.kind'),'runId',n.run_id,'namespace',json(n.namespace),'agentId',json_extract(n.payload,'$.agentId'),'namespaceGeneration',json_extract(n.payload,'$.namespaceGeneration'),'parentCheckpointId',json_extract(n.payload,'$.parentCheckpointId'),'source',json_extract(n.payload,'$.source'))) FROM aliases n WHERE n.run_id=r.id AND n.thread_id=r.thread_id AND n.generation=r.generation AND n.id LIKE 'namespace:%'),'[]')`
+    const protectedSourceRecords = `COALESCE((SELECT json_group_array(json(p.payload)) FROM aliases p WHERE p.run_id=r.id AND p.thread_id=r.thread_id AND p.generation=r.generation AND p.id LIKE 'source:%'),'[]')`
+    const protectedSourceReference = `(SELECT json_extract(c.payload,'$.operation.protectedSource') FROM receipts c WHERE c.owner_run_id=r.id AND c.thread_id=r.thread_id AND c.generation=r.generation AND json_extract(c.payload,'$.operation.method') IN ('run.create','input.respond') LIMIT 1)`
+    const protectedSourceFacts = `json_object('reference',json(${protectedSourceReference}),'records',json(${protectedSourceRecords}))`
+    const operationSourceRecords = protectedSourceRecords.replace(
+      "p.run_id=r.id",
+      "p.run_id=json_extract(r.payload,'$.receipt.runId')",
+    )
+    const operationNamespaceProofs = nativeNamespaceProofs.replace(
+      "n.run_id=r.id",
+      "n.run_id=json_extract(r.payload,'$.receipt.runId')",
+    )
+    const canonicalRunAuthority = `(SELECT json_object('turnId',json_extract(c.payload,'$.receipt.turnId'),'previousRunId',CASE WHEN json_extract(c.payload,'$.operation.method')='input.respond' THEN json_extract(c.payload,'$.operation.targetRunId') ELSE NULL END,'protectedSource',json_object('reference',json(json_extract(c.payload,'$.operation.protectedSource')),'records',json(${operationSourceRecords})),'nativeNamespaces',json(${operationNamespaceProofs}),'permissionResponses',json(COALESCE((SELECT json_group_array(json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'))) FROM receipts a WHERE a.owner_run_id=json_extract(r.payload,'$.receipt.runId') AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.respond'),'[]')),'inputInjections',json(COALESCE((SELECT json_group_array(DISTINCT json_object('runId',json_extract(a.payload,'$.receipt.runId'),'turnId',json_extract(a.payload,'$.receipt.turnId'),'operationThreadId',json_extract(a.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(a.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(a.payload,'$.operation.resolved.permissionAgents'),'namespace',json_extract(a.payload,'$.operation.resolved.namespace'),'namespaceGeneration',json_extract(a.payload,'$.operation.resolved.namespaceGeneration'),'injectionAgent',json_extract(a.payload,'$.operation.resolved.injectionAgent'))) FROM receipts a WHERE a.owner_run_id=json_extract(r.payload,'$.receipt.runId') AND a.thread_id=r.thread_id AND a.generation=r.generation AND json_extract(a.payload,'$.operation.method')='input.inject'),'[]'))) FROM receipts c WHERE c.owner_run_id=json_extract(r.payload,'$.receipt.runId') AND c.thread_id=r.thread_id AND c.generation=r.generation AND json_extract(c.payload,'$.operation.method') IN ('run.create','input.respond') AND (SELECT COUNT(DISTINCT json_object('method',json_extract(c2.payload,'$.operation.method'),'turnId',json_extract(c2.payload,'$.receipt.turnId'),'threadId',json_extract(c2.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(c2.payload,'$.operation.targetRunId'))) FROM receipts c2 WHERE c2.owner_run_id=json_extract(r.payload,'$.receipt.runId') AND c2.thread_id=r.thread_id AND c2.generation=r.generation AND json_extract(c2.payload,'$.operation.method') IN ('run.create','input.respond'))=1 LIMIT 1)`
     const authSubject = (row: RuntimeThreadRecord): RuntimeRetainedSubject => {
       const { thread_id, created_at, updated_at, status, metadata } = row.thread
       return {
@@ -91,7 +105,7 @@ export function sqliteRuntimeStorage(
           return read((db) => {
             const row = db
               .prepare(
-                `SELECT r.thread_id,r.generation,r.payload,t.payload AS subject,'live' AS location,${permissionResponseFacts} FROM runs r JOIN scopes s USING(thread_id,generation) JOIN threads t USING(thread_id,generation) WHERE r.id=? AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,r.payload,s.payload AS subject,'retained' AS location,${permissionResponseFacts} FROM retained_runs r JOIN retained_subjects s USING(thread_id,generation) WHERE r.id=?`,
+                `SELECT r.thread_id,r.generation,r.payload,t.payload AS subject,'live' AS location,${permissionResponseFacts},${namespaceBindings},${nativeNamespaceProofs} AS native_namespaces,${protectedSourceFacts} AS protected_source FROM runs r JOIN scopes s USING(thread_id,generation) JOIN threads t USING(thread_id,generation) WHERE r.id=? AND s.deleted=0 UNION ALL SELECT r.thread_id,r.generation,r.payload,s.payload AS subject,'retained' AS location,${permissionResponseFacts},${namespaceBindings},${nativeNamespaceProofs} AS native_namespaces,${protectedSourceFacts} AS protected_source FROM retained_runs r JOIN retained_subjects s USING(thread_id,generation) WHERE r.id=?`,
               )
               .get(id, id)
             if (!row) return undefined
@@ -106,10 +120,14 @@ export function sqliteRuntimeStorage(
                       : JSON.parse(String(row.subject)),
                   agentId,
                   location: row.location === "live" ? ("live" as const) : ("retained" as const),
+                  namespaceBindings: JSON.parse(String(row.namespace_bindings)),
                   authority: {
                     turnId: record.metadata.turnId,
                     previousRunId: record.metadata.previousRunId ?? null,
                     permissionResponses: JSON.parse(String(row.permission_responses)),
+                    inputInjections: JSON.parse(String(row.input_injections)),
+                    nativeNamespaces: JSON.parse(String(row.native_namespaces)),
+                    protectedSource: JSON.parse(String(row.protected_source)),
                   },
                 }
               : undefined
@@ -194,7 +212,7 @@ export function sqliteRuntimeStorage(
             return read((db) => {
               const row = db
                 .prepare(
-                  "SELECT r.payload AS receipt,s.payload AS subject,u.payload AS run FROM receipts r JOIN retained_subjects s USING(thread_id,generation) LEFT JOIN retained_runs u ON u.id=json_extract(r.payload,'$.receipt.runId') AND u.thread_id=r.thread_id AND u.generation=r.generation WHERE r.id=? AND r.thread_id=? AND r.generation=?",
+                  `SELECT r.payload AS receipt,s.payload AS subject,u.payload AS run,${canonicalRunAuthority} AS run_authority FROM receipts r JOIN retained_subjects s USING(thread_id,generation) LEFT JOIN retained_runs u ON u.id=json_extract(r.payload,'$.receipt.runId') AND u.thread_id=r.thread_id AND u.generation=r.generation WHERE r.id=? AND r.thread_id=? AND r.generation=?`,
                 )
                 .get(query.receiptId, query.threadId, query.generation)
               return row
@@ -203,6 +221,7 @@ export function sqliteRuntimeStorage(
                     subject: JSON.parse(String(row.subject)),
                     receipt: JSON.parse(String(row.receipt)),
                     run: row.run ? JSON.parse(String(row.run)) : undefined,
+                    runAuthority: row.run_authority ? JSON.parse(String(row.run_authority)) : null,
                   }
                 : undefined
             })
@@ -305,7 +324,7 @@ export function sqliteRuntimeStorage(
             }
             return db
               .prepare(
-                `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_object('runId',json_extract(r.payload,'$.receipt.runId'),'turnId',json_extract(r.payload,'$.receipt.turnId'),'method',json_extract(r.payload,'$.operation.method'),'operationThreadId',json_extract(r.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(r.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(r.payload,'$.operation.resolved.permissionAgents')) AS operation_authority,json_extract(r.payload,'$.operation.resolved.agent_id') AS agent_id,json_extract(r.payload,'$.operation.provenance') AS provenance FROM receipts r JOIN scopes s USING(thread_id,generation) LEFT JOIN threads t USING(thread_id,generation) LEFT JOIN retained_subjects a USING(thread_id,generation) WHERE ${fields.join(" AND ")} ORDER BY r.id`,
+                `SELECT r.id,r.thread_id,r.generation,s.fence,t.payload AS thread,a.payload AS retained_subject,json_object('runId',json_extract(r.payload,'$.receipt.runId'),'turnId',json_extract(r.payload,'$.receipt.turnId'),'method',json_extract(r.payload,'$.operation.method'),'operationThreadId',json_extract(r.payload,'$.operation.operationThreadId'),'targetRunId',json_extract(r.payload,'$.operation.targetRunId'),'permissionAgents',json_extract(r.payload,'$.operation.resolved.permissionAgents'),'namespace',json_extract(r.payload,'$.operation.resolved.namespace'),'namespaceGeneration',json_extract(r.payload,'$.operation.resolved.namespaceGeneration'),'injectionAgent',json_extract(r.payload,'$.operation.resolved.injectionAgent'),'runAuthority',json(${canonicalRunAuthority})) AS operation_authority,json_extract(r.payload,'$.operation.resolved.agent_id') AS agent_id,json_extract(r.payload,'$.operation.provenance') AS provenance FROM receipts r JOIN scopes s USING(thread_id,generation) LEFT JOIN threads t USING(thread_id,generation) LEFT JOIN retained_subjects a USING(thread_id,generation) WHERE ${fields.join(" AND ")} ORDER BY r.id`,
               )
               .all(...values)
               .map((row) => ({
@@ -342,26 +361,30 @@ export function sqliteRuntimeStorage(
             return undefined
           if (!scope && !create) return undefined
           if (!scope) scope = { thread_id: id, generation: randomUUID(), fence: 1 }
-          // If a transaction is active, wait through a harmless committed scope
-          // read using its serialized queue rather than binding in its middle.
-          await waitForWriter(id, String(scope.generation))
-          const canonical =
-            read((db) =>
-              db
-                .prepare(
-                  "SELECT thread_id,generation,fence FROM scopes WHERE thread_id=? AND deleted=0",
-                )
-                .get(id),
-            ) ?? scope
-          if (expectedGeneration !== undefined && canonical.generation !== expectedGeneration)
-            return undefined
-          return bindRuntimeStore(
+          return runtimeBindingTurn(
             installation,
-            createRuntimeBinding(installation, {
-              threadId: id,
-              generation: String(canonical.generation),
-              fence: Number(canonical.fence),
-            }),
+            JSON.stringify([id, String(scope.generation)]),
+            () => {
+              let canonical = read((db) =>
+                db
+                  .prepare(
+                    "SELECT thread_id,generation,fence FROM scopes WHERE thread_id=? AND deleted=0",
+                  )
+                  .get(id),
+              )
+              if (expectedGeneration !== undefined && canonical?.generation !== expectedGeneration)
+                return undefined
+              if (!canonical && !create) return undefined
+              if (!canonical) canonical = { thread_id: id, generation: randomUUID(), fence: 1 }
+              return bindRuntimeStore(
+                installation,
+                createRuntimeBinding(installation, {
+                  threadId: id,
+                  generation: String(canonical.generation),
+                  fence: Number(canonical.fence),
+                }),
+              )
+            },
           )
         },
       })

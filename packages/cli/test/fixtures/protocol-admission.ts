@@ -6,9 +6,12 @@ import type { ThreadAccessPolicy } from "@b4run/sdk"
 import type { B4Message, RuntimeReceiptRecord, RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { sqliteRuntimeStorage } from "@b4run/sqlite-storage"
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
-import { Pool } from "pg"
+import { Pool, type PoolClient } from "pg"
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest"
-import { postgresRuntimeStorage } from "../../../postgres-storage/dist/node.js"
+import {
+  createPostgresPermissionsStore,
+  postgresRuntimeStorage,
+} from "../../../postgres-storage/dist/node.js"
 import { setRequestPrincipal } from "../../src/lib/dev/auth.ts"
 import { authorizeProtocolAgent, createAgentCatalog } from "../../src/lib/dev/protocol/catalog.ts"
 import { mergePublicMessages } from "../../src/lib/dev/protocol/messages.ts"
@@ -87,6 +90,9 @@ function realBackend() {
     get first() {
       return first
     },
+    get second() {
+      return second
+    },
     get connectionString() {
       if (!container) throw new Error("Missing owned test container")
       return container.getConnectionUri()
@@ -97,6 +103,20 @@ function realBackend() {
   }
 }
 const postgres = process.env.B4_ADMISSION_POSTGRES === "1" ? realBackend() : undefined
+
+/** Preserve the primary test failure together with every owned cleanup error. */
+export function reportOwnedCleanup(
+  label: string,
+  errors: readonly unknown[],
+  primary?: { readonly error: unknown },
+): void {
+  if (errors.length)
+    throw new AggregateError(
+      primary ? [primary.error, ...errors] : errors,
+      label,
+      primary ? { cause: primary.error } : undefined,
+    )
+}
 
 export const token = "10000000-0000-4000-8000-000000000010"
 export const threadId = "10000000-0000-4000-8000-000000000011"
@@ -278,10 +298,256 @@ export async function fixture(
   })
   return {
     native: {
+      ruleStore() {
+        return nativeNaming && postgres
+          ? createPostgresPermissionsStore({
+              pool: postgres.first,
+              schema: nativeNaming.schema,
+              tablePrefix: `${nativeNaming.tablePrefix}_rules`,
+            })
+          : undefined
+      },
+      async editRule(action: "removeAllow" | "deny", tool: string, pattern: string) {
+        if (!nativeNaming || !postgres) return false
+        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_permissions`
+        if (action === "removeAllow")
+          await postgres.first.query(
+            `DELETE FROM ${table} WHERE scope='runtime' AND kind='allow' AND tool=$1 AND pattern=$2`,
+            [tool, pattern],
+          )
+        else
+          await postgres.first.query(
+            `INSERT INTO ${table}(scope,kind,tool,pattern,created_at) VALUES ('runtime','deny',$1,$2,$3) ON CONFLICT DO NOTHING`,
+            [tool, pattern, new Date().toISOString()],
+          )
+        return true
+      },
+      async ruleWriteFault(enabled: boolean) {
+        if (!nativeNaming || !postgres) return false
+        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_perm_rules`,
+          fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_fail_rule_receipt`
+        if (enabled) {
+          await postgres.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'R8 owned rule receipt I/O'; END $$`,
+          )
+          await postgres.first.query(
+            `CREATE TRIGGER r8_fail_rule_receipt BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+          )
+        } else {
+          await postgres.first.query(`DROP TRIGGER r8_fail_rule_receipt ON ${table}`)
+          await postgres.first.query(`DROP FUNCTION ${fn}()`)
+        }
+        return true
+      },
+      async ruleRows() {
+        if (!nativeNaming || !postgres) return undefined
+        return (
+          await postgres.first.query(
+            `SELECT kind,tool,pattern FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_permissions WHERE scope='runtime' ORDER BY kind,tool,pattern`,
+          )
+        ).rows
+      },
       workerBoot:
         nativeNaming && postgres
           ? { connectionString: postgres.connectionString, ...nativeNaming }
           : undefined,
+      /** Own real SQL exclusion, not JS scheduling, controls delete-wins tests. */
+      async cleanupGate() {
+        if (!nativeNaming || !postgres) return undefined
+        const pg = postgres
+        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes`,
+          fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_r8_cleanup_gate`
+        const gate = await pg.second.connect(),
+          high = 0x42345238,
+          low = Number.parseInt(crypto.randomUUID().slice(0, 8), 16) & 0x3fffffff
+        let unlocked = false,
+          closed = false
+        const unlock = async () => {
+          if (!unlocked) {
+            await gate.query("SELECT pg_advisory_unlock($1,$2)", [high, low])
+            unlocked = true
+          }
+        }
+        const until = async <T>(read: () => Promise<T | undefined>): Promise<T> => {
+          const deadline = performance.now() + 5_000
+          while (performance.now() < deadline) {
+            const result = await read()
+            if (result !== undefined) return result
+            await new Promise((resolve) => setTimeout(resolve, 5))
+          }
+          throw new Error("Actual owned cleanup SQL barrier did not reach its expected lock state")
+        }
+        try {
+          await gate.query("SELECT pg_advisory_lock($1,$2)", [high, low])
+          await pg.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(${high},${low + 1}); PERFORM pg_advisory_xact_lock(${high},${low}); RETURN NEW; END $$`,
+          )
+          await pg.first.query(
+            `CREATE TRIGGER r8_cleanup_gate BEFORE UPDATE ON ${table} FOR EACH ROW WHEN (OLD.deleted=0 AND NEW.deleted=1) EXECUTE FUNCTION ${fn}()`,
+          )
+        } catch (error) {
+          await unlock()
+          gate.release()
+          throw error
+        }
+        let cleanupPid: number | undefined
+        return {
+          async entered() {
+            cleanupPid = await until(async () => {
+              const result = await pg.first.query<{ pid: number }>(
+                "SELECT pid FROM pg_locks WHERE locktype='advisory' AND classid=$1::oid AND objid=$2::oid AND objsubid=2 AND granted",
+                [high, low + 1],
+              )
+              return result.rows[0]?.pid
+            })
+          },
+          async bindingBlocked() {
+            if (cleanupPid === undefined)
+              throw new Error("Cleanup has not acquired its actual row lock")
+            await until(async () => {
+              const result = await pg.first.query<{ blocked: boolean }>(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS blocked",
+                [cleanupPid],
+              )
+              return result.rows[0]?.blocked ? true : undefined
+            })
+          },
+          release: unlock,
+          async close() {
+            if (closed) return
+            closed = true
+            try {
+              await unlock()
+              await pg.first.query(`DROP TRIGGER r8_cleanup_gate ON ${table}`)
+              await pg.first.query(`DROP FUNCTION ${fn}()`)
+            } finally {
+              gate.release()
+            }
+          },
+        }
+      },
+      pauseBindingCommit(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("An actual owned Postgres scope is required")
+        const pg = postgres,
+          descriptor = Object.getOwnPropertyDescriptor(pg.first, "connect"),
+          original = pg.first.connect
+        if (descriptor && (!("value" in descriptor) || !descriptor.configurable))
+          throw new Error("Pool connect descriptor cannot be temporarily observed")
+        let entered!: () => void,
+          resume!: () => void,
+          armed = true,
+          closed = false,
+          selected: PoolClient | undefined
+        const committed = new Promise<void>((resolve) => {
+            entered = resolve
+          }),
+          released = new Promise<void>((resolve) => {
+            resume = resolve
+          })
+        Object.defineProperty(pg.first, "connect", {
+          configurable: true,
+          writable: true,
+          enumerable: descriptor?.enumerable ?? false,
+          value: function (this: Pool, ...args: unknown[]) {
+            const result = Reflect.apply(original, this, args)
+            if (this !== pg.first || args.length) return result
+            return Promise.resolve(result).then(
+              (client: PoolClient) =>
+                new Proxy(client, {
+                  get(target, property) {
+                    const value = Reflect.get(target, property, target)
+                    if (property !== "query")
+                      return typeof value === "function" ? value.bind(target) : value
+                    return (...queryArgs: unknown[]) => {
+                      const sql = queryArgs[0]
+                      if (
+                        armed &&
+                        selected === undefined &&
+                        typeof sql === "string" &&
+                        sql.startsWith("SELECT thread_id,generation,fence,execution_owner,") &&
+                        Array.isArray(queryArgs[1]) &&
+                        queryArgs[1][0] === threadId
+                      )
+                        selected = target
+                      const answer = Reflect.apply(target.query, target, queryArgs)
+                      if (armed && target === selected && sql === "COMMIT") {
+                        armed = false
+                        return Promise.resolve(answer).then(async (answer) => {
+                          entered()
+                          await released
+                          return answer
+                        })
+                      }
+                      return answer
+                    }
+                  },
+                }),
+            )
+          },
+        })
+        return {
+          committed,
+          release: () => resume(),
+          close() {
+            if (closed) return
+            closed = true
+            armed = false
+            resume()
+            if (descriptor) Object.defineProperty(pg.first, "connect", descriptor)
+            else Reflect.deleteProperty(pg.first, "connect")
+          },
+        }
+      },
+      async scopeRowGate(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("An actual owned Postgres scope is required")
+        const pg = postgres,
+          client = await pg.second.connect(),
+          table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes`
+        let released = false
+        try {
+          await client.query("BEGIN")
+          const row = await client.query<{ pid: number }>(
+            `SELECT pg_backend_pid() AS pid FROM ${table} WHERE thread_id=$1 AND deleted=0 FOR UPDATE`,
+            [threadId],
+          )
+          if (row.rows.length !== 1) throw new Error("Missing actual scope row")
+          const pid = row.rows[0]!.pid
+          return {
+            async bindingWaits(settled: () => boolean) {
+              const deadline = performance.now() + 5_000
+              while (!settled() && performance.now() < deadline) {
+                const result = await pg.first.query<{ blocked: boolean }>(
+                  "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS blocked",
+                  [pid],
+                )
+                if (result.rows[0]?.blocked) return true
+                await new Promise((resolve) => setTimeout(resolve, 5))
+              }
+              if (!settled())
+                throw new Error("Neither binding result nor actual native row wait was observed")
+              return false
+            },
+            async release() {
+              if (released) return
+              released = true
+              try {
+                await client.query("ROLLBACK")
+              } finally {
+                client.release()
+              }
+            },
+          }
+        } catch (error) {
+          try {
+            await client.query("ROLLBACK")
+          } finally {
+            client.release()
+          }
+          throw error
+        }
+      },
       async expireOwner(threadId: string) {
         if (!nativeNaming || !postgres)
           throw new Error("Only actual owned Postgres fixtures can expire DB leases")
@@ -465,6 +731,75 @@ export async function fixture(
           db.close()
         }
       },
+      /** TEST-ONLY independent payload removal; identity skeletons and minimal
+       * canonical authority deliberately survive, as during retention. */
+      async corruptProtectedSourceDigest(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_aliases`
+          const found = await postgres.first.query(
+            `SELECT id,payload FROM ${name} WHERE thread_id=$1 AND generation=$2 AND run_id=$3 AND id LIKE 'source:%'`,
+            [threadId, generation, runId],
+          )
+          expect(found.rows).toHaveLength(1)
+          const row = found.rows[0],
+            record = JSON.parse(row.payload)
+          record.digest = "0".repeat(64)
+          await postgres.first.query(
+            `UPDATE ${name} SET payload=$1 WHERE id=$2 AND thread_id=$3 AND generation=$4`,
+            [JSON.stringify(record), row.id, threadId, generation],
+          )
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare(
+              "SELECT id,payload FROM aliases WHERE thread_id=? AND generation=? AND run_id=? AND id LIKE 'source:%'",
+            )
+            .get(threadId, generation, runId)
+          if (!row) throw new Error("Missing exact source proof fixture")
+          const record = JSON.parse(String(row.payload))
+          record.digest = "0".repeat(64)
+          expect(
+            db
+              .prepare("UPDATE aliases SET payload=? WHERE id=? AND thread_id=? AND generation=?")
+              .run(JSON.stringify(record), String(row.id), threadId, generation).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async removeLiveRunPayload(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const removed = await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_runs WHERE thread_id=$1 AND generation=$2 AND id=$3`,
+            [threadId, generation, runId],
+          )
+          expect(removed.rowCount).toBe(1)
+          await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_checkpoints WHERE thread_id=$1 AND generation=$2 AND owner_run_id=$3`,
+            [threadId, generation, runId],
+          )
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          expect(
+            db
+              .prepare("DELETE FROM runs WHERE thread_id=? AND generation=? AND id=?")
+              .run(threadId, generation, runId).changes,
+          ).toBe(1)
+          db.prepare(
+            "DELETE FROM checkpoints WHERE thread_id=? AND generation=? AND owner_run_id=?",
+          ).run(threadId, generation, runId)
+        } finally {
+          db.close()
+        }
+      },
       async removeRetainedRun(threadId: string, generation: string, runId: string) {
         if (nativeNaming && postgres) {
           const removed = await postgres.first.query(
@@ -590,6 +925,9 @@ export async function fixture(
     },
     removeAgent(id: string) {
       unavailableAgents.add(id)
+    },
+    restoreAgent(id: string) {
+      unavailableAgents.delete(id)
     },
     removeOriginalAgent() {
       originalAvailable = false
