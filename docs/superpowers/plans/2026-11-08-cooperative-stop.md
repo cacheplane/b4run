@@ -84,6 +84,10 @@ failures are not this branch's baseline exceptions.
   independent failures and natural outcomes before reporting an observed Stop.
   Keep the framework hard signal unchanged. Preserve the existing operator CLI
   cancel, row truth, image cancellation, and serialized command behavior.
+- The controller's `src/lib/factory.ts` and `test/factory-cancel.test.ts`:
+  transient optional cancellation acknowledgement after accepted branches
+  finish local persistence, preserving existing wire and journal shapes. Do not
+  infer acknowledgement from row state, messages, or an ambiguous ok flag.
 - The controller's `src/cli.ts`, `test/routes.test.ts`, and new
   `test/routes-settle.test.ts`: accurate acknowledgement wording and meaningful
   delayed-cleanup, error-precedence, pre-stop, and late-stop evidence, retaining

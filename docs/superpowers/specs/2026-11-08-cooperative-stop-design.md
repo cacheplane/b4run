@@ -68,6 +68,10 @@ hard signal remains unchanged. The route awaits both its operation and the
 factory cancellation cleanup it starts. It observes the owned soft reason at
 the normal controller cancellation boundary, preserving independent errors,
 refusals, and natural completion rather than classifying from a row's state.
+The factory supplies a transient acknowledgement only after an accepted
+cancellation branch finishes its required local persistence. Resolved refusals
+and failures retain their own result; they never imply an observed Stop. After
+cleanup, an original hard-abort reason takes precedence over the soft reason.
 An acknowledged cancel_requested state describes the controller's request,
 not proof that remote work has stopped. This preserves its operator cancel command
 without making a universal remote-effect completion or rollback guarantee.
