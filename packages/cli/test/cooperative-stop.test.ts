@@ -39,11 +39,18 @@ afterEach(async () => {
 })
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
-async function fixture(resume = false, opaque?: "success" | "failure" | "observe") {
+async function fixture(
+  resume = false,
+  opaque?: "success" | "failure" | "observe",
+  failFinalStatus = false,
+) {
   const entered = barrier(),
     held = barrier(),
     writeEntered = barrier(),
-    writeHeld = barrier()
+    writeHeld = barrier(),
+    statusEntered = barrier(),
+    statusHeld = barrier()
+  let opaqueFinished = false
   let toolFinished = false,
     next = 0,
     models = 0,
@@ -105,11 +112,15 @@ async function fixture(resume = false, opaque?: "success" | "failure" | "observe
     graph,
     opaque: async (_input: unknown, context: { signal: AbortSignal; stopSignal?: AbortSignal }) => {
       entered.release()
-      await held.promise
-      expect(context.signal.aborted).toBe(false)
-      if (opaque === "failure") throw new Error("independent opaque error")
-      if (opaque === "observe") context.stopSignal?.throwIfAborted()
-      return { cancelled: true }
+      try {
+        await held.promise
+        expect(context.signal.aborted).toBe(false)
+        if (opaque === "failure") throw new Error("independent opaque error")
+        if (opaque === "observe") context.stopSignal?.throwIfAborted()
+        return { cancelled: true }
+      } finally {
+        opaqueFinished = true
+      }
     },
   })
   cleanup.push(() => {
@@ -122,6 +133,15 @@ async function fixture(resume = false, opaque?: "success" | "failure" | "observe
   )
   const modules = await buildStaticModulesForFixture(appRoot)
   const { store: threadsStore } = memoryThreadsStore()
+  const updateStatus = threadsStore.updateStatus.bind(threadsStore)
+  threadsStore.updateStatus = async (...args) => {
+    if (failFinalStatus && (toolFinished || opaqueFinished) && args[1] !== "busy") {
+      statusEntered.release()
+      await statusHeld.promise
+      throw new Error("independent status persistence failed")
+    }
+    return updateStatus(...args)
+  }
   const slots = new Set<string>()
   const admission = () => {
     let owned: string | undefined,
@@ -176,6 +196,7 @@ async function fixture(resume = false, opaque?: "success" | "failure" | "observe
   cleanup.push(() => {
     held.release()
     writeHeld.release()
+    statusHeld.release()
   })
   return {
     handler,
@@ -183,6 +204,8 @@ async function fixture(resume = false, opaque?: "success" | "failure" | "observe
     held,
     writeEntered,
     writeHeld,
+    statusEntered,
+    statusHeld,
     saver,
     threadId,
     route,
@@ -433,4 +456,115 @@ it.each(["agui-sse", "agui-proto"])(
     const thread = await f.handler.fetch(new Request("http://localhost/threads/owned"))
     expect(await thread.json()).toMatchObject({ status: "idle" })
   },
+)
+
+it.each(["stream", "wait", "resume", "agui-sse", "agui-proto"])(
+  "%s reports a rejected final status write instead of a clean Stop",
+  async (mode) => {
+    const f = await fixture(mode === "resume", undefined, true)
+    let settled = false,
+      attachedSettled = false
+    const consumption = f.handler
+      .fetch(request(mode, f.route))
+      .then(async (response) => ({
+        status: response.status,
+        bytes: new Uint8Array(await response.arrayBuffer()),
+      }))
+      .then((value) => {
+        settled = true
+        return value
+      })
+    await f.entered.promise
+    const attachment =
+      mode === "wait"
+        ? undefined
+        : await f.handler.fetch(new Request("http://localhost/threads/owned/runs/stream"))
+    if (attachment) expect(attachment.status).toBe(200)
+    const attached = attachment?.arrayBuffer().then((bytes) => {
+      attachedSettled = true
+      return events(new Uint8Array(bytes))
+    })
+    expect(
+      (
+        await f.handler.fetch(
+          new Request("http://localhost/threads/owned/cancel", { method: "POST" }),
+        )
+      ).status,
+    ).toBe(200)
+    f.held.release()
+    await f.writeEntered.promise
+    f.writeHeld.release()
+    await f.statusEntered.promise
+    await tick()
+    expect(settled).toBe(false)
+    expect(attachedSettled).toBe(false)
+    expect(f.ownerDisposed).toBe(0)
+    expect(f.ownerReleased).toBe(0)
+    expect((await f.handler.fetch(request("stream", f.route, undefined, false))).status).toBe(409)
+    f.statusHeld.release()
+    const response = await consumption
+    if (mode === "wait") {
+      expect(response.status).toBe(500)
+      expect(JSON.parse(new TextDecoder().decode(response.bytes))).toMatchObject({
+        error: { message: "independent status persistence failed", kind: "execution_error" },
+      })
+    } else {
+      const frames = events(response.bytes, mode === "agui-proto")
+      const terminal = frames.filter((frame) =>
+        mode.startsWith("agui")
+          ? frame.type === "RUN_ERROR" || frame.type === "RUN_FINISHED"
+          : frame.__event === "done",
+      )
+      expect(terminal).toHaveLength(1)
+      expect(terminal[0]).toMatchObject(
+        mode.startsWith("agui")
+          ? { type: "RUN_ERROR", message: "independent status persistence failed" }
+          : { output: { error: "independent status persistence failed" } },
+      )
+    }
+    if (attached) {
+      const terminal = (await attached).filter((frame) => frame.__event === "done")
+      expect(terminal).toHaveLength(1)
+      expect(terminal[0]).toMatchObject({
+        output: { error: "independent status persistence failed" },
+      })
+    }
+    await expect.poll(() => f.ownerDisposed).toBe(1)
+    expect(f.ownerReleased).toBe(1)
+    expect(f.next).toBe(0)
+    const head = await f.saver.getTuple({ configurable: { thread_id: "owned", checkpoint_ns: "" } })
+    expect(
+      readPersistedTurnEnd(
+        ((head?.metadata ?? {}) as Record<string, unknown>)[B4_TURN_METADATA_KEY],
+      ),
+    ).toMatchObject({ status: "failed", error: "independent status persistence failed" })
+  },
+  30_000,
+)
+
+it.each(["stream", "wait", "agui-sse", "agui-proto"])(
+  "%s preserves a primary source error when its final status write also fails",
+  async (mode) => {
+    const f = await fixture(false, "failure", true)
+    const consumption = f.handler
+      .fetch(request(mode, f.route))
+      .then(async (response) => ({
+        status: response.status,
+        bytes: new Uint8Array(await response.arrayBuffer()),
+      }))
+    await f.entered.promise
+    await f.handler.fetch(new Request("http://localhost/threads/owned/cancel", { method: "POST" }))
+    f.held.release()
+    await f.statusEntered.promise
+    f.statusHeld.release()
+    const response = await consumption
+    const body =
+      mode === "wait"
+        ? new TextDecoder().decode(response.bytes)
+        : JSON.stringify(events(response.bytes, mode === "agui-proto"))
+    expect(body).toContain("independent opaque error")
+    expect(body).not.toContain("independent status persistence failed")
+    await expect.poll(() => f.ownerDisposed).toBe(1)
+  },
+  30_000,
 )

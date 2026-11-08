@@ -3077,9 +3077,10 @@ async function handleApStreamRequest(options: {
           await releaseRequestRun(request)
           if (terminalChunk) safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
         } catch (error) {
+          let cooperativelyStopped = isCooperativeStop(error)
           // A cancelled run is not a failure: clients must be able to tell the
           // two apart without inferring it from a truncated stream.
-          terminalChunk = isCooperativeStop(error)
+          terminalChunk = cooperativelyStopped
             ? { output: { cancelled: true }, type: "done" }
             : {
                 output: {
@@ -3117,24 +3118,40 @@ async function handleApStreamRequest(options: {
           // stream's `cancel()` is deliberately empty, so a client disconnect
           // never reaches this catch. A cancelled run's route may still be
           // unwinding, so its stamp is chased behind `sourceCleanup` below.
+          if (!run.signal.aborted) await sourceCleanup
+          try {
+            await threadsStore.updateStatus(
+              threadId,
+              terminalStatus({ cancelled: cooperativelyStopped, sawInterrupt }),
+            )
+          } catch (persistenceError) {
+            // A drain is provisional until required runtime persistence settles.
+            // Preserve an earlier independent source error if both operations fail.
+            if (cooperativelyStopped) {
+              cooperativelyStopped = false
+              terminalChunk = {
+                type: "done",
+                output: {
+                  error:
+                    persistenceError instanceof Error
+                      ? persistenceError.message
+                      : String(persistenceError),
+                },
+              }
+            }
+          }
           const turnEnd =
             route.mode === "agent"
               ? turnEndFor({
                   sawInterrupt,
-                  cancelled: isCooperativeStop(error),
-                  error: isCooperativeStop(error) ? undefined : readTerminalError(terminalChunk),
+                  cancelled: cooperativelyStopped,
+                  error: cooperativelyStopped ? undefined : readTerminalError(terminalChunk),
                 })
               : undefined
-          if (!run.signal.aborted) await sourceCleanup
           if (turnEnd && !run.signal.aborted)
             await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
           else deferredTurnEnd = turnEnd
-          await threadsStore
-            .updateStatus(
-              threadId,
-              terminalStatus({ cancelled: isCooperativeStop(error), sawInterrupt }),
-            )
-            .catch(() => undefined)
+
           if (!run.signal.aborted) {
             await sourceCleanup
             await releaseRequestRun(request)
@@ -3442,8 +3459,7 @@ async function handleApWaitRequest(options: {
   // /runs/wait has not sent anything yet and can still use a status code, so
   // it does — 409 rather than 503, which would conflate cancellation with
   // server shutdown, the exact ambiguity this feature removes.
-  const respondCancelled = async (): Promise<Response> => {
-    await threadsStore.updateStatus(threadId, "interrupted").catch(() => undefined)
+  const respondCancelled = (): Response => {
     return Response.json(
       createRequestErrorBody(`Run cancelled for thread "${threadId}"`, {
         code: "run_cancelled",
@@ -3613,17 +3629,26 @@ async function handleApWaitRequest(options: {
     // interrupt chunk to watch for.
     // Agent routes only: a graph route has no checkpointer to stamp.
     const stopped = result.diagnostics?.cooperativeStop === true
+    try {
+      await threadsStore.updateStatus(threadId, stopped ? "interrupted" : "idle")
+    } catch (persistenceError) {
+      const message =
+        persistenceError instanceof Error ? persistenceError.message : String(persistenceError)
+      const failedEnd = canPark
+        ? turnEndFor({ sawInterrupt: parked, cancelled: false, error: message })
+        : undefined
+      if (failedEnd)
+        await stampTurnEnd(checkpointer, threadId, failedEnd, { notBefore: anchorCheckpointId })
+      // This status failure is the primary error; cleanup must not replace it.
+      await releaseRequestRun(request).catch(() => undefined)
+      return Response.json(createExecutionErrorBody(message), { status: 500 })
+    }
     const turnEnd = canPark ? turnEndFor({ sawInterrupt: parked, cancelled: stopped }) : undefined
     if (turnEnd)
       await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
 
-    if (stopped) return await respondCancelled()
+    if (stopped) return respondCancelled()
 
-    // Deliberately unconditional, unlike the streaming handlers' terminalStatus:
-    // the spec scopes parked-status honesty to the streaming endpoints, so a
-    // /runs/wait turn that parks still reads "idle" here. Clients detect that
-    // case via GET /threads/:id/pending_interrupts.
-    await threadsStore.updateStatus(threadId, "idle").catch(() => undefined)
     // `result.output` is literally the route's return value, so a route that
     // returns nothing lands here as `undefined` — which `Response.json` throws
     // on, turning a fine run into a 500 while `/runs/stream` reports the same
@@ -4663,9 +4688,10 @@ async function handleResumeRequest(options: {
             await releaseRequestRun(request)
             if (terminalChunk) safeEnqueue(controller, encoder.encode(toSseEvent(terminalChunk)))
           } catch (error) {
+            let cooperativelyStopped = isCooperativeStop(error)
             // A cancelled run is not a failure: clients must be able to tell the
             // two apart without inferring it from a truncated stream.
-            terminalChunk = isCooperativeStop(error)
+            terminalChunk = cooperativelyStopped
               ? { output: { cancelled: true }, type: "done" }
               : {
                   output: {
@@ -4697,24 +4723,40 @@ async function handleResumeRequest(options: {
             // Same facts as the terminal chunk just sent; see
             // handleApStreamRequest's catch (a cancel or a shutdown, never a
             // disconnect — this stream has no `cancel()` either).
+            if (!run.signal.aborted) await sourceCleanup
+            try {
+              await threadsStore.updateStatus(
+                threadId,
+                terminalStatus({ cancelled: cooperativelyStopped, sawInterrupt }),
+              )
+            } catch (persistenceError) {
+              // A drain is provisional until required runtime persistence settles.
+              // Preserve an earlier independent source error if both operations fail.
+              if (cooperativelyStopped) {
+                cooperativelyStopped = false
+                terminalChunk = {
+                  type: "done",
+                  output: {
+                    error:
+                      persistenceError instanceof Error
+                        ? persistenceError.message
+                        : String(persistenceError),
+                  },
+                }
+              }
+            }
             const turnEnd =
               route.mode === "agent"
                 ? turnEndFor({
                     sawInterrupt,
-                    cancelled: isCooperativeStop(error),
-                    error: isCooperativeStop(error) ? undefined : readTerminalError(terminalChunk),
+                    cancelled: cooperativelyStopped,
+                    error: cooperativelyStopped ? undefined : readTerminalError(terminalChunk),
                   })
                 : undefined
-            if (!run.signal.aborted) await sourceCleanup
             if (turnEnd && !run.signal.aborted)
               await stampTurnEnd(checkpointer, threadId, turnEnd, { notBefore: anchorCheckpointId })
             else deferredTurnEnd = turnEnd
-            await threadsStore
-              .updateStatus(
-                threadId,
-                terminalStatus({ cancelled: isCooperativeStop(error), sawInterrupt }),
-              )
-              .catch(() => undefined)
+
             if (!run.signal.aborted) {
               await sourceCleanup
               await releaseRequestRun(request)

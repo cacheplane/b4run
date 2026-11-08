@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import type { RunAgentInput } from "@ag-ui/core"
+import {
+  EventType,
+  type RunAgentInput,
+  type RunErrorEvent,
+  type RunFinishedEvent,
+} from "@ag-ui/core"
 import { RunAgentInputSchema } from "@ag-ui/core/schemas"
 import { type B4AgentStreamChunk, fromRunAgentInput, toAguiEvents } from "@b4run/ag-ui"
 import { agUiContentType, encodeAgUiEvent } from "@b4run/ag-ui/sse"
@@ -1259,6 +1264,7 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
     // claim. Its execution-finally path releases the claim only after the
     // interrupted route has actually unwound.
     let deferredTerminal: Uint8Array | undefined
+    let terminalEvent: RunFinishedEvent | RunErrorEvent | undefined
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -1384,9 +1390,10 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
               if (
                 (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") &&
                 !run.signal.aborted
-              )
+              ) {
+                terminalEvent = event
                 deferredTerminal = encoded
-              else safeEnqueue(controller, encoded)
+              } else safeEnqueue(controller, encoded)
             }
           } finally {
             // Unconditional, same as handleApStreamRequest: attachers must see
@@ -1446,6 +1453,35 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
             // Only the observed terminal describes how this turn ended. A
             // disconnect merely requested Stop; shutdown/admission loss keep
             // their hard error, and a permission park takes precedence.
+            try {
+              await threadsStore.updateStatus(
+                threadId,
+                terminalStatus({ cancelled: observedStop, sawInterrupt }),
+              )
+            } catch (persistenceError) {
+              // Only a provisional clean terminal can become this storage
+              // failure. An already independent source error keeps precedence.
+              // Hard-abort terminals already published retain their policy.
+              if (deferredTerminal && terminalEvent?.type !== EventType.RUN_ERROR) {
+                const message =
+                  persistenceError instanceof Error
+                    ? persistenceError.message
+                    : String(persistenceError)
+                terminalEvent = {
+                  type: EventType.RUN_ERROR,
+                  message,
+                  ...(terminalEvent?.usage !== undefined ? { usage: terminalEvent.usage } : {}),
+                  ...(persistenceError instanceof Error &&
+                  "code" in persistenceError &&
+                  typeof persistenceError.code === "string"
+                    ? { code: persistenceError.code }
+                    : {}),
+                }
+                deferredTerminal = encodeAgUiEvent(terminalEvent, accept)
+                terminalChunk = { type: "done", output: { error: message } }
+                observedStop = false
+              }
+            }
             const turnEnd =
               route.mode === "agent"
                 ? turnEndFor({
@@ -1461,9 +1497,6 @@ export async function handleAgUiFetchRequest(options: AgUiFetchRequestOptions): 
                 notBefore: anchorCheckpointId,
               })
             } else deferredTurnEnd = turnEnd
-            await threadsStore
-              .updateStatus(threadId, terminalStatus({ cancelled: observedStop, sawInterrupt }))
-              .catch(() => undefined)
           }
           if (deferredTerminal) {
             if (!run.signal.aborted && !deferClientRecordVoid && !deferredTurnEnd) {
