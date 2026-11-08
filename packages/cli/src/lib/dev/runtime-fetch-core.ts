@@ -2434,7 +2434,7 @@ export function buildRouteTable(ctx: {
           const outcome = await sandboxManager.inspectThread(
             threadId,
             parsed.request,
-            AbortSignal.any([slot.signal, request.signal]),
+            AbortSignal.any([slot.signal, slot.stopSignal, request.signal]),
           )
           return threadWorkspaceResponse(threadId, parsed.request, outcome)
         } catch (error) {
@@ -2952,15 +2952,14 @@ async function handleApStreamRequest(options: {
   // instead would discard streamed-but-not-yet-checkpointed state and leave
   // the thread behind what the user already saw (LangGraph issue #5672).
   //
-  // Cancellation is therefore explicit: POST /threads/:id/cancel. AG-UI takes
-  // the opposite default because it is ephemeral with nothing to reattach to.
+  // Stop is therefore explicit: POST /threads/:id/cancel. AG-UI instead
+  // requests cooperative Stop when its admitted viewer disconnects.
   // Rationale: docs/superpowers/specs/2026-08-06-ap-run-cancellation.md
   const encoder = new TextEncoder()
-  // Set only when abortableAsyncIterable stops CONSUMING the route on abort —
-  // it wins a race against iterator.next() and does not wait for the route's
-  // own `.return()` to settle. A route suspended at a non-abortable await
-  // (subprocess, non-abort-aware SDK, CPU-bound loop) keeps running after
-  // that race is won. See the finally below for why this matters.
+  // Tracks the route iterator's cleanup. A hard abort can stop consumption
+  // before that cleanup settles: a route suspended at a non-abortable await
+  // may keep running after the abort race wins. Cooperative Stop instead
+  // waits for the route's settled outcome. See the finally below.
   let sourceCleanup: Promise<void> | undefined
   // A parked turn takes the NORMAL completion path: the adapter yields the
   // interrupt chunk and then `done`, so a drained loop does not mean the turn
@@ -3007,11 +3006,10 @@ async function handleApStreamRequest(options: {
             ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
             threadsStore,
           })
-          // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
-          // the route *and* wrap the iterator, so a route that ignores its
-          // ctx.signal still stops when the run is cancelled. The third
-          // argument lets us observe when the route's OWN cleanup finishes,
-          // independently of when this loop stops consuming it.
+          // Hard abort can stop consumption even if the route ignores
+          // ctx.signal. Soft Stop reaches the route through stopSignal and
+          // waits for its outcome. The callback tracks the route's cleanup
+          // separately from the lifetime of this consuming loop.
           for await (const chunk of abortableAsyncIterable(routeStream, run.signal, (p) => {
             sourceCleanup = p
           })) {
@@ -3112,12 +3110,10 @@ async function handleApStreamRequest(options: {
             threadId,
             threadsStore,
           }).catch(() => undefined)
-          // Same facts as the terminal chunk just sent: a cancelled run is
-          // "stopped", anything else "failed" with the error's message. The
-          // run's abort can only be a cancel or a shutdown here — this
-          // stream's `cancel()` is deliberately empty, so a client disconnect
-          // never reaches this catch. A cancelled run's route may still be
-          // unwinding, so its stamp is chased behind `sourceCleanup` below.
+          // A settled cooperative Stop is "stopped"; independent failures
+          // retain their error. Hard abort (shutdown or admission loss) may
+          // leave source cleanup pending, so defer its stamp until cleanup.
+          // Passive client disconnect does not abort this AP run.
           if (!run.signal.aborted) await sourceCleanup
           try {
             await threadsStore.updateStatus(
@@ -3161,17 +3157,17 @@ async function handleApStreamRequest(options: {
       } finally {
         stopHeartbeat()
         // Unconditional — never deferred behind `sourceCleanup` the way
-        // `run.release()` is below for a cancelled run: attachers must see the
+        // `run.release()` is below when source cleanup remains: attachers see the
         // terminal frame exactly when the primary client does, since response
         // lifetime (not run-slot lifetime) is what viewers share. The identity
         // guard inside `close` means a zombie route can never write into a
         // successor turn that has already replaced this entry.
         liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
-        // The client's stream ends here regardless — safeClose below fires on
-        // this same tick either way, so cancellation still looks instant to
-        // the caller. What differs is when the run SLOT frees.
+        // A hard abort may close the response before source cleanup settles.
+        // Soft Stop reaches this point after its execution and required writes
+        // settle. Claims remain held through any outstanding cleanup and stamp.
         // Never throws (stampTurnEnd swallows); a no-op unless the catch
-        // deferred a cancelled turn's record.
+        // deferred the turn's record.
         const stampDeferredTurnEnd = async (): Promise<void> => {
           if (deferredTurnEnd)
             await stampTurnEnd(checkpointer, threadId, deferredTurnEnd, {
@@ -3179,16 +3175,11 @@ async function handleApStreamRequest(options: {
             })
         }
         if (sourceCleanup && (run.cancelled || requestRunAdmission(request))) {
-          // The abort stopped us CONSUMING the route, not the route itself:
-          // abortableAsyncIterable wins a race against iterator.next(), and a
-          // generator suspended at a non-abortable await keeps going until that
-          // await settles. Hold the thread's slot until the source has genuinely
-          // unwound, or a newly admitted run would interleave checkpoint writes
-          // with it. The client's stream still ends immediately (above) —
-          // response lifetime and run lifetime are deliberately different here.
-          // The turn-end stamp waits for the same unwind, so a park the route
-          // lands late is seen (and leaves the head unstamped) rather than
-          // buried under a stamp written too early.
+          // After a hard abort, consumption may end while the route is still
+          // awaiting work. Keep ownership until cleanup and the deferred stamp
+          // settle, so a successor cannot interleave checkpoint writes. This
+          // also observes a late permission park before stamping. For soft
+          // Stop, source cleanup has already settled before terminal delivery.
           void sourceCleanup
             .then(stampDeferredTurnEnd, stampDeferredTurnEnd)
             .finally(() => run.release())
@@ -4590,7 +4581,7 @@ async function handleResumeRequest(options: {
     // The terminal `done` chunk the primary emitted — see
     // handleApStreamRequest for why this is never published to the digest.
     let terminalChunk: StreamChunk | undefined
-    // A cancelled turn's record, chased behind `sourceCleanup` — see
+    // A hard-aborted turn's deferred record, chased behind `sourceCleanup` — see
     // handleApStreamRequest.
     let deferredTurnEnd: PersistedTurnEnd | undefined
     const stream = new ReadableStream<Uint8Array>({
@@ -4624,11 +4615,10 @@ async function handleResumeRequest(options: {
               ...(approvalGrantMinter ? { approvalGrantMinter } : {}),
               threadsStore,
             })
-            // Belt-and-braces, mirroring the AG-UI handler: pass the signal to
-            // the route *and* wrap the iterator, so a route that ignores its
-            // ctx.signal still stops when the run is cancelled. The third
-            // argument lets us observe when the route's OWN cleanup finishes,
-            // independently of when this loop stops consuming it.
+            // Hard abort can stop consumption even if the route ignores
+            // ctx.signal. Soft Stop reaches the route through stopSignal and
+            // waits for its outcome. Track source cleanup separately, as in
+            // handleApStreamRequest.
             for await (const chunk of abortableAsyncIterable(routeStream, run.signal, (p) => {
               sourceCleanup = p
             })) {
@@ -4720,9 +4710,9 @@ async function handleResumeRequest(options: {
               threadId,
               threadsStore,
             }).catch(() => undefined)
-            // Same facts as the terminal chunk just sent; see
-            // handleApStreamRequest's catch (a cancel or a shutdown, never a
-            // disconnect — this stream has no `cancel()` either).
+            // Match the settled outcome; only hard abort can leave cleanup
+            // pending here. Passive disconnect does not abort this AP run.
+            // See handleApStreamRequest's catch.
             if (!run.signal.aborted) await sourceCleanup
             try {
               await threadsStore.updateStatus(
@@ -4768,8 +4758,8 @@ async function handleResumeRequest(options: {
           // Unconditional, same as handleApStreamRequest: attachers must see
           // the terminal frame exactly when the primary client does.
           liveTurn?.close(terminalChunk ?? { output: null, type: "done" })
-          // The client's stream ends here regardless — response lifetime and run
-          // lifetime are deliberately different; see handleApStreamRequest.
+          // Hard abort may end the response before cleanup; soft Stop waits
+          // for execution and required writes. See handleApStreamRequest.
           const releaseExecutionClaims = () => {
             run.release()
             releaseResumeClaim()
