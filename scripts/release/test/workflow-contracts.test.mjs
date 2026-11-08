@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
   lstat,
@@ -2793,6 +2794,59 @@ test("navlog diagnostic accepts the Railway extra row and emits only the last 50
   const emitted = result.stdout.map((line) => JSON.parse(line.slice("Railway build log: ".length)))
   assert.deepEqual(emitted, logs.slice(1))
   assert.equal(JSON.parse(result.calls[0][1].body).variables.limit, 500)
+})
+
+test("navlog diagnostic bounds CPU for long lines while detecting credentials beyond the output cap", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const run = workflow.jobs.diagnose.steps.find((step) => step.run)?.run
+  const source = /^node - <<'JS'\n([\s\S]*)\nJS\n$/u.exec(run)?.[1]
+  assert.ok(source)
+  // A separate process provides a hard deadline across fetch's asynchronous continuation.
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import { readFileSync } from "node:fs"
+       const prefix = "x-".repeat(250000)
+       globalThis.fetch = async () => Response.json({ data: { buildLogs: [
+         prefix,
+         prefix + " API_KEY=long-key-credential",
+         prefix + " postgresql://user:long-uri-credential@database/app",
+         "x".repeat(8180) + process.env.RAILWAY_TOKEN,
+         "https://registry.npmjs.org/@angular/core",
+         "https://registry.npmjs.org:443/@angular/core",
+       ].map((message) => ({ timestamp: "2026-11-08T10:00:00Z", severity: "ERROR", message })) } })
+       const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+       await new AsyncFunction(readFileSync(0, "utf8"))()`,
+    ],
+    {
+      input: source,
+      encoding: "utf8",
+      timeout: 3000,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
+      env: { DEPLOYMENT_ID: NAVLOG_DIAGNOSTIC_ID, RAILWAY_TOKEN: NAVLOG_DIAGNOSTIC_TOKEN },
+    },
+  )
+  assert.ifError(result.error)
+  assert.equal(result.signal, null)
+  assert.equal(result.status, 0, result.stderr)
+  const logs = result.stdout
+    .trimEnd()
+    .split("\n")
+    .map((line) => {
+      assert.ok(line.startsWith("Railway build log: {"))
+      return JSON.parse(line.slice("Railway build log: ".length))
+    })
+  assert.equal(logs.length, 6)
+  assert.ok(logs[0].message.startsWith("x-".repeat(4000)))
+  assert.match(logs[0].message, /truncated/u)
+  assert.equal(logs[1].message, "[REDACTED credential-bearing line]")
+  assert.equal(logs[2].message, "[REDACTED credential-bearing line]")
+  assert.ok(!logs[3].message.includes(NAVLOG_DIAGNOSTIC_TOKEN.slice(0, 10)))
+  assert.equal(logs[4].message, "https://registry.npmjs.org/@angular/core")
+  assert.equal(logs[5].message, "https://registry.npmjs.org:443/@angular/core")
 })
 
 test("navlog diagnostic caps individual messages and total emitted log bytes", async () => {

@@ -200,10 +200,38 @@ jobs:
               if (!Array.isArray(logs) || logs.length > 501 || logs.some((log) =>
                 !log || ["timestamp", "message", "severity"].some((field) => typeof log[field] !== "string")
               )) throw new Error()
+              const hasCredentials = (line) => {
+                if (/\bauthorization\s*:|\bbearer\s+\S/iu.test(line)) return true
+                // Consume each key once; sticky suffix checks cannot retry at later positions.
+                const assignment = /["']?\s*[:=]/uy
+                for (const match of line.matchAll(/[\w-]+/gu)) {
+                  assignment.lastIndex = match.index + match[0].length
+                  if (!assignment.test(line)) continue
+                  const key = match[0].toLowerCase().replaceAll(/[_-]/gu, "")
+                  if (["token", "password", "secret", "apikey", "accesskey", "privatekey", "authorization"].some((name) => key.includes(name))) return true
+                }
+                // Inspect URI authorities, keeping scoped package paths such as /@angular visible.
+                for (const [word] of line.matchAll(/\S+/gu)) {
+                  let start = 0
+                  while (start < word.length) {
+                    const separator = word.indexOf("://", start)
+                    if (separator < 0) break
+                    const from = separator + 3
+                    let end = from
+                    while (end < word.length && !"/?#".includes(word[end])) end++
+                    const authority = word.slice(from, end)
+                    const colon = authority.indexOf(":")
+                    const at = authority.indexOf("@")
+                    if (colon > 0 && at > colon + 1) return true
+                    start = from
+                  }
+                }
+                return false
+              }
               const sanitize = (value) => {
                 // Redact before truncation so a partial credential cannot escape the cap.
                 const redacted = value.replaceAll(token, "[REDACTED]").split(/\r\n|[\n\r\u2028\u2029]/u).map((line) =>
-                  /\b[\w-]*(?:token|password|secret|api[_-]?key|access[_-]?key|private[_-]?key)[\w-]*["']?\s*[:=]|\bauthorization\s*:|\bbearer\s+\S+|\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s@]+@/iu.test(line)
+                  hasCredentials(line)
                     ? "[REDACTED credential-bearing line]" : line
                 ).join("\n")
                 return redacted.length > 8192 ? `${redacted.slice(0, 8192)} [truncated]` : redacted
