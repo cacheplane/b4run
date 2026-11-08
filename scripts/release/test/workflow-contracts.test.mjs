@@ -2567,6 +2567,24 @@ test("dependency security workflow mutations fail closed", async (t) => {
   }
 })
 
+test("navlog deploy watches every docs module copied into its image", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const dockerfile = await readFile(
+    path.join(ROOT, "examples/navlog/server/Dockerfile.railway"),
+    "utf8",
+  )
+  const copy =
+    /^COPY (apps\/web\/app\/components\/docs\/[^\n]+) \.\/apps\/web\/app\/components\/docs\/$/mu.exec(
+      dockerfile,
+    )
+  assert.ok(copy, "the Dockerfile docs module copy must be recognized")
+  const modules = copy[1].split(/\s+/u)
+  assert.ok(modules.length > 0)
+  for (const module of modules) {
+    assert.ok(workflow.on.push.paths.includes(module), `navlog deploy must watch ${module}`)
+  }
+})
+
 test("navlog diagnostic dispatch and deployment are mutually exclusive", async () => {
   const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
   assert.ok(workflow.on.workflow_dispatch?.inputs, "diagnostic dispatch inputs are required")

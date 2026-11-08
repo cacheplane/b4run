@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -10,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, extname, join, relative, sep } from "node:path"
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { tsImport } from "tsx/esm/api"
 import { describe, expect, it } from "vitest"
@@ -311,6 +312,34 @@ describe("mdxToMarkdown()", () => {
 })
 
 describe("loadDocsPages()", () => {
+  it("loads the full CLI docs registry using only the modules copied into the Railway image", async () => {
+    const docsDirectory = "apps/web/app/components/docs"
+    const dockerfile = readFileSync(
+      join(repoRoot, "examples/navlog/server/Dockerfile.railway"),
+      "utf8",
+    )
+    const copy =
+      /^COPY (apps\/web\/app\/components\/docs\/[^\n]+) \.\/apps\/web\/app\/components\/docs\/$/mu.exec(
+        dockerfile,
+      )
+    expect(copy, "the Dockerfile must copy its docs navigation modules").not.toBeNull()
+    const copiedModules = (copy?.[1] ?? "").split(/\s+/u)
+    expect(EXPECTED_DOCS.length).toBeGreaterThan(0)
+    const stagedDirectory = mkdtempSync(join(tmpdir(), "navlog-docker-docs-"))
+    try {
+      for (const source of copiedModules) {
+        expect(resolve(repoRoot, source)).toBe(join(repoRoot, docsDirectory, basename(source)))
+        copyFileSync(join(repoRoot, source), join(stagedDirectory, basename(source)))
+      }
+      const actual = await loadDocsPages(join(stagedDirectory, "nav.ts")).catch((error: unknown) =>
+        String(error),
+      )
+      expect(actual).toEqual(EXPECTED_DOCS)
+    } finally {
+      rmSync(stagedDirectory, { recursive: true, force: true })
+    }
+  })
+
   it("loads every exhaustive page in canonical registry order", async () => {
     expect(await loadDocsPages(join(repoRoot, "apps/web/app/components/docs/nav.ts"))).toEqual(
       EXPECTED_DOCS,

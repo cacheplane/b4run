@@ -2177,6 +2177,7 @@
               "apps/web/content/docs/**",
               "apps/web/app/components/docs/nav.ts",
               "apps/web/app/components/docs/api-reference-pages.ts",
+              "apps/web/app/components/docs/doc-sections.ts",
               "package.json",
               "pnpm-lock.yaml",
               "pnpm-workspace.yaml",
