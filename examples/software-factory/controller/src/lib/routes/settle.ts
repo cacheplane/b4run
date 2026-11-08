@@ -1,6 +1,27 @@
+import type { RuntimeContext } from "@b4run/sdk"
 import type { Factory } from "../controller/factory.js"
+import { CommandInFlightError } from "../domain/errors.js"
 import type { WorkOrderRow } from "../domain/work-order.js"
 import { type RouteOutcome, refused } from "./outcome.js"
+
+function isCancellation(outcome: Pick<RouteOutcome, "state">): boolean {
+  return outcome.state === "cancelled" || outcome.state === "cancel_requested"
+}
+
+/**
+ * These routes own cancel-aware factory operations. Request Stop through their
+ * operation signal. The operation explicitly observes Stop at its settled
+ * cancellation boundary; returned values alone never establish that outcome.
+ */
+export async function withRuntimeStop(
+  ctx: Pick<RuntimeContext, "signal" | "stopSignal">,
+  operation: (signal: AbortSignal, observeStop: () => void) => Promise<RouteOutcome>,
+): Promise<RouteOutcome> {
+  ctx.signal.throwIfAborted()
+  ctx.stopSignal?.throwIfAborted()
+  const signal = ctx.stopSignal ? AbortSignal.any([ctx.signal, ctx.stopSignal]) : ctx.signal
+  return operation(signal, () => ctx.stopSignal?.throwIfAborted())
+}
 
 export interface SettleOptions {
   /** Names the run in the "did not settle" message: `Dispatch`, `Intake`, `Redraft`. */
@@ -18,8 +39,9 @@ export interface SettleOptions {
  * `reject-intake` triggered) and report where it settled. Shared by the awaiting routes so
  * the abort listener, the budget and the "did not settle" shape cannot drift between them.
  *
- * The abort listener fires when the runtime cancels this thread's run and cancels the work
- * order. It is safe against a late abort by SCHEDULING, not by the command refusing: `cancel`
+ * The app-owned signal combines hard abort and an optional soft Stop request.
+ * Its listener cancels the work order, and cleanup awaits the cancel it started.
+ * It is safe against a late abort by SCHEDULING, not by the command refusing: `cancel`
  * is legal from every non-terminal state, so an abort landing after `settle` resolved would
  * cancel a settled work order — there is no `await` between the settle and the
  * `removeEventListener` below, so the listener is gone before any later abort can be
@@ -31,23 +53,37 @@ export async function settleOutcome(
   id: string,
   signal: AbortSignal,
   options: SettleOptions,
+  observeStop?: () => void,
 ): Promise<RouteOutcome> {
+  let cancellation: Promise<unknown> | undefined
+  let preserveFailure = false
+  let observedCancellation = false
   const onAbort = () => {
-    void factory.cancel(id, options.abortKey).catch(() => undefined)
+    cancellation ??= factory.cancel(id, options.abortKey).catch((error: unknown) => {
+      if (!(error instanceof CommandInFlightError)) throw error
+    })
+    // Settlement may still be held when cancellation rejects. Observe it now;
+    // the finally below awaits it and preserves the primary operation failure.
+    void cancellation.catch(() => undefined)
   }
   signal.addEventListener("abort", onAbort, { once: true })
+  if (signal.aborted) onAbort()
   try {
     // The row's own budget, never a literal: the default lives in `config.ts` and is copied
     // onto the row at create time, so a second copy here would silently disagree with it. No
     // row means no budget to wait on — and nothing to have started either.
     const current = factory.show(id)
-    if (!current) return refused("unknown_work_order", `Unknown work order ${id}`)
+    if (!current) {
+      preserveFailure = true
+      return refused("unknown_work_order", `Unknown work order ${id}`)
+    }
     let row: WorkOrderRow
     try {
       row = await factory.settle(id, current.maxActiveMs + 60_000)
     } catch (error) {
       // `settle` throws on timeout and when the factory is aborted mid-wait; both are
       // expected here and a route must not throw. The row is the outcome either way.
+      preserveFailure = true
       const stalled = factory.show(id)
       return {
         ok: false,
@@ -56,9 +92,28 @@ export async function settleOutcome(
         row: stalled,
       }
     }
-    return { ok: options.success(row), state: row.state, message: options.message(row), row }
+    const outcome = {
+      ok: options.success(row),
+      state: row.state,
+      message: options.message(row),
+      row,
+    }
+    // A controller cancellation acknowledgement may still await remote confirmation.
+    observedCancellation = cancellation !== undefined && isCancellation(outcome)
+    preserveFailure = !outcome.ok && !observedCancellation
+    return outcome
+  } catch (error) {
+    preserveFailure = true
+    throw error
   } finally {
     signal.removeEventListener("abort", onAbort)
+    if (preserveFailure) await cancellation?.catch(() => undefined)
+    else {
+      await cancellation
+      // Reached only after normal domain cancellation and successful cleanup.
+      // A thrown or returned operation failure bypasses soft Stop observation.
+      if (observedCancellation) observeStop?.()
+    }
   }
 }
 

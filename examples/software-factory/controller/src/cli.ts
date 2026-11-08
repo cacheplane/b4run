@@ -605,8 +605,8 @@ async function followRow(
 async function cancel(id: string, key: string | undefined): Promise<number> {
   const controller = client()
   if ((await controller.interrupt(id)) === "interrupted") {
-    // The 200 says the run was aborted, not that the cancel it triggered has been recorded;
-    // the row is what the operator asked about.
+    // The 200 acknowledges a Stop request. The app-owned operation still has
+    // to record domain cancellation; the row is what the operator asked about.
     let row: WorkOrderRow | null
     try {
       row = await pollRow(
@@ -615,19 +615,22 @@ async function cancel(id: string, key: string | undefined): Promise<number> {
         5_000,
       )
     } catch (error) {
-      // No state directory (or an unreadable registry): the cancel still happened, and
-      // failing here would report a delivered cancel as an error.
+      // The Stop request was acknowledged, but an unreadable registry cannot
+      // establish the work-order outcome. Tell the operator how to inspect it.
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-      print({ ok: true, message: "Cancel delivered; set FACTORY_STATE_DIR to read the row" })
+      print({ ok: true, message: "Stop requested; set FACTORY_STATE_DIR to read the row" })
       return 0
     }
     const recorded = row?.state === "cancel_requested" || row?.state === "cancelled"
     print({
       ok: recorded,
       ...(row ? { state: row.state } : {}),
-      message: recorded
-        ? "Cancelled"
-        : "Cancel was delivered but the work order has not recorded it yet; run show",
+      message:
+        row?.state === "cancelled"
+          ? "Cancelled"
+          : recorded
+            ? "Cancel requested; reconciliation will confirm the outcome"
+            : "Stop requested but the work order has not recorded cancellation yet; run show",
       row,
     })
     return recorded ? 0 : 1

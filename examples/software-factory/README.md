@@ -941,8 +941,11 @@ own `verifying` phase, which is not the builder's — and tails the journal to s
 waits. If it reaches `awaiting_approval`, `factory review <id>` it (or approve with the
 revision and the **bundle digest** it printed, or `deny`). `factory evidence <id>` prints the frozen candidate, receipt and
 bundle: what an approver is actually being asked to consent to. `factory cancel <id>` uses
-both variables: it interrupts a live dispatch through the runtime, falls back to the `cancel`
-route for a work order that is not mid-run, and reads the row back.
+both variables: it requests Stop on a live dispatch through the runtime, falls back to the
+`cancel` route for a work order that is not mid-run, and reads the row back. The awaiting
+controller workflow maps Stop to its own cancellation operation and observes it after that
+operation's cleanup settles. `cancel_requested` acknowledges controller cancellation;
+confirmation from the worker may still be pending.
 
 **Intake.** A work order created with `--issue` has no task yet: `factory intake <id>` runs a
 drafter turn on the drafter process and waits for it, as `dispatch` does. Before the thread
