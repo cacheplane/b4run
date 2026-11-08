@@ -2713,7 +2713,7 @@ test("navlog diagnostic fails safely on provider errors and malformed or excessi
         data: { buildLogs: [{ ...NAVLOG_BUILD_LOG, severity: null }] },
       }),
     ],
-    ["too many rows", Response.json({ data: { buildLogs: Array(501).fill(NAVLOG_BUILD_LOG) } })],
+    ["too many rows", Response.json({ data: { buildLogs: Array(502).fill(NAVLOG_BUILD_LOG) } })],
     ["oversize response", new Response("x".repeat(2 * 1024 * 1024 + 1))],
   ]
   for (const [name, response] of cases) {
@@ -2758,6 +2758,41 @@ test("navlog diagnostic redacts credentials and prevents provider workflow comma
   }
   assert.match(result.stdout[0], /\[REDACTED\]/u)
   assert.match(result.stdout[5], /::error::injected\\n::add-mask::injected\\n/u)
+})
+
+test("navlog diagnostic escapes legacy runner command openers in every provider field", async () => {
+  // ActionCommand.TryParse searches for ##[ anywhere, including inside serialized JSON.
+  const logs = ["timestamp", "message", "severity"].flatMap((field) =>
+    ["error", "add-mask", "stop-commands"].map((command) => ({
+      ...NAVLOG_BUILD_LOG,
+      [field]: `before ##[${command}]injected after`,
+    })),
+  )
+  const result = await exerciseNavlogDiagnostic({
+    response: Response.json({ data: { buildLogs: logs } }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.stdout.length, logs.length)
+  for (const [index, line] of result.stdout.entries()) {
+    assert.ok(line.startsWith("Railway build log: {"))
+    assert.ok(!line.includes("##["), "legacy runner commands must be escaped before output")
+    assert.deepEqual(JSON.parse(line.slice("Railway build log: ".length)), logs[index])
+  }
+})
+
+test("navlog diagnostic accepts the Railway extra row and emits only the last 500", async () => {
+  const logs = Array.from({ length: 501 }, (_, index) => ({
+    ...NAVLOG_BUILD_LOG,
+    message: `Build line ${index}`,
+  }))
+  const result = await exerciseNavlogDiagnostic({
+    response: Response.json({ data: { buildLogs: logs } }),
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.stdout.length, 500)
+  const emitted = result.stdout.map((line) => JSON.parse(line.slice("Railway build log: ".length)))
+  assert.deepEqual(emitted, logs.slice(1))
+  assert.equal(JSON.parse(result.calls[0][1].body).variables.limit, 500)
 })
 
 test("navlog diagnostic caps individual messages and total emitted log bytes", async () => {

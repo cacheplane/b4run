@@ -197,7 +197,7 @@ jobs:
               const body = JSON.parse(text)
               if (body.errors !== undefined && (!Array.isArray(body.errors) || body.errors.length)) throw new Error()
               const logs = body?.data?.buildLogs
-              if (!Array.isArray(logs) || logs.length > 500 || logs.some((log) =>
+              if (!Array.isArray(logs) || logs.length > 501 || logs.some((log) =>
                 !log || ["timestamp", "message", "severity"].some((field) => typeof log[field] !== "string")
               )) throw new Error()
               const sanitize = (value) => {
@@ -210,13 +210,14 @@ jobs:
               }
               const encoder = new TextEncoder()
               let outputBytes = 0
-              for (const log of logs) {
-                // Never emit provider text as workflow commands, even after embedded newlines.
+              // Railway can return limit+1 rows; retain the requested tail, as its CLI does.
+              for (const log of logs.slice(-500)) {
+                // Legacy runner commands parse anywhere; escape their opener in serialized JSON.
                 const line = "Railway build log: " + JSON.stringify({
                   timestamp: sanitize(log.timestamp),
                   message: sanitize(log.message),
                   severity: sanitize(log.severity),
-                })
+                }).replaceAll("##[", "\\u0023#[")
                 outputBytes += encoder.encode(line).byteLength + 1
                 if (outputBytes > 256 * 1024) {
                   console.error("Railway diagnostic: output truncated at 256 KiB")
