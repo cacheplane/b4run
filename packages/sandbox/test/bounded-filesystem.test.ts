@@ -1,58 +1,52 @@
-import { spawn } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Docker } from "../src/docker/docker-cli.ts"
 import { dockerFilesystem } from "../src/docker/docker-filesystem.ts"
 import type { KubeClient } from "../src/kubernetes/kube-client.ts"
 import { kubeFilesystem } from "../src/kubernetes/kube-filesystem.ts"
+import { createHostShellFixture, type HostShellFixture } from "./helpers/host-shell-fixture.ts"
 
-const roots: string[] = []
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+const fixtures: HostShellFixture[] = []
+afterEach(async () => {
+  const disposed = await Promise.allSettled(fixtures.splice(0).map((fixture) => fixture.close()))
+  const failures = disposed.flatMap((entry) => (entry.status === "rejected" ? [entry.reason] : []))
+  if (failures.length) throw new AggregateError(failures, "Host-shell fixture cleanup failed")
 })
 for (const provider of ["docker", "kube"] as const) {
   describe(`${provider} bounded reads`, () => {
     function setup() {
-      const root = mkdtempSync(join(tmpdir(), "b4-read-cap-"))
-      roots.push(root)
-      const outputSizes: number[] = []
-      const run = (argv: string[], stdin?: string) =>
-        new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve, reject) => {
-          const child = spawn(argv[0] as string, argv.slice(1))
-          const out: Buffer[] = []
-          const err: Buffer[] = []
-          child.stdout.on("data", (chunk: Buffer) => out.push(chunk))
-          child.stderr.on("data", (chunk: Buffer) => err.push(chunk))
-          child.on("error", reject)
-          child.stdin.on("error", (error: NodeJS.ErrnoException) => {
-            if (error.code !== "EPIPE") reject(error)
-          })
-          child.on("close", (code) => {
-            const stdout = Buffer.concat(out).toString("utf8")
-            outputSizes.push(Buffer.byteLength(stdout))
-            resolve({ stdout, stderr: Buffer.concat(err).toString("utf8"), exitCode: code ?? 1 })
-          })
-          child.stdin.end(stdin ?? "")
-        })
+      const fixture = createHostShellFixture()
+      fixtures.push(fixture)
+      const { root, outputSizes, run } = fixture
       const argvs: string[][] = []
       const fs =
         provider === "docker"
           ? dockerFilesystem(
               {
-                exec: (_container: string, argv: string[], opts?: { stdin?: string }) => {
+                exec: (
+                  _container: string,
+                  argv: string[],
+                  opts?: { stdin?: string; signal?: AbortSignal },
+                ) => {
                   argvs.push(argv)
-                  return run(argv, opts?.stdin)
+                  expect(opts?.signal).toBe(fixture.ctx.signal)
+                  return run(argv, opts?.stdin, opts?.signal)
                 },
               } as unknown as Docker,
               "container",
             )
           : kubeFilesystem(
               {
-                exec: (_ns: string, _pod: string, argv: string[], opts?: { stdin?: string }) => {
+                exec: (
+                  _ns: string,
+                  _pod: string,
+                  argv: string[],
+                  opts?: { stdin?: string; signal?: AbortSignal },
+                ) => {
                   argvs.push(argv)
-                  return run(argv, opts?.stdin)
+                  expect(opts?.signal).toBe(fixture.ctx.signal)
+                  return run(argv, opts?.stdin, opts?.signal)
                 },
               } as unknown as KubeClient,
               "ns",
@@ -63,9 +57,20 @@ for (const provider of ["docker", "kube"] as const) {
         outputSizes,
         argvs,
         fs,
-        ctx: { workspaceRoot: root, signal: new AbortController().signal },
+        ctx: fixture.ctx,
+        fixture,
       }
     }
+    it("forwards the actual caller signal before starting a pre-aborted read", async () => {
+      const { root, fs, ctx, fixture, argvs } = setup()
+      const path = join(root, "cancelled")
+      writeFileSync(path, "bytes")
+      const reason = new Error("pre-aborted adapter read")
+      fixture.abort(reason)
+      await expect(fs.readBinaryFile?.(path, ctx, { maxBytes: 5 })).rejects.toBe(reason)
+      expect(argvs).toHaveLength(1)
+      expect(fixture.children).toHaveLength(0)
+    })
     for (const operation of ["readFile", "readBinaryFile"] as const) {
       it(`${operation} caps transport before decoding and preserves read failures`, async () => {
         const { root, outputSizes, fs, ctx } = setup()
