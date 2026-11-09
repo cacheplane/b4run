@@ -1,4 +1,7 @@
-import { bindMaterializedAgentRuntime } from "@b4run/langchain/internal/runtime"
+import {
+  bindMaterializedAgentRuntime,
+  bindRuntimeChildReplayReader,
+} from "@b4run/langchain/internal/runtime"
 import type { RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { ProtocolError } from "../dev/protocol/errors.js"
 import { makeProtocolThreadGate } from "../dev/thread-gate.js"
@@ -2997,7 +3000,7 @@ export function bindProtocolChildGraph(
   execution: NonNullable<Awaited<ReturnType<typeof childInputExecution>>>,
   saver: BaseCheckpointSaver | undefined = execution.checkpointer,
 ): ResolvedSubagentGraph["graph"] {
-  return {
+  const bound: ResolvedSubagentGraph["graph"] = {
     async invoke(input, config) {
       const invocation = await runtimeChildExecutionConfig(execution.checkpointer, config)
       let reason = "namespace_completed"
@@ -3017,6 +3020,15 @@ export function bindProtocolChildGraph(
       }
     },
   }
+  bindRuntimeChildReplayReader(bound, async (config) => {
+    const invocation = await runtimeChildExecutionConfig(
+      execution.checkpointer,
+      config,
+      "replay-read",
+    )
+    return execution.checkpointer.getTuple(invocation)
+  })
+  return bound
 }
 
 function withEpisodeRecording(

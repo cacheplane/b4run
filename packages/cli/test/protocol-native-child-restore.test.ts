@@ -48,12 +48,34 @@ function deferred() {
   })
   return { promise, resolve }
 }
-it.each([false, true])(
+it.for([false, true])(
   "restores an owned native child and retains completed child authority (stop accepted %s)",
-  async (stopAccepted) => {
+  { timeout: 30_000 },
+  async (stopAccepted, testContext) => {
+    const started = performance.now()
+    let latestPhase = "fixture-start"
+    let counters: () => Record<string, number> = () => ({})
+    const trace = (phase: string) => {
+      latestPhase = phase
+      if (process.env.B4_ADMISSION_TIMINGS === "1")
+        console.info(
+          "R8_NATIVE_CHILD_PHASE",
+          JSON.stringify({
+            phase,
+            elapsedMs: Math.round(performance.now() - started),
+            ...counters(),
+          }),
+        )
+    }
+    const onAbort = () => trace(`abort:${latestPhase}`)
+    testContext.signal.addEventListener("abort", onAbort, { once: true })
+    trace("fixture-start")
     __resetApprovalGrantsForTests()
     configureApprovalGrants("required")
-    const f = await fixture(),
+    const f = await fixture().catch((error) => {
+        testContext.signal.removeEventListener("abort", onAbort)
+        throw error
+      }),
       counts = new Map<string, number>()
     const entered = deferred(),
       release = deferred(),
@@ -66,6 +88,13 @@ it.each([false, true])(
       effects = 0,
       prepared = 0,
       pendingBodies = 0
+    counters = () => ({
+      effects,
+      prepared,
+      pendingBodies,
+      modelCalls: [...counts.values()].reduce((sum, value) => sum + value, 0),
+    })
+    trace("fixture-ready")
     class ControlledModel extends BaseChatModel {
       constructor(_options: Record<string, unknown>) {
         super({})
@@ -80,6 +109,7 @@ it.each([false, true])(
         const name = String(messages[0]?.content),
           count = (counts.get(name) ?? 0) + 1
         counts.set(name, count)
+        trace(`model:${name}`)
         if (name === "paused") consumed.push(messages.map((message) => String(message.content)))
         const message =
           name === "root" && count === 1
@@ -112,7 +142,9 @@ it.each([false, true])(
     }
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: ControlledModel }))
     try {
+      trace("admission-start")
       const accepted = await f.admit(body({ on_completion: "keep" }))
+      trace("admission-complete")
       const sourceInput = createInputService({
         ...f.authority,
         resolveTarget: async ({ run, namespaceBinding }) => ({
@@ -158,6 +190,7 @@ it.each([false, true])(
         ...f.authority,
         permissions,
         async invoke({ store, run, signal }) {
+          trace(run.metadata.previousRunId ? "resume:invocation-entry" : "source:invocation-entry")
           try {
             const boundary = createActiveInputBoundary({
               store,
@@ -172,6 +205,7 @@ it.each([false, true])(
               commitInputs: boundary.commitInputs,
             })
             if (run.metadata.previousRunId) {
+              trace("resume:input-source-negatives-start")
               const before = await store.snapshot(),
                 selected = before.pending.find(
                   (row) =>
@@ -217,9 +251,11 @@ it.each([false, true])(
                 }
               }
             }
+            trace("invocation:input-source-negatives-complete")
             const continuation = run.metadata.previousRunId
               ? await permissions.prepareNativeContinuation(store, saver, run.run.run_id)
               : undefined
+            trace("invocation:continuation-prepared")
             const invocation = permissions.createNativeParkMinter(store, saver, run.run.run_id)
             type ChildGraph = {
               invoke(input: unknown, config: RunnableConfig): Promise<unknown>
@@ -256,6 +292,7 @@ it.each([false, true])(
               ],
               async prepareChild(entry, context) {
                 prepared++
+                trace(`child:${entry.name}:prepare-start`)
                 if (run.metadata.previousRunId) {
                   await store.transaction(async (tx) => {
                     const namespace = String(
@@ -313,6 +350,7 @@ it.each([false, true])(
                     expect(await tx.nativeNamespaces.get(record.aliasId)).toBeUndefined()
                   })
                 }
+                trace(`child:${entry.name}:namespace-negatives-complete`)
                 let child: Awaited<ReturnType<typeof childInputExecution>>
                 try {
                   child = await childInputExecution(
@@ -324,6 +362,7 @@ it.each([false, true])(
                   failure = error
                   throw error
                 }
+                trace(`child:${entry.name}:input-execution-ready`)
                 if (!child) throw new Error("Missing owned child saver")
                 if (run.metadata.previousRunId) {
                   const before = await store.transaction((tx) => tx.nativeNamespaces.list())
@@ -382,6 +421,7 @@ it.each([false, true])(
                         ]
                       : [],
                 })) as ChildGraph
+                trace(`child:${entry.name}:materialized`)
                 const recorded = {
                   async invoke(input: unknown, config: RunnableConfig) {
                     try {
@@ -407,12 +447,15 @@ it.each([false, true])(
                       throw error
                     }
                     try {
+                      trace(`child:${entry.name}:native-invoke-start`)
                       return await graph.invoke(input, config)
                     } finally {
+                      trace(`child:${entry.name}:native-invoke-settled`)
                       if (entry.name === "paused") {
                         const { checkpoint_id: _selected, ...configurable } = config.configurable!
                         childState = await graph.getState({ ...config, configurable })
                         childNamespace = String(config.configurable?.checkpoint_ns).split("|")
+                        trace("child:paused:state-read")
                       }
                     }
                   },
@@ -433,6 +476,7 @@ it.each([false, true])(
                           row.runId === run.run.run_id &&
                           JSON.stringify(row.namespace) === JSON.stringify(namespace),
                       )
+                      trace(`child:${entry.name}:owned-authority-negatives-start`)
                       for (const [configurable, code] of [
                         [{ ...config.configurable, thread_id: crypto.randomUUID() }, "not_found"],
                         [
@@ -461,6 +505,7 @@ it.each([false, true])(
                             JSON.stringify(row.namespace) === JSON.stringify(namespace),
                         ),
                       ).toEqual(bindingBefore)
+                      trace(`child:${entry.name}:owned-authority-negatives-complete`)
                       retainedChild ??= { invoke: owned.invoke.bind(owned), config }
                       const selected = (
                         await store.transaction((tx) => tx.nativeNamespaces.list())
@@ -520,6 +565,7 @@ it.each([false, true])(
                 },
               ],
             })) as ChildGraph
+            trace("root:materialized")
             const config = {
               configurable: {
                 thread_id: accepted.threadId,
@@ -539,11 +585,13 @@ it.each([false, true])(
                 entry: graph,
                 config,
               })
+              trace("root:bound")
               const output = await agentBackendAdapter.execute(
                 graph,
                 continuation?.input ?? run.run.input,
                 { signal },
               )
+              trace("root:native-execution-settled")
               if (failure) throw failure
               if (!childState && (run.run.run_id === accepted.runId || run.metadata.previousRunId))
                 throw new Error(`No guarded child result: ${JSON.stringify(output)}`)
@@ -561,6 +609,7 @@ it.each([false, true])(
                   kind?: string
                   detail?: { operation: string; path: string }
                 }
+                trace("permission-publication-start")
                 await store.transaction((tx) =>
                   parkPermissions(
                     tx,
@@ -582,8 +631,10 @@ it.each([false, true])(
                     saver,
                   ),
                 )
+                trace("permission-publication-complete")
               }
             } finally {
+              trace("invocation:minter-dispose")
               invocation.dispose()
             }
             return {}
@@ -593,8 +644,11 @@ it.each([false, true])(
           }
         },
       })
+      trace("source:tick-start")
       await host.tick()
+      trace("source:tick-returned")
       await host.idle()
+      trace("source:host-idle")
       if (failure) throw failure
       const parked = await f.snapshot(accepted.threadId),
         pending = parked.pending[0]!
@@ -645,12 +699,14 @@ it.each([false, true])(
         f.restoreAgent("/other#agent")
         Object.assign(backend, { openThread: open })
       }
+      trace("response:first-start")
       let resumed = await permissions.respond(
         f.request(),
         accepted.threadId,
         accepted.runId,
         command,
       )
+      trace("response:first-accepted")
       const receipt = (await f.snapshot(accepted.threadId)).receipts.find(
         (row) => row.receipt.runId === resumed.runId,
       )!
@@ -658,8 +714,11 @@ it.each([false, true])(
         "/changed#agent",
         "/other#agent",
       ])
+      trace("resume:first-tick-start")
       await host.tick()
+      trace("resume:first-tick-returned")
       await host.idle()
+      trace("resume:first-idle")
       if (failure) throw failure
       expect(effects).toBe(0)
       expect(pendingBodies).toBe(1)
@@ -677,12 +736,14 @@ it.each([false, true])(
           metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
         },
       }
+      trace("response:second-start")
       resumed = await permissions.respond(
         f.request(),
         accepted.threadId,
         resumed.runId,
         secondCommand,
       )
+      trace("response:second-accepted")
       if (stopAccepted) {
         await host.cancel(f.request(), accepted.threadId, resumed.runId, { wait: true })
         const store = await f.store(accepted.threadId),
@@ -789,13 +850,16 @@ it.each([false, true])(
         await expect(f.lookup(token)).rejects.toMatchObject({ code: "storage_unavailable" })
         return
       }
+      trace("resume:final-tick-start")
       await host.tick()
+      trace("resume:final-tick-returned")
       await Promise.race([
         entered.promise,
         host.idle().then(() => {
           throw failure ?? new Error("Child completed before the controlled effect barrier")
         }),
       ])
+      trace("resume:effect-entered")
       const currentStore = await f.store(accepted.threadId),
         restoredBinding = (await currentStore.transaction((tx) => tx.nativeNamespaces.list())).find(
           (row) => row.runId === resumed.runId,
@@ -818,6 +882,7 @@ it.each([false, true])(
           b4: { v: 1, submissionId: crypto.randomUUID() },
         },
       }
+      trace("resume:injection-start")
       await expect(
         injection(restoredBinding.source!.namespaceGeneration).inject(
           f.request(),
@@ -832,8 +897,11 @@ it.each([false, true])(
         resumed.runId,
         injected,
       )
+      trace("resume:injection-complete")
       release.resolve()
+      trace("resume:effect-released")
       await host.idle()
+      trace("resume:final-idle")
       if (failure) throw failure
       expect(effects).toBe(1)
       expect(counts.get("finished")).toBe(1)
@@ -847,6 +915,7 @@ it.each([false, true])(
       expect(consumed[2]).toEqual(
         expect.arrayContaining(["source child steering", "steer restored child"]),
       )
+      trace("retained-lookups-start")
       f.removeAgent("/other#agent")
       expect(await f.lookup(command.params.metadata.b4.submissionId)).toEqual([])
       await expect(
@@ -856,10 +925,16 @@ it.each([false, true])(
         permissions.respond(f.request(), accepted.threadId, accepted.runId, command),
       ).rejects.toMatchObject({ code: "not_found" })
     } finally {
-      release.resolve()
-      await host?.close()
-      await f.close()
+      try {
+        trace("cleanup:host-start")
+        release.resolve()
+        await host?.close()
+        trace("cleanup:host-complete")
+        await f.close()
+        trace("cleanup:fixture-complete")
+      } finally {
+        testContext.signal.removeEventListener("abort", onAbort)
+      }
     }
   },
-  30_000,
 )

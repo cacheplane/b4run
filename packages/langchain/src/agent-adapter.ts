@@ -61,7 +61,7 @@ import {
   type ProviderStreamState,
   projectProviderChunk,
 } from "./provider-stream.js"
-import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
+import { REPLAY_CHECKPOINT_READER, type ChildReplayReader } from "./replay-checkpoint-reader.js"
 import { withRetry } from "./retry.js"
 import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
 import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagent-tool-bridge.js"
@@ -1850,7 +1850,18 @@ async function* streamFromRunnable(
         ...configurable,
         [REPLAY_CHECKPOINT_READER]: async (
           childConfig: import("@langchain/core/runnables").RunnableConfig,
+          childReader?: ChildReplayReader,
         ) => {
+          if (childReader) {
+            // The canonical child owns one namespace. Revalidate every read;
+            // neither a prior result nor namespace text supplies authority.
+            const tuple = await childReader(childConfig)
+            for (const id of checkpointedToolCallIds({
+              values: tuple?.checkpoint.channel_values,
+            }))
+              priorCalls.add(id)
+            return
+          }
           const namespace = childConfig.configurable?.checkpoint_ns ?? ""
           let read = reads.get(namespace)
           if (!read) {

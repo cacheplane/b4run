@@ -250,14 +250,15 @@ export async function runtimeChildCheckpointBinding(
   if (!owned) throw new ProtocolError("not_supported")
   return owned.childBinding(agentId, config)
 }
-/** Execution selection only; native history APIs retain their explicit IDs. */
+/** Private child selection; ordinary invocation normalizes native replay selectors. */
 export async function runtimeChildExecutionConfig(
   saver: BaseCheckpointSaver,
   config: RunnableConfig,
+  mode: "invoke" | "replay-read" = "invoke",
 ): Promise<RunnableConfig> {
   const owned = savers.get(saver)
   if (!owned) throw new ProtocolError("not_supported")
-  return owned.childExecutionConfig(config)
+  return owned.childExecutionConfig(config, mode)
 }
 export async function inheritRuntimeChildContinuation(
   parent: BaseCheckpointSaver,
@@ -650,7 +651,10 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       return { namespace, binding }
     })
   }
-  async childExecutionConfig(config: RunnableConfig): Promise<RunnableConfig> {
+  async childExecutionConfig(
+    config: RunnableConfig,
+    mode: "invoke" | "replay-read",
+  ): Promise<RunnableConfig> {
     if (!this.options.namespace.length || !this.options.binding)
       throw new ProtocolError("not_supported")
     return this.options.store.transaction(async (tx) => {
@@ -727,6 +731,26 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
         if (!namespace.length) break
         parentId = parentBinding!.parentCheckpointId
         namespace = namespace.slice(0, -1)
+      }
+      if (mode === "replay-read") {
+        // The capability may validate a supplied selection, never turn a
+        // caller-selected foreign head into implicit owned-head authority.
+        if (
+          native.checkpoint_id !== undefined &&
+          (typeof native.checkpoint_id !== "string" ||
+            selected === undefined ||
+            native.checkpoint_id !== selected)
+        )
+          throw new ProtocolError("stale_generation")
+        const ownNamespace = this.options.namespace.join("|")
+        for (const [namespace, checkpointId] of Object.entries(supplied)) {
+          if (
+            namespace === ownNamespace
+              ? selected === undefined || checkpointId !== selected
+              : !Object.hasOwn(map, namespace) || map[namespace] !== checkpointId
+          )
+            throw new ProtocolError("stale_generation")
+        }
       }
       // Pinned Pregel treats an explicit own-namespace map/ID as replay and
       // drops RESUME writes. The same owner-bound saver selects its validated
