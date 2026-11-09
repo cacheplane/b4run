@@ -1,8 +1,18 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, isAbsolute, join, posix } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ValidateFunction } from "ajv"
 import { Ajv2020 } from "ajv/dist/2020.js"
@@ -297,5 +307,186 @@ describe("pinned Agent Protocol source inputs", () => {
   it.each(wireCases)("collects wire case: $name", (wire) => {
     expect(original[wire.schema](wire.value)).toBe(wire.originalValid)
     expect(corrected[wire.schema](wire.value)).toBe(wire.correctedValid)
+  })
+})
+
+const sdkDirectory = fileURLToPath(new URL("../", import.meta.url))
+const repositoryDirectory = fileURLToPath(new URL("../../../", import.meta.url))
+const railwayFixturePaths = [
+  "upstream/openapi.json",
+  "upstream/protocol.cddl",
+  "upstream/LICENSE",
+  "upstream/manifest.json",
+  "corrections.json",
+  "wire-cases.json",
+  "b4-wire-cases.json",
+]
+const generatedAssetNames = [
+  "tool-step.schema.json",
+  "answer.schema.json",
+  "agent-protocol.schema.json",
+  "agent-protocol.fixtures.json",
+]
+
+// Deliberately recognizes only this Dockerfile's direct shell-form COPY inputs
+// before the first dependency build. This is a generator-input check after tsc,
+// not a Docker build or an implementation of Docker context/ignore semantics.
+function railwayCopiedFixtures() {
+  const dockerfile = readFileSync(
+    new URL("../../../examples/navlog/server/Dockerfile.railway", import.meta.url),
+    "utf8",
+  )
+  const lines = dockerfile.split(/\r?\n/u).map((line) => line.trim())
+  const start = lines.findIndex((line) => line.startsWith("FROM "))
+  const end = lines.findIndex((line) => /^RUN pnpm .* run build$/u.test(line))
+  if (start < 0 || end <= start) throw new Error("Unrecognized Railway dependency-build boundary")
+  const beforeBuild = lines.slice(start + 1, end)
+  if (beforeBuild.some((line) => line.startsWith("FROM "))) {
+    throw new Error("Unrecognized Railway build stage")
+  }
+  if (beforeBuild.filter((line) => line.startsWith("WORKDIR ")).join("\n") !== "WORKDIR /app") {
+    throw new Error("Unrecognized Railway build working directory")
+  }
+  const copied = new Set<string>()
+  for (const line of beforeBuild.filter((candidate) => candidate.startsWith("COPY "))) {
+    const tokens = line.slice(5).split(/\s+/u)
+    if (
+      tokens.length < 2 ||
+      tokens.some(
+        (token) =>
+          !/^(?:\.\/)?[A-Za-z0-9_./-]+$/u.test(token) ||
+          token.startsWith("--") ||
+          token.startsWith("/") ||
+          token.split("/").includes(".."),
+      )
+    ) {
+      throw new Error(`Unsupported Railway COPY form: ${line}`)
+    }
+    const destination = tokens.at(-1) as string
+    for (const source of tokens.slice(0, -1)) {
+      const directory = statSync(join(repositoryDirectory, source)).isDirectory()
+      for (const file of railwayFixturePaths) {
+        const fixture = `test/agent-protocol/fixtures/${file}`
+        const suffix = posix.relative(source, fixture)
+        if (suffix.startsWith("../") || suffix === ".." || (!directory && suffix !== "")) continue
+        const target = posix.normalize(
+          directory
+            ? posix.join(destination, suffix)
+            : destination.endsWith("/") || destination === "." || destination === "./"
+              ? posix.join(destination, basename(source))
+              : destination,
+        )
+        if (target === fixture) copied.add(file)
+      }
+    }
+  }
+  return copied
+}
+
+function privateRailwayEvidence(name: string, value: unknown) {
+  const directory = process.env.B4_RAILWAY_PROTOCOL_TEST_EVIDENCE_DIR
+  if (directory === undefined) return
+  const info = lstatSync(directory)
+  if (
+    !isAbsolute(directory) ||
+    !info.isDirectory() ||
+    info.isSymbolicLink() ||
+    (info.mode & 0o777) !== 0o700 ||
+    (process.getuid !== undefined && info.uid !== process.getuid())
+  ) {
+    throw new Error("Railway test evidence requires a caller-owned absolute 0700 directory")
+  }
+  const bytes = `${JSON.stringify(value, null, 2)}\n`
+  if (Buffer.byteLength(bytes) > 256 * 1024)
+    throw new Error("Railway test evidence exceeded its bound")
+  writeFileSync(join(directory, name), bytes, { flag: "wx", mode: 0o600 })
+}
+
+describe("Railway image protocol asset inputs", () => {
+  it.each([
+    { name: "full-input control", imageInputs: false },
+    { name: "actual build-stage COPY closure", imageInputs: true },
+  ])("runs the actual SDK generator with $name", ({ imageInputs }) => {
+    const directory = mkdtempSync(join(tmpdir(), "railway-protocol-inputs-"))
+    const stagedSdk = join(directory, "packages/sdk")
+    const evidenceName = basename(directory)
+    let primaryFailure: { error: unknown } | undefined
+    let cleanupError: unknown
+    try {
+      mkdirSync(stagedSdk, { recursive: true })
+      for (const entry of ["package.json", "scripts", "dist"]) {
+        cpSync(join(sdkDirectory, entry), join(stagedSdk, entry), { recursive: true })
+      }
+      // Completed tsc output is supplied by the test's build prerequisite. Do
+      // not let previously generated assets satisfy the generation assertions.
+      for (const asset of generatedAssetNames) rmSync(join(stagedSdk, "dist", asset))
+      const copied = imageInputs ? railwayCopiedFixtures() : new Set(railwayFixturePaths)
+      for (const file of copied) {
+        const target = join(directory, "test/agent-protocol/fixtures", file)
+        mkdirSync(dirname(target), { recursive: true })
+        cpSync(join(fixturesDirectory, file), target)
+      }
+      const argv = [join(stagedSdk, "scripts/write-schema.mjs")]
+      const env = Object.fromEntries(
+        ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR"].flatMap((key) =>
+          process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
+        ),
+      )
+      const result = spawnSync(process.execPath, argv, {
+        cwd: directory,
+        env,
+        encoding: "utf8",
+        timeout: 4_000,
+        maxBuffer: 64 * 1024,
+      })
+      const assets = generatedAssetNames.map((file) => ({
+        file,
+        sha256: existsSync(join(stagedSdk, "dist", file))
+          ? sha256(readFileSync(join(stagedSdk, "dist", file)))
+          : null,
+      }))
+      privateRailwayEvidence(`${evidenceName}.result.json`, {
+        stageRoot: directory,
+        executable: process.execPath,
+        argv,
+        pid: result.pid,
+        spawnSyncReturned: true,
+        status: result.status,
+        signal: result.signal,
+        error: result.error === undefined ? null : String(result.error),
+        stdout: result.stdout,
+        stderr: result.stderr,
+        copiedFixtures: [...copied],
+        assets,
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.signal).toBeNull()
+      // The message is the actual child diagnostic; no simulated ENOENT text.
+      expect(result.status, result.stderr).toBe(0)
+      for (const asset of generatedAssetNames) {
+        expect(readFileSync(join(stagedSdk, "dist", asset))).toEqual(
+          readFileSync(join(sdkDirectory, "dist", asset)),
+        )
+      }
+    } catch (error) {
+      primaryFailure = { error }
+    } finally {
+      try {
+        rmSync(directory, { recursive: true, force: true })
+      } catch (error) {
+        cleanupError = error
+      }
+      try {
+        privateRailwayEvidence(`${evidenceName}.cleanup.json`, {
+          stageRoot: directory,
+          removed: !existsSync(directory),
+          error: cleanupError === undefined ? null : String(cleanupError),
+        })
+      } catch (error) {
+        cleanupError ??= error
+      }
+    }
+    if (primaryFailure !== undefined) throw primaryFailure.error
+    if (cleanupError !== undefined) throw cleanupError
   })
 })
