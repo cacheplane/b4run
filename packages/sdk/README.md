@@ -115,7 +115,6 @@ The [auth middleware recipe](https://b4.run/docs/recipes/auth-middleware) walks 
 
 - `@b4run/sdk` is the supported, edge-safe application surface.
 - `@b4run/sdk/pure` is a supported, dependency-free edge-safe integration surface.
-- `@b4run/sdk/internal/execution-work` is dependency-free, edge-safe internal invocation-completion plumbing; its private callbacks are not application configuration or authority.
 - `@b4run/sdk/internal/runtime-identity` is dependency-free, edge-safe internal canonical identity and validation plumbing for runtime storage.
 - `@b4run/sdk/agent-protocol` is a supported, dependency-free edge-safe contract surface for tooling.
 - `@b4run/sdk/testing` is a supported Node-only scenario-authoring surface. It is separate from `@b4run/testing`.
@@ -133,9 +132,10 @@ bounded hashes; full identities and historical pending/grant rows are retained.
 current owner, namespace, proposal and paused-generation predicates.
 
 The private storage contracts also expose the current native execution owner and
-an optional callback in the existing fenced release transaction. Actual provider
-unwind and owner release commit together; uncertain ownership loss cannot mint
-that proof. Temporary cleanup uses separate private retained authorization
+an optional callback in the existing fenced release transaction. Observed
+invocation and required-write settlement commits with owner release. This proves
+that boundary, not raw or remote-effect quiescence; started hard-aborted work
+remains effectsUncertain, and ownership loss cannot mint a clean proof. Temporary cleanup uses separate private retained authorization
 subjects and Run/results, with coherent immutable original-operation reads.
 These hooks do not implement explicit Thread deletion or activate transports.
 

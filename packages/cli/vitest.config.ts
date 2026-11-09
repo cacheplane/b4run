@@ -20,10 +20,6 @@ export default defineConfig({
         rootDir,
         "../core/src/capabilities/permission-gate.ts",
       ),
-      "@b4run/sdk/internal/execution-work": resolve(
-        rootDir,
-        "../sdk/src/internal/execution-work.ts",
-      ),
       "@b4run/core/internal/compiler": resolve(rootDir, "../core/src/compiler/index.ts"),
       "@b4run/core/node": resolve(rootDir, "../core/src/node.ts"),
       "@b4run/core": resolve(rootDir, "../core/src/index.ts"),

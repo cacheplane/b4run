@@ -1022,7 +1022,6 @@ const EXPECTED_API_REFERENCE_PAGE_TUPLES = [
 
 const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
   ["import:@b4run/sdk:.", "detailed", "surfaceKind", "typescript-runtime"],
-  ["import:@b4run/sdk:./internal/execution-work", "internal", "surfaceKind", "typescript-runtime"],
   [
     "import:@b4run/sdk:./internal/runtime-identity",
     "internal",
@@ -1389,7 +1388,6 @@ function apiArtifactAddress(artifact) {
 }
 
 const DEPENDENCY_FREE_API_ADDRESSES = new Set([
-  "import:@b4run/sdk:./internal/execution-work",
   "import:@b4run/sdk:./internal/runtime-identity",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/sdk:./pure",
@@ -1399,7 +1397,6 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/langgraph:./route-module",
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
-  "import:@b4run/sdk:./internal/execution-work",
   "import:@b4run/sdk:./internal/runtime-identity",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/ag-ui:./copilotkit-runtime",

@@ -38,6 +38,71 @@ export async function rejectStoppedSourceFaults(
     },
   ]
   const witness = (head.payload as Payload).reboundFrom.stoppedSource
+  if (!witness) {
+    // Cooperative drain can checkpoint the current continuation's own head.
+    // No cross-owner witness is needed, but its exact source identities remain
+    // mandatory and are frozen into the next admission's protected source.
+    type OwnHead = {
+      safeHead: boolean
+      reboundFrom: {
+        runId: string
+        checkpointId: string
+        checkpointOwnerRunId: string
+      }
+    }
+    const original = head.payload as OwnHead
+    expect(original.reboundFrom.checkpointOwnerRunId).toBe(original.reboundFrom.runId)
+    const faults: { edit(payload: OwnHead): void; code: string }[] = [
+      {
+        edit: (payload) => {
+          payload.reboundFrom.runId = crypto.randomUUID()
+        },
+        code: "not_supported",
+      },
+      {
+        edit: (payload) => {
+          payload.reboundFrom.checkpointId = crypto.randomUUID()
+        },
+        code: "scope_mismatch",
+      },
+      {
+        edit: (payload) => {
+          payload.reboundFrom.checkpointOwnerRunId = crypto.randomUUID()
+        },
+        code: "scope_mismatch",
+      },
+      {
+        edit: (payload) => {
+          payload.safeHead = false
+        },
+        code: "not_supported",
+      },
+    ]
+    const sources = await store.transaction((tx) => tx.protectedSources.list())
+    for (const fault of faults) {
+      const payload = structuredClone(original)
+      fault.edit(payload)
+      try {
+        await store.transaction((tx) => tx.checkpoints.put({ ...head, payload }))
+        const faulted = await store.snapshot()
+        await expect(
+          f.admit(
+            body({
+              thread_id: threadId,
+              on_completion: "keep",
+              metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+            }),
+          ),
+        ).rejects.toMatchObject({ code: fault.code })
+        expect(await store.snapshot()).toEqual(faulted)
+        expect(await store.transaction((tx) => tx.protectedSources.list())).toEqual(sources)
+      } finally {
+        await store.transaction((tx) => tx.checkpoints.put(head))
+      }
+    }
+    expect(await store.snapshot()).toEqual(before)
+    return
+  }
   if (witness.kind !== "accepted_not_started") {
     type MutableWitness = {
       execution: { ownerId: string; fence: number }

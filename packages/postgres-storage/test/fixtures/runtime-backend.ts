@@ -19,7 +19,12 @@ export function realBackend() {
   beforeAll(async () => {
     if (process.env.B4_TEST_PGSTORAGE !== "1")
       throw new Error("Runtime Postgres tests require B4_TEST_PGSTORAGE=1 and local Docker")
-    container = await new PostgreSqlContainer("postgres:16").withStartupTimeout(180_000).start()
+    const resourceId = process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? crypto.randomUUID()
+    process.stdout.write(`R8 own runtime conformance resource label ${resourceId}\n`)
+    container = await new PostgreSqlContainer("postgres:16")
+      .withLabels({ "org.b4run.protocol-resource": resourceId })
+      .withStartupTimeout(180_000)
+      .start()
     process.stdout.write(`R8 created own runtime conformance container ${container.getId()}\n`)
     first = new Pool({ connectionString: container.getConnectionUri() })
     second = new Pool({ connectionString: container.getConnectionUri() })

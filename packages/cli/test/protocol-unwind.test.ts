@@ -19,7 +19,7 @@ function deferred() {
 }
 
 it.each(["model", "tool", "stream", "summary"] as const)(
-  "keeps exact execution ownership until the actual abort-ignoring %s primitive unwinds",
+  "keeps exact execution ownership until the active %s settles after soft Stop",
   async (primitive) => {
     const f = await fixture(),
       entered = deferred(),
@@ -93,8 +93,8 @@ it.each(["model", "tool", "stream", "summary"] as const)(
       )
       host = createExecutionHost({
         ...f.authority,
-        async invoke({ store, run, signal }) {
-          signal.addEventListener("abort", aborted.resolve, { once: true })
+        async invoke({ store, run, signal, stopSignal }) {
+          stopSignal.addEventListener("abort", aborted.resolve, { once: true })
           const boundary = createActiveInputBoundary({
             store,
             runId: run.run.run_id,
@@ -116,6 +116,7 @@ it.each(["model", "tool", "stream", "summary"] as const)(
               threadId: accepted.threadId,
               routeParamNames: [],
               signal,
+              stopSignal,
               ...(primitive === "summary"
                 ? {
                     summarization: {

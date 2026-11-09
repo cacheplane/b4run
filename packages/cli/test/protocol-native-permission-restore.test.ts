@@ -184,8 +184,23 @@ it.each([
   "restores native core permission ($sourceMode->$acceptMode/$decision/expired:$expired/restriction:$restriction/priorInput:$priorInput/stopBeforeStart:$stopBeforeStart/transport:$transport/stopDuringResume:$stopDuringResume/loss:$ownershipLost)",
   async (testCase: NativeCase) => {
     const { sourceMode, acceptMode, decision, expired, refusal, restriction, priorInput } = testCase
+    const started = performance.now()
+    const trace = (phase: string) => {
+      if (process.env.B4_ADMISSION_TIMINGS === "1")
+        console.info(
+          "R8_NATIVE_PERMISSION_PHASE",
+          JSON.stringify({
+            sourceMode,
+            acceptMode,
+            phase,
+            elapsedMs: Math.round(performance.now() - started),
+          }),
+        )
+    }
+    trace("fixture-start")
     __resetApprovalGrantsForTests()
     const f = await fixture()
+    trace("fixture-ready")
     let primary: { readonly error: unknown } | undefined
     const entered = deferred(),
       release = deferred(),
@@ -278,6 +293,7 @@ it.each([
     vi.doMock("@langchain/openai", () => ({ ChatOpenAI: ControlledModel }))
     try {
       const accepted = await f.admit(body({ on_completion: "keep" }))
+      trace("source-admitted")
       const injection = createInputService({
         ...f.authority,
         resolveTarget: async ({ run }) => ({
@@ -363,7 +379,14 @@ it.each([
       host = createExecutionHost({
         ...f.authority,
         permissions,
-        async invoke({ store, run, signal }) {
+        async invoke({ store, run, signal, stopSignal }) {
+          const segment =
+            run.run.run_id === accepted.runId
+              ? "source"
+              : run.metadata.previousRunId
+                ? "resume"
+                : "fresh"
+          trace(`${segment}:entry`)
           const boundary = createActiveInputBoundary({
             store,
             runId: run.run.run_id,
@@ -416,9 +439,11 @@ it.each([
               }[]
             }>
           }
+          trace(`${segment}:materialized`)
           const continuation = run.metadata.previousRunId
             ? await permissions.prepareNativeContinuation(store, checkpointer, run.run.run_id)
             : undefined
+          trace(`${segment}:continuation-prepared`)
           const parkMinter = permissions.createNativeParkMinter(store, checkpointer, run.run.run_id)
           const config = {
             configurable: {
@@ -440,12 +465,13 @@ it.each([
               entry: graph,
               config,
             })
+            trace(`${segment}:bound`)
             if (testCase.transport === "stream") {
               const chunks: { type?: string; data?: unknown }[] = []
               for await (const chunk of agentBackendAdapter.stream(
                 graph,
                 continuation?.input ?? run.run.input,
-                { signal },
+                { signal, stopSignal },
               ))
                 chunks.push(chunk as { type?: string; data?: unknown })
               expect(chunks.filter((chunk) => chunk.type === "done")).toHaveLength(1)
@@ -469,7 +495,9 @@ it.each([
             } else
               await agentBackendAdapter.execute(graph, continuation?.input ?? run.run.input, {
                 signal,
+                stopSignal,
               })
+            trace(`${segment}:execution-settled`)
             if (run.run.run_id === accepted.runId) {
               const state = await graph.getState(config),
                 task = state.tasks.find((row) => row.interrupts.length),
@@ -497,6 +525,7 @@ it.each([
                 nativeBinding,
               }
               const before = await store.snapshot()
+              trace("source:binding-guards-start")
               for (const invalid of [
                 { ...nativeBinding, taskId: crypto.randomUUID() },
                 { ...nativeBinding, namespaceGeneration: crypto.randomUUID() },
@@ -521,9 +550,11 @@ it.each([
                 }),
               ).rejects.toBe(fault)
               expect(await store.snapshot()).toEqual(before)
+              trace("source:binding-guards-complete")
               await store.transaction((tx) =>
                 parkPermissions(tx, run.run.run_id, [proposal], sourceMode, checkpointer),
               )
+              trace("source:park-persisted")
             }
           } catch (error) {
             failure = error
@@ -534,6 +565,7 @@ it.each([
               await expect(
                 parkMinter.minter.mint({ interruptId: "disposed", checkpointNs: nativeNs }),
               ).rejects.toMatchObject({ code: "stale_generation" })
+            trace(`${segment}:invocation-finished`)
           }
           return {}
         },
@@ -541,6 +573,7 @@ it.each([
       configureApprovalGrants(sourceMode)
       await host.tick()
       await host.idle()
+      trace("source-host-settled")
       if (failure) throw failure
       expect(effects).toBe(0)
       const parked = await f.snapshot(accepted.threadId),
@@ -566,13 +599,15 @@ it.each([
           metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
         },
       }
+      trace("response-start")
       if (refusal) {
         await expect(
           permissions.respond(f.request(), accepted.threadId, accepted.runId, command),
         ).rejects.toMatchObject({ code: refusal })
         const after = await f.snapshot(accepted.threadId)
         expect(after.runs).toHaveLength(1)
-        expect(after.grants.every((grant) => grant.consumedByRunId === null)).toBe(true)
+        expect(after.grants).toEqual(parked.grants)
+        expect(after.pending).toEqual(parked.pending)
         expect(effects).toBe(0)
         return
       }
@@ -582,6 +617,7 @@ it.each([
         accepted.runId,
         command,
       )
+      trace("response-accepted")
       let store = await f.store(accepted.threadId)
       const receipt = (await store.snapshot()).receipts.find(
         (row) => row.receipt.runId === resumed.runId,
@@ -608,6 +644,7 @@ it.each([
       expect(
         (await store.snapshot()).receipts.find((row) => row.receiptId === receipt.receiptId),
       ).toEqual(receipt)
+      trace("accepted-receipt-guards-complete")
       if (testCase.stopBeforeStart || testCase.stopDuringResume) {
         if (testCase.stopDuringResume) {
           if (testCase.ownershipLost === "settled") {
@@ -730,7 +767,11 @@ it.each([
           before.checkpoints.find(
             (row) => row.state.checkpoint.checkpoint_id === before.thread?.headCheckpointId,
           )?.ownerRunId,
-        ).toBe(accepted.runId)
+        ).toBe(
+          testCase.stopDuringResume && testCase.ownershipLost !== "running"
+            ? resumed.runId
+            : accepted.runId,
+        )
         const saver = createRuntimeCheckpointSaver({ store, runId: resumed.runId, namespace: [] })
         const graph = await materializeAgentGraph({
           descriptor: agent({ model: "gpt-5-mini", systemPrompt: "Native permissions." }),
@@ -784,38 +825,48 @@ it.each([
         await rejectStoppedSourceFaults(f, accepted.threadId, store)
         expect((await store.snapshot()).grants).toEqual(before.grants)
         if (testCase.stopDuringResume) {
-          const safeSnapshot = await store.snapshot(),
-            physical = safeSnapshot.checkpoints.find(
-              (row) => row.state.checkpoint.checkpoint_id === before.thread!.headCheckpointId,
-            )!
-          const writes = (
-            physical.payload as {
-              writes: {
-                kind: string
-                ownerRunId: string
-                fence: number
-                sourceCheckpointId: string | null
-              }[]
-            }
-          ).writes.filter((write) => write.ownerRunId === resumed.runId)
-          expect(
-            writes.some(
-              (write) =>
-                write.kind === "execution" &&
-                write.fence === (stopped.ownershipLoss?.fence ?? stopped.execution!.fence),
-            ),
-          ).toBe(true)
-          const administrativeFence = await store.transaction(async (tx) => tx.scope.fence)
-          expect(
-            writes.some(
-              (write) => write.kind === "administrative" && write.fence === administrativeFence,
-            ),
-          ).toBe(true)
-          expect(
-            writes.every(
-              (write) => write.sourceCheckpointId === physical.state.checkpoint.checkpoint_id,
-            ),
-          ).toBe(true)
+          const safeSnapshot = await store.snapshot()
+          type Write = {
+            kind: string
+            ownerRunId: string
+            fence: number
+            namespaceGeneration: string
+            sourceCheckpointId: string | null
+          }
+          const executionWrites = (snapshot: typeof before) =>
+            snapshot.checkpoints.flatMap((row) =>
+              (row.payload as { writes: Write[] }).writes
+                .filter((write) => write.kind === "execution" && write.ownerRunId === resumed.runId)
+                .map((write) => ({
+                  checkpointId: row.state.checkpoint.checkpoint_id,
+                  checkpointOwner: row.ownerRunId,
+                  write,
+                })),
+            )
+          const originalWrites = executionWrites(before)
+          expect(originalWrites.length).toBeGreaterThan(0)
+          expect(executionWrites(safeSnapshot)).toEqual(originalWrites)
+          for (const { checkpointId, checkpointOwner, write } of originalWrites) {
+            expect(write.fence).toBe(stopped.ownershipLoss?.fence ?? stopped.execution!.fence)
+            expect(write.namespaceGeneration).toBe(resumed.runId)
+            expect(write.sourceCheckpointId).toBe(
+              checkpointOwner === resumed.runId ? null : checkpointId,
+            )
+          }
+          const physical = safeSnapshot.checkpoints.find(
+            (row) => row.state.checkpoint.checkpoint_id === before.thread!.headCheckpointId,
+          )!
+          const administrative = (physical.payload as { writes: Write[] }).writes.filter(
+            (write) => write.kind === "administrative" && write.ownerRunId === resumed.runId,
+          )
+          expect(administrative.length).toBeGreaterThan(0)
+          const administrativeFence = await store.transaction((tx) =>
+            Promise.resolve(tx.scope.fence),
+          )
+          for (const write of administrative) {
+            expect(write.fence).toBe(administrativeFence)
+            expect(write.sourceCheckpointId).toBe(physical.state.checkpoint.checkpoint_id)
+          }
         }
         const freshToken = crypto.randomUUID()
         const fresh = await f.admit(
@@ -853,6 +904,7 @@ it.each([
         return
       }
       configureApprovalGrants("required")
+      trace("permission-services-recreating")
       // Accepted slot authority uses its immutable acceptance mode even if the
       // current server requires grants when this queued continuation dispatches.
       permissions = createPermissionService({
@@ -886,8 +938,10 @@ it.each([
         rules = f.native.ruleStore()!
       }
       constrained = restriction === "constraint"
+      trace("resume-dispatch-start")
       await host.tick()
       await host.idle()
+      trace("resume-host-settled")
       if (failure) throw failure
       if (restriction === "removeAlways") {
         expect(ruleRemoved).toBe(true)
@@ -909,6 +963,29 @@ it.each([
       expect(effects).toBe(decision === "deny" || restriction ? 0 : 1)
       expect(calls).toBe(priorInput ? 3 : 2)
       const final = await f.snapshot(accepted.threadId)
+      trace("final-checkpoint-read")
+      if (expired && decision === "deny") {
+        expect(
+          final.pending.find(
+            (item) => item.input.data.interruptId === pending.input.data.interruptId,
+          ),
+        ).toMatchObject({
+          disposition: "answered",
+          decision: "deny",
+          ownerRunId: accepted.runId,
+          input: { data: { b4: { status: "abandoned" } } },
+        })
+        // Negative abandonment authenticates and consumes the exact one-use
+        // response token; it grants no protected execution authority.
+        expect(final.grants).toEqual(
+          parked.grants.map((grant) => ({ ...grant, consumedByRunId: resumed.runId })),
+        )
+        expect(
+          (await permissions.respond(f.request(), accepted.threadId, accepted.runId, command))
+            .runId,
+        ).toBe(resumed.runId)
+        expect(await f.snapshot(accepted.threadId)).toEqual(final)
+      }
       const source = final.checkpoints.find(
         (row) =>
           row.state.checkpoint.checkpoint_id ===
@@ -923,10 +1000,12 @@ it.each([
       ).toBe(true)
       expect(JSON.stringify(final.checkpoints)).not.toContain("__b4PermissionContinuation")
       expect(agentBackendAdapter.protocol?.injection).toBe("before_model")
+      trace("verified")
     } catch (error) {
       primary = { error }
       throw error
     } finally {
+      trace("cleanup-start")
       release.resolve()
       releaseOwner.resolve()
       releaseSpy?.mockRestore()
@@ -937,6 +1016,7 @@ it.each([
         .filter((result): result is PromiseRejectedResult => result.status === "rejected")
         .map((result) => result.reason)
       reportOwnedCleanup("Native Core fixture cleanup failed", errors, primary)
+      trace("cleanup-complete")
     }
   },
   30_000,

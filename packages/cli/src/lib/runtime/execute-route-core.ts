@@ -43,10 +43,7 @@ export async function bindProtocolAgentExecution(options: {
       run.metadata.phase !== "running" ||
       run.metadata.generation !== tx.scope.generation ||
       run.execution?.fence !== tx.scope.fence ||
-      run.execution.ownerId !== (await tx.executionOwner()) ||
-      (await tx.inbox.list()).some(
-        (row) => row.kind === "control" && row.runId === options.runId && row.status === "accepted",
-      )
+      run.execution.ownerId !== (await tx.executionOwner())
     )
       throw new ProtocolError("stale_generation")
     if (
@@ -81,6 +78,8 @@ export async function bindProtocolAgentExecution(options: {
         : thread.headCheckpointId
       if (config.checkpoint_id !== head) throw new ProtocolError("stale_generation")
     }
+    // An accepted Stop does not revoke this still-running owner. Bind its exact
+    // scope so the adapter can observe its managed soft signal before dispatch.
     let invocation = options.config
     if (owner.namespace.length === 0) {
       // Execution uses the accepted canonical head implicitly. Explicit native

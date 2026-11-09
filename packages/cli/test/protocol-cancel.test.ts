@@ -490,7 +490,7 @@ it(
   budget,
 )
 it(
-  "retires a permission park that races an already accepted running Stop without another invocation",
+  "preserves a permission park published after Stop was accepted during active execution",
   async () => {
     const { f, accepted } = await setup(),
       entered = barrier(),
@@ -536,11 +536,11 @@ it(
     expect(invocations).toBe(1)
     expect(snapshot.runs[0]?.metadata).toMatchObject({
       reason: "permission",
-      continuation: "closed",
+      continuation: "waiting",
     })
-    expect(snapshot.pending[0]).toMatchObject({ disposition: "retired", decision: null })
+    expect(snapshot.pending[0]).toMatchObject({ disposition: "pending", decision: null })
     expect(snapshot.grants[0]?.consumedByRunId).toBeNull()
-    expect(snapshot.thread?.pausedGeneration).toBeNull()
+    expect(snapshot.thread?.pausedGeneration).not.toBeNull()
   },
   budget,
 )
@@ -645,12 +645,14 @@ it.each(["cancel", "continue"] as const)(
     let aborted = false
     const host = createExecutionHost({
       ...f.authority,
-      async invoke({ signal }) {
-        signal.addEventListener("abort", () => {
+      async invoke({ signal, stopSignal }) {
+        stopSignal.addEventListener("abort", () => {
           aborted = true
         })
         entered.release()
         await unwind.promise
+        signal.throwIfAborted()
+        stopSignal.throwIfAborted()
         return {}
       },
     })
@@ -838,16 +840,18 @@ it(
     let effects = 0
     const owner = createExecutionHost({
       ...f.authority,
-      async invoke({ signal, store, run }) {
+      async invoke({ signal, stopSignal, store, run }) {
         effects++
         await store.transaction(async (tx) => {
           const row = await tx.runs.get(run.run.run_id)
           if (!row) throw new Error("missing executing Run")
           await tx.runs.put({ ...row, result: { values: { partial: "kept" } } })
         })
-        signal.addEventListener("abort", () => aborted.release(), { once: true })
+        stopSignal.addEventListener("abort", () => aborted.release(), { once: true })
         entered.release()
         await unwind.promise
+        expect(signal.aborted).toBe(false)
+        stopSignal.throwIfAborted()
         return { values: { late: true } }
       },
     })
@@ -1033,12 +1037,14 @@ it(
     let aborted = false
     const owner = createExecutionHost({
       ...f.authority,
-      async invoke({ signal }) {
-        signal.addEventListener("abort", () => {
+      async invoke({ signal, stopSignal }) {
+        stopSignal.addEventListener("abort", () => {
           aborted = true
         })
         entered.release()
         await unwind.promise
+        expect(signal.aborted).toBe(false)
+        stopSignal.throwIfAborted()
         return {}
       },
     })

@@ -152,7 +152,7 @@ a new command/API or a fake alternate persistence implementation.
 - [ ] Run `swift test --filter ProtocolOperation` and `swift test --filter AgentProtocolSubmissionTests`; expect old ordinal/nativeTurn logic to fail.
 - [ ] Send standard commands over passive observation. Persist immutable online operation intent before dispatch and acknowledgement/Run identity before reporting accepted. No owner/server-offline turn queue or blind startup dispatch.
 - [ ] Reconcile through explicit b4.submissionId/kind/operationThreadId/targetRunId selectors, Run metadata lookup and current snapshots. Keep empty/expired results unknown rather than invent failure/success or mint another token. Generic peers get only advertised guarantees.
-- [ ] Run focused tests and relay/SessionService tests; two user retries must retain one optimistic item/turn and one admitted Run root. Stop uses the exact current segment UUID, never root/predecessor/current-thread substitution.
+- [ ] Run focused tests and relay/SessionService tests; two user retries must retain one optimistic item/turn and one admitted Run root. Stop uses the exact current segment UUID, never root/predecessor/current-thread substitution. Accepted Stop remains unresolved until actual cooperative settlement; preserve natural/error/permission outcomes that win the active race, distinguish exact Stop against an already parked predecessor, and retain hard-loss uncertainty.
 - [ ] Commit `feat: reconcile protocol submissions by durable identity`.
 
 ### A7: Snapshot/history/replay and permissions after restart

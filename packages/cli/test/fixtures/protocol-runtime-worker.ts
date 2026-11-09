@@ -133,7 +133,9 @@ process.on("message", async (command) => {
       await host.close()
       await storage.close()
       await pool?.end()
-      process.send?.({ status: "closed" }, () => process.disconnect?.())
+      process.send?.({ status: "closed", poolClosed: pool?.ended ?? true, pid: process.pid }, () =>
+        process.disconnect?.(),
+      )
     }
   } catch (error) {
     process.send?.({ status: "error", message: String(error) })
@@ -148,4 +150,10 @@ if (boot.mode === "accept") {
     metadata: { b4: { v: 1, submissionId: "10000000-0000-4000-8000-000000000010" } },
   })
   process.send?.({ status: "accepted", threadId: accepted.threadId, runId: accepted.runId })
-} else process.send?.({ status: "ready", ownerId: host.ownerId })
+} else
+  process.send?.({
+    status: "ready",
+    ownerId: host.ownerId,
+    installationId: storage.installationId,
+    pid: process.pid,
+  })

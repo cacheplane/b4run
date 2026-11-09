@@ -36,7 +36,6 @@ export async function defaultSummarize(args: {
   readonly maxRetries?: number
   /** Test seam: override the model invocation. */
   readonly invokeModel?: (prompt: string) => Promise<string>
-  readonly trackModel?: (model: unknown) => unknown
 }): Promise<string> {
   const prompt = buildPrompt(args.messages, args.previousSummary)
   if (args.invokeModel) return args.invokeModel(prompt)
@@ -47,7 +46,7 @@ export async function defaultSummarize(args: {
     provider,
     ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
   })
-  const llm = (args.trackModel ? args.trackModel(model) : model) as {
+  const llm = model as {
     invoke: (input: unknown, options?: unknown) => Promise<{ content: unknown }>
   }
   const res = await llm.invoke([{ role: "user", content: prompt }], { signal: args.signal })

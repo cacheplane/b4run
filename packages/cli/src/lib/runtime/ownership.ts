@@ -58,10 +58,12 @@ export async function retireSupersededControls(
     )
       await tx.inbox.put({ ...entry, status: "applied" })
 }
-/** Process-local handles are only for actual provider unwind; durable backend
+/** Process-local handles join the owned invocation; durable backend
  * ownership is the sole authority for claims, recovery and writes. */
 export interface LiveExecution {
   readonly lease: RuntimeExecutionLease
   readonly controller: AbortController
+  readonly stopController: AbortController
+  hardReason?: "server_shutdown" | "deadline"
   readonly work: Promise<void>
 }

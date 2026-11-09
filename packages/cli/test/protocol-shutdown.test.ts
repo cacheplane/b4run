@@ -43,7 +43,10 @@ it(
             {
               interruptId: "effect",
               namespace: [],
-              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              request: {
+                kind: "tool",
+                detail: { toolName: "effect", suggestedPattern: "effect" },
+              },
               protectedProposal: {},
             },
           ]),
@@ -61,7 +64,13 @@ it(
         id: 1,
         method: "input.respond",
         params: {
-          responses: [{ namespace: [], interruptId: "effect", response: { decision: "once" } }],
+          responses: [
+            {
+              namespace: [],
+              interruptId: "effect",
+              response: { decision: "once" },
+            },
+          ],
         },
       })
       const first = await f.admit(
@@ -72,7 +81,9 @@ it(
           metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
         }),
       )
-      mkdirSync(join(f.directory, ".b4", "permissions.json"), { recursive: true })
+      mkdirSync(join(f.directory, ".b4", "permissions.json"), {
+        recursive: true,
+      })
       const rules = createPermissionsStore({
         appRoot: f.directory,
         config: undefined,
@@ -201,7 +212,7 @@ it(
   budget,
 )
 it(
-  "signals shutdown to a settled but still-unwinding provider and preserves its committed winner",
+  "signals shutdown to a settled but still-owned invocation and preserves its committed winner",
   async () => {
     const f = await fixture()
     cleanups.push(() => f.close())
@@ -238,17 +249,30 @@ it(
     )
     await host.tick()
     await settled.promise
+    const committed = (await f.snapshot(initial.threadId)).runs[0]
+    if (!committed) throw new Error("Missing committed winner")
+    expect(committed.metadata.startedAt).toEqual(expect.any(String))
+    expect(committed.metadata.effectsUncertain).toBe(false)
     const closing = host.close()
-    // This barrier resolves only when the actual provider sees the abort.
+    // This barrier resolves only when the owned callback sees the abort.
     await unwind.promise
     await closing
     expect(aborted).toBe(true)
-    expect((await f.snapshot(initial.threadId)).runs[0]).toMatchObject({
+    const final = (await f.snapshot(initial.threadId)).runs[0]
+    expect(final).toMatchObject({
       run: { status: "success" },
-      metadata: { reason: "completed" },
-      result: { values: { winner: true } },
+      metadata: { reason: "completed", effectsUncertain: true },
+      result: {
+        values: { winner: true },
+        run: {
+          status: "success",
+          metadata: { b4: { reason: "completed", effectsUncertain: true } },
+        },
+      },
       unwoundAt: expect.any(String),
     })
+    expect(final?.metadata.settledAt).toBe(committed.metadata.settledAt)
+    expect(final?.run.updated_at).toBe(committed.run.updated_at)
   },
   budget,
 )
@@ -277,7 +301,10 @@ it(
             {
               interruptId: "commit",
               namespace: [],
-              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              request: {
+                kind: "tool",
+                detail: { toolName: "effect", suggestedPattern: "effect" },
+              },
               protectedProposal: {},
             },
           ]),
@@ -297,10 +324,18 @@ it(
       id: 1,
       method: "input.respond",
       params: {
-        responses: [{ namespace: [], interruptId: "commit", response: { decision: "once" } }],
+        responses: [
+          {
+            namespace: [],
+            interruptId: "commit",
+            response: { decision: "once" },
+          },
+        ],
       },
     })
-    const rejected = expect(operation).rejects.toMatchObject({ code: "storage_unavailable" })
+    const rejected = expect(operation).rejects.toMatchObject({
+      code: "storage_unavailable",
+    })
     await entered.promise
     await host.close()
     commit.release()
@@ -324,7 +359,10 @@ it(
             {
               interruptId: "answer",
               namespace: [],
-              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              request: {
+                kind: "tool",
+                detail: { toolName: "effect", suggestedPattern: "effect" },
+              },
               protectedProposal: {},
             },
           ]),
@@ -341,7 +379,13 @@ it(
       method: "input.respond",
       params: {
         metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
-        responses: [{ namespace: [], interruptId: "answer", response: { decision: "once" } }],
+        responses: [
+          {
+            namespace: [],
+            interruptId: "answer",
+            response: { decision: "once" },
+          },
+        ],
       },
     }
     const accepted = await permissions.respond(
@@ -378,7 +422,10 @@ it(
             {
               interruptId: "stop",
               namespace: [],
-              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              request: {
+                kind: "tool",
+                detail: { toolName: "effect", suggestedPattern: "effect" },
+              },
               protectedProposal: {},
             },
           ]),
@@ -397,7 +444,13 @@ it(
         id: 1,
         method: "input.respond",
         params: {
-          responses: [{ namespace: [], interruptId: "stop", response: { decision: "once" } }],
+          responses: [
+            {
+              namespace: [],
+              interruptId: "stop",
+              response: { decision: "once" },
+            },
+          ],
         },
       }),
     ).rejects.toMatchObject({ code: "storage_unavailable" })
@@ -418,7 +471,12 @@ it.each(["park-gap", "park-released"] as const)(
     cleanups.push(() => f.close())
     const accepted = await f.admit()
     if (!pg) await f.close()
-    const processOwner = runtimeWorker({ root, counter, mode, ...f.native.workerBoot })
+    const processOwner = runtimeWorker({
+      root,
+      counter,
+      mode,
+      ...f.native.workerBoot,
+    })
     cleanups.push(() => processOwner.kill())
     await processOwner.wait("ready")
     processOwner.child.send("tick")
@@ -448,9 +506,14 @@ it.each(["park-gap", "park-released"] as const)(
     if (mode === "park-gap") {
       expect(row?.ownershipLoss).toMatchObject({ effectsUncertain: true })
       expect(row?.unwoundAt).toBeUndefined()
-      expect(snapshot.pending[0]).toMatchObject({ disposition: "retired", decision: null })
+      expect(snapshot.pending[0]).toMatchObject({
+        disposition: "retired",
+        decision: null,
+      })
       const failure = await host
-        .cancel(recovered.request(), accepted.threadId, accepted.runId, { wait: true })
+        .cancel(recovered.request(), accepted.threadId, accepted.runId, {
+          wait: true,
+        })
         .then(
           () => undefined,
           (error) => error,
@@ -491,7 +554,9 @@ it.each(["park-gap", "park-released"] as const)(
       const backend = runtimeStorageRegistration(recovered.storage),
         retained = await backend.temporary?.readRun(accepted.runId)
       expect(await backend.readThread(accepted.threadId)).toBeUndefined()
-      expect(retained?.record.ownershipLoss).toMatchObject({ effectsUncertain: true })
+      expect(retained?.record.ownershipLoss).toMatchObject({
+        effectsUncertain: true,
+      })
       expect(retained?.record.metadata).toMatchObject({
         reason: "permission",
         continuation: "closed",
@@ -499,13 +564,18 @@ it.each(["park-gap", "park-released"] as const)(
       expect(retained?.record.unwoundAt).toBeUndefined()
       expect(
         await backend.execution?.controlProgress?.(
-          { threadId: accepted.threadId, generation: snapshot.scope.generation },
+          {
+            threadId: accepted.threadId,
+            generation: snapshot.scope.generation,
+          },
           crypto.randomUUID(),
           accepted.runId,
         ),
       ).toBe("execution_lost")
       const retainedFailure = await host
-        .cancel(recovered.request(), accepted.threadId, accepted.runId, { wait: true })
+        .cancel(recovered.request(), accepted.threadId, accepted.runId, {
+          wait: true,
+        })
         .then(
           () => undefined,
           (error) => error,
@@ -559,7 +629,9 @@ it(
         },
       },
       async invoke({ signal }) {
-        signal.addEventListener("abort", () => aborting.release(), { once: true })
+        signal.addEventListener("abort", () => aborting.release(), {
+          once: true,
+        })
         entered.release()
         await unwind.promise
         return {}
@@ -590,7 +662,7 @@ it(
     await closing
     expect((await f.snapshot(accepted.threadId)).runs[0]).toMatchObject({
       run: { status: "interrupted" },
-      metadata: { reason: "server_shutdown", effectsUncertain: false },
+      metadata: { reason: "server_shutdown", effectsUncertain: true },
     })
   },
   budget,
@@ -649,7 +721,10 @@ it(
             {
               interruptId: "permission",
               namespace: [],
-              request: { kind: "tool", detail: { toolName: "effect", suggestedPattern: "effect" } },
+              request: {
+                kind: "tool",
+                detail: { toolName: "effect", suggestedPattern: "effect" },
+              },
               protectedProposal: {},
             },
           ]),
@@ -664,12 +739,15 @@ it(
     await host.close()
     const after = await f.snapshot(accepted.threadId)
     expect(after).toEqual(before)
-    expect(after.runs[0]?.metadata).toMatchObject({ reason: "permission", continuation: "waiting" })
+    expect(after.runs[0]?.metadata).toMatchObject({
+      reason: "permission",
+      continuation: "waiting",
+    })
   },
   budget,
 )
 it(
-  "records deadline only after actual provider unwind, including late provider success",
+  "records deadline after observed invocation settlement, including late callback success",
   async () => {
     const f = await fixture()
     cleanups.push(() => f.close())
@@ -693,7 +771,9 @@ it(
         },
       },
       async invoke({ signal }) {
-        signal.addEventListener("abort", () => aborting.release(), { once: true })
+        signal.addEventListener("abort", () => aborting.release(), {
+          once: true,
+        })
         entered.release()
         await unwind.promise
         return { values: { tooLate: true } }
@@ -714,22 +794,24 @@ it(
     await host.idle()
     expect((await f.snapshot(accepted.threadId)).runs[0]).toMatchObject({
       run: { status: "timeout" },
-      metadata: { reason: "deadline", effectsUncertain: false },
+      metadata: { reason: "deadline", effectsUncertain: true },
     })
   },
   budget,
 )
 it(
-  "preserves the first durable stop reason through a later shutdown",
+  "preserves an independent error and the first Stop request through later hard shutdown",
   async () => {
     const f = await fixture()
     cleanups.push(() => f.close())
     const accepted = await f.admit(body({ on_completion: "keep" }))
     const entered = barrier(),
-      unwind = barrier()
+      unwind = barrier(),
+      hardAborted = barrier()
     const host = createExecutionHost({
       ...f.authority,
-      async invoke() {
+      async invoke({ signal }) {
+        signal.addEventListener("abort", hardAborted.release, { once: true })
         entered.release()
         await unwind.promise
         throw new Error("provider aborted")
@@ -745,10 +827,14 @@ it(
     await entered.promise
     await host.cancel(f.request(), accepted.threadId, accepted.runId, {})
     const closing = host.close()
+    await hardAborted.promise
     unwind.release()
     await closing
     const snapshot = await f.snapshot(accepted.threadId)
-    expect(snapshot.runs[0]?.metadata.reason).toBe("user_stop")
+    expect(snapshot.runs[0]?.metadata.reason).toBe("execution_error")
+    expect(snapshot.inbox.find((e) => e.kind === "control")?.payload).toMatchObject({
+      reason: "user_stop",
+    })
     expect(snapshot.inbox.filter((e) => e.kind === "control")).toHaveLength(1)
   },
   budget,

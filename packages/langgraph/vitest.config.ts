@@ -12,10 +12,6 @@ export default defineConfig({
         rootDir,
         "../sdk/src/internal/runtime-identity.ts",
       ),
-      "@b4run/sdk/internal/execution-work": new URL(
-        "../sdk/src/internal/execution-work.ts",
-        import.meta.url,
-      ).pathname,
       "@b4run/langgraph/define-entry": resolve(rootDir, "src/define-entry.ts"),
       "@b4run/langgraph/route-module": resolve(rootDir, "src/route-module.ts"),
       "@b4run/langgraph/ui": resolve(rootDir, "src/ui.ts"),

@@ -1,3 +1,4 @@
+import { CooperativeStopError, isCooperativeStop } from "@b4run/sdk"
 import type {
   RunReason,
   RunStatus,
@@ -94,7 +95,11 @@ async function acceptStop(
     const retired = await tx.runs.get(runId)
     if (retired) await tx.runs.put({ ...retired, unwoundAt: timestamp })
     status = "applied"
-  } else if (run.metadata.continuation === "waiting" && thread.pausedGeneration) {
+  } else if (
+    (reason === "user_stop" || reason === "client_disconnect") &&
+    run.metadata.continuation === "waiting" &&
+    thread.pausedGeneration
+  ) {
     await retirePermissionPause(tx, runId, timestamp)
     if (run.unwoundAt || !run.metadata.startedAt) status = "applied"
   }
@@ -116,8 +121,37 @@ export interface ExecutionOutcome {
   readonly result?: RunWaitResponse
   readonly effectsUncertain?: boolean
 }
+async function appendRunEvent(
+  tx: RuntimeTransaction,
+  row: Pick<RuntimeRunRecord, "run" | "metadata" | "namespace">,
+  timestamp: string,
+) {
+  await tx.journal.append({
+    eventId: crypto.randomUUID(),
+    namespace: row.namespace,
+    ownerRunId: row.run.run_id,
+    event: {
+      type: "event",
+      method: "custom",
+      params: {
+        namespace: row.namespace,
+        timestamp: Date.parse(timestamp),
+        data: {
+          name: "b4.run",
+          payload: {
+            ...row.metadata,
+            runId: row.run.run_id,
+            agentId: row.run.agent_id,
+            status: row.run.status,
+          },
+        },
+      },
+    },
+  })
+}
 /** One terminal service for normal completion and recovery. A committed winner
- * is immutable; stale native/runtime handles fail the backend fence first. */
+ * keeps its outcome; its current owner can monotonically record uncertain
+ * effects before invocation settlement. Stale handles fail the backend fence. */
 export async function settleExecution(
   tx: RuntimeTransaction,
   runId: string,
@@ -125,7 +159,43 @@ export async function settleExecution(
   timestamp = new Date().toISOString(),
 ): Promise<void> {
   const row = await tx.runs.get(runId)
-  if (!row || row.metadata.phase === "settled") return
+  if (!row) return
+  if (row.metadata.phase === "settled") {
+    if (
+      outcome.effectsUncertain !== true ||
+      row.metadata.effectsUncertain === true ||
+      row.metadata.startedAt === undefined
+    )
+      return
+    const thread = await tx.thread.get()
+    if (
+      !thread ||
+      thread.currentRunId !== runId ||
+      thread.generation !== tx.scope.generation ||
+      row.metadata.generation !== tx.scope.generation ||
+      row.unwoundAt !== undefined ||
+      row.execution?.fence !== tx.scope.fence ||
+      row.execution.ownerId !== (await tx.executionOwner())
+    )
+      throw Object.assign(new Error("Uncertainty update has no current invocation owner"), {
+        code: "stale_fence",
+      })
+    const metadata = { ...row.metadata, effectsUncertain: true }
+    const resultRun = row.result?.run ?? row.run
+    await tx.runs.put({
+      ...row,
+      metadata,
+      result: row.result
+        ? {
+            ...row.result,
+            run: { ...resultRun, metadata: { ...resultRun.metadata, b4: metadata } },
+          }
+        : null,
+    })
+    await tx.thread.put({ ...thread, revision: thread.revision + 1 })
+    await appendRunEvent(tx, { ...row, metadata }, timestamp)
+    return
+  }
   await retireActiveInputs(tx, runId, outcome.reason)
   if (
     (row.execution && row.execution.fence !== tx.scope.fence) ||
@@ -165,28 +235,7 @@ export async function settleExecution(
         status: outcome.status === "error" ? "error" : "idle",
       },
     })
-  await tx.journal.append({
-    eventId: crypto.randomUUID(),
-    namespace: row.namespace,
-    ownerRunId: runId,
-    event: {
-      type: "event",
-      method: "custom",
-      params: {
-        namespace: row.namespace,
-        timestamp: Date.parse(timestamp),
-        data: {
-          name: "b4.run",
-          payload: {
-            ...metadata,
-            runId,
-            agentId: run.agent_id,
-            status: run.status,
-          },
-        },
-      },
-    },
-  })
+  await appendRunEvent(tx, { ...row, run, metadata }, timestamp)
 }
 export interface ExecutionHostOptions {
   readonly admission?: AdmissionService
@@ -202,6 +251,7 @@ export interface ExecutionHostOptions {
     readonly run: RuntimeRunRecord
     readonly store: RuntimeStore
     readonly signal: AbortSignal
+    readonly stopSignal: AbortSignal
   }) => Promise<RunWaitResponse>
   readonly clock?: ExecutionClock
 }
@@ -320,7 +370,11 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       }
       if (control && !stopped.has(key)) {
         stopped.set(key, stopPayload(control).reason)
-        entry.controller.abort(new Error(stopPayload(control).reason))
+        const reason = stopPayload(control).reason
+        if (reason === "server_shutdown" || reason === "deadline") {
+          entry.hardReason = reason
+          entry.controller.abort(new Error(reason))
+        } else entry.stopController.abort(new CooperativeStopError(reason))
       }
     }
   }
@@ -368,13 +422,14 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
       },
     }
   }
-  async function stopLive(runId: string, reason: StopReason) {
+  async function stopLive(runId: string, reason: "server_shutdown" | "deadline") {
     const entry = live.get(runId)
     if (!entry) return
     await entry.lease.store.transaction((tx) => acceptStop(tx, runId, reason, clock.now()))
     await observeControls()
-    // A committed terminal can precede actual provider unwind. Shutdown and
+    // A committed terminal can precede owned invocation settlement. Shutdown and
     // deadline still signal this same owned promise; settlement keeps its winner.
+    entry.hardReason ??= reason
     if (!entry.controller.signal.aborted) entry.controller.abort(new Error(reason))
   }
   async function dispatch() {
@@ -542,7 +597,8 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         continue
       }
       const run = selected,
-        controller = new AbortController()
+        controller = new AbortController(),
+        stopController = new AbortController()
       const key = run.run.run_id
       let heartbeating: Promise<void> | undefined
       const heartbeat = clock.setInterval(() => {
@@ -572,13 +628,10 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
               run,
               store: lease.store,
               signal: controller.signal,
+              stopSignal: stopController.signal,
             })
             await lease.store.transaction(async (tx) => {
-              const control = (await tx.inbox.list()).find(
-                (row) => row.kind === "control" && row.runId === key && row.status === "accepted",
-              )
-              const reason = control ? stopPayload(control).reason : undefined
-              if (reason) await retirePermissionPause(tx, key, clock.now())
+              const reason = live.get(key)?.hardReason
               await settleExecution(
                 tx,
                 run.run.run_id,
@@ -586,19 +639,31 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                   ? {
                       status: reason === "deadline" ? "timeout" : "interrupted",
                       reason,
+                      effectsUncertain: controller.signal.aborted,
                     }
-                  : { status: "success", reason: "completed", result },
+                  : {
+                      status: "success",
+                      reason: "completed",
+                      result,
+                      effectsUncertain: controller.signal.aborted,
+                    },
                 clock.now(),
               )
             })
           } catch (error) {
             if (!staleOwnership(error))
               await lease.store.transaction(async (tx) => {
-                const control = (await tx.inbox.list()).find(
-                  (row) => row.kind === "control" && row.runId === key && row.status === "accepted",
-                )
-                const reason = control ? stopPayload(control).reason : undefined
-                if (reason) await retirePermissionPause(tx, key, clock.now())
+                const hardReason = live.get(key)?.hardReason
+                const observedHardAbort =
+                  controller.signal.aborted &&
+                  (error === controller.signal.reason ||
+                    (error instanceof Error && error.name === "AbortError"))
+                const reason =
+                  isCooperativeStop(error) && stopController.signal.aborted
+                    ? (hardReason ?? stopped.get(key))
+                    : observedHardAbort
+                      ? hardReason
+                      : undefined
                 await settleExecution(
                   tx,
                   run.run.run_id,
@@ -606,8 +671,13 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                     ? {
                         status: reason === "deadline" ? "timeout" : "interrupted",
                         reason,
+                        effectsUncertain: controller.signal.aborted,
                       }
-                    : { status: "error", reason: "execution_error" },
+                    : {
+                        status: "error",
+                        reason: "execution_error",
+                        effectsUncertain: controller.signal.aborted,
+                      },
                   clock.now(),
                 )
               })
@@ -624,9 +694,12 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
                   (await tx.executionOwner()) !== ownerId
                 )
                   throw Object.assign(
-                    new Error("Cannot prove actual unwind for another execution"),
+                    new Error("Cannot record invocation settlement for another execution"),
                     { code: "stale_fence" },
                   )
+                // This stamps the observed invocation/required-write boundary.
+                // Hard abort cannot prove raw primitive or remote quiescence;
+                // settlement above conservatively preserves that uncertainty.
                 await tx.runs.put({ ...row, unwoundAt: clock.now() })
                 const thread = await tx.thread.get()
                 if (thread?.cleanupIntent?.onCompletion !== "delete")
@@ -649,7 +722,7 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           live.delete(key)
           stopped.delete(key)
         })
-      live.set(key, { lease, controller, work })
+      live.set(key, { lease, controller, stopController, work })
     }
     for (const plan of (await registration.temporary?.candidates()) ?? [])
       await finalize(plan.threadId, plan.runId, plan.generation)
@@ -705,7 +778,12 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
         const hideFactError = async () => {
           if (
             !(
-              await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) })
+              await gate({
+                action: "update",
+                operation: "run.cancel",
+                threadId,
+                ...subject(value),
+              })
             ).ok
           )
             throw new ProtocolError("not_found")
@@ -726,8 +804,14 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           return hideFactError()
         }
         if (
-          !(await gate({ action: "update", operation: "run.cancel", threadId, ...subject(value) }))
-            .ok
+          !(
+            await gate({
+              action: "update",
+              operation: "run.cancel",
+              threadId,
+              ...subject(value),
+            })
+          ).ok
         )
           throw new ProtocolError("not_found")
         if (command.wait && !backend.controlProgress) throw new ProtocolError("not_supported")
@@ -774,7 +858,9 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
           command.wait &&
           (retained.record.ownershipLoss || retained.record.metadata.reason === "execution_lost")
         )
-          throw new ProtocolError("storage_unavailable", { executionLost: true })
+          throw new ProtocolError("storage_unavailable", {
+            executionLost: true,
+          })
         if (command.wait && !retained.record.unwoundAt)
           throw new ProtocolError("storage_unavailable")
       }
@@ -900,8 +986,10 @@ export function createExecutionHost(options: ExecutionHostOptions): ExecutionHos
             } finally {
               // A durable control failure cannot leave this process's actual
               // provider promise running or skip another owned execution.
-              if (live.get(runId) === entry && !entry.controller.signal.aborted)
+              if (live.get(runId) === entry && !entry.controller.signal.aborted) {
+                entry.hardReason ??= "server_shutdown"
                 entry.controller.abort(new Error("server_shutdown"))
+              }
             }
           }),
         )

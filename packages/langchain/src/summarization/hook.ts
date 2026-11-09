@@ -21,8 +21,6 @@ export type SummarizeFn = (args: {
    * builds; a custom summarizer may use or ignore it.
    */
   readonly maxRetries?: number
-  /** Invocation-local provider primitive tracking; never graph state/config. */
-  readonly trackModel?: (model: unknown) => unknown
 }) => Promise<string>
 
 export interface ResolvedSummarizationConfig {

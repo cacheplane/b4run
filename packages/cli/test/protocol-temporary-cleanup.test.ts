@@ -106,7 +106,7 @@ it(
     expect(await waiting).toEqual({ ok: true })
     expect(await backend.readThread(initial.threadId)).toBeUndefined()
     expect((await backend.temporary?.readRun(initial.runId))?.record.metadata.reason).toBe(
-      "user_stop",
+      "completed",
     )
   },
   budget,
@@ -233,7 +233,7 @@ it.each(["refused", "deferred"] as const)(
 // Review-correction cases use the existing30s real-native integration budget,
 // selected before their first run; all original budgets remain unchanged.
 it.each(["keep", "delete"] as const)(
-  "completes the exact old Stop after a %s successor supersedes its blocked finalizer",
+  "completes the exact old Stop request after natural success and a %s successor supersedes its blocked finalizer",
   async (onCompletion) => {
     const preparing = barrier(),
       releasePreparation = barrier(),
@@ -301,7 +301,7 @@ it.each(["keep", "delete"] as const)(
     expect(control?.status).toBe("applied")
     expect(await waiting).toEqual({ ok: true })
     expect(snapshot.runs.find((r) => r.run.run_id === initial.runId)?.metadata.reason).toBe(
-      "user_stop",
+      "completed",
     )
     expect(snapshot.runs.find((r) => r.run.run_id === successor.runId)?.metadata).toMatchObject({
       phase: "accepted",

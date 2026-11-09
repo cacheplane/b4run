@@ -116,6 +116,16 @@ another admission algorithm inside the test.
 
 ### R7: Exact-run stop, cleanup intent and shutdown
 
+The approved November 8 cooperative Stop design amends execution completion:
+ordinary Stop is soft native drain with synchronous checkpoint durability;
+shutdown/deadline/loss retain hard abort. Started hard-aborted invocations retain
+effectsUncertain even after their observed invocation/write boundary settles;
+that boundary does not prove raw or remote quiescence. A request row alone never relabels a
+natural success, independent error or permission park. Execution and required
+writes must settle before ownership is released; detached/remote effects are
+outside this guarantee. Exact Stop of an already parked predecessor still retires
+its eligibility nonexecutingly.
+
 **Files:** Modify runtime/executor.ts, admission.ts, permissions.ts; create `packages/cli/test/protocol-cancel.test.ts`, `protocol-temporary-cleanup.test.ts`, `protocol-shutdown.test.ts`.
 
 - [ ] Add both stop/resume race orders, stale predecessor stop, queued/running/parked states, wait false/true, observer versus owning-stream closure, REST overrides, parked temporary thread and finalizer-versus-successor tests.
@@ -129,7 +139,7 @@ another admission algorithm inside the test.
 
 **Files:** Create runtime/inputs.ts; modify `packages/sdk/src/backend-adapter.ts`, `packages/langchain/src/agent-adapter.ts`, `agent-middleware.ts`, `packages/langgraph/src/langgraph-adapter.ts`, `packages/cli/src/lib/runtime/execute-route-core.ts`; create `packages/cli/test/protocol-injection.test.ts`, `protocol-safe-head.test.ts`.
 
-- [ ] Test steering during model/tool work, FIFO bounds, duplicate tokens, root/child authority, privileged system input, pause/finish race and pending tools after stop/lost owner.
+- [ ] Test steering during model/tool work, FIFO bounds, duplicate tokens, root/child authority, privileged system input, pause/finish race and pending tools after stop/lost owner. Exercise the canonical native execute and stream entries with held real saver writes, including rejection after accepted Stop; checkpoint errors must retain priority and ownership through settlement.
 - [ ] Run `pnpm --filter @b4run/cli test protocol-injection protocol-safe-head`; a real test model must consume injected text at its next eligible step.
 - [ ] Implement bounded exact-Run/namespace inbox and owner-applied checkpoint+applied-disposition boundary before the next model step. Preserve accepted/applied/not_applied identity; never drain into a successor or resume permissions automatically.
 - [ ] Implement adapter checkpoint-rebind hooks that retire future executable source tasks without running them. Preserve lost-effect uncertainty; mark not-executed only with durable proof. Unsupported custom hooks fail explicitly before state mutation.

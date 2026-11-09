@@ -40,7 +40,10 @@ export interface RuntimeThreadRecord {
   /** Protected host lineage/access stamp, opaque to storage. Never client metadata. */
   readonly protectedMetadata: Readonly<Record<string, unknown>>
   /** Binding-owned intent; REST creation replaces it, continuation preserves it. */
-  readonly cleanupIntent?: { readonly intentId: string; readonly onCompletion: "delete" | "keep" }
+  readonly cleanupIntent?: {
+    readonly intentId: string
+    readonly onCompletion: "delete" | "keep"
+  }
 }
 
 export interface RuntimeRunRecord {
@@ -51,8 +54,9 @@ export interface RuntimeRunRecord {
   readonly result: RunWaitResponse | null
   /** Private execution identity; never projected as caller metadata. */
   readonly execution?: { readonly ownerId: string; readonly fence: number }
-  /** Actual unwind or terminal never-started retirement proved by its
-   * authoritative native transaction. */
+  /** Observed invocation/required-write settlement or proven never-started
+   * retirement. Hard-aborted work may still have uncertain raw/remote effects;
+   * this timestamp is not a primitive-quiescence proof. */
   readonly unwoundAt?: string
   /** Current ownership reconciliation; historical settled outcome stays intact. */
   readonly ownershipLoss?: {
@@ -134,7 +138,10 @@ export interface RuntimeOperationContext {
   /** Exact immutable native permission acceptance cut; never a reusable grant. */
   readonly permissionBindings?: readonly RuntimeAcceptedPermissionBinding[]
   /** Immutable server-captured authority of the selected pre-run root head. */
-  readonly protectedSource?: { readonly aliasId: string; readonly digest: string } | null
+  readonly protectedSource?: {
+    readonly aliasId: string
+    readonly digest: string
+  } | null
   /** Trusted server entrypoint provenance, excluded from caller fingerprints. */
   readonly binding?: {
     readonly kind: "background" | "rest_creation" | "native_creation"
@@ -329,7 +336,10 @@ interface RuntimeStoppedSourceBase {
     readonly previousRunId: string | null
     readonly receiptId: string
     readonly selectedHead: string
-    readonly protectedSource: { readonly aliasId: string; readonly digest: string } | null
+    readonly protectedSource: {
+      readonly aliasId: string
+      readonly digest: string
+    } | null
   }[]
 }
 export type RuntimeStoppedSourceWitness =
@@ -580,6 +590,6 @@ export interface RuntimeStore {
   transaction<T>(callback: (tx: RuntimeTransaction) => Promise<T>): Promise<T>
   snapshot(): Promise<RuntimeSnapshot>
   /** Hold exclusion against copy/edit/delete/cleanup until callback settlement,
-   * including provider unwind. Always release on success or rejection. */
+   * including the invocation and its required writes. Always release on success or rejection. */
   withReadLease<T>(callback: (lease: RuntimeReadLease) => Promise<T>): Promise<T>
 }

@@ -12,10 +12,6 @@ export default defineConfig({
         rootDir,
         "../sdk/src/internal/runtime-identity.ts",
       ),
-      "@b4run/sdk/internal/execution-work": new URL(
-        "../sdk/src/internal/execution-work.ts",
-        import.meta.url,
-      ).pathname,
       "@b4run/langchain/internal/runtime": resolve(rootDir, "src/internal-runtime.ts"),
       "@b4run/langchain": resolve(rootDir, "src/index.ts"),
       // Subpath aliases MUST precede the bare package alias — vitest matches

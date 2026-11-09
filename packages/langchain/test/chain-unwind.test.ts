@@ -2,7 +2,7 @@ import { RunnableLambda } from "@langchain/core/runnables"
 import { expect, it } from "vitest"
 import { chainAdapter } from "../src/chain-adapter.ts"
 
-it("awaits a real chain's authored work after abort", async () => {
+it("allows an active opaque chain to settle naturally after soft Stop", async () => {
   let enter!: () => void,
     release!: () => void,
     effects = 0
@@ -18,14 +18,21 @@ it("awaits a real chain's authored work after abort", async () => {
     effects++
     return "done"
   })
-  const controller = new AbortController()
-  const result = chainAdapter.execute!(entry, "start", { signal: controller.signal }).then(
-    () => "fulfilled",
-    () => "rejected",
-  )
+  const controller = new AbortController(),
+    stop = new AbortController()
+  const result = chainAdapter
+    .execute(entry, "start", {
+      signal: controller.signal,
+      stopSignal: stop.signal,
+    })
+    .then(
+      () => "fulfilled",
+      () => "rejected",
+    )
   try {
     await entered
-    controller.abort(new Error("controlled stop"))
+    stop.abort()
+    expect(controller.signal.aborted).toBe(false)
     expect(
       await Promise.race([
         result,

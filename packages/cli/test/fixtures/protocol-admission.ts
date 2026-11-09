@@ -31,7 +31,12 @@ function realBackend() {
   beforeAll(async () => {
     if (process.env.B4_TEST_PGSTORAGE !== "1")
       throw new Error("R4 Postgres fixtures require B4_TEST_PGSTORAGE=1")
-    container = await new PostgreSqlContainer("postgres:16").withStartupTimeout(180_000).start()
+    const resourceId = process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? crypto.randomUUID()
+    process.stdout.write(`R4 own PostgreSQL resource label ${resourceId}\n`)
+    container = await new PostgreSqlContainer("postgres:16")
+      .withLabels({ "org.b4run.protocol-resource": resourceId })
+      .withStartupTimeout(180_000)
+      .start()
     process.stdout.write(`R4 created own container ${container.getId()}\n`)
     first = new Pool({ connectionString: container.getConnectionUri() })
     second = new Pool({ connectionString: container.getConnectionUri() })
@@ -299,17 +304,19 @@ export async function fixture(
   return {
     native: {
       ruleStore() {
+        // The immutable runtime catalog includes every P_ relation; keep
+        // this fixture's permission tables in a nonoverlapping prefix.
         return nativeNaming && postgres
           ? createPostgresPermissionsStore({
               pool: postgres.first,
               schema: nativeNaming.schema,
-              tablePrefix: `${nativeNaming.tablePrefix}_rules`,
+              tablePrefix: `rules_${nativeNaming.tablePrefix}`,
             })
           : undefined
       },
       async editRule(action: "removeAllow" | "deny", tool: string, pattern: string) {
         if (!nativeNaming || !postgres) return false
-        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_permissions`
+        const table = `${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_permissions`
         if (action === "removeAllow")
           await postgres.first.query(
             `DELETE FROM ${table} WHERE scope='runtime' AND kind='allow' AND tool=$1 AND pattern=$2`,
@@ -324,7 +331,7 @@ export async function fixture(
       },
       async ruleWriteFault(enabled: boolean) {
         if (!nativeNaming || !postgres) return false
-        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_perm_rules`,
+        const table = `${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_perm_rules`,
           fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_fail_rule_receipt`
         if (enabled) {
           await postgres.first.query(
@@ -343,7 +350,7 @@ export async function fixture(
         if (!nativeNaming || !postgres) return undefined
         return (
           await postgres.first.query(
-            `SELECT kind,tool,pattern FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_rules_permissions WHERE scope='runtime' ORDER BY kind,tool,pattern`,
+            `SELECT kind,tool,pattern FROM ${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_permissions WHERE scope='runtime' ORDER BY kind,tool,pattern`,
           )
         ).rows
       },

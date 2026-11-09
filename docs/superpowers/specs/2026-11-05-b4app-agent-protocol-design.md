@@ -220,7 +220,15 @@ B4 reads current turn/continuation reason and full pending set. Generic mode
 uses only supported standard facts and preserves ambiguity. Stop targets the
 exact current canonical Run UUID, not root/predecessor/thread identity; wait for
 real settlement or show unresolved stopping. Never redirect a stale Stop to a
-successor. Sending an answer adds no user-message turn.
+successor. Stop acceptance is a cooperative request, not proof of completion:
+a running native superstep and required writes may finish before drain is observed.
+Natural completion, independent failure and permission parks retain their real
+outcomes; show them even if a Stop request was accepted. An exact Stop against an
+already parked predecessor may retire its continuation without executing it.
+Hard loss and started invocations settled under hard abort remain uncertain;
+an invocation boundary is not proof of raw or remote-effect quiescence, and no
+remote-effect rollback is implied. Sending
+an answer adds no user-message turn.
 
 ## 6. Snapshot, paging and prompt recovery
 

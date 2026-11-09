@@ -22,8 +22,9 @@ export interface BackendAdapter {
       config: Readonly<Record<string, unknown>>,
     ) => Promise<Readonly<Record<string, unknown>>>
   }
-  /** Completion includes actual owned primitive work and stream finalizers.
-   * An aborted outer invocation alone does not prove that work has unwound. */
+  /** Managed Stop settles the current native superstep and required writes.
+   * Opaque calls settle at their invocation boundary. Detached work and remote
+   * effects are outside this guarantee; hard abort remains a distinct signal. */
   execute(
     entry: unknown,
     input: unknown,

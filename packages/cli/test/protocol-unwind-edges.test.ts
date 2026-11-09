@@ -25,7 +25,7 @@ it.each(
     (["established", "canonical"] as const).map((path) => ({ mode, path })),
   ),
 )(
-  "drains issued raw tool work after $mode/$path before releasing the owner",
+  "settles the same native producer after $mode/$path before releasing the owner",
   async ({ mode, path }) => {
     const f = await fixture(),
       entered = deferred(),
@@ -51,6 +51,8 @@ it.each(
       }
       async _generate(_messages: BaseMessage[]): Promise<ChatResult> {
         calls++
+        if (mode === "consumer-close" && calls > 1)
+          return { generations: [{ text: "done", message: new AIMessage("done") }] }
         return {
           generations: [
             {
@@ -197,7 +199,9 @@ it.each(
       expect(effects).toBe(0)
       release.resolve()
       await host.idle()
-      expect(calls).toBe(1)
+      // Closing an execution consumer does not manufacture a Stop request.
+      // Without Stop, this same native invocation reaches its natural final model.
+      expect(calls).toBe(mode === "consumer-close" ? 2 : 1)
       expect(effects).toBe(1)
       expect(String(failure)).toContain(
         mode === "consumer-close" ? "consumer closed" : "task-writes-fault",

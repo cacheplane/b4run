@@ -200,21 +200,31 @@ export function makeProtectedSources(
               write.value[1].some((byte) => !Number.isSafeInteger(byte) || byte < 0 || byte > 255)
             )
               fail()
-            const interrupt = JSON.parse(
+            const decoded: unknown = JSON.parse(
               new TextDecoder().decode(Uint8Array.from(write.value[1])),
-            ) as { id?: unknown; value?: Record<string, unknown> }
-            if (
-              interrupt.id !== binding.interruptId ||
-              !interrupt.value ||
-              interrupt.value.interruptId !== pending.input.data.interruptId
             )
-              continue
-            const { interruptId: _id, grant: _grant, ...request } = interrupt.value
-            if (
-              canonicalRuntimeValue(request) ===
-              canonicalRuntimeValue((pending.input.data.payload as { request: unknown }).request)
-            )
-              matches.push(interrupt.value)
+            // Native versions write either one Interrupt or one flat task batch.
+            // Metadata stays unambiguous; unrelated sibling values remain opaque.
+            const interrupts = Array.isArray(decoded) ? decoded : [decoded]
+            const ids = new Set<string>()
+            for (const item of interrupts) {
+              if (!item || typeof item !== "object" || Array.isArray(item)) fail()
+              const interrupt = item as { id?: unknown; value?: unknown }
+              const id = interrupt.id
+              if (typeof id !== "string" || !id || ids.has(id)) return fail()
+              ids.add(id)
+              if (id !== binding.interruptId) continue
+              const value = interrupt.value
+              if (!value || typeof value !== "object" || Array.isArray(value)) fail()
+              const permission = value as Record<string, unknown>
+              if (permission.interruptId !== pending.input.data.interruptId) continue
+              const { interruptId: _id, grant: _grant, ...request } = permission
+              if (
+                canonicalRuntimeValue(request) ===
+                canonicalRuntimeValue((pending.input.data.payload as { request: unknown }).request)
+              )
+                matches.push(permission)
+            }
           }
           if (matches.length !== 1) fail()
           return matches[0]!

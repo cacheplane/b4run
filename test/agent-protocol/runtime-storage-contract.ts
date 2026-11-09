@@ -11,6 +11,7 @@ import type {
   RuntimeTransaction,
 } from "@b4run/sdk/agent-protocol"
 import { afterAll, describe, expect, it } from "vitest"
+import { declareNativeProtectedSourceContract } from "./runtime-protected-source-contract.ts"
 
 export const RUNTIME_STORAGE_CONTRACT_CASES = [
   "second grant failure rolls back both consumes",
@@ -183,6 +184,7 @@ function assertAbsent(snapshot: RuntimeSnapshot, ids: RuntimeStorageContractIds)
  * support flag; a backend error fails instead of skipping. The completion check
  * also rejects accidental omission/skip when any suite case is executed. */
 export function declareRuntimeStorageContract(options: RuntimeStorageContractOptions): void {
+  declareNativeProtectedSourceContract(options)
   describe("coordinated runtime storage contract", () => {
     const completed = new Set<ContractCase>()
     afterAll(() => {

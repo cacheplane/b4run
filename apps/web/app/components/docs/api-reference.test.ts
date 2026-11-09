@@ -103,7 +103,6 @@ const EXPECTED_DETAILED_IMPORTS = [
 ] as const
 
 const EXPECTED_CATALOG_AND_INTERNAL_IMPORTS = [
-  ["@b4run/sdk", "./internal/execution-work", "internal"],
   ["@b4run/sdk", "./internal/runtime-identity", "internal"],
   ["@b4run/sdk", "./agent-protocol", "catalog-only"],
   ["@b4run/sdk", "./agent-protocol.schema.json", "catalog-only"],

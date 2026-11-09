@@ -50,6 +50,8 @@ interface NativePayload {
   readonly writes: readonly {
     readonly kind: "execution" | "administrative"
     readonly taskId: string
+    /** Optional native replay-order metadata; never task identity or authority. */
+    readonly taskPath?: string
     readonly index: number
     readonly channel: string
     readonly value: Encoded
@@ -59,6 +61,21 @@ interface NativePayload {
     readonly sourceCheckpointId: string | null
   }[]
 }
+/** Native checkpoint 1.2 orders paths/task IDs by Unicode code point, not
+ * UTF-16 or locale. Keep this local so the qualified 1.1 saver base still loads. */
+function compareNativeStrings(left: string, right: string): number {
+  let l = 0,
+    r = 0
+  while (l < left.length && r < right.length) {
+    const a = left.codePointAt(l) ?? 0,
+      b = right.codePointAt(r) ?? 0
+    if (a !== b) return a < b ? -1 : 1
+    l += a > 0xffff ? 2 : 1
+    r += b > 0xffff ? 2 : 1
+  }
+  return l < left.length ? 1 : r < right.length ? -1 : 0
+}
+
 export interface RuntimeCheckpointSaverOptions {
   readonly store: RuntimeStore
   readonly runId: string
@@ -377,31 +394,39 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       )
       const matches: NativeBinding[] = []
       for (const write of writes) {
-        const item = await this.nativeInterrupt(write.value)
-        if (item.id !== interruptId) continue
-        const { interruptId: _public, grant: _grant, ...request } = item.value
-        for (const observation of this.observations.values()) {
-          const actual = observation.request
-          if (
-            actual.checkpointId === checkpointId &&
-            actual.nativeTaskId === taskId &&
-            canonical(actual.request) === canonical(request)
-          )
-            matches.push({
-              checkpointId,
-              taskId,
-              interruptId,
-              checkpointNs: actual.checkpointNs,
-              interruptIndex: actual.interruptIndex,
-              namespaceGeneration: observation.generation,
-            })
+        for (const item of await this.nativeInterrupts(write.value)) {
+          if (item.id !== interruptId) continue
+          const {
+            interruptId: _public,
+            grant: _grant,
+            ...request
+          } = this.permissionInterruptValue(item.value)
+          for (const observation of this.observations.values()) {
+            const actual = observation.request
+            if (
+              actual.checkpointId === checkpointId &&
+              actual.nativeTaskId === taskId &&
+              canonical(actual.request) === canonical(request)
+            )
+              matches.push({
+                checkpointId,
+                taskId,
+                interruptId,
+                checkpointNs: actual.checkpointNs,
+                interruptIndex: actual.interruptIndex,
+                namespaceGeneration: observation.generation,
+              })
+          }
         }
       }
       if (matches.length !== 1) throw new ProtocolError("approval_changed")
       return matches[0]!
     })
   }
-  createParkMinter(enabled: boolean): { readonly minter?: ApprovalGrantMinter; dispose(): void } {
+  createParkMinter(enabled: boolean): {
+    readonly minter?: ApprovalGrantMinter
+    dispose(): void
+  } {
     if (this.mintSession) throw new ProtocolError("thread_busy")
     const session = Object.freeze({})
     this.mintSession = session
@@ -633,15 +658,10 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       const run = await tx.runs.get(this.options.runId),
         thread = await tx.thread.get(),
         binding = this.options.binding!
-      if (
-        !run ||
-        !thread ||
-        (await tx.inbox.list()).some(
-          (row) =>
-            row.kind === "control" && row.runId === this.options.runId && row.status === "accepted",
-        )
-      )
-        throw new ProtocolError("stale_generation")
+      // Preparing an already scheduled child retains this exact live owner's
+      // authority. The inherited native control observes Stop before dispatch;
+      // a request alone must not manufacture a stale-generation tool failure.
+      if (!run || !thread) throw new ProtocolError("stale_generation")
       const native = config.configurable!,
         supplied = native.checkpoint_map
       if (!supplied || typeof supplied !== "object" || Array.isArray(supplied))
@@ -712,7 +732,11 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       // drops RESUME writes. The same owner-bound saver selects its validated
       // canonical alias head implicitly; only verified ancestor maps remain.
       const { checkpoint_id: _id, checkpoint_map: _map, ...rest } = native
-      return { ...config, configurable: { ...rest, checkpoint_map: map }, durability: "sync" }
+      return {
+        ...config,
+        configurable: { ...rest, checkpoint_map: map },
+        durability: "sync",
+      }
     })
   }
   async inherit(parent: RuntimeCheckpointSaver) {
@@ -740,7 +764,13 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
           return this.options.namespace.every((part, index) => parts[index] === part)
         }),
       )
-      return { tasks, resumes, lineage, markers, assert: proof.assert } satisfies ContinuationProof
+      return {
+        tasks,
+        resumes,
+        lineage,
+        markers,
+        assert: proof.assert,
+      } satisfies ContinuationProof
     })
     this.continuation = selected
   }
@@ -836,22 +866,28 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
   private decode(encoded: Encoded): Promise<unknown> {
     return this.serde.loadsTyped(encoded[0], Uint8Array.from(encoded[1]))
   }
-  private async nativeInterrupt(
+  private async nativeInterrupts(
     encoded: Encoded,
-  ): Promise<{ readonly id: string; readonly value: Record<string, unknown> }> {
-    const item = (await this.decode(encoded)) as { id?: unknown; value?: unknown } | null
-    // Pinned PregelRunner commits ONE Interrupt per __interrupt__ write,
-    // whereas graph.getState projects those writes as a task interrupt list.
-    if (
-      !item ||
-      typeof item.id !== "string" ||
-      !item.id.length ||
-      !item.value ||
-      typeof item.value !== "object" ||
-      Array.isArray(item.value)
-    )
+  ): Promise<readonly { readonly id: string; readonly value: unknown }[]> {
+    const decoded = await this.decode(encoded)
+    // Native 1.4 commits each Interrupt separately; 1.7 commits the task's
+    // Interrupt[] in one write. Normalize only these proven representations.
+    const items = Array.isArray(decoded) ? decoded : [decoded]
+    const seen = new Set<string>()
+    if (!items.length) throw new ProtocolError("approval_changed")
+    return items.map((item: { id?: unknown; value?: unknown } | null) => {
+      if (!item || typeof item.id !== "string" || !item.id.length || seen.has(item.id))
+        throw new ProtocolError("approval_changed")
+      seen.add(item.id)
+      return { id: item.id, value: item.value }
+    })
+  }
+  private permissionInterruptValue(value: unknown): Record<string, unknown> {
+    // Only the exact permission proposal needs this domain shape. Other native
+    // interrupts may carry arbitrary values and remain opaque in storage/replay.
+    if (!value || typeof value !== "object" || Array.isArray(value))
       throw new ProtocolError("approval_changed")
-    return { id: item.id, value: item.value as Record<string, unknown> }
+    return value as Record<string, unknown>
   }
   private async tuple(
     tx: RuntimeTransaction,
@@ -885,6 +921,15 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
           selected.set(hash([write.taskId, write.index]), write)
       }
     const writes = [...selected.values()]
+    for (const write of writes)
+      if (write.taskPath !== undefined && typeof write.taskPath !== "string")
+        throw new ProtocolError("storage_unavailable")
+    writes.sort(
+      (left, right) =>
+        compareNativeStrings(left.taskPath ?? "", right.taskPath ?? "") ||
+        compareNativeStrings(left.taskId, right.taskId) ||
+        left.index - right.index,
+    )
     const pendingWrites: CheckpointPendingWrite[] = await Promise.all(
       writes.map(
         async (write) =>
@@ -895,10 +940,14 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       config: this.config(tx.scope.threadId, checkpoint.id),
       checkpoint,
       ...(payload.metadata
-        ? { metadata: (await this.decode(payload.metadata)) as CheckpointMetadata }
+        ? {
+            metadata: (await this.decode(payload.metadata)) as CheckpointMetadata,
+          }
         : {}),
       ...(row.parentCheckpointId
-        ? { parentConfig: this.config(tx.scope.threadId, row.parentCheckpointId) }
+        ? {
+            parentConfig: this.config(tx.scope.threadId, row.parentCheckpointId),
+          }
         : {}),
       pendingWrites,
     }
@@ -1019,10 +1068,17 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
       return this.config(tx.scope.threadId, checkpoint.id)
     })
   }
-  async putWrites(config: RunnableConfig, writes: PendingWrite[], taskId: string): Promise<void> {
+  async putWrites(
+    config: RunnableConfig,
+    writes: PendingWrite[],
+    taskId: string,
+    taskPath = "",
+  ): Promise<void> {
+    if (typeof taskPath !== "string") throw new ProtocolError("storage_unavailable")
     const values = await Promise.all(
       writes.map(async ([channel, value], index) => ({
         taskId,
+        taskPath,
         channel,
         index: WRITES_IDX_MAP[channel] ?? index,
         value: await this.encode(value),
@@ -1164,9 +1220,9 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
     )
     let matched = false
     for (const write of writes) {
-      for (const item of [await this.nativeInterrupt(write.value)]) {
+      for (const item of await this.nativeInterrupts(write.value)) {
         if (item?.id !== binding.interruptId) continue
-        const { interruptId, grant, ...nativeRequest } = item.value ?? {}
+        const { interruptId, grant, ...nativeRequest } = this.permissionInterruptValue(item.value)
         const artifact = this.issued.get(hash([binding.checkpointNs, publicId]))
         if (
           interruptId === publicId &&
@@ -1321,12 +1377,16 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
           t?.currentRunId !== this.options.runId ||
           !ownerValid ||
           active.metadata.previousRunId !== previousRunId ||
-          (await current.inbox.list()).some(
-            (row) =>
-              row.kind === "control" &&
-              row.runId === this.options.runId &&
-              row.status === "accepted",
-          )
+          // An accepted Stop cannot revoke the required writes of the current
+          // owned continuation superstep. Administrative reuse still requires
+          // its settled, uncontrolled source proof.
+          (administrative &&
+            (await current.inbox.list()).some(
+              (row) =>
+                row.kind === "control" &&
+                row.runId === this.options.runId &&
+                row.status === "accepted",
+            ))
         )
           throw new ProtocolError("stale_generation")
         const records = await current.grants.list(),
@@ -1385,27 +1445,32 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
             )
             let found = false
             for (const write of actual) {
-              const interrupt = await this.nativeInterrupt(write.value)
-              const { interruptId, grant: token, ...request } = interrupt.value
-              if (
-                interrupt.id !== binding.interruptId ||
-                interruptId !== item.input.data.interruptId ||
-                canonical(request) !==
-                  canonical((item.input.data.payload as { request: unknown }).request)
-              )
-                continue
-              if (matching.length > 1) throw new ProtocolError("grant_invalid")
-              const grant = accepted.grantId
-                ? records.find((record) => record.grantId === accepted.grantId)
-                : matching[0]
-              if (
-                grant
-                  ? typeof token !== "string" ||
-                    (await hashApprovalGrant(token)) !== grant.tokenHash
-                  : token !== undefined
-              )
-                throw new ProtocolError("grant_invalid")
-              found = true
+              for (const interrupt of await this.nativeInterrupts(write.value)) {
+                if (interrupt.id !== binding.interruptId) continue
+                const {
+                  interruptId,
+                  grant: token,
+                  ...request
+                } = this.permissionInterruptValue(interrupt.value)
+                if (
+                  interruptId !== item.input.data.interruptId ||
+                  canonical(request) !==
+                    canonical((item.input.data.payload as { request: unknown }).request)
+                )
+                  continue
+                if (matching.length > 1) throw new ProtocolError("grant_invalid")
+                const grant = accepted.grantId
+                  ? records.find((record) => record.grantId === accepted.grantId)
+                  : matching[0]
+                if (
+                  grant
+                    ? typeof token !== "string" ||
+                      (await hashApprovalGrant(token)) !== grant.tokenHash
+                    : token !== undefined
+                )
+                  throw new ProtocolError("grant_invalid")
+                found = true
+              }
             }
             if (!found) throw new ProtocolError("approval_changed")
           }
@@ -1522,15 +1587,20 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
               write.channel !== "__interrupt__"
             )
               continue
-            const interrupt = await this.nativeInterrupt(write.value)
-            const { interruptId, grant: _grant, ...request } = interrupt.value
-            if (
-              interrupt.id === item.proposal!.nativeBinding!.interruptId &&
-              interruptId === item.input.data.interruptId &&
-              canonical(request) ===
-                canonical((item.input.data.payload as { request: unknown }).request)
-            )
-              matched = true
+            for (const interrupt of await this.nativeInterrupts(write.value)) {
+              if (interrupt.id !== item.proposal!.nativeBinding!.interruptId) continue
+              const {
+                interruptId,
+                grant: _grant,
+                ...request
+              } = this.permissionInterruptValue(interrupt.value)
+              if (
+                interruptId === item.input.data.interruptId &&
+                canonical(request) ===
+                  canonical((item.input.data.payload as { request: unknown }).request)
+              )
+                matched = true
+            }
           }
           if (!matched) throw new ProtocolError("approval_changed")
           checkpointIds.add(binding.parentCheckpointId)
@@ -1565,7 +1635,11 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
             prior = markers.get(key)
           if (prior && (prior.checkpointId !== id || canonical(prior.ids) !== canonical(ids)))
             throw new ProtocolError("approval_changed")
-          markers.set(key, { checkpointId: id, ids: [...ids], owners: new Set(chain.slice(1)) })
+          markers.set(key, {
+            checkpointId: id,
+            ids: [...ids],
+            owners: new Set(chain.slice(1)),
+          })
         }
         for (const item of pending) {
           const binding = item.proposal!.nativeBinding!
@@ -1617,7 +1691,12 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
         stoppedSource = {
           checkpointId: thread.headCheckpointId,
           checkpointOwnerRunId: physical!,
-          stoppedSource: { v: 1, ...witness!, creatorMethod: "input.respond", path },
+          stoppedSource: {
+            v: 1,
+            ...witness!,
+            creatorMethod: "input.respond",
+            path,
+          },
         }
       }
       return {

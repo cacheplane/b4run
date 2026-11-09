@@ -5,6 +5,9 @@ Date: 2026-11-05
 Status: Approved by Brian on 2026-11-05 after independent specification review,
 including the concrete coordination choices. No implementation or test pass is claimed.
 
+Completion is amended by the approved November 8 cooperative Stop design in
+`2026-11-08-cooperative-stop-design.md`; the wire vocabulary and defaults stay fixed.
+
 Read with the wire design and approved Store design in this directory. Baseline
 B4 source is `c1e1796556d0863da735e47822014bafa015ef3f`. The new runtime replaces
 the old HTTP dialect in one release while retaining native AG-UI execution.
@@ -19,7 +22,7 @@ state machines, issue graph calls directly or grant permissions independently.
 - AdmissionService resolves principal/route/provenance, validates input/config,
   resolves defaults, serializes the Thread generation and commits an operation.
 - ExecutionHost owns durable dispatch, exact-run control/inbox delivery, deadlines,
-  safe shutdown and actual-unwind tracking. Observer lifetime is separate.
+  safe shutdown and execution/write settlement. Observer lifetime is separate.
 - RuntimeStorage supplies transaction-scoped checkpoint/pending/grant/Run/receipt/
   journal/ownership operations under one authoritative backend.
 - Adapter declares real message/state/injection/fork/edit capabilities and
@@ -143,10 +146,26 @@ claim or implicit safe downgrade is made.
 
 Non-owner API replicas enqueue authorized exact-run cancel/inject/control rows
 under the same Thread lock. The owner polls/wakes and conditionally applies them.
-wait=false means durable acceptance only. wait=true waits for actual adapter/
-provider unwind and final state/cleanup; an HTTP wait timeout leaves the accepted
+wait=false means durable acceptance only. Ordinary Stop uses a separate soft
+signal and one native per-invocation RunControl.requestDrain; it does not abort
+the active tool signal or return the source iterator. Native Stop-capable calls
+use synchronous checkpoint durability. The current superstep and required writes
+settle before later supersteps stop. wait=true waits for that observed execution
+settlement and final state/cleanup; an HTTP wait timeout leaves the accepted
 operation alive for resource reconciliation. No sticky sessions or mandatory
-Redis. Scope service limits and expose explicit capacity failures before acceptance.
+Redis. Hard deadlines, shutdown and ownership loss retain the separate hard-abort
+channel. A started invocation that settles under hard abort is conservatively
+effectsUncertain: the library invocation may return before abort-ignoring raw
+work or remote effects settle. unwoundAt stamps the observed invocation and
+required-write boundary, not primitive or remote-effect quiescence. Accepted work
+proven never dispatched stays certain. A soft request alone adds no uncertainty.
+If that still-owned invocation already committed a natural, error or permission
+winner, hard abort adds uncertainty without replacing its outcome or timestamps.
+Only the current generation and invocation owner may make that monotonic update;
+a stale predecessor cannot alter a completed successor.
+Arbitrary detached callbacks, work not awaited by a running node, and remote-effect
+rollback or universal finalizer quiescence are outside this guarantee. Scope
+service limits and expose explicit capacity failures before acceptance.
 
 ## 5. Outcomes, pauses and temporary cleanup
 
@@ -156,25 +175,34 @@ Redis. Scope service limits and expose explicit capacity failures before accepta
 | ordinary completion | success/completed | closed |
 | permission park | interrupted/permission | waiting with a durable paused generation |
 | cooperative user stop | interrupted/user_stop | closed |
-| execution-owning stream disconnect | interrupted/client_disconnect after actual unwind | closed |
-| clean shutdown abort | interrupted/server_shutdown | closed |
-| deadline reached | timeout/deadline | closed after clean unwind, or uncertain on forced loss |
+| execution-owning stream disconnect | interrupted/client_disconnect after observed cooperative settlement | closed |
+| hard shutdown at invocation boundary | interrupted/server_shutdown, effectsUncertain=true for started work | closed |
+| deadline reached | timeout/deadline; effectsUncertain=true for started hard-aborted work | closed at observed invocation/write settlement |
 | graph/tool execution failure | error/execution_error | closed |
 | lost started owner | error/execution_lost, effectsUncertain=true | closed |
+
+An accepted control row is a request, not an outcome. Only an actual native
+GraphDrained outcome associated with managed control, or an explicitly observed
+owned CooperativeStopError, establishes cooperative Stop. Natural final-superstep
+success, independent execution/checkpoint failure and permission parks retain
+their truthful outcomes. An arbitrary result's cancelled field confers no outcome
+authority. Required checkpoint failures take precedence over a drain bubble.
 
 Paused prompts and eligibility are independent of the journal/receipt TTL.
 Expired prompts remain visible; positive answers fail, bound negative abandonment
 may proceed. Resume creates a new Run but not another top-level user turn.
-Stopping a paused predecessor closes its continuation without executing the graph
-or emitting another terminal native event. A losing late cancel cannot stop the
-successor admitted by the winning resume. Settlement/journal/receipt and current
+An exact Stop submitted against an already durable paused predecessor closes its
+continuation without executing the graph or emitting another terminal native
+event. A permission park that independently
+wins an active-execution Stop race remains eligible for authorized resume.
+A losing late cancel cannot stop the successor admitted by the winning resume. Settlement/journal/receipt and current
 turn state are committed under the same Thread generation/fence.
 
 Keep the binding's cleanup intent across ordinary ASP/native continuations.
 Later REST creation re-evaluates its own explicit/omitted on_completion default
 and atomically replaces intent. Keep temporary Thread state while waiting for
-permission. Final success/error/timeout/stop plus actual unwind and inspection
-lease release permits automatic cleanup; retain independent Run/results first
+permission. Final success/error/timeout/stop plus execution and required-write
+settlement and inspection lease release permits automatic cleanup; retain independent Run/results first
 for seven days. A finalizer checks the generation/head/cleanup intent and cannot
 erase a newly admitted successor. Explicit Thread DELETE instead cascades its
 associated Runs/results as approved.
@@ -187,6 +215,9 @@ handlers must route abort through the common executor instead of abandoning
 untracked promises. Graceful shutdown closes admission, drains for configured
 budget, then deliberately aborts and waits; a forced kill becomes execution_lost,
 not an invented clean stop. Already parked durable waits remain after restart.
+Automatic server shutdown or deadline does not retire an independently committed
+permission winner; explicit user Stop or binding disconnect against that parked
+Run retains its separate retirement policy.
 
 ## 6. Active input and safe new turns after stop
 

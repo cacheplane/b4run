@@ -7,6 +7,7 @@ import type { ChatResult } from "@langchain/core/outputs"
 import { interrupt } from "@langchain/langgraph"
 import { afterEach, expect, it, vi } from "vitest"
 import { createRuntimeCheckpointSaver } from "../src/lib/runtime/checkpoint-saver.ts"
+import { bindProtocolAgentExecution } from "../src/lib/runtime/execute-route-core.ts"
 import { createExecutionHost } from "../src/lib/runtime/executor.ts"
 import { createActiveInputBoundary, createInputService } from "../src/lib/runtime/inputs.ts"
 import { parkPermissions } from "../src/lib/runtime/permissions.ts"
@@ -82,7 +83,8 @@ it.each(["finish", "park", "stop", "returnDirect"] as const)(
       }
       host = createExecutionHost({
         ...f.authority,
-        async invoke({ store, run, signal }) {
+        async invoke(context) {
+          const { store, run, signal } = context
           const boundary = createActiveInputBoundary({
             store,
             runId: run.run.run_id,
@@ -126,7 +128,14 @@ it.each(["finish", "park", "stop", "returnDirect"] as const)(
             signal,
             durability: "sync",
           }
-          await graph.invoke(run.run.input, config)
+          await bindProtocolAgentExecution({
+            store,
+            runId: run.run.run_id,
+            checkpointer,
+            entry: graph,
+            config,
+          })
+          await agentBackendAdapter.execute(graph, run.run.input, context)
           if (mode === "park") {
             const state = await graph.getState(config),
               task = state.tasks.find((task) => task.interrupts.length)
@@ -179,7 +188,8 @@ it.each(["finish", "park", "stop", "returnDirect"] as const)(
       expect(replayed.b4.receipt).toMatchObject({
         disposition: "not_applied",
         inputId: entry?.entryId,
-        reason: mode === "park" ? "permission" : mode === "stop" ? "user_stop" : "completed",
+        // The final native model succeeds even when Stop was requested inside it.
+        reason: mode === "park" ? "permission" : "completed",
         replayed: true,
       })
       const journal = await (await f.store(accepted.threadId)).transaction((tx) =>
