@@ -997,11 +997,14 @@ class RuntimeCheckpointSaver extends BaseCheckpointSaver {
   ): AsyncGenerator<CheckpointTuple> {
     const tuples = await this.transaction(async (tx) => {
       await this.validate(tx, config)
-      const before = options.before?.configurable?.checkpoint_id
+      if (options.limit !== undefined && options.limit <= 0) return []
+      const checkpointId = config.configurable?.checkpoint_id,
+        before = options.before?.configurable?.checkpoint_id
       const rows = (await tx.checkpoints.list())
         .filter(
           (row) =>
             canonical(row.namespace) === canonical(this.options.namespace) &&
+            (!checkpointId || row.state.checkpoint.checkpoint_id === checkpointId) &&
             (!before || row.state.checkpoint.checkpoint_id < before),
         )
         .reverse()

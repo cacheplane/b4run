@@ -160,7 +160,7 @@ export function createActiveInputBoundary(options: {
   readonly namespaceGeneration: string
 }) {
   let selected: readonly RuntimeInboxRecord[] = []
-  async function current(tx: RuntimeTransaction, completingSelection = false) {
+  async function current(tx: RuntimeTransaction) {
     const run = await tx.runs.get(options.runId),
       thread = await tx.thread.get()
     if (
@@ -171,12 +171,7 @@ export function createActiveInputBoundary(options: {
       run.metadata.phase !== "running" ||
       run.metadata.generation !== tx.scope.generation ||
       run.execution?.fence !== tx.scope.fence ||
-      run.execution.ownerId !== (await tx.executionOwner()) ||
-      (!completingSelection &&
-        (await tx.inbox.list()).some(
-          (row) =>
-            row.kind === "control" && row.runId === options.runId && row.status === "accepted",
-        ))
+      run.execution.ownerId !== (await tx.executionOwner())
     )
       throw new ProtocolError("stale_generation")
     return { run, thread }
@@ -209,10 +204,10 @@ export function createActiveInputBoundary(options: {
     activeInput,
     async commitInputs(tx: RuntimeTransaction, ids: unknown) {
       if (ids === undefined || (Array.isArray(ids) && !ids.length)) return
-      // This invocation already selected these exact entries before Stop.
+      // This invocation selected these exact entries in its owned native superstep.
       // The current native superstep still owns its atomic checkpoint writes;
       // an accepted request does not revoke the owner or erase that selection.
-      const { run, thread } = await current(tx, true)
+      const { run, thread } = await current(tx)
       if (!Array.isArray(ids) || canonical(ids) !== canonical(selected.map((row) => row.entryId)))
         throw new ProtocolError("storage_unavailable")
       const durable = await Promise.all(selected.map((row) => tx.inbox.get(row.entryId)))

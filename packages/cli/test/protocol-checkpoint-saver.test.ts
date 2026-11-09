@@ -1,4 +1,8 @@
-import { emptyCheckpoint } from "@langchain/langgraph-checkpoint"
+import {
+  type CheckpointListOptions,
+  emptyCheckpoint,
+  MemorySaver,
+} from "@langchain/langgraph-checkpoint"
 import { afterEach, expect, it } from "vitest"
 import {
   createRuntimeCheckpointSaver,
@@ -318,6 +322,120 @@ it("restores native writes by optional task path, code-point task identity and n
         const listed = []
         for await (const tuple of restored.list(config)) listed.push(tuple)
         expect(listed[0]?.pendingWrites).toEqual(expected)
+        return {}
+      } catch (error) {
+        failure = error
+        throw error
+      }
+    },
+  })
+  cleanup.push(() => host.close())
+  await host.tick()
+  await host.idle()
+  if (failure) throw failure
+}, 30_000)
+
+it("matches native MemorySaver list selectors and nonpositive limits across canonical history", async () => {
+  const f = await fixture()
+  cleanup.push(() => f.close())
+  const accepted = await f.admit(body({ on_completion: "keep" }))
+  let failure: unknown
+  const host = createExecutionHost({
+    storage: f.storage,
+    async invoke({ store, run }) {
+      try {
+        const saver = createRuntimeCheckpointSaver({
+          store,
+          runId: run.run.run_id,
+          namespace: [],
+        })
+        const reference = new MemorySaver()
+        const config = { configurable: { thread_id: accepted.threadId, checkpoint_ns: "" } }
+        const first = emptyCheckpoint(),
+          second = emptyCheckpoint()
+        expect(first.id < second.id).toBe(true)
+        const metadata = [
+          { source: "loop", step: 0, parents: {} },
+          { source: "loop", step: 1, parents: {} },
+        ] as const
+        const savedFirst = await saver.put(config, first, metadata[0], {})
+        await saver.put(savedFirst, second, metadata[1], {})
+        const referenceFirst = await reference.put(config, first, metadata[0])
+        await reference.put(referenceFirst, second, metadata[1])
+        expect((await saver.getTuple(savedFirst))?.checkpoint.id).toBe(first.id)
+        expect(
+          (
+            await saver.getTuple({
+              configurable: { ...config.configurable, checkpoint_id: second.id },
+            })
+          )?.checkpoint.id,
+        ).toBe(second.id)
+        const scenarios: readonly {
+          readonly name: string
+          readonly checkpointId?: string
+          readonly options?: CheckpointListOptions
+        }[] = [
+          { name: "unfiltered-descending" },
+          {
+            name: "before-second",
+            options: { before: { configurable: { checkpoint_id: second.id } } },
+          },
+          { name: "limit-one", options: { limit: 1 } },
+          { name: "metadata-first", options: { filter: { step: 0 } } },
+          { name: "exact-first", checkpointId: first.id },
+          { name: "exact-second", checkpointId: second.id },
+          { name: "nonexistent", checkpointId: crypto.randomUUID() },
+          { name: "limit-zero", options: { limit: 0 } },
+          { name: "selected-limit-zero", checkpointId: second.id, options: { limit: 0 } },
+          { name: "limit-negative", options: { limit: -1 } },
+          { name: "selected-limit-negative", checkpointId: second.id, options: { limit: -1 } },
+        ]
+        const actual: Record<string, string[]> = {},
+          expected: Record<string, string[]> = {}
+        // Collect every selector/limit category before an aggregate oracle, so a
+        // failure on one selection cannot hide unexecuted conformance cases.
+        for (const scenario of scenarios) {
+          const selected = {
+            configurable: {
+              ...config.configurable,
+              ...(scenario.checkpointId !== undefined
+                ? { checkpoint_id: scenario.checkpointId }
+                : {}),
+            },
+          }
+          actual[scenario.name] = []
+          expected[scenario.name] = []
+          for await (const tuple of saver.list(selected, scenario.options))
+            actual[scenario.name]!.push(tuple.checkpoint.id)
+          for await (const tuple of reference.list(selected, scenario.options))
+            expected[scenario.name]!.push(tuple.checkpoint.id)
+        }
+        expect(expected["unfiltered-descending"]).toEqual([second.id, first.id])
+        expect(expected["exact-first"]).toEqual([first.id])
+        expect(expected["exact-second"]).toEqual([second.id])
+        expect(expected.nonexistent).toEqual([])
+        expect(expected["limit-zero"]).toEqual([])
+        expect(expected["selected-limit-zero"]).toEqual([])
+        expect(expected["limit-negative"]).toEqual([])
+        expect(expected["selected-limit-negative"]).toEqual([])
+        for (const control of [
+          "unfiltered-descending",
+          "before-second",
+          "limit-one",
+          "metadata-first",
+        ])
+          expect(actual[control]).toEqual(expected[control])
+        for (const invalid of [
+          { thread_id: "different-thread", checkpoint_ns: "" },
+          { thread_id: accepted.threadId, checkpoint_ns: "different-namespace" },
+        ])
+          await expect(
+            (async () => {
+              for await (const _tuple of saver.list({ configurable: invalid }, { limit: 0 })) {
+              }
+            })(),
+          ).rejects.toMatchObject({ code: "not_found" })
+        expect(actual).toEqual(expected)
         return {}
       } catch (error) {
         failure = error

@@ -1,6 +1,7 @@
 import { materializeAgentGraph } from "@b4run/langchain"
 import { agentBackendAdapter } from "@b4run/langchain/internal/runtime"
 import { agent, isCooperativeStop } from "@b4run/sdk"
+import type { RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AIMessage, AIMessageChunk } from "@langchain/core/messages"
 import { ChatGenerationChunk, type ChatResult } from "@langchain/core/outputs"
@@ -1040,6 +1041,446 @@ it.each(["execute", "stream"] as const)(
       await host?.close()
       await f.close()
       trace("cleanup-complete")
+    }
+  },
+  30_000,
+)
+
+const beforeModelControlCases = [
+  { mode: "execute", observation: "no-stop" },
+  { mode: "stream", observation: "no-stop" },
+  { mode: "execute", observation: "not-yet-observed" },
+  { mode: "stream", observation: "not-yet-observed" },
+  { mode: "execute", observation: "owner-observed" },
+  { mode: "stream", observation: "owner-observed" },
+] as const
+
+it.each(beforeModelControlCases)(
+  "canonical $mode preserves before-model outcome truth when Stop is $observation",
+  async ({ mode, observation }) => {
+    const f = await fixture(),
+      entered = deferred(),
+      release = deferred()
+    let owner: ReturnType<typeof createExecutionHost> | undefined,
+      replica: ReturnType<typeof createExecutionHost> | undefined,
+      ownerStore: RuntimeStore | undefined,
+      hardSignal: AbortSignal | undefined,
+      softSignal: AbortSignal | undefined,
+      calls = 0,
+      replicaInvocations = 0,
+      controlId: string | undefined,
+      observedError: unknown
+    class BeforeModelReply extends BaseChatModel {
+      constructor(_options: Record<string, unknown>) {
+        super({})
+      }
+      _llmType() {
+        return "replica-stop-before-model"
+      }
+      bindTools() {
+        return this
+      }
+      async _generate(): Promise<ChatResult> {
+        calls++
+        return {
+          generations: [{ text: "natural reply", message: new AIMessage("natural reply") }],
+        }
+      }
+      async *_streamResponseChunks() {
+        const result = await this._generate()
+        yield new ChatGenerationChunk({
+          text: "natural reply",
+          message: new AIMessageChunk({ content: result.generations[0]!.message.content }),
+        })
+      }
+    }
+    vi.doMock("@langchain/openai", () => ({ ChatOpenAI: BeforeModelReply }))
+    try {
+      const accepted = await f.admit(body({ on_completion: "keep" }))
+      owner = createExecutionHost({
+        ...f.authority,
+        async invoke(context) {
+          const { store, run } = context
+          ownerStore = store
+          hardSignal = context.signal
+          softSignal = context.stopSignal
+          const boundary = createActiveInputBoundary({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            namespaceGeneration: run.run.run_id,
+          })
+          const saver = createRuntimeCheckpointSaver({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            commitInputs: boundary.commitInputs,
+          })
+          const graph = await materializeAgentGraph({
+            descriptor: agent({ model: "gpt-5-mini", systemPrompt: "Finish one model turn." }),
+            checkpointer: saver,
+            activeInput: {
+              async beforeModel() {
+                entered.resolve()
+                await release.promise
+                // The replica accepts Stop BEFORE the real boundary reads the inbox.
+                return boundary.activeInput.beforeModel()
+              },
+            },
+          })
+          await bindProtocolAgentExecution({
+            store,
+            runId: run.run.run_id,
+            checkpointer: saver,
+            entry: graph,
+            config: { configurable: { thread_id: accepted.threadId, checkpoint_ns: "" } },
+          })
+          try {
+            if (mode === "execute") await agentBackendAdapter.execute(graph, run.run.input, context)
+            else
+              for await (const _chunk of agentBackendAdapter.stream(
+                graph,
+                run.run.input,
+                context,
+              )) {
+              }
+            return {}
+          } catch (error) {
+            observedError = error
+            throw error
+          }
+        },
+      })
+      replica = createExecutionHost({
+        ...f.authority,
+        async invoke() {
+          replicaInvocations++
+          throw new Error("The API replica must never own this invocation")
+        },
+      })
+      // tick() dispatches once; start() is deliberately not called. This models
+      // the legal window after a replica's acceptance and before the next owner poll.
+      await owner.tick()
+      await Promise.race([
+        entered.promise,
+        owner.idle().then(() => {
+          throw observedError ?? new Error("Native before-model boundary was not reached")
+        }),
+      ])
+      const authority = async () => {
+        if (!ownerStore) throw new Error("No owned native store")
+        return ownerStore.transaction(async (tx) => {
+          const run = await tx.runs.get(accepted.runId)
+          return {
+            generation: tx.scope.generation,
+            fence: tx.scope.fence,
+            ownerId: await tx.executionOwner(),
+            currentRunId: (await tx.thread.get())?.currentRunId,
+            execution: run?.execution,
+            phase: run?.metadata.phase,
+          }
+        })
+      }
+      const before = await authority()
+      expect(before).toMatchObject({
+        ownerId: owner.ownerId,
+        currentRunId: accepted.runId,
+        phase: "running",
+      })
+      expect(before.execution).toMatchObject({ ownerId: owner.ownerId, fence: before.fence })
+      expect(hardSignal?.aborted).toBe(false)
+      expect(softSignal?.aborted).toBe(false)
+      if (observation !== "no-stop") {
+        await replica.cancel(f.request(), accepted.threadId, accepted.runId, { wait: false })
+        expect(await authority()).toEqual(before)
+        expect(replicaInvocations).toBe(0)
+        expect(hardSignal?.aborted).toBe(false)
+        expect(softSignal?.aborted).toBe(false)
+        const durable = await f.snapshot(accepted.threadId)
+        const controls = durable.inbox.filter(
+          (row) => row.kind === "control" && row.runId === accepted.runId,
+        )
+        expect(controls).toHaveLength(1)
+        expect(controls).toMatchObject([
+          { status: "accepted", payload: { generation: before.generation, reason: "user_stop" } },
+        ])
+        controlId = controls[0]!.entryId
+      }
+      if (observation === "owner-observed") {
+        await owner.tick()
+        expect(softSignal?.aborted).toBe(true)
+        expect(hardSignal?.aborted).toBe(false)
+        expect(await authority()).toEqual(before)
+      }
+      expect(calls).toBe(0)
+      release.resolve()
+      await owner.idle()
+      const snapshot = await f.snapshot(accepted.threadId)
+      const row = snapshot.runs.find((run) => run.run.run_id === accepted.runId)
+      expect(replicaInvocations).toBe(0)
+      expect(hardSignal?.aborted).toBe(false)
+      if (observation === "owner-observed") {
+        expect(row?.metadata.reason).toBe("user_stop")
+        expect(calls).toBe(0)
+        expect(isCooperativeStop(observedError)).toBe(true)
+      } else {
+        expect(row?.metadata.reason).toBe("completed")
+        expect(calls).toBe(1)
+        expect(observedError).toBeUndefined()
+        expect(softSignal?.aborted).toBe(false)
+      }
+      expect(row?.run.status).toBe(observation === "owner-observed" ? "interrupted" : "success")
+      expect(row?.metadata.phase).toBe("settled")
+      expect(row?.metadata.continuation).toBe("closed")
+      expect(row?.metadata.effectsUncertain).not.toBe(true)
+      expect(row?.unwoundAt).toBeTruthy()
+      expect(snapshot.thread?.currentRunId).toBe(accepted.runId)
+      expect(
+        await (await f.store(accepted.threadId)).transaction((tx) => tx.executionOwner()),
+      ).toBeNull()
+      const controls = snapshot.inbox.filter(
+        (entry) => entry.kind === "control" && entry.runId === accepted.runId,
+      )
+      expect(controls).toHaveLength(observation === "no-stop" ? 0 : 1)
+      if (observation === "no-stop") expect(controls).toEqual([])
+      else
+        expect(controls).toMatchObject([
+          {
+            entryId: controlId,
+            status: "applied",
+            payload: { generation: before.generation, reason: "user_stop" },
+          },
+        ])
+    } finally {
+      release.resolve()
+      try {
+        await owner?.idle()
+      } finally {
+        try {
+          await owner?.close()
+        } finally {
+          try {
+            await replica?.close()
+          } finally {
+            await f.close()
+          }
+        }
+      }
+    }
+  },
+  30_000,
+)
+
+it.each(["execute", "stream"] as const)(
+  "canonical %s applies queued exact-run FIFO input when Stop is observed before selection",
+  async (mode) => {
+    const f = await fixture(),
+      entered = deferred(),
+      release = deferred()
+    let host: ReturnType<typeof createExecutionHost> | undefined,
+      calls = 0,
+      hardSignal: AbortSignal | undefined,
+      softSignal: AbortSignal | undefined,
+      observedError: unknown
+    class NeverModel extends BaseChatModel {
+      constructor(_options: Record<string, unknown>) {
+        super({})
+      }
+      _llmType() {
+        return "preselection-fifo-native-input"
+      }
+      bindTools() {
+        return this
+      }
+      async _generate(): Promise<ChatResult> {
+        calls++
+        return {
+          generations: [{ text: "unexpected", message: new AIMessage("unexpected") }],
+        }
+      }
+    }
+    vi.doMock("@langchain/openai", () => ({ ChatOpenAI: NeverModel }))
+    try {
+      const accepted = await f.admit(body({ on_completion: "keep" }))
+      const service = createInputService({
+        ...f.authority,
+        resolveTarget: async ({ run }) => ({
+          adapter: agentBackendAdapter,
+          agentId: run.run.agent_id!,
+          namespaceGeneration: run.run.run_id,
+          systemInjection: false,
+        }),
+      })
+      const params = (label: string) => ({
+        namespace: [],
+        message: {
+          id: label,
+          role: "user" as const,
+          content: label,
+          b4: { v: 1 as const, submissionId: crypto.randomUUID() },
+        },
+      })
+      const submissions = [params("fifo-first"), params("fifo-second")]
+      const receipts = [
+        await service.inject(f.request(), accepted.threadId, accepted.runId, submissions[0]!),
+        await service.inject(f.request(), accepted.threadId, accepted.runId, submissions[1]!),
+      ]
+      const inputIds = receipts.map((receipt) => receipt.b4.receipt.inputId)
+      host = createExecutionHost({
+        ...f.authority,
+        async invoke(context) {
+          const { store, run } = context
+          hardSignal = context.signal
+          softSignal = context.stopSignal
+          const boundary = createActiveInputBoundary({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            namespaceGeneration: run.run.run_id,
+          })
+          const saver = createRuntimeCheckpointSaver({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            commitInputs: boundary.commitInputs,
+          })
+          const graph = await materializeAgentGraph({
+            descriptor: agent({
+              model: "gpt-5-mini",
+              systemPrompt: "Complete the owned input-selection superstep.",
+            }),
+            checkpointer: saver,
+            activeInput: {
+              async beforeModel() {
+                entered.resolve()
+                await release.promise
+                return boundary.activeInput.beforeModel()
+              },
+            },
+          })
+          await bindProtocolAgentExecution({
+            store,
+            runId: run.run.run_id,
+            checkpointer: saver,
+            entry: graph,
+            config: {
+              configurable: { thread_id: accepted.threadId, checkpoint_ns: "" },
+            },
+          })
+          try {
+            if (mode === "execute") await agentBackendAdapter.execute(graph, run.run.input, context)
+            else
+              for await (const _chunk of agentBackendAdapter.stream(
+                graph,
+                run.run.input,
+                context,
+              )) {
+              }
+            return {}
+          } catch (error) {
+            observedError = error
+            throw error
+          }
+        },
+      })
+      await host.tick()
+      await Promise.race([
+        entered.promise,
+        host.idle().then(() => {
+          throw observedError ?? new Error("Native preselection boundary was not reached")
+        }),
+      ])
+      // This separate, genuinely admitted Run remains undispatched: tick() has
+      // already returned and cancel() only observes the current owner's live work.
+      const other = await f.admit(
+        body({
+          on_completion: "keep",
+          metadata: { b4: { v: 1, submissionId: crypto.randomUUID() } },
+        }),
+      )
+      expect(other.threadId).not.toBe(accepted.threadId)
+      expect(other.runId).not.toBe(accepted.runId)
+      const otherReceipt = await service.inject(
+        f.request(),
+        other.threadId,
+        other.runId,
+        params("other-run-input"),
+      )
+      const otherBefore = await f.snapshot(other.threadId)
+      expect(hardSignal?.aborted).toBe(false)
+      expect(softSignal?.aborted).toBe(false)
+      await host.cancel(f.request(), accepted.threadId, accepted.runId, { wait: false })
+      expect(softSignal?.aborted).toBe(true)
+      expect(hardSignal?.aborted).toBe(false)
+      const held = await f.snapshot(accepted.threadId)
+      expect(held.runs.find((row) => row.run.run_id === accepted.runId)?.metadata.phase).toBe(
+        "running",
+      )
+      expect(
+        await (await f.store(accepted.threadId)).transaction((tx) => tx.executionOwner()),
+      ).toBe(host.ownerId)
+      expect(
+        held.inbox.filter((row) => inputIds.includes(row.entryId)).map((row) => row.status),
+      ).toEqual(["accepted", "accepted"])
+      release.resolve()
+      await host.idle()
+      expect(calls).toBe(0)
+      expect(isCooperativeStop(observedError)).toBe(true)
+      expect(hardSignal?.aborted).toBe(false)
+      const snapshot = await f.snapshot(accepted.threadId)
+      const row = snapshot.runs.find((run) => run.run.run_id === accepted.runId)
+      expect(row).toMatchObject({
+        run: { status: "interrupted" },
+        metadata: { reason: "user_stop", phase: "settled", continuation: "closed" },
+      })
+      expect(row?.unwoundAt).toBeTruthy()
+      const applied = snapshot.inbox.filter((entry) => entry.kind === "inject")
+      expect(applied).toHaveLength(inputIds.length)
+      for (const entryId of inputIds)
+        expect(applied.find((entry) => entry.entryId === entryId)).toMatchObject({
+          entryId,
+          runId: accepted.runId,
+          namespace: [],
+          status: "applied",
+        })
+      const restored = createRuntimeCheckpointSaver({
+        store: await f.store(accepted.threadId),
+        runId: accepted.runId,
+        namespace: [],
+      })
+      const tuple = await restored.getTuple({
+        configurable: { thread_id: accepted.threadId, checkpoint_ns: "" },
+      })
+      expect(tuple?.checkpoint.channel_values._b4AppliedInputIds).toEqual(inputIds)
+      const messages = tuple?.checkpoint.channel_values.messages
+      if (!Array.isArray(messages)) throw new Error("Missing actual native checkpoint messages")
+      expect(messages.map((message) => message.id).filter((id) => inputIds.includes(id))).toEqual(
+        inputIds,
+      )
+      expect(messages.some((message) => message.id === otherReceipt.b4.receipt.inputId)).toBe(false)
+      for (const [index, submission] of submissions.entries())
+        expect(
+          (await service.inject(f.request(), accepted.threadId, accepted.runId, submission)).b4
+            .receipt,
+        ).toMatchObject({ inputId: inputIds[index], disposition: "applied" })
+      expect(await f.snapshot(other.threadId)).toEqual(otherBefore)
+      expect(
+        otherBefore.inbox.find((entry) => entry.entryId === otherReceipt.b4.receipt.inputId),
+      ).toMatchObject({ runId: other.runId, namespace: [], status: "accepted" })
+      expect(
+        await (await f.store(accepted.threadId)).transaction((tx) => tx.executionOwner()),
+      ).toBeNull()
+    } finally {
+      release.resolve()
+      try {
+        await host?.idle()
+      } finally {
+        try {
+          await host?.close()
+        } finally {
+          await f.close()
+        }
+      }
     }
   },
   30_000,
