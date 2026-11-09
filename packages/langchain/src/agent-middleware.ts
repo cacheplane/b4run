@@ -110,12 +110,17 @@ function activeInputMiddleware(input: BackendActiveInput): AgentMiddleware {
       return selected
         ? {
             messages: selected.messages.map((message) => {
-              if (typeof message.content !== "string" || !["user", "system"].includes(message.role))
+              if (
+                typeof message.content !== "string" ||
+                !["user", "system"].includes(message.role) ||
+                (message.name !== undefined && typeof message.name !== "string")
+              )
                 throw new Error("Active input requires user/system text messages")
               const Message = message.role === "system" ? SystemMessage : HumanMessage
               return new Message({
                 ...(message.id ? { id: message.id } : {}),
                 content: message.content,
+                ...(message.name !== undefined ? { name: message.name } : {}),
               })
             }),
             _b4AppliedInputIds: [...selected.inputIds],

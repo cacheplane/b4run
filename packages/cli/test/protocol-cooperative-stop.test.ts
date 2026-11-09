@@ -3,7 +3,7 @@ import { agentBackendAdapter } from "@b4run/langchain/internal/runtime"
 import { agent, isCooperativeStop } from "@b4run/sdk"
 import type { RuntimeStore } from "@b4run/sdk/agent-protocol"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
-import { AIMessage, AIMessageChunk } from "@langchain/core/messages"
+import { AIMessage, AIMessageChunk, type BaseMessage } from "@langchain/core/messages"
 import { ChatGenerationChunk, type ChatResult } from "@langchain/core/outputs"
 import type { RunnableConfig } from "@langchain/core/runnables"
 import { getConfig } from "@langchain/langgraph"
@@ -19,6 +19,7 @@ import {
   childInputExecution,
   createActiveInputBoundary,
   createInputService,
+  injectionPayload,
 } from "../src/lib/runtime/inputs.ts"
 import { parkPermissions } from "../src/lib/runtime/permissions.ts"
 import { body, fixture } from "./fixtures/protocol-admission.ts"
@@ -1472,6 +1473,266 @@ it.each(["execute", "stream"] as const)(
       ).toBeNull()
     } finally {
       release.resolve()
+      try {
+        await host?.idle()
+      } finally {
+        try {
+          await host?.close()
+        } finally {
+          await f.close()
+        }
+      }
+    }
+  },
+  30_000,
+)
+
+it.each(["execute", "stream"] as const)(
+  "canonical %s preserves omitted, empty and nonempty injected names at the model and checkpoint",
+  async (mode) => {
+    const f = await fixture()
+    let host: ReturnType<typeof createExecutionHost> | undefined,
+      calls = 0,
+      observedError: unknown
+    const submissions = (["user", "system"] as const).flatMap((role) =>
+      [undefined, "", "reviewer"].map((name, index) => ({
+        namespace: [],
+        message: {
+          role,
+          content: `${role}-name-${index}`,
+          ...(name !== undefined ? { name } : {}),
+          b4: { v: 1 as const, submissionId: crypto.randomUUID() },
+        },
+      })),
+    )
+    const inputIds: string[] = []
+    const view = (
+      messages: readonly {
+        readonly id?: unknown
+        readonly content?: unknown
+        readonly name?: unknown
+      }[],
+    ) =>
+      inputIds.map((id) => {
+        const message = messages.find((message) => message.id === id)
+        if (!message) throw new Error("Missing exact injected message")
+        return { id, content: message.content, name: message.name }
+      })
+    let modelMessages: ReturnType<typeof view> = [],
+      modelTypes: string[] = [],
+      modelDispositions: unknown[] = []
+    class NamedInputModel extends BaseChatModel {
+      constructor(_options: Record<string, unknown>) {
+        super({})
+      }
+      _llmType() {
+        return "canonical-named-input"
+      }
+      bindTools() {
+        return this
+      }
+      async _generate(messages: BaseMessage[]): Promise<ChatResult> {
+        calls++
+        modelMessages = view(messages)
+        modelTypes = inputIds.map((id) => {
+          const message = messages.find((message) => message.id === id)
+          if (!message) throw new Error("Model missed an exact injected message")
+          return message.getType()
+        })
+        modelDispositions = await Promise.all(
+          submissions.map(async ({ message }) => {
+            const result = await f.lookup(message.b4.submissionId)
+            return result[0]?.metadata.b4
+          }),
+        )
+        return { generations: [{ text: "done", message: new AIMessage("done") }] }
+      }
+      async *_streamResponseChunks(messages: BaseMessage[]) {
+        await this._generate(messages)
+        yield new ChatGenerationChunk({ text: "done", message: new AIMessageChunk("done") })
+      }
+    }
+    vi.doMock("@langchain/openai", () => ({ ChatOpenAI: NamedInputModel }))
+    try {
+      const accepted = await f.admit(body({ on_completion: "keep" }))
+      const service = createInputService({
+        ...f.authority,
+        authorizeSystemInput: async () => true,
+        resolveTarget: async ({ run }) => ({
+          adapter: agentBackendAdapter,
+          agentId: run.run.agent_id!,
+          namespaceGeneration: run.run.run_id,
+          systemInjection: true,
+        }),
+      })
+      const acceptedReceipts = []
+      for (const submission of submissions) {
+        const receipt = await service.inject(
+          f.request(),
+          accepted.threadId,
+          accepted.runId,
+          submission,
+        )
+        const inputId = receipt.b4.receipt.inputId
+        if (typeof inputId !== "string") throw new Error("Missing accepted input identity")
+        inputIds.push(inputId)
+        acceptedReceipts.push(receipt.b4.receipt)
+      }
+      const acceptedReplays = []
+      for (const submission of submissions)
+        acceptedReplays.push(
+          (await service.inject(f.request(), accepted.threadId, accepted.runId, submission)).b4
+            .receipt,
+        )
+      const acceptedSnapshot = await f.snapshot(accepted.threadId)
+      const acceptedMessages = inputIds.map((id) => {
+        const row = acceptedSnapshot.inbox.find((row) => row.entryId === id)
+        if (!row) throw new Error("Missing accepted durable input")
+        return injectionPayload(row).message
+      })
+      // Reject invalid wire names and changed names under the same token.
+      // These existing authority/identity checks must not mutate the accepted cut.
+      for (const role of ["user", "system"])
+        for (const name of [null, 7, {}, []])
+          await expect(
+            service.inject(f.request(), accepted.threadId, accepted.runId, {
+              namespace: [],
+              message: { role, content: "invalid-name", name },
+            }),
+          ).rejects.toMatchObject({ code: "invalid_argument" })
+      for (const submission of submissions)
+        await expect(
+          service.inject(f.request(), accepted.threadId, accepted.runId, {
+            ...submission,
+            message: { ...submission.message, name: "changed-name" },
+          }),
+        ).rejects.toMatchObject({ code: "submission_conflict" })
+      expect(await f.snapshot(accepted.threadId)).toEqual(acceptedSnapshot)
+      host = createExecutionHost({
+        ...f.authority,
+        async invoke(context) {
+          const { store, run } = context
+          const boundary = createActiveInputBoundary({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            namespaceGeneration: run.run.run_id,
+          })
+          const saver = createRuntimeCheckpointSaver({
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            commitInputs: boundary.commitInputs,
+          })
+          const graph = await materializeAgentGraph({
+            descriptor: agent({ model: "gpt-5-mini", systemPrompt: "Apply the named inputs." }),
+            checkpointer: saver,
+            activeInput: boundary.activeInput,
+          })
+          await bindProtocolAgentExecution({
+            store,
+            runId: run.run.run_id,
+            checkpointer: saver,
+            entry: graph,
+            config: { configurable: { thread_id: accepted.threadId, checkpoint_ns: "" } },
+          })
+          try {
+            if (mode === "execute") await agentBackendAdapter.execute(graph, run.run.input, context)
+            else
+              for await (const _chunk of agentBackendAdapter.stream(
+                graph,
+                run.run.input,
+                context,
+              )) {
+              }
+            return {}
+          } catch (error) {
+            observedError = error
+            throw error
+          }
+        },
+      })
+      await host.tick()
+      await host.idle()
+      const appliedSnapshot = await f.snapshot(accepted.threadId)
+      const restoredSaver = createRuntimeCheckpointSaver({
+        store: await f.store(accepted.threadId),
+        runId: accepted.runId,
+        namespace: [],
+      })
+      const restored = await restoredSaver.getTuple({
+        configurable: { thread_id: accepted.threadId, checkpoint_ns: "" },
+      })
+      const checkpointMessages = restored?.checkpoint.channel_values.messages
+      if (!Array.isArray(checkpointMessages)) throw new Error("Missing saved native messages")
+      const appliedReplays = []
+      for (const submission of submissions)
+        appliedReplays.push(
+          (await service.inject(f.request(), accepted.threadId, accepted.runId, submission)).b4
+            .receipt,
+        )
+      const expected = submissions.map(({ message }, index) => ({
+        id: inputIds[index],
+        content: message.content,
+        name: message.name,
+      }))
+      expect(observedError).toBeUndefined()
+      expect(calls).toBe(1)
+      expect(modelTypes).toEqual(["human", "human", "human", "system", "system", "system"])
+      for (const [index, receipt] of acceptedReceipts.entries()) {
+        expect(receipt).toMatchObject({
+          inputId: inputIds[index],
+          runId: accepted.runId,
+          disposition: "accepted",
+        })
+        expect(acceptedReplays[index]).toEqual({ ...receipt, replayed: true })
+        expect(appliedReplays[index]).toEqual({
+          ...receipt,
+          disposition: "applied",
+          replayed: true,
+        })
+        expect(modelDispositions[index]).toMatchObject({
+          lookup: {
+            receipt: { inputId: inputIds[index], runId: accepted.runId, disposition: "applied" },
+          },
+        })
+      }
+      for (const inputId of inputIds)
+        expect(appliedSnapshot.inbox.find((row) => row.entryId === inputId)).toMatchObject({
+          runId: accepted.runId,
+          namespace: [],
+          status: "applied",
+        })
+      expect(restored?.checkpoint.channel_values._b4AppliedInputIds).toEqual(inputIds)
+      expect(
+        checkpointMessages
+          .filter((message) => inputIds.includes(message.id))
+          .map((message) => message.id),
+      ).toEqual(inputIds)
+      expect(appliedSnapshot.runs.find((row) => row.run.run_id === accepted.runId)).toMatchObject({
+        run: { status: "success" },
+        metadata: { phase: "settled", reason: "completed", continuation: "closed" },
+      })
+      expect(
+        await (await f.store(accepted.threadId)).transaction((tx) => tx.executionOwner()),
+      ).toBeNull()
+      // Collect every actual accepted/model/native restored/public/applied observation
+      // before this aggregate oracle, so an early empty-name loss cannot mask
+      // the independent native conversion loss for both roles.
+      expect({
+        accepted: view(acceptedMessages),
+        acceptedNameKeys: acceptedMessages.map((message) => Object.hasOwn(message, "name")),
+        model: modelMessages,
+        checkpoint: view(checkpointMessages),
+        publicMessages: view(appliedSnapshot.thread?.thread.messages ?? []),
+      }).toEqual({
+        accepted: expected,
+        acceptedNameKeys: [false, true, true, false, true, true],
+        model: expected,
+        checkpoint: expected,
+        publicMessages: expected,
+      })
+    } finally {
       try {
         await host?.idle()
       } finally {

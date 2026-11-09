@@ -691,7 +691,7 @@ export function createInputService(options: InputServiceOptions) {
           id: inputId,
           role: params.message.role,
           content: params.message.content,
-          ...(params.message.name ? { name: params.message.name } : {}),
+          ...(params.message.name !== undefined ? { name: params.message.name } : {}),
         }
         if (
           waiting.length >= limits.entries ||
