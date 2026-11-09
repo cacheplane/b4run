@@ -12,8 +12,8 @@
  * every upstream call, together with the shared token as `X-Internal-Token`.
  * The visitor header is trusted only on a request that also carries the token,
  * and a request without both is refused with 401 before any endpoint runs —
- * even when the app runs the plain `.b4/build/server.mjs`. Only `GET /healthz`
- * and `GET /readyz` answer without one. The example repository's `main.mjs` guards the
+ * even when the app runs the plain `.b4/build/server.mjs`. Only `/healthz` and
+ * `/readyz` answer without one. The example repository's `main.mjs` guards the
  * whole process with the same token.
  *
  * In local development (no token) there is no proxy and one local principal
