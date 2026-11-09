@@ -2,7 +2,7 @@
 // no compile step. Mirrors the generated `.b4/build/server.mjs` (manifest +
 // workspace), then adds what a public deployment needs:
 //   - Postgres stores when DATABASE_URL is set (checkpointer, threads, permissions);
-//   - an internal-token guard on every request but /healthz when B4_INTERNAL_TOKEN is set.
+//   - an internal-token guard with public health and GET readiness probes.
 // With neither variable set it behaves like `b4 start`. Run `b4 build` first.
 import { timingSafeEqual } from "node:crypto"
 import { readFile, stat } from "node:fs/promises"
@@ -95,7 +95,7 @@ function postgresStores(connectionString) {
 }
 
 /**
- * Everything but the health check must carry the token the web proxy injects.
+ * Everything but the public probes must carry the token the web proxy injects.
  * The pathname is compared exactly after parsing, never by prefix on the raw
  * url: the runtime routes on the normalized path.
  */
@@ -106,9 +106,10 @@ function tokenGuard(secret) {
     try {
       pathname = new URL(request.url ?? "/", "http://localhost").pathname
     } catch {
-      // An unparseable target is not the health check; it needs the token.
+      // An unparseable target is not a public probe; it needs the token.
     }
     if (pathname === "/healthz") return false
+    if (request.method === "GET" && pathname === "/readyz") return false
     const presented = request.headers["x-internal-token"]
     if (typeof presented === "string") {
       const actual = Buffer.from(presented)

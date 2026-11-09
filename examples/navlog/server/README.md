@@ -113,7 +113,7 @@ deployment-only and are not part of the scaffold:
   the generated `.b4/build/server.mjs` does, then adds two things. With
   `DATABASE_URL` set, the checkpointer, threads and permissions stores move to
   Postgres (`@b4run/postgres-storage`). With `B4_INTERNAL_TOKEN` set, every
-  request except `GET /healthz` must carry that token in `X-Internal-Token`,
+  request except `GET /healthz` and `GET /readyz` must carry that token in `X-Internal-Token`,
   which only the web proxy has, and anything else gets 401. With neither set it
   behaves like `b4 start`.
 - `Dockerfile.railway`, a multi-stage build from the repository root: it
@@ -124,16 +124,28 @@ deployment-only and are not part of the scaffold:
 deprecated `railway.json` config-as-code, and its GitHub App is not installed
 on this repository). Its settings live on the service itself: Dockerfile path
 `examples/navlog/server/Dockerfile.railway` with the repository root as the
-build context, health check `/healthz` with a 120 s timeout, restart on
-failure up to three times. The Postgres template in the same project injects
-`DATABASE_URL`.
+build context. Set its deployment healthcheck path to `/readyz` with a 120 s
+timeout, keeping restart on failure up to three times. The Postgres template
+in the same project injects `DATABASE_URL`. Railway's
+[deployment healthcheck](https://docs.railway.com/deployments/healthchecks)
+must pass before traffic switches; changing the workflow's final probe does
+not change that service setting.
+
+`GET /healthz` is process liveness and keeps its compatible `{ status: "ready" }`
+body without checking stores. The Docker `HEALTHCHECK` stays on `/healthz`.
+`GET /readyz` checks the checkpointer, permissions and threads stores with real
+queries: it returns 200 with `status: "ready"` when all answer, or 503 with
+`status: "not_ready"` and named checks when a dependency fails. Its response is
+not cached. Both GET probes are public; other routes and methods still require
+the proxy token and the runtime's existing authentication.
 
 **Deploys** come from `.github/workflows/deploy-navlog.yml`, the same shape as
 threadplane's Railway workflows: on a push to `main` that touches the server,
 a workspace package, or the docs the CLI bundles, it uploads the checkout with
 the Railway CLI under a project token (`RAILWAY_NAVLOG_TOKEN`, scoped to the
 demo's project and environment), follows the deployment it created until
-Railway reports success, and probes `/healthz`. A build or boot failure fails
+Railway reports success, and probes `/readyz` for dependency readiness. A build,
+boot or readiness failure fails
 the workflow instead of hiding behind the last good image. `workflow_dispatch`
 redeploys `main` by hand.
 
