@@ -90,7 +90,10 @@ it.each(["execute", "stream"] as const)(
         async invoke(context) {
           const { store, run } = context
           const boundary = createActiveInputBoundary({
-            store, runId: run.run.run_id, namespace: [], namespaceGeneration: run.run.run_id,
+            store,
+            runId: run.run.run_id,
+            namespace: [],
+            namespaceGeneration: run.run.run_id,
           })
           const saver = createRuntimeCheckpointSaver({
             store,
@@ -129,7 +132,10 @@ it.each(["execute", "stream"] as const)(
                   prepared.resolve()
                   await release.promise
                   try {
-                    return await owned.invoke({ messages: [{ role: "user", content: "child" }] }, config)
+                    return await owned.invoke(
+                      { messages: [{ role: "user", content: "child" }] },
+                      config,
+                    )
                   } catch (error) {
                     childError = error
                     throw error
@@ -970,7 +976,11 @@ it.each(["execute", "stream"] as const)(
           try {
             if (mode === "execute") await agentBackendAdapter.execute(graph, run.run.input, context)
             else
-              for await (const _chunk of agentBackendAdapter.stream(graph, run.run.input, context)) {
+              for await (const _chunk of agentBackendAdapter.stream(
+                graph,
+                run.run.input,
+                context,
+              )) {
               }
           } finally {
             trace("native-invocation-settled")

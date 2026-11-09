@@ -200,7 +200,8 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
         throw new AggregateError(teardownErrors, "Owned owner-loss PostgreSQL cleanup failed")
     })
     process.stdout.write(`R4 created own container ${container.getId()}\n`)
-    const pool = (ownedPool = new Pool({ connectionString: container.getConnectionUri() }))
+    const pool = new Pool({ connectionString: container.getConnectionUri() })
+    ownedPool = pool
     pool.on("error", (error) => errors.push(error))
     const engine = await pool.query<{ version: string }>("SELECT version()")
     process.stdout.write(`R5 actual database: ${engine.rows[0]?.version}\n`)
