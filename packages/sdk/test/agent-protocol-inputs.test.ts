@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -84,6 +85,87 @@ describe("pinned Agent Protocol source inputs", () => {
     expect(readFileSync(join(fixturesDirectory, "upstream/LICENSE"), "utf8")).toContain(
       "Copyright (c) 2024 LangChain, Inc.",
     )
+  })
+
+  it("preserves all pinned source bytes in an isolated autocrlf checkout", () => {
+    const directory = mkdtempSync(join(tmpdir(), "agent-protocol-checkout-"))
+    const repository = join(directory, "repository")
+    const templates = join(directory, "empty-templates")
+    const emptyConfig = join(directory, "empty-config")
+    const emptyAttributes = join(directory, "empty-attributes")
+    const prefix = "test/agent-protocol/fixtures/upstream"
+    const pins = [
+      {
+        path: "openapi.json",
+        sha256: "7d069e43ca105e8127ce07ba7bd8bd7a78a2fadd6420009f2634a24cfb153f32",
+      },
+      {
+        path: "protocol.cddl",
+        sha256: "9cebafc02e523f509f880aa8ebaa2af077f8a7f0589d8063a50d610c3af78fb1",
+      },
+      {
+        path: "LICENSE",
+        sha256: "d9bb52f2e3540d60ff50d8f0f5b6ba649b7fd346948c4c3d086c8afb120763c7",
+      },
+    ]
+    try {
+      mkdirSync(join(repository, prefix), { recursive: true })
+      mkdirSync(templates)
+      writeFileSync(emptyConfig, "")
+      writeFileSync(emptyAttributes, "")
+      cpSync(
+        fileURLToPath(new URL("../../../.gitattributes", import.meta.url)),
+        join(repository, ".gitattributes"),
+      )
+      for (const pin of pins) {
+        const source = join(fixturesDirectory, "upstream", pin.path)
+        expect(sha256(readFileSync(source))).toBe(pin.sha256)
+        cpSync(source, join(repository, prefix, pin.path))
+      }
+      const env = {
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([key]) =>
+              !/^GIT_/i.test(key) &&
+              !["GH_TOKEN", "GITHUB_TOKEN", "SSH_AUTH_SOCK"].includes(key.toUpperCase()),
+          ),
+        ),
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: emptyConfig,
+        GIT_ATTR_NOSYSTEM: "1",
+      }
+      const git = (args: readonly string[]) => {
+        const result = spawnSync(
+          "git",
+          [
+            "-c",
+            "core.autocrlf=true",
+            "-c",
+            `core.attributesFile=${emptyAttributes}`,
+            "-c",
+            `core.hooksPath=${templates}`,
+            ...args,
+          ],
+          { cwd: repository, env, timeout: 4_000 },
+        )
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(0)
+        expect(result.signal).toBeNull()
+      }
+      git(["init", "--quiet", `--template=${templates}`])
+      git(["add", "--", ".gitattributes", ...pins.map((pin) => `${prefix}/${pin.path}`)])
+      for (const pin of pins) rmSync(join(repository, prefix, pin.path))
+      git(["checkout-index", "--force", "--all"])
+      // Collect every reconstructed source before comparing, so the first
+      // failing pin cannot hide the other files' checkout behavior.
+      const actual = pins.map((pin) => ({
+        path: pin.path,
+        sha256: sha256(readFileSync(join(repository, prefix, pin.path))),
+      }))
+      expect(actual).toEqual(pins)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("counts exactly 27 method/path operations", () => {

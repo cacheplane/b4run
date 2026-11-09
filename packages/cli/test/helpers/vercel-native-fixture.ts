@@ -2791,6 +2791,45 @@ function assertPinnedLogProgress(
   redactor.assertSafe("sanitized native Vercel deployment logs progress", sanitized)
 }
 
+type NativeLogFailureCategory = "transport" | "nonzero" | "progress-validation" | "stdout-safety"
+
+/** Fixture-only tags; arbitrary thrown fields never enter diagnostic output. */
+class NativeLogBoundaryFailure extends Error {
+  readonly #category: NativeLogFailureCategory
+
+  constructor(category: NativeLogFailureCategory) {
+    super(`native Vercel deployment logs ${category} failed`)
+    this.#category = category
+  }
+
+  static diagnostic(error: unknown) {
+    const tag =
+      typeof error === "object" && error !== null && #category in error
+        ? error.#category
+        : undefined
+    const category =
+      tag === "transport"
+        ? "transport"
+        : tag === "nonzero"
+          ? "nonzero"
+          : tag === "progress-validation"
+            ? "progress-validation"
+            : tag === "stdout-safety"
+              ? "stdout-safety"
+              : "unknown"
+    return {
+      event: "native_vercel_log_boundary_failure",
+      stage:
+        category === "stdout-safety"
+          ? "stdout-safety"
+          : category === "unknown"
+            ? "boundary"
+            : "pinned-cli",
+      category,
+    }
+  }
+}
+
 export async function createNativePinnedVercelBoundary(
   options: NativePinnedVercelBoundaryOptions,
 ): Promise<NativePinnedVercelBoundary> {
@@ -2841,15 +2880,32 @@ export async function createNativePinnedVercelBoundary(
     try {
       result = await options.runChild({ ...request, executable: cliPath, timeoutMs })
     } catch (cause) {
+      if (label === "native Vercel deployment logs") {
+        throw new NativeLogBoundaryFailure("transport")
+      }
       // The child runner's own message is the only thing separating a blown budget
       // from a spawn failure or a killed process, and the lane writes its
       // deploy-failure diagnostic from this chain. Every message the runner can
       // produce is fixture-authored, so none of them can carry a secret.
       throw new Error(`${label} child transport failed under its ${timeoutMs}ms budget`, { cause })
     }
-    if (result.exitCode !== 0) throw protectedChildError(result, label, redactor)
-    if (validateSuccessStderr) validateSuccessStderr(result.stderr)
-    else redactor.assertSafe(`${label} stderr`, result.stderr)
+    if (result.exitCode !== 0) {
+      const failure = protectedChildError(result, label, redactor)
+      if (label === "native Vercel deployment logs") {
+        throw new NativeLogBoundaryFailure("nonzero")
+      }
+      throw failure
+    }
+    if (validateSuccessStderr) {
+      try {
+        validateSuccessStderr(result.stderr)
+      } catch (error) {
+        if (label === "native Vercel deployment logs") {
+          throw new NativeLogBoundaryFailure("progress-validation")
+        }
+        throw error
+      }
+    } else redactor.assertSafe(`${label} stderr`, result.stderr)
     return result
   }
   const credentialEnv = (includeDatabase: boolean): Record<string, string> =>
@@ -4588,8 +4644,13 @@ export async function pollNativeVercelRuntimeLogs(options: {
         queryEndIso,
         queryStartIso,
       })
-    } catch {
-      throw new Error("native Vercel pinned log boundary failed")
+    } catch (error) {
+      const failure = new Error("native Vercel pinned log boundary failed")
+      const diagnostic = JSON.stringify(NativeLogBoundaryFailure.diagnostic(error))
+      // Only this freshly constructed Error's own stack is read. The caught
+      // value contributes no arbitrary fields, stack, message, or cause.
+      failure.stack = `${failure.stack ?? "Error: native Vercel pinned log boundary failed"}\nNative Vercel log boundary diagnostic: ${diagnostic}`
+      throw failure
     }
     const completedMs = nativeClockNow(options.clock, "native Vercel log polling clock")
     if (completedMs - overallStartMs >= NATIVE_RECONCILIATION_DEADLINE_MS) {
@@ -5408,7 +5469,11 @@ export async function runNativeVercelBlackBox(options: {
     logBoundary: {
       logs: async (request) => {
         const stdout = await options.logBoundary.logs(request)
-        assertReleaseSafe("runtime log JSONL", stdout)
+        try {
+          assertReleaseSafe("runtime log JSONL", stdout)
+        } catch {
+          throw new NativeLogBoundaryFailure("stdout-safety")
+        }
         return stdout
       },
     },

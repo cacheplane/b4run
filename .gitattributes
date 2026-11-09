@@ -18,3 +18,8 @@
 # Chosen over a custom merge driver, which every clone would have to register
 # in its own git config before it took effect.
 apps/web/app/seo/lastmod.generated.json -merge linguist-generated=true
+
+# Preserve the normative byte hashes of vendored Agent Protocol sources on every checkout.
+test/agent-protocol/fixtures/upstream/openapi.json -text
+test/agent-protocol/fixtures/upstream/protocol.cddl -text
+test/agent-protocol/fixtures/upstream/LICENSE -text
