@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process"
 import { once } from "node:events"
+import { request as httpRequest, type IncomingHttpHeaders } from "node:http"
 import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -129,6 +130,77 @@ describe("main.mjs behind the internal-token guard", () => {
   it("answers the health check without a token", async () => {
     const res = await fetch(new URL("/healthz", url))
     expect(res.status).toBe(200)
+  })
+
+  // Keep the target raw: fetch(new URL(...)) would normalize dot segments
+  // before main.mjs sees them, hiding a prefix-based exemption regression.
+  async function rawRequest(
+    path: string,
+    method = "GET",
+  ): Promise<{ status: number; headers: IncomingHttpHeaders; body: string }> {
+    return await new Promise((resolve, reject) => {
+      const request = httpRequest(url, { path, method, agent: false }, (response) => {
+        let body = ""
+        response.setEncoding("utf8")
+        response.on("data", (chunk: string) => {
+          body += chunk
+          if (Buffer.byteLength(body) > 64 * 1024) {
+            response.destroy(new Error("Probe response exceeded its test bound"))
+          }
+        })
+        response.on("end", () =>
+          resolve({ status: response.statusCode ?? 0, headers: response.headers, body }),
+        )
+        response.on("error", reject)
+        response.on("aborted", () => reject(new Error("Probe response aborted")))
+      })
+      request.setTimeout(4_000, () => request.destroy(new Error("Probe request timed out")))
+      request.on("error", reject)
+      request.end()
+    })
+  }
+
+  it.each(["/readyz", "/readyz?probe=1", "/some/../readyz"])(
+    "runs the real readiness probe without a token for raw GET %s",
+    async (path) => {
+      const response = await rawRequest(path)
+      expect(response.status).toBe(200)
+      expect(response.headers["cache-control"]).toBe("no-store")
+      expect(JSON.parse(response.body)).toEqual({
+        status: "ready",
+        checks: {
+          checkpointer: { status: "ok" },
+          permissionsStore: { status: "ok" },
+          threadsStore: { status: "ok" },
+        },
+      })
+    },
+  )
+
+  it.each(["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])(
+    "keeps raw %s /readyz behind the token guard",
+    async (method) => {
+      const response = await rawRequest("/readyz", method)
+      expect(response.status).toBe(401)
+      if (method !== "HEAD") expect(JSON.parse(response.body)).toEqual({ error: "unauthorized" })
+    },
+  )
+
+  it.each([
+    "/readyz/",
+    "/readyz-extra",
+    "/readyz/../threads",
+    "/readyz/%2e%2e/threads",
+    "/readyz/../memory/namespaces",
+    "/healthz/../threads",
+    "/readyz/%2Fthreads",
+    "/%72eadyz",
+    "/READYZ",
+    "//",
+  ])("refuses a tokenless raw GET target that is not a probe: %s", async (path) => {
+    const response = await rawRequest(path)
+    expect(response.status).toBe(401)
+    expect(JSON.parse(response.body)).toEqual({ error: "unauthorized" })
   })
 
   it("refuses a runtime route without the token", async () => {

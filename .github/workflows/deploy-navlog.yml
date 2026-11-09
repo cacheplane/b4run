@@ -11,7 +11,7 @@ name: Deploy navlog server
 # `railway up --detach` returns when the upload is accepted, so the second step
 # follows the deployment it created until Railway reports SUCCESS, and fails
 # the workflow on anything else: a broken build must not hide behind the last
-# good image. The health probe at the end confirms the new container answers.
+# good image. The readiness probe at the end checks the new container's stores.
 
 on:
   push:
@@ -122,13 +122,13 @@ jobs:
       - name: Probe the live server
         run: |
           for attempt in 1 2 3 4 5 6; do
-            if curl --fail --silent --show-error --max-time 10 https://b4-navlog-server.up.railway.app/healthz; then
+            if curl --fail --silent --show-error --max-time 10 https://b4-navlog-server.up.railway.app/readyz; then
               echo
               exit 0
             fi
             sleep 10
           done
-          echo "::error::navlog-server did not answer /healthz after the rollout" >&2
+          echo "::error::navlog-server did not answer /readyz after the rollout" >&2
           exit 1
 
   diagnose:
