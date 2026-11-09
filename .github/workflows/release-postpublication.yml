@@ -65,7 +65,7 @@ jobs:
       - name: Transfer verified original manifest
         id: bootstrap
         if: ${{ steps.prepare.outputs.smoke == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.prepare.outputs.job_id }}
           path: ${{ runner.temp }}/bootstrap/manifest.json
@@ -73,7 +73,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-admit-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -125,7 +125,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-adopt-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -184,7 +184,7 @@ jobs:
         if: always()
       - name: Retain exact lane and installation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.execute.outputs.evidence_directory }}/*.json
@@ -192,7 +192,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-metadata-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -251,7 +251,7 @@ jobs:
         if: always()
       - name: Retain exact lane and installation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.execute.outputs.evidence_directory }}/*.json
@@ -259,7 +259,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-published-harness-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -318,7 +318,7 @@ jobs:
         if: always()
       - name: Retain exact lane and installation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.execute.outputs.evidence_directory }}/*.json
@@ -326,7 +326,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-runtime-targets-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -385,7 +385,7 @@ jobs:
         if: always()
       - name: Retain exact lane and installation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.execute.outputs.evidence_directory }}/*.json
@@ -393,7 +393,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-scaffold-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -452,7 +452,7 @@ jobs:
         if: always()
       - name: Retain exact lane and installation evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.execute.outputs.artifact_name }}
           path: ${{ steps.execute.outputs.evidence_directory }}/*.json
@@ -460,7 +460,7 @@ jobs:
           overwrite: false
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-storage-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -518,7 +518,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -572,7 +572,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-dispatch-audit-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -626,7 +626,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-audit-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -681,7 +681,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-finalize-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -736,7 +736,7 @@ jobs:
         if: always()
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-publish-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
@@ -800,7 +800,7 @@ jobs:
         run: node scripts/release/recovery/cli.mjs report --request "$RUNNER_TEMP/request.json" --output "$RUNNER_TEMP/result.json" --needs "$RUNNER_TEMP/needs.json"
       - name: Retain command diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-diagnostic-recovery-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
