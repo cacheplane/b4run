@@ -29,6 +29,31 @@ type _Action = Expect<Equal<ThreadAction, "create" | "read" | "update" | "delete
 type _Operation = Expect<
   Equal<
     ThreadOperation,
+    | "thread.search"
+    | "thread.patch"
+    | "thread.history"
+    | "thread.stream"
+    | "thread.copy.source"
+    | "thread.copy.destination"
+    | "run.create"
+    | "run.search"
+    | "run.get"
+    | "run.cancel"
+    | "run.rollback"
+    | "run.delete"
+    | "run.receipt"
+    | "input.respond"
+    | "input.inject"
+    | "input.inject.system"
+    | "state.get"
+    | "state.listCheckpoints"
+    | "state.fork.source"
+    | "state.fork.destination"
+    | "state.update"
+    | "subscription.subscribe"
+    | "subscription.unsubscribe"
+    | "subscription.reconnect"
+    | "agent.getTree"
     | "thread.create"
     | "thread.get"
     | "thread.state"
@@ -198,5 +223,38 @@ const _wrongDiscriminant: B4ThreadAccess = () => ({ action: "continue" })
 void _wrongDiscriminant
 
 // @ts-expect-error the operation union is closed.
-const _unknownOperation: ThreadOperation = "run.cancel"
+const _unknownOperation: ThreadOperation = "run.unrecognized"
 void _unknownOperation
+
+// Protocol context is additive for native callers and readonly for policies.
+type _Context = Expect<
+  Equal<
+    ThreadAccessRequest["context"],
+    | {
+        readonly deploymentId: string
+        readonly scope:
+          | { readonly kind: "anonymous" }
+          | { readonly kind: "principal"; readonly id: string }
+      }
+    | undefined
+  >
+>
+type _Provenance = Expect<
+  Equal<NonNullable<ThreadAccessRequest["provenance"]>["namespace"], readonly string[] | undefined>
+>
+const protocolContext: NonNullable<ThreadAccessRequest["context"]> = {
+  deploymentId: "d",
+  scope: { kind: "principal", id: "u" },
+}
+const sourceProvenance: NonNullable<ThreadAccessRequest["provenance"]> = {
+  namespace: ["child"],
+  sourceThreadId: "source",
+}
+// @ts-expect-error deployment scope is selected by the host, never rewritten by policy.
+protocolContext.deploymentId = "other"
+// @ts-expect-error identity is immutable within an operation.
+protocolContext.scope.kind = "anonymous"
+// @ts-expect-error stored namespace provenance is readonly.
+sourceProvenance.namespace?.push("forged")
+// @ts-expect-error source identity is readonly.
+sourceProvenance.sourceThreadId = "other"

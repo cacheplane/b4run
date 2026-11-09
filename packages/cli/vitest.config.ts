@@ -8,9 +8,22 @@ const rootDir = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      "@b4run/sdk/internal/runtime-identity": resolve(
+        rootDir,
+        "../sdk/src/internal/runtime-identity.ts",
+      ),
+      "@b4run/core/internal/permission-continuation": resolve(
+        rootDir,
+        "../core/src/internal-permissions.ts",
+      ),
+      "../../core/dist/capabilities/permission-gate.js": resolve(
+        rootDir,
+        "../core/src/capabilities/permission-gate.ts",
+      ),
       "@b4run/core/internal/compiler": resolve(rootDir, "../core/src/compiler/index.ts"),
       "@b4run/core/node": resolve(rootDir, "../core/src/node.ts"),
       "@b4run/core": resolve(rootDir, "../core/src/index.ts"),
+      "@b4run/langchain/internal/runtime": resolve(rootDir, "../langchain/src/internal-runtime.ts"),
       "@b4run/langchain": resolve(rootDir, "../langchain/src/index.ts"),
       "@b4run/langgraph": resolve(rootDir, "../langgraph/src/index.ts"),
       // Subpath aliases MUST precede the bare package alias — vitest matches

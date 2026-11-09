@@ -1,4 +1,5 @@
 import type { RequestRunAdmission } from "@b4run/sdk"
+import { type AdmissionService, isAdmissionService } from "../runtime/admission.js"
 import { createRequestErrorBody } from "./server-errors.js"
 
 interface Binding {
@@ -48,4 +49,16 @@ export function releaseRequestRun(request: Request): Promise<void> {
 /** Remove request-bound coordination after its body and actual execution have settled. */
 export function forgetRequestRunAdmission(request: Request): void {
   bindings.delete(request)
+}
+
+const protocolBindings = new WeakMap<Request, AdmissionService>()
+/** Trusted boot binding only. The request body cannot mint/replace a service. */
+export function bindRequestProtocolAdmission(request: Request, service: AdmissionService): void {
+  if (!isAdmissionService(service)) throw new Error("Unrecognized admission service")
+  if (protocolBindings.has(request) && protocolBindings.get(request) !== service)
+    throw new Error("Request admission service is already bound")
+  protocolBindings.set(request, service)
+}
+export function requestProtocolAdmission(request: Request): AdmissionService | undefined {
+  return protocolBindings.get(request)
 }

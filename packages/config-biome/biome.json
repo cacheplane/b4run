@@ -40,6 +40,12 @@
       "formatter": {
         "enabled": false
       }
+    },
+    {
+      "includes": ["test/agent-protocol/fixtures/upstream/openapi.json"],
+      "formatter": {
+        "enabled": false
+      }
     }
   ]
 }

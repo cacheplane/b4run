@@ -11,6 +11,7 @@ export interface ThreadPermissions {
 
 /** Where a thread's "Always" grants live: the thread's own record, never `.b4/permissions.json`. */
 export interface ThreadPermissionGrants {
+  readonly rememberedRules?: import("./rule-intents.js").RememberedRuleCoordinator
   list(): PatternMap
   add(tool: string, pattern: string): void | Promise<void>
 }
@@ -63,13 +64,40 @@ export function createThreadPermissionsStore(options: {
   readonly grants: ThreadPermissionGrants
 }): PermissionsStore {
   const { base, permissions, grants } = options
+  const coordinator = grants.rememberedRules
   const allow = concat(permissions.allow ?? {})
   const deny = concat(permissions.deny ?? {})
   const none = concat()
   let granted: Record<string, string[]> = concat()
-  return {
+  const store: PermissionsStore = {
+    ...(coordinator
+      ? {
+          rememberedRules: {
+            async prepare(operationId, rules) {
+              await store.load()
+              if (
+                base.mode !== "interactive" ||
+                rules.some(
+                  (rule) =>
+                    !recordable(rule.tool) ||
+                    !recordable(rule.pattern) ||
+                    store.match(rule.tool, rule.pattern) === "deny",
+                )
+              )
+                throw new Error("Permission rule cannot be remembered")
+              return coordinator.prepare(operationId, rules)
+            },
+            async apply(intent) {
+              const result = await coordinator.apply(intent)
+              await store.load()
+              return result
+            },
+          },
+        }
+      : {}),
     mode: base.mode,
     async load() {
+      await base.load()
       granted = concat(grants.list())
     },
     match(tool, candidate) {
@@ -94,4 +122,5 @@ export function createThreadPermissionsStore(options: {
       granted = concat(granted, { [tool]: [pattern] })
     },
   }
+  return store
 }

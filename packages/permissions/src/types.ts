@@ -1,3 +1,5 @@
+import type { RememberedRuleCoordinator } from "./rule-intents.js"
+
 /**
  * Public types for the B4.run HITL permissions system.
  *
@@ -79,7 +81,10 @@ export type PermissionRequest = PermissionRequestBase &
   )
 
 export interface PermissionsStore {
-  /** Loaded once at construction; subsequent loads not exposed in v1. */
+  /** Optional conditional/idempotent writer for durable runtime Always intents.
+   * Unsupported custom stores refuse Always before runtime acceptance. */
+  readonly rememberedRules?: RememberedRuleCoordinator
+  /** Refresh the current configured store before synchronous matching. */
   load(): Promise<void>
   match(tool: string, candidate: string): "allow" | "deny" | "unknown"
   /** Persists an allow entry to disk and updates the in-memory cache. */

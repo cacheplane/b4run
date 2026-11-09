@@ -81,6 +81,10 @@ export const packages = [
   {
     dir: "packages/sdk",
     expectedFiles: [
+      "dist/agent-protocol/index.js",
+      "dist/agent-protocol/index.d.ts",
+      "dist/agent-protocol.schema.json",
+      "dist/agent-protocol.fixtures.json",
       "dist/agent.js",
       "dist/agent.d.ts",
       "dist/index.js",
@@ -98,6 +102,14 @@ export const packages = [
       "README.md",
       "package.json",
     ],
+    expectedExports: {
+      "./agent-protocol": {
+        types: "./dist/agent-protocol/index.d.ts",
+        default: "./dist/agent-protocol/index.js",
+      },
+      "./agent-protocol.schema.json": "./dist/agent-protocol.schema.json",
+      "./agent-protocol.fixtures.json": "./dist/agent-protocol.fixtures.json",
+    },
     requiredFields: libraryRequiredFields,
   },
   {

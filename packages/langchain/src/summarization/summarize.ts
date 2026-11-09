@@ -41,11 +41,12 @@ export async function defaultSummarize(args: {
   if (args.invokeModel) return args.invokeModel(prompt)
 
   const provider = resolveProvider({ model: args.model })
-  const llm = (await createChatModel({
+  const model = await createChatModel({
     model: args.model,
     provider,
     ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
-  })) as {
+  })
+  const llm = model as {
     invoke: (input: unknown, options?: unknown) => Promise<{ content: unknown }>
   }
   const res = await llm.invoke([{ role: "user", content: prompt }], { signal: args.signal })

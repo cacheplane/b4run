@@ -4,13 +4,16 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "rootDir": ".",
+    "rootDir": "../..",
     "tsBuildInfoFile": "dist/tsconfig.test.tsbuildinfo"
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
-    "test/**/*.tsx"
+    "test/**/*.tsx",
+    "../../test/agent-protocol/runtime-storage-contract.ts",
+    "../../test/agent-protocol/runtime-protected-source-contract.ts",
+    "../../test/agent-protocol/runtime-pending-identities.ts"
   ]
 }

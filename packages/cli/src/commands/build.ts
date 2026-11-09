@@ -17,6 +17,7 @@ import {
   threadSandboxArtifact,
   type WorkspaceBuildArtifact,
 } from "../lib/build/workspace-artifact.js"
+import { createRuntimeRegistryFromManifest } from "../lib/dev/runtime-registry-core.js"
 import { findThreadAccessFile } from "../lib/dev/thread-access-node.js"
 import { loadOptionalB4Config } from "../lib/node-config.js"
 import { CliError, type CommandIo, writeLine } from "../lib/output.js"
@@ -26,6 +27,7 @@ import {
   workspaceProtocolPolicyMessage,
 } from "../lib/runtime/workspace-protocol.js"
 import { runTypegen } from "../lib/typegen/run-typegen.js"
+import { checkAgentProtocolDefault } from "../lib/verify/check-runtime.js"
 
 interface BuildOptions {
   readonly clean?: boolean
@@ -56,6 +58,7 @@ export async function runBuildCommand(options: BuildOptions, io: CommandIo): Pro
   })
 
   const config = await loadOptionalB4Config(manifest.appRoot)
+  checkAgentProtocolDefault(config, createRuntimeRegistryFromManifest(manifest).entries)
   const vercelBuildConfig = resolveVercelBuildConfig(config?.build, manifest.appRoot)
 
   // The config type only admits known names, but a JS config or a JSON one

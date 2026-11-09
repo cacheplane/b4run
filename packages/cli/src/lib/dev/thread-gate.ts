@@ -8,11 +8,17 @@ import type {
   ThreadSubject,
 } from "@b4run/sdk"
 import { THREAD_ACCESS_METADATA_KEY } from "@b4run/sdk"
+import type { Thread as ProtocolThread } from "@b4run/sdk/agent-protocol"
 import type { Thread, ThreadsStore } from "@b4run/sqlite-storage"
 import { requestPrincipal } from "./auth.js"
+import { ProtocolError, protocolErrorResponse } from "./protocol/errors.js"
 import { createRequestErrorBody } from "./server-errors.js"
 import { statusResponse } from "./status-response.js"
-import { normalizeThreadAccessResult } from "./thread-access.js"
+import {
+  createThreadAccessContext,
+  normalizeThreadAccessResult,
+  snapshotThreadProvenance,
+} from "./thread-access.js"
 
 /**
  * The thread-access gate: every gated endpoint builds one of these per
@@ -36,10 +42,12 @@ export type GateDenied = { readonly ok: false; readonly response: Response }
 export type Gate = GateOk | GateDenied
 
 export interface GateSpec {
+  /** Trusted stored lineage, supplied by the host after resolving the target. */
+  readonly provenance?: NonNullable<ThreadAccessRequest["provenance"]>
   readonly action: ThreadAction
   readonly operation: ThreadOperation
   readonly threadId?: string
-  readonly thread?: Thread
+  readonly thread?: Thread | ProtocolThread
   readonly requestedMetadata?: Record<string, unknown>
   /**
    * The workspace this request stages or chooses — see
@@ -102,7 +110,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * shortcut would let a forged stamp resolve through the chain on an object that
  * reports it stripped.
  */
-function toThreadSubject(thread: Thread): ThreadSubject {
+function toThreadSubject(thread: Thread | ProtocolThread): ThreadSubject {
   const reserved = Object.hasOwn(thread.metadata, THREAD_ACCESS_METADATA_KEY)
     ? thread.metadata[THREAD_ACCESS_METADATA_KEY]
     : undefined
@@ -171,11 +179,17 @@ function denyResponse(
 export function makeThreadGate(
   policy: ThreadAccessPolicy | undefined,
   request: Request,
+  options?: {
+    readonly context: NonNullable<ThreadAccessRequest["context"]>
+    readonly concealDenials: true
+  },
 ): (spec: GateSpec) => Gate | Promise<Gate> {
   if (!policy) return () => GATE_OK
   // Identity comes from the one resolver (`src/auth.ts`), resolved before any
   // gate ran. The policy gets no headers, so it cannot grow a second parser.
-  const principal = requestPrincipal(request)
+  const resolvedPrincipal = requestPrincipal(request)
+  const principal =
+    options && resolvedPrincipal ? Object.freeze({ ...resolvedPrincipal }) : resolvedPrincipal
   const method = request.method
   const parsed = new URL(request.url)
   const url = `${parsed.pathname}${parsed.search}`
@@ -183,6 +197,8 @@ export function makeThreadGate(
     const handler = policy[spec.action] ?? policy.fallback
     const accessRequest: ThreadAccessRequest = {
       action: spec.action,
+      ...(options ? { context: options.context } : {}),
+      ...(spec.provenance ? { provenance: snapshotThreadProvenance(spec.provenance) } : {}),
       method,
       operation: spec.operation,
       principal,
@@ -213,7 +229,12 @@ export function makeThreadGate(
         }
         return GATE_OK
       }
-      return { ok: false, response: denyResponse(spec.action, result, spec.notFound) }
+      return {
+        ok: false,
+        response: options?.concealDenials
+          ? protocolErrorResponse(new ProtocolError("not_found"))
+          : denyResponse(spec.action, result, spec.notFound),
+      }
     }
     const returned = handler(accessRequest) as unknown
     return isThenable(returned) ? returned.then(settle) : settle(returned)
@@ -272,4 +293,52 @@ export async function createGatedThreadForRun(args: {
   const settled = isThenable(recheck) ? await recheck : recheck
   if (!settled.ok) return settled
   return { ok: true, thread }
+}
+
+/** The standard protocol uses the same policy pipeline, with uniform absence
+ * responses. Native call sites keep their existing deny envelope and policy. */
+export function makeProtocolThreadGate(
+  policy: ThreadAccessPolicy | undefined,
+  request: Request,
+  host: { readonly deploymentId: string },
+): (spec: GateSpec) => Gate | Promise<Gate> {
+  return makeThreadGate(policy, request, {
+    context: createThreadAccessContext(host.deploymentId, requestPrincipal(request)),
+    concealDenials: true,
+  })
+}
+/** Invoke on every disclosure, including exact receipt retries. The callback
+ * must not run until current scope is authorized. No transaction is implied. */
+export async function authorizeProtocolRead<T>(args: {
+  readonly gate: (spec: GateSpec) => Gate | Promise<Gate>
+  readonly spec: GateSpec & { readonly action: "read" }
+  readonly read: () => T | undefined | null | Promise<T | undefined | null>
+}): Promise<T> {
+  const result = await args.gate(args.spec)
+  if (!result.ok) throw new ProtocolError("not_found")
+  const value = await args.read()
+  if (value === undefined || value === null) throw new ProtocolError("not_found")
+  return value
+}
+/** Separate source-read and destination-create decisions. Caller performs its
+ * own coherent read/create transaction and destination-row recheck later. */
+export async function authorizeProtocolCopy(args: {
+  readonly gate: (spec: GateSpec) => Gate | Promise<Gate>
+  readonly source: Omit<GateSpec, "action" | "operation">
+  readonly destination: Omit<GateSpec, "action" | "operation">
+  readonly fork?: boolean
+}): Promise<GateOk> {
+  const source = await args.gate({
+    ...args.source,
+    action: "read",
+    operation: args.fork ? "state.fork.source" : "thread.copy.source",
+  })
+  if (!source.ok) throw new ProtocolError("not_found")
+  const destination = await args.gate({
+    ...args.destination,
+    action: "create",
+    operation: args.fork ? "state.fork.destination" : "thread.copy.destination",
+  })
+  if (!destination.ok) throw new ProtocolError("not_found")
+  return destination
 }

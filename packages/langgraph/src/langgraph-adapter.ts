@@ -37,6 +37,7 @@ async function retirePendingActions(
 export function createLangGraphAdapter(kind: "graph" | "workflow"): BackendAdapter {
   return {
     kind,
+    protocol: { injection: false },
 
     async execute(
       entry: unknown,

@@ -1,3 +1,4 @@
+import { normalizeProtocolOutput, type ProtocolOutputOptions } from "../dev/protocol/input.js"
 import {
   createRuntimeFailureResult,
   createRuntimeSuccessResult,
@@ -8,6 +9,8 @@ import {
 export interface NormalizeServerResultOptions {
   readonly appRoot: string
   readonly finishedAt?: number
+  /** Opt-in shaping of raw route output; legacy server clients keep the parsed body. */
+  readonly protocol?: ProtocolOutputOptions
   readonly mode: RuntimeExecutionMode
   readonly responseBodyText: string
   readonly routeId: string
@@ -36,12 +39,31 @@ export function normalizeServerResult(
       })
     }
 
+    let output = parsedBody.value
+    if (options.protocol) {
+      try {
+        output = normalizeProtocolOutput(output, options.protocol)
+      } catch {
+        return createRuntimeFailureResult({
+          appRoot: options.appRoot,
+          executionSource: "server",
+          ...(options.finishedAt === undefined ? {} : { finishedAt: options.finishedAt }),
+          kind: "server_transport_error",
+          message: "Server returned an invalid protocol output payload for /runs/wait",
+          mode: options.mode,
+          routeId: options.routeId,
+          routePath: options.routePath,
+          startedAt: options.startedAt,
+        })
+      }
+    }
+
     return createRuntimeSuccessResult({
       appRoot: options.appRoot,
       executionSource: "server",
       ...(options.finishedAt === undefined ? {} : { finishedAt: options.finishedAt }),
       mode: options.mode,
-      output: parsedBody.value,
+      output,
       routeId: options.routeId,
       routePath: options.routePath,
       startedAt: options.startedAt,

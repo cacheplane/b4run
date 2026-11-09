@@ -1,0 +1,11 @@
+{
+  "sourceSha256": "7d069e43ca105e8127ce07ba7bd8bd7a78a2fadd6420009f2634a24cfb153f32",
+  "operations": [
+    {
+      "op": "remove",
+      "path": "/components/schemas/RunStream/allOf/1/required",
+      "expected": ["run_id", "created_at", "updated_at", "status", "metadata"]
+    }
+  ],
+  "reason": "RunStream is a request; these response-only fields remain required by Run.allOf[1]. No Message correction is applied."
+}

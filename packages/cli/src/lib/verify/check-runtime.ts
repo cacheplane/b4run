@@ -1,5 +1,31 @@
+import { agentProtocolDefaultAgentId, type B4Config } from "@b4run/core"
 import type { B4ErrorCode } from "@b4run/sdk"
 import type { SandboxProvider } from "@b4run/workspace"
+import type { RuntimeRegistryEntry } from "../dev/runtime-registry-core.js"
+import { createRouteAssistantId, isPublicRunnableRoute } from "../runtime/route-identity.js"
+
+/** Shared check/build/boot gate. Multiple routes without a default remain valid. */
+export function checkAgentProtocolDefault(
+  config: B4Config | undefined,
+  routes: readonly RuntimeRegistryEntry[],
+): string | undefined {
+  const publicRoutes = routes.filter(isPublicRunnableRoute)
+  for (const route of publicRoutes) {
+    if (route.assistantId !== createRouteAssistantId(route.routeId, route.mode)) {
+      throw new Error("Runtime contains a noncanonical Agent ID")
+    }
+  }
+  const configured = agentProtocolDefaultAgentId(config)
+  if (configured !== undefined) {
+    if (!publicRoutes.some((route) => route.assistantId === configured)) {
+      throw new Error(
+        "server.agentProtocol.defaultAgentId must name an exact public runnable Agent ID",
+      )
+    }
+    return configured
+  }
+  return publicRoutes.length === 1 ? publicRoutes[0]?.assistantId : undefined
+}
 
 /**
  * Minimum Node version B4.run requires at runtime: the active LTS line. Node 24

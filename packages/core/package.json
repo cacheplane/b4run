@@ -41,6 +41,10 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./dist/node.js"
+    },
+    "./internal/permission-continuation": {
+      "types": "./dist/internal-permissions.d.ts",
+      "default": "./dist/internal-permissions.js"
     }
   },
   "publishConfig": {

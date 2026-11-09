@@ -1,4 +1,11 @@
 import type { DatabaseSync } from "node:sqlite"
+import { matchPermission, type PermissionRule, type RememberedRuleIntent } from "@b4run/permissions"
+import {
+  existingRuleReceipt,
+  type RuleCoordinatorState,
+  readRuleCoordinator,
+  withRuleReceipt,
+} from "@b4run/permissions/internal/rule-coordinator"
 import type { ThreadSandboxRecord } from "@b4run/workspace"
 import { MAX_THREAD_SANDBOX_RECORD_BYTES, verifyThreadSandboxRecord } from "@b4run/workspace/node"
 
@@ -9,6 +16,12 @@ export interface WorkspaceThreadSandboxStore {
   grants(threadId: string): Readonly<Record<string, readonly string[]>>
   /** Record an "Always" grant. Only for a thread whose record carries its own permissions. */
   addGrant(threadId: string, tool: string, pattern: string): void
+  prepareRuleIntent(
+    threadId: string,
+    operationId: string,
+    rules: readonly PermissionRule[],
+  ): RememberedRuleIntent
+  applyRuleIntent(threadId: string, intent: RememberedRuleIntent): "applied" | "superseded"
 }
 /** Internal: rows change only inside the association store's own transactions. */
 export interface WorkspaceThreadSandboxWriter extends WorkspaceThreadSandboxStore {
@@ -48,6 +61,9 @@ export function ensureWorkspaceThreadSandboxSchema(db: DatabaseSync): void {
   db.exec(
     "CREATE TABLE IF NOT EXISTS workspace_thread_permission_grants(thread_id TEXT NOT NULL, tool TEXT NOT NULL, pattern TEXT NOT NULL, PRIMARY KEY(thread_id, tool, pattern))",
   )
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS workspace_thread_permission_coordinators(thread_id TEXT PRIMARY KEY NOT NULL,payload TEXT NOT NULL)",
+  )
 }
 
 export function makeWorkspaceThreadSandboxStore(db: DatabaseSync): WorkspaceThreadSandboxWriter {
@@ -62,6 +78,15 @@ export function makeWorkspaceThreadSandboxStore(db: DatabaseSync): WorkspaceThre
   )
   const removeGrants = db.prepare(
     "DELETE FROM workspace_thread_permission_grants WHERE thread_id=?",
+  )
+  const selectCoordinator = db.prepare(
+    "SELECT payload FROM workspace_thread_permission_coordinators WHERE thread_id=?",
+  )
+  const saveCoordinator = db.prepare(
+    "INSERT INTO workspace_thread_permission_coordinators(thread_id,payload) VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET payload=excluded.payload",
+  )
+  const removeCoordinator = db.prepare(
+    "DELETE FROM workspace_thread_permission_coordinators WHERE thread_id=?",
   )
   const text = (value: unknown, what: string): string => {
     if (
@@ -83,6 +108,40 @@ export function makeWorkspaceThreadSandboxStore(db: DatabaseSync): WorkspaceThre
       throw new Error("Noncanonical workspace thread sandbox")
     return record
   }
+  function coordinated<T>(
+    threadId: string,
+    callback: (
+      content: { allow: Record<string, string[]>; deny: Record<string, readonly string[]> },
+      state: RuleCoordinatorState,
+    ) => { value: T; state: RuleCoordinatorState },
+  ): T {
+    db.exec("SAVEPOINT workspace_thread_permission_rule")
+    try {
+      const permissions = get(threadId)?.permissions
+      if (!permissions)
+        throw new Error(`Thread ${threadId} has no permissions of its own to grant into`)
+      const content = { allow: grants(threadId), deny: permissions.deny ?? {} }
+      const row = selectCoordinator.get(threadId)
+      const state = readRuleCoordinator(row ? JSON.parse(String(row.payload)) : undefined, content)
+      const result = callback(content, state)
+      saveCoordinator.run(threadId, JSON.stringify(result.state))
+      db.exec("RELEASE workspace_thread_permission_rule")
+      return result.value
+    } catch (error) {
+      db.exec(
+        "ROLLBACK TO workspace_thread_permission_rule; RELEASE workspace_thread_permission_rule",
+      )
+      throw error
+    }
+  }
+  function grants(threadId: string): Record<string, string[]> {
+    const out: Record<string, string[]> = Object.create(null)
+    for (const row of selectGrants.all(threadId)) {
+      const tool = text(row.tool, "tool")
+      out[tool] = [...(out[tool] ?? []), text(row.pattern, "pattern")]
+    }
+    return out
+  }
   return {
     get,
     insert(threadId, input) {
@@ -91,24 +150,66 @@ export function makeWorkspaceThreadSandboxStore(db: DatabaseSync): WorkspaceThre
         throw new Error("Workspace thread sandbox exceeds size limit")
       insert.run(threadId, payload)
     },
-    grants(threadId) {
-      const out: Record<string, string[]> = Object.create(null)
-      for (const row of selectGrants.all(threadId)) {
-        const tool = text(row.tool, "tool")
-        const list = out[tool] ?? []
-        list.push(text(row.pattern, "pattern"))
-        out[tool] = list
-      }
-      return out
-    },
+    grants,
     addGrant(threadId, tool, pattern) {
-      if (!get(threadId)?.permissions)
-        throw new Error(`Thread ${threadId} has no permissions of its own to grant into`)
-      insertGrant.run(threadId, text(tool, "tool"), text(pattern, "pattern"))
+      coordinated(threadId, (content, state) => {
+        text(tool, "tool")
+        text(pattern, "pattern")
+        insertGrant.run(threadId, tool, pattern)
+        if (!content.allow[tool]?.includes(pattern))
+          content.allow[tool] = [...(content.allow[tool] ?? []), pattern]
+        const intent = {
+          operationId: crypto.randomUUID(),
+          scopeId: state.scopeId,
+          revision: String(state.revision),
+          rules: [{ tool, pattern }],
+        }
+        return { value: undefined, state: withRuleReceipt(state, intent, "applied", content) }
+      })
+    },
+    prepareRuleIntent(threadId, operationId, rules) {
+      return coordinated(threadId, (content, state) => {
+        for (const rule of rules) {
+          text(rule.tool, "tool")
+          text(rule.pattern, "pattern")
+        }
+        const intent = {
+          operationId,
+          scopeId: state.scopeId,
+          revision: String(state.revision),
+          rules,
+        }
+        withRuleReceipt(state, intent, "superseded", content)
+        return { value: intent, state }
+      })
+    },
+    applyRuleIntent(threadId, intent) {
+      return coordinated(threadId, (content, state) => {
+        const receipt = existingRuleReceipt(state, intent)
+        if (receipt) return { value: receipt, state }
+        const outcome =
+          state.scopeId === intent.scopeId &&
+          String(state.revision) === intent.revision &&
+          !intent.rules.some(
+            (rule) => matchPermission(rule.tool, rule.pattern, {}, content.deny) === "deny",
+          )
+            ? "applied"
+            : "superseded"
+        if (outcome === "applied")
+          for (const rule of intent.rules) {
+            text(rule.tool, "tool")
+            text(rule.pattern, "pattern")
+            insertGrant.run(threadId, rule.tool, rule.pattern)
+            if (!content.allow[rule.tool]?.includes(rule.pattern))
+              content.allow[rule.tool] = [...(content.allow[rule.tool] ?? []), rule.pattern]
+          }
+        return { value: outcome, state: withRuleReceipt(state, intent, outcome, content) }
+      })
     },
     remove(threadId) {
       remove.run(threadId)
       removeGrants.run(threadId)
+      removeCoordinator.run(threadId)
     },
   }
 }

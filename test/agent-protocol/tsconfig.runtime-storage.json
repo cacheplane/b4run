@@ -1,0 +1,16 @@
+{
+  "extends": "../../packages/config-typescript/node.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rootDir": "../..",
+    "paths": {
+      "@b4run/sdk/agent-protocol": ["../../packages/sdk/src/agent-protocol/index.ts"]
+    }
+  },
+  "include": [
+    "runtime-storage-contract.ts",
+    "runtime-protected-source-contract.ts",
+    "../../packages/sdk/src/agent-protocol/**/*.ts"
+  ]
+}

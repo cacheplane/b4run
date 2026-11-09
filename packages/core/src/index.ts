@@ -88,6 +88,7 @@ export { UnresolvedToolInputTypeError } from "./compiler/errors.js"
 export type { B4ConfigLoader } from "./config.js"
 export {
   __clearB4ConfigCacheForTests,
+  agentProtocolDefaultAgentId,
   loadB4Config,
   registerConfigLoader,
   seedB4Config,

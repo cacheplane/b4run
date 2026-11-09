@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import {
   mkdir,
@@ -148,36 +149,105 @@ export interface EdgeContainers {
  * "migrations ran once".
  */
 export async function startEdgeContainers(): Promise<EdgeContainers> {
-  const network = await new Network().start()
-  const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE)
-    .withNetwork(network)
-    .withNetworkAliases("b4-pg")
-    .withCommand(["postgres", "-c", "log_statement=all"])
-    .withStartupTimeout(180_000)
-    .start()
-  let log = ""
-  const logs = await postgres.logs()
-  logs.on("data", (chunk: unknown) => {
-    log += String(chunk)
-  })
-  const wsproxy = await new GenericContainer(WSPROXY_IMAGE)
-    .withNetwork(network)
-    .withEnvironment({ ALLOW_ADDR_REGEX: ".*" })
-    .withExposedPorts(80)
-    .withWaitStrategy(Wait.forListeningPorts())
-    .withStartupTimeout(180_000)
-    .start()
+  const resourceId =
+    process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? `protocol-${randomUUID().replaceAll("-", "")}`
+  if (!/^protocol-[a-f0-9]{32}$/.test(resourceId)) {
+    throw new Error("Invalid edge fixture resource identifier")
+  }
+  const fixtureId = randomUUID().replaceAll("-", "")
+  const networkName = `b4-edge-${fixtureId}-network`
+  const postgresName = `b4-edge-${fixtureId}-postgres`
+  const proxyName = `b4-edge-${fixtureId}-proxy`
+  const labels = {
+    "org.b4run.protocol-resource": resourceId,
+    "org.b4run.protocol-edge-fixture": fixtureId,
+  }
+  const resources: Array<{
+    stage: string
+    name: string
+    id: string
+    close: () => Promise<unknown>
+  }> = []
+  console.info(
+    "R8_EDGE_PLANNED",
+    JSON.stringify({ resourceId, fixtureId, networkName, postgresName, proxyName }),
+  )
 
-  return {
-    log: () => log,
-    network,
-    postgres,
-    stop: async () => {
-      await wsproxy.stop().catch(() => {})
-      await postgres.stop().catch(() => {})
-      await network.stop().catch(() => {})
-    },
-    wsproxy,
+  async function cleanup(): Promise<unknown[]> {
+    const failures: unknown[] = []
+    for (const resource of resources.splice(0).reverse()) {
+      const { stage, name, id } = resource
+      try {
+        await resource.close()
+        console.info("R8_EDGE_CLOSED", JSON.stringify({ resourceId, fixtureId, stage, name, id }))
+      } catch (error) {
+        failures.push(error)
+        console.error(
+          "R8_EDGE_CLEANUP_FAILURE",
+          JSON.stringify({ resourceId, fixtureId, stage, name, failureCount: failures.length }),
+        )
+      }
+    }
+    return failures
+  }
+
+  try {
+    const network = await new Network({ nextUuid: () => networkName }).start()
+    resources.push({
+      stage: "network.stop",
+      name: networkName,
+      id: network.getId(),
+      close: () => network.stop(),
+    })
+    const postgres = await new PostgreSqlContainer(POSTGRES_IMAGE)
+      .withName(postgresName)
+      .withLabels(labels)
+      .withNetwork(network)
+      .withNetworkAliases("b4-pg")
+      .withCommand(["postgres", "-c", "log_statement=all"])
+      .withStartupTimeout(180_000)
+      .start()
+    resources.push({
+      stage: "postgres.stop",
+      name: postgresName,
+      id: postgres.getId(),
+      close: () => postgres.stop({ removeVolumes: true }),
+    })
+    let log = ""
+    const logs = await postgres.logs()
+    logs.on("data", (chunk: unknown) => {
+      log += String(chunk)
+    })
+    const wsproxy = await new GenericContainer(WSPROXY_IMAGE)
+      .withName(proxyName)
+      .withLabels(labels)
+      .withNetwork(network)
+      .withEnvironment({ ALLOW_ADDR_REGEX: ".*" })
+      .withExposedPorts(80)
+      .withWaitStrategy(Wait.forListeningPorts())
+      .withStartupTimeout(180_000)
+      .start()
+    resources.push({
+      stage: "proxy.stop",
+      name: proxyName,
+      id: wsproxy.getId(),
+      close: () => wsproxy.stop({ removeVolumes: true }),
+    })
+
+    return {
+      log: () => log,
+      network,
+      postgres,
+      stop: async () => {
+        const failures = await cleanup()
+        if (failures.length === 1) throw failures[0]
+        if (failures.length > 1) throw new AggregateError(failures, "Edge fixture cleanup failed")
+      },
+      wsproxy,
+    }
+  } catch (error) {
+    await cleanup()
+    throw error
   }
 }
 

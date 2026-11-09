@@ -8,6 +8,10 @@ const rootDir = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      "@b4run/sdk/internal/runtime-identity": resolve(
+        rootDir,
+        "../sdk/src/internal/runtime-identity.ts",
+      ),
       "@b4run/langgraph/define-entry": resolve(rootDir, "src/define-entry.ts"),
       "@b4run/langgraph/route-module": resolve(rootDir, "src/route-module.ts"),
       "@b4run/langgraph/ui": resolve(rootDir, "src/ui.ts"),

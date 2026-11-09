@@ -18,6 +18,36 @@ class GatedSaver extends MemorySaver {
 const config = { configurable: { thread_id: "t", checkpoint_ns: "", checkpoint_id: "c1" } }
 
 describe("trackCheckpointWrites", () => {
+  it("preserves a failed owned write and its derived rejection until the graph observes it", async () => {
+    const failure = new Error("durable-write-failed")
+    class FailingSaver extends MemorySaver {
+      override async putWrites(): Promise<void> {
+        throw failure
+      }
+    }
+    const tracked = trackCheckpointWrites(new FailingSaver())
+    const write = tracked.saver.putWrites(config, [["x", 1]], "task")
+    // Pinned LangGraph keeps this exact rejecting child in its task barrier,
+    // but awaits it only after other tasks complete.
+    const child = write.then(
+      () => "unexpected",
+      (error) => {
+        throw error
+      },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await expect(child).rejects.toBe(failure)
+    await expect(write.catch((error) => error)).resolves.toBe(failure)
+    let finalized = 0
+    await expect(
+      write.finally(() => {
+        finalized++
+      }),
+    ).rejects.toBe(failure)
+    expect(finalized).toBe(1)
+    await expect(tracked.settled()).rejects.toBe(failure)
+  })
+
   it("settles only after a write already in flight has landed", async () => {
     const saver = new GatedSaver()
     const tracked = trackCheckpointWrites(saver)

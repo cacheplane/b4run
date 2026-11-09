@@ -22,6 +22,7 @@ import { discoverRoutes } from "@b4run/core/node"
 | `@b4run/core` | edge-safe | not-claimed | integration | low-level |
 | `@b4run/core/node` | node-only | not-claimed | integration | low-level |
 | `@b4run/core/internal/compiler` | node-only | not-claimed | internal | internal |
+| `@b4run/core/internal/permission-continuation` | edge-safe | not-claimed | internal | internal |
 
 Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stays free of that filesystem loader, so a static runtime can seed configuration instead.
 
@@ -106,6 +107,7 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 | `UnresolvedToolInputTypeDetails` | The structured `details` on `UnresolvedToolInputTypeError`: tool name, file, type text, what it resolved to, unresolved imports, and the tsconfig path. |
 | `UnresolvedImport` | One unresolved module specifier or member from the compiler, with its diagnostic text. |
 | `__clearB4ConfigCacheForTests` | Clear the config memo in tests. |
+| `agentProtocolDefaultAgentId` | Read and validate the optional Agent Protocol default ID's syntax. Check, build and boot validate route existence separately. |
 | `loadB4Config` | Load or read a memoized app configuration. |
 | `registerConfigLoader` | Register a runtime-specific config loader. |
 | `seedB4Config` | Seed configuration for a static runtime. |
@@ -141,7 +143,7 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 | `renderStateTypes` | Render route state types. |
 | `renderToolTypes` | Render route tool types. |
 | `CorsConfig` | Configure cross-origin access to the runtime. |
-| `B4Config` | Configure a B4.run application. |
+| `B4Config` | Configure a B4.run application, including the staged `runtimeStorage` factory for shared host registration. |
 | `configureApprovalGrants` | Raise the process-wide approval-grant mode. |
 | `approvalGrantMode` | Read the approval-grant mode in force in this process. |
 | `mintGrantForPark` | Mint the grant for a park, or fail closed when one is required. |
@@ -186,6 +188,17 @@ Importing `/node` registers the disk-backed `b4.config.ts` loader. The root stay
 ### `@b4run/core/internal/compiler`
 
 This subpath is internal and carries no compatibility promise. The CLI uses it during type generation.
+
+### `@b4run/core/internal/permission-continuation`
+
+Internal adapter plumbing exports `createPermissionContinuationContext`,
+`PERMISSION_CONTINUATION_KEY` and the `PermissionContinuationRequest` type. A
+per-execution opaque identity binds a trusted continuation Run and a resolver for
+its actual checkpoint namespace and protected proposal. Request config cannot
+install it; unknown or deserialized identities fail closed. A verified context
+suppresses only the duplicate legacy Always write and rechecks the current
+configured rule. The shared R8 adapter must reconstruct the context after restore
+and provide real task/namespace correspondence before activating this path.
 
 ## Key contracts
 

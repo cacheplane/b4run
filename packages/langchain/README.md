@@ -50,9 +50,15 @@ require their existing explicit authorized `Command` resume. A standalone chain
 adapter's explicit `null` remains native continuation. Opaque invocation contexts
 receive `stopSignal`; B4 tool contexts keep their existing hard signal.
 
+The staged coordinated runtime preserves its durable stopped head and retires
+pending tasks through guarded reconciliation before accepting a fresh turn.
+A hard-aborted invocation can return before abort-ignoring work finishes; its
+effects remain uncertain. These internal hooks do not activate new transports.
+
 ## Runtime and stability
 
 - `@b4run/langchain` is an edge-safe, supported integration surface.
+- `@b4run/langchain/internal/runtime` is edge-safe internal boot-owned adapter binding; it is not an application route or caller-configurable execution API.
 - Edge-safe describes B4.run's emitted edge target; it is not a promise that every provider integration, application tool, or dynamically loaded package is browser-portable.
 - `@b4run/langchain/package.json` exposes package metadata for tooling, not runtime code.
 

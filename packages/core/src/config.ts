@@ -2,6 +2,21 @@ import type { B4Config, LoadB4ConfigOptions, LoadedB4Config } from "./types.js"
 
 export const B4_CONFIG_FILE = "b4.config.ts"
 
+/** Validate the author setting; route existence is checked against the registry. */
+export function agentProtocolDefaultAgentId(config: B4Config | undefined): string | undefined {
+  const protocol = config?.server?.agentProtocol
+  if (protocol === undefined) return undefined
+  if (typeof protocol !== "object" || protocol === null || Array.isArray(protocol)) {
+    throw new Error("server.agentProtocol must be an object")
+  }
+  const id = protocol.defaultAgentId
+  if (id === undefined) return undefined
+  if (typeof id !== "string" || id.length === 0 || id.trim() !== id) {
+    throw new Error("server.agentProtocol.defaultAgentId must be a nonempty exact Agent ID")
+  }
+  return id
+}
+
 /**
  * How a config is materialized for an appRoot. The only implementation B4.run
  * ships reads `b4.config.ts` from disk through the tsx loader and lives in

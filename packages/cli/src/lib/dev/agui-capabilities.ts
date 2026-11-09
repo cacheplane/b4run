@@ -177,32 +177,42 @@ export async function handleAgUiCapabilitiesRequest(
     return statusResponse(middlewareResult.status, middlewareResult.body)
   }
 
-  const capabilities =
-    route.mode === "agent"
-      ? await agentCapabilities(options, route)
-      : // Invoked once, without a checkpointer: no model tool calls, no parks,
-        // and `POST` refuses both client tools and a response schema.
-        {
-          humanInTheLoop: {
-            approvals: false,
-            approveWithEdits: false,
-            interrupts: false,
-            supported: false,
-          },
-          output: { structuredOutput: false },
-          reasoning: NO_REASONING,
-          state: stateCapabilities(false),
-          tools: { clientProvided: false, supported: false },
-          transport: TRANSPORT,
-        }
+  const capabilities = await deriveAgUiCapabilities(options, route)
   // Per caller: middleware decided this caller may see it, and a shared cache
   // must not hand it to one that middleware would have refused.
   return Response.json(capabilities, { headers: { "cache-control": "no-store" } })
 }
 
-async function agentCapabilities(
-  options: AgUiCapabilitiesRequestOptions,
+/** Native document shared with the standard catalog, after caller authorization.
+ * Catalog callers must supply an authorized-only registry/manifest view. */
+export async function deriveAgUiCapabilities(
+  options: Omit<AgUiCapabilitiesRequestOptions, "middleware" | "request" | "routeKey">,
   route: RuntimeRegistry["entries"][number],
+  resolved?: Pick<BootResolvedInstances, "checkpointer">,
+): Promise<AgentCapabilities> {
+  return route.mode === "agent"
+    ? await agentCapabilities(options, route, resolved)
+    : // Invoked once, without a checkpointer: no model tool calls, no parks,
+      // and `POST` refuses both client tools and a response schema.
+      {
+        humanInTheLoop: {
+          approvals: false,
+          approveWithEdits: false,
+          interrupts: false,
+          supported: false,
+        },
+        output: { structuredOutput: false },
+        reasoning: NO_REASONING,
+        state: stateCapabilities(false),
+        tools: { clientProvided: false, supported: false },
+        transport: TRANSPORT,
+      }
+}
+
+async function agentCapabilities(
+  options: Omit<AgUiCapabilitiesRequestOptions, "middleware" | "request" | "routeKey">,
+  route: RuntimeRegistry["entries"][number],
+  resolved?: Pick<BootResolvedInstances, "checkpointer">,
 ): Promise<AgentCapabilities> {
   const bootFallbacks = options.boot?.bootFallbacks
   const routeModule = {
@@ -266,11 +276,14 @@ async function agentCapabilities(
   return {
     humanInTheLoop: {
       approveWithEdits: false,
-      interrupts: true,
-      supported: true,
+      ...(resolved === undefined || (isDescriptor && resolved.checkpointer !== undefined)
+        ? { interrupts: true, supported: true }
+        : {}),
       // A raw runnable gets none of B4.run's permission gates wired in; what
       // it does on its own is not this runtime's to claim.
-      ...(isDescriptor ? { approvals } : {}),
+      ...(isDescriptor && (resolved === undefined || resolved.checkpointer !== undefined)
+        ? { approvals }
+        : {}),
     },
     ...(modality.ok
       ? {
@@ -301,7 +314,11 @@ async function agentCapabilities(
       : {}),
     output: { structuredOutput: schemaAllowed && structuredOutput },
     reasoning: streamsReasoning ? STREAMED_REASONING : NO_REASONING,
-    state: stateCapabilities(isDescriptor ? true : undefined),
+    state: stateCapabilities(
+      isDescriptor && (resolved === undefined || resolved.checkpointer !== undefined)
+        ? true
+        : undefined,
+    ),
     tools: {
       clientProvided,
       ...(isDescriptor ? { parallelCalls: true, supported: true } : {}),

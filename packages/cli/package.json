@@ -77,6 +77,8 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
     "@b4run/workspace": "workspace:*",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "commander": "15.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.5"

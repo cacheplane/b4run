@@ -5136,6 +5136,17 @@ describe("causal SSE", () => {
       () => undefined,
       (error: unknown) => error,
     )
+    if (fault === "log secret") {
+      const diagnostics = retainedNativeLogFailureDiagnostics(failure)
+      expect(diagnostics).toEqual([
+        {
+          event: "native_vercel_log_boundary_failure",
+          stage: "stdout-safety",
+          category: "stdout-safety",
+        },
+      ])
+      expect(JSON.stringify(diagnostics)).not.toContain(expectedReleaseCredential)
+    }
     expect(failure).toBeInstanceOf(Error)
     expect((failure as Error).message).toMatch(
       /native|black-box|persist|state|route|stream|release|barrier|checkpoint|later|thread ID/i,
@@ -5204,6 +5215,143 @@ describe("causal SSE", () => {
       expect(cancelledResponsePaths).toContain(`/threads/${validIds.streamThreadId}/runs/stream`)
     }
     if (fault === "quiet clock") expect(quietSleepCalls).toBe(9)
+  })
+})
+
+function retainedNativeLogFailureDiagnostics(error: unknown): unknown[] {
+  expect(error).toBeInstanceOf(Error)
+  const failure = error as Error
+  expect(failure.name).toBe("Error")
+  expect(failure.message).toBe("native Vercel pinned log boundary failed")
+  const prefix = "Native Vercel log boundary diagnostic: "
+  return (failure.stack ?? "")
+    .split("\n")
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => JSON.parse(line.slice(prefix.length)))
+}
+
+describe("runtime log failure diagnostics", () => {
+  test("records only the constant category for controlled pinned-child failures", async () => {
+    const sentinel = "DIAGNOSTIC_MUST_NOT_EMIT_CHILD_OR_ERROR_FIELDS"
+    const records: unknown[] = []
+    let reads = 0
+    for (const fault of ["transport", "nonzero", "progress-validation"] as const) {
+      const jobRoot = await realpath(await makeTempDir())
+      const sourceRoot = join(jobRoot, "source")
+      const prebuiltRoot = join(jobRoot, "prebuilt")
+      const globalConfigDir = join(jobRoot, "global-config")
+      await mkdir(sourceRoot)
+      await mkdir(prebuiltRoot)
+      await mkdir(globalConfigDir, { mode: 0o700 })
+      const malicious = Object.create(null) as object
+      for (const field of ["name", "message", "cause", "stack", "category", "stage"]) {
+        Object.defineProperty(malicious, field, {
+          get: () => {
+            reads += 1
+            throw new Error(sentinel)
+          },
+        })
+      }
+      const boundary = await createNativePinnedVercelBoundary({
+        cliPackageRoot,
+        databaseUrl: "postgres://native-secret",
+        fixtureRoots: [sourceRoot, prebuiltRoot],
+        globalConfigDir,
+        jobRoot,
+        orgId: "team_Test123",
+        parentEnv: { PATH: process.env.PATH },
+        projectId: "prj_Test456",
+        releaseCredential: "private-release-value",
+        runChild: async (request) => {
+          if (request.args[0] === "--version") {
+            return { exitCode: 0, stderr: pinnedVercelVersionStderr, stdout: "58.9.0\n" }
+          }
+          expect(request.args[0]).toBe("logs")
+          if (fault === "transport") throw malicious
+          return {
+            exitCode: fault === "nonzero" ? 1 : 0,
+            stderr: `${sentinel} vercel-token-secret postgres://native-secret`,
+            stdout: `${sentinel} private-release-value`,
+          }
+        },
+        token: "vercel-token-secret",
+      })
+      await boundary.assertVersion()
+      const failure = await pollNativeVercelRuntimeLogs({
+        clock: { now: () => 1_800_000_000_000, sleep: async () => undefined },
+        deploymentId: "dpl_Diagnostic1",
+        logBoundary: boundary,
+        logMarker: `log-vcl-${"a".repeat(32)}`,
+        orgId: "team_Test123",
+        projectId: "prj_Test456",
+        queryStartMs: 1_800_000_000_000,
+      }).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      records.push(...retainedNativeLogFailureDiagnostics(failure))
+    }
+    expect(reads).toBe(0)
+    expect(records).toEqual(
+      ["transport", "nonzero", "progress-validation"].map((category) => ({
+        event: "native_vercel_log_boundary_failure",
+        stage: "pinned-cli",
+        category,
+      })),
+    )
+    expect(JSON.stringify(records)).not.toContain(sentinel)
+    expect(JSON.stringify(records)).not.toContain("vercel-token-secret")
+    expect(JSON.stringify(records)).not.toContain("postgres://native-secret")
+    expect(JSON.stringify(records)).not.toContain("private-release-value")
+  })
+
+  test("records unknown without inspecting or trusting malicious boundary error fields", async () => {
+    const sentinel = "DIAGNOSTIC_MUST_NOT_EMIT_ARBITRARY_ERROR_FIELDS"
+    const records: unknown[] = []
+    let reads = 0
+    const malicious = Object.create(null) as object
+    for (const field of ["name", "message", "cause", "stack", "category", "stage"]) {
+      Object.defineProperty(malicious, field, {
+        get: () => {
+          reads += 1
+          throw new Error(sentinel)
+        },
+      })
+    }
+    const forged = {
+      category: "transport",
+      stage: "pinned-cli",
+      message: sentinel,
+      cause: sentinel,
+    }
+    for (const error of [malicious, forged]) {
+      const failure = await pollNativeVercelRuntimeLogs({
+        clock: { now: () => 1_800_000_000_000, sleep: async () => undefined },
+        deploymentId: "dpl_Diagnostic1",
+        logBoundary: {
+          logs: async () => {
+            throw error
+          },
+        },
+        logMarker: `log-vcl-${"a".repeat(32)}`,
+        orgId: "team_Test123",
+        projectId: "prj_Test456",
+        queryStartMs: 1_800_000_000_000,
+      }).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      records.push(...retainedNativeLogFailureDiagnostics(failure))
+    }
+    expect(reads).toBe(0)
+    expect(records).toEqual(
+      [0, 1].map(() => ({
+        event: "native_vercel_log_boundary_failure",
+        stage: "boundary",
+        category: "unknown",
+      })),
+    )
+    expect(JSON.stringify(records)).not.toContain(sentinel)
   })
 })
 

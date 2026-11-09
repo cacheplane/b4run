@@ -7,6 +7,7 @@ import type {
   ModelProviderId,
   RouteKind,
 } from "@b4run/sdk"
+import type { RuntimeStorageFactory } from "@b4run/sdk/agent-protocol"
 import type { ThreadsStore } from "@b4run/sqlite-storage"
 import type { ExecBackend, FilesystemBackend, SandboxConfig } from "@b4run/workspace"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"
@@ -95,6 +96,10 @@ export interface VercelBuildConfig {
 }
 
 export interface B4Config {
+  /** Coordinated runtime storage factory. Registered once by the runtime host;
+   * independent checkpointer/threadsStore objects do not imply this capability.
+   * Standard binding activation is performed by the shared runtime host. */
+  readonly runtimeStorage?: RuntimeStorageFactory
   readonly appDir?: string
   readonly backends?: {
     readonly filesystem?: FilesystemBackend
@@ -245,6 +250,11 @@ export interface B4Config {
    * does. Everything here is off unless configured.
    */
   readonly server?: {
+    /** Exact canonical Agent ID (`${routeId}#${kind}`) for omitted-agent calls.
+     * A sole public runnable route is selected automatically when omitted. */
+    readonly agentProtocol?: {
+      readonly defaultAgentId?: string
+    }
     /**
      * Cross-origin access to the B4.run endpoints (`/agui/*`, `/threads/*`,
      * `/memory/*`). Omit and the runtime sends no `Access-Control-*` header at

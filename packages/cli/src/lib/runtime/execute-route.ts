@@ -32,6 +32,12 @@ import {
   sqliteCheckpointer,
   type ThreadsStore,
 } from "@b4run/sqlite-storage"
+
+/** Explicit Node host opening seam for the new persistence namespace. It is
+ * intentionally absent from nodeBootFallbacks and existing boot paths: R4/R5
+ * through R8 must first retire the legacy owners and bind validated authority. */
+export { openRuntimeInstallation as openAgentProtocolRuntimeInstallation } from "@b4run/sqlite-storage"
+
 import type { ExecBackend, FilesystemBackend } from "@b4run/workspace"
 import { localExec, localFilesystem } from "@b4run/workspace/node"
 import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint"

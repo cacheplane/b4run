@@ -61,3 +61,15 @@ export function b4ErrorCodeOf(error: unknown): B4ErrorCode | undefined {
   }
   return undefined
 }
+
+/** Catalog failures have fixed public messages on the standard protocol. Never
+ * reflect a denied route, configured default, or arbitrary exception details. */
+export function safeProtocolCatalogCode(
+  error: unknown,
+): "not_found" | "agent_required" | "invalid_argument" | undefined {
+  if (!(error instanceof Error) || error.name !== "AgentCatalogError") return undefined
+  const code = (error as Error & { readonly code?: unknown }).code
+  return code === "not_found" || code === "agent_required" || code === "invalid_argument"
+    ? code
+    : undefined
+}

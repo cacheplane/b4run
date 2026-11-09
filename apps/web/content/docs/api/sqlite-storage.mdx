@@ -47,6 +47,9 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `ClientToolCallStore` | Define the client tool call store contract. |
 | `ClientToolCallStoreOptions` | Select the client tool call database path. |
 | `createClientToolCallStore` | Open, migrate, and return a client tool call store. |
+| `sqliteRuntimeStorage` | Return a one-time shared-host runtime storage factory with private scoped binding and indexed receipts; existing handlers remain staged. |
+| `openRuntimeInstallation` | Acquire a single Node execution owner and open a fresh Agent Protocol SQLite installation; does not activate existing CLI handlers. |
+| `RuntimeInstallation` | Hold the runtime path, installation UUID, observed SQLite settings, and explicit close. |
 | `openWorkspaceInstallation` | Own a local installation's durable source and association storage. |
 | `WorkspaceInstallation` | Hold installation identity, guarded stores, per-thread sandbox records, staged workspace sources, and close. |
 | `openWorkspaceInstallationReader` | Open a read-only view of an installation another process owns, without its admission lock. |
@@ -56,8 +59,23 @@ The package uses Node's `node:sqlite` `DatabaseSync` and LangGraph checkpoint co
 | `WorkspaceStagedSourceError` | Refuse a staging request by code: `not_held`, `already_staged`, `quota_exceeded`, or `uploader_invalid`. |
 | `WorkspaceAssociation` | Describe creating, ready, deleting, or deleted state with its revision. |
 | `WorkspaceAssociationStore` | Insert source-backed intents, with an optional thread sandbox record in the same transaction, and transition associations by revision. |
-| `WorkspaceThreadSandboxStore` | Read the sandbox record a thread's first admission wrote, and keep that thread's "Always" grants. |
+| `WorkspaceThreadSandboxStore` | Read a thread's sandbox, retain its grants, and conditionally prepare/apply rule intents in the native grant transaction. |
 
+
+The runtime installation uses `.b4/agent-protocol/v1/runtime.sqlite` with WAL,
+foreign keys and FULL synchronous commits, and holds `runtime-owner.sqlite`
+under a kernel lock for its lifetime. Its marker and schema are validated before
+mutable open. Existing legacy runtime files and independent memory/Store data
+remain intact. This opening API does not mint request authority or replace the
+current CLI boot owners. The C5 authority bridge and coordinated cutover remain
+required; state copy, rollback/deletion and recovery projection await their
+respective service owners and are not advertised by this installation API.
+
+The native `WorkspaceThreadSandboxStore.prepareRuleIntent(threadId, operationId,
+rules)` and `applyRuleIntent(threadId, intent)` methods share the grant writer's
+savepoint with private scope/revision/receipt state. Removing and recreating a
+thread cannot reuse an old prepared rule scope. The guarded installation delegates
+these methods to its actual backend; independent app-wide rules remain separate.
 
 ## Key contracts
 

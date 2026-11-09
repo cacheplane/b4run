@@ -3,8 +3,15 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".",
-    "tsBuildInfoFile": "dist/tsconfig.test.tsbuildinfo"
+    "rootDir": "../..",
+    "tsBuildInfoFile": "dist/tsconfig.test.tsbuildinfo",
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "../../test/agent-protocol/runtime-storage-contract.ts",
+    "../../test/agent-protocol/runtime-protected-source-contract.ts",
+    "../../test/agent-protocol/runtime-pending-identities.ts"
+  ]
 }

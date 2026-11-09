@@ -16,7 +16,11 @@ import type { RunnableConfig } from "@langchain/core/runnables"
 import { DynamicStructuredTool } from "@langchain/core/tools"
 import { isGraphBubbleUp } from "@langchain/langgraph"
 import type { z } from "zod"
-import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
+import {
+  childReplayReader,
+  REPLAY_CHECKPOINT_READER,
+  type ReplayCheckpointReader,
+} from "./replay-checkpoint-reader.js"
 import { readCallOrigin, recordToolCall } from "./tool-call-recording.js"
 import {
   describeDone,
@@ -230,7 +234,11 @@ export function convertSubagentTaskToLangChain(
           let output: unknown
           try {
             const readCheckpoint = childConfig.configurable?.[REPLAY_CHECKPOINT_READER]
-            if (typeof readCheckpoint === "function") await readCheckpoint(childConfig)
+            if (typeof readCheckpoint === "function")
+              await (readCheckpoint as ReplayCheckpointReader)(
+                childConfig,
+                childReplayReader(resolved.child.graph),
+              )
             output = await resolved.child.graph.invoke(
               { messages: [{ role: "user", content: input.input }] },
               childConfig,

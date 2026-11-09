@@ -153,8 +153,9 @@ const SCRIPT_PIN_PATH = path.join(ROOT, SCRIPT_PIN_FIXTURE)
 // Repinned for exact historical 0.15.5 verification, authenticated optional data pins,
 // binary fixture bytes, and the unchanged dormant recovery probe inventory policy.
 // A later authenticated evidence-only PR may update derived data pins and this checksum.
+// Repinned for the three Agent Protocol SDK contract subpaths and packed asset inventory.
 const STARTING_SCRIPT_PIN_SHA256 =
-  "9cda1e475f7bcda538c77f7f5a473e3e972c5ca92f3a27327ed9d177c5ce8d62"
+  "8317e55df4b5a9d5437b8df99b585dc7db02f64ac099b430dcb4aa4e7697ef75"
 const SHA256_HEX = /^[0-9a-f]{64}$/u
 const workflowExpression = (value) => `\${{ ${value} }}`
 const SCRIPT_REFERENCE = /(?:^|[\s;&|"'(])(scripts\/[\w.-]+(?:\/[\w.-]+)*)/gu

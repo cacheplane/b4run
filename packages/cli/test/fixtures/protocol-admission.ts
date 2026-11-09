@@ -1,0 +1,1349 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
+import type { ThreadAccessPolicy } from "@b4run/sdk"
+import type { B4Message, RuntimeReceiptRecord, RuntimeStore } from "@b4run/sdk/agent-protocol"
+import { sqliteRuntimeStorage } from "@b4run/sqlite-storage"
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql"
+import { Pool, type PoolClient } from "pg"
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest"
+import {
+  createPostgresPermissionsStore,
+  postgresRuntimeStorage,
+} from "../../../postgres-storage/dist/node.js"
+import { setRequestPrincipal } from "../../src/lib/dev/auth.ts"
+import { authorizeProtocolAgent, createAgentCatalog } from "../../src/lib/dev/protocol/catalog.ts"
+import { mergePublicMessages } from "../../src/lib/dev/protocol/messages.ts"
+import { createAdmissionService } from "../../src/lib/runtime/admission.ts"
+import type { ExecutionHost } from "../../src/lib/runtime/executor.ts"
+import {
+  createRuntimeStorageHost,
+  type TemporaryCleanupPreparation,
+} from "../../src/lib/runtime/storage-host.ts"
+
+/** Real lifecycle only: admission and reconciliation always call production. */
+function realBackend() {
+  let container: StartedPostgreSqlContainer | undefined
+  let first: Pool, second: Pool
+  let counter = 0
+  const errors: Error[] = []
+  beforeAll(async () => {
+    if (process.env.B4_TEST_PGSTORAGE !== "1")
+      throw new Error("R4 Postgres fixtures require B4_TEST_PGSTORAGE=1")
+    const resourceId = process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? crypto.randomUUID()
+    process.stdout.write(`R4 own PostgreSQL resource label ${resourceId}\n`)
+    container = await new PostgreSqlContainer("postgres:16")
+      .withLabels({ "org.b4run.protocol-resource": resourceId })
+      .withStartupTimeout(180_000)
+      .start()
+    process.stdout.write(`R4 created own container ${container.getId()}\n`)
+    first = new Pool({ connectionString: container.getConnectionUri() })
+    second = new Pool({ connectionString: container.getConnectionUri() })
+    for (const pool of [first, second]) {
+      pool.on("error", (error) => errors.push(error))
+      pool.on("connect", (client) => client.on("error", (error) => errors.push(error)))
+    }
+    const [a, b] = await Promise.all([first.connect(), second.connect()])
+    try {
+      const [one, two] = await Promise.all([
+        a.query("SELECT pg_backend_pid() AS pid"),
+        b.query("SELECT pg_backend_pid() AS pid"),
+      ])
+      expect(one.rows[0].pid).not.toBe(two.rows[0].pid)
+      process.stdout.write(
+        `R4 actual PostgreSQL: independent processes ${one.rows[0].pid}/${two.rows[0].pid}; default pg.Pool max=${first.options.max}\n`,
+      )
+    } finally {
+      a.release()
+      b.release()
+    }
+  }, 240_000)
+  let finishing: Promise<void> | undefined
+  function finish(): Promise<void> {
+    if (finishing) return finishing
+    finishing = (async () => {
+      const teardownErrors: unknown[] = []
+      try {
+        await closeSharedOwners()
+      } catch (error) {
+        teardownErrors.push(error)
+      }
+      const pools = await Promise.allSettled([first?.end(), second?.end()])
+      for (const result of pools)
+        if (result.status === "rejected") teardownErrors.push(result.reason)
+      if (pools.every((result) => result.status === "fulfilled"))
+        process.stdout.write("R4 closed own PostgreSQL pools\n")
+      if (container) {
+        const id = container.getId()
+        try {
+          await container.stop()
+          process.stdout.write(`R4 removed own container ${id}\n`)
+        } catch (error) {
+          teardownErrors.push(error)
+        }
+      }
+      teardownErrors.push(...errors)
+      if (teardownErrors.length)
+        throw new AggregateError(teardownErrors, "Actual PostgreSQL fixture cleanup failed")
+    })()
+    return finishing
+  }
+  afterAll(finish)
+  return {
+    finish,
+    get first() {
+      return first
+    },
+    get second() {
+      return second
+    },
+    get connectionString() {
+      if (!container) throw new Error("Missing owned test container")
+      return container.getConnectionUri()
+    },
+    naming() {
+      return { schema: "r4_protocol", tablePrefix: `b4_ap_v1_case_${++counter}` }
+    },
+  }
+}
+const postgres = process.env.B4_ADMISSION_POSTGRES === "1" ? realBackend() : undefined
+
+/** Preserve the primary test failure together with every owned cleanup error. */
+export function reportOwnedCleanup(
+  label: string,
+  errors: readonly unknown[],
+  primary?: { readonly error: unknown },
+): void {
+  if (errors.length)
+    throw new AggregateError(
+      primary ? [primary.error, ...errors] : errors,
+      label,
+      primary ? { cause: primary.error } : undefined,
+    )
+}
+
+export const token = "10000000-0000-4000-8000-000000000010"
+export const threadId = "10000000-0000-4000-8000-000000000011"
+export const body = (extra: Record<string, unknown> = {}) => ({
+  input: { messages: [{ id: "user-1", role: "user", content: "hello" }] },
+  metadata: { b4: { v: 1, submissionId: token } },
+  ...extra,
+})
+export async function fixture(
+  factory = undefined as import("@b4run/sdk/agent-protocol").RuntimeStorageFactory | undefined,
+  borrowed?: BorrowedFixture,
+  options: { readonly prepareTemporaryCleanup?: TemporaryCleanupPreparation | false } = {},
+) {
+  const bootStarted = performance.now()
+  const directory = mkdtempSync(join(tmpdir(), "b4-admission-"))
+  if (borrowed) borrowed.directory = directory
+  let registration = borrowed?.owner
+    .registration as import("@b4run/sdk/agent-protocol").RuntimeStorageRegistrationOptions
+  const nativeNaming = !factory && !borrowed && postgres ? postgres.naming() : undefined
+  const chosen =
+    factory ??
+    (postgres && nativeNaming
+      ? postgresRuntimeStorage({ pool: postgres.first, ...nativeNaming })
+      : sqliteRuntimeStorage(directory))
+  const preparation =
+    options.prepareTemporaryCleanup === false
+      ? {}
+      : {
+          prepareTemporaryCleanup:
+            options.prepareTemporaryCleanup ??
+            (async ({
+              installationId,
+              threadId,
+              generation,
+            }: Parameters<TemporaryCleanupPreparation>[0]) => ({
+              kind: "none" as const,
+              installationId,
+              threadId,
+              generation,
+            })),
+        }
+  // TEST ONLY: each logical boot has its own host lifecycle while every hook
+  // below still calls the same actual native installation/transactions. Only
+  // the outer owner closes that physical installation, once afterAll.
+  const storage = borrowed
+    ? await createRuntimeStorageHost(
+        (register) => register({ ...borrowed.owner.registration, close() {} }),
+        preparation,
+      )
+    : await createRuntimeStorageHost(
+        async (register) =>
+          chosen((value) => {
+            registration = value
+            return register(value)
+          }),
+        preparation,
+      )
+  if (borrowed) borrowed.storage = storage
+  if (process.env.B4_ADMISSION_TIMINGS === "1")
+    process.stdout.write(`R4 fixture boot ${Math.round(performance.now() - bootStarted)}ms\n`)
+  const work = borrowed?.work ?? new Set<Promise<unknown>>()
+  function track<T>(label: string, promise: Promise<T>): Promise<T> {
+    const started = performance.now()
+    work.add(promise)
+    void promise
+      .finally(() => {
+        work.delete(promise)
+        if (process.env.B4_ADMISSION_TIMINGS === "1")
+          process.stdout.write(`R4 ${label} ${Math.round(performance.now() - started)}ms\n`)
+      })
+      .catch(() => {})
+    return promise
+  }
+  function trackWork<T>(label: string, run: () => Promise<T>): Promise<T> {
+    if (borrowed?.group.closing) return Promise.reject(new Error("Permission fixture is closing"))
+    return track(label, run())
+  }
+  let allowed = true
+  let agent = "/chat#agent"
+  const unavailableAgents = new Set<string>()
+  let originalAvailable = true
+  let messages = true
+  let configDefaults: Readonly<Record<string, unknown>> = {}
+  let combineInput: ((input: unknown, messages: readonly B4Message[]) => unknown) | undefined
+  let resolutions = 0
+  let parse = (value: unknown) => value
+  const pauses = new Map<string, { entered: () => void; wait: Promise<void> }>()
+  const pause = async (phase: string) => {
+    const value = pauses.get(phase)
+    if (value) {
+      pauses.delete(phase)
+      value.entered()
+      await value.wait
+    }
+  }
+  let fail: "beforeCommit" | "afterCommit" | undefined
+  const revokedOrigins = new Set<string>()
+  const requests: import("@b4run/sdk").ThreadAccessRequest[] = []
+  const policy: ThreadAccessPolicy = {
+    create: (request) => {
+      requests.push(request)
+      return allowed ? { decision: "allow", stamp: { owner: "alice" } } : { decision: "deny" }
+    },
+    fallback: (request) => {
+      requests.push(request)
+      return {
+        decision:
+          allowed &&
+          !revokedOrigins.has(request.provenance?.sourceThreadId ?? request.threadId ?? "")
+            ? "allow"
+            : "deny",
+      }
+    },
+  }
+  const request = (principal = "alice"): Request => {
+    const result = new Request("http://local/runs", { method: "POST" })
+    setRequestPrincipal(result, { id: principal })
+    return result
+  }
+  const registry = () => ({
+    appRoot: directory,
+    entries: ["/chat#agent", "/changed#agent", "/other#agent"]
+      .filter((id) => (originalAvailable || id !== "/chat#agent") && !unavailableAgents.has(id))
+      .map((id) => ({
+        assistantId: id,
+        routeId: id.split("#")[0] ?? id,
+        routeFile: `${directory}/entry.ts`,
+        routePath: "chat/agent.ts",
+        mode: "agent" as const,
+      })),
+    lookup(id: string) {
+      return this.entries.find((entry) => entry.assistantId === id) ?? null
+    },
+  })
+  const service = createAdmissionService({
+    storage,
+    deploymentId: "deployment-test",
+    policy,
+    catalog: async (request) => {
+      await pause("catalog")
+      return createAgentCatalog({
+        request,
+        appRoot: directory,
+        config: { server: { agentProtocol: { defaultAgentId: agent } } },
+        registry: registry(),
+        middleware: undefined,
+        limits: { requestBytes: 1048576, pendingPrompts: 64 },
+      })
+    },
+    authorizeAgent: (request, id) =>
+      authorizeProtocolAgent({ request, registry: registry(), middleware: undefined }, id),
+    resolveAgent: async () => {
+      resolutions++
+      await pause("resolution")
+      return {
+        boundary: {
+          adapter: {
+            parseInput: (value: unknown) => parse(value),
+            ...(messages
+              ? {
+                  messages: {
+                    reduce: mergePublicMessages,
+                    ...(combineInput ? { combineInput } : {}),
+                  },
+                }
+              : {}),
+          },
+        },
+        config: { allowedKeys: ["temperature"] },
+        defaults: configDefaults,
+      }
+    },
+    failpoint(point) {
+      if (point === fail) {
+        fail = undefined
+        throw new Error(`lost-${point}`)
+      }
+    },
+  })
+  return {
+    native: {
+      ruleStore() {
+        // The immutable runtime catalog includes every P_ relation; keep
+        // this fixture's permission tables in a nonoverlapping prefix.
+        return nativeNaming && postgres
+          ? createPostgresPermissionsStore({
+              pool: postgres.first,
+              schema: nativeNaming.schema,
+              tablePrefix: `rules_${nativeNaming.tablePrefix}`,
+            })
+          : undefined
+      },
+      async editRule(action: "removeAllow" | "deny", tool: string, pattern: string) {
+        if (!nativeNaming || !postgres) return false
+        const table = `${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_permissions`
+        if (action === "removeAllow")
+          await postgres.first.query(
+            `DELETE FROM ${table} WHERE scope='runtime' AND kind='allow' AND tool=$1 AND pattern=$2`,
+            [tool, pattern],
+          )
+        else
+          await postgres.first.query(
+            `INSERT INTO ${table}(scope,kind,tool,pattern,created_at) VALUES ('runtime','deny',$1,$2,$3) ON CONFLICT DO NOTHING`,
+            [tool, pattern, new Date().toISOString()],
+          )
+        return true
+      },
+      async ruleWriteFault(enabled: boolean) {
+        if (!nativeNaming || !postgres) return false
+        const table = `${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_perm_rules`,
+          fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_fail_rule_receipt`
+        if (enabled) {
+          await postgres.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'R8 owned rule receipt I/O'; END $$`,
+          )
+          await postgres.first.query(
+            `CREATE TRIGGER r8_fail_rule_receipt BEFORE INSERT OR UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+          )
+        } else {
+          await postgres.first.query(`DROP TRIGGER r8_fail_rule_receipt ON ${table}`)
+          await postgres.first.query(`DROP FUNCTION ${fn}()`)
+        }
+        return true
+      },
+      async ruleRows() {
+        if (!nativeNaming || !postgres) return undefined
+        return (
+          await postgres.first.query(
+            `SELECT kind,tool,pattern FROM ${nativeNaming.schema}.rules_${nativeNaming.tablePrefix}_permissions WHERE scope='runtime' ORDER BY kind,tool,pattern`,
+          )
+        ).rows
+      },
+      workerBoot:
+        nativeNaming && postgres
+          ? { connectionString: postgres.connectionString, ...nativeNaming }
+          : undefined,
+      /** Own real SQL exclusion, not JS scheduling, controls delete-wins tests. */
+      async cleanupGate() {
+        if (!nativeNaming || !postgres) return undefined
+        const pg = postgres
+        const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes`,
+          fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_r8_cleanup_gate`
+        const gate = await pg.second.connect(),
+          high = 0x42345238,
+          low = Number.parseInt(crypto.randomUUID().slice(0, 8), 16) & 0x3fffffff
+        let unlocked = false,
+          closed = false
+        const unlock = async () => {
+          if (!unlocked) {
+            await gate.query("SELECT pg_advisory_unlock($1,$2)", [high, low])
+            unlocked = true
+          }
+        }
+        const until = async <T>(read: () => Promise<T | undefined>): Promise<T> => {
+          const deadline = performance.now() + 5_000
+          while (performance.now() < deadline) {
+            const result = await read()
+            if (result !== undefined) return result
+            await new Promise((resolve) => setTimeout(resolve, 5))
+          }
+          throw new Error("Actual owned cleanup SQL barrier did not reach its expected lock state")
+        }
+        try {
+          await gate.query("SELECT pg_advisory_lock($1,$2)", [high, low])
+          await pg.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(${high},${low + 1}); PERFORM pg_advisory_xact_lock(${high},${low}); RETURN NEW; END $$`,
+          )
+          await pg.first.query(
+            `CREATE TRIGGER r8_cleanup_gate BEFORE UPDATE ON ${table} FOR EACH ROW WHEN (OLD.deleted=0 AND NEW.deleted=1) EXECUTE FUNCTION ${fn}()`,
+          )
+        } catch (error) {
+          await unlock()
+          gate.release()
+          throw error
+        }
+        let cleanupPid: number | undefined
+        return {
+          async entered() {
+            cleanupPid = await until(async () => {
+              const result = await pg.first.query<{ pid: number }>(
+                "SELECT pid FROM pg_locks WHERE locktype='advisory' AND classid=$1::oid AND objid=$2::oid AND objsubid=2 AND granted",
+                [high, low + 1],
+              )
+              return result.rows[0]?.pid
+            })
+          },
+          async bindingBlocked() {
+            if (cleanupPid === undefined)
+              throw new Error("Cleanup has not acquired its actual row lock")
+            await until(async () => {
+              const result = await pg.first.query<{ blocked: boolean }>(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS blocked",
+                [cleanupPid],
+              )
+              return result.rows[0]?.blocked ? true : undefined
+            })
+          },
+          release: unlock,
+          async close() {
+            if (closed) return
+            closed = true
+            try {
+              await unlock()
+              await pg.first.query(`DROP TRIGGER r8_cleanup_gate ON ${table}`)
+              await pg.first.query(`DROP FUNCTION ${fn}()`)
+            } finally {
+              gate.release()
+            }
+          },
+        }
+      },
+      pauseBindingCommit(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("An actual owned Postgres scope is required")
+        const pg = postgres,
+          descriptor = Object.getOwnPropertyDescriptor(pg.first, "connect"),
+          original = pg.first.connect
+        if (descriptor && (!("value" in descriptor) || !descriptor.configurable))
+          throw new Error("Pool connect descriptor cannot be temporarily observed")
+        let entered!: () => void,
+          resume!: () => void,
+          armed = true,
+          closed = false,
+          selected: PoolClient | undefined
+        const committed = new Promise<void>((resolve) => {
+            entered = resolve
+          }),
+          released = new Promise<void>((resolve) => {
+            resume = resolve
+          })
+        Object.defineProperty(pg.first, "connect", {
+          configurable: true,
+          writable: true,
+          enumerable: descriptor?.enumerable ?? false,
+          value: function (this: Pool, ...args: unknown[]) {
+            const result = Reflect.apply(original, this, args)
+            if (this !== pg.first || args.length) return result
+            return Promise.resolve(result).then(
+              (client: PoolClient) =>
+                new Proxy(client, {
+                  get(target, property) {
+                    const value = Reflect.get(target, property, target)
+                    if (property !== "query")
+                      return typeof value === "function" ? value.bind(target) : value
+                    return (...queryArgs: unknown[]) => {
+                      const sql = queryArgs[0]
+                      if (
+                        armed &&
+                        selected === undefined &&
+                        typeof sql === "string" &&
+                        sql.startsWith("SELECT thread_id,generation,fence,execution_owner,") &&
+                        Array.isArray(queryArgs[1]) &&
+                        queryArgs[1][0] === threadId
+                      )
+                        selected = target
+                      const answer = Reflect.apply(target.query, target, queryArgs)
+                      if (armed && target === selected && sql === "COMMIT") {
+                        armed = false
+                        return Promise.resolve(answer).then(async (answer) => {
+                          entered()
+                          await released
+                          return answer
+                        })
+                      }
+                      return answer
+                    }
+                  },
+                }),
+            )
+          },
+        })
+        return {
+          committed,
+          release: () => resume(),
+          close() {
+            if (closed) return
+            closed = true
+            armed = false
+            resume()
+            if (descriptor) Object.defineProperty(pg.first, "connect", descriptor)
+            else Reflect.deleteProperty(pg.first, "connect")
+          },
+        }
+      },
+      async scopeRowGate(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("An actual owned Postgres scope is required")
+        const pg = postgres,
+          client = await pg.second.connect(),
+          table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes`
+        let released = false
+        try {
+          await client.query("BEGIN")
+          const row = await client.query<{ pid: number }>(
+            `SELECT pg_backend_pid() AS pid FROM ${table} WHERE thread_id=$1 AND deleted=0 FOR UPDATE`,
+            [threadId],
+          )
+          if (row.rows.length !== 1) throw new Error("Missing actual scope row")
+          const pid = row.rows[0]!.pid
+          return {
+            async bindingWaits(settled: () => boolean) {
+              const deadline = performance.now() + 5_000
+              while (!settled() && performance.now() < deadline) {
+                const result = await pg.first.query<{ blocked: boolean }>(
+                  "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid))) AS blocked",
+                  [pid],
+                )
+                if (result.rows[0]?.blocked) return true
+                await new Promise((resolve) => setTimeout(resolve, 5))
+              }
+              if (!settled())
+                throw new Error("Neither binding result nor actual native row wait was observed")
+              return false
+            },
+            async release() {
+              if (released) return
+              released = true
+              try {
+                await client.query("ROLLBACK")
+              } finally {
+                client.release()
+              }
+            },
+          }
+        } catch (error) {
+          try {
+            await client.query("ROLLBACK")
+          } finally {
+            client.release()
+          }
+          throw error
+        }
+      },
+      async expireOwner(threadId: string) {
+        if (!nativeNaming || !postgres)
+          throw new Error("Only actual owned Postgres fixtures can expire DB leases")
+        await postgres.first.query(
+          `UPDATE ${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE thread_id=$1`,
+          [threadId],
+        )
+      },
+      async corruptRetainedControlFacts(
+        threadId: string,
+        generation: string,
+        runId: string,
+        kind: "subject-id" | "subject-provenance" | "root" | "lineage",
+        value: string,
+      ) {
+        const isSubject = kind === "subject-id" || kind === "subject-provenance",
+          table = isSubject ? "retained_subjects" : "retained_runs",
+          keys = isSubject ? [threadId, generation] : [threadId, generation, runId]
+        const change = (payload: string) => {
+          const row = JSON.parse(payload)
+          if (kind === "subject-id") row.thread.thread_id = value
+          else if (kind === "subject-provenance")
+            row.protectedMetadata.provenance = {
+              ...row.protectedMetadata.provenance,
+              sourceThreadId: value,
+            }
+          else if (kind === "root") row.run.agent_id = value
+          else row.metadata.previousRunId = value
+          return JSON.stringify(row)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_${table}`,
+            where = `thread_id=$1 AND generation=$2${isSubject ? "" : " AND id=$3"}`,
+            rows = await postgres.first.query(`SELECT payload FROM ${name} WHERE ${where}`, keys)
+          if (rows.rows.length !== 1)
+            throw new Error("Missing exact retained control fixture facts")
+          const updated = await postgres.first.query(
+            `UPDATE ${name} SET payload=$${keys.length + 1} WHERE ${where}`,
+            [...keys, change(rows.rows[0].payload)],
+          )
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const where = `thread_id=? AND generation=?${isSubject ? "" : " AND id=?"}`,
+            row = db.prepare(`SELECT payload FROM ${table} WHERE ${where}`).get(...keys)
+          if (!row) throw new Error("Missing exact retained control fixture facts")
+          expect(
+            db
+              .prepare(`UPDATE ${table} SET payload=? WHERE ${where}`)
+              .run(change(String(row.payload)), ...keys).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async corruptRetainedPermissionAgents(
+        threadId: string,
+        generation: string,
+        runId: string,
+        agents: unknown,
+      ) {
+        const change = (payload: string) => {
+          const subject = JSON.parse(payload)
+          subject.protectedMetadata.permissionAgentsByRun = {
+            ...subject.protectedMetadata.permissionAgentsByRun,
+            [runId]: agents,
+          }
+          return JSON.stringify(subject)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_retained_subjects`
+          const rows = await postgres.first.query(
+            `SELECT payload FROM ${name} WHERE thread_id=$1 AND generation=$2`,
+            [threadId, generation],
+          )
+          if (rows.rows.length !== 1) throw new Error("Missing exact retained fixture subject")
+          const updated = await postgres.first.query(
+            `UPDATE ${name} SET payload=$3 WHERE thread_id=$1 AND generation=$2`,
+            [threadId, generation, change(rows.rows[0].payload)],
+          )
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare("SELECT payload FROM retained_subjects WHERE thread_id=? AND generation=?")
+            .get(threadId, generation)
+          if (!row) throw new Error("Missing exact retained fixture subject")
+          expect(
+            db
+              .prepare("UPDATE retained_subjects SET payload=? WHERE thread_id=? AND generation=?")
+              .run(change(String(row.payload)), threadId, generation).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async rejectControlInsert(runId: string) {
+        // Exact owned schema/Run only; the native transaction fails in real SQL.
+        if (!/^[0-9a-f-]{36}$/.test(runId)) throw new Error("Invalid fixture Run ID")
+        if (nativeNaming && postgres) {
+          const table = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_inbox`,
+            fn = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_fail_control`
+          await postgres.first.query(
+            `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.owner_run_id='${runId}' AND NEW.payload::jsonb->>'kind'='control' THEN RAISE EXCEPTION 'r7-owned-control-failure'; END IF; RETURN NEW; END $$`,
+          )
+          await postgres.first.query(
+            `CREATE TRIGGER r7_fail_control BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+          )
+          return async () => {
+            await postgres.first.query(`DROP TRIGGER r7_fail_control ON ${table}`)
+            await postgres.first.query(`DROP FUNCTION ${fn}()`)
+          }
+        }
+        const path = join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite")
+        const db = new DatabaseSync(path)
+        try {
+          db.exec(
+            `CREATE TRIGGER r7_fail_control BEFORE INSERT ON inbox WHEN NEW.owner_run_id='${runId}' AND json_extract(NEW.payload,'$.kind')='control' BEGIN SELECT RAISE(ABORT,'r7-owned-control-failure'); END`,
+          )
+        } finally {
+          db.close()
+        }
+        return async () => {
+          const cleanup = new DatabaseSync(path)
+          try {
+            cleanup.exec("DROP TRIGGER r7_fail_control")
+          } finally {
+            cleanup.close()
+          }
+        }
+      },
+      async alterRetainedOperation(
+        threadId: string,
+        generation: string,
+        runId: string,
+        agents: unknown,
+      ) {
+        const change = (payload: string) => {
+          const record = JSON.parse(payload)
+          record.operation.resolved.permissionAgents = agents
+          return JSON.stringify(record)
+        }
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_receipts`
+          const rows = await postgres.first.query(
+            `SELECT id,payload FROM ${name} WHERE thread_id=$1 AND generation=$2 AND payload::jsonb->'receipt'->>'runId'=$3`,
+            [threadId, generation, runId],
+          )
+          if (rows.rows.length !== 1) throw new Error("Missing exact retained operation fixture")
+          const updated = await postgres.first.query(`UPDATE ${name} SET payload=$2 WHERE id=$1`, [
+            rows.rows[0].id,
+            change(rows.rows[0].payload),
+          ])
+          expect(updated.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare(
+              "SELECT id,payload FROM receipts WHERE thread_id=? AND generation=? AND json_extract(payload,'$.receipt.runId')=?",
+            )
+            .get(threadId, generation, runId)
+          if (!row) throw new Error("Missing exact retained operation fixture")
+          expect(
+            db
+              .prepare("UPDATE receipts SET payload=? WHERE id=?")
+              .run(change(String(row.payload)), String(row.id)).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      /** TEST-ONLY independent payload removal; identity skeletons and minimal
+       * canonical authority deliberately survive, as during retention. */
+      async corruptProtectedSourceDigest(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const name = `${nativeNaming.schema}.${nativeNaming.tablePrefix}_aliases`
+          const found = await postgres.first.query(
+            `SELECT id,payload FROM ${name} WHERE thread_id=$1 AND generation=$2 AND run_id=$3 AND id LIKE 'source:%'`,
+            [threadId, generation, runId],
+          )
+          expect(found.rows).toHaveLength(1)
+          const row = found.rows[0],
+            record = JSON.parse(row.payload)
+          record.digest = "0".repeat(64)
+          await postgres.first.query(
+            `UPDATE ${name} SET payload=$1 WHERE id=$2 AND thread_id=$3 AND generation=$4`,
+            [JSON.stringify(record), row.id, threadId, generation],
+          )
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          const row = db
+            .prepare(
+              "SELECT id,payload FROM aliases WHERE thread_id=? AND generation=? AND run_id=? AND id LIKE 'source:%'",
+            )
+            .get(threadId, generation, runId)
+          if (!row) throw new Error("Missing exact source proof fixture")
+          const record = JSON.parse(String(row.payload))
+          record.digest = "0".repeat(64)
+          expect(
+            db
+              .prepare("UPDATE aliases SET payload=? WHERE id=? AND thread_id=? AND generation=?")
+              .run(JSON.stringify(record), String(row.id), threadId, generation).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async removeLiveRunPayload(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const removed = await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_runs WHERE thread_id=$1 AND generation=$2 AND id=$3`,
+            [threadId, generation, runId],
+          )
+          expect(removed.rowCount).toBe(1)
+          await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_checkpoints WHERE thread_id=$1 AND generation=$2 AND owner_run_id=$3`,
+            [threadId, generation, runId],
+          )
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          expect(
+            db
+              .prepare("DELETE FROM runs WHERE thread_id=? AND generation=? AND id=?")
+              .run(threadId, generation, runId).changes,
+          ).toBe(1)
+          db.prepare(
+            "DELETE FROM checkpoints WHERE thread_id=? AND generation=? AND owner_run_id=?",
+          ).run(threadId, generation, runId)
+        } finally {
+          db.close()
+        }
+      },
+      async removeRetainedRun(threadId: string, generation: string, runId: string) {
+        if (nativeNaming && postgres) {
+          const removed = await postgres.first.query(
+            `DELETE FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_retained_runs WHERE thread_id=$1 AND generation=$2 AND id=$3`,
+            [threadId, generation, runId],
+          )
+          expect(removed.rowCount).toBe(1)
+          return
+        }
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+        )
+        try {
+          expect(
+            db
+              .prepare("DELETE FROM retained_runs WHERE thread_id=? AND generation=? AND id=?")
+              .run(threadId, generation, runId).changes,
+          ).toBe(1)
+        } finally {
+          db.close()
+        }
+      },
+      async scopeRecord(threadId: string) {
+        if (nativeNaming && postgres)
+          return (
+            await postgres.first.query(
+              `SELECT * FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_scopes WHERE thread_id=$1`,
+              [threadId],
+            )
+          ).rows
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+          { readOnly: true },
+        )
+        try {
+          return db.prepare("SELECT * FROM scopes WHERE thread_id=?").all(threadId)
+        } finally {
+          db.close()
+        }
+      },
+      async maintenance(threadId: string, generation: string) {
+        if (nativeNaming && postgres)
+          return (
+            await postgres.first.query(
+              `SELECT payload FROM ${nativeNaming.schema}.${nativeNaming.tablePrefix}_maintenance WHERE thread_id=$1 AND generation=$2`,
+              [threadId, generation],
+            )
+          ).rows.map((r) => JSON.parse(r.payload))
+        const db = new DatabaseSync(
+          join(directory, ".b4", "agent-protocol", "v1", "runtime.sqlite"),
+          { readOnly: true },
+        )
+        try {
+          return db
+            .prepare("SELECT payload FROM maintenance WHERE thread_id=? AND generation=?")
+            .all(threadId, generation)
+            .map((r) => JSON.parse(String(r.payload)))
+        } finally {
+          db.close()
+        }
+      },
+    },
+    authority: {
+      storage,
+      deploymentId: "deployment-test",
+      policy,
+      authorizeAgent: (request: Request, id: string) =>
+        authorizeProtocolAgent({ request, registry: registry(), middleware: undefined }, id),
+    },
+    directory,
+    storage,
+    service,
+    request,
+    admit: (
+      value = borrowed
+        ? body({
+            thread_id: borrowed.threadId,
+            if_not_exists: "create",
+            ...(borrowed.onCompletion ? { on_completion: borrowed.onCompletion } : {}),
+            metadata: { b4: { v: 1, submissionId: borrowed.submissionId } },
+          })
+        : body(),
+      principal = "alice",
+    ) =>
+      trackWork("admission", async () => {
+        if (borrowed && (value as Record<string, unknown>).thread_id !== borrowed.threadId)
+          throw new Error("Borrowed fixture must use its owned Thread")
+        const result = await service.admit(request(principal), value)
+        if (borrowed) {
+          const row = await registration.readThread(result.threadId)
+          if (!row) throw new Error("Missing admitted fixture scope")
+          borrowed.scopes.set(result.threadId, row.generation)
+        }
+        return result
+      }),
+    search: (metadata: Record<string, unknown>, extra = {}, principal = "alice") =>
+      trackWork("search", () => service.searchRuns(request(principal), { metadata, ...extra })),
+    lookup: (submissionId = token, extra = {}) =>
+      trackWork("lookup", () =>
+        service.searchRuns(request(), {
+          metadata: { "b4.submissionId": submissionId, "b4.submissionKind": "b4", ...extra },
+        }),
+      ),
+    pauseNext(phase: "catalog" | "resolution") {
+      let entered!: () => void, release!: () => void
+      const enteredPromise = new Promise<void>((resolve) => {
+        entered = resolve
+      })
+      const wait = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      pauses.set(phase, { entered, wait })
+      return { entered: enteredPromise, release }
+    },
+    revokeOrigin(id: string) {
+      revokedOrigins.add(id)
+    },
+    policyRequests() {
+      return requests
+    },
+    deny() {
+      allowed = false
+    },
+    removeAgent(id: string) {
+      unavailableAgents.add(id)
+    },
+    restoreAgent(id: string) {
+      unavailableAgents.delete(id)
+    },
+    removeOriginalAgent() {
+      originalAvailable = false
+    },
+    defaultAgent(value: string) {
+      agent = value
+    },
+    originalConfigDefaults(value: Readonly<Record<string, unknown>>) {
+      configDefaults = value
+    },
+    combineMessages(value: typeof combineInput) {
+      combineInput = value
+    },
+    resolutionCount() {
+      return resolutions
+    },
+    declareMessages(value: boolean) {
+      messages = value
+    },
+    parser(value: typeof parse) {
+      parse = value
+    },
+    loseNextAcknowledgement() {
+      fail = "afterCommit"
+    },
+    failBeforeCommit() {
+      fail = "beforeCommit"
+    },
+    trackWork,
+    ownHost(host: ExecutionHost) {
+      borrowed?.hosts.add(host)
+    },
+    async store(id: string): Promise<RuntimeStore> {
+      if (borrowed?.group.closing) throw new Error("Permission fixture is closing")
+      return registration.openThread(id, false).then((value) => {
+        if (!value) throw new Error("missing test thread")
+        return value
+      })
+    },
+    async snapshot(id: string) {
+      return (await this.store(id)).snapshot()
+    },
+    async seedReceipt(id: string, receipt: RuntimeReceiptRecord) {
+      await (await this.store(id)).transaction((tx) => tx.receipts.put(receipt))
+    },
+    async close() {
+      if (borrowed) return borrowed.closeGroup()
+      await Promise.allSettled([...work])
+      await storage.close()
+      rmSync(directory, { recursive: true, force: true })
+    },
+  }
+}
+
+interface BorrowedGroup {
+  closing: boolean
+  readonly fixtures: Set<BorrowedFixture>
+  closePromise?: Promise<void>
+}
+interface BorrowedFixture {
+  storage?: import("../../src/lib/runtime/storage-host.ts").RuntimeStorageHost
+  readonly onCompletion?: "keep"
+  readonly owner: SharedPermissionOwner
+  readonly group: BorrowedGroup
+  readonly threadId: string
+  readonly submissionId: string
+  readonly scopes: Map<string, string>
+  readonly hosts: Set<ExecutionHost>
+  readonly work: Set<Promise<unknown>>
+  readonly closeGroup: () => Promise<void>
+  directory?: string
+}
+interface SharedPermissionOwner {
+  readonly storage: Awaited<ReturnType<typeof createRuntimeStorageHost>>
+  readonly registration: import("@b4run/sdk/agent-protocol").RuntimeStorageRegistrationOptions
+  readonly root: string
+  readonly naming?: { readonly schema: string; readonly tablePrefix: string }
+  readonly groups: Set<BorrowedGroup>
+  failed: boolean
+  close(): Promise<void>
+}
+const sharedPermissionOwners = new Set<SharedPermissionOwner>()
+async function closeSharedOwners(): Promise<void> {
+  const results = await Promise.allSettled(
+    [...sharedPermissionOwners].map((owner) => owner.close()),
+  )
+  const errors = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []))
+  if (errors.length) throw new AggregateError(errors, "Shared permission fixture shutdown failed")
+}
+
+/** R6-only lifecycle. One actual server installation, independent fresh scopes;
+ * no candidate/read filters or per-fixture execution dispatcher. */
+export function sharedPermissionFixtures(options: { readonly onCompletion?: "keep" } = {}) {
+  let owner: SharedPermissionOwner
+  let group: BorrowedGroup | undefined
+  async function closeGroup(value: BorrowedGroup): Promise<void> {
+    if (value.closePromise) return value.closePromise
+    value.closing = true
+    value.closePromise = (async () => {
+      const results = await Promise.allSettled(
+        [...value.fixtures].flatMap((f) => [...f.hosts].map((host) => host.close())),
+      )
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      )
+      for (const f of value.fixtures) {
+        if (f.work.size)
+          process.stdout.write(`R6 teardown draining ${f.work.size} active request(s)\n`)
+        const settled = await Promise.allSettled([...f.work])
+        errors.push(
+          ...settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
+        )
+      }
+      if (errors.length)
+        throw new AggregateError(
+          errors,
+          "Owned permission work did not drain cleanly; scopes preserved",
+        )
+      const scopes = [...value.fixtures].flatMap((f) =>
+        [...f.scopes].map(([threadId, generation]) => ({ threadId, generation })),
+      )
+      for (const f of value.fixtures) await f.storage?.close()
+      await deleteOwnedPermissionScopes(owner, scopes)
+      for (const f of value.fixtures)
+        if (f.directory) rmSync(f.directory, { recursive: true, force: true })
+    })().catch((error) => {
+      owner.failed = true
+      throw error
+    })
+    return value.closePromise
+  }
+  beforeAll(async () => {
+    const root = mkdtempSync(join(tmpdir(), "b4-r6-permission-installation-"))
+    chmodSync(root, 0o700)
+    let registration!: import("@b4run/sdk/agent-protocol").RuntimeStorageRegistrationOptions
+    const naming = postgres?.naming()
+    const chosen =
+      postgres && naming
+        ? postgresRuntimeStorage({ pool: postgres.first, ...naming })
+        : sqliteRuntimeStorage(root)
+    const storage = await createRuntimeStorageHost(
+      (register) =>
+        chosen((value) => {
+          registration = value
+          return register(value)
+        }),
+      {
+        prepareTemporaryCleanup: async ({ installationId, threadId, generation }) => ({
+          kind: "none",
+          installationId,
+          threadId,
+          generation,
+        }),
+      },
+    )
+    let closePromise: Promise<void> | undefined
+    owner = {
+      root,
+      storage,
+      registration,
+      ...(naming ? { naming } : {}),
+      groups: new Set(),
+      failed: false,
+      close() {
+        if (closePromise) return closePromise
+        closePromise = (async () => {
+          const errors: unknown[] = []
+          for (const value of owner.groups) {
+            try {
+              await closeGroup(value)
+            } catch (error) {
+              errors.push(error)
+            }
+          }
+          if (owner.failed) {
+            try {
+              await preservePermissionFixture(owner, errors)
+            } catch (error) {
+              errors.push(error)
+            }
+          }
+          try {
+            await storage.close()
+            process.stdout.write(`R6 closed own runtime installation ${storage.installationId}\n`)
+          } catch (error) {
+            owner.failed = true
+            errors.push(error)
+          }
+          if (!owner.failed) rmSync(root, { recursive: true, force: true })
+          else process.stdout.write(`R6 preserved failed shared fixture ${root}\n`)
+          if (errors.length)
+            throw new AggregateError(errors, "Shared permission owner cleanup failed")
+        })()
+        return closePromise
+      },
+    }
+    sharedPermissionOwners.add(owner)
+  }, 240_000)
+  beforeEach(() => {
+    if (owner.failed)
+      throw new Error("Prior shared permission teardown failed; refusing another test")
+    group = { closing: false, fixtures: new Set() }
+    owner.groups.add(group)
+  })
+  afterEach(async () => {
+    if (group) await closeGroup(group)
+  })
+  afterAll(async () => {
+    // Vitest stops stacked hooks at the first rejection. This same physical
+    // owner must drain/preserve every shared owner and finish pools/container
+    // before propagating any saved failure; the outer hook reuses its promise.
+    if (postgres) await postgres.finish()
+    else await owner?.close()
+  })
+  return {
+    async create() {
+      if (!group || group.closing) throw new Error("Permission fixture group is closing")
+      const current = group
+      const state: BorrowedFixture = {
+        owner,
+        ...(options.onCompletion ? { onCompletion: options.onCompletion } : {}),
+        group: current,
+        threadId: crypto.randomUUID(),
+        submissionId: crypto.randomUUID(),
+        scopes: new Map(),
+        hosts: new Set(),
+        work: new Set(),
+        closeGroup: () => closeGroup(current),
+      }
+      current.fixtures.add(state)
+      return fixture(undefined, state)
+    },
+    async reset() {
+      if (!group) throw new Error("Missing permission fixture group")
+      await closeGroup(group)
+      group = { closing: false, fixtures: new Set() }
+      owner.groups.add(group)
+    },
+    async candidates() {
+      return owner.registration.execution?.listCandidates()
+    },
+  }
+}
+
+const permissionScopeTables = [
+  "checkpoint_writes",
+  "aliases",
+  "projections",
+  "leases",
+  "journal",
+  "checkpoint_lineage",
+  "grants",
+  "pending",
+  "receipts",
+  "inbox",
+  "maintenance",
+  "checkpoints",
+  "runs",
+  "threads",
+  "run_identities",
+  "checkpoint_identities",
+  "scopes",
+] as const
+interface OwnedPermissionScope {
+  readonly threadId: string
+  readonly generation: string
+}
+function permissionTable(owner: SharedPermissionOwner, name: string): string {
+  return owner.naming ? `${owner.naming.schema}.${owner.naming.tablePrefix}_${name}` : name
+}
+/** Trusted TEST-ONLY teardown after every fixture host/request drained. This is
+ * neither a runtime delete implementation nor an R11 capability/certification. */
+async function deleteOwnedPermissionScopes(
+  owner: SharedPermissionOwner,
+  scopes: readonly OwnedPermissionScope[],
+): Promise<void> {
+  const pairs = [
+    ...new Map(
+      scopes.map((scope) => [JSON.stringify([scope.threadId, scope.generation]), scope]),
+    ).values(),
+  ]
+  if (!pairs.length) return
+  const expected = new Set(pairs.map((scope) => JSON.stringify([scope.threadId, scope.generation])))
+  const values = pairs.flatMap((scope) => [scope.threadId, scope.generation])
+  const validate = (
+    rows: readonly {
+      thread_id: string
+      generation: string
+      execution_owner: unknown
+      leases: unknown
+    }[],
+  ) => {
+    const actual = new Set(rows.map((row) => JSON.stringify([row.thread_id, row.generation])))
+    if (
+      rows.length !== pairs.length ||
+      actual.size !== expected.size ||
+      rows.some(
+        (row) =>
+          !expected.has(JSON.stringify([row.thread_id, row.generation])) ||
+          row.execution_owner !== null ||
+          row.leases !== 0,
+      )
+    )
+      throw new Error("Owned permission scope is missing or still active; preserving every scope")
+  }
+  if (owner.naming) {
+    if (!postgres) throw new Error("Missing owned PostgreSQL fixture pool")
+    const client = await postgres.first.connect()
+    try {
+      await client.query("BEGIN")
+      const owned = `owned(thread_id,generation) AS (VALUES ${pairs.map((_, i) => `($${i * 2 + 1}::text,$${i * 2 + 2}::text)`).join(",")})`
+      const result = await client.query(
+        `WITH ${owned} SELECT s.thread_id,s.generation,s.execution_owner,
+        (SELECT count(*)::int FROM ${permissionTable(owner, "leases")} l WHERE l.thread_id=s.thread_id AND l.generation=s.generation) AS leases
+        FROM ${permissionTable(owner, "scopes")} s JOIN owned o USING(thread_id,generation) FOR UPDATE OF s`,
+        values,
+      )
+      validate(result.rows)
+      const tables = ["native_writes", "native_checkpoints", ...permissionScopeTables]
+      const deletes = tables
+        .slice(0, -1)
+        .map(
+          (table, i) =>
+            `d${i} AS (DELETE FROM ${permissionTable(owner, table)} t USING owned o WHERE t.thread_id=o.thread_id AND t.generation=o.generation RETURNING t.thread_id)`,
+        )
+      const removed = await client.query(
+        `WITH ${owned},${deletes.join(",")} DELETE FROM ${permissionTable(owner, "scopes")} s USING owned o WHERE s.thread_id=o.thread_id AND s.generation=o.generation RETURNING s.thread_id,s.generation`,
+        values,
+      )
+      if (removed.rowCount !== pairs.length)
+        throw new Error("Owned permission scope deletion was incomplete")
+      await client.query("COMMIT")
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    } finally {
+      client.release()
+    }
+  } else {
+    const db = new DatabaseSync(join(owner.root, ".b4", "agent-protocol", "v1", "runtime.sqlite"))
+    try {
+      db.exec("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE")
+      const where = pairs.map(() => "(thread_id=? AND generation=?)").join(" OR ")
+      const rows = db
+        .prepare(`SELECT s.thread_id,s.generation,s.execution_owner,s.execution_nonce,
+        (SELECT count(*) FROM leases l WHERE l.thread_id=s.thread_id AND l.generation=s.generation) AS leases
+        FROM scopes s WHERE ${where}`)
+        .all(...values)
+      validate(rows as unknown as Parameters<typeof validate>[0])
+      if (rows.some((row) => row.execution_nonce !== null))
+        throw new Error("Owned permission scope still has an execution nonce; preserving it")
+      for (const table of permissionScopeTables)
+        db.prepare(`DELETE FROM ${table} WHERE ${where}`).run(...values)
+      db.exec("COMMIT")
+    } finally {
+      if (db.isTransaction) db.exec("ROLLBACK")
+      db.close()
+    }
+  }
+}
+
+async function preservePermissionFixture(
+  owner: SharedPermissionOwner,
+  errors: readonly unknown[],
+): Promise<void> {
+  const scopes = [...owner.groups].flatMap((group) =>
+    [...group.fixtures].flatMap((f) =>
+      [...f.scopes].map(([threadId, generation]) => ({ threadId, generation })),
+    ),
+  )
+  const records: Record<string, unknown> = {}
+  if (owner.naming) {
+    if (!postgres) throw new Error("Missing owned PostgreSQL fixture pool")
+    for (const table of ["native_writes", "native_checkpoints", ...permissionScopeTables])
+      records[table] = (
+        await postgres.first.query(`SELECT * FROM ${permissionTable(owner, table)}`)
+      ).rows
+  } else {
+    const db = new DatabaseSync(join(owner.root, ".b4", "agent-protocol", "v1", "runtime.sqlite"), {
+      readOnly: true,
+    })
+    try {
+      for (const table of permissionScopeTables)
+        records[table] = db.prepare(`SELECT * FROM ${table}`).all()
+    } finally {
+      db.close()
+    }
+  }
+  writeFileSync(
+    join(owner.root, "teardown-failure.json"),
+    JSON.stringify(
+      {
+        scopes,
+        errors: errors.map(String),
+        errorCauses: errors.map((error) => fixtureError(error)),
+        records,
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  )
+}
+
+function fixtureError(error: unknown, depth = 0): unknown {
+  return error instanceof AggregateError && depth < 5
+    ? {
+        message: error.message,
+        errors: error.errors.map((cause) => fixtureError(cause, depth + 1)),
+      }
+    : String(error)
+}

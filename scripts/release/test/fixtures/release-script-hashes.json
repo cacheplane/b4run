@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "scripts": {
     "scripts/lib/pack-check.mjs": {
-      "sha256": "51f0544c48ed061b1b49693a5042358015172135d796c31b86a12764ee357a9e"
+      "sha256": "9d28a5c1b2007eed949304cc9c63adeb5a2185093caaf690a211dbcf6e912afb"
     },
     "scripts/lib/published-artifacts.mjs": {
       "sha256": "cf920b76d6dd47ddc37d8883fa99d5640fb5197c1b557fdc60228e2e2d674005"

@@ -6,7 +6,12 @@
  * lives in `thread-access-node.ts`.
  */
 
-import type { ThreadAccessResult, ThreadOperation } from "@b4run/sdk"
+import type {
+  B4Principal,
+  ThreadAccessRequest,
+  ThreadAccessResult,
+  ThreadOperation,
+} from "@b4run/sdk"
 
 /**
  * The ONE selection rule, shared by the dynamic loader and (in a later slice)
@@ -159,4 +164,25 @@ export function threadAccessBootLine(source: {
   if (source.fromOptions) return "B4.run: thread access policy bound from the runtime options"
   if (source.fromManifest) return "B4.run: thread access policy bound from the build manifest"
   return "B4.run: thread access policy bound from src/thread-access.ts"
+}
+
+/** Trusted host scope. Never merge request metadata/config into this object. */
+export function createThreadAccessContext(
+  deploymentId: string,
+  principal: B4Principal | undefined,
+): NonNullable<ThreadAccessRequest["context"]> {
+  return Object.freeze({
+    deploymentId,
+    scope: principal
+      ? Object.freeze({ kind: "principal" as const, id: principal.id })
+      : Object.freeze({ kind: "anonymous" as const }),
+  })
+}
+export function snapshotThreadProvenance(
+  provenance: NonNullable<ThreadAccessRequest["provenance"]>,
+): NonNullable<ThreadAccessRequest["provenance"]> {
+  return Object.freeze({
+    ...provenance,
+    ...(provenance.namespace ? { namespace: Object.freeze([...provenance.namespace]) } : {}),
+  })
 }

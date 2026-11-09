@@ -1,0 +1,126 @@
+[
+  {
+    "name": "empty RunStream request",
+    "schema": "RunStream",
+    "value": {},
+    "originalValid": false,
+    "correctedValid": true
+  },
+  {
+    "name": "empty Run response",
+    "schema": "Run",
+    "value": {},
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "complete Run response",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "created_at": "2026-11-05T00:00:00Z",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "status": "pending",
+      "metadata": {}
+    },
+    "originalValid": true,
+    "correctedValid": true
+  },
+  {
+    "name": "ordinary text-array Message",
+    "schema": "Message",
+    "value": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "ok"
+        }
+      ]
+    },
+    "originalValid": true,
+    "correctedValid": true
+  },
+  {
+    "name": "Message missing role",
+    "schema": "Message",
+    "value": {
+      "content": "ok"
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "invalid Run timestamp",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "created_at": "yesterday",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "status": "pending",
+      "metadata": {}
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "Run response missing run_id",
+    "schema": "Run",
+    "value": {
+      "created_at": "2026-11-05T00:00:00Z",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "status": "pending",
+      "metadata": {}
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "Run response missing created_at",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "status": "pending",
+      "metadata": {}
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "Run response missing updated_at",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "created_at": "2026-11-05T00:00:00Z",
+      "status": "pending",
+      "metadata": {}
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "Run response missing status",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "created_at": "2026-11-05T00:00:00Z",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "metadata": {}
+    },
+    "originalValid": false,
+    "correctedValid": false
+  },
+  {
+    "name": "Run response missing metadata",
+    "schema": "Run",
+    "value": {
+      "run_id": "018f2c16-5edb-7c3b-8c80-35f79a173d42",
+      "created_at": "2026-11-05T00:00:00Z",
+      "updated_at": "2026-11-05T00:00:00Z",
+      "status": "pending"
+    },
+    "originalValid": false,
+    "correctedValid": false
+  }
+]

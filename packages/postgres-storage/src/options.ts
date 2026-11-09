@@ -62,3 +62,13 @@ export interface PostgresStoreOptions {
   /** Table name prefix. Defaults to `b4`; vary it to share one database. */
   readonly tablePrefix?: string
 }
+
+/** Fresh coordinated namespace, installed atomically; no legacy migration flag.
+ * Node host plumbing only. This does not activate a protocol HTTP binding. */
+export interface PostgresRuntimeOptions {
+  readonly pool: SqlPool
+  readonly ownsPool?: boolean
+  readonly schema?: string
+  /** Defaults to b4_ap_v1; every generated identifier is checked before SQL. */
+  readonly tablePrefix?: string
+}

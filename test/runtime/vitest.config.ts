@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@b4run/cli/runtime": resolve(rootDir, "../../packages/cli/src/runtime-exports.ts"),
+      "@b4run/core/internal/permission-continuation": resolve(
+        rootDir,
+        "../../packages/core/src/internal-permissions.ts",
+      ),
       "@b4run/core/internal/compiler": resolve(
         rootDir,
         "../../packages/core/src/compiler/index.ts",
@@ -18,8 +22,16 @@ export default defineConfig({
       // as @b4run/sdk/testing below).
       "@b4run/core/node": resolve(rootDir, "../../packages/core/src/node.ts"),
       "@b4run/core": resolve(rootDir, "../../packages/core/src/index.ts"),
+      "@b4run/langchain/internal/runtime": resolve(
+        rootDir,
+        "../../packages/langchain/src/internal-runtime.ts",
+      ),
       "@b4run/langchain": resolve(rootDir, "../../packages/langchain/src/index.ts"),
       "@b4run/langgraph": resolve(rootDir, "../../packages/langgraph/src/index.ts"),
+      "@b4run/sdk/internal/runtime-identity": resolve(
+        rootDir,
+        "../../packages/sdk/src/internal/runtime-identity.ts",
+      ),
       "@b4run/sdk/pure": resolve(rootDir, "../../packages/sdk/src/pure/index.ts"),
       "@b4run/sdk/testing": resolve(rootDir, "../../packages/sdk/src/testing/index.ts"),
       "@b4run/sdk": resolve(rootDir, "../../packages/sdk/src/index.ts"),

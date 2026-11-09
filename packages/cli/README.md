@@ -84,6 +84,40 @@ The development-time commands (`dev`, `build`, `add`, `check`, `typegen`, `verif
 
 `B4_SIGNALS_URL` is read from the shell environment once at startup, never from a project `.env`. The two opt-out variables are honoured from the shell before anything happens, and from a project `.env` for every send; a project `.env` loads after the command starts, so on the very first run the id file and the notice can still appear before it takes effect.
 
+## Staged coordinated permission service
+
+The shared PermissionService validates the complete pending set across nested
+namespaces and atomically consumes grants, closes the exact pause, admits a linked
+continuation and records its receipt/journal/dispatch. Exact retries use the
+existing original-operation ledger before consumed-pause checks. Always saves an
+idempotent intent in that transaction; configured rule I/O runs before started
+execution, with failures retaining accepted work and zero protected invocation.
+Current deny rules and constraints still prevail.
+
+This service and the core continuation context are staged. `dev/runtime-server.ts`
+and `dev/runtime-fetch-core.ts` still use the existing handlers until R8 safe
+adapter assembly retires those owners. R8 must enlist actual checkpoint/pause
+writes and map real protected tasks/namespaces into fresh per-execution contexts;
+B1 must validate a compatible configured rule domain on every worker.
+
+The staged executor accepts exact-Run durable controls, distinguishes owning
+creation stream closure from passive observation, and waits for actual provider
+unwind before releasing ownership. Deadlines and configured shutdown drain use
+the same control path. Shutdown closes new Run and permission acceptance on its
+local boot host; authorized accepted receipts remain reconcilable.
+Proved execution loss uses the existing `storage_unavailable` error with bounded
+`reason: execution_lost` and `effectsUncertain: true` diagnostics, including when
+the exact Run is independently retained after a successor cleans its Thread.
+
+REST creation replaces completion intent; permission continuation preserves it.
+Automatic cleanup requires a trusted boot resource preparation capability,
+actual unwind, and native generation/head/intent/lease checks. It retains
+independent protected Run/results for seven days and commits a durable owned
+provider teardown obligation. R8 must wire the real workspace association bridge;
+R11 still owns physical teardown retries and explicit deletion, and R12 owns
+pruning. The staged producer does not destroy provider resources or activate the
+existing handlers. Unknown ownership refuses cleanup.
+
 ## Related
 
 - [`@b4run/sdk`](https://www.npmjs.com/package/@b4run/sdk) supplies the route and runtime contracts consumed by the CLI.

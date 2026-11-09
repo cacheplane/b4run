@@ -22,6 +22,8 @@ import { scenarios } from "@b4run/sdk/testing"
 |---|---|---|---|---|
 | `@b4run/sdk` | edge-safe | not-claimed | application | supported |
 | `@b4run/sdk/pure` | edge-safe | dependency-free | integration | supported |
+| `@b4run/sdk/agent-protocol` | edge-safe | dependency-free | tooling | supported |
+| `@b4run/sdk/internal/runtime-identity` | edge-safe | dependency-free | internal | internal |
 | `@b4run/sdk/testing` | node-only | not-claimed | testing | supported |
 | `@b4run/sdk/tool-step.schema.json` | package metadata | n/a | integration | supported |
 | `@b4run/sdk/answer.schema.json` | package metadata | n/a | integration | supported |
@@ -69,6 +71,7 @@ import { scenarios } from "@b4run/sdk/testing"
 | `BackendAdapter` | Define a route backend contract with hard `signal` and optional cooperative `stopSignal`. |
 | `CooperativeStopError` | Represent an explicitly observed cooperative Stop after owned work settles. |
 | `isCooperativeStop` | Distinguish the owned Stop outcome from an independent error. |
+| `BackendActiveInput` | Describe the invocation-local runtime bridge that selects accepted messages before a model step; it is never caller-supplied graph input or config. |
 | `B4ErrorCode` | Name a registered B4.run error. |
 | `B4ErrorDescriptor` | Describe a registered B4.run error. |
 | `B4_ERRORS` | Read the error descriptor registry. |
@@ -228,6 +231,34 @@ import { scenarios } from "@b4run/sdk/testing"
 | `readPersistedStep` | Deprecated: use `readToolStep`. Validate a `b4_step` value; invalid optional fields are dropped, a missing identity returns undefined. |
 | `readPersistedSubagent` | Validate a `b4_subagent` value. |
 | `readPersistedTurnEnd` | Validate a `b4:turn` value. |
+
+### Runtime storage boot contracts
+
+The portable `@b4run/sdk/agent-protocol` subpath exports the type-only
+`RuntimeStorageFactory`, `RuntimeStorageRegistration`,
+`RuntimeStorageRegistrationOptions`, and `RuntimeStorageInstallation` contracts.
+The trusted host retains the one-time boot registration; request metadata,
+principals and independent store objects do not create an authorized scope.
+`RuntimeOperationContext`, `RuntimeOperationSearch` and
+`RuntimeOperationCandidate` describe private reconciliation state and discovery,
+not wire response fields. `RuntimeReceiptRecord.operation` retains the original
+resolved defaults and protected provenance; public receipt responses omit it.
+`RuntimeExecutionStorage` and `RuntimeExecutionLease` describe the optional private
+boot hooks for atomic execution claim, heartbeat and fenced release. Missing
+execution hooks fail execution readiness closed. `RuntimeRunRecord.execution`
+retains private owner/fence identity and is excluded from public Run metadata.
+`RuntimePendingRecord.proposal` holds optional private server-derived proposal
+and rule facts; actionable permission acceptance requires them. They are excluded
+from `PendingInput` projection. `RuntimeTransaction.pending.get()` takes the full
+private identity: `ownerRunId`, `pausedGeneration`, `namespace`, `inputId`, and
+`proposalHash`. It never looks up a bare public interrupt ID. Distinct namespaces
+and historical pauses retain separate pending and grant records. Native backends
+use a bounded private hash key while preserving and comparing the full identity;
+`RuntimeGrantRecord.inputId` remains the public interrupt ID.
+`RuntimeTransaction.grants.consume()` keeps expiry
+checks by default; its optional `"deny"` third argument permits only authenticated
+negative abandonment after expiry, retaining every current pause/proposal/owner
+predicate. These contracts do not activate the server bindings or certify an execution host.
 
 ### `@b4run/sdk/pure`
 

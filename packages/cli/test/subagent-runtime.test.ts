@@ -64,6 +64,7 @@ describe("lazy CLI subagent runtime context", () => {
     await resolver({ callId: "call-child", config, input: "Inspect", name: "researcher" })
 
     expect(prepareChild).toHaveBeenCalledWith(registry[0], {
+      nativeConfig: config,
       callId: "call-child",
       depth: 2,
       params: { tenant: "acme" },
@@ -115,12 +116,22 @@ describe("lazy CLI subagent runtime context", () => {
     expect(second).toMatchObject({ ok: true })
     expect(prepareChild).toHaveBeenCalledTimes(2)
     expect(prepareChild).toHaveBeenNthCalledWith(1, registry[0], {
+      nativeConfig: {
+        configurable: { tenant: "acme" },
+        metadata: { b4: { subagent_depth: 1 } },
+        signal: firstSignal,
+      },
       callId: "first",
       depth: 2,
       params: { tenant: "acme" },
       signal: firstSignal,
     })
     expect(prepareChild).toHaveBeenNthCalledWith(2, registry[0], {
+      nativeConfig: {
+        configurable: { tenant: "acme" },
+        metadata: { b4: { subagent_depth: 1 } },
+        signal: secondSignal,
+      },
       callId: "second",
       depth: 2,
       params: { tenant: "acme" },
@@ -184,6 +195,11 @@ describe("lazy CLI subagent runtime context", () => {
       expect.objectContaining({ name: "researcher", routeId: registry[0].routeId }),
       {
         callId: "first-call",
+        nativeConfig: {
+          configurable: { locale: "en", tenant: "acme", thread_id: "thread-1" },
+          metadata: { b4: { subagent_depth: 1 } },
+          signal: rootSignal,
+        },
         depth: 2,
         params: { locale: "en", tenant: "acme" },
         signal: rootSignal,

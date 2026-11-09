@@ -12,13 +12,21 @@ import type { B4Principal, B4PrincipalShape } from "./auth.js"
  * concepts, two files.
  */
 
-/** LangGraph's `threads.*` split, minus `search` (B4.run serves no thread search). */
+/** Shared thread authorization actions, including standard protocol resources. */
 export type ThreadAction = "create" | "read" | "update" | "delete"
 
 /**
  * Which endpoint asked, for policies that need finer grain than `action`.
  *
- * Each member, its endpoint, and the `action` it arrives under:
+ * Standard search operations authorize each contributing row before pagination.
+ * Source copy/fork reads and destination creates require separate decisions;
+ * receipt disclosure always rechecks current authority. `run.rollback` and
+ * `run.delete` use `delete`; privileged injection uses `input.inject.system`
+ * separately from ordinary `input.inject`. Stored provenance remains protected
+ * even after a copied source is deleted.
+ *
+ * Native operations remain available until their bindings are retired. Their
+ * endpoints and actions remain:
  *
  * - `thread.create` — `POST /threads` — `create`, then again as the `update`
  *   recheck that follows every create
@@ -52,6 +60,31 @@ export type ThreadAction = "create" | "read" | "update" | "delete"
  * and creates nothing, so it is only ever an `update`.
  */
 export type ThreadOperation =
+  | "thread.search"
+  | "thread.patch"
+  | "thread.history"
+  | "thread.stream"
+  | "thread.copy.source"
+  | "thread.copy.destination"
+  | "run.create"
+  | "run.search"
+  | "run.get"
+  | "run.cancel"
+  | "run.rollback"
+  | "run.delete"
+  | "run.receipt"
+  | "input.respond"
+  | "input.inject"
+  | "input.inject.system"
+  | "state.get"
+  | "state.listCheckpoints"
+  | "state.fork.source"
+  | "state.fork.destination"
+  | "state.update"
+  | "subscription.subscribe"
+  | "subscription.unsubscribe"
+  | "subscription.reconnect"
+  | "agent.getTree"
   | "thread.create"
   | "thread.get"
   | "thread.state"
@@ -137,7 +170,7 @@ export interface ThreadSubject {
   readonly thread_id: string
   readonly created_at: string
   readonly updated_at: string
-  readonly status: "idle" | "busy" | "interrupted"
+  readonly status: "idle" | "busy" | "interrupted" | "error"
   /**
    * Client-supplied metadata, verbatim and UNTRUSTED — anyone who can create a
    * thread can put anything here. Never contains the reserved key — B4.run lifts
@@ -153,7 +186,30 @@ export interface ThreadSubject {
   readonly access: Readonly<Record<string, unknown>> | undefined
 }
 
+/** Immutable host-selected operation scope. A token is correlation, never
+ * authority. Anonymous and authenticated identities cannot share a scope. */
+export interface ThreadAccessContext {
+  readonly deploymentId: string
+  readonly scope:
+    | { readonly kind: "anonymous" }
+    | { readonly kind: "principal"; readonly id: string }
+}
+/** Stored source lineage supplied by the host, never caller metadata/config.
+ * Copies retain it even after the source Thread is deleted. */
+export interface ThreadAccessProvenance {
+  readonly deploymentId?: string
+  readonly principalId?: string
+  readonly tenantId?: string
+  readonly agentId?: string
+  readonly namespace?: readonly string[]
+  readonly sourceThreadId?: string
+  readonly sourceCheckpointId?: string
+  readonly sourceRunId?: string
+}
 export interface ThreadAccessRequest {
+  readonly context?: ThreadAccessContext
+  readonly provenance?: ThreadAccessProvenance
+
   readonly action: ThreadAction
   readonly operation: ThreadOperation
   /**

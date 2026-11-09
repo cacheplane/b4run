@@ -3,6 +3,8 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { B4_ANSWER_JSON_SCHEMA, B4_TOOL_STEP_JSON_SCHEMA } from "../dist/tool-step.js"
 
+import { writeAgentProtocolAssets } from "./write-agent-protocol-schema.mjs"
+
 const dist = resolve(dirname(fileURLToPath(import.meta.url)), "../dist")
 mkdirSync(dist, { recursive: true })
 for (const [file, schema] of [
@@ -11,3 +13,5 @@ for (const [file, schema] of [
 ]) {
   writeFileSync(resolve(dist, file), `${JSON.stringify(schema, null, 2)}\n`)
 }
+
+writeAgentProtocolAssets({ distDirectory: dist })

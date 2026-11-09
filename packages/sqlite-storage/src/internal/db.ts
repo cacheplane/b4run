@@ -4,7 +4,10 @@ import { DatabaseSync } from "node:sqlite"
 
 export type Db = DatabaseSync
 
-export function openDb(path: string): Db {
+export function openDb(
+  path: string,
+  options: { readonly synchronous?: "NORMAL" | "FULL" } = {},
+): Db {
   const isMemory = path === ":memory:"
   if (!isMemory) {
     mkdirSync(dirname(path), { recursive: true })
@@ -14,6 +17,6 @@ export function openDb(path: string): Db {
     db.exec("PRAGMA journal_mode = WAL")
   }
   db.exec("PRAGMA foreign_keys = ON")
-  db.exec("PRAGMA synchronous = NORMAL")
+  db.exec(`PRAGMA synchronous = ${options.synchronous ?? "NORMAL"}`)
   return db
 }

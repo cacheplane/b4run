@@ -43,6 +43,7 @@ export default config({
   },
 
   // Defaults are local SQLite/file stores under .b4/.
+  // runtimeStorage: coordinatedRuntimeFactory,
   // checkpointer: sharedCheckpointer,
   // threadsStore: sharedThreadsStore,
 
@@ -264,6 +265,25 @@ ungated under `"optional"`.
 [`b4 approvals prune`](/docs/cli#b4-approvals) runs the same pass by hand. A
 `grantStore` you supply is checked at boot while grants are on and must implement every store
 method, `prune` included.
+
+### `runtimeStorage`
+
+```ts
+runtimeStorage?: RuntimeStorageFactory
+```
+
+A coordinated runtime factory registered once by the shared host at boot.
+`sqliteRuntimeStorage(appRoot)` from `@b4run/sqlite-storage` selects the fresh
+single-process namespace. `postgresRuntimeStorage({ pool })` from
+`@b4run/postgres-storage/node` selects the shared Postgres namespace. These
+factories register one transaction domain for Thread, Run, checkpoint, receipt,
+journal, and dispatch records; separate `checkpointer` and `threadsStore`
+settings do not provide it.
+
+The admission service commits accepted work and retry receipts together. This
+configuration seam is staged: existing Node HTTP owners still require the
+ExecutionHost and binding cutover before they consume it. It does not activate
+standard endpoints or certify recovery, copy, rollback, deletion, or webhooks.
 
 ### `checkpointer`
 
@@ -619,6 +639,9 @@ consolidation and reflection.
 
 ```ts
 server?: {
+  agentProtocol?: {
+    defaultAgentId?: string
+  }
   cors?: {
     origins: readonly string[] | "*"
     credentials?: boolean
@@ -638,6 +661,15 @@ server?: {
   }
 }
 ```
+
+#### `server.agentProtocol`
+
+`defaultAgentId` is an exact canonical Agent ID, such as `"/chat#agent"` or
+`"/report#workflow"`. Check, build and runtime boot reject a configured ID that
+does not name a public runnable route. A sole public runnable route is the
+automatic catalog default when this setting is omitted. With multiple routes,
+explicit Agent IDs remain usable; omitted selection reports `agent_required`.
+A configured default denied to the caller never falls back to another route.
 
 #### `server.cors`
 

@@ -128,6 +128,74 @@ The existing managed-workspace restriction on `requestStores` remains in place.
 The process-local run registry remains the default for embeddings without shared
 admission; sharing Postgres data alone does not provide execution exclusion.
 
+## Fresh coordinated runtime installation
+
+`openPostgresRuntimeInstallation({ pool, schema?, tablePrefix?, ownsPool? })` from
+`@b4run/postgres-storage/node` installs or validates the separate Agent Protocol
+runtime namespace (`public.b4_ap_v1_*` by default). It uses one advisory-locked
+installation transaction and a coherent format/version/installation UUID marker.
+Incompatible or explicitly reused namespaces fail before DDL; old store tables
+and independent memory/Store data remain intact. Generated identifier lengths
+are validated before SQL. An injected pool stays caller-owned unless `ownsPool`
+is true; await `close()` after active work and cached clients have settled.
+
+This Node installation API does not mint request authority or activate current
+CLI handlers. Internal host bindings enforce generation, ownership fence and
+current lease in the same transaction as runtime records and native saver writes.
+Native checkpoint bytes, pending writes and their canonical Run/namespace owners
+share the transaction; committed snapshots use independent repeatable-read
+connections. Per-Thread read leases release their database transaction before
+provider work and leave other Threads free to progress. A read lease reserves
+one session connection and a work slot using actual Node `pg.Pool` facts.
+Known pools without safe capacity reject before the callback. Opaque structural
+pools retain ordinary transactions/snapshots, but have an unverified lease
+profile: read leases fail closed before acquisition. This is not full host certification. Admission does not use read leases;
+lease-dependent controls still require their service capability checks before mutation.
+
+`postgresRuntimeStorage({ pool, schema?, tablePrefix?, ownsPool? })` is exported
+only from `@b4run/postgres-storage/node`. It returns a `RuntimeStorageFactory`
+for one-time shared host registration, using private fenced binders and indexed
+operation receipt discovery. The common C5 gate and original Agent middleware
+run before disclosure; admission commits its Run, projection, journal, dispatch
+and receipt in one transaction. Exact retries preserve original resolved defaults.
+Private execution hooks atomically claim the Thread, advance its fence and
+record started/recovery facts under the same row lock. Leases use the database
+clock with a 60-second expiry; the shared executor heartbeats every 15 seconds
+and polls durable dispatch every second. A missed notification does not lose
+accepted work. Expired owners cannot heartbeat or write; started work settles as
+`execution_lost` with uncertain effects instead of replaying. Unowned idle scopes
+renew with a new fence, preserving authorized retained-receipt lookup.
+
+The owned release transaction can record observed invocation and required-write
+settlement atomically with the fence advance and owner clear. Hard-aborted started
+work retains uncertain effects; this timestamp does not prove raw or remote work
+has stopped. Lost ownership cannot write settlement proof.
+Settled-but-still-owned permission pauses are reconciled after lease loss
+without invoking their graph or rewriting their historical permission outcome.
+Automatic temporary cleanup rechecks exact generation/Run/head/completion intent,
+owner and observed settlement under the same native exclusion used by inspection
+leases. It atomically retains independent protected Run/results and retry subjects before
+removing Thread/runtime payloads and recording a durable provider teardown job.
+Retention pruning, the actual provider association bridge/worker, and explicit
+Thread deletion remain staged; these hooks do not claim physical erasure.
+
+The runtime cutover and shared server assembly remain required. Adapter
+safe-boundary hooks, coherent recovery materialization,
+copy/state operations, rollback/deletion and retention/webhooks await their
+respective service tasks. Unsupported state controls fail before mutation. This
+persistence foundation does not certify full host activation or extend the
+root entry's edge qualification.
+
+## Conditional permission rules
+
+The permissions store's optional `rememberedRules` coordinator shares one scope
+lock and transaction with every `addAllow` writer. An appended migration preserves
+existing rules and adds private scope/revision/receipt state. Exact intent retries
+never re-add a later removed rule. The staged runtime commits remembered-rule
+intents with batch acceptance, then verifies/applies the actual configured domain
+before started execution. Shared-runtime activation requires the same authoritative
+rule backend on each worker; a local file on a different worker is insufficient.
+
 ## Related
 
 - [Postgres Storage API reference](https://b4.run/docs/api/postgres-storage) — exact options, stores, and lifecycle.

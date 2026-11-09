@@ -4,6 +4,11 @@ import { Pool } from "pg"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { createPostgresPermissionsStore, type PostgresPermissionsStore } from "../src/node.js"
 
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Missing required test fixture value")
+  return value
+}
+
 const enabled = process.env.B4_TEST_PGSTORAGE === "1"
 let container: StartedPostgreSqlContainer
 let url: string
@@ -145,6 +150,48 @@ describe.skipIf(!enabled)("postgres permissions store against real Postgres", ()
       await pool.end()
     }
   }, 60_000)
+  test("preserves empty prefix patterns through the coordinated native addAllow writer", async () => {
+    const store = createPostgresPermissionsStore({
+      connectionString: url,
+      tablePrefix: freshPrefix(),
+    })
+    try {
+      await store.addAllow("bash", "")
+      expect(store.match("bash", "anything")).toBe("allow")
+    } finally {
+      await store.close()
+    }
+  }, 60_000)
+  test("coordinates durable intents across instances and never replays over later SQL rule edits", async () => {
+    const prefix = freshPrefix(),
+      pool = new Pool({ connectionString: url })
+    const a = createPostgresPermissionsStore({ pool, tablePrefix: prefix }),
+      b = createPostgresPermissionsStore({ pool, tablePrefix: prefix })
+    try {
+      await a.load()
+      await b.load()
+      expect(a.rememberedRules).toBeDefined()
+      const intent = await required(a.rememberedRules).prepare("intent-once", [
+        { tool: "tool", pattern: "send" },
+      ])
+      expect(await required(b.rememberedRules).apply(intent)).toBe("applied")
+      await pool.query(
+        `DELETE FROM public.${prefix}_permissions WHERE scope='runtime' AND kind='allow' AND tool='tool' AND pattern='send'`,
+      )
+      expect(await required(a.rememberedRules).apply(intent)).toBe("applied")
+      await a.load()
+      expect(a.match("tool", "send")).toBe("unknown")
+      const stale = await required(a.rememberedRules).prepare("intent-stale", [
+        { tool: "tool", pattern: "send" },
+      ])
+      await b.addAllow("tool", "inspect")
+      expect(await required(a.rememberedRules).apply(stale)).toBe("superseded")
+      expect(a.match("tool", "inspect")).toBe("allow")
+      expect(a.match("tool", "send")).toBe("unknown")
+    } finally {
+      await pool.end()
+    }
+  }, 60_000)
 })
 
 describe("postgres permissions store construction", () => {
@@ -155,6 +202,13 @@ describe("postgres permissions store construction", () => {
     expect(() => createPostgresPermissionsStore({ tablePrefix: "bad-prefix" })).toThrow(
       /tablePrefix/,
     )
+  })
+
+  test("rejects a generated permission identifier that would be truncated before any SQL", () => {
+    expect(() => createPostgresPermissionsStore({ tablePrefix: "a".repeat(52) })).toThrow(
+      /permissions table/,
+    )
+    expect(() => createPostgresPermissionsStore({ tablePrefix: "a".repeat(51) })).not.toThrow()
   })
 
   test("defaults to interactive mode", () => {

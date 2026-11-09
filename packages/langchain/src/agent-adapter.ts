@@ -5,6 +5,8 @@ import type {
   B4Agent,
   B4ContentPart,
   B4Principal,
+  BackendActiveInput,
+  BackendAdapter,
   BuiltInModelProviderId,
   ClientToolRecorder,
   RetryConfig,
@@ -59,7 +61,7 @@ import {
   type ProviderStreamState,
   projectProviderChunk,
 } from "./provider-stream.js"
-import { REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
+import { type ChildReplayReader, REPLAY_CHECKPOINT_READER } from "./replay-checkpoint-reader.js"
 import { withRetry } from "./retry.js"
 import { materializeAgentStateSchema, type ResolvedStateField } from "./state-adapter.js"
 import { convertSubagentTaskToLangChain, type SubagentResolver } from "./subagent-tool-bridge.js"
@@ -103,6 +105,138 @@ function assertAgentLike(entry: unknown): asserts entry is AgentLike {
   ) {
     throw new Error("Agent entry must expose invoke(input) — expected a LangChain agent")
   }
+}
+
+interface BuiltInGraphContext {
+  readonly checkpointer?: BaseCheckpointSaver
+  readonly drainWrites?: () => Promise<void>
+  readonly invocationLocal: boolean
+  config?: Readonly<Record<string, unknown>>
+}
+const builtInGraphs = new WeakMap<object, BuiltInGraphContext>()
+function copyInvocationConfig(config: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const copy = { ...config }
+  for (const key of ["configurable", "metadata"])
+    if (isRecord(config[key])) copy[key] = { ...config[key] }
+  for (const key of ["tags", "callbacks"])
+    if (Array.isArray(config[key])) copy[key] = [...config[key]]
+  return copy
+}
+/** Internal runtime subpath only. Configuration never confers saver/Core authority. */
+export function bindMaterializedAgentRuntime(
+  entry: unknown,
+  checkpointer: BaseCheckpointSaver,
+  config: Readonly<Record<string, unknown>>,
+): void {
+  const binding = entry && typeof entry === "object" ? builtInGraphs.get(entry) : undefined
+  if (
+    !binding?.invocationLocal ||
+    binding.checkpointer !== checkpointer ||
+    binding.config ||
+    !isRecord(config) ||
+    !isRecord(config.configurable)
+  )
+    throw Object.assign(
+      new Error("Native agent configuration cannot be bound to this materialization"),
+      { code: "not_supported" },
+    )
+  const snapshot = copyInvocationConfig(config)
+  for (const key of ["configurable", "metadata", "tags", "callbacks"])
+    if (
+      snapshot[key] !== config[key] &&
+      typeof snapshot[key] === "object" &&
+      snapshot[key] !== null
+    )
+      Object.freeze(snapshot[key])
+  binding.config = Object.freeze(snapshot)
+}
+function invocationConfig(entry: unknown, signal: AbortSignal): Record<string, unknown> {
+  const binding = entry && typeof entry === "object" ? builtInGraphs.get(entry) : undefined
+  return { ...copyInvocationConfig(binding?.config ?? {}), signal, durability: "sync" }
+}
+/** Declared controls belong to graphs compiled here, never inferred from an
+ * arbitrary runnable exposing similarly named methods. */
+export const agentBackendAdapter: BackendAdapter = {
+  kind: "agent",
+  protocol: {
+    injection: "before_model",
+    async rebindCheckpoint(entry, config) {
+      if (typeof entry !== "object" || entry === null || !builtInGraphs.has(entry))
+        throw Object.assign(new Error("Checkpoint rebinding is not supported for this adapter"), {
+          code: "not_supported",
+        })
+      const graph = entry as {
+        updateState(
+          config: unknown,
+          values: unknown,
+          asNode: string,
+        ): Promise<Record<string, unknown>>
+      }
+      // Replace invocation-local input markers through their public reducer.
+      // This revision and END are enclosed by the runtime's one native TX.
+      const cleared = await graph.updateState(config, { _b4AppliedInputIds: [] }, "model_request")
+      // LangGraph's public END special case retires tasks only with null values.
+      return graph.updateState(cleared, null, "__end__")
+    },
+  },
+  async execute(entry, input, context) {
+    assertAgentLike(entry)
+    context.signal.throwIfAborted()
+    const run = context.stopSignal ? cooperativeControl(context.stopSignal) : undefined
+    const binding = builtInGraphs.get(entry)
+    const config = invocationConfig(entry, context.signal)
+    if (run) config.control = run.control
+    try {
+      return await entry.invoke(input, config)
+    } catch (error) {
+      if (run?.stopped(error)) {
+        context.signal.throwIfAborted()
+        throw new CooperativeStopError()
+      }
+      throw error
+    } finally {
+      try {
+        await binding?.drainWrites?.()
+      } finally {
+        run?.release()
+      }
+    }
+  },
+  async *stream(entry, input, context) {
+    const binding =
+      typeof entry === "object" && entry !== null ? builtInGraphs.get(entry) : undefined
+    if (!binding)
+      throw Object.assign(new Error("Streaming requires a built-in compiled agent graph"), {
+        code: "not_supported",
+      })
+    context.signal.throwIfAborted()
+    const run = context.stopSignal ? cooperativeControl(context.stopSignal) : undefined
+    const config = invocationConfig(entry, context.signal)
+    if (run) config.control = run.control
+    try {
+      yield* streamFromRunnable(
+        entry as AgentLike,
+        input,
+        config,
+        undefined,
+        binding.drainWrites,
+        binding.checkpointer,
+        false,
+      )
+    } catch (error) {
+      if (run?.stopped(error)) {
+        context.signal.throwIfAborted()
+        throw new CooperativeStopError()
+      }
+      throw error
+    } finally {
+      try {
+        await binding.drainWrites?.()
+      } finally {
+        run?.release()
+      }
+    }
+  },
 }
 
 /**
@@ -190,6 +324,7 @@ async function materializeAgent(
     readonly streamTransformers?: readonly StreamTransformer[]
     readonly subagentResolver?: SubagentResolver
     readonly responseFormat?: JsonSchemaResponseFormat
+    readonly activeInput?: BackendActiveInput
   } = {},
 ): Promise<AgentLike> {
   // Converted tools capture middleware context and the request principal —
@@ -200,6 +335,7 @@ async function materializeAgent(
   // cached graph would either carry one request's schema into the next or
   // hand a format-bound request the unbound graph.
   const bypassCache =
+    opts.activeInput !== undefined ||
     opts.middlewareContext !== undefined ||
     opts.principal !== undefined ||
     opts.subagentResolver !== undefined ||
@@ -245,7 +381,8 @@ async function materializeAgent(
 
   const langchainTools = tools.map((tool) => {
     if (tool.name === "task" && opts.subagentResolver) {
-      return convertSubagentTaskToLangChain(tool, opts.subagentResolver)
+      const converted = convertSubagentTaskToLangChain(tool, opts.subagentResolver)
+      return converted
     }
     const converted = convertToolToLangChain(
       tool,
@@ -270,8 +407,8 @@ async function materializeAgent(
   const effectiveStateFields: readonly ResolvedStateField[] = opts.summarization
     ? [...(opts.stateFields ?? []).filter((f) => f.name !== "runningSummary"), runningSummaryField]
     : (opts.stateFields ?? [])
-
   const middleware = createB4AgentMiddleware({
+    ...(opts.activeInput ? { activeInput: opts.activeInput } : {}),
     provider,
     systemPrompt: descriptor.systemPrompt,
     // Fragments re-render on every model turn so they can reflect live state
@@ -306,6 +443,12 @@ async function materializeAgent(
 
   // biome-ignore lint/suspicious/noExplicitAny: dynamically-built options don't satisfy createAgent's inferred generics
   const compiled = createAgent(agentOptions as any)
+  builtInGraphs.set(compiled, {
+    invocationLocal: !!opts.activeInput,
+    ...(checkpointer
+      ? { checkpointer, drainWrites: () => trackCheckpointWrites(checkpointer).settled() }
+      : {}),
+  })
   registerCooperativeGraph(compiled)
   materializedModality.set(compiled as unknown as AgentLike, modality)
 
@@ -321,6 +464,7 @@ async function materializeAgent(
 }
 
 export async function materializeAgentGraph(options: {
+  readonly activeInput?: BackendActiveInput
   /** Bypass the compiled-graph cache when tools close over invocation-local state. */
   readonly bypassCache?: boolean
   readonly checkpointer?: BaseCheckpointSaver
@@ -346,6 +490,7 @@ export async function materializeAgentGraph(options: {
   readonly sandboxed?: boolean
 }): Promise<unknown> {
   return materializeAgent(options.descriptor, options.tools ?? [], options.checkpointer, {
+    ...(options.activeInput ? { activeInput: options.activeInput } : {}),
     ...(options.stateFields ? { stateFields: options.stateFields } : {}),
     ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
     ...(options.principal ? { principal: options.principal } : {}),
@@ -1349,6 +1494,7 @@ function parseInterruptStringMessage(text: string): readonly RawInterruptEntry[]
 }
 
 export interface AgentOptions {
+  readonly activeInput?: BackendActiveInput
   /** Bypass the compiled-graph cache when tools close over invocation-local state. */
   readonly bypassCache?: boolean
   /**
@@ -1515,6 +1661,7 @@ export async function* streamAgent(options: AgentOptions): AsyncGenerator<AgentS
         options.tools,
         options.checkpointer,
         {
+          ...(options.activeInput ? { activeInput: options.activeInput } : {}),
           ...(options.stateFields ? { stateFields: options.stateFields } : {}),
           ...(options.middlewareContext ? { middlewareContext: options.middlewareContext } : {}),
           ...(options.principal ? { principal: options.principal } : {}),
@@ -1621,6 +1768,7 @@ function prepareAgentCall(options: AgentOptions): {
 
   const config: Record<string, unknown> = {
     signal: options.signal,
+    ...(options.activeInput ? { durability: "sync" } : {}),
   }
   // Per-agent super-step ceiling. LangGraph's Pregel reads config.recursionLimit
   // (default 25); deep agents (coordinator + subagents + many tool calls) can
@@ -1658,6 +1806,7 @@ async function* streamFromRunnable(
   /** Awaited before a failure propagates, so the turn has stopped writing. */
   drainWrites?: () => Promise<void>,
   checkpointer?: BaseCheckpointSaver,
+  retireOnDrain = true,
 ): AsyncGenerator<AgentStreamChunk> {
   const streamable = runnable as AgentLike & {
     getState?: (config: Record<string, unknown>, options: { subgraphs: true }) => Promise<unknown>
@@ -1701,7 +1850,18 @@ async function* streamFromRunnable(
         ...configurable,
         [REPLAY_CHECKPOINT_READER]: async (
           childConfig: import("@langchain/core/runnables").RunnableConfig,
+          childReader?: ChildReplayReader,
         ) => {
+          if (childReader) {
+            // The canonical child owns one namespace. Revalidate every read;
+            // neither a prior result nor namespace text supplies authority.
+            const tuple = await childReader(childConfig)
+            for (const id of checkpointedToolCallIds({
+              values: tuple?.checkpoint.channel_values,
+            }))
+              priorCalls.add(id)
+            return
+          }
           const namespace = childConfig.configurable?.checkpoint_ns ?? ""
           let read = reads.get(namespace)
           if (!read) {
@@ -1756,39 +1916,67 @@ async function* streamFromRunnable(
       children: new Map(),
     }
 
+    // For privately registered built-in graphs, retain the same native producer
+    // when this execution consumer closes. Native iterator.return() can abort
+    // before the owned superstep settles. Raw runnable consumers keep their
+    // existing close behavior; passive journal observers never enter this path.
+    const iterator = streamEventsFn(invocationInput, {
+      ...invocationConfig,
+      version: "v2",
+    })[Symbol.asyncIterator]()
+    let settled = false
     try {
-      for await (const event of streamEventsFn(invocationInput, {
-        ...invocationConfig,
-        version: "v2",
-      })) {
-        const projection = classifyStreamEvent(event, subagentToolRuns, owners)
-        if (projection.capturesFinalOutput) {
-          finalOutput = projection.finalOutput
-        }
-        for (const chunk of projection.chunks) {
-          yield chunk
-        }
-        if (projection.interrupts.length > 0) {
-          capturedInterrupts = projection.interrupts
-        }
-        for (const entry of projection.interrupts) {
-          if (entry.id && emittedInterruptIds.has(entry.id)) continue
-          if (entry.id) emittedInterruptIds.add(entry.id)
-          if (readRuntimeEnv("B4_DEBUG_INTERRUPTS") === "1") {
-            if (!isRecord(entry.value) || typeof entry.value.interruptId !== "string") {
-              console.warn(
-                "[b4] interrupt entry.value missing interruptId — capability bug:",
-                JSON.stringify(entry).slice(0, 300),
-              )
+      try {
+        for (;;) {
+          let item: IteratorResult<LangChainStreamEvent>
+          try {
+            item = await iterator.next()
+          } catch (error) {
+            settled = true
+            throw error
+          }
+          if (item.done) {
+            settled = true
+            break
+          }
+          const event = item.value
+          const projection = classifyStreamEvent(event, subagentToolRuns, owners)
+          if (projection.capturesFinalOutput) {
+            finalOutput = projection.finalOutput
+          }
+          for (const chunk of projection.chunks) {
+            yield chunk
+          }
+          if (projection.interrupts.length > 0) {
+            capturedInterrupts = projection.interrupts
+          }
+          for (const entry of projection.interrupts) {
+            if (entry.id && emittedInterruptIds.has(entry.id)) continue
+            if (entry.id) emittedInterruptIds.add(entry.id)
+            if (readRuntimeEnv("B4_DEBUG_INTERRUPTS") === "1") {
+              if (!isRecord(entry.value) || typeof entry.value.interruptId !== "string") {
+                console.warn(
+                  "[b4] interrupt entry.value missing interruptId — capability bug:",
+                  JSON.stringify(entry).slice(0, 300),
+                )
+              }
+            }
+            yield {
+              type: "interrupt",
+              data: projectInterruptValue(entry, projection.child),
             }
           }
-          yield {
-            type: "interrupt",
-            data: projectInterruptValue(entry, projection.child),
-          }
+        }
+        return { finalOutput, interrupts: capturedInterrupts }
+      } finally {
+        if (!settled) {
+          if (builtInGraphs.has(runnable)) {
+            while (!(await iterator.next()).done) {
+              // Observe owned native completion after the execution consumer closes.
+            }
+          } else await iterator.return?.()
         }
       }
-      return { finalOutput, interrupts: capturedInterrupts }
     } catch (error) {
       // Not on cancellation: a cancelled turn's settle already waits for
       // the abandoned route to unwind, and the writes chained behind a
@@ -1796,7 +1984,8 @@ async function* streamFromRunnable(
       if (!(invocationConfig.signal as AbortSignal | undefined)?.aborted) {
         await drainWrites?.()
       }
-      if (isGraphDrained(error) && config.control) await retirePendingActions(runnable, config)
+      if (retireOnDrain && isGraphDrained(error) && config.control)
+        await retirePendingActions(runnable, config)
       throw error instanceof Error ? error : new Error(String(error))
     }
   }

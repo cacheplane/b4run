@@ -41,6 +41,7 @@ import {
   STAGED_CREATES_MAX_IN_FLIGHT,
   workspaceProtocolPolicyMessage,
 } from "../runtime/workspace-protocol.js"
+import { checkAgentProtocolDefault } from "../verify/check-runtime.js"
 import { abortableAsyncIterable } from "./abortable-iterable.js"
 import { handleAgUiCapabilitiesRequest } from "./agui-capabilities.js"
 import { handleAgUiFetchRequest } from "./agui-handler.js"
@@ -518,6 +519,7 @@ export async function createRuntimeFetchHandler(
     : createRuntimeRegistryFromManifest(
         await requireBoot(fallbacks, "routeManifest").discoverRouteManifest(options.appRoot),
       )
+  checkAgentProtocolDefault(bootConfig, registry.entries)
   if (options.modules) {
     // Pre-populate the per-route prepared-modules cache (execute-route.ts)
     // from the static manifest so every route's first request also skips its

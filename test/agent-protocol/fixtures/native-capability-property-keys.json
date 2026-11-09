@@ -1,0 +1,103 @@
+{
+  "source": {
+    "repository": "https://github.com/ag-ui-protocol/ag-ui",
+    "commit": "08eae9dc13546e91272efb2d0ef863e21acc6ee3",
+    "version": "1.0",
+    "path": "spec/1.0/schema.json",
+    "sha256": "4b5c93226838a0e72d88e6c5df20633c686c49fcb75d9be2815c6cbf9e48e71a",
+    "gitBlobSha1": "c2ce3c18036b6bb2afe583a9b916959e7dcd9b78"
+  },
+  "definitions": {
+    "AgentCapabilities": {
+      "properties": [
+        "custom",
+        "execution",
+        "humanInTheLoop",
+        "identity",
+        "multiAgent",
+        "multimodal",
+        "output",
+        "reasoning",
+        "state",
+        "tools",
+        "transport"
+      ],
+      "required": []
+    },
+    "IdentityCapabilities": {
+      "properties": [
+        "description",
+        "documentationUrl",
+        "metadata",
+        "name",
+        "provider",
+        "type",
+        "version"
+      ],
+      "required": []
+    },
+    "Metadata": {
+      "properties": [],
+      "required": []
+    },
+    "TransportCapabilities": {
+      "properties": ["httpBinary", "pushNotifications", "resumable", "streaming", "websocket"],
+      "required": []
+    },
+    "ToolsCapabilities": {
+      "properties": ["clientProvided", "items", "parallelCalls", "supported"],
+      "required": []
+    },
+    "Tool": {
+      "properties": ["description", "metadata", "name", "parameters"],
+      "required": ["description", "name"]
+    },
+    "OutputCapabilities": {
+      "properties": ["structuredOutput", "supportedMimeTypes"],
+      "required": []
+    },
+    "StateCapabilities": {
+      "properties": ["deltas", "memory", "persistentState", "snapshots"],
+      "required": []
+    },
+    "MultiAgentCapabilities": {
+      "properties": ["delegation", "handoffs", "subagents", "supported"],
+      "required": []
+    },
+    "SubagentInfo": {
+      "properties": ["description", "name"],
+      "required": ["name"]
+    },
+    "ReasoningCapabilities": {
+      "properties": ["encrypted", "streaming", "supported"],
+      "required": []
+    },
+    "MultimodalCapabilities": {
+      "properties": ["input", "output"],
+      "required": []
+    },
+    "MultimodalInputCapabilities": {
+      "properties": ["audio", "file", "image", "pdf", "video"],
+      "required": []
+    },
+    "MultimodalOutputCapabilities": {
+      "properties": ["audio", "image"],
+      "required": []
+    },
+    "ExecutionCapabilities": {
+      "properties": ["codeExecution", "maxExecutionTime", "maxIterations", "sandboxed"],
+      "required": []
+    },
+    "HumanInTheLoopCapabilities": {
+      "properties": [
+        "approvals",
+        "approveWithEdits",
+        "feedback",
+        "interrupts",
+        "interventions",
+        "supported"
+      ],
+      "required": []
+    }
+  }
+}

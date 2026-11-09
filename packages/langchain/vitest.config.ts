@@ -8,6 +8,11 @@ const rootDir = dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      "@b4run/sdk/internal/runtime-identity": resolve(
+        rootDir,
+        "../sdk/src/internal/runtime-identity.ts",
+      ),
+      "@b4run/langchain/internal/runtime": resolve(rootDir, "src/internal-runtime.ts"),
       "@b4run/langchain": resolve(rootDir, "src/index.ts"),
       // Subpath aliases MUST precede the bare package alias — vitest matches
       // string aliases by prefix in declaration order.

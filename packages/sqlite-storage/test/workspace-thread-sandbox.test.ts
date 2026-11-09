@@ -7,6 +7,7 @@ import type { ThreadSandboxRecord } from "@b4run/workspace"
 import { createSourceBundle, createWorkspaceIntent } from "@b4run/workspace/node"
 import { afterEach, expect, it } from "vitest"
 import { openWorkspaceInstallation, openWorkspaceInstallationReader } from "../src/index.ts"
+import { makeWorkspaceThreadSandboxStore } from "../src/workspace/thread-sandbox-store.ts"
 
 const roots: string[] = []
 afterEach(() => {
@@ -261,5 +262,101 @@ it("adds the grants table to an installation whose record tables predate it", ()
     expect(reopened.threadSandboxes.grants("one")).toEqual({ bash: ["make"] })
   } finally {
     reopened.close()
+  }
+})
+
+it("conditionally applies a remembered intent in the thread's native grant transaction", () => {
+  const path = root(),
+    owner = openWorkspaceInstallation(path)
+  try {
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+    const store = owner.threadSandboxes
+    expect(store).toHaveProperty("prepareRuleIntent")
+    const intent = store.prepareRuleIntent("one", "thread-intent", [
+      { tool: "tool", pattern: "send" },
+    ])
+    expect(store.applyRuleIntent("one", intent)).toBe("applied")
+    const db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+    try {
+      db.prepare("DELETE FROM workspace_thread_permission_grants WHERE thread_id=?").run("one")
+    } finally {
+      db.close()
+    }
+    expect(store.applyRuleIntent("one", intent)).toBe("applied")
+    expect(store.grants("one")).toEqual({})
+    const stale = store.prepareRuleIntent("one", "stale", [{ tool: "tool", pattern: "send" }])
+    store.addGrant("one", "tool", "inspect")
+    expect(store.applyRuleIntent("one", stale)).toBe("superseded")
+    expect(store.grants("one")).toEqual({ tool: ["inspect"] })
+  } finally {
+    owner.close()
+  }
+})
+it("rolls back native thread grants if its coordinator receipt cannot commit", () => {
+  const path = root(),
+    owner = openWorkspaceInstallation(path)
+  try {
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+    const store = owner.threadSandboxes
+    expect(store).toHaveProperty("prepareRuleIntent")
+    const intent = store.prepareRuleIntent("one", "failure", [{ tool: "tool", pattern: "send" }])
+    const db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+    try {
+      db.exec(
+        "CREATE TRIGGER fail_rule_receipt BEFORE UPDATE ON workspace_thread_permission_coordinators BEGIN SELECT RAISE(ABORT,'injected rule receipt failure'); END",
+      )
+    } finally {
+      db.close()
+    }
+    expect(() => store.applyRuleIntent("one", intent)).toThrow("injected rule receipt failure")
+    expect(store.grants("one")).toEqual({})
+  } finally {
+    owner.close()
+  }
+})
+
+it("refuses old rule scopes after missing coordinator state or native thread recreation", () => {
+  const path = root(),
+    owner = openWorkspaceInstallation(path)
+  try {
+    owner.sources.put(bundle)
+    owner.associations.create(intentFor(owner.installationId, "one"), scoped)
+    const store = owner.threadSandboxes
+    const missing = store.prepareRuleIntent("one", "before-missing", [
+      { tool: "tool", pattern: "send" },
+    ])
+    let db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+    try {
+      db.prepare("DELETE FROM workspace_thread_permission_coordinators WHERE thread_id=?").run(
+        "one",
+      )
+    } finally {
+      db.close()
+    }
+    expect(store.applyRuleIntent("one", missing)).toBe("superseded")
+    expect(store.grants("one")).toEqual({})
+    const old = store.prepareRuleIntent("one", "before-recreate", [
+      { tool: "tool", pattern: "send" },
+    ])
+    const deleting = owner.associations.beginDelete("one")
+    owner.associations.completeDelete("one", deleting?.revision ?? 0)
+    db = new DatabaseSync(join(path, ".b4", "workspaces", "state.sqlite"))
+    try {
+      makeWorkspaceThreadSandboxStore(db).insert("one", scoped)
+    } finally {
+      db.close()
+    }
+    expect(store.applyRuleIntent("one", old)).toBe("superseded")
+    expect(store.grants("one")).toEqual({})
+    const current = store.prepareRuleIntent("one", "new-scope", [
+      { tool: "tool", pattern: "inspect" },
+    ])
+    expect(current.scopeId).not.toBe(old.scopeId)
+    expect(store.applyRuleIntent("one", current)).toBe("applied")
+    expect(store.grants("one")).toEqual({ tool: ["inspect"] })
+  } finally {
+    owner.close()
   }
 })

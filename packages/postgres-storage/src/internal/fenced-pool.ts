@@ -1,18 +1,21 @@
 import type { SqlClient, SqlPool, SqlResult } from "../sql.js"
-import { rollbackQuietly } from "./tx.js"
+import { enlistClient, rollbackQuietly } from "./tx.js"
 
 /** Ownership operations used inside each short storage transaction. */
 interface Fence {
   assertUsable(): void
   active(): boolean
   validate(client: SqlClient): Promise<void>
+  authorize?(client: SqlClient, sql: string, values?: readonly unknown[]): Promise<void>
+  enlist?(): { client: SqlClient; check(): void; fail(error: unknown): void } | undefined
 }
 
 /** Wrap a structural pool, preserving explicit transactions and safe client release. */
 export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
-  const wrap = (client: SqlClient): SqlClient => {
-    let transaction = false
+  const wrap = (client: SqlClient, child = false): SqlClient => {
+    let transaction = child
     let released = false
+    let pending = 0
     let queue: Promise<unknown> = Promise.resolve()
     const execute = async <R>(sql: string, values?: readonly unknown[]): Promise<SqlResult<R>> => {
       // Runtime stores bind data as positional parameters. Reject uncertain
@@ -28,6 +31,8 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
           normalized,
         )?.[1]
       const controls = ["BEGIN", "START TRANSACTION", "COMMIT", "END", "ROLLBACK"]
+      if (child && control)
+        throw new Error("postgres-storage: enlisted client cannot control its parent transaction")
       if (control && !controls.includes(normalized))
         throw new Error("postgres-storage: unsupported transaction control")
       if ((fence.active() || control) && normalized.includes(";"))
@@ -40,7 +45,7 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
       try {
         fence.assertUsable()
       } catch (error) {
-        if (transaction) await rollbackQuietly(client)
+        if (transaction && !child) await rollbackQuietly(client)
         transaction = false
         throw error
       }
@@ -71,12 +76,14 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
       }
       if (transaction) {
         await fence.validate(client)
+        await fence.authorize?.(client, sql, values)
         return client.query<R>(sql, values)
       }
       if (!fence.active()) return client.query<R>(sql, values)
       await client.query("BEGIN")
       try {
         await fence.validate(client)
+        await fence.authorize?.(client, sql, values)
         const result = await client.query<R>(sql, values)
         await fence.validate(client)
         await client.query("COMMIT")
@@ -89,16 +96,27 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
     return {
       query<R = unknown>(sql: string, values?: readonly unknown[]) {
         if (released) return Promise.reject(new Error("postgres-storage: client released"))
-        const result = queue.then(() => execute<R>(sql, values))
+        pending++
+        const result = queue
+          .then(() => execute<R>(sql, values))
+          .finally(() => {
+            pending--
+          })
         queue = result.catch(() => {})
         return result
       },
       release() {
         if (released) return
         released = true
-        void queue.then(async () => {
-          if (transaction) await rollbackQuietly(client)
+        if (!child && pending === 0 && !transaction) {
           client.release()
+          return
+        }
+        void queue.then(async () => {
+          if (!child) {
+            if (transaction) await rollbackQuietly(client)
+            client.release()
+          }
         })
       },
     }
@@ -106,7 +124,10 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
   return {
     async query<R = unknown>(sql: string, values?: readonly unknown[]) {
       fence.assertUsable()
-      const client = wrap(await raw.connect())
+      const context = fence.enlist?.()
+      const client = context
+        ? enlistClient(wrap(context.client, true), context.check, context.fail)
+        : wrap(await raw.connect())
       try {
         return await client.query<R>(sql, values)
       } finally {
@@ -114,6 +135,8 @@ export function createFencedPool(raw: SqlPool, fence: Fence): SqlPool {
       }
     },
     async connect() {
+      const context = fence.enlist?.()
+      if (context) return enlistClient(wrap(context.client, true), context.check, context.fail)
       return wrap(await raw.connect())
     },
     async end() {

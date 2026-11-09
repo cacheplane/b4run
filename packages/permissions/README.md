@@ -27,8 +27,20 @@ const decision = matchPermission(
 
 - `@b4run/permissions` is an edge-safe, supported integration surface.
 - `@b4run/permissions/node` is a node-only, supported integration surface.
+- `@b4run/permissions/internal/rule-coordinator` is edge-safe and internal.
 
 The root entry owns matching and portable contracts. Use the Node entry only for filesystem-backed approval-store integration.
+
+## Remembered-rule intents
+
+`PermissionsStore.rememberedRules` optionally prepares and conditionally applies
+idempotent rule batches in the configured permission scope. The Node store keeps
+private scope/revision/receipt metadata beside the existing version-1 allow/deny
+maps, uses atomic flushed replacement and a separate kernel lock, and reads the
+current file for every writer. Applied intent retries never re-add later removed
+rules. Full restoration of old private metadata is a restore boundary. Custom
+stores without this port cannot accept coordinated Always; Once/Deny still work.
+`@b4run/permissions/internal/rule-coordinator` is internal portable backend plumbing.
 
 ## Related
 

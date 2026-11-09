@@ -47,6 +47,10 @@ describe("@b4run/permissions entry purity", () => {
     expect(nodeImportEdges(await bundle("index.ts"))).toEqual([])
   }, 60_000)
 
+  it("keeps internal rule coordinator algorithms free of Node imports", async () => {
+    expect(nodeImportEdges(await bundle("rule-coordinator.ts"))).toEqual([])
+  }, 60_000)
+
   // Negative control: the node-only subpath MUST fail the same check, proving
   // the detector matches rather than passing on an empty metafile.
   it("detects violations — the './node' subpath is full of node: imports", async () => {
