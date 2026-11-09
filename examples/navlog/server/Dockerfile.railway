@@ -14,7 +14,7 @@ COPY examples/navlog/server ./examples/navlog/server
 # The CLI's build bundles the website's docs into the package (`b4 docs`), so it
 # reads the docs sources and their nav from apps/web.
 COPY apps/web/content/docs ./apps/web/content/docs
-COPY apps/web/app/components/docs/nav.ts apps/web/app/components/docs/api-reference-pages.ts ./apps/web/app/components/docs/
+COPY apps/web/app/components/docs/nav.ts apps/web/app/components/docs/api-reference-pages.ts apps/web/app/components/docs/doc-sections.ts ./apps/web/app/components/docs/
 # The lockfile names every workspace importer, including ones this image does
 # not copy; `--filter` with `...` installs only the server and its workspace deps.
 RUN pnpm install --frozen-lockfile --filter @b4-example/navlog-server...
