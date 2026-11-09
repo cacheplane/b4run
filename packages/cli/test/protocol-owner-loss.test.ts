@@ -170,20 +170,40 @@ it.each(["accepted", "marker", "effect"] as const)(
 if (process.env.B4_TEST_PGSTORAGE === "1") {
   it("claims from two Node processes, fences a live stale worker after DB lease loss, and recovers accepted/idle scopes", async () => {
     const paths = scratch()
+    const resourceId = process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? crypto.randomUUID()
+    process.stdout.write(`R4 own PostgreSQL resource label ${resourceId}\n`)
     const container = await new PostgreSqlContainer("postgres:16")
+      .withLabels({ "org.b4run.protocol-resource": resourceId })
       .withStartupTimeout(180_000)
       .start()
-    const pool = new Pool({ connectionString: container.getConnectionUri() })
+    let ownedPool: Pool | undefined
+    const errors: Error[] = []
+    // Register immediately: even Pool construction or the first query may fail.
+    cleanups.push(async () => {
+      const teardownErrors: unknown[] = []
+      if (ownedPool)
+        try {
+          await ownedPool.end()
+          process.stdout.write("R4 closed own PostgreSQL pools\n")
+        } catch (error) {
+          teardownErrors.push(error)
+        }
+      try {
+        await container.stop({ remove: true, removeVolumes: true })
+        process.stdout.write(`R4 removed own container ${container.getId()}\n`)
+        process.stdout.write(`R5 removed own container ${container.getId()}\n`)
+      } catch (error) {
+        teardownErrors.push(error)
+      }
+      teardownErrors.push(...errors)
+      if (teardownErrors.length)
+        throw new AggregateError(teardownErrors, "Owned owner-loss PostgreSQL cleanup failed")
+    })
+    process.stdout.write(`R4 created own container ${container.getId()}\n`)
+    const pool = (ownedPool = new Pool({ connectionString: container.getConnectionUri() }))
+    pool.on("error", (error) => errors.push(error))
     const engine = await pool.query<{ version: string }>("SELECT version()")
     process.stdout.write(`R5 actual database: ${engine.rows[0]?.version}\n`)
-    const errors: Error[] = []
-    pool.on("error", (error) => errors.push(error))
-    cleanups.push(async () => {
-      await pool.end()
-      await container.stop()
-      process.stdout.write(`R5 removed own container ${container.getId()}\n`)
-      expect(errors).toEqual([])
-    })
     const schema = "r5_process",
       tablePrefix = "b4_ap_v1_case"
     const boot = { ...paths, connectionString: container.getConnectionUri(), schema, tablePrefix }
@@ -402,7 +422,32 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
       await expect(heartbeatFixture.store(accepted.threadId)).rejects.toMatchObject({
         code: "storage_unavailable",
       })
-      await lease.release()
+      const physicalHeartbeatSnapshot = async () => {
+        const result = await pool.query<{
+          scope: { fence: number; execution_owner: string | null; lease_expires_at: string }
+          runs: unknown
+          inbox: unknown
+        }>(
+          `SELECT row_to_json(s) AS scope,
+           (SELECT json_agg(r ORDER BY r.id) FROM "${schema}"."${heartbeatPrefix}_runs" r WHERE r.thread_id=s.thread_id AND r.generation=s.generation) AS runs,
+           (SELECT json_agg(i ORDER BY i.id) FROM "${schema}"."${heartbeatPrefix}_inbox" i WHERE i.thread_id=s.thread_id AND i.generation=s.generation) AS inbox
+           FROM "${schema}"."${heartbeatPrefix}_scopes" s WHERE s.thread_id=$1`,
+          [accepted.threadId],
+        )
+        const snapshot = result.rows[0]
+        if (!snapshot) throw new Error("Missing owned physical heartbeat scope")
+        return snapshot
+      }
+      const beforeExpiredRelease = await physicalHeartbeatSnapshot()
+      let staleCallbacks = 0
+      const staleRelease = () =>
+        lease.release(async () => {
+          staleCallbacks++
+        })
+      // Expiry fences callbacks and release writes; recovery must claim anew.
+      await expect(staleRelease()).rejects.toMatchObject({ code: "stale_fence" })
+      expect(staleCallbacks).toBe(0)
+      expect(await physicalHeartbeatSnapshot()).toEqual(beforeExpiredRelease)
       await expect(lease.heartbeat()).rejects.toMatchObject({ code: "stale_fence" })
       const timers = new Map<unknown, { delay: number; callback: () => void }>()
       const heartbeatCounter = join(paths.root, "heartbeat-effects")
@@ -446,6 +491,20 @@ if (process.env.B4_TEST_PGSTORAGE === "1") {
       try {
         await host.tick()
         await invoking
+        const successor = await physicalHeartbeatSnapshot()
+        expect(successor.scope.fence).toBeGreaterThan(beforeExpiredRelease.scope.fence)
+        expect(successor.scope.execution_owner).toEqual(expect.any(String))
+        expect(successor.scope.execution_owner).not.toBe("heartbeat-owner")
+        await expect(staleRelease()).rejects.toMatchObject({ code: "stale_fence" })
+        await expect(
+          lease.store.transaction(async () => {
+            staleCallbacks++
+          }),
+        ).rejects.toMatchObject({
+          code: "stale_fence",
+        })
+        expect(staleCallbacks).toBe(0)
+        expect(await physicalHeartbeatSnapshot()).toEqual(successor)
         expect([...timers.values()].map((timer) => timer.delay)).toContain(15_000)
         await pool.query(
           `UPDATE "${schema}"."${heartbeatPrefix}_scopes" SET lease_expires_at=clock_timestamp()-interval '1 second'`,

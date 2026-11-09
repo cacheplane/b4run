@@ -15,6 +15,130 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
   }
   const config = { configurable: { thread_id: scope.threadId, checkpoint_ns: "" } }
   const metadata = { source: "loop" as const, step: 1, parents: {} }
+  const releaseCut = async (fixture: Awaited<ReturnType<typeof bound>>) => {
+    const table = (suffix: string) =>
+      `${fixture.naming.schema}.${fixture.naming.tablePrefix}_${suffix}`
+    const result = await backend.second.query<{
+      scope: { fence: number; execution_owner: string | null }
+      threads: { revision: number }[]
+      runs: unknown
+      inbox: unknown
+      native_checkpoints: unknown
+      native_writes: unknown
+    }>(
+      `SELECT row_to_json(s) AS scope,
+       (SELECT json_agg(t ORDER BY t.thread_id) FROM ${table("threads")} t) AS threads,
+       (SELECT json_agg(r ORDER BY r.id) FROM ${table("runs")} r) AS runs,
+       (SELECT json_agg(i ORDER BY i.id) FROM ${table("inbox")} i) AS inbox,
+       (SELECT json_agg(c ORDER BY c.checkpoint_ns,c.checkpoint_id) FROM ${table("native_checkpoints")} c) AS native_checkpoints,
+       (SELECT json_agg(w ORDER BY w.checkpoint_ns,w.checkpoint_id,w.task_id,w.idx) FROM ${table("native_writes")} w) AS native_writes
+       FROM ${table("scopes")} s WHERE s.thread_id=$1`,
+      [scope.threadId],
+    )
+    const cut = result.rows[0]
+    if (!cut) throw new Error("Missing owned release scope")
+    return cut
+  }
+  it("release validates the live owner before callbacks and cannot clear a successor", async () => {
+    const fixture = await bound(backend)
+    try {
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(run)
+        await tx.thread.put(thread)
+      })
+      const lease = await fixture.store.claimExecution("release-owner", async () => {})
+      if (!lease) throw new Error("Missing owned release lease")
+      const owned = lease.store as typeof fixture.store
+      const saver = owned.checkpointer(run.run.run_id)
+      await saver.put(config, checkpoint, metadata, {})
+      await saver.putWrites(
+        { ...config, configurable: { ...config.configurable, checkpoint_id: checkpoint.id } },
+        [["messages", "baseline"]],
+        "release-task",
+      )
+      let staleCallbacks = 0
+      const beforeWrongOwner = await releaseCut(fixture)
+      await expect(
+        owned.releaseExecution("wrong-owner", async () => {
+          staleCallbacks++
+        }),
+      ).rejects.toMatchObject({ code: "stale_fence" })
+      expect(staleCallbacks).toBe(0)
+      expect(await releaseCut(fixture)).toEqual(beforeWrongOwner)
+      await backend.second.query(
+        `UPDATE ${fixture.naming.schema}.${fixture.naming.tablePrefix}_scopes SET lease_expires_at=clock_timestamp()-interval '1 second'`,
+      )
+      const beforeExpired = await releaseCut(fixture)
+      const releaseStale = () =>
+        lease.release(async () => {
+          staleCallbacks++
+          await saver.put(config, { ...checkpoint, id: "expired-release" }, metadata, {})
+        })
+      await expect(releaseStale()).rejects.toMatchObject({ code: "stale_fence" })
+      expect(staleCallbacks).toBe(0)
+      expect(await releaseCut(fixture)).toEqual(beforeExpired)
+      const successor = await owned.claimExecution("successor-owner", async () => {})
+      if (!successor) throw new Error("Missing actual successor lease")
+      const beforeStale = await releaseCut(fixture)
+      expect(beforeStale.scope.fence).toBeGreaterThan(beforeExpired.scope.fence)
+      expect(beforeStale.scope.execution_owner).toBe("successor-owner")
+      await expect(releaseStale()).rejects.toMatchObject({ code: "stale_fence" })
+      expect(staleCallbacks).toBe(0)
+      expect(await releaseCut(fixture)).toEqual(beforeStale)
+      let liveCallbacks = 0
+      await successor.release(async (tx) => {
+        liveCallbacks++
+        await tx.thread.put({ ...thread, revision: 2 })
+      })
+      expect(liveCallbacks).toBe(1)
+      const released = await releaseCut(fixture)
+      expect(released.scope.execution_owner).toBeNull()
+      expect(released.scope.fence).toBeGreaterThan(beforeStale.scope.fence)
+      expect(released.threads[0]?.revision).toBe(2)
+      await successor.release(async () => {
+        liveCallbacks++
+      })
+      expect(liveCallbacks).toBe(1)
+      expect(await releaseCut(fixture)).toEqual(released)
+    } finally {
+      await fixture.close()
+    }
+  })
+  it("release rolls back writes if its live lease expires after callback entry", async () => {
+    const fixture = await bound(backend)
+    try {
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(run)
+        await tx.thread.put(thread)
+      })
+      const lease = await fixture.store.claimExecution("release-expiry-owner", async () => {})
+      if (!lease) throw new Error("Missing owned release lease")
+      const owned = lease.store as typeof fixture.store
+      const saver = owned.checkpointer(run.run.run_id)
+      const before = await releaseCut(fixture)
+      let callbacks = 0
+      await expect(
+        lease.release(async (tx) => {
+          callbacks++
+          await tx.thread.put({ ...thread, revision: 2 })
+          await saver.put(config, checkpoint, metadata, {})
+          await saver.putWrites(
+            { ...config, configurable: { ...config.configurable, checkpoint_id: checkpoint.id } },
+            [["messages", "rollback"]],
+            "release-rollback-task",
+          )
+          await owned.pool.query(
+            `UPDATE ${fixture.naming.schema}.${fixture.naming.tablePrefix}_scopes SET lease_expires_at=clock_timestamp()-interval '1 second'`,
+          )
+        }),
+      ).rejects.toMatchObject({ code: "stale_fence" })
+      expect(callbacks).toBe(1)
+      expect(await releaseCut(fixture)).toEqual(before)
+      await lease.release()
+    } finally {
+      await fixture.close()
+    }
+  })
   it("fences cached connections and actual saver writes after independent durable takeover", async () => {
     const fixture = await bound(backend)
     await fixture.store.transaction(async (tx) => {

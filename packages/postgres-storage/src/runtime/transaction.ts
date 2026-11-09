@@ -494,7 +494,7 @@ export function makeRuntimeStore(
       // enlisted record and native saver mutation shares until COMMIT.
       return await withTransaction(context.pool, async (raw) => {
         await lockScope(raw)
-        await validate(raw, true, transition !== undefined)
+        await validate(raw, true, transition !== undefined && transition.releaseOwner === undefined)
         let effectiveScope = scope
         if (transition && !transition.temporary) {
           const rows = await raw.query<{ execution_owner: string | null; live: boolean }>(
