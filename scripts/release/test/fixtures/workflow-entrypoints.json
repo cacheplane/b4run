@@ -2174,6 +2174,7 @@
             "paths": [
               "examples/navlog/server/**",
               "packages/**",
+              "test/agent-protocol/fixtures/**",
               "apps/web/content/docs/**",
               "apps/web/app/components/docs/nav.ts",
               "apps/web/app/components/docs/api-reference-pages.ts",

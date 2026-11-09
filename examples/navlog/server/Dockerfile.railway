@@ -10,6 +10,8 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 WORKDIR /app
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc tsconfig.json ./
 COPY packages ./packages
+# SDK schema generation reads the pinned Agent Protocol build inputs.
+COPY test/agent-protocol/fixtures ./test/agent-protocol/fixtures
 COPY examples/navlog/server ./examples/navlog/server
 # The CLI's build bundles the website's docs into the package (`b4 docs`), so it
 # reads the docs sources and their nav from apps/web.
