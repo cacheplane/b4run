@@ -39,7 +39,7 @@ on:
         type: boolean
         default: false
       readiness:
-        description: Read readiness settings and patch metadata without deploying
+        description: Read current readiness settings without deploying
         type: boolean
         default: false
       deployment_id:
@@ -502,59 +502,25 @@ jobs:
             const uuid = (value) => typeof value === "string" && value.length === 36 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)
             failure = "project credential is not bound to the expected project and environment"
             if (identity?.projectToken?.projectId !== projectId || !uuid(environmentId)) throw new Error()
-            // Fixed read-only fields from railwayapp/cli@5a07ac2ae44ec2fcf892ba96e18f638402c7f8fb/src/gql/schema.json.
-            // No environment config, patch JSON, variables, deployment metadata, or provider error text is emitted.
-            const query = "query($environmentId: String!, $serviceId: String!) { environment(id: $environmentId) { id name projectId } service(id: $serviceId) { id name projectId } serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { environmentId serviceId healthcheckPath healthcheckTimeout railwayConfigFile latestDeployment { id status createdAt environmentId serviceId } } patches: environmentPatches(environmentId: $environmentId, first: 10) { edges { node { id environmentId status createdAt updatedAt appliedAt lastAppliedError } } pageInfo { hasNextPage } } }"
+            // Reuse the exact production target query; this observation has no metadata dependencies.
+            const query = "query($environmentId: String!, $serviceId: String!) { environment(id: $environmentId) { id name projectId } service(id: $serviceId) { id name projectId } serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { environmentId serviceId healthcheckPath healthcheckTimeout } }"
             const data = await request(query, { environmentId, serviceId })
-            failure = "production service identity or diagnostic fields are invalid"
-            if (data?.environment?.id !== environmentId || data.environment.name !== "production" || data.environment.projectId !== projectId || data?.service?.id !== serviceId || data.service.name !== "navlog-server" || data.service.projectId !== projectId) throw new Error()
+            failure = "production environment identity is invalid"
+            if (data?.environment?.id !== environmentId || data.environment.name !== "production" || data.environment.projectId !== projectId) throw new Error()
+            failure = "production service identity is invalid"
+            if (data?.service?.id !== serviceId || data.service.name !== "navlog-server" || data.service.projectId !== projectId) throw new Error()
             const instance = data?.serviceInstance
+            failure = "production instance binding is invalid"
             if (instance?.environmentId !== environmentId || instance.serviceId !== serviceId) throw new Error()
-            const nullableString = (value) => value === null || (typeof value === "string" && value.length <= 1024)
-            if (!nullableString(instance.healthcheckPath) || !nullableString(instance.railwayConfigFile)) throw new Error()
+            failure = "healthcheck path type is invalid"
+            if (instance.healthcheckPath !== null && (typeof instance.healthcheckPath !== "string" || instance.healthcheckPath.length > 1024)) throw new Error()
+            failure = "healthcheck timeout type is invalid"
             if (instance.healthcheckTimeout !== null && (!Number.isInteger(instance.healthcheckTimeout) || instance.healthcheckTimeout < 0 || instance.healthcheckTimeout > 2147483647)) throw new Error()
-            const date = (value) => {
-              if (typeof value !== "string" || value.length > 64) throw new Error()
-              const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/u.exec(value)
-              if (!match || match[0] !== value) throw new Error()
-              const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
-              const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
-              const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-              const zone = match[8]
-              if (month < 1 || month > 12 || day < 1 || day > days[month - 1] || hour > 23 || minute > 59 || second > 59 || (zone !== "Z" && (Number(zone.slice(1, 3)) > 23 || Number(zone.slice(4, 6)) > 59))) throw new Error()
-              const instant = Date.parse(value)
-              if (!Number.isFinite(instant)) throw new Error()
-              return instant
-            }
-            const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value)
-            const identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9_-]/u.test(value)
-            const patchMetadata = (patch) => {
-              if (!record(patch) || !identifier(patch.id) || patch.environmentId !== environmentId || !["APPLYING", "COMMITTED", "STAGED"].includes(patch.status) || (patch.lastAppliedError !== null && typeof patch.lastAppliedError !== "string")) throw new Error()
-              const createdAt = date(patch.createdAt)
-              if (date(patch.updatedAt) < createdAt || (patch.appliedAt !== null && date(patch.appliedAt) < createdAt)) throw new Error()
-              return { id: patch.id, status: patch.status, createdAt: patch.createdAt, updatedAt: patch.updatedAt, appliedAt: patch.appliedAt, errorPresent: patch.lastAppliedError !== null && patch.lastAppliedError.length > 0 }
-            }
-            const patches = data.patches
-            if (!record(patches) || !Array.isArray(patches.edges) || patches.edges.length > 10 || !record(patches.pageInfo) || typeof patches.pageInfo.hasNextPage !== "boolean") throw new Error()
-            const firstPatches = patches.edges.map((edge) => {
-              if (!record(edge)) throw new Error()
-              return patchMetadata(edge.node)
-            })
-            const latest = instance.latestDeployment
-            let latestDeployment = null
-            if (latest !== null) {
-              const statuses = ["BUILDING", "CRASHED", "DEPLOYING", "FAILED", "INITIALIZING", "NEEDS_APPROVAL", "QUEUED", "REMOVED", "REMOVING", "SKIPPED", "SLEEPING", "SUCCESS", "WAITING"]
-              if (!record(latest) || !uuid(latest.id) || !statuses.includes(latest.status) || latest.environmentId !== environmentId || latest.serviceId !== serviceId) throw new Error()
-              date(latest.createdAt)
-              latestDeployment = { id: latest.id, status: latest.status, createdAt: latest.createdAt }
-            }
             const path = instance.healthcheckPath
             console.log("Railway readiness diagnostic: " + JSON.stringify({
               target: { projectId, environmentId, serviceId },
-              settings: { healthcheckPath: path === null || ["/readyz", "/healthz"].includes(path) ? path : "[different path]", healthcheckTimeout: instance.healthcheckTimeout, railwayConfigFilePresent: instance.railwayConfigFile !== null && instance.railwayConfigFile.length > 0 },
-              firstPatches,
-              morePatches: patches.pageInfo.hasNextPage,
-              latestDeployment,
+              settings: { healthcheckPath: path === null || ["/readyz", "/healthz"].includes(path) ? path : "[different path]", healthcheckTimeout: instance.healthcheckTimeout },
+              matchesDesired: path === "/readyz" && instance.healthcheckTimeout === 120,
             }))
           } catch {
             console.error(`Railway readiness diagnostic: ${failure}`)

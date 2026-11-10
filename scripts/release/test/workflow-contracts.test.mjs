@@ -2932,26 +2932,7 @@ test("navlog readiness emits safe typed before and after settings only", async (
 })
 
 function navlogReadinessDiagnosticData() {
-  const data = navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 })
-  data.serviceInstance.railwayConfigFile = null
-  data.serviceInstance.latestDeployment = {
-    id: "825664d1-7b9a-4878-9692-922a71d51d8c",
-    status: "SUCCESS",
-    createdAt: "2026-11-09T20:00:00Z",
-    environmentId: NAVLOG_READINESS_ENVIRONMENT,
-    serviceId: NAVLOG_READINESS_SERVICE,
-  }
-  const patch = {
-    id: "synthetic-patch-id",
-    environmentId: NAVLOG_READINESS_ENVIRONMENT,
-    status: "COMMITTED",
-    createdAt: "2026-11-10T00:09:42Z",
-    updatedAt: "2026-11-10T00:09:45Z",
-    appliedAt: "2026-11-10T00:09:45Z",
-    lastAppliedError: null,
-  }
-  data.patches = { edges: [{ node: patch }], pageInfo: { hasNextPage: false } }
-  return data
+  return navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 })
 }
 
 async function exerciseNavlogReadinessDiagnostic({
@@ -3007,7 +2988,7 @@ async function exerciseNavlogReadinessDiagnostic({
 test("navlog readiness diagnostic dispatch excludes every deployment path", async () => {
   const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.readiness, {
-    description: "Read readiness settings and patch metadata without deploying",
+    description: "Read current readiness settings without deploying",
     type: "boolean",
     default: false,
   })
@@ -3034,7 +3015,22 @@ test("navlog readiness diagnostic dispatch excludes every deployment path", asyn
     }
 })
 
-test("navlog readiness diagnostic reads only fixed bounded metadata and validated current settings", async () => {
+test("navlog readiness settings-only diagnostic accepts known-success current fields", async () => {
+  const result = await exerciseNavlogReadinessDiagnostic({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 0, result.stderr.join("\n"))
+  assert.equal(result.calls.length, 2)
+  assert.equal(result.stdout.length, 1)
+  const record = JSON.parse(result.stdout[0].slice("Railway readiness diagnostic: ".length))
+  assert.deepEqual(record.settings, { healthcheckPath: "/readyz", healthcheckTimeout: 120 })
+  assert.equal(record.matchesDesired, true)
+})
+
+test("navlog readiness diagnostic uses the exact known-success production query and bounded transport", async () => {
   const result = await exerciseNavlogReadinessDiagnostic()
   assert.equal(result.exitCode, 0)
   assert.equal(result.calls.length, 2)
@@ -3047,152 +3043,181 @@ test("navlog readiness diagnostic reads only fixed bounded metadata and validate
     assert.match(payload.query, /^query(?:\(|\s)/u)
     assert.doesNotMatch(
       payload.query,
-      /\b(?:mutation|config|patch|variables|meta|buildLogs|environmentLogs)\b/u,
+      /\b(?:mutation|config|patch|patches|variables|meta|railwayConfigFile|latestDeployment|environmentPatches|lastAppliedError|buildLogs|environmentLogs)\b/u,
     )
     assert.equal(options.headers["project-access-token"], NAVLOG_READINESS_TOKEN)
   }
+  assert.equal(
+    result.calls[1].payload.query,
+    "query($environmentId: String!, $serviceId: String!) { environment(id: $environmentId) { id name projectId } service(id: $serviceId) { id name projectId } serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { environmentId serviceId healthcheckPath healthcheckTimeout } }",
+  )
   assert.deepEqual(result.calls[1].payload.variables, {
     environmentId: NAVLOG_READINESS_ENVIRONMENT,
     serviceId: NAVLOG_READINESS_SERVICE,
   })
-  assert.match(
-    result.calls[1].payload.query,
-    /environmentPatches\(environmentId: \$environmentId, first: 10\)/u,
-  )
-  assert.equal(
-    result.stdout.length,
-    1,
-    "validate the complete response before emitting one typed record",
-  )
+  assert.equal(result.stdout.length, 1)
   const record = JSON.parse(result.stdout[0].slice("Railway readiness diagnostic: ".length))
-  assert.deepEqual(record.settings, {
-    healthcheckPath: "/readyz",
-    healthcheckTimeout: 120,
-    railwayConfigFilePresent: false,
+  assert.deepEqual(record, {
+    target: {
+      projectId: NAVLOG_READINESS_PROJECT,
+      environmentId: NAVLOG_READINESS_ENVIRONMENT,
+      serviceId: NAVLOG_READINESS_SERVICE,
+    },
+    settings: { healthcheckPath: "/readyz", healthcheckTimeout: 120 },
+    matchesDesired: true,
   })
-  assert.equal(record.firstPatches[0].status, "COMMITTED")
-  assert.equal(record.firstPatches[0].appliedAt, "2026-11-10T00:09:45Z")
-  assert.equal(record.firstPatches[0].errorPresent, false)
-  assert.equal(record.latestDeployment.id, "825664d1-7b9a-4878-9692-922a71d51d8c")
   assert.deepEqual(result.stderr, [])
 })
 
-test("navlog readiness diagnostic projects provider paths and patch errors without exposing raw values", async () => {
+test("navlog readiness diagnostic reports matching and nonmatching nullable settings", async (t) => {
+  for (const [healthcheckPath, healthcheckTimeout, matchesDesired] of [
+    ["/readyz", 120, true],
+    ["/healthz", 120, false],
+    ["/readyz", 300, false],
+    [null, null, false],
+  ])
+    await t.test(JSON.stringify([healthcheckPath, healthcheckTimeout]), async () => {
+      const result = await exerciseNavlogReadinessDiagnostic({
+        responses: [
+          NAVLOG_READINESS_TOKEN_DATA,
+          navlogReadinessTarget({ healthcheckPath, healthcheckTimeout }),
+        ],
+      })
+      assert.equal(result.exitCode, 0)
+      const record = JSON.parse(result.stdout[0].slice("Railway readiness diagnostic: ".length))
+      assert.deepEqual(record.settings, { healthcheckPath, healthcheckTimeout })
+      assert.equal(record.matchesDesired, matchesDesired)
+    })
+})
+
+test("navlog readiness diagnostic emits safe settings without optional metadata dependencies", async () => {
   const data = navlogReadinessDiagnosticData()
   const unsafe = `${NAVLOG_READINESS_TOKEN} ##[error] ::error:: arbitrary-provider-text`
   data.serviceInstance.healthcheckPath = unsafe
+  // Unexpected fields are irrelevant and never projected; the query does not request them.
   data.serviceInstance.railwayConfigFile = unsafe
-  data.patches.edges[0].node.lastAppliedError = unsafe
+  data.serviceInstance.latestDeployment = { secret: unsafe }
+  data.patches = { secret: unsafe }
   const result = await exerciseNavlogReadinessDiagnostic({
     responses: [NAVLOG_READINESS_TOKEN_DATA, data],
   })
   assert.equal(result.exitCode, 0)
-  assert.ok(!result.stdout.join("\n").includes(NAVLOG_READINESS_TOKEN))
-  assert.ok(!result.stdout.join("\n").includes("##["))
-  assert.ok(!result.stdout.join("\n").includes("::error::"))
+  const output = result.stdout.join("\n")
+  assert.ok(!output.includes(NAVLOG_READINESS_TOKEN))
+  assert.ok(!output.includes("##["))
+  assert.ok(!output.includes("::error::"))
   const record = JSON.parse(result.stdout[0].slice("Railway readiness diagnostic: ".length))
   assert.equal(record.settings.healthcheckPath, "[different path]")
-  assert.equal(record.settings.railwayConfigFilePresent, true)
-  assert.equal(record.firstPatches[0].errorPresent, true)
+  assert.equal(record.matchesDesired, false)
+  assert.deepEqual(Object.keys(record).sort(), ["matchesDesired", "settings", "target"])
 })
 
-test("navlog readiness diagnostic rejects invalid bindings metadata and pagination before output", async (t) => {
+test("navlog readiness diagnostic identifies invalid bindings and settings with static phases", async (t) => {
+  const other = "bbbbbbbb-2222-4333-8444-555555555555"
   const cases = [
     [
-      "wrong environment",
-      (data) => {
-        data.environment.name = "staging"
-      },
+      "wrong environment ID",
+      "environment",
+      { id: other },
+      "production environment identity is invalid",
     ],
     [
-      "wrong service",
-      (data) => {
-        data.service.id = NAVLOG_READINESS_ENVIRONMENT
-      },
+      "wrong environment name",
+      "environment",
+      { name: "staging" },
+      "production environment identity is invalid",
     ],
     [
-      "wrong instance",
-      (data) => {
-        data.serviceInstance.environmentId = NAVLOG_READINESS_SERVICE
-      },
+      "wrong environment project",
+      "environment",
+      { projectId: other },
+      "production environment identity is invalid",
+    ],
+    ["wrong service ID", "service", { id: other }, "production service identity is invalid"],
+    [
+      "wrong service name",
+      "service",
+      { name: "database" },
+      "production service identity is invalid",
     ],
     [
-      "invalid settings",
-      (data) => {
-        data.serviceInstance.healthcheckTimeout = "120"
-      },
+      "wrong service project",
+      "service",
+      { projectId: other },
+      "production service identity is invalid",
     ],
     [
-      "missing override metadata",
-      (data) => {
-        delete data.serviceInstance.railwayConfigFile
-      },
+      "wrong instance environment",
+      "serviceInstance",
+      { environmentId: other },
+      "production instance binding is invalid",
     ],
     [
-      "wrong patch environment",
-      (data) => {
-        data.patches.edges[0].node.environmentId = NAVLOG_READINESS_SERVICE
-      },
+      "wrong instance service",
+      "serviceInstance",
+      { serviceId: other },
+      "production instance binding is invalid",
     ],
     [
-      "unknown patch status",
-      (data) => {
-        data.patches.edges[0].node.status = "FAILED"
-      },
+      "missing path",
+      "serviceInstance",
+      { healthcheckPath: undefined },
+      "healthcheck path type is invalid",
     ],
     [
-      "invalid applied date",
-      (data) => {
-        data.patches.edges[0].node.appliedAt = "2026-02-30T00:00:00Z"
-      },
+      "invalid path type",
+      "serviceInstance",
+      { healthcheckPath: 120 },
+      "healthcheck path type is invalid",
     ],
     [
-      "invalid patch dates",
-      (data) => {
-        data.patches.edges[0].node.updatedAt = "2026-11-09T00:00:00Z"
-      },
+      "excessive path",
+      "serviceInstance",
+      { healthcheckPath: "x".repeat(1025) },
+      "healthcheck path type is invalid",
     ],
     [
-      "excessive patches",
-      (data) => {
-        data.patches.edges = Array.from({ length: 11 }, () => data.patches.edges[0])
-      },
+      "missing timeout",
+      "serviceInstance",
+      { healthcheckTimeout: undefined },
+      "healthcheck timeout type is invalid",
     ],
     [
-      "missing pagination",
-      (data) => {
-        delete data.patches.pageInfo
-      },
+      "string timeout",
+      "serviceInstance",
+      { healthcheckTimeout: "120" },
+      "healthcheck timeout type is invalid",
     ],
     [
-      "wrong deployment environment",
-      (data) => {
-        data.serviceInstance.latestDeployment.environmentId = NAVLOG_READINESS_SERVICE
-      },
+      "fraction timeout",
+      "serviceInstance",
+      { healthcheckTimeout: 1.5 },
+      "healthcheck timeout type is invalid",
     ],
     [
-      "wrong deployment service",
-      (data) => {
-        data.serviceInstance.latestDeployment.serviceId = NAVLOG_READINESS_ENVIRONMENT
-      },
+      "negative timeout",
+      "serviceInstance",
+      { healthcheckTimeout: -1 },
+      "healthcheck timeout type is invalid",
     ],
     [
-      "unknown deployment status",
-      (data) => {
-        data.serviceInstance.latestDeployment.status = "DONE"
-      },
+      "overflow timeout",
+      "serviceInstance",
+      { healthcheckTimeout: 2147483648 },
+      "healthcheck timeout type is invalid",
     ],
   ]
-  for (const [name, change] of cases)
+  for (const [name, section, fields, phase] of cases)
     await t.test(name, async () => {
       const data = navlogReadinessDiagnosticData()
-      change(data)
+      Object.assign(data[section], fields)
       const result = await exerciseNavlogReadinessDiagnostic({
         responses: [NAVLOG_READINESS_TOKEN_DATA, data],
       })
       assert.equal(result.exitCode, 1)
       assert.equal(result.calls.length, 2)
       assert.deepEqual(result.stdout, [])
+      assert.deepEqual(result.stderr, [`Railway readiness diagnostic: ${phase}`])
     })
 })
 
