@@ -4,7 +4,7 @@ import {
   recoveryTables,
   recoveryTableTag,
 } from "@b4run/sdk/internal/runtime-schema"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { bindRuntimeStore, createRuntimeBinding } from "../src/runtime/binding.ts"
 import type { PostgresRuntimeInstallation } from "../src/runtime/index.ts"
 import { openPostgresRuntimeInstallation } from "../src/runtime/node.ts"
@@ -15,6 +15,7 @@ import {
 } from "../src/runtime/schema-v1.ts"
 import {
   canonical,
+  dropOwnedMigrationCopy,
   expected,
   identifier,
   legacyCatalogSQL,
@@ -33,6 +34,120 @@ const expectedRecords = Object.fromEntries(
     { count: value.count, canonicalRowSHA256: value.canonicalRowSHA256 },
   ]),
 )
+
+// PURE deletion-authorization test: no pool, backend or container is created.
+it("requires timely observed backend absence before removing an owned migration copy", async () => {
+  const appNames = ["owned_copy_a", "owned_copy_b"]
+  const database = "owned_copy"
+  const countSQL =
+    "SELECT count(*) AS count FROM pg_stat_activity WHERE application_name=ANY($1::text[])"
+  const dropSQL = `DROP DATABASE ${identifier(database)}`
+  let now = 0
+  const clock = vi.spyOn(performance, "now").mockImplementation(() => now)
+  const deferred = () => {
+    let resolve: () => void = () => undefined
+    const promise = new Promise<void>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+  const controlled = (read: () => unknown) => {
+    const drops: string[] = []
+    const query = async (sql: string, values?: unknown[]) => {
+      if (sql === countSQL) {
+        expect(values).toEqual([appNames])
+        return { rows: [{ count: await read() }] }
+      }
+      expect(sql).toBe(dropSQL)
+      expect(values).toBeUndefined()
+      drops.push(sql)
+      return { rows: [] }
+    }
+    // Explicitly fake query results: these controls make no native shutdown claim.
+    return {
+      control: { query } as unknown as Parameters<typeof dropOwnedMigrationCopy>[0],
+      drops,
+    }
+  }
+  try {
+    const secondRead = deferred()
+    const allowZero = deferred()
+    let reads = 0
+    const delayed = controlled(async () => {
+      if (++reads === 1) return "1"
+      secondRead.resolve()
+      await allowZero.promise
+      return "0"
+    })
+    // Attach both handlers before observing the gate. The instantaneous old helper
+    // rejects after its first nonzero read instead of reaching a second read.
+    const outcome = dropOwnedMigrationCopy(delayed.control, database, appNames).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason: unknown) => ({ status: "rejected" as const, reason }),
+    )
+    try {
+      const first = await Promise.race([
+        secondRead.promise.then(() => "second-read" as const),
+        outcome.then(() => "completed" as const),
+      ])
+      expect(first, "nonzero must keep removal pending for a later zero observation").toBe(
+        "second-read",
+      )
+      expect(delayed.drops).toEqual([])
+      allowZero.resolve()
+      expect(await outcome).toEqual({ status: "fulfilled", value: 0 })
+      expect(delayed.drops).toEqual([dropSQL])
+    } finally {
+      // This also joins the handled rejection during RED; no deferred read leaks.
+      allowZero.resolve()
+      secondRead.resolve()
+      await outcome
+    }
+
+    now = 0
+    const persistent = controlled(() => {
+      now += 600
+      return "1"
+    })
+    await expect(dropOwnedMigrationCopy(persistent.control, database, appNames)).rejects.toThrow(
+      "Known migration SQL app backends remain; DB removal refused",
+    )
+    expect(persistent.drops).toEqual([])
+
+    now = 0
+    const readError = new Error("controlled closure read failed")
+    const unreadable = controlled(() => {
+      throw readError
+    })
+    await expect(dropOwnedMigrationCopy(unreadable.control, database, appNames)).rejects.toBe(
+      readError,
+    )
+    expect(unreadable.drops).toEqual([])
+
+    for (const elapsed of [1_000, 1_001]) {
+      now = 0
+      const late = controlled(() => {
+        now = elapsed
+        return "0"
+      })
+      await expect(dropOwnedMigrationCopy(late.control, database, appNames)).rejects.toThrow(
+        "Known migration SQL app backends remain; DB removal refused",
+      )
+      expect(late.drops).toEqual([])
+    }
+
+    for (const count of ["not-a-count", "-1", "9007199254740992"]) {
+      now = 0
+      const invalid = controlled(() => count)
+      await expect(dropOwnedMigrationCopy(invalid.control, database, appNames)).rejects.toThrow(
+        "Invalid native backend closure count; DB removal refused",
+      )
+      expect(invalid.drops).toEqual([])
+    }
+  } finally {
+    clock.mockRestore()
+  }
+})
 
 describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real PostgreSQL known-v1 migration", () => {
   let backend: ReturnType<typeof migrationBackend> | undefined

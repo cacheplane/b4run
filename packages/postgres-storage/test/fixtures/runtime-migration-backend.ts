@@ -140,6 +140,39 @@ export function recordingPool(pool: Pool, writes: string[]): SqlPool {
   }
 }
 
+/** Fixture-only ordinary removal; exact native absence is the authority. */
+export async function dropOwnedMigrationCopy(
+  control: Pick<Pool, "query">,
+  database: string,
+  appNames: readonly string[],
+  observations: { elapsedMs: number; remaining: number }[] = [],
+): Promise<number> {
+  const started = performance.now()
+  const deadline = started + 1_000
+  const refuse = () => new Error("Known migration SQL app backends remain; DB removal refused")
+  for (;;) {
+    if (performance.now() >= deadline) throw refuse()
+    const remaining = Number(
+      (
+        await control.query(
+          "SELECT count(*) AS count FROM pg_stat_activity WHERE application_name=ANY($1::text[])",
+          [appNames],
+        )
+      ).rows[0].count,
+    )
+    observations.push({ elapsedMs: performance.now() - started, remaining })
+    if (!Number.isSafeInteger(remaining) || remaining < 0)
+      throw new Error("Invalid native backend closure count; DB removal refused")
+    if (performance.now() >= deadline) throw refuse()
+    if (remaining === 0) {
+      await control.query(`DROP DATABASE ${identifier(database)}`)
+      return remaining
+    }
+    // Yield for normal shutdown; only the next real native zero authorizes DROP.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+  }
+}
+
 export function migrationBackend() {
   const nonce = process.env.B4_PROTOCOL_PG_RESOURCE_ID ?? randomUUID()
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(nonce))
@@ -521,18 +554,14 @@ export function migrationBackend() {
       let value: T | undefined, failure: unknown
       let failed = false
       const cleanup: unknown[] = []
+      const closureObservations: { elapsedMs: number; remaining: number }[] = []
       const dropOwnedCopyAfterBackendClosure = async (control: Pool) => {
-        const remaining = Number(
-          (
-            await control.query(
-              "SELECT count(*) AS count FROM pg_stat_activity WHERE application_name=ANY($1::text[])",
-              [appNames],
-            )
-          ).rows[0].count,
+        const remaining = await dropOwnedMigrationCopy(
+          control,
+          database,
+          appNames,
+          closureObservations,
         )
-        if (remaining !== 0)
-          throw new Error("Known migration SQL app backends remain; DB removal refused")
-        await control.query(`DROP DATABASE ${identifier(database)}`)
         activeCases.delete(database)
         save(`case-${counter}-closed.json`, {
           database,
@@ -586,6 +615,15 @@ export function migrationBackend() {
           } catch (error) {
             cleanup.push(error)
           }
+        }
+        try {
+          save(`case-${counter}-backend-closure-witness.json`, {
+            windowMs: 1_000,
+            bothPoolEndsFulfilled: ended.every((result) => result.status === "fulfilled"),
+            observations: closureObservations,
+          })
+        } catch (error) {
+          cleanup.push(error)
         }
       }
       if (failed || cleanup.length)
