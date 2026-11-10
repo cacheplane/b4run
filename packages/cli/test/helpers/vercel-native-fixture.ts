@@ -2642,6 +2642,8 @@ export interface NativePinnedVercelBoundary {
     readonly commandEvidence: NativeDeployCommandEvidence
     readonly deploymentId: string
   }>
+  /** Failure diagnostics only; never supplies READY provenance. Optional for controlled boundaries. */
+  readonly inspectFailedBuildLogs?: (options: { readonly deploymentId: string }) => Promise<string>
   readonly inspectBuildLogs: (options: { readonly deploymentId: string }) => Promise<{
     readonly evidence: NativeVercelBuildLogEvidence
     readonly redactedTranscript: string
@@ -3010,6 +3012,41 @@ export async function createNativePinnedVercelBoundary(
         deploymentId,
       })
     },
+    inspectFailedBuildLogs: async ({ deploymentId }) => {
+      if (!versionVerified) {
+        throw new Error("native Vercel CLI version must be verified before failed build logs")
+      }
+      assertDeploymentId(deploymentId)
+      let result: NativeLocalCommandResult
+      try {
+        // Diagnostic reads retain nonzero stderr instead of requiring READY provenance.
+        // Reuse the pinned child runner's existing timeout, output cap and settlement policy.
+        result = await options.runChild({
+          executable: cliPath,
+          args: [
+            "inspect",
+            deploymentId,
+            "--logs",
+            "--scope",
+            options.orgId,
+            "--non-interactive",
+            "--global-config",
+            options.globalConfigDir,
+          ],
+          cwd: options.jobRoot,
+          env: credentialEnv(false),
+          timeoutMs: NATIVE_VERCEL_CHILD_TIMEOUT_MS,
+        })
+      } catch {
+        // Do not retain a potentially value-bearing foreign transport cause.
+        throw new Error("native Vercel failed build log child transport failed")
+      }
+      const transcript = redactor.redact(
+        `exitCode: ${result.exitCode}\nstdout:\n${stripVTControlCharacters(result.stdout)}\nstderr:\n${stripVTControlCharacters(result.stderr)}\n`,
+      )
+      redactor.assertSafe("redacted native Vercel failed build logs", transcript)
+      return transcript
+    },
     inspectBuildLogs: async ({ deploymentId }) => {
       if (!versionVerified) {
         throw new Error("native Vercel CLI version must be verified before inspect build logs")
@@ -3211,6 +3248,10 @@ export async function runNativeDeployAttempt(options: {
   readonly apiClient: NativeVercelApiClient
   readonly attemptStartMs: number
   readonly boundary: Pick<NativePinnedVercelBoundary, "assertVersion" | "deploy" | "inspect">
+  readonly captureBuildFailure?: (deployment: {
+    readonly canonicalOrigin: string
+    readonly deploymentId: string
+  }) => Promise<void>
   readonly coordinates: NativeAttemptCoordinates
   readonly fixtureRoot: string
   readonly localConfigPath: string
@@ -3300,13 +3341,19 @@ export async function runNativeDeployAttempt(options: {
     // good. Read the deployment's terminal state now, best-effort, and carry
     // it on the thrown error so the uploaded diagnostics say WHY the build
     // failed, not just that a deployment id existed and was DELETED.
+    const state = await captureNativeDeploymentState(
+      options.apiClient,
+      options.orgId,
+      deployment.deploymentId,
+    )
+    try {
+      await options.captureBuildFailure?.(deployment)
+    } catch {
+      // Best-effort diagnostics must neither mask the readiness failure nor prevent owned cleanup.
+    }
     throw new Error(
       `native Vercel deployment ${deployment.deploymentId} failed before readiness; ` +
-        `state captured before cleanup: ${await captureNativeDeploymentState(
-          options.apiClient,
-          options.orgId,
-          deployment.deploymentId,
-        )}`,
+        `state captured before cleanup: ${state}`,
       { cause },
     )
   }
@@ -7668,12 +7715,18 @@ export async function runNativeVercelLane(options: {
         }
         if (!defaultContext) throw new Error("native Vercel default deployment context is missing")
         const blackBoxPersistence = dependencies.createBlackBoxEvidencePersistence({ kind, store })
+        const failedBuildLogReader = defaultContext.boundary.inspectFailedBuildLogs
         const defaultOptions: Parameters<typeof runNativeDeploymentKind>[0] = {
           deployAttempt: () =>
             runNativeDeployAttempt({
               apiClient: defaultContext.apiClient,
               attemptStartMs: Date.now(),
               boundary: defaultContext.boundary,
+              captureBuildFailure: async ({ deploymentId }) => {
+                if (!failedBuildLogReader) return
+                const transcript = await failedBuildLogReader({ deploymentId })
+                await store.writeDiagnostic(`${kind}-build.log`, transcript)
+              },
               coordinates: nativeAttemptCoordinatesFromEnvironment(options.env, kind),
               fixtureRoot: fixture.root,
               localConfigPath: join(fixture.root, "vercel.json"),
