@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
+  // Parent-side preparation invalidates rebuilt modules explicitly. Watching
+  // these outputs would schedule another preparation while one is in flight.
+  server: { watch: { ignored: ["**/packages/*/dist/**"] } },
   test: {
     projects: [
       "./apps/web/vitest.config.ts",

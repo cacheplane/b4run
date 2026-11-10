@@ -16,7 +16,6 @@ import {
   type RouteStaticDiscovery,
 } from "../src/lib/build/targets/modules-emitter.js"
 import { loadStaticModules } from "../src/lib/runtime/static-modules.js"
-import { ensureLinkedDistsFresh } from "./helpers/hono-edge-fixture.js"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
@@ -477,7 +476,6 @@ describe("emitEdgeModulesFile — marker files", () => {
   })
 
   it("survives the round trip through loadStaticModules with the runtime's routeDir keys", async () => {
-    await ensureLinkedDistsFresh()
     const appRoot = await markerFixtureApp()
     const discoveries = await collectMarkerDiscoveries(appRoot)
     const buildDir = join(appRoot, ".b4", "build")
@@ -506,7 +504,6 @@ describe("emitEdgeModulesFile — marker files", () => {
   }, 30_000)
 
   it("keys every markerFiles entry under the route's own routeFile directory", async () => {
-    await ensureLinkedDistsFresh()
     const appRoot = await markerFixtureApp()
     const discoveries = await collectMarkerDiscoveries(appRoot)
     const buildDir = join(appRoot, ".b4", "build")

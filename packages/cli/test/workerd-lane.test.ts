@@ -109,8 +109,8 @@ import {
 // `@b4run/langchain` is the trap: it is nowhere in the fixture's linked list,
 // arriving through `packages/cli/node_modules`. The one unreproducible failure
 // during review was exactly this — a `dist` predating dccae091 fails here 5/5.
-// `createFixtureApp` now builds the whole closure first; see
-// `helpers/hono-edge-fixture.ts`.
+// The CLI global setup builds the whole closure first; see
+// `helpers/linked-dists.ts`.
 // ═══════════════════════════════════════════════════════════════════════════
 // ---------------------------------------------------------------------------
 
