@@ -178,13 +178,21 @@ describe("resolveServePort", () => {
     expect(resolveServePort(undefined, "not-a-number")).toBe(8000)
   })
 
+  test("invalid or out-of-range PORT env resolves to the 8000 default", () => {
+    expect(resolveServePort(undefined, "70000")).toBe(8000)
+    expect(resolveServePort(undefined, "-1")).toBe(8000)
+    expect(resolveServePort(undefined, "1e3")).toBe(8000)
+  })
+
   test("numeric PORT env is honored", () => {
     expect(resolveServePort(undefined, "3000")).toBe(3000)
+    expect(resolveServePort(undefined, "0")).toBe(0)
   })
 
   test("explicit port always wins, including 0 for a random port", () => {
     expect(resolveServePort(0, "8000")).toBe(0)
     expect(resolveServePort(5555, "")).toBe(5555)
+    expect(resolveServePort(5555, "8000")).toBe(5555)
   })
 })
 
