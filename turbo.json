@@ -62,6 +62,7 @@
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.workspace.ts",
         "$TURBO_ROOT$/apps/web/content/docs/**",
         "$TURBO_ROOT$/apps/web/app/components/docs/nav.ts",
         "$TURBO_ROOT$/packages/ag-ui/README.md",

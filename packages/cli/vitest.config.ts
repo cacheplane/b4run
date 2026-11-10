@@ -3,9 +3,22 @@ import { fileURLToPath } from "node:url"
 
 import { defineConfig } from "vitest/config"
 
+import { installPreparationReporter } from "./test/global-setup.ts"
+
 const rootDir = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  plugins: [
+    {
+      name: "cli-linked-dist-preparation",
+      configureVitest({ project }) {
+        installPreparationReporter(project)
+      },
+    },
+  ],
+  // Parent-side preparation invalidates rebuilt modules explicitly. Watching
+  // these outputs would schedule another preparation while one is in flight.
+  server: { watch: { ignored: ["**/packages/*/dist/**"] } },
   resolve: {
     alias: {
       "@b4run/sdk/internal/runtime-identity": resolve(
@@ -39,6 +52,7 @@ export default defineConfig({
     },
   },
   test: {
+    globalSetup: [resolve(rootDir, "test/global-setup.ts")],
     environment: "node",
     env: { B4_TELEMETRY_DISABLED: "1" },
     include: ["test/**/*.test.ts"],

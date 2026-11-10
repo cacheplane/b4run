@@ -39,7 +39,6 @@ import {
 import { CliError, type CommandIo } from "../src/lib/output.js"
 import {
   edgeBindings,
-  ensureLinkedDistsFresh,
   probeDocker,
   requireDockerFailure,
   startEdgeContainers,
@@ -563,7 +562,6 @@ async function runIsolatedNode(
 
 describe("complete Vercel target", () => {
   test("executes as a self-contained function after only b4.func is copied", async () => {
-    await ensureLinkedDistsFresh()
     const appRoot = await createTargetFixture()
     await runTargetBuild(appRoot)
 
@@ -582,7 +580,6 @@ describe("complete Vercel target", () => {
   }, 180_000)
 
   test("bundles a route's skill bodies into the function", async () => {
-    await ensureLinkedDistsFresh()
     const appRoot = await createTargetFixture({
       // The fixture's only default route is `probe`; the skill needs a route of
       // its own to hang off, so this adds one.
@@ -608,7 +605,6 @@ describe("complete Vercel target", () => {
 
   describe("Vercel CommonJS Node compatibility", () => {
     test("bundles a real pg Pool without changing absent pg.native semantics", async () => {
-      await ensureLinkedDistsFresh()
       const pgManifest = JSON.parse(
         await readFile(join(cliPackageRoot, "node_modules", "pg", "package.json"), "utf8"),
       ) as { version?: unknown }
@@ -773,7 +769,6 @@ export async function workflow() {
       if (!docker.available) throw requireDockerFailure(docker)
       const containers = await startEdgeContainers()
       try {
-        await ensureLinkedDistsFresh()
         const appRoot = await createTargetFixture()
         await runTargetBuild(appRoot)
         const copiedFunctionDir = await copyFunctionOutsideApp(appRoot)
@@ -814,7 +809,6 @@ export async function workflow() {
       if (!docker.available) throw requireDockerFailure(docker)
       const containers = await startEdgeContainers()
       try {
-        await ensureLinkedDistsFresh()
         const appRoot = await createTargetFixture()
         await runTargetBuild(appRoot)
         const copiedFunctionDir = await copyFunctionOutsideApp(appRoot)

@@ -24,7 +24,6 @@ import { createRuntimeFetchHandler as createNodeRuntimeFetchHandler } from "../s
 import type { RequestStores } from "../src/lib/dev/runtime-server.js"
 import { __resetRouteLoadCachesForTests } from "../src/lib/runtime/execute-route.js"
 import { loadStaticModules } from "../src/lib/runtime/static-modules.js"
-import { ensureLinkedDistsFresh } from "./helpers/hono-edge-fixture.js"
 
 // ---------------------------------------------------------------------------
 // BUNDLED MARKER FILES — the node-versus-edge equivalence proof.
@@ -224,7 +223,6 @@ async function drive(handler: Handler, aimock: PromptSource): Promise<Observed> 
 
 describe("bundled marker files — node vs edge", () => {
   it("serves the same skills prompt, readSkill body, route memory, and seeded todos", async () => {
-    await ensureLinkedDistsFresh()
     const appRoot = await fixtureApp()
     const manifest = await discoverRoutes({ appRoot })
     const buildDir = join(appRoot, ".b4", "build")
@@ -312,7 +310,6 @@ describe("bundled marker files — node vs edge", () => {
     // all. The `MarkerFs` instance is not reachable from a test, so this is
     // asserted BEHAVIOURALLY: two independent threads on ONE handler must both
     // see the skills prompt and the same readSkill body.
-    await ensureLinkedDistsFresh()
     const appRoot = await fixtureApp()
     const manifest = await discoverRoutes({ appRoot })
     const buildDir = join(appRoot, ".b4", "build")
