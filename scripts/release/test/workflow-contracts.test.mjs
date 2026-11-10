@@ -2622,6 +2622,315 @@ test("navlog diagnostic dispatch and deployment are mutually exclusive", async (
   })
 })
 
+const NAVLOG_READINESS_PROJECT = "6f45f6e2-4190-4eb3-9820-3ff307a4e7d9"
+const NAVLOG_READINESS_SERVICE = "1b8bb6df-ebb5-4cde-b086-c97216161c51"
+const NAVLOG_READINESS_ENVIRONMENT = "a1a1a1a1-2222-4333-8444-555555555555"
+const NAVLOG_READINESS_TOKEN = "synthetic-readiness-project-token"
+const NAVLOG_READINESS_TOKEN_DATA = {
+  projectToken: {
+    projectId: NAVLOG_READINESS_PROJECT,
+    environmentId: NAVLOG_READINESS_ENVIRONMENT,
+  },
+}
+function navlogReadinessTarget(settings = {}) {
+  return {
+    environment: {
+      id: NAVLOG_READINESS_ENVIRONMENT,
+      name: "production",
+      projectId: NAVLOG_READINESS_PROJECT,
+    },
+    service: {
+      id: NAVLOG_READINESS_SERVICE,
+      name: "navlog-server",
+      projectId: NAVLOG_READINESS_PROJECT,
+    },
+    serviceInstance: {
+      serviceId: NAVLOG_READINESS_SERVICE,
+      environmentId: NAVLOG_READINESS_ENVIRONMENT,
+      healthcheckPath: null,
+      healthcheckTimeout: null,
+      ...settings,
+    },
+  }
+}
+async function exerciseNavlogReadiness({
+  token = NAVLOG_READINESS_TOKEN,
+  responses = [
+    NAVLOG_READINESS_TOKEN_DATA,
+    navlogReadinessTarget(),
+    { environmentPatchCommit: "synthetic-config-commit" },
+    navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+  ],
+} = {}) {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const step = workflow.jobs.deploy.steps.find(
+    (entry) => entry.name === "Configure Railway readiness",
+  )
+  assert.ok(step, "configure actual Railway readiness before uploading the next image")
+  const source = /^node - <<'JS'\n([\s\S]*)\nJS\n$/u.exec(step.run)?.[1]
+  assert.ok(source, "execute the exact inline readiness JavaScript")
+  const calls = []
+  const stdout = []
+  const stderr = []
+  const signal = AbortSignal.timeout(30000)
+  let timeoutCalls = 0
+  const process = { env: { RAILWAY_TOKEN: token }, exitCode: 0 }
+  await runInNewContext(
+    `(async () => {\n${source}\n})()`,
+    {
+      process,
+      TextDecoder,
+      console: {
+        log: (...args) => stdout.push(args.join(" ")),
+        error: (...args) => stderr.push(args.join(" ")),
+      },
+      AbortSignal: {
+        timeout: (milliseconds) => {
+          assert.equal(milliseconds, 30000)
+          timeoutCalls++
+          return signal
+        },
+      },
+      fetch: async (url, options) => {
+        calls.push({ url, options, payload: JSON.parse(options.body) })
+        assert.ok(calls.length <= responses.length, "no unexpected requests or mutation retries")
+        const result = responses[calls.length - 1]
+        if (result instanceof Error) throw result
+        return result instanceof Response ? result : Response.json({ data: result })
+      },
+    },
+    { timeout: 1000 },
+  )
+  return { calls, stdout, stderr, timeoutCalls, signal, exitCode: process.exitCode }
+}
+
+test("navlog readiness configures only deployment before upload with the existing project secret", async () => {
+  const workflow = parse(await readFile(path.join(WORKFLOWS, "deploy-navlog.yml"), "utf8"))
+  const steps = workflow.jobs.deploy.steps
+  const index = steps.findIndex((step) => step.name === "Configure Railway readiness")
+  assert.equal(index, 2)
+  assert.equal(steps[index + 1].id, "upload")
+  assert.deepEqual(steps[index].env, {
+    RAILWAY_TOKEN: workflowExpression("secrets.RAILWAY_NAVLOG_TOKEN"),
+  })
+  assert.equal(workflow.jobs.diagnose.steps.length, 2)
+  assert.ok(!workflow.jobs.diagnose.steps.some((step) => step.name === steps[index].name))
+  // Applying provider settings can redeploy the previous image. The subsequent
+  // upload must still supply the separately observed deployment ID.
+  assert.equal(
+    steps.find((step) => step.name === "Wait for the rollout").env.DEPLOYMENT_ID,
+    workflowExpression("steps.upload.outputs.deployment"),
+  )
+})
+
+test("navlog readiness rejects a missing credential before requesting provider data", async () => {
+  const result = await exerciseNavlogReadiness({ token: "", responses: [] })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 0)
+  assert.equal(result.stdout.length, 0)
+  assert.match(result.stderr.join("\n"), /credential is unavailable/u)
+})
+
+test("navlog readiness leaves matching provider settings unchanged", async () => {
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.calls.length, 2)
+  assert.ok(result.calls.every(({ payload }) => !payload.query.includes("mutation")))
+  assert.match(result.stdout.join("\n"), /unchanged/u)
+})
+
+test("navlog readiness commits only the two deploy fields to the validated production environment", async () => {
+  const result = await exerciseNavlogReadiness()
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.timeoutCalls, 1)
+  assert.equal(result.calls.length, 4)
+  for (const { url, options } of result.calls) {
+    assert.equal(url, "https://backboard.railway.com/graphql/v2")
+    assert.equal(options.method, "POST")
+    assert.equal(options.redirect, "error")
+    assert.equal(options.signal, result.signal)
+    assert.deepEqual(JSON.parse(JSON.stringify(options.headers)), {
+      "content-type": "application/json",
+      "project-access-token": NAVLOG_READINESS_TOKEN,
+    })
+  }
+  assert.equal(result.calls[0].payload.query, "query { projectToken { projectId environmentId } }")
+  const target = result.calls[1].payload
+  assert.equal(
+    target.query,
+    "query($environmentId: String!, $serviceId: String!) { environment(id: $environmentId) { id name projectId } service(id: $serviceId) { id name projectId } serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { environmentId serviceId healthcheckPath healthcheckTimeout } }",
+  )
+  assert.deepEqual(target.variables, {
+    environmentId: NAVLOG_READINESS_ENVIRONMENT,
+    serviceId: NAVLOG_READINESS_SERVICE,
+  })
+  assert.deepEqual(result.calls[2].payload, {
+    query:
+      "mutation($environmentId: String!, $patch: EnvironmentConfig!) { environmentPatchCommit(environmentId: $environmentId, patch: $patch) }",
+    variables: {
+      environmentId: NAVLOG_READINESS_ENVIRONMENT,
+      patch: {
+        services: {
+          [NAVLOG_READINESS_SERVICE]: {
+            deploy: { healthcheckPath: "/readyz", healthcheckTimeout: 120 },
+          },
+        },
+      },
+    },
+  })
+  assert.deepEqual(result.calls[3].payload, target)
+  assert.match(result.stdout.join("\n"), /verified/u)
+  assert.ok(!result.stdout.join("\n").includes(NAVLOG_READINESS_TOKEN))
+  assert.deepEqual(result.stderr, [])
+})
+
+test("navlog readiness validates credential and target identity before mutation", async (t) => {
+  const other = "bbbbbbbb-2222-4333-8444-555555555555"
+  for (const [name, tokenData] of [
+    [
+      "wrong project",
+      { projectToken: { projectId: other, environmentId: NAVLOG_READINESS_ENVIRONMENT } },
+    ],
+    [
+      "malformed environment",
+      { projectToken: { projectId: NAVLOG_READINESS_PROJECT, environmentId: "production" } },
+    ],
+    ["missing token metadata", {}],
+  ]) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogReadiness({ responses: [tokenData] })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 1)
+      assert.deepEqual(result.stdout, [])
+    })
+  }
+  for (const [name, section, fields] of [
+    ["wrong environment ID", "environment", { id: other }],
+    ["wrong environment name", "environment", { name: "staging" }],
+    ["wrong environment project", "environment", { projectId: other }],
+    ["wrong service ID", "service", { id: other }],
+    ["wrong service name", "service", { name: "database" }],
+    ["wrong service project", "service", { projectId: other }],
+    ["wrong instance environment", "serviceInstance", { environmentId: other }],
+    ["wrong instance service", "serviceInstance", { serviceId: other }],
+    ["missing nullable path", "serviceInstance", { healthcheckPath: undefined }],
+    ["invalid path type", "serviceInstance", { healthcheckPath: 120 }],
+    ["oversize path", "serviceInstance", { healthcheckPath: "x".repeat(1025) }],
+    ["missing nullable timeout", "serviceInstance", { healthcheckTimeout: undefined }],
+    ["string timeout", "serviceInstance", { healthcheckTimeout: "120" }],
+    ["fraction timeout", "serviceInstance", { healthcheckTimeout: 1.5 }],
+    ["negative timeout", "serviceInstance", { healthcheckTimeout: -1 }],
+    ["overflow timeout", "serviceInstance", { healthcheckTimeout: 2147483648 }],
+  ]) {
+    await t.test(name, async () => {
+      const target = navlogReadinessTarget()
+      Object.assign(target[section], fields)
+      const result = await exerciseNavlogReadiness({
+        responses: [NAVLOG_READINESS_TOKEN_DATA, target],
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 2)
+      assert.deepEqual(result.stdout, [])
+    })
+  }
+})
+
+test("navlog readiness requires matching readback without retrying a committed patch", async (t) => {
+  for (const settings of [
+    { healthcheckPath: "/healthz", healthcheckTimeout: 120 },
+    { healthcheckPath: "/readyz", healthcheckTimeout: 300 },
+    { healthcheckPath: "/readyz", healthcheckTimeout: 120, environmentId: "wrong" },
+  ]) {
+    await t.test(JSON.stringify(settings), async () => {
+      const result = await exerciseNavlogReadiness({
+        responses: [
+          NAVLOG_READINESS_TOKEN_DATA,
+          navlogReadinessTarget(),
+          { environmentPatchCommit: "synthetic-config-commit" },
+          navlogReadinessTarget(settings),
+        ],
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 4)
+      assert.equal(
+        result.calls.filter(({ payload }) => payload.query.includes("mutation")).length,
+        1,
+      )
+      assert.ok(!result.stdout.join("\n").includes("verified"))
+    })
+  }
+})
+
+test("navlog readiness fails safely on bounded transport and provider errors", async (t) => {
+  const secretError = `raw-provider-error ${NAVLOG_READINESS_TOKEN} ##[error] ::error::`
+  const failures = [
+    ["transport", () => new Error(secretError)],
+    ["HTTP", () => new Response(secretError, { status: 403 })],
+    [
+      "GraphQL",
+      () =>
+        Response.json({ data: NAVLOG_READINESS_TOKEN_DATA, errors: [{ message: secretError }] }),
+    ],
+    ["malformed errors", () => Response.json({ errors: "invalid" })],
+    ["invalid JSON", () => new Response(secretError)],
+    ["invalid UTF8", () => new Response(new Uint8Array([255]))],
+    ["oversize", () => new Response("x".repeat(65537))],
+  ]
+  for (const [name, response] of failures) {
+    await t.test(name, async () => {
+      const result = await exerciseNavlogReadiness({ responses: [response()] })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 1)
+      assert.deepEqual(result.stdout, [])
+      const output = result.stderr.join("\n")
+      assert.ok(!output.includes(secretError))
+      assert.ok(!output.includes(NAVLOG_READINESS_TOKEN))
+      assert.ok(!output.includes("##["))
+      assert.ok(!output.includes("::error::"))
+    })
+  }
+  for (const response of [
+    new Error(secretError),
+    Response.json({ errors: [{ message: secretError }] }),
+    { environmentPatchCommit: null },
+    { environmentPatchCommit: "" },
+  ]) {
+    const result = await exerciseNavlogReadiness({
+      responses: [NAVLOG_READINESS_TOKEN_DATA, navlogReadinessTarget(), response],
+    })
+    assert.equal(result.exitCode, 1)
+    assert.equal(result.calls.length, 3, "an uncertain mutation must never be retried")
+    assert.ok(!result.stderr.join("\n").includes(NAVLOG_READINESS_TOKEN))
+    assert.ok(!result.stdout.join("\n").includes("verified"))
+  }
+})
+
+test("navlog readiness emits safe typed before and after settings only", async () => {
+  const path = `/${NAVLOG_READINESS_TOKEN} ##[error] ::error:: arbitrary provider path`
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget({ healthcheckPath: path, healthcheckTimeout: 300 }),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 0)
+  const output = result.stdout.join("\n")
+  assert.ok(!output.includes(path))
+  assert.ok(!output.includes(NAVLOG_READINESS_TOKEN))
+  assert.ok(!output.includes("##["))
+  assert.ok(!output.includes("::error::"))
+  assert.match(output, /300/u)
+  assert.match(output, /\/readyz/u)
+  assert.match(output, /120/u)
+})
+
 const NAVLOG_DIAGNOSTIC_ID = "fac8e87f-5b1a-49b8-a951-c92c576fb40c"
 const NAVLOG_DIAGNOSTIC_TOKEN = "synthetic-project-token-for-tests"
 const NAVLOG_BUILD_LOG = {
