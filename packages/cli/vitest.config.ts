@@ -25,6 +25,10 @@ export default defineConfig({
         rootDir,
         "../sdk/src/internal/runtime-identity.ts",
       ),
+      "@b4run/sdk/internal/runtime-schema": resolve(
+        rootDir,
+        "../sdk/src/internal/runtime-schema.ts",
+      ),
       "@b4run/core/internal/permission-continuation": resolve(
         rootDir,
         "../core/src/internal-permissions.ts",
