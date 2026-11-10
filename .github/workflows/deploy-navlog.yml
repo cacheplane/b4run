@@ -158,9 +158,36 @@ jobs:
                 const applied = await request("mutation($environmentId: String!, $patch: EnvironmentConfig!) { environmentPatchCommit(environmentId: $environmentId, patch: $patch) }", { environmentId, patch })
                 failure = "patch commit was not acknowledged; do not retry without observing settings"
                 if (typeof applied?.environmentPatchCommit !== "string" || !applied.environmentPatchCommit.length || applied.environmentPatchCommit.length > 256) throw new Error()
-                const after = await readTarget()
-                failure = "provider readiness readback did not match the requested settings"
-                if (!matches(after)) throw new Error()
+                const pause = () => new Promise((resolve, reject) => {
+                  const onAbort = () => {
+                    clearTimeout(timer)
+                    signal.removeEventListener("abort", onAbort)
+                    reject(new Error())
+                  }
+                  const timer = setTimeout(() => {
+                    signal.removeEventListener("abort", onAbort)
+                    resolve()
+                  }, 1000)
+                  signal.addEventListener("abort", onAbort, { once: true })
+                  if (signal.aborted) onAbort()
+                })
+                let after = null
+                for (let attempt = 1; attempt <= 10; attempt++) {
+                  failure = "provider readiness convergence deadline expired"
+                  if (attempt > 1) await pause()
+                  signal.throwIfAborted()
+                  const observed = await readTarget()
+                  failure = "provider readiness convergence deadline expired"
+                  signal.throwIfAborted()
+                  const matched = matches(observed)
+                  console.log("Railway readiness readback: " + JSON.stringify({ attempt, matched }))
+                  if (matched) {
+                    after = observed
+                    break
+                  }
+                }
+                failure = "provider readiness did not converge within 10 readbacks"
+                if (after === null) throw new Error()
                 console.log("Railway readiness verified: " + JSON.stringify(after))
               }
             } catch {
