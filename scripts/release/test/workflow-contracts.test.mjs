@@ -2655,6 +2655,8 @@ function navlogReadinessTarget(settings = {}) {
 }
 async function exerciseNavlogReadiness({
   token = NAVLOG_READINESS_TOKEN,
+  abortOnGap = false,
+  abortAtCall = 0,
   responses = [
     NAVLOG_READINESS_TOKEN_DATA,
     navlogReadinessTarget(),
@@ -2672,7 +2674,22 @@ async function exerciseNavlogReadiness({
   const calls = []
   const stdout = []
   const stderr = []
-  const signal = AbortSignal.timeout(30000)
+  const controller = new AbortController()
+  const signal = controller.signal
+  const listeners = new Set()
+  const addListener = signal.addEventListener.bind(signal)
+  const removeListener = signal.removeEventListener.bind(signal)
+  signal.addEventListener = (type, listener, options) => {
+    if (type === "abort") listeners.add(listener)
+    addListener(type, listener, options)
+  }
+  signal.removeEventListener = (type, listener, options) => {
+    if (type === "abort") listeners.delete(listener)
+    removeListener(type, listener, options)
+  }
+  const timers = new Map()
+  const gaps = []
+  let nextTimer = 0
   let timeoutCalls = 0
   const process = { env: { RAILWAY_TOKEN: token }, exitCode: 0 }
   await runInNewContext(
@@ -2680,6 +2697,22 @@ async function exerciseNavlogReadiness({
     {
       process,
       TextDecoder,
+      setTimeout: (callback, milliseconds) => {
+        assert.equal(milliseconds, 1000)
+        gaps.push(milliseconds)
+        const timer = ++nextTimer
+        timers.set(timer, callback)
+        queueMicrotask(() => {
+          if (!timers.has(timer)) return
+          if (abortOnGap) controller.abort()
+          else {
+            timers.delete(timer)
+            callback()
+          }
+        })
+        return timer
+      },
+      clearTimeout: (timer) => timers.delete(timer),
       console: {
         log: (...args) => stdout.push(args.join(" ")),
         error: (...args) => stderr.push(args.join(" ")),
@@ -2694,6 +2727,7 @@ async function exerciseNavlogReadiness({
       fetch: async (url, options) => {
         calls.push({ url, options, payload: JSON.parse(options.body) })
         assert.ok(calls.length <= responses.length, "no unexpected requests or mutation retries")
+        if (calls.length === abortAtCall) controller.abort()
         const result = responses[calls.length - 1]
         if (result instanceof Error) throw result
         return result instanceof Response ? result : Response.json({ data: result })
@@ -2701,7 +2735,17 @@ async function exerciseNavlogReadiness({
     },
     { timeout: 1000 },
   )
-  return { calls, stdout, stderr, timeoutCalls, signal, exitCode: process.exitCode }
+  return {
+    calls,
+    stdout,
+    stderr,
+    timeoutCalls,
+    signal,
+    gaps,
+    pendingTimers: timers.size,
+    abortListeners: listeners.size,
+    exitCode: process.exitCode,
+  }
 }
 
 test("navlog readiness configures only deployment before upload with the existing project secret", async () => {
@@ -2740,6 +2784,9 @@ test("navlog readiness leaves matching provider settings unchanged", async () =>
   })
   assert.equal(result.exitCode, 0)
   assert.equal(result.calls.length, 2)
+  assert.deepEqual(result.gaps, [])
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
   assert.ok(result.calls.every(({ payload }) => !payload.query.includes("mutation")))
   assert.match(result.stdout.join("\n"), /unchanged/u)
 })
@@ -2840,6 +2887,162 @@ test("navlog readiness validates credential and target identity before mutation"
   }
 })
 
+test("navlog readiness convergence accepts a later match after one valid mismatch", async () => {
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget(),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      navlogReadinessTarget({ healthcheckPath: "/healthz", healthcheckTimeout: 120 }),
+      navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 0, result.stderr.join("\n"))
+  assert.equal(result.calls.length, 5)
+  assert.equal(result.calls.filter(({ payload }) => payload.query.startsWith("mutation")).length, 1)
+  assert.match(result.stdout.join("\n"), /verified/u)
+  assert.deepEqual(result.gaps, [1000])
+  assert.equal(result.timeoutCalls, 1)
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
+  for (const { options } of result.calls) assert.equal(options.signal, result.signal)
+  assert.deepEqual(result.calls[3].payload, result.calls[4].payload)
+})
+test("navlog readiness convergence stops after ten valid mismatches without another mutation", async () => {
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget(),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      ...Array.from({ length: 10 }, () =>
+        navlogReadinessTarget({ healthcheckPath: "/healthz", healthcheckTimeout: 120 }),
+      ),
+    ],
+  })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 13)
+  assert.equal(result.calls.filter(({ payload }) => payload.query.startsWith("mutation")).length, 1)
+  assert.deepEqual(result.gaps, Array(9).fill(1000))
+  assert.equal(result.timeoutCalls, 1)
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
+  const attempts = result.stdout
+    .filter((line) => line.startsWith("Railway readiness readback: "))
+    .map((line) => JSON.parse(line.slice("Railway readiness readback: ".length)))
+  assert.deepEqual(
+    attempts,
+    Array.from({ length: 10 }, (_, i) => ({ attempt: i + 1, matched: false })),
+  )
+  assert.match(result.stderr.join("\n"), /did not converge within 10 readbacks/u)
+  assert.ok(!result.stdout.join("\n").includes("verified"))
+})
+
+test("navlog readiness convergence aborts a pause with no timer listener or further request", async () => {
+  const result = await exerciseNavlogReadiness({
+    abortOnGap: true,
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget(),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      navlogReadinessTarget({ healthcheckPath: "/healthz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 4)
+  assert.equal(result.calls.filter(({ payload }) => payload.query.startsWith("mutation")).length, 1)
+  assert.deepEqual(result.gaps, [1000])
+  assert.equal(result.signal.aborted, true)
+  assert.equal(result.timeoutCalls, 1)
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
+  assert.match(result.stderr.join("\n"), /convergence deadline expired/u)
+})
+
+test("navlog readiness convergence rejects even a matching response after shared request abort", async () => {
+  const result = await exerciseNavlogReadiness({ abortAtCall: 4 })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 4)
+  assert.equal(result.signal.aborted, true)
+  assert.equal(result.timeoutCalls, 1)
+  assert.deepEqual(result.gaps, [])
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
+  assert.ok(!result.stdout.join("\n").includes("verified"))
+  assert.match(result.stderr.join("\n"), /convergence deadline expired/u)
+})
+
+test("navlog readiness convergence never retries invalid readbacks or provider errors", async (t) => {
+  for (const [name, response] of [
+    ["transport", new Error(NAVLOG_READINESS_TOKEN)],
+    ["HTTP", new Response(NAVLOG_READINESS_TOKEN, { status: 503 })],
+    ["GraphQL", Response.json({ errors: [{ message: NAVLOG_READINESS_TOKEN }] })],
+    ["JSON", new Response(NAVLOG_READINESS_TOKEN)],
+    ["UTF8", new Response(new Uint8Array([255]))],
+    ["body cap", new Response("x".repeat(65537))],
+    ["identity", navlogReadinessTarget({ environmentId: "wrong" })],
+    ["path type", navlogReadinessTarget({ healthcheckPath: 120 })],
+    ["timeout type", navlogReadinessTarget({ healthcheckTimeout: "120" })],
+  ])
+    await t.test(name, async () => {
+      const result = await exerciseNavlogReadiness({
+        responses: [
+          NAVLOG_READINESS_TOKEN_DATA,
+          navlogReadinessTarget(),
+          { environmentPatchCommit: "synthetic-config-commit" },
+          response,
+        ],
+      })
+      assert.equal(result.exitCode, 1)
+      assert.equal(result.calls.length, 4)
+      assert.equal(
+        result.calls.filter(({ payload }) => payload.query.startsWith("mutation")).length,
+        1,
+      )
+      assert.deepEqual(result.gaps, [])
+      assert.equal(result.pendingTimers, 0)
+      assert.equal(result.abortListeners, 0)
+      assert.ok(!result.stderr.join("\n").includes(NAVLOG_READINESS_TOKEN))
+    })
+})
+
+test("navlog readiness convergence stops if a later observation is invalid", async () => {
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget(),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      navlogReadinessTarget({ healthcheckPath: "/healthz", healthcheckTimeout: 120 }),
+      navlogReadinessTarget({ environmentId: "wrong" }),
+    ],
+  })
+  assert.equal(result.exitCode, 1)
+  assert.equal(result.calls.length, 5)
+  assert.equal(result.calls.filter(({ payload }) => payload.query.startsWith("mutation")).length, 1)
+  assert.deepEqual(result.gaps, [1000])
+  assert.equal(result.pendingTimers, 0)
+  assert.equal(result.abortListeners, 0)
+})
+
+test("navlog readiness convergence logs only typed attempt facts for differing provider paths", async () => {
+  const unsafe = `${NAVLOG_READINESS_TOKEN} ##[error] ::error:: provider-path`
+  const result = await exerciseNavlogReadiness({
+    responses: [
+      NAVLOG_READINESS_TOKEN_DATA,
+      navlogReadinessTarget(),
+      { environmentPatchCommit: "synthetic-config-commit" },
+      navlogReadinessTarget({ healthcheckPath: unsafe, healthcheckTimeout: 120 }),
+      navlogReadinessTarget({ healthcheckPath: "/readyz", healthcheckTimeout: 120 }),
+    ],
+  })
+  assert.equal(result.exitCode, 0)
+  const output = result.stdout.join("\n")
+  assert.ok(!output.includes(NAVLOG_READINESS_TOKEN))
+  assert.ok(!output.includes("##["))
+  assert.ok(!output.includes("::error::"))
+  assert.match(output, /"attempt":1,"matched":false/u)
+  assert.match(output, /"attempt":2,"matched":true/u)
+})
+
 test("navlog readiness requires matching readback without retrying a committed patch", async (t) => {
   for (const settings of [
     { healthcheckPath: "/healthz", healthcheckTimeout: 120 },
@@ -2852,11 +3055,13 @@ test("navlog readiness requires matching readback without retrying a committed p
           NAVLOG_READINESS_TOKEN_DATA,
           navlogReadinessTarget(),
           { environmentPatchCommit: "synthetic-config-commit" },
-          navlogReadinessTarget(settings),
+          ...Array.from({ length: settings.environmentId === undefined ? 10 : 1 }, () =>
+            navlogReadinessTarget(settings),
+          ),
         ],
       })
       assert.equal(result.exitCode, 1)
-      assert.equal(result.calls.length, 4)
+      assert.equal(result.calls.length, settings.environmentId === undefined ? 13 : 4)
       assert.equal(
         result.calls.filter(({ payload }) => payload.query.includes("mutation")).length,
         1,
