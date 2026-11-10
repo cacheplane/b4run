@@ -399,23 +399,18 @@ async function makeModelFreeNativeFixture(
   files: Readonly<Record<string, string>>,
 ): Promise<string> {
   const root = await realpath(await makeTempDir())
+  const rendered = renderNativeFixtureManifest("prebuilt", [
+    packedArtifact("@b4run/cli"),
+    packedArtifact("@b4run/postgres-storage"),
+    packedArtifact("@b4run/sdk"),
+  ])
   const manifest = {
-    ...renderNativeFixtureManifest("prebuilt", [
-      packedArtifact("@b4run/cli"),
-      packedArtifact("@b4run/postgres-storage"),
-      packedArtifact("@b4run/sdk"),
-    ]),
+    ...rendered,
     dependencies: {
+      ...(rendered.dependencies as Record<string, string>),
       "@b4run/cli": "0.0.0-test",
       "@b4run/postgres-storage": "0.0.0-test",
       "@b4run/sdk": "0.0.0-test",
-      "@langchain/core": "1.2.12",
-      "@langchain/langgraph": "1.4.17",
-      "@langchain/langgraph-checkpoint": "1.1.5",
-      "@neondatabase/serverless": "1.1.0",
-      hono: "4.12.28",
-      pg: "8.22.0",
-      zod: "4.6.6",
     },
   }
   const fixtureFiles = {
@@ -1170,30 +1165,41 @@ describe("fixture package closure", () => {
       packedArtifact("@b4run/sdk"),
       packedArtifact("@b4run/transitive"),
     ]
-    const manifest = renderNativeFixtureManifest("source", artifacts)
-    expect(manifest).toMatchObject({
-      name: "b4-vercel-native-source",
-      private: true,
-      packageManager: "pnpm@10.33.0",
-      scripts: { build: "b4 build" },
-      dependencies: {
-        "@b4run/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
-        "@b4run/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
-        "@b4run/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
-        "@langchain/core": "1.2.12",
-        "@langchain/langgraph": "1.4.17",
-        "@langchain/langgraph-checkpoint": "1.1.5",
-        "@neondatabase/serverless": "1.1.0",
-        hono: "4.12.28",
-        pg: "8.22.0",
-        zod: "4.6.6",
-      },
-    })
-    expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()
+    for (const kind of ["source", "prebuilt"] as const) {
+      const manifest = renderNativeFixtureManifest(kind, artifacts)
+      expect(manifest).toMatchObject({
+        name: `b4-vercel-native-${kind}`,
+        private: true,
+        packageManager: "pnpm@10.33.0",
+        scripts: { build: "b4 build" },
+        dependencies: {
+          "@b4run/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
+          "@b4run/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
+          "@b4run/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
+          "@langchain/core": "1.2.18",
+          "@langchain/langgraph": "1.4.17",
+          "@langchain/langgraph-checkpoint": "1.1.5",
+          "@neondatabase/serverless": "1.1.0",
+          hono: "4.12.28",
+          pg: "8.22.0",
+          zod: "4.6.6",
+        },
+      })
+      expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()
+    }
 
     const workspace = renderNativeWorkspaceYaml(artifacts)
     expect(workspace).toContain("onlyBuiltDependencies:\n  - esbuild")
     expect(workspace).toContain("allowBuilds:\n  esbuild: true")
+    expect(parseNativeFixtureLockfile(workspace)).toMatchObject({
+      overrides: {
+        "@langchain/core": "1.2.18",
+        "@langchain/langgraph": "1.4.17",
+        "@langchain/langgraph-checkpoint": "1.1.5",
+        "@langchain/openai": "1.5.13",
+        langchain: "1.5.12",
+      },
+    })
     for (const artifact of artifacts) {
       expect(workspace).toContain(
         `${JSON.stringify(artifact.packageName)}: ${JSON.stringify(`file:vendor/${artifact.tarballName}`)}`,

@@ -33,6 +33,17 @@ export const NATIVE_DIRECT_B4_DEPENDENCIES = [
   "@b4run/sdk",
 ] as const
 
+// The packed fixtures resolve outside the workspace lockfile. Keep these
+// packages on the versions tested together in that lockfile: newer LangChain
+// and OpenAI packages can require a newer core even within their current major.
+const NATIVE_LANGCHAIN_VERSIONS = {
+  "@langchain/core": "1.2.18",
+  "@langchain/langgraph": "1.4.17",
+  "@langchain/langgraph-checkpoint": "1.1.5",
+  "@langchain/openai": "1.5.13",
+  langchain: "1.5.12",
+} as const
+
 export interface NativePackageManifest {
   readonly dependencies?: Readonly<Record<string, string>>
   readonly name: string
@@ -609,9 +620,10 @@ export function renderNativeFixtureManifest(
     scripts: { build: "b4 build" },
     dependencies: {
       ...localDependencies,
-      "@langchain/core": "1.2.12",
-      "@langchain/langgraph": "1.4.17",
-      "@langchain/langgraph-checkpoint": "1.1.5",
+      "@langchain/core": NATIVE_LANGCHAIN_VERSIONS["@langchain/core"],
+      "@langchain/langgraph": NATIVE_LANGCHAIN_VERSIONS["@langchain/langgraph"],
+      "@langchain/langgraph-checkpoint":
+        NATIVE_LANGCHAIN_VERSIONS["@langchain/langgraph-checkpoint"],
       "@neondatabase/serverless": "1.1.0",
       hono: "4.12.28",
       pg: "8.22.0",
@@ -639,6 +651,9 @@ export function renderNativeWorkspaceYaml(artifacts: readonly NativePackedArtifa
         (artifact) =>
           `  ${JSON.stringify(artifact.packageName)}: ${JSON.stringify(`file:vendor/${artifact.tarballName}`)}`,
       ),
+    ...Object.entries(NATIVE_LANGCHAIN_VERSIONS).map(
+      ([name, version]) => `  ${JSON.stringify(name)}: ${JSON.stringify(version)}`,
+    ),
     "",
   ].join("\n")
 }
