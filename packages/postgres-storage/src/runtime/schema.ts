@@ -1,123 +1,18 @@
-import { withTransaction } from "../internal/tx.js"
-import { assertIdentifier, lockSchema, type TableNaming } from "../schema.js"
+import { lockSchema, type TableNaming } from "../schema.js"
 import type { SqlClient, SqlPool } from "../sql.js"
 export const FORMAT = "b4.agent-protocol.runtime"
 export const DEFAULT_RUNTIME_PREFIX = "b4_ap_v1"
-export const RECORD_TABLES = [
-  "runs",
-  "checkpoints",
-  "pending",
-  "grants",
-  "receipts",
-  "inbox",
-  "maintenance",
-] as const
-const logicalStatements = [
-  ...`CREATE TABLE runtime_installation(singleton INTEGER PRIMARY KEY CHECK(singleton=1), format TEXT NOT NULL, version INTEGER NOT NULL, installation_id TEXT NOT NULL, schema_name TEXT NOT NULL, table_prefix TEXT NOT NULL, layout TEXT NOT NULL, catalog TEXT NOT NULL);
+export { RECORD_TABLES, table, validateNaming } from "./schema-v1.js"
 
-CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence BIGINT NOT NULL CHECK(fence>0), lease_expires_at TIMESTAMPTZ NOT NULL, execution_owner TEXT, deleted INTEGER NOT NULL DEFAULT 0, through_seq BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation));
-CREATE UNIQUE INDEX current_generation ON scopes(thread_id) WHERE deleted=0;
-CREATE TABLE run_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
-CREATE TABLE checkpoint_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
-CREATE TABLE threads(thread_id TEXT NOT NULL, generation TEXT NOT NULL, revision BIGINT NOT NULL, head_checkpoint_id TEXT, current_run_id TEXT, paused_generation TEXT, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,head_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,current_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE checkpoint_lineage(thread_id TEXT NOT NULL, generation TEXT NOT NULL, checkpoint_id TEXT NOT NULL, position INTEGER NOT NULL, ancestor_thread_id TEXT NOT NULL, ancestor_generation TEXT NOT NULL, ancestor_checkpoint_id TEXT NOT NULL, ancestor_run_id TEXT, namespace TEXT NOT NULL, protected_metadata TEXT NOT NULL, PRIMARY KEY(thread_id,generation,checkpoint_id,position), FOREIGN KEY(thread_id,generation,checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(ancestor_thread_id,ancestor_generation,ancestor_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(ancestor_thread_id,ancestor_generation,ancestor_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE journal(thread_id TEXT NOT NULL, generation TEXT NOT NULL, id TEXT NOT NULL UNIQUE, seq BIGINT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation,seq), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), CONSTRAINT owner_run_id_fkey FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE leases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence BIGINT NOT NULL, revision BIGINT NOT NULL, through_seq BIGINT NOT NULL, owner_nonce TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
-CREATE TABLE aliases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE checkpoint_writes(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, checkpoint_id TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, CONSTRAINT owner_run_id_fkey FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED);
-CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, through_seq BIGINT NOT NULL, revision BIGINT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
-CREATE TABLE retained_subjects(thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));
-CREATE TABLE retained_runs(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, retained_until TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation));`
-    .split(";")
-    .map((sql) => sql.trim())
-    .filter(Boolean),
-  ...RECORD_TABLES.flatMap((name) =>
-    `CREATE TABLE ${name}(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), CONSTRAINT owner_run_id_fkey FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED); CREATE INDEX ${name}_scope ON ${name}(thread_id,generation); CREATE INDEX ${name}_owner ON ${name}(thread_id,generation,owner_run_id)`
-      .split(";")
-      .map((sql) => sql.trim()),
-  ),
-  "CREATE INDEX receipts_operation ON receipts(((payload::jsonb)->'operation'->>'scopeKey'),((payload::jsonb)->'receipt'->>'submissionId'),((payload::jsonb)->'receipt'->>'submissionKind'),((payload::jsonb)->'operation'->>'operationThreadId'),((payload::jsonb)->'operation'->>'targetRunId'))",
-]
+import { recoverySchemaStatements } from "@b4run/sdk/internal/runtime-schema"
+import { readRuntimeCatalog, runtimeCatalogMatchesSource } from "./schema-catalog.js"
+import {
+  installRecoverySchema,
+  validateRecoveryKey,
+  validateWatermarks,
+} from "./schema-recovery.js"
+import { postgresV1Statements, table } from "./schema-v1.js"
 
-const names = [
-  "runtime_installation",
-  "scopes",
-  "run_identities",
-  "checkpoint_identities",
-  "threads",
-  "checkpoint_lineage",
-  "journal",
-  "leases",
-  "aliases",
-  "checkpoint_writes",
-  "projections",
-  "retained_subjects",
-  "retained_runs",
-  ...RECORD_TABLES,
-  "native_checkpoints",
-  "native_writes",
-]
-export function validateNaming(schema: string, prefix: string): TableNaming {
-  assertIdentifier("schema", schema)
-  assertIdentifier("tablePrefix", prefix)
-  for (const value of [
-    schema,
-    ...names.map((name) => `${prefix}_${name}`),
-    `${prefix}_checkpoint_lineage_scope`,
-  ])
-    if (value.length > 63)
-      throw new Error("postgres-storage: runtime SQL identifier exceeds maximum length 63")
-  return { schema, prefix }
-}
-export function table(naming: TableNaming, name: string): string {
-  return `${naming.schema}.${naming.prefix}_${name}`
-}
-function statements(n: TableNaming): string[] {
-  const identifiers = [
-    ...names,
-    "current_generation",
-    "receipts_operation",
-    ...RECORD_TABLES.flatMap((name) => [`${name}_scope`, `${name}_owner`]),
-  ].sort((a, b) => b.length - a.length)
-  const pattern = new RegExp(`\\b(${identifiers.join("|")})\\b`, "g")
-  const portable = logicalStatements.map((sql) => sql.replace(pattern, (name) => table(n, name)))
-  // Index names cannot be schema-qualified; the indexed table determines schema.
-  const ddl = portable.map((sql) =>
-    sql.replace(/(CREATE (?:UNIQUE )?INDEX) ([a-z_][a-z0-9_]*)\./g, "$1 "),
-  )
-  const native = (name: string) => table(n, `native_${name}`)
-  const runtimeDefaults = `generation TEXT NOT NULL DEFAULT current_setting('b4.runtime_generation'), fence BIGINT NOT NULL DEFAULT current_setting('b4.runtime_fence')::bigint, owner_run_id TEXT NOT NULL DEFAULT current_setting('b4.runtime_run'), CHECK(thread_id=current_setting('b4.runtime_thread')), FOREIGN KEY(thread_id,generation) REFERENCES ${table(n, "scopes")}(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES ${table(n, "run_identities")}(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED`
-  ddl.push(
-    `CREATE TABLE ${native("checkpoints")} (thread_id TEXT NOT NULL, checkpoint_ns TEXT NOT NULL, checkpoint_id TEXT NOT NULL, parent_checkpoint_id TEXT, type TEXT, checkpoint BYTEA NOT NULL, metadata BYTEA NOT NULL, ${runtimeDefaults}, PRIMARY KEY(thread_id,checkpoint_ns,checkpoint_id), UNIQUE(thread_id,generation,checkpoint_ns,checkpoint_id), FOREIGN KEY(thread_id,generation,checkpoint_ns,parent_checkpoint_id) REFERENCES ${native("checkpoints")}(thread_id,generation,checkpoint_ns,checkpoint_id) DEFERRABLE INITIALLY DEFERRED)`,
-  )
-  ddl.push(
-    `CREATE TABLE ${native("writes")} (thread_id TEXT NOT NULL, checkpoint_ns TEXT NOT NULL, checkpoint_id TEXT NOT NULL, task_id TEXT NOT NULL, idx INTEGER NOT NULL, channel TEXT NOT NULL, type TEXT, value BYTEA, ${runtimeDefaults}, PRIMARY KEY(thread_id,checkpoint_ns,checkpoint_id,task_id,idx), FOREIGN KEY(thread_id,generation,checkpoint_ns,checkpoint_id) REFERENCES ${native("checkpoints")}(thread_id,generation,checkpoint_ns,checkpoint_id) DEFERRABLE INITIALLY DEFERRED)`,
-  )
-  // PostgreSQL resolves foreign targets at DDL time. Create every relation
-  // before adding the cyclic, initially deferred canonical ownership keys.
-  const foreign: string[] = []
-  const created = ddl.map((sql) => {
-    const match = /^CREATE TABLE ([a-z0-9_.]+)\s*\((.*)\)$/s.exec(sql)
-    if (!match) return sql
-    const fields: string[] = []
-    let depth = 0,
-      start = 0
-    const body = match[2] ?? ""
-    for (let i = 0; i <= body.length; i++) {
-      if (body[i] === "(") depth++
-      else if (body[i] === ")") depth--
-      if (i === body.length || (body[i] === "," && depth === 0)) {
-        const field = body.slice(start, i).trim()
-        start = i + 1
-        if (/^(?:CONSTRAINT \w+ )?FOREIGN KEY/i.test(field))
-          foreign.push(`ALTER TABLE ${match[1]} ADD ${field}`)
-        else fields.push(field)
-      }
-    }
-    return `CREATE TABLE ${match[1]} (${fields.join(",")})`
-  })
-  return [...created, ...foreign]
-}
 /** Complete committed namespace shape, including columns/defaults, constraints,
  * indexes, triggers and policies. A missing or altered object never migrates. */
 async function catalog(client: SqlClient, n: TableNaming): Promise<string> {
@@ -144,9 +39,17 @@ export async function installSchema(
   n: TableNaming,
   uuid: () => string,
 ): Promise<string> {
-  const ddl = statements(n)
-  const layout = JSON.stringify(ddl)
-  return withTransaction(pool, async (client) => {
+  const legacyDDL = postgresV1Statements(n)
+  const layoutFor = (version: 1 | 2) =>
+    JSON.stringify([
+      ...legacyDDL,
+      ...(version === 2 ? recoverySchemaStatements("postgres", n) : []),
+    ])
+  // Installation never enlists in a caller transaction: every probe, DDL,
+  // seed and marker update uses this one raw checkout and commit boundary.
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
     // Catalog deparsing must not depend on the caller connection search path.
     await client.query("SET LOCAL search_path = pg_catalog")
     // A schema-level lock precedes all probes/DDL, avoiding independent cold
@@ -156,6 +59,8 @@ export async function installSchema(
       "SELECT c.relname FROM pg_class c JOIN pg_namespace s ON s.oid=c.relnamespace WHERE s.nspname=$1 AND left(c.relname,length($2)+1)=$2||'_' ORDER BY c.relname",
       [n.schema, n.prefix],
     )
+    let id: string
+    let physicalVersion: 1 | 2
     if (existing.rows.length) {
       if (!existing.rows.some((row) => row.relname === `${n.prefix}_runtime_installation`))
         throw incompatible()
@@ -174,28 +79,71 @@ export async function installSchema(
           markers.rows.length !== 1 ||
           !marker ||
           marker.format !== FORMAT ||
-          marker.version !== 1 ||
+          (marker.version !== 1 && marker.version !== 2) ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
             marker.installation_id,
           ) ||
           marker.schema_name !== n.schema ||
           marker.table_prefix !== n.prefix ||
-          marker.layout !== layout ||
+          marker.layout !== layoutFor(marker.version) ||
           marker.catalog !== (await catalog(client, n))
         )
           throw incompatible()
-        return marker.installation_id
+        if (!runtimeCatalogMatchesSource(await readRuntimeCatalog(client, n), n, marker.version))
+          throw incompatible()
+        await validateWatermarks(client, n)
+        if (marker.version === 2) await validateRecoveryKey(client, n)
+        id = marker.installation_id
+        physicalVersion = marker.version
       } catch (cause) {
         throw new Error(incompatible().message, { cause })
       }
+    } else {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS ${n.schema}`)
+      for (const sql of legacyDDL) await client.query(sql)
+      if (!runtimeCatalogMatchesSource(await readRuntimeCatalog(client, n), n, 1))
+        throw incompatible()
+      id = uuid()
+      physicalVersion = 1
+      await client.query(
+        `INSERT INTO ${table(n, "runtime_installation")}(singleton,format,version,installation_id,schema_name,table_prefix,layout,catalog) VALUES (1,$1,1,$2,$3,$4,$5,$6)`,
+        [FORMAT, id, n.schema, n.prefix, layoutFor(1), await catalog(client, n)],
+      )
     }
-    await client.query(`CREATE SCHEMA IF NOT EXISTS ${n.schema}`)
-    for (const sql of ddl) await client.query(sql)
-    const id = uuid()
-    await client.query(
-      `INSERT INTO ${table(n, "runtime_installation")}(singleton,format,version,installation_id,schema_name,table_prefix,layout,catalog) VALUES (1,$1,1,$2,$3,$4,$5,$6)`,
-      [FORMAT, id, n.schema, n.prefix, layout, await catalog(client, n)],
+    if (physicalVersion === 1) {
+      await installRecoverySchema(client, n)
+      await client.query(
+        `UPDATE ${table(n, "runtime_installation")} SET version=2,layout=$1,catalog=$2 WHERE singleton=1`,
+        [layoutFor(2), await catalog(client, n)],
+      )
+    }
+    if (!runtimeCatalogMatchesSource(await readRuntimeCatalog(client, n), n, 2))
+      throw incompatible()
+    await validateRecoveryKey(client, n)
+    const final = await client.query<{
+      version: number
+      installation_id: string
+      layout: string
+      catalog: string
+    }>(`SELECT version,installation_id,layout,catalog FROM ${table(n, "runtime_installation")}`)
+    if (
+      final.rows.length !== 1 ||
+      final.rows[0]?.version !== 2 ||
+      final.rows[0].installation_id !== id ||
+      final.rows[0].layout !== layoutFor(2) ||
+      final.rows[0].catalog !== (await catalog(client, n))
     )
+      throw incompatible()
+    await client.query("COMMIT")
     return id
-  })
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (rollback) {
+      throw new AggregateError([error, rollback], "Runtime installation and rollback failed")
+    }
+    throw error
+  } finally {
+    client.release()
+  }
 }

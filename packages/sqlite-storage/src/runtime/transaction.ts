@@ -20,6 +20,7 @@ import { makeNamespaces } from "./namespaces.js"
 import { makeProtectedSources } from "./protected-sources.js"
 import { grantSpec, pendingKey, pendingSpec, receiptSpec } from "./receipts.js"
 import { runSpec } from "./runs.js"
+import { deleteRecoveryScope } from "./schema-recovery.js"
 import { makeThread } from "./threads.js"
 
 export interface RecordFields {
@@ -608,6 +609,7 @@ export function makeRuntimeStore(
           status: plan.provider.kind === "none" ? "complete" : "pending",
           payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
         })
+        deleteRecoveryScope(db, scope.threadId, scope.generation)
         db.prepare(
           "DELETE FROM aliases WHERE thread_id=? AND generation=? AND COALESCE(json_extract(payload,'$.kind'),'') NOT IN ('native_namespace','protected_source')",
         ).run(scope.threadId, scope.generation)

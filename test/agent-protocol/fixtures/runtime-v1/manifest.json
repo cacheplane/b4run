@@ -1,0 +1,3874 @@
+{
+  "v": 1,
+  "status": "QUALIFIED_ORIGINAL_PHYSICAL_V1_TEST_FIXTURES",
+  "source": {
+    "head": "9e18dc85daa0f685caf460a47b2336c5aee959f6",
+    "tree": "6ef16fdd16f519818574d32863a94b9fdb4cb72d",
+    "lockSHA256": "87c149d7441127ee26a98e9da031c25e89867170612186c70998f4c3b2267b84"
+  },
+  "qualificationPacketSHA256": {
+    "sqlite": "57f2c704f5d13349c68120b7204f2f6cb14a89d2470c9ba06c952ce438ef8919",
+    "postgres": "6d4f3ed8fa2c2b1a45bbbb5cc92775ef2342ddfddf42464b6eefaa0bca101303"
+  },
+  "canonicalHash": "UTF-8 JSON with recursively sorted object keys, arrays in original order, compact separators, Unicode unescaped; SHA256 per row, sorted per-table row hashes. Raw payload text values are never parsed/re-serialized for this oracle.",
+  "sqlite": {
+    "path": "sqlite/runtime.sqlite.bin",
+    "sha256": "98e211093b846366dc0e80d6bec511b46a33ac8685548345495adc5d440a8921",
+    "bytes": 389120,
+    "physicalVersion": 1,
+    "format": "b4.agent-protocol.runtime",
+    "identity": {
+      "installationId": "427834aa-9888-431d-839a-9489066df4de",
+      "generation": "f7542dd6-e7d6-4ccc-94ef-ffad8fe89201",
+      "threadId": "859cbda9-0fc7-4cf0-8d99-a2314979f89b",
+      "firstRunId": "95849b5d-e91a-4bab-8960-0f14b550a536",
+      "pausedRunId": "99a8b752-eeb7-42ee-bbb1-3551257ae1b7",
+      "throughSeq": 9,
+      "headCheckpointId": "1f1dc68c-d68e-6830-8006-3bbe6d0931df"
+    },
+    "catalog": {
+      "sha256": "26d233143f3c12dbfc03c8914ab779c0eb78bdd4a2b71039b59f02f65dfac4c2",
+      "objects": [
+        {
+          "name": "aliases",
+          "type": "table",
+          "tbl_name": "aliases",
+          "sql": "CREATE TABLE aliases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "checkpoint_identities",
+          "type": "table",
+          "tbl_name": "checkpoint_identities",
+          "sql": "CREATE TABLE checkpoint_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "checkpoint_lineage",
+          "type": "table",
+          "tbl_name": "checkpoint_lineage",
+          "sql": "CREATE TABLE checkpoint_lineage(thread_id TEXT NOT NULL, generation TEXT NOT NULL, checkpoint_id TEXT NOT NULL, position INTEGER NOT NULL, ancestor_thread_id TEXT NOT NULL, ancestor_generation TEXT NOT NULL, ancestor_checkpoint_id TEXT NOT NULL, ancestor_run_id TEXT, namespace TEXT NOT NULL, protected_metadata TEXT NOT NULL, PRIMARY KEY(thread_id,generation,checkpoint_id,position), FOREIGN KEY(thread_id,generation,checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(ancestor_thread_id,ancestor_generation,ancestor_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(ancestor_thread_id,ancestor_generation,ancestor_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "checkpoint_writes",
+          "type": "table",
+          "tbl_name": "checkpoint_writes",
+          "sql": "CREATE TABLE checkpoint_writes(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, checkpoint_id TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "checkpoints",
+          "type": "table",
+          "tbl_name": "checkpoints",
+          "sql": "CREATE TABLE checkpoints(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "checkpoints_owner",
+          "type": "index",
+          "tbl_name": "checkpoints",
+          "sql": "CREATE INDEX checkpoints_owner ON checkpoints(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "checkpoints_scope",
+          "type": "index",
+          "tbl_name": "checkpoints",
+          "sql": "CREATE INDEX checkpoints_scope ON checkpoints(thread_id,generation)"
+        },
+        {
+          "name": "current_generation",
+          "type": "index",
+          "tbl_name": "scopes",
+          "sql": "CREATE UNIQUE INDEX current_generation ON scopes(thread_id) WHERE deleted=0"
+        },
+        {
+          "name": "grants",
+          "type": "table",
+          "tbl_name": "grants",
+          "sql": "CREATE TABLE grants(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "grants_owner",
+          "type": "index",
+          "tbl_name": "grants",
+          "sql": "CREATE INDEX grants_owner ON grants(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "grants_scope",
+          "type": "index",
+          "tbl_name": "grants",
+          "sql": "CREATE INDEX grants_scope ON grants(thread_id,generation)"
+        },
+        {
+          "name": "inbox",
+          "type": "table",
+          "tbl_name": "inbox",
+          "sql": "CREATE TABLE inbox(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "inbox_owner",
+          "type": "index",
+          "tbl_name": "inbox",
+          "sql": "CREATE INDEX inbox_owner ON inbox(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "inbox_scope",
+          "type": "index",
+          "tbl_name": "inbox",
+          "sql": "CREATE INDEX inbox_scope ON inbox(thread_id,generation)"
+        },
+        {
+          "name": "journal",
+          "type": "table",
+          "tbl_name": "journal",
+          "sql": "CREATE TABLE journal(thread_id TEXT NOT NULL, generation TEXT NOT NULL, id TEXT NOT NULL UNIQUE, seq INTEGER NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation,seq), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "leases",
+          "type": "table",
+          "tbl_name": "leases",
+          "sql": "CREATE TABLE leases(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence INTEGER NOT NULL, revision INTEGER NOT NULL, through_seq INTEGER NOT NULL, owner_nonce TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "maintenance",
+          "type": "table",
+          "tbl_name": "maintenance",
+          "sql": "CREATE TABLE maintenance(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "maintenance_owner",
+          "type": "index",
+          "tbl_name": "maintenance",
+          "sql": "CREATE INDEX maintenance_owner ON maintenance(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "maintenance_scope",
+          "type": "index",
+          "tbl_name": "maintenance",
+          "sql": "CREATE INDEX maintenance_scope ON maintenance(thread_id,generation)"
+        },
+        {
+          "name": "pending",
+          "type": "table",
+          "tbl_name": "pending",
+          "sql": "CREATE TABLE pending(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "pending_owner",
+          "type": "index",
+          "tbl_name": "pending",
+          "sql": "CREATE INDEX pending_owner ON pending(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "pending_scope",
+          "type": "index",
+          "tbl_name": "pending",
+          "sql": "CREATE INDEX pending_scope ON pending(thread_id,generation)"
+        },
+        {
+          "name": "projections",
+          "type": "table",
+          "tbl_name": "projections",
+          "sql": "CREATE TABLE projections(thread_id TEXT NOT NULL, generation TEXT NOT NULL, through_seq INTEGER NOT NULL, revision INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "receipts",
+          "type": "table",
+          "tbl_name": "receipts",
+          "sql": "CREATE TABLE receipts(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "receipts_operation",
+          "type": "index",
+          "tbl_name": "receipts",
+          "sql": "CREATE INDEX receipts_operation ON receipts(json_extract(payload,'$.operation.scopeKey'),json_extract(payload,'$.receipt.submissionId'),json_extract(payload,'$.receipt.submissionKind'),json_extract(payload,'$.operation.operationThreadId'),json_extract(payload,'$.operation.targetRunId'))"
+        },
+        {
+          "name": "receipts_owner",
+          "type": "index",
+          "tbl_name": "receipts",
+          "sql": "CREATE INDEX receipts_owner ON receipts(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "receipts_scope",
+          "type": "index",
+          "tbl_name": "receipts",
+          "sql": "CREATE INDEX receipts_scope ON receipts(thread_id,generation)"
+        },
+        {
+          "name": "retained_runs",
+          "type": "table",
+          "tbl_name": "retained_runs",
+          "sql": "CREATE TABLE retained_runs(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, retained_until TEXT NOT NULL, FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "retained_subjects",
+          "type": "table",
+          "tbl_name": "retained_subjects",
+          "sql": "CREATE TABLE retained_subjects(thread_id TEXT NOT NULL, generation TEXT NOT NULL, payload TEXT NOT NULL, retained_at TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "run_identities",
+          "type": "table",
+          "tbl_name": "run_identities",
+          "sql": "CREATE TABLE run_identities(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation))"
+        },
+        {
+          "name": "runs",
+          "type": "table",
+          "tbl_name": "runs",
+          "sql": "CREATE TABLE runs(id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, generation TEXT NOT NULL, owner_run_id TEXT, namespace TEXT NOT NULL, parent_checkpoint_id TEXT, input_id TEXT, paused_generation TEXT, consumed_by_run_id TEXT, turn_id TEXT, previous_run_id TEXT, pre_run_checkpoint_id TEXT, status TEXT, payload TEXT NOT NULL, UNIQUE(thread_id,generation,id), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,owner_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,parent_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,consumed_by_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,input_id) REFERENCES pending(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,turn_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,previous_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,pre_run_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        },
+        {
+          "name": "runs_owner",
+          "type": "index",
+          "tbl_name": "runs",
+          "sql": "CREATE INDEX runs_owner ON runs(thread_id,generation,owner_run_id)"
+        },
+        {
+          "name": "runs_scope",
+          "type": "index",
+          "tbl_name": "runs",
+          "sql": "CREATE INDEX runs_scope ON runs(thread_id,generation)"
+        },
+        {
+          "name": "runtime_installation",
+          "type": "table",
+          "tbl_name": "runtime_installation",
+          "sql": "CREATE TABLE runtime_installation(singleton INTEGER PRIMARY KEY CHECK(singleton=1), format TEXT NOT NULL, version INTEGER NOT NULL, installation_id TEXT NOT NULL)"
+        },
+        {
+          "name": "runtime_owner",
+          "type": "table",
+          "tbl_name": "runtime_owner",
+          "sql": "CREATE TABLE runtime_owner(singleton INTEGER PRIMARY KEY CHECK(singleton=1), pid INTEGER NOT NULL, process_start TEXT NOT NULL, boot_identity TEXT NOT NULL, nonce TEXT NOT NULL)"
+        },
+        {
+          "name": "scopes",
+          "type": "table",
+          "tbl_name": "scopes",
+          "sql": "CREATE TABLE scopes(thread_id TEXT NOT NULL, generation TEXT NOT NULL, fence INTEGER NOT NULL CHECK(fence>0), execution_owner TEXT, execution_nonce TEXT, deleted INTEGER NOT NULL DEFAULT 0, through_seq INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(thread_id,generation))"
+        },
+        {
+          "name": "threads",
+          "type": "table",
+          "tbl_name": "threads",
+          "sql": "CREATE TABLE threads(thread_id TEXT NOT NULL, generation TEXT NOT NULL, revision INTEGER NOT NULL, head_checkpoint_id TEXT, current_run_id TEXT, paused_generation TEXT, payload TEXT NOT NULL, PRIMARY KEY(thread_id,generation), FOREIGN KEY(thread_id,generation) REFERENCES scopes(thread_id,generation), FOREIGN KEY(thread_id,generation,head_checkpoint_id) REFERENCES checkpoint_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED, FOREIGN KEY(thread_id,generation,current_run_id) REFERENCES run_identities(thread_id,generation,id) DEFERRABLE INITIALLY DEFERRED)"
+        }
+      ]
+    },
+    "preservedRecords": {
+      "aliases": {
+        "columns": ["id", "thread_id", "generation", "run_id", "namespace", "payload"],
+        "count": 1,
+        "canonicalRowSHA256": ["75790368f9cbad1ad0eb74894a780d0d68196079fac3d17e9ed0143acdfcd7f3"]
+      },
+      "checkpoint_identities": {
+        "columns": ["id", "thread_id", "generation"],
+        "count": 8,
+        "canonicalRowSHA256": [
+          "1fd6dd94185d5b7e96137645b7f29cfe0e3e3b2291eea456e3773df389328ccb",
+          "336205a155443ed089c5fbfe6ed92d950dcdb966ab94a4d6c19c9e0f80fb8ff3",
+          "5c13568797a96b8478ba2b71160d99290c0828d6c2ad8aee664970a5dbfe627c",
+          "769885c839bec1e324928e7c66eb8e54eb106d5af61fc4e55b81ae1564f07df4",
+          "c72eff865a663e11a45bf9d155d75645b8309ccc2b8accf31c58818c0791348e",
+          "c75c101fca4b41375da6842d9078e2d53a6a7ae6f1a2003972c979f994d65263",
+          "e04603fae053b7f7b912ae907fcd168ed7e7a3588cac09cfd15fdc495fe9a7dd",
+          "f458bcc83e33a16debaa4f9f06599d2fbf6660ac9e8bce2c3d6559d8904c1128"
+        ]
+      },
+      "checkpoint_lineage": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "checkpoint_id",
+          "position",
+          "ancestor_thread_id",
+          "ancestor_generation",
+          "ancestor_checkpoint_id",
+          "ancestor_run_id",
+          "namespace",
+          "protected_metadata"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "checkpoint_writes": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "checkpoint_id",
+          "owner_run_id",
+          "namespace",
+          "payload"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "checkpoints": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 8,
+        "canonicalRowSHA256": [
+          "03c14d87e6f5a47d2535d7421c8492688a0603dd25a4ae979f1c779133f6caf4",
+          "6c8521ba1dc1dd4138273319b7e6905bf2ae2c73befb95549d6267c3cee6738c",
+          "6d313970baea744c4f8bf097393be1531076d33dc991b207784ab3458b3ea0e7",
+          "a0a0af56e2ac5e0745526f5c383330c86a6ecc4a8f429c622b4bb965367aa2f9",
+          "d609fe689f0ad669fa8af0114ecbb12b15d39400882a29077ca6b9195d52ded2",
+          "efccbb5a75cbff68c6ba34ac5de857cc2b597ea91b7f964afb524b31df1b48a7",
+          "f0e552bfe5dc340fab30880b7ff6c3c1e9877aafe40a8c5eebc29fcf5835e058",
+          "f404338c48ccf54b0d671d73995a1d86b01f2ce79c8631cd135617521f5f2d45"
+        ]
+      },
+      "grants": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["0696703ead16e5b5d79a9bc5c9b0005e8e7bf2477bff2b6be516605c831e22d9"]
+      },
+      "inbox": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 3,
+        "canonicalRowSHA256": [
+          "8ca1690e64cd40465536e1f51903d175224926bf99b8eda686b1b3d0d34646b6",
+          "ab819e46ae8f288472a18f78ae01d85689d5edc1151ec73681040fec7ddd5c3e",
+          "c3bec68c0c8b8156bfb47f8b03519ab76b333d609259b8f80db5be0c2d7a89a2"
+        ]
+      },
+      "journal": {
+        "columns": ["thread_id", "generation", "id", "seq", "owner_run_id", "namespace", "payload"],
+        "count": 9,
+        "canonicalRowSHA256": [
+          "333c60f6dbc7dc26b0f9e037bc68d387026cbac02d33e98b492fbe33e1708510",
+          "39a68cdb4fc08df3422b73fb254e54c8f19ff4774572c7dc010f3f500b91389b",
+          "7c4041950a323c85b317eeabea68076db57f9627c037ff33daad94ffb17d9b14",
+          "838ede5f94f14f4dfa9f047b4c5164f86d6d4755e0b47b81f8b28d3430ab3e7d",
+          "92bb58151926847cfd08a4ddca1a4fba5a370a84a37a89804d81e25d4071ce6c",
+          "a71eca11cfd138bc347c849cfc08effa3330678d06292b9cbcc965b3188efa23",
+          "cb4cf9f15431a6190c5c754a6d0b8b6b4596a39629ccf48529ca3c4429ce0639",
+          "d763a2c3192b63481d59671c84c0bb4dbe3755c291d8999ceea7e2727b6df650",
+          "e20730cc455f59d3b4b4b5c55c07ba6a757c3e89e1047fc7a623da5ab9f72b75"
+        ]
+      },
+      "leases": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "fence",
+          "revision",
+          "through_seq",
+          "owner_nonce"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "maintenance": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "pending": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["a5bc46d71a07861673229728df8d50ff866e7302c33dee1a2f0a0f17ff847cf3"]
+      },
+      "projections": {
+        "columns": ["thread_id", "generation", "through_seq", "revision", "payload"],
+        "count": 1,
+        "canonicalRowSHA256": ["54cd99dbb5f412517129f61b1db0071c26833fe3952cf5a2b2dbe4d95c6063bf"]
+      },
+      "receipts": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 3,
+        "canonicalRowSHA256": [
+          "581f022515b8634a83b56485dfbebc027e7ae3e85dc10e87298c92a673d79ad2",
+          "5aca0bc7eff9117e42d173377b56e9b809b9ebb1a7d51fe447168f852d02075c",
+          "65951cc3a41d95fc063ab2cf482267f77db4f923b1a0ef7fb9c7dd7656a9579d"
+        ]
+      },
+      "retained_runs": {
+        "columns": ["id", "thread_id", "generation", "payload", "retained_at", "retained_until"],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "retained_subjects": {
+        "columns": ["thread_id", "generation", "payload", "retained_at"],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "run_identities": {
+        "columns": ["id", "thread_id", "generation"],
+        "count": 2,
+        "canonicalRowSHA256": [
+          "007d46cecc42e2fc068094eed15b945d4e3a9cc0211606575e61ba84a70da79c",
+          "ed33b4558e057866d8c741956306992278d5d523de7c66547a014c2d49f452cb"
+        ]
+      },
+      "runs": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 2,
+        "canonicalRowSHA256": [
+          "acb18597527f1fee6a07e1b1ac3390af7ec9a16aceb39220bff98c0e0024ef9c",
+          "ca58f70bdaafce452df3ccfbfed339a59f633006f9f962344d3ab37893277db8"
+        ]
+      },
+      "scopes": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "fence",
+          "execution_owner",
+          "execution_nonce",
+          "deleted",
+          "through_seq"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["e6421e8516d9b18d502bee76c196c7611ed5f06907311c1fea96ff0638dee2f9"]
+      },
+      "threads": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "revision",
+          "head_checkpoint_id",
+          "current_run_id",
+          "paused_generation",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["b13c0ed1317008f519d89387e51234a384c211527c25c70450b37c9bdc5df3cb"]
+      }
+    },
+    "journal": [
+      {
+        "seq": 1,
+        "eventId": "001b0584-49de-4bb9-888c-5fc0e1ed939a",
+        "payloadSHA256": "87267c9aac3a3c3f05699e63060b8ad6811a5087f5c856ffd4639fa002a45a22"
+      },
+      {
+        "seq": 2,
+        "eventId": "4f7fec0f-3847-4902-95f7-f696e8b2ab57",
+        "payloadSHA256": "a98b76cd8bbe7b67d111e60b8615d0b36157542f2190dba1e793bd7785df2d2b"
+      },
+      {
+        "seq": 3,
+        "eventId": "af56dd42-7ff4-4ab0-b568-747651d289a5",
+        "payloadSHA256": "e92e4273eb8cd2820c5e6a8a4481dc52e6ebeaefbf011463e5dd090398ac0022"
+      },
+      {
+        "seq": 4,
+        "eventId": "4045dd36-ff4f-4690-9690-418492c43555",
+        "payloadSHA256": "5a591319b1b7996bca7a0dac2f8983d3ecf1c9970b4925fe2ca0e2185bc1f420"
+      },
+      {
+        "seq": 5,
+        "eventId": "0673791b-a7a4-4bd4-bc4d-d6fffc2a139c",
+        "payloadSHA256": "547947ea4296faba543890c5e0551126a339616503f7e69b86f84cb0e6f28dd6"
+      },
+      {
+        "seq": 6,
+        "eventId": "5b9553d6-6a7c-40eb-a8f6-1e22c35034e0",
+        "payloadSHA256": "fa6462c9ec88d428435b6804cca50b1e7bbb915822f35e57524acc1e56cd3690"
+      },
+      {
+        "seq": 7,
+        "eventId": "b1d7f84f-17cb-4078-a1ec-5d93ca7fb5d7",
+        "payloadSHA256": "090b559ad8d33b1f790c97c6bed6f81f4c2b912960cc5cd22ebde8767a660cc3"
+      },
+      {
+        "seq": 8,
+        "eventId": "b958787e-59e5-470d-8c34-7fe410f88c3f",
+        "payloadSHA256": "ec91a7a3f459d49af63ae6958f169f116c196d2a19607411df70cbb2e640875f"
+      },
+      {
+        "seq": 9,
+        "eventId": "53ff4fd9-cb96-49ff-947f-bb0efc4bfbde",
+        "payloadSHA256": "f4f13e269c9b9b1e31ae9213e705b323fe23bfa7f2801d31f1a9c237264f09f1"
+      }
+    ],
+    "nativeCheckpointPayloadSHA256": "2df02b5cf46cbe00befac4ac4fcfb7e0352fdcfaad15242ce3cb4b533ca2d681",
+    "publicCheckpointDTOAvailable": false,
+    "nativePrivateCarrierKey": "_b4AppliedInputIds",
+    "nativePrivateInterruptChannel": "__interrupt__",
+    "grant": {
+      "tokenSHA256": "e652d120e80c55a13ddecc5c256104f219698bd2d553d2dd807f69cc6c5a628e",
+      "authenticExpiresAt": [null],
+      "mustNeverRefreshOrAssumeActionable": true
+    },
+    "producerMeasuredSetup": {
+      "explicitInvocations": 2,
+      "testModelCalls": 2,
+      "gateAttempts": 1,
+      "protectedBodyCalls": 0
+    },
+    "measuredReopenDeltas": {
+      "explicitInvocations": 0,
+      "testModelCalls": 0,
+      "gateAttempts": 0,
+      "protectedBodyCalls": 0
+    },
+    "qualifies": "Original native codec and old-factory read-safe reopen only; PostgreSQL also actual native dump/restore. No migration/continuation/public hydration proof."
+  },
+  "postgres": {
+    "path": "postgres/pristine-v1.sql",
+    "sha256": "21779f9a25a5eb0fea74e85057c2205d576b2915762262d8f9346168b841cf08",
+    "bytes": 216381,
+    "physicalVersion": 1,
+    "format": "b4.agent-protocol.runtime",
+    "identity": {
+      "installationId": "c912d1ba-e289-43ed-8b89-313d663ef4ab",
+      "generation": "d1c1c002-7222-46b5-85b5-e80305b3a03f",
+      "threadId": "859cbda9-0fc7-4cf0-8d99-a2314979f89b",
+      "firstRunId": "71220ca4-eec7-4bd3-9917-ed94a49176b2",
+      "pausedRunId": "d26d596c-edae-4e34-944d-4af9c0986700",
+      "throughSeq": 9,
+      "headCheckpointId": "1f1dc70f-e4e5-63b0-8006-c6182b9df5bb"
+    },
+    "catalog": {
+      "sha256": "2757f2e0961ec6f87db9f1933b485d47b79760b39f5d28027ecdf75de54dec57",
+      "objects": [
+        {
+          "name": "b4_ap_v1_aliases",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_aliases_pkey ON r9_v1.b4_ap_v1_aliases USING btree (id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_aliases_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_identities",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoint_identities_pkey ON r9_v1.b4_ap_v1_checkpoint_identities USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoint_identities_thread_id_generation_id_key ON r9_v1.b4_ap_v1_checkpoint_identities USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_identities_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_identities_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_lineage",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "position",
+              "type": "integer",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "ancestor_thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "ancestor_generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "ancestor_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "ancestor_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "protected_metadata",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (ancestor_thread_id, ancestor_generation, ancestor_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (ancestor_thread_id, ancestor_generation, ancestor_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (thread_id, generation, checkpoint_id, \"position\")"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoint_lineage_pkey ON r9_v1.b4_ap_v1_checkpoint_lineage USING btree (thread_id, generation, checkpoint_id, \"position\")"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_lineage_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "position",
+              "type": "integer",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_writes",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoint_writes_pkey ON r9_v1.b4_ap_v1_checkpoint_writes USING btree (id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoint_writes_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoints",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_checkpoints_owner ON r9_v1.b4_ap_v1_checkpoints USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_checkpoints_scope ON r9_v1.b4_ap_v1_checkpoints USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoints_pkey ON r9_v1.b4_ap_v1_checkpoints USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_checkpoints_thread_id_generation_id_key ON r9_v1.b4_ap_v1_checkpoints USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoints_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoints_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoints_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_checkpoints_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_current_generation",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_grants",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_grants_owner ON r9_v1.b4_ap_v1_grants USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_grants_scope ON r9_v1.b4_ap_v1_grants USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_grants_pkey ON r9_v1.b4_ap_v1_grants USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_grants_thread_id_generation_id_key ON r9_v1.b4_ap_v1_grants USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_grants_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_grants_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_grants_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_grants_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_inbox",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_inbox_owner ON r9_v1.b4_ap_v1_inbox USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_inbox_scope ON r9_v1.b4_ap_v1_inbox USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_inbox_pkey ON r9_v1.b4_ap_v1_inbox USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_inbox_thread_id_generation_id_key ON r9_v1.b4_ap_v1_inbox USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_inbox_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_inbox_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_inbox_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_inbox_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_journal",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "seq",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, generation, seq)",
+            "UNIQUE (id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_journal_id_key ON r9_v1.b4_ap_v1_journal USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_journal_pkey ON r9_v1.b4_ap_v1_journal USING btree (thread_id, generation, seq)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_journal_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_journal_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "seq",
+              "type": "bigint",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_leases",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "fence",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "revision",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "through_seq",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_nonce",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_leases_pkey ON r9_v1.b4_ap_v1_leases USING btree (id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_leases_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_maintenance",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_maintenance_owner ON r9_v1.b4_ap_v1_maintenance USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_maintenance_scope ON r9_v1.b4_ap_v1_maintenance USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_maintenance_pkey ON r9_v1.b4_ap_v1_maintenance USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_maintenance_thread_id_generation_id_key ON r9_v1.b4_ap_v1_maintenance USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_maintenance_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_maintenance_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_maintenance_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_maintenance_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_native_checkpoints",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_ns",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "type",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint",
+              "type": "bytea",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "metadata",
+              "type": "bytea",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": "current_setting('b4.runtime_generation'::text)",
+              "nullable": false
+            },
+            {
+              "name": "fence",
+              "type": "bigint",
+              "default": "(current_setting('b4.runtime_fence'::text))::bigint",
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": "current_setting('b4.runtime_run'::text)",
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "CHECK ((thread_id = current_setting('b4.runtime_thread'::text)))",
+            "FOREIGN KEY (thread_id, generation, checkpoint_ns, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_native_checkpoints(thread_id, generation, checkpoint_ns, checkpoint_id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)",
+            "UNIQUE (thread_id, generation, checkpoint_ns, checkpoint_id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_native_checkpoints_pkey ON r9_v1.b4_ap_v1_native_checkpoints USING btree (thread_id, checkpoint_ns, checkpoint_id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_native_checkpoints_thread_id_generation_checkpoint_key ON r9_v1.b4_ap_v1_native_checkpoints USING btree (thread_id, generation, checkpoint_ns, checkpoint_id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_native_checkpoints_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_ns",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_native_checkpoints_thread_id_generation_checkpoint_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_ns",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_native_writes",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_ns",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "task_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "idx",
+              "type": "integer",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "channel",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "type",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "value",
+              "type": "bytea",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": "current_setting('b4.runtime_generation'::text)",
+              "nullable": false
+            },
+            {
+              "name": "fence",
+              "type": "bigint",
+              "default": "(current_setting('b4.runtime_fence'::text))::bigint",
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": "current_setting('b4.runtime_run'::text)",
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "CHECK ((thread_id = current_setting('b4.runtime_thread'::text)))",
+            "FOREIGN KEY (thread_id, generation, checkpoint_ns, checkpoint_id) REFERENCES r9_v1.b4_ap_v1_native_checkpoints(thread_id, generation, checkpoint_ns, checkpoint_id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_native_writes_pkey ON r9_v1.b4_ap_v1_native_writes USING btree (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_native_writes_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_ns",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "task_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "idx",
+              "type": "integer",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_pending",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_pending_owner ON r9_v1.b4_ap_v1_pending USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_pending_scope ON r9_v1.b4_ap_v1_pending USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_pending_pkey ON r9_v1.b4_ap_v1_pending USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_pending_thread_id_generation_id_key ON r9_v1.b4_ap_v1_pending USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_pending_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_pending_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_pending_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_pending_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_projections",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "through_seq",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "revision",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, generation)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_projections_pkey ON r9_v1.b4_ap_v1_projections USING btree (thread_id, generation)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_projections_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_receipts_operation ON r9_v1.b4_ap_v1_receipts USING btree (((((payload)::jsonb -> 'operation'::text) ->> 'scopeKey'::text)), ((((payload)::jsonb -> 'receipt'::text) ->> 'submissionId'::text)), ((((payload)::jsonb -> 'receipt'::text) ->> 'submissionKind'::text)), ((((payload)::jsonb -> 'operation'::text) ->> 'operationThreadId'::text)), ((((payload)::jsonb -> 'operation'::text) ->> 'targetRunId'::text)))",
+            "CREATE INDEX b4_ap_v1_receipts_owner ON r9_v1.b4_ap_v1_receipts USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_receipts_scope ON r9_v1.b4_ap_v1_receipts USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_receipts_pkey ON r9_v1.b4_ap_v1_receipts USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_receipts_thread_id_generation_id_key ON r9_v1.b4_ap_v1_receipts USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts_operation",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "expr",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "expr1",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "expr2",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "expr3",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "expr4",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_receipts_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_retained_runs",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "retained_at",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "retained_until",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_retained_runs_pkey ON r9_v1.b4_ap_v1_retained_runs USING btree (id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_retained_runs_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_retained_subjects",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "retained_at",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, generation)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_retained_subjects_pkey ON r9_v1.b4_ap_v1_retained_subjects USING btree (thread_id, generation)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_retained_subjects_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_run_identities",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_run_identities_pkey ON r9_v1.b4_ap_v1_run_identities USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_run_identities_thread_id_generation_id_key ON r9_v1.b4_ap_v1_run_identities USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_run_identities_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_run_identities_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runs",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "namespace",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "parent_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "input_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "consumed_by_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "turn_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "previous_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "pre_run_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "status",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, consumed_by_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, input_id) REFERENCES r9_v1.b4_ap_v1_pending(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, owner_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, parent_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, pre_run_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, previous_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "FOREIGN KEY (thread_id, generation, turn_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "PRIMARY KEY (id)",
+            "UNIQUE (thread_id, generation, id)"
+          ],
+          "indexes": [
+            "CREATE INDEX b4_ap_v1_runs_owner ON r9_v1.b4_ap_v1_runs USING btree (thread_id, generation, owner_run_id)",
+            "CREATE INDEX b4_ap_v1_runs_scope ON r9_v1.b4_ap_v1_runs USING btree (thread_id, generation)",
+            "CREATE UNIQUE INDEX b4_ap_v1_runs_pkey ON r9_v1.b4_ap_v1_runs USING btree (id)",
+            "CREATE UNIQUE INDEX b4_ap_v1_runs_thread_id_generation_id_key ON r9_v1.b4_ap_v1_runs USING btree (thread_id, generation, id)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runs_owner",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "owner_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runs_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runs_scope",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runs_thread_id_generation_id_key",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runtime_installation",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "singleton",
+              "type": "integer",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "format",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "version",
+              "type": "integer",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "installation_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "schema_name",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "table_prefix",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "layout",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "catalog",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": ["CHECK ((singleton = 1))", "PRIMARY KEY (singleton)"],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_runtime_installation_pkey ON r9_v1.b4_ap_v1_runtime_installation USING btree (singleton)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_runtime_installation_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "singleton",
+              "type": "integer",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_scopes",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "fence",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "lease_expires_at",
+              "type": "timestamp with time zone",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "execution_owner",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "deleted",
+              "type": "integer",
+              "default": "0",
+              "nullable": false
+            },
+            {
+              "name": "through_seq",
+              "type": "bigint",
+              "default": "0",
+              "nullable": false
+            }
+          ],
+          "constraints": ["CHECK ((fence > 0))", "PRIMARY KEY (thread_id, generation)"],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_current_generation ON r9_v1.b4_ap_v1_scopes USING btree (thread_id) WHERE (deleted = 0)",
+            "CREATE UNIQUE INDEX b4_ap_v1_scopes_pkey ON r9_v1.b4_ap_v1_scopes USING btree (thread_id, generation)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_scopes_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_threads",
+          "kind": "r",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "revision",
+              "type": "bigint",
+              "default": null,
+              "nullable": false
+            },
+            {
+              "name": "head_checkpoint_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "current_run_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "paused_generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "payload",
+              "type": "text",
+              "default": null,
+              "nullable": false
+            }
+          ],
+          "constraints": [
+            "FOREIGN KEY (thread_id, generation, current_run_id) REFERENCES r9_v1.b4_ap_v1_run_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation, head_checkpoint_id) REFERENCES r9_v1.b4_ap_v1_checkpoint_identities(thread_id, generation, id) DEFERRABLE INITIALLY DEFERRED",
+            "FOREIGN KEY (thread_id, generation) REFERENCES r9_v1.b4_ap_v1_scopes(thread_id, generation)",
+            "PRIMARY KEY (thread_id, generation)"
+          ],
+          "indexes": [
+            "CREATE UNIQUE INDEX b4_ap_v1_threads_pkey ON r9_v1.b4_ap_v1_threads USING btree (thread_id, generation)"
+          ],
+          "triggers": null,
+          "policies": null
+        },
+        {
+          "name": "b4_ap_v1_threads_pkey",
+          "kind": "i",
+          "rls": false,
+          "columns": [
+            {
+              "name": "thread_id",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            },
+            {
+              "name": "generation",
+              "type": "text",
+              "default": null,
+              "nullable": true
+            }
+          ],
+          "constraints": null,
+          "indexes": null,
+          "triggers": null,
+          "policies": null
+        }
+      ]
+    },
+    "preservedRecords": {
+      "b4_ap_v1_aliases": {
+        "columns": ["id", "thread_id", "generation", "run_id", "namespace", "payload"],
+        "count": 1,
+        "canonicalRowSHA256": ["bf658fcd29b4c7914dbb05d0fa59657997461f31572f3e42699f4da2c4b5cde4"]
+      },
+      "b4_ap_v1_checkpoint_identities": {
+        "columns": ["id", "thread_id", "generation"],
+        "count": 8,
+        "canonicalRowSHA256": [
+          "3468b1fec27c505906b2df967d094cf45342d884022fd0b5aad42467bb4c35ad",
+          "a276d59414436a9cb2e5e5baad0ec4e53cc39dbf9c02f9aae20766a73b380780",
+          "a4844866a1b678a8cbe7cfbac4ea5a2ae794c1b3431beed76303d0500632cbb2",
+          "aabfb7ed621c304ff7f3ebec08f95ceb21fe6ec0a22cdb2fe7b05b391549dbdf",
+          "b83091d6867ef803ffabbf501063f5e9b89ab97ed996c44aea08ac78c36c81b7",
+          "bfd9dadcc67767c369d6cb592e920cc089b640560bb5a795f1ed668306ef0e88",
+          "e7d385010648683fe4116ec4f36ecc2c76968a84f148eb0541e87dfec8664148",
+          "f15f5054f20729e7bfafaba0d910d6942d2327cfce1f43a6248bc28458544690"
+        ]
+      },
+      "b4_ap_v1_checkpoint_lineage": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "checkpoint_id",
+          "position",
+          "ancestor_thread_id",
+          "ancestor_generation",
+          "ancestor_checkpoint_id",
+          "ancestor_run_id",
+          "namespace",
+          "protected_metadata"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_checkpoint_writes": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "checkpoint_id",
+          "owner_run_id",
+          "namespace",
+          "payload"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_checkpoints": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 8,
+        "canonicalRowSHA256": [
+          "255d410cc6bb02cba011d89ca4b6f1fee4c249a5cd62686bd17ed9d5fcd2d5d9",
+          "2a5844086e1c708db4b463a4405db8b4612f81bd18ddc72c72e24ba160c31693",
+          "33691ba7daed972d878b2267040165e98479c1a01c58af437efd560d76288ac4",
+          "3e96e9b687b51d4c4fe5a34b7030c716c08301e4881c342fe96e901241748d80",
+          "4d423029239020c6857294ff968a3b2a60d23368181264789583405b5be52a67",
+          "763209668f6d47496942a828c7abf01fcc749c36d1fc33d8f34d38746aa282a1",
+          "e546f1f0c0f717cece4dde17b813edd4ed078f379cfb1efd7705bf61cb7e443f",
+          "fb3c9c287f537381c1957459f8d210947727657b6642108e35e78170302401bb"
+        ]
+      },
+      "b4_ap_v1_grants": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["fd3a3b1a9f401fee9f59c671d0e5b2f2d0d46362d8ac9c5d1c2e4847a7256d16"]
+      },
+      "b4_ap_v1_inbox": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 3,
+        "canonicalRowSHA256": [
+          "20d4973b0ff5b0c03c7b7231bbdc0d7d30eaa5b4a61cb04b7cb1ef9565c98a5a",
+          "c427184c11580c36eff24f679830b75b3368ba698a5a122644bb8358e1e3a778",
+          "f42b38ae66973664f03d7592506f88bb009d19a6e14808075074bfd4f356e551"
+        ]
+      },
+      "b4_ap_v1_journal": {
+        "columns": ["thread_id", "generation", "id", "seq", "owner_run_id", "namespace", "payload"],
+        "count": 9,
+        "canonicalRowSHA256": [
+          "271ee3b36e3bfb2df640327f32f8552e57ae24d463d9020346898464b682a8ee",
+          "3191e5ae55093a790b5a95f946e4ccf95431bb807f90cdeec0db3c4587e16a7f",
+          "53635a925a9f18494c55ddfc0f0c4a47402133bc3398ef485fd51235b994490b",
+          "55c1c752033ed3843d7539e4ddd6c4afc319fe04457dea664d38117d6d5bfbd8",
+          "7d4d9fe8a8aa2b776b4b289be33a9077e9b7273935108a75e01dd1b810faf4bd",
+          "920e0ed3ea1a8fb2f683f854a01f617cb4747f31fe1ca946b26e3d90a0c53bb9",
+          "af39cf3bdf4f5149e86f7595a3a4e36e5b387eb1dea71251562174a21ff850a4",
+          "b2dbf5676598439bdf92c3cabb7dccbfa19cee14a4578ddd3f49aff69bee3c0d",
+          "c7a8546ac11e9bb6ba28e4caae490c50ad2ae20b5b03651f39174e31d371abfd"
+        ]
+      },
+      "b4_ap_v1_leases": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "fence",
+          "revision",
+          "through_seq",
+          "owner_nonce"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_maintenance": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_native_checkpoints": {
+        "columns": [
+          "thread_id",
+          "checkpoint_ns",
+          "checkpoint_id",
+          "parent_checkpoint_id",
+          "type",
+          "checkpoint",
+          "metadata",
+          "generation",
+          "fence",
+          "owner_run_id"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_native_writes": {
+        "columns": [
+          "thread_id",
+          "checkpoint_ns",
+          "checkpoint_id",
+          "task_id",
+          "idx",
+          "channel",
+          "type",
+          "value",
+          "generation",
+          "fence",
+          "owner_run_id"
+        ],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_pending": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["a8a13a4a401399fb6ba6b6f90926daf3ff7fe4c0b8e39cfb7103cda404c45272"]
+      },
+      "b4_ap_v1_projections": {
+        "columns": ["thread_id", "generation", "through_seq", "revision", "payload"],
+        "count": 1,
+        "canonicalRowSHA256": ["9d89137aca8b47d0bf7f0309c7e5c650047ee77656a50c80d2dd56d32940ad23"]
+      },
+      "b4_ap_v1_receipts": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 3,
+        "canonicalRowSHA256": [
+          "360815e3fe2d7cd425bc7e1bbd930bade0cba3a1beb95be5889373865edf5285",
+          "361d41430658d35190807c547cf5653dcccb645ec84dd45614d5357fe998d580",
+          "826e1cd357e066b441d8ca2e4659d4f6cee1d3195b1b7b183ec8df6628aa3940"
+        ]
+      },
+      "b4_ap_v1_retained_runs": {
+        "columns": ["id", "thread_id", "generation", "payload", "retained_at", "retained_until"],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_retained_subjects": {
+        "columns": ["thread_id", "generation", "payload", "retained_at"],
+        "count": 0,
+        "canonicalRowSHA256": []
+      },
+      "b4_ap_v1_run_identities": {
+        "columns": ["id", "thread_id", "generation"],
+        "count": 2,
+        "canonicalRowSHA256": [
+          "84ddd2e538cb9d4c0ded30e8e3ba5735a5d00246627d71579b5f59d07460334e",
+          "c12df676a4908ede5273ac539f9a17a55e482a758ce0f0080af79cf765d7ce79"
+        ]
+      },
+      "b4_ap_v1_runs": {
+        "columns": [
+          "id",
+          "thread_id",
+          "generation",
+          "owner_run_id",
+          "namespace",
+          "parent_checkpoint_id",
+          "input_id",
+          "paused_generation",
+          "consumed_by_run_id",
+          "turn_id",
+          "previous_run_id",
+          "pre_run_checkpoint_id",
+          "status",
+          "payload"
+        ],
+        "count": 2,
+        "canonicalRowSHA256": [
+          "04e006d86a1a3dd72a089d46100c70f10590a6b027b6c83e3138c8db49d13579",
+          "4db8703734bc01ed5c649a069c7db14be8297f714075e652e14c1f81a15bd693"
+        ]
+      },
+      "b4_ap_v1_scopes": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "fence",
+          "lease_expires_at",
+          "execution_owner",
+          "deleted",
+          "through_seq"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["d762deb0f326b9907197dd1cf779c447fb17bf1031a1722e70a3c88ccdccb870"]
+      },
+      "b4_ap_v1_threads": {
+        "columns": [
+          "thread_id",
+          "generation",
+          "revision",
+          "head_checkpoint_id",
+          "current_run_id",
+          "paused_generation",
+          "payload"
+        ],
+        "count": 1,
+        "canonicalRowSHA256": ["217c04669d934fa2090fe07762dba955f4b48784b63e111a208a5c636dd9addd"]
+      }
+    },
+    "journal": [
+      {
+        "seq": 1,
+        "eventId": "d72437db-fa6f-4541-9c79-64af51c3b5a6",
+        "payloadSHA256": "c021b83d87e9671fbfe5bab44d9d56ee7beb559f9a328de0ef3e843f863e7993"
+      },
+      {
+        "seq": 2,
+        "eventId": "5495119e-0cc2-4cf2-af31-b6f0aeb60ff9",
+        "payloadSHA256": "e275742bef3a4db31c2272b43a86a316e8835f1fca2f2dfaf3ecb7e1519f2045"
+      },
+      {
+        "seq": 3,
+        "eventId": "e7191658-9728-4f7a-ae9e-54beb655785d",
+        "payloadSHA256": "bf40121c9211384a032783cc4eeac47ddef367c49908c97dfb3e7325de707cfe"
+      },
+      {
+        "seq": 4,
+        "eventId": "e18d89d9-05b6-499c-a7f8-cdcb734fa1ad",
+        "payloadSHA256": "65599d1073357aaa69df2859df919197e46673ad0f593bca9f892fb9ebded93a"
+      },
+      {
+        "seq": 5,
+        "eventId": "21963c5d-a5bd-4e06-ad91-c2738fd880dd",
+        "payloadSHA256": "87ee8173e509b79888f1eb2cd52696a39d11802677529c20c2017e8eaf82fa88"
+      },
+      {
+        "seq": 6,
+        "eventId": "c2f4fe4c-641d-41c1-9457-3a5430144dfb",
+        "payloadSHA256": "15f74284292b1e0f3189aaceb57b298c541888843b8d2f1e6511beebd24f5117"
+      },
+      {
+        "seq": 7,
+        "eventId": "98da15d6-1c57-4834-900b-a55365f608d2",
+        "payloadSHA256": "29fe923e26b90f8f8063e09be4b64b9f7e64c826a537b909a09d2f204a22f77f"
+      },
+      {
+        "seq": 8,
+        "eventId": "edf79df2-a3b2-470d-92ad-368b26e4a5bf",
+        "payloadSHA256": "e4130cb7370f21f582688afe18375a8e0d97583ed4ea92cbfe738ce3b8d0a7f9"
+      },
+      {
+        "seq": 9,
+        "eventId": "5ba01627-3e0c-4c04-ad78-1c0c0f958e38",
+        "payloadSHA256": "6c9abca98f66b8aba2d431c915a06f31ccf074d63c6b64af2e5b35985d75fe44"
+      }
+    ],
+    "nativeCheckpointPayloadSHA256": "d1821c830563f7cc617cd7ad0785f453ef700f8a0c106544864555812156ae3b",
+    "publicCheckpointDTOAvailable": false,
+    "nativePrivateCarrierKey": "_b4AppliedInputIds",
+    "nativePrivateInterruptChannel": "__interrupt__",
+    "grant": {
+      "tokenSHA256": "cfb2a17ec5c9c284d91dc7a1e94692fa4873faf8d2dd6bb5001c7aec0ccf5023",
+      "authenticExpiresAt": [null],
+      "mustNeverRefreshOrAssumeActionable": true
+    },
+    "producerMeasuredSetup": {
+      "explicitInvocations": 2,
+      "testModelCalls": 2,
+      "gateAttempts": 1,
+      "protectedBodyCalls": 0
+    },
+    "measuredReopenDeltas": {
+      "explicitInvocations": 0,
+      "testModelCalls": 0,
+      "gateAttempts": 0,
+      "protectedBodyCalls": 0
+    },
+    "qualifies": "Original native codec and old-factory read-safe reopen only; PostgreSQL also actual native dump/restore. No migration/continuation/public hydration proof.",
+    "naming": {
+      "schema": "r9_v1",
+      "tablePrefix": "b4_ap_v1"
+    },
+    "engine": "PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+    "tools": {
+      "pgDump": "pg_dump (PostgreSQL) 16.15 (Debian 16.15-1.pgdg13+2)",
+      "psql": "psql (PostgreSQL) 16.15 (Debian 16.15-1.pgdg13+2)"
+    }
+  },
+  "privacy": "Synthetic local fixture data only; authentic opaque grants/native/private data intentionally retained. No production credentials or user payloads are used. Audit is source-backed and finite, not a universal secret detector.",
+  "expiryPolicy": "Authentic local grants MAY expire. Do not refresh expiry/token/obligation or assume positive consume; migration/read never dispatches."
+}

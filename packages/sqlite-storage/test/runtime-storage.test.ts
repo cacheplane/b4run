@@ -53,7 +53,7 @@ it("installs only a fresh namespace with a stable marker, WAL, FULL, and foreign
   const db = new DatabaseSync(owner.path, { readOnly: true })
   expect(db.prepare("PRAGMA journal_mode").get()?.journal_mode).toBe("wal")
   expect(db.prepare("SELECT version,installation_id FROM runtime_installation").get()).toEqual({
-    version: 1,
+    version: 2,
     installation_id: owner.installationId,
   })
   db.close()
@@ -65,7 +65,7 @@ it("installs only a fresh namespace with a stable marker, WAL, FULL, and foreign
   for (const name of legacy)
     expect(readFileSync(join(path, ".b4", name), "utf8")).toBe(`legacy:${name}`)
 })
-it.each(["version", "installation", "unmarked", "format"])(
+it.each(["version", "version-zero", "installation", "unmarked", "format"])(
   "rejects incompatible %s before changing any existing namespace bytes",
   async (mode) => {
     const { openRuntimeInstallation } = await runtime()
@@ -77,8 +77,17 @@ it.each(["version", "installation", "unmarked", "format"])(
     seed.close()
     copyFileSync(seed.path, file)
     const db = new DatabaseSync(file)
-    if (mode === "unmarked") db.exec("DELETE FROM runtime_installation")
-    else if (mode === "version") db.exec("UPDATE runtime_installation SET version=2")
+    if (mode === "unmarked") {
+      const retainedKey = db.prepare("SELECT * FROM runtime_recovery_keys").all()
+      expect(retainedKey).toHaveLength(1)
+      // This disposable raw copy intentionally lacks its marker; retain its key.
+      db.exec("PRAGMA foreign_keys=OFF")
+      expect(db.prepare("PRAGMA foreign_keys").get()?.foreign_keys).toBe(0)
+      db.exec("DELETE FROM runtime_installation")
+      expect(db.prepare("SELECT * FROM runtime_installation").all()).toEqual([])
+      expect(db.prepare("SELECT * FROM runtime_recovery_keys").all()).toEqual(retainedKey)
+    } else if (mode === "version") db.exec("UPDATE runtime_installation SET version=999")
+    else if (mode === "version-zero") db.exec("UPDATE runtime_installation SET version=0")
     else if (mode === "format") db.exec("UPDATE runtime_installation SET format='other-runtime'")
     else db.exec("UPDATE runtime_installation SET installation_id='not-a-uuid'")
     db.close()
@@ -278,7 +287,7 @@ it("inspects an incompatible committed WAL without changing main, WAL, SHM, or o
   const owner = openRuntimeInstallation(path)
   owner.close()
   const db = new DatabaseSync(owner.path)
-  db.exec("PRAGMA wal_autocheckpoint=0; UPDATE runtime_installation SET version=2")
+  db.exec("PRAGMA wal_autocheckpoint=0; UPDATE runtime_installation SET version=999")
   const directory = join(realpathSync(path), ".b4/agent-protocol/v1")
   function checksums() {
     return Object.fromEntries(

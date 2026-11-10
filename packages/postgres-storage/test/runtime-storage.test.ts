@@ -27,6 +27,7 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
   })
   it.each([
     "version",
+    "version-zero",
     "format",
     "installation",
     "schema",
@@ -45,13 +46,14 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
     else {
       const mutation = (
         {
-          version: ["version", "2"],
+          version: ["version", "999"],
+          "version-zero": ["version", "0"],
           format: ["format", "other"],
           installation: ["installation_id", "bad"],
           schema: ["schema_name", "other"],
           prefix: ["table_prefix", "other"],
         } as const
-      )[mode as "version" | "format" | "installation" | "schema" | "prefix"]
+      )[mode as "version" | "version-zero" | "format" | "installation" | "schema" | "prefix"]
       const [column, value] = mutation
       await backend.first.query(`UPDATE ${table}_runtime_installation SET ${column}=$1`, [value])
     }
