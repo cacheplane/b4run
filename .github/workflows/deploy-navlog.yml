@@ -38,6 +38,10 @@ on:
         description: Read build logs without deploying
         type: boolean
         default: false
+      readiness:
+        description: Read readiness settings and patch metadata without deploying
+        type: boolean
+        default: false
       deployment_id:
         description: Railway deployment UUID to diagnose
         type: string
@@ -53,7 +57,7 @@ permissions:
 
 jobs:
   deploy:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.diagnose }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.diagnose && !inputs.readiness) }}
     name: Deploy navlog-server to Railway
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -236,7 +240,7 @@ jobs:
           exit 1
 
   diagnose:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnose }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.diagnose || inputs.readiness) }}
     name: Read Railway build logs without deploying
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -247,6 +251,7 @@ jobs:
           node-version: 24.19.0
 
       - name: Read bounded build logs
+        if: ${{ !inputs.readiness }}
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_NAVLOG_TOKEN }}
           DEPLOYMENT_ID: ${{ inputs.deployment_id }}
@@ -436,5 +441,123 @@ jobs:
               console.error(`Railway diagnostic: ${failure}`)
               process.exitCode = 1
             }
+          }
+          JS
+
+      - name: Read Railway readiness state
+        if: ${{ inputs.readiness }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_NAVLOG_TOKEN }}
+        run: |
+          node - <<'JS'
+          const token = process.env.RAILWAY_TOKEN ?? ""
+          const projectId = "6f45f6e2-4190-4eb3-9820-3ff307a4e7d9"
+          const serviceId = "1b8bb6df-ebb5-4cde-b086-c97216161c51"
+          let failure = "project credential is unavailable"
+          try {
+            if (!token) throw new Error()
+            const signal = AbortSignal.timeout(30000)
+            const request = async (query, variables = {}) => {
+              failure = "request failed or timed out"
+              const response = await fetch("https://backboard.railway.com/graphql/v2", {
+                method: "POST",
+                redirect: "error",
+                headers: {
+                  "content-type": "application/json",
+                  "project-access-token": token,
+                },
+                body: JSON.stringify({ query, variables }),
+                signal,
+              })
+              if (!response.ok) {
+                failure = `request returned HTTP ${response.status}`
+                throw new Error()
+              }
+              failure = "invalid, errored, or excessive API response"
+              const reader = response.body.getReader()
+              const decoder = new TextDecoder("utf-8", { fatal: true })
+              let bytes = 0
+              let text = ""
+              try {
+                while (true) {
+                  const { done, value } = await reader.read()
+                  if (done) break
+                  bytes += value.byteLength
+                  if (bytes > 64 * 1024) {
+                    await reader.cancel()
+                    throw new Error()
+                  }
+                  text += decoder.decode(value, { stream: true })
+                }
+                text += decoder.decode()
+              } finally {
+                reader.releaseLock()
+              }
+              const body = JSON.parse(text)
+              if (body.errors !== undefined && (!Array.isArray(body.errors) || body.errors.length)) throw new Error()
+              return body.data
+            }
+            const identity = await request("query { projectToken { projectId environmentId } }")
+            const environmentId = identity?.projectToken?.environmentId
+            const uuid = (value) => typeof value === "string" && value.length === 36 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)
+            failure = "project credential is not bound to the expected project and environment"
+            if (identity?.projectToken?.projectId !== projectId || !uuid(environmentId)) throw new Error()
+            // Fixed read-only fields from railwayapp/cli@5a07ac2ae44ec2fcf892ba96e18f638402c7f8fb/src/gql/schema.json.
+            // No environment config, patch JSON, variables, deployment metadata, or provider error text is emitted.
+            const query = "query($environmentId: String!, $serviceId: String!) { environment(id: $environmentId) { id name projectId } service(id: $serviceId) { id name projectId } serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { environmentId serviceId healthcheckPath healthcheckTimeout railwayConfigFile latestDeployment { id status createdAt environmentId serviceId } } patches: environmentPatches(environmentId: $environmentId, first: 10) { edges { node { id environmentId status createdAt updatedAt appliedAt lastAppliedError } } pageInfo { hasNextPage } } }"
+            const data = await request(query, { environmentId, serviceId })
+            failure = "production service identity or diagnostic fields are invalid"
+            if (data?.environment?.id !== environmentId || data.environment.name !== "production" || data.environment.projectId !== projectId || data?.service?.id !== serviceId || data.service.name !== "navlog-server" || data.service.projectId !== projectId) throw new Error()
+            const instance = data?.serviceInstance
+            if (instance?.environmentId !== environmentId || instance.serviceId !== serviceId) throw new Error()
+            const nullableString = (value) => value === null || (typeof value === "string" && value.length <= 1024)
+            if (!nullableString(instance.healthcheckPath) || !nullableString(instance.railwayConfigFile)) throw new Error()
+            if (instance.healthcheckTimeout !== null && (!Number.isInteger(instance.healthcheckTimeout) || instance.healthcheckTimeout < 0 || instance.healthcheckTimeout > 2147483647)) throw new Error()
+            const date = (value) => {
+              if (typeof value !== "string" || value.length > 64) throw new Error()
+              const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/u.exec(value)
+              if (!match || match[0] !== value) throw new Error()
+              const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
+              const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+              const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+              const zone = match[8]
+              if (month < 1 || month > 12 || day < 1 || day > days[month - 1] || hour > 23 || minute > 59 || second > 59 || (zone !== "Z" && (Number(zone.slice(1, 3)) > 23 || Number(zone.slice(4, 6)) > 59))) throw new Error()
+              const instant = Date.parse(value)
+              if (!Number.isFinite(instant)) throw new Error()
+              return instant
+            }
+            const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value)
+            const identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9_-]/u.test(value)
+            const patchMetadata = (patch) => {
+              if (!record(patch) || !identifier(patch.id) || patch.environmentId !== environmentId || !["APPLYING", "COMMITTED", "STAGED"].includes(patch.status) || (patch.lastAppliedError !== null && typeof patch.lastAppliedError !== "string")) throw new Error()
+              const createdAt = date(patch.createdAt)
+              if (date(patch.updatedAt) < createdAt || (patch.appliedAt !== null && date(patch.appliedAt) < createdAt)) throw new Error()
+              return { id: patch.id, status: patch.status, createdAt: patch.createdAt, updatedAt: patch.updatedAt, appliedAt: patch.appliedAt, errorPresent: patch.lastAppliedError !== null && patch.lastAppliedError.length > 0 }
+            }
+            const patches = data.patches
+            if (!record(patches) || !Array.isArray(patches.edges) || patches.edges.length > 10 || !record(patches.pageInfo) || typeof patches.pageInfo.hasNextPage !== "boolean") throw new Error()
+            const firstPatches = patches.edges.map((edge) => {
+              if (!record(edge)) throw new Error()
+              return patchMetadata(edge.node)
+            })
+            const latest = instance.latestDeployment
+            let latestDeployment = null
+            if (latest !== null) {
+              const statuses = ["BUILDING", "CRASHED", "DEPLOYING", "FAILED", "INITIALIZING", "NEEDS_APPROVAL", "QUEUED", "REMOVED", "REMOVING", "SKIPPED", "SLEEPING", "SUCCESS", "WAITING"]
+              if (!record(latest) || !uuid(latest.id) || !statuses.includes(latest.status) || latest.environmentId !== environmentId || latest.serviceId !== serviceId) throw new Error()
+              date(latest.createdAt)
+              latestDeployment = { id: latest.id, status: latest.status, createdAt: latest.createdAt }
+            }
+            const path = instance.healthcheckPath
+            console.log("Railway readiness diagnostic: " + JSON.stringify({
+              target: { projectId, environmentId, serviceId },
+              settings: { healthcheckPath: path === null || ["/readyz", "/healthz"].includes(path) ? path : "[different path]", healthcheckTimeout: instance.healthcheckTimeout, railwayConfigFilePresent: instance.railwayConfigFile !== null && instance.railwayConfigFile.length > 0 },
+              firstPatches,
+              morePatches: patches.pageInfo.hasNextPage,
+              latestDeployment,
+            }))
+          } catch {
+            console.error(`Railway readiness diagnostic: ${failure}`)
+            process.exitCode = 1
           }
           JS
