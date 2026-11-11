@@ -1,5 +1,11 @@
 # @b4run/config-biome
 
+## 0.15.9
+
+### Patch Changes
+
+- 9e18dc8: Preserve the exact pinned Agent Protocol OpenAPI fixture bytes by disabling formatting only for that upstream file.
+
 ## 0.15.8
 
 ## 0.15.7

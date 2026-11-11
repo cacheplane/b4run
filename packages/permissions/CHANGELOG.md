@@ -1,5 +1,23 @@
 # @b4run/permissions
 
+## 0.15.9
+
+### Patch Changes
+
+- 9e18dc8: Stage atomic permission-batch continuation acceptance, durable remembered-rule intents, and conditional native permission coordinators. Preserve current policy and exact retry receipts before consuming a pause; keep shared handler activation behind the safe adapter integration.
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+  - @b4run/sdk@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @b4run/sandbox
 
+## 0.15.9
+
+### Patch Changes
+
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+  - @b4run/sdk@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes
