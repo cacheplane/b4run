@@ -1,5 +1,56 @@
 # @b4run/cli
 
+## 0.15.9
+
+### Patch Changes
+
+- 9e18dc8: Stage atomic permission-batch continuation acceptance, durable remembered-rule intents, and conditional native permission coordinators. Preserve current policy and exact retry receipts before consuming a pause; keep shared handler activation behind the safe adapter integration.
+- 3200c51: Make ordinary Stop cooperative for native graph runs: finish the active superstep and synchronous checkpoint writes, retain thread and request ownership until settlement, and prevent fresh input from replaying pending old actions. Keep hard aborts separate, preserve natural completion and independent errors, and report an observed Stop consistently through Agent Protocol and AG-UI. Opaque route contexts receive an optional separate stop signal; tool work and nested calls remain part of their awaited parent step.
+- 9e18dc8: Add shared durable Run admission and indexed submission reconciliation with current authorization, atomic acceptance, and original-default retry recovery. Add one-time runtime storage factory registration for SQLite and Node Postgres. Runtime execution and standard HTTP binding activation remain staged for the shared ExecutionHost cutover.
+- 9e18dc8: Stage exact-execution stop, actual-unwind shutdown/deadline handling, and guarded temporary Thread cleanup with independent protected Run/result retention. Native storage now records unwind in its fenced release transaction and preserves uncertain ownership loss. Existing HTTP/native handlers and the physical provider cleanup bridge remain awaiting the coordinated runtime cutover.
+
+  Shutdown preserves dispatch/control failures after aborting and awaiting owned work. Retained search, retry and receipt reads validate canonical contributing authority and the original protected subject before returning data.
+
+- 9e18dc8: Add staged durable dispatch with atomic started markers, fenced execution ownership and conservative recovery for lost started Runs. Preserve accepted never-started work and retained receipts across ownership recovery without replaying uncertain effects.
+- 9e18dc8: Add authorized standard Agent catalog resources with canonical route IDs, truthful native capability descriptions, resolved schemas and effective limits. Validate the optional Agent Protocol default at check, build and runtime boot while preserving explicit Agent selection when multiple routes have no default.
+- 9e18dc8: Add a fresh single-owner Agent Protocol SQLite installation with durable transactions, scoped records, ownership fences, and crash-safe receipt/checkpoint persistence. Expose a Node opening seam without activating it beside existing runtime owners; coordinated service wiring and authority binding remain required before cutover.
+- 9e18dc8: Add explicit Agent Protocol adapter boundaries for schema-checked route input, public message conversion, and lossless scalar results while preserving native execution behavior.
+- 9e18dc8: Add shared Agent Protocol request validation, safe public error mapping, and scoped resource authorization helpers with distinct control and provenance context. Validate original webhook URI strings using the pinned format matcher without runtime schema compilation. Correct the shared custom-channel pattern translation to preserve pinned CDDL matching semantics.
+- dd4271c: Accept array-valued LangGraph checkpoint interrupts when resuming approvals, while preserving validation of every interrupt and rejection of duplicate or ambiguous identifiers. This fixes Navlog approval continuation with newer installed LangGraph versions.
+- 9e18dc8: Stage bounded, exact-Run active input with atomic checkpoint/application receipts, and nonexecuting reconciliation of stopped native checkpoints before a fresh turn. Preserve current contributor authorization, accepted permission identity, source provenance, and uncertain effects across native restore and retained reads.
+
+  Add internal adapter binding and cooperative native Stop with required checkpoint settlement for the staged runtime. Shared HTTP/native handler activation remains behind the coordinated runtime cutover.
+
+  Persist native task paths for deterministic checkpoint replay, and retain effect uncertainty when hard abort settles at its invocation boundary.
+
+  Validate singleton and batched native permission sources in both canonical storage backends, preserving exact accepted identity and opaque sibling payloads. Automatic shutdown and deadlines preserve already committed permission waits while recording hard-abort uncertainty.
+
+- 521c8ba: Assign durable journal coordinates in storage and stamp each event with its current Run and logical turn authority. Preserve namespace components and historical journal reads, and roll back journal write failures even when a transaction callback catches the error.
+- 4190d2a: Include the App guides in the bundled documentation and resolve the App overview from its directory index.
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [0877015]
+- Updated dependencies [521c8ba]
+  - @b4run/core@0.15.9
+  - @b4run/permissions@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/sqlite-storage@0.15.9
+  - @b4run/langchain@0.15.9
+  - @b4run/langgraph@0.15.9
+  - @b4run/ag-ui@0.15.9
+  - @b4run/workspace@0.15.9
+  - @b4run/memory@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

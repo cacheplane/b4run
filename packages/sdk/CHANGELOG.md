@@ -1,5 +1,31 @@
 # @b4run/sdk
 
+## 0.15.9
+
+### Patch Changes
+
+- 9e18dc8: Stage atomic permission-batch continuation acceptance, durable remembered-rule intents, and conditional native permission coordinators. Preserve current policy and exact retry receipts before consuming a pause; keep shared handler activation behind the safe adapter integration.
+- e500428: Add internal recovery schema contracts, atomic runtime storage migration, and scoped temporary cleanup.
+- 3200c51: Make ordinary Stop cooperative for native graph runs: finish the active superstep and synchronous checkpoint writes, retain thread and request ownership until settlement, and prevent fresh input from replaying pending old actions. Keep hard aborts separate, preserve natural completion and independent errors, and report an observed Stop consistently through Agent Protocol and AG-UI. Opaque route contexts receive an optional separate stop signal; tool work and nested calls remain part of their awaited parent step.
+- 9e18dc8: Add shared durable Run admission and indexed submission reconciliation with current authorization, atomic acceptance, and original-default retry recovery. Add one-time runtime storage factory registration for SQLite and Node Postgres. Runtime execution and standard HTTP binding activation remain staged for the shared ExecutionHost cutover.
+- 9e18dc8: Stage exact-execution stop, actual-unwind shutdown/deadline handling, and guarded temporary Thread cleanup with independent protected Run/result retention. Native storage now records unwind in its fenced release transaction and preserves uncertain ownership loss. Existing HTTP/native handlers and the physical provider cleanup bridge remain awaiting the coordinated runtime cutover.
+
+  Shutdown preserves dispatch/control failures after aborting and awaiting owned work. Retained search, retry and receipt reads validate canonical contributing authority and the original protected subject before returning data.
+
+- 9e18dc8: Add staged durable dispatch with atomic started markers, fenced execution ownership and conservative recovery for lost started Runs. Preserve accepted never-started work and retained receipts across ownership recovery without replaying uncertain effects.
+- 9e18dc8: Publish portable Agent Protocol DTOs and deterministic schema/fixture assets pinned to OpenAPI 0.1.6, ASP CDDL 0.0.20 and the approved B4 v1 extensions. The new contract subpaths include source provenance, the reviewed request correction and upstream MIT notices; runtime handlers are unchanged.
+- 9e18dc8: Add shared Agent Protocol request validation, safe public error mapping, and scoped resource authorization helpers with distinct control and provenance context. Validate original webhook URI strings using the pinned format matcher without runtime schema compilation. Correct the shared custom-channel pattern translation to preserve pinned CDDL matching semantics.
+- 9e18dc8: Define portable coordinated runtime storage interfaces and a shared real-backend conformance contract. Reduced checkpointer stores cannot advertise full runtime coordination. Backend conformance remains subject to SQLite and Postgres implementation tests.
+- 9e18dc8: Stage bounded, exact-Run active input with atomic checkpoint/application receipts, and nonexecuting reconciliation of stopped native checkpoints before a fresh turn. Preserve current contributor authorization, accepted permission identity, source provenance, and uncertain effects across native restore and retained reads.
+
+  Add internal adapter binding and cooperative native Stop with required checkpoint settlement for the staged runtime. Shared HTTP/native handler activation remains behind the coordinated runtime cutover.
+
+  Persist native task paths for deterministic checkpoint replay, and retain effect uncertainty when hard abort settles at its invocation boundary.
+
+  Validate singleton and batched native permission sources in both canonical storage backends, preserving exact accepted identity and opaque sibling payloads. Automatic shutdown and deadlines preserve already committed permission waits while recording hard-abort uncertainty.
+
+- 521c8ba: Assign durable journal coordinates in storage and stamp each event with its current Run and logical turn authority. Preserve namespace components and historical journal reads, and roll back journal write failures even when a transaction callback catches the error.
+
 ## 0.15.8
 
 ### Patch Changes

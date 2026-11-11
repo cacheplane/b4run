@@ -1,5 +1,41 @@
 # @b4run/core
 
+## 0.15.9
+
+### Patch Changes
+
+- 9e18dc8: Stage atomic permission-batch continuation acceptance, durable remembered-rule intents, and conditional native permission coordinators. Preserve current policy and exact retry receipts before consuming a pause; keep shared handler activation behind the safe adapter integration.
+- 9e18dc8: Add shared durable Run admission and indexed submission reconciliation with current authorization, atomic acceptance, and original-default retry recovery. Add one-time runtime storage factory registration for SQLite and Node Postgres. Runtime execution and standard HTTP binding activation remain staged for the shared ExecutionHost cutover.
+- 9e18dc8: Add authorized standard Agent catalog resources with canonical route IDs, truthful native capability descriptions, resolved schemas and effective limits. Validate the optional Agent Protocol default at check, build and runtime boot while preserving explicit Agent selection when multiple routes have no default.
+- 9e18dc8: Stage bounded, exact-Run active input with atomic checkpoint/application receipts, and nonexecuting reconciliation of stopped native checkpoints before a fresh turn. Preserve current contributor authorization, accepted permission identity, source provenance, and uncertain effects across native restore and retained reads.
+
+  Add internal adapter binding and cooperative native Stop with required checkpoint settlement for the staged runtime. Shared HTTP/native handler activation remains behind the coordinated runtime cutover.
+
+  Persist native task paths for deterministic checkpoint replay, and retain effect uncertainty when hard abort settles at its invocation boundary.
+
+  Validate singleton and batched native permission sources in both canonical storage backends, preserving exact accepted identity and opaque sibling payloads. Automatic shutdown and deadlines preserve already committed permission waits while recording hard-abort uncertainty.
+
+- 0877015: Keep the published LangChain runtime dependencies on compatible versions so standalone installs can use the supported minimum of `@langchain/core` and load the CLI.
+
+  Preserve raw graph resume when the application and the adapter load different copies of LangGraph.
+
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+  - @b4run/permissions@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/sqlite-storage@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

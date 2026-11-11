@@ -1,5 +1,16 @@
 # @b4run/vite-plugin
 
+## 0.15.9
+
+### Patch Changes
+
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [0877015]
+  - @b4run/core@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

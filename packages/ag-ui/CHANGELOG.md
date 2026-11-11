@@ -1,5 +1,23 @@
 # @b4run/ag-ui
 
+## 0.15.9
+
+### Patch Changes
+
+- 3200c51: Make ordinary Stop cooperative for native graph runs: finish the active superstep and synchronous checkpoint writes, retain thread and request ownership until settlement, and prevent fresh input from replaying pending old actions. Keep hard aborts separate, preserve natural completion and independent errors, and report an observed Stop consistently through Agent Protocol and AG-UI. Opaque route contexts receive an optional separate stop signal; tool work and nested calls remain part of their awaited parent step.
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+  - @b4run/sdk@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes

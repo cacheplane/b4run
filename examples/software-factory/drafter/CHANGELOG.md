@@ -1,5 +1,30 @@
 # @b4-example/software-factory-drafter
 
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [3200c51]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [dd4271c]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+- Updated dependencies [4190d2a]
+  - @b4run/cli@0.15.9
+  - @b4run/sdk@0.15.9
+  - @b4run/sandbox@0.15.9
+  - @b4run/workspace@0.15.9
+
 ## 0.0.16
 
 ### Patch Changes

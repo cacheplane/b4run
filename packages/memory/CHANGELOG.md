@@ -1,5 +1,19 @@
 # @b4run/memory
 
+## 0.15.9
+
+### Patch Changes
+
+- Updated dependencies [9e18dc8]
+- Updated dependencies [e500428]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [9e18dc8]
+- Updated dependencies [521c8ba]
+  - @b4run/sqlite-storage@0.15.9
+
 ## 0.15.8
 
 ### Patch Changes
