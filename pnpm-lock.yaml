@@ -1193,6 +1193,9 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
+      testcontainers:
+        specifier: ^12.0.4
+        version: 12.0.4
 
   packages/sandbox:
     dependencies:

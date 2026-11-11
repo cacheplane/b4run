@@ -231,6 +231,7 @@
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/agent-protocol/fixtures/runtime-v1",
         "$TURBO_ROOT$/scripts/lib/published-export-kinds.mjs",
         "$TURBO_ROOT$/scripts/release/smoke/published-surface.mjs",
         "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
@@ -277,6 +278,7 @@
       "dependsOn": ["build", "^test"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/test/agent-protocol/fixtures/runtime-v1",
         "$TURBO_ROOT$/test/fixtures/workspace-installation-worker.ts",
         "$TURBO_ROOT$/test/agent-protocol/runtime-storage-contract.ts",
         "$TURBO_ROOT$/test/agent-protocol/runtime-protected-source-contract.ts",

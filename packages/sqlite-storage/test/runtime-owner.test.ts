@@ -278,7 +278,7 @@ it.each(["runtime", "owner"] as const)(
               `SELECT version FROM ${target === "runtime" ? "runtime_installation" : "owner_probe"}`,
             )
             .get()?.version,
-        ).toBe(1)
+        ).toBe(target === "runtime" ? 2 : 1)
       } finally {
         raw.close()
       }
@@ -293,7 +293,7 @@ it.each(["runtime", "owner"] as const)(
               `SELECT version FROM ${target === "runtime" ? "runtime_installation" : "owner_probe"}`,
             )
             .get()?.version,
-        ).toBe(2)
+        ).toBe(target === "runtime" ? 999 : 2)
       } finally {
         recovered.close()
       }

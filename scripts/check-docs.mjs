@@ -1028,6 +1028,7 @@ const EXPECTED_API_ARTIFACT_POLICY_TUPLES = [
     "surfaceKind",
     "typescript-runtime",
   ],
+  ["import:@b4run/sdk:./internal/runtime-schema", "internal", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./pure", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./testing", "detailed", "surfaceKind", "typescript-runtime"],
   ["import:@b4run/sdk:./tool-step.schema.json", "detailed", "surfaceKind", "metadata"],
@@ -1389,6 +1390,7 @@ function apiArtifactAddress(artifact) {
 
 const DEPENDENCY_FREE_API_ADDRESSES = new Set([
   "import:@b4run/sdk:./internal/runtime-identity",
+  "import:@b4run/sdk:./internal/runtime-schema",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/sdk:./pure",
   "import:@b4run/memory:./browse",
@@ -1398,6 +1400,7 @@ const DEPENDENCY_FREE_API_ADDRESSES = new Set([
 ])
 const EDGE_SAFE_API_ADDRESSES = new Set([
   "import:@b4run/sdk:./internal/runtime-identity",
+  "import:@b4run/sdk:./internal/runtime-schema",
   "import:@b4run/sdk:./agent-protocol",
   "import:@b4run/ag-ui:./copilotkit-runtime",
   "import:@b4run/sdk:.",
@@ -4359,15 +4362,15 @@ if (apiReferenceRegistry) {
   }
 
   const artifactAddresses = ARTIFACT_REGISTRY.map(apiReferenceRegistry.artifactAddressFor)
-  if (ARTIFACT_REGISTRY.length !== 66 || new Set(artifactAddresses).size !== 66) {
-    failures.push("ARTIFACT_REGISTRY must contain exactly 66 unique artifact addresses")
+  if (ARTIFACT_REGISTRY.length !== 67 || new Set(artifactAddresses).size !== 67) {
+    failures.push("ARTIFACT_REGISTRY must contain exactly 67 unique artifact addresses")
   }
   const importCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "import").length
   const operatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "operated").length
   const generatedCount = ARTIFACT_REGISTRY.filter(({ kind }) => kind === "generated").length
-  if (importCount !== 62 || operatedCount !== 3 || generatedCount !== 1) {
+  if (importCount !== 63 || operatedCount !== 3 || generatedCount !== 1) {
     failures.push(
-      `ARTIFACT_REGISTRY must contain 62 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
+      `ARTIFACT_REGISTRY must contain 63 imports, 3 operated artifacts, and 1 generated artifact; received ${importCount}, ${operatedCount}, and ${generatedCount}`,
     )
   }
   const invalidApplicationRecommendations = ARTIFACT_REGISTRY.filter(

@@ -1206,6 +1206,15 @@ export const ARTIFACT_REGISTRY = [
   ),
   runtimeImport(
     "@b4run/sdk",
+    "./internal/runtime-schema",
+    "internal",
+    "edge-safe",
+    "internal",
+    "internal",
+    "dependency-free",
+  ),
+  runtimeImport(
+    "@b4run/sdk",
     "./pure",
     "detailed",
     "edge-safe",
@@ -1710,6 +1719,7 @@ export const PACKAGE_CATALOG = [
       importAddress("@b4run/sdk", "."),
       importAddress("@b4run/sdk", "./pure"),
       importAddress("@b4run/sdk", "./internal/runtime-identity"),
+      importAddress("@b4run/sdk", "./internal/runtime-schema"),
       importAddress("@b4run/sdk", "./testing"),
       importAddress("@b4run/sdk", "./tool-step.schema.json"),
       importAddress("@b4run/sdk", "./answer.schema.json"),
