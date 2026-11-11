@@ -100,6 +100,19 @@ import {
   recoveryColumnType,
 } from "../src/internal/runtime-schema.ts"
 
+it("ignores an unterminated CHECK suffix with repeated markers", () => {
+  const table = {
+    name: "sample",
+    columns: [`malformed INTEGER${" CHECK(a".repeat(100_000)}`, "value INTEGER CHECK((value>=0))"],
+    primaryKey: [],
+    foreignKeys: [],
+    unique: [],
+    indexes: [],
+    checks: ["value<10"],
+  }
+  expect(recoveryChecks(table, "sqlite")).toEqual(["(value>=0)", "value<10"])
+})
+
 it("enumerates every generated PG CHECK through the closed typed constructors", () => {
   let count = 0
   for (const table of recoveryTables) {

@@ -904,11 +904,28 @@ export function renderRecoveryExpression(source: string, backend: RecoveryBacken
     backend === "sqlite" ? "length(CAST(payload AS BLOB))" : "octet_length(payload)",
   )
 }
+function splitRecoveryColumnCheck(raw: string, wholeColumn: boolean) {
+  if (!raw.endsWith(")")) return
+  // CHECK takes the rest of a line. Find its first marker without backtracking.
+  const lineStart =
+    1 +
+    Math.max(
+      raw.lastIndexOf("\n"),
+      raw.lastIndexOf("\r"),
+      raw.lastIndexOf("\u2028"),
+      raw.lastIndexOf("\u2029"),
+    )
+  if (wholeColumn && lineStart !== 0) return
+  const marker = " CHECK("
+  const offset = raw.indexOf(marker, lineStart)
+  if (offset < 0) return
+  return [raw.slice(0, offset), raw.slice(offset + marker.length, -1)] as const
+}
 export function recoveryChecks(table: RecoveryTable, backend: RecoveryBackend): readonly string[] {
   return [
     ...recoveryColumnSources(table).flatMap((raw) => {
-      const match = / CHECK\((.*)\)$/.exec(raw)
-      return match?.[1] === undefined ? [] : [match[1]]
+      const check = splitRecoveryColumnCheck(raw, false)
+      return check === undefined ? [] : [check[1]]
     }),
     ...table.checks,
   ].map((value) => renderRecoveryExpression(value, backend))
@@ -936,11 +953,11 @@ export function recoverySchemaStatements(
       quote(backend === "sqlite" ? `${tag}_${kind}` : `${naming.prefix}_${tag}_${kind}`)
     const constraints: string[] = []
     const columns = recoveryColumnSources(table).map((raw) => {
-      const match = /^(.*?) CHECK\((.*)\)$/.exec(raw)
-      let column = match?.[1] ?? raw
-      if (match?.[2] !== undefined)
+      const parts = splitRecoveryColumnCheck(raw, true)
+      let column = parts?.[0] ?? raw
+      if (parts !== undefined)
         constraints.push(
-          `CONSTRAINT ${cname(`c${check++}`)} CHECK(${renderRecoveryExpression(match[2], backend)})`,
+          `CONSTRAINT ${cname(`c${check++}`)} CHECK(${renderRecoveryExpression(parts[1], backend)})`,
         )
       if (backend === "postgres" && recoveryColumnType(column) === "int8")
         column = column.replace(/\bINTEGER\b/, "BIGINT")
