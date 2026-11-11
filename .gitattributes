@@ -23,3 +23,5 @@ apps/web/app/seo/lastmod.generated.json -merge linguist-generated=true
 test/agent-protocol/fixtures/upstream/openapi.json -text
 test/agent-protocol/fixtures/upstream/protocol.cddl -text
 test/agent-protocol/fixtures/upstream/LICENSE -text
+test/agent-protocol/fixtures/runtime-v1/sqlite/runtime.sqlite.bin -text
+test/agent-protocol/fixtures/runtime-v1/postgres/pristine-v1.sql -text

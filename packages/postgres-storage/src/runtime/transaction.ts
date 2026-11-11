@@ -28,6 +28,7 @@ import { makeProtectedSources } from "./protected-sources.js"
 import { grantSpec, pendingKey, pendingSpec, receiptSpec } from "./receipts.js"
 import { runSpec } from "./runs.js"
 import { table } from "./schema.js"
+import { deleteRecoveryScope } from "./schema-recovery.js"
 import { makeThread } from "./threads.js"
 export interface RecordFields {
   readonly id: string
@@ -729,6 +730,7 @@ export function makeRuntimeStore(
             status: plan.provider.kind === "none" ? "complete" : "pending",
             payload: { provider: plan.provider, retainedAt, escalationAt: retainedUntil },
           })
+          await deleteRecoveryScope(client, context.naming, scope.threadId, scope.generation)
           await client.query(
             `DELETE FROM ${name("aliases")} WHERE thread_id=$1 AND generation=$2 AND COALESCE((payload::jsonb)->>'kind','') NOT IN ('native_namespace','protected_source')`,
             [scope.threadId, scope.generation],

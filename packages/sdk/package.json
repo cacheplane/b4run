@@ -50,6 +50,10 @@
     },
     "./agent-protocol.schema.json": "./dist/agent-protocol.schema.json",
     "./agent-protocol.fixtures.json": "./dist/agent-protocol.fixtures.json",
+    "./internal/runtime-schema": {
+      "types": "./dist/internal/runtime-schema.d.ts",
+      "default": "./dist/internal/runtime-schema.js"
+    },
     "./internal/runtime-identity": {
       "types": "./dist/internal/runtime-identity.d.ts",
       "default": "./dist/internal/runtime-identity.js"

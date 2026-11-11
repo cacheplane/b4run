@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { openDb } from "../internal/db.js"
 import { acquireOwner, assertSingleProcess, type OwnerLock } from "./owner.js"
-import { installSchema, validateSchema } from "./schema.js"
+import { installSchema, type ValidatedRuntimeSchema, validateSchema } from "./schema.js"
 
 export interface RuntimeInstallation {
   readonly path: string
@@ -52,7 +52,7 @@ function inspectDatabase(path: string): boolean {
     throw new Error("Incompatible orphan runtime sidecar without its database")
   return exists
 }
-function preflight(path: string): string | undefined {
+function preflight(path: string): ValidatedRuntimeSchema | undefined {
   if (!inspectDatabase(path)) return undefined
   // SQLite readOnly still updates shared-memory reader marks. Inspect a private
   // byte copy so even an incompatible WAL/SHM namespace remains untouched.
@@ -74,7 +74,7 @@ function preflight(path: string): string | undefined {
   }
 }
 /** Node trusted-host installation only. Does not bind a caller scope, activate
- * HTTP handlers, migrate legacy stores or advertise protocol capabilities. */
+ * HTTP handlers or advertise protocol capabilities. */
 export function openRuntimeInstallation(
   appRoot: string,
   options: { readonly replicas?: number; readonly workers?: number } = {},
@@ -93,10 +93,10 @@ export function openRuntimeInstallation(
   let db: DatabaseSync | undefined
   try {
     const current = preflight(path)
-    if (current !== expected)
+    if (JSON.stringify(current) !== JSON.stringify(expected))
       throw new Error("Runtime installation changed during ownership acquisition")
     db = openDb(path, { synchronous: "FULL" })
-    const installationId = current ?? installSchema(db)
+    const installationId = installSchema(db, current)
     validateSchema(db)
     const { identity } = lock
     db.prepare("INSERT OR REPLACE INTO runtime_owner VALUES (1,?,?,?,?)").run(

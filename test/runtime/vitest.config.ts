@@ -32,6 +32,10 @@ export default defineConfig({
         rootDir,
         "../../packages/sdk/src/internal/runtime-identity.ts",
       ),
+      "@b4run/sdk/internal/runtime-schema": resolve(
+        rootDir,
+        "../../packages/sdk/src/internal/runtime-schema.ts",
+      ),
       "@b4run/sdk/pure": resolve(rootDir, "../../packages/sdk/src/pure/index.ts"),
       "@b4run/sdk/testing": resolve(rootDir, "../../packages/sdk/src/testing/index.ts"),
       "@b4run/sdk": resolve(rootDir, "../../packages/sdk/src/index.ts"),

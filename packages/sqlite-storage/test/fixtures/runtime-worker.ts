@@ -18,14 +18,14 @@ if (mode === "hot-runtime-journal" || mode === "hot-owner-journal") {
   db.exec(
     "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA cache_size=1; PRAGMA cache_spill=ON",
   )
-  if (isRuntime) db.exec("UPDATE runtime_installation SET version=2")
+  if (isRuntime) db.exec("UPDATE runtime_installation SET version=999")
   else
     db.exec(
       "CREATE TABLE owner_probe(version INTEGER); INSERT INTO owner_probe VALUES (2); CREATE TABLE owner_spill(payload TEXT); INSERT INTO owner_spill VALUES ('committed')",
     )
   db.exec("BEGIN EXCLUSIVE")
   if (isRuntime) {
-    db.exec("UPDATE runtime_installation SET version=1")
+    db.exec("UPDATE runtime_installation SET version=2")
     db.prepare("UPDATE runtime_owner SET process_start=?").run("synthetic-spill".repeat(100_000))
   } else {
     db.exec("UPDATE owner_probe SET version=1")

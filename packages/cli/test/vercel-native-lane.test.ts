@@ -399,23 +399,18 @@ async function makeModelFreeNativeFixture(
   files: Readonly<Record<string, string>>,
 ): Promise<string> {
   const root = await realpath(await makeTempDir())
+  const rendered = renderNativeFixtureManifest("prebuilt", [
+    packedArtifact("@b4run/cli"),
+    packedArtifact("@b4run/postgres-storage"),
+    packedArtifact("@b4run/sdk"),
+  ])
   const manifest = {
-    ...renderNativeFixtureManifest("prebuilt", [
-      packedArtifact("@b4run/cli"),
-      packedArtifact("@b4run/postgres-storage"),
-      packedArtifact("@b4run/sdk"),
-    ]),
+    ...rendered,
     dependencies: {
+      ...(rendered.dependencies as Record<string, string>),
       "@b4run/cli": "0.0.0-test",
       "@b4run/postgres-storage": "0.0.0-test",
       "@b4run/sdk": "0.0.0-test",
-      "@langchain/core": "1.2.12",
-      "@langchain/langgraph": "1.4.17",
-      "@langchain/langgraph-checkpoint": "1.1.5",
-      "@neondatabase/serverless": "1.1.0",
-      hono: "4.12.28",
-      pg: "8.22.0",
-      zod: "4.6.6",
     },
   }
   const fixtureFiles = {
@@ -1170,30 +1165,41 @@ describe("fixture package closure", () => {
       packedArtifact("@b4run/sdk"),
       packedArtifact("@b4run/transitive"),
     ]
-    const manifest = renderNativeFixtureManifest("source", artifacts)
-    expect(manifest).toMatchObject({
-      name: "b4-vercel-native-source",
-      private: true,
-      packageManager: "pnpm@10.33.0",
-      scripts: { build: "b4 build" },
-      dependencies: {
-        "@b4run/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
-        "@b4run/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
-        "@b4run/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
-        "@langchain/core": "1.2.12",
-        "@langchain/langgraph": "1.4.17",
-        "@langchain/langgraph-checkpoint": "1.1.5",
-        "@neondatabase/serverless": "1.1.0",
-        hono: "4.12.28",
-        pg: "8.22.0",
-        zod: "4.6.6",
-      },
-    })
-    expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()
+    for (const kind of ["source", "prebuilt"] as const) {
+      const manifest = renderNativeFixtureManifest(kind, artifacts)
+      expect(manifest).toMatchObject({
+        name: `b4-vercel-native-${kind}`,
+        private: true,
+        packageManager: "pnpm@10.33.0",
+        scripts: { build: "b4 build" },
+        dependencies: {
+          "@b4run/cli": `file:vendor/${artifacts[0]?.tarballName as string}`,
+          "@b4run/postgres-storage": `file:vendor/${artifacts[1]?.tarballName as string}`,
+          "@b4run/sdk": `file:vendor/${artifacts[2]?.tarballName as string}`,
+          "@langchain/core": "1.2.18",
+          "@langchain/langgraph": "1.4.17",
+          "@langchain/langgraph-checkpoint": "1.1.5",
+          "@neondatabase/serverless": "1.1.0",
+          hono: "4.12.28",
+          pg: "8.22.0",
+          zod: "4.6.6",
+        },
+      })
+      expect((manifest.dependencies as Record<string, string>)["@b4run/transitive"]).toBeUndefined()
+    }
 
     const workspace = renderNativeWorkspaceYaml(artifacts)
     expect(workspace).toContain("onlyBuiltDependencies:\n  - esbuild")
     expect(workspace).toContain("allowBuilds:\n  esbuild: true")
+    expect(parseNativeFixtureLockfile(workspace)).toMatchObject({
+      overrides: {
+        "@langchain/core": "1.2.18",
+        "@langchain/langgraph": "1.4.17",
+        "@langchain/langgraph-checkpoint": "1.1.5",
+        "@langchain/openai": "1.5.13",
+        langchain: "1.5.12",
+      },
+    })
     for (const artifact of artifacts) {
       expect(workspace).toContain(
         `${JSON.stringify(artifact.packageName)}: ${JSON.stringify(`file:vendor/${artifact.tarballName}`)}`,
@@ -2328,6 +2334,124 @@ describe("pinned vercel boundary", () => {
     expect(apiCall).toBe(3)
   })
 
+  test.each(["captured", "read-failed", "write-failed"] as const)(
+    "captures failed-readiness build diagnostics before owned cleanup: %s",
+    async (mode) => {
+      const order: string[] = []
+      const diagnostics: Record<string, string> = {}
+      const inspectFailure = new Error("controlled readiness failure")
+      const attemptStartMs = 1_800_000_000_000
+      let marker = ""
+      let apiCalls = 0
+      // The intersection keeps this test compilable against the old options shape:
+      // baseline ignores the callback and fails the observable capture-order assertion.
+      const options: Parameters<typeof runNativeDeployAttempt>[0] & {
+        readonly captureBuildFailure: (deployment: {
+          readonly canonicalOrigin: string
+          readonly deploymentId: string
+        }) => Promise<void>
+      } = {
+        apiClient: {
+          request: async () => {
+            apiCalls += 1
+            if (apiCalls === 1)
+              return {
+                body: { id: "prj_Test456", accountId: "team_Test123", rootDirectory: null },
+                status: 200,
+              }
+            if (apiCalls === 2)
+              return {
+                body: {
+                  id: "dpl_Source123",
+                  url: "b4-source-abc.vercel.app",
+                  projectId: "prj_Test456",
+                  ownerId: "team_Test123",
+                  createdAt: attemptStartMs,
+                  target: null,
+                  meta: { b4VercelRun: marker },
+                },
+                status: 200,
+              }
+            order.push("terminal-state")
+            return {
+              body: { id: "dpl_Source123", readyState: "ERROR", errorCode: "syntax_error" },
+              status: 200,
+            }
+          },
+        },
+        attemptStartMs,
+        boundary: {
+          assertVersion: async () => {},
+          deploy: async (request) => {
+            marker = request.marker
+            return {
+              canonicalOrigin: "https://b4-source-abc.vercel.app",
+              commandEvidence: {
+                command: "deploy",
+                positionalPathAbsent: true,
+                prebuiltFlagCount: 0,
+              },
+              deploymentId: "dpl_Source123",
+            }
+          },
+          inspect: async () => {
+            order.push("readiness-failed")
+            throw inspectFailure
+          },
+        },
+        captureBuildFailure: async (deployment) => {
+          expect(deployment.deploymentId).toBe("dpl_Source123")
+          order.push("read-build-logs")
+          if (mode === "read-failed") throw new Error("controlled build-log read failure")
+          order.push("write-build-log")
+          if (mode === "write-failed") throw new Error("controlled diagnostic write failure")
+          diagnostics["source-build.log"] = "controlled failed build stderr\n"
+        },
+        coordinates: {
+          githubJob: "vercel-native",
+          githubRepositoryId: "123456",
+          githubRunAttempt: "2",
+          githubRunId: "987654",
+          kind: "source",
+          logicalAttemptIndex: "0",
+        },
+        fixtureRoot: "/unused/source",
+        localConfigPath: "/unused/source/vercel.json",
+        orgId: "team_Test123",
+        persistAttempt: async () => {},
+        persistDeploymentBinding: async () => {},
+        persistDeploymentReceipt: async () => {},
+        projectId: "prj_Test456",
+        readConfigEvidence: async () => ({ fluid: true, sha256: "a".repeat(64) }),
+      }
+      const failure = await runNativeOwnedOperation({
+        operation: () => runNativeDeployAttempt(options),
+        close: async () => {
+          order.push("cleanup")
+        },
+      }).then(
+        () => {
+          throw new Error("expected readiness failure")
+        },
+        (error: unknown) => error,
+      )
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).cause).toBe(inspectFailure)
+      expect((failure as Error).message).toContain('"readyState":"ERROR"')
+      expect(apiCalls).toBe(3)
+      expect(order).toEqual([
+        "readiness-failed",
+        "terminal-state",
+        "read-build-logs",
+        ...(mode === "read-failed" ? [] : ["write-build-log"]),
+        "cleanup",
+      ])
+      expect(diagnostics).toEqual(
+        mode === "captured" ? { "source-build.log": "controlled failed build stderr\n" } : {},
+      )
+    },
+  )
+
   test("uses only the fixed Vercel API origin and authorization header", async () => {
     const requests: NativeVercelApiRequest[] = []
     const client = createNativeVercelApiClient({
@@ -2401,6 +2525,104 @@ describe("readiness budget", () => {
     })
     return { boundary, fixtureRoot }
   }
+
+  test.each([0, 1])(
+    "reads redacted ERROR build logs without READY provenance at exit %s",
+    async (exitCode) => {
+      const requests: NativeVercelChildRequest[] = []
+      let strictRead = false
+      const { boundary } = await makeReadinessBoundary(async (request) => {
+        requests.push(request)
+        if (request.args[0] === "--version")
+          return { exitCode: 0, stderr: pinnedVercelVersionStderr, stdout: "58.9.0\n" }
+        if (strictRead)
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: `${pinnedVercelVersionStderr}Fetching deployment "dpl_Source123" in fixture\nstatus\t● Error\n`,
+          }
+        return {
+          exitCode,
+          stdout: "controlled build stdout vercel-token-secret\n",
+          stderr: `controlled build stderr ${encodeURIComponent("postgres://native-secret")}\nstatus\t● Error\n`,
+        }
+      })
+      // Optional structural access yields an assertion RED, not a missing-export/type error.
+      const read = (
+        boundary as typeof boundary & {
+          readonly inspectFailedBuildLogs?: (options: {
+            readonly deploymentId: string
+          }) => Promise<string>
+        }
+      ).inspectFailedBuildLogs
+      expect(typeof read).toBe("function")
+      if (!read) throw new Error("expected failed-build diagnostic reader")
+      await expect(read({ deploymentId: "dpl_Source123" })).rejects.toThrow(/version.*verified/)
+      expect(requests).toEqual([])
+      await boundary.assertVersion()
+      const transcript = await read({ deploymentId: "dpl_Source123" })
+      expect(transcript).toContain(`exitCode: ${exitCode}`)
+      expect(transcript).toContain("controlled build stdout")
+      expect(transcript).toContain("controlled build stderr")
+      expect(transcript).toContain("status\t● Error")
+      for (const value of [
+        "vercel-token-secret",
+        "postgres://native-secret",
+        encodeURIComponent("postgres://native-secret"),
+      ])
+        expect(transcript).not.toContain(value)
+      const request = requests[1]
+      expect(request?.args).toEqual([
+        "inspect",
+        "dpl_Source123",
+        "--logs",
+        "--scope",
+        "team_Test123",
+        "--non-interactive",
+        "--global-config",
+        expect.any(String),
+      ])
+      expect(request?.timeoutMs).toBe(NATIVE_VERCEL_CHILD_TIMEOUT_MS)
+      expect(request?.env).not.toHaveProperty("DATABASE_URL")
+      expect(request?.env).not.toHaveProperty("RELEASE_TOKEN")
+      expect(requests).toHaveLength(2)
+      // The normal provenance reader still requires READY even for safe, exit0 output.
+      strictRead = true
+      await expect(boundary.inspectBuildLogs({ deploymentId: "dpl_Source123" })).rejects.toThrow(
+        /final status must be Ready/,
+      )
+    },
+  )
+
+  test("sanitizes failed-build diagnostic transport failure without retry", async () => {
+    let requests = 0
+    const { boundary } = await makeReadinessBoundary(async (request) => {
+      requests += 1
+      if (request.args[0] === "--version")
+        return { exitCode: 0, stderr: pinnedVercelVersionStderr, stdout: "58.9.0\n" }
+      throw new Error("vercel-token-secret")
+    })
+    const read = (
+      boundary as typeof boundary & {
+        readonly inspectFailedBuildLogs?: (options: {
+          readonly deploymentId: string
+        }) => Promise<string>
+      }
+    ).inspectFailedBuildLogs
+    expect(typeof read).toBe("function")
+    if (!read) throw new Error("expected failed-build diagnostic reader")
+    await boundary.assertVersion()
+    const failure = await read({ deploymentId: "dpl_Source123" }).then(
+      () => {
+        throw new Error("expected diagnostic read failure")
+      },
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe("native Vercel failed build log child transport failed")
+    expect((failure as Error).cause).toBeUndefined()
+    expect(requests).toBe(2)
+  })
 
   test("gives the readiness wait its own budget and leaves the bounded commands alone", async () => {
     const requests: NativeVercelChildRequest[] = []
