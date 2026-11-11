@@ -5,8 +5,10 @@ import { createHash } from "node:crypto"
 import {
   appendFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
@@ -18,9 +20,13 @@ import { createVitest } from "vitest/node"
 
 const [mode, ownedRoot, setupPath] = process.argv.slice(2)
 assert.ok(
-  ["initial-watch", "failed-build", "programmatic-coalescing", "later-reader-admission"].includes(
-    mode,
-  ),
+  [
+    "initial-watch",
+    "failed-build",
+    "programmatic-coalescing",
+    "later-reader-admission",
+    "alias-path",
+  ].includes(mode),
 )
 assert.ok(ownedRoot && setupPath)
 const root = join(ownedRoot, "real-fixture")
@@ -102,12 +108,41 @@ function assertPassed(result) {
 }
 
 try {
+  if (mode === "alias-path") {
+    const target = join(root, "canonical-packages")
+    const alias = join(root, "packages")
+    mkdirSync(target, { mode: 0o700 })
+    symlinkSync(target, alias, process.platform === "win32" ? "junction" : "dir")
+    assert.ok(lstatSync(alias).isSymbolicLink(), "SETUP: fixture owns an explicit directory alias")
+    assert.equal(realpathSync(alias), realpathSync(target))
+  }
   mkdirSync(join(packageDir, "dist"), { recursive: true })
+  if (mode === "alias-path") {
+    const canonicalPackageDir = realpathSync(packageDir)
+    assert.equal(canonicalPackageDir, join(realpathSync(join(root, "canonical-packages")), "mock"))
+    assert.notEqual(
+      packageDir,
+      canonicalPackageDir,
+      "SETUP: logical and canonical output paths differ",
+    )
+    event("alias-fixture", {
+      logicalPackageDir: packageDir,
+      canonicalPackageDir,
+      logicalDistPath: distPath,
+      canonicalDistPath: join(canonicalPackageDir, "dist", "value.js"),
+    })
+  }
   writeFileSync(join(root, "package.json"), '{"type":"module"}\n')
   writeFileSync(distPath, "export const value = 0\n")
   input(1)
   const holds =
-    mode === "programmatic-coalescing" ? [2, 3, 4] : mode === "later-reader-admission" ? [3] : [1]
+    mode === "alias-path"
+      ? []
+      : mode === "programmatic-coalescing"
+        ? [2, 3, 4]
+        : mode === "later-reader-admission"
+          ? [3]
+          : [1]
   const failures = mode === "failed-build" ? [1] : []
   writeFileSync(controlPath, JSON.stringify({ holds, failures }))
   const binding = 'import { buildLinkedDists } from "./helpers/linked-dists.ts"'
@@ -243,7 +278,10 @@ try {
     {
       root,
       config: false,
-      watch: mode !== "programmatic-coalescing" && mode !== "later-reader-admission",
+      watch:
+        mode !== "programmatic-coalescing" &&
+        mode !== "later-reader-admission" &&
+        mode !== "alias-path",
       pool: "forks",
       maxWorkers: 2,
       reporters: [
@@ -356,7 +394,63 @@ try {
     }
     assertPassed(await initial)
     assert.equal(count("reader"), 4)
-    if (mode === "initial-watch") {
+    if (mode === "alias-path") {
+      observerPhase = "alias-rerun"
+      assert.equal(
+        context.config.watch,
+        false,
+        "SETUP: only programmatic reruns may refresh readers",
+      )
+      assert.equal(context.config.pool, "forks")
+      assert.equal(context.config.maxWorkers, 2)
+      assert.equal(context.config.isolate, true, "SETUP: default worker isolation remains enabled")
+      assert.ok(context.projects.every((project) => project.config.isolate === true))
+      assert.ok(
+        context.projects.every((project) => project.vite.config.resolve.preserveSymlinks === false),
+        "SETUP: Vite resolves imports to canonical file identities",
+      )
+      assert.deepEqual(
+        events()
+          .filter((row) => row.kind === "reader")
+          .map((row) => row.value),
+        [1, 1, 1, 1],
+      )
+      const specs = await context.globTestSpecifications()
+      assert.equal(specs.length, 4)
+      assert.deepEqual(
+        new Set(specs.map((spec) => spec.project.name)),
+        new Set(["owner", "reader"]),
+      )
+      input(2)
+      // Observe rejection immediately and retain the actual rerun for the existing finally join.
+      const rerun = context.rerunTestSpecifications(specs).then(
+        (result) => ({ request: 1, status: "fulfilled", result }),
+        (error) => ({ request: 1, status: "rejected", error }),
+      )
+      ownedReruns.push(rerun)
+      const outcome = await rerun
+      if (outcome.status === "rejected") throw outcome.error
+      assert.equal(outcome.result.unhandledErrors.length, 0)
+      assert.equal(outcome.result.testModules.length, 4)
+      const emitted = events().filter((row) => row.kind === "emitted")
+      assert.deepEqual(
+        emitted.map((row) => row.value),
+        [1, 2],
+      )
+      const readers = events()
+        .filter((row) => row.kind === "reader")
+        .slice(4)
+      assert.equal(readers.length, 4, "SETUP: all four native reader bodies ran after rebuild")
+      assert.deepEqual(new Set(readers.map((row) => row.project)), new Set(["owner", "reader"]))
+      assert.deepEqual(new Set(readers.map((row) => row.file)), new Set(files))
+      event("alias-rerun-readers", { values: readers.map((row) => row.value) })
+      assert.deepEqual(
+        readers.map((row) => row.value),
+        [2, 2, 2, 2],
+        "canonical output changed but reused readers observed stale emitted values",
+      )
+      assertPassed(outcome.result)
+    } else if (mode === "initial-watch") {
       input(2)
       assertPassed(await context.rerunTestSpecifications(await context.globTestSpecifications()))
       assert.equal(count("reader"), 8)
@@ -508,12 +602,20 @@ try {
   observerPhase = "failure-caught"
   event("driver-failure-caught", { error: firstError })
 } finally {
-  if (mode === "programmatic-coalescing" || mode === "later-reader-admission") {
+  if (
+    mode === "programmatic-coalescing" ||
+    mode === "later-reader-admission" ||
+    mode === "alias-path"
+  ) {
     allowAdmissionA()
     // Release only existing fixture gates before joining already-owned requests.
     observerPhase = "join-owned-reruns"
     try {
-      for (const build of mode === "later-reader-admission" ? [3] : [2, 3, 4]) {
+      for (const build of mode === "alias-path"
+        ? []
+        : mode === "later-reader-admission"
+          ? [3]
+          : [2, 3, 4]) {
         if (!existsSync(join(root, "release-" + build))) release(build)
       }
     } catch (error) {
