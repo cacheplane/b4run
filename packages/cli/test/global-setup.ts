@@ -1,5 +1,5 @@
-import { lstat, readdir } from "node:fs/promises"
-import { join } from "node:path"
+import { lstat, readdir, realpath } from "node:fs/promises"
+import { join, sep } from "node:path"
 
 import type { Reporter, TestProject, TestSpecification } from "vitest/node"
 
@@ -14,8 +14,11 @@ async function distFiles(packages: readonly { dir: string }[]): Promise<string[]
     for (const entry of entries) {
       const path = join(dir, entry.name)
       if (entry.isDirectory()) await visit(path)
-      else if (entry.isFile()) files.push(path)
-      else throw new Error(`Cannot invalidate non-regular dist entry: ${path}`)
+      else if (entry.isFile()) {
+        // Retain both identities while present so removed outputs can still be invalidated.
+        const canonical = await realpath(path)
+        files.push(path.split(sep).join("/"), canonical.split(sep).join("/"))
+      } else throw new Error(`Cannot invalidate non-regular dist entry: ${path}`)
     }
   }
   for (const { dir } of packages) {

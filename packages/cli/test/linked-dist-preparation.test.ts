@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import { closeSync, openSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -14,6 +15,10 @@ const controlled = vi.hoisted(() => ({
 vi.mock("./helpers/linked-dists.ts", () => ({ buildLinkedDists: controlled.build }))
 
 import { installPreparationReporter, setup } from "./global-setup.ts"
+
+// Resolve the public Vite API through Vitest's declared peer; Vite is not a direct CLI dependency.
+const vitestRequire = createRequire(createRequire(import.meta.url).resolve("vitest/package.json"))
+const { normalizePath }: { normalizePath: (path: string) => string } = vitestRequire("vite")
 
 function deferred() {
   let resolve!: () => void
@@ -141,10 +146,18 @@ test("U2: compiler failure rejects initial setup and a real rerun can recover", 
   const failure = new Error("fixture compiler diagnostic TS9001")
   controlled.build.mockRejectedValueOnce(failure)
   const boundary = projectBoundary()
+  const canonicalPackageDir = await realpath(packageDir)
+  const expectedPaths = [
+    ...new Set(
+      [join(packageDir, "dist", "value.js"), join(canonicalPackageDir, "dist", "value.js")].map(
+        normalizePath,
+      ),
+    ),
+  ].sort()
   await expect(boundary.initial()).rejects.toBe(failure)
   await boundary.rerun()
   expect(controlled.build).toHaveBeenCalledTimes(2)
-  expect(boundary.invalidate).toHaveBeenCalledWith(join(packageDir, "dist", "value.js"))
+  expect(boundary.invalidate.mock.calls.map(([path]) => path)).toEqual(expectedPaths)
 })
 
 test("U3: manual rerun cannot rebuild while the previous readers are still active", async () => {
@@ -163,6 +176,19 @@ test("U4: rerun invalidates removed and current module paths without skipping la
   const boundary = projectBoundary()
   const oldPath = join(packageDir, "dist", "value.js")
   const newPath = join(packageDir, "dist", "nested", "value.js")
+  // Capture the canonical parent while the old output exists; never resolve a deleted file.
+  const canonicalPackageDir = await realpath(packageDir)
+  const oldCanonicalPath = normalizePath(join(canonicalPackageDir, "dist", "value.js"))
+  const expectedPaths = [
+    ...new Set(
+      [
+        oldPath,
+        newPath,
+        oldCanonicalPath,
+        join(canonicalPackageDir, "dist", "nested", "value.js"),
+      ].map(normalizePath),
+    ),
+  ].sort()
   await boundary.initial()
   controlled.build.mockImplementationOnce(async () => {
     await rm(oldPath)
@@ -171,7 +197,8 @@ test("U4: rerun invalidates removed and current module paths without skipping la
     return outputs
   })
   await boundary.rerun()
-  expect(boundary.invalidate.mock.calls.map(([path]) => path)).toEqual([newPath, oldPath].sort())
+  expect(boundary.invalidate.mock.calls.map(([path]) => path)).toEqual(expectedPaths)
+  expect(boundary.invalidate).toHaveBeenCalledWith(oldCanonicalPath)
   await boundary.rerun()
   expect(controlled.build).toHaveBeenCalledTimes(3)
 })
@@ -616,7 +643,13 @@ test("a rerun queued at final invalidation builds its later requested input", as
   boundary.end()
 })
 
-test.each(["initial-watch", "failed-build", "programmatic-coalescing", "later-reader-admission"])(
+test.each([
+  "initial-watch",
+  "failed-build",
+  "programmatic-coalescing",
+  "later-reader-admission",
+  "alias-path",
+])(
   "real two-project Vitest lifecycle: %s",
   async (mode) => {
     const stdoutPath = join(root, "driver.stdout")
