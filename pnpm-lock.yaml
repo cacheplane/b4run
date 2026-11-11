@@ -873,7 +873,7 @@ importers:
         specifier: workspace:*
         version: link:../workspace
       '@langchain/langgraph':
-        specifier: ^1.4.17
+        specifier: 1.4.17
         version: 1.4.17(@langchain/core@1.2.18(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.12.2)(ws@8.21.0)(zod@4.6.6))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.6.6)
       '@typescript/old':
         specifier: npm:typescript@6.0.2
@@ -1020,16 +1020,16 @@ importers:
         specifier: workspace:*
         version: link:../workspace
       '@langchain/langgraph':
-        specifier: ^1.4.17
+        specifier: 1.4.17
         version: 1.4.17(@langchain/core@1.2.18(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.12.2)(ws@8.21.0)(zod@4.6.6))(ws@8.21.0))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.6.6)
       '@langchain/openai':
-        specifier: ^1.5.13
+        specifier: 1.5.13
         version: 1.5.13(@langchain/core@1.2.18(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.12.2)(ws@8.21.0)(zod@4.6.6))(ws@8.21.0))(undici@8.12.2)(ws@8.21.0)
       gpt-tokenizer:
         specifier: ^3.4.0
         version: 3.4.0
       langchain:
-        specifier: ^1.5.12
+        specifier: 1.5.12
         version: 1.5.12(@langchain/core@1.2.18(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.12.2)(ws@8.21.0)(zod@4.6.6))(ws@8.21.0))(@opentelemetry/api@1.9.1)(openai@7.22.0(undici@8.12.2)(ws@8.21.0)(zod@4.6.6))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(ws@8.21.0)
       zod:
         specifier: ^4.6.6
