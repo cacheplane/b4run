@@ -127,7 +127,6 @@ async function appendRunEvent(
   timestamp: string,
 ) {
   await tx.journal.append({
-    eventId: crypto.randomUUID(),
     namespace: row.namespace,
     ownerRunId: row.run.run_id,
     event: {

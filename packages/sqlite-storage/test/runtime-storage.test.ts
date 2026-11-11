@@ -464,7 +464,6 @@ it("persists explicit owners and immutable ordered journal facts with inbox and 
     payload: { retained: true },
   }
   const event = {
-    eventId: data.eventId,
     namespace: [],
     ownerRunId: data.runId,
     event: {
@@ -483,13 +482,23 @@ it("persists explicit owners and immutable ordered journal facts with inbox and 
     await tx.maintenance.put(maintenance)
     expect((await tx.journal.append(event)).seq).toBe(1)
   })
-  await expect(store.transaction((tx) => tx.journal.append(event))).rejects.toThrow(/unique/i)
+  const second = await store.transaction((tx) => tx.journal.append(event))
+  expect(second.seq).toBe(2)
   const snapshot = await store.snapshot()
-  expect(snapshot).toMatchObject({ throughSeq: 1, inbox: [inbox], maintenance: [maintenance] })
+  expect(snapshot).toMatchObject({ throughSeq: 2, inbox: [inbox], maintenance: [maintenance] })
   await store.transaction(async (tx) => {
     expect(await tx.inbox.get("inbox")).toEqual(inbox)
     expect(await tx.maintenance.get("maintenance")).toEqual(maintenance)
-    expect(await tx.journal.read(0)).toEqual([{ ...event, seq: 1 }])
+    const facts = await tx.journal.read(0)
+    expect(facts.map((fact) => fact.seq)).toEqual([1, 2])
+    expect(facts.map((fact) => fact.eventId)).toEqual(
+      [1, 2].map((seq) => `b4e1.${data.scope.generation}.${seq}`),
+    )
+    expect(facts[1]).toEqual(second)
+    expect(facts.map((fact) => fact.event.params.data)).toEqual([
+      event.event.params.data,
+      event.event.params.data,
+    ])
   })
   const db = new DatabaseSync(owner.path, { readOnly: true })
   expect(db.prepare("SELECT thread_id,generation,owner_run_id FROM inbox").get()).toEqual({
@@ -497,7 +506,7 @@ it("persists explicit owners and immutable ordered journal facts with inbox and 
     generation: data.scope.generation,
     owner_run_id: data.runId,
   })
-  expect(db.prepare("SELECT through_seq FROM projections").get()?.through_seq).toBe(1)
+  expect(db.prepare("SELECT through_seq FROM projections").get()?.through_seq).toBe(2)
   db.close()
 })
 it("rejects nested transactions and closes escaped contexts after asynchronous rejection", async () => {
@@ -1064,4 +1073,573 @@ it("keeps exact compound pending identities and immutable historical grants", as
   cleanup.push(() => owner.close())
   const store = bindRuntimeStore(owner, createRuntimeBinding(owner, data.scope), () => data.now)
   await assertPendingGrantIdentities(store, data.run, data.thread)
+})
+
+type JournalGuardInput = Pick<
+  import("@b4run/sdk/agent-protocol").RuntimeJournalRecord,
+  "namespace" | "ownerRunId" | "event"
+>
+type JournalGuardData = typeof import("./fixtures/runtime-data.ts")
+const journalLegacyIds = [
+  "90000000-0000-4000-8000-000000000001",
+  "90000000-0000-4000-8000-000000000002",
+  "90000000-0000-4000-8000-000000000003",
+  "90000000-0000-4000-8000-000000000004",
+] as const
+function journalGuardInput(
+  data: JournalGuardData,
+  namespace: readonly string[] = [],
+  ownerRunId: string | null = data.runId,
+): JournalGuardInput {
+  return {
+    namespace,
+    ownerRunId,
+    event: {
+      type: "event",
+      method: "lifecycle",
+      params: {
+        namespace: [...namespace],
+        timestamp: Date.parse(data.now),
+        data: { event: "completed", cause: { type: "toolCall", toolCallId: "retained-cause" } },
+      },
+    },
+  }
+}
+function journalBaselinePositive(input: JournalGuardInput, _baselineId: string): never {
+  // Baseline caller IDs remain test labels; storage now owns durable coordinates.
+  return { ...input } as never
+}
+function journalGuardFacts(db: DatabaseSync, data: JournalGuardData) {
+  const args = [data.scope.threadId, data.scope.generation]
+  return {
+    scope: db
+      .prepare(
+        "SELECT thread_id,generation,fence,execution_owner,execution_nonce,deleted,CAST(through_seq AS TEXT) AS h FROM scopes WHERE thread_id=? AND generation=?",
+      )
+      .get(...args),
+    journal: db
+      .prepare(
+        "SELECT thread_id,generation,id,CAST(seq AS TEXT) AS seq,owner_run_id,namespace,payload FROM journal WHERE thread_id=? AND generation=? ORDER BY seq",
+      )
+      .all(...args),
+    projections: db
+      .prepare(
+        "SELECT thread_id,generation,CAST(through_seq AS TEXT) AS through_seq,revision,payload FROM projections WHERE thread_id=? AND generation=?",
+      )
+      .all(...args),
+    threads: db.prepare("SELECT * FROM threads WHERE thread_id=? AND generation=?").all(...args),
+    runs: db
+      .prepare("SELECT * FROM runs WHERE thread_id=? AND generation=? ORDER BY id")
+      .all(...args),
+    identities: db
+      .prepare("SELECT * FROM run_identities WHERE thread_id=? AND generation=? ORDER BY id")
+      .all(...args),
+  }
+}
+async function journalGuardFixture() {
+  const { openRuntimeInstallation } = await runtime()
+  const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
+  const data = await import("./fixtures/runtime-data.ts")
+  const owner = openRuntimeInstallation(root())
+  cleanup.push(() => owner.close())
+  const store = bindRuntimeStore(owner, createRuntimeBinding(owner, data.scope), () => data.now)
+  const raw = new DatabaseSync(owner.path)
+  cleanup.push(() => raw.close())
+  const thread = { ...data.thread, headCheckpointId: null }
+  await store.transaction(async (tx) => {
+    await tx.runs.put(data.run)
+    await tx.thread.put(thread)
+    expect(await tx.runs.get(data.runId)).toEqual(data.run)
+  })
+  expect(raw.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+  const before = journalGuardFacts(raw, data)
+  expect(before.scope?.h).toBe("0")
+  expect(before.journal).toEqual([])
+  expect(before.projections).toEqual([])
+  // Real accepted append/read/rollback prerequisite BEFORE each guard manipulation.
+  // A forgotten mechanical legacy-ID removal later fails THIS setup gate, not an authority test.
+  const rollback = new Error("journal valid-append setup rollback")
+  let appended = false
+  await expect(
+    store.transaction(async (tx) => {
+      const record = await tx.journal.append(
+        journalBaselinePositive(journalGuardInput(data), journalLegacyIds[3]),
+      )
+      expect(record.seq).toBe(1)
+      expect(await tx.journal.read(0)).toEqual([record])
+      appended = true
+      throw rollback
+    }),
+  ).rejects.toBe(rollback)
+  expect(appended, "SETUP: baseline-compatible real append must be reached").toBe(true)
+  expect(journalGuardFacts(raw, data)).toEqual(before)
+  return { owner, store, raw, data, thread }
+}
+
+it("refuses wider caller journal stamps before native watermark or projection writes", async () => {
+  const { store, raw, data } = await journalGuardFixture()
+  const before = journalGuardFacts(raw, data)
+  for (const level of ["outer", "embedded"] as const) {
+    for (const [key, value] of [
+      ["eventId", journalLegacyIds[0]],
+      ["seq", 99],
+      ["b4", { v: 1, delivery: "snapshot" }],
+      ["eventId", undefined],
+      ["seq", undefined],
+      ["b4", undefined],
+    ] as const) {
+      const input = journalGuardInput(data)
+      const base = journalBaselinePositive(input, journalLegacyIds[1]) as unknown as Record<
+        string,
+        unknown
+      >
+      const wider =
+        level === "outer"
+          ? { ...base, [key]: value }
+          : { ...base, event: { ...input.event, [key]: value } }
+      const outcome = await store
+        .transaction((tx) => tx.journal.append(wider as never))
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        )
+      const after = journalGuardFacts(raw, data)
+      expect({ outcome, after }, `${level} ${key} supplied`).toEqual({
+        outcome: "rejected",
+        after: before,
+      })
+    }
+  }
+  const next = await store.transaction((tx) =>
+    tx.journal.append(journalBaselinePositive(journalGuardInput(data), journalLegacyIds[2])),
+  )
+  expect(next.seq).toBe(1)
+})
+
+it("refuses a missing current Run even when its canonical identity remains retained", async () => {
+  const { store, raw, data } = await journalGuardFixture()
+  await store.transaction((tx) => tx.runs.delete(data.runId))
+  expect(raw.prepare("SELECT id FROM runs WHERE id=?").all(data.runId)).toEqual([])
+  expect(
+    raw.prepare("SELECT id,thread_id,generation FROM run_identities WHERE id=?").get(data.runId),
+  ).toEqual({ id: data.runId, thread_id: data.scope.threadId, generation: data.scope.generation })
+  expect(raw.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+  const before = journalGuardFacts(raw, data)
+  const outcome = await store
+    .transaction((tx) =>
+      tx.journal.append(journalBaselinePositive(journalGuardInput(data), journalLegacyIds[0])),
+    )
+    .then(
+      () => "resolved" as const,
+      () => "rejected" as const,
+    )
+  expect({ outcome, after: journalGuardFacts(raw, data) }).toEqual({
+    outcome: "rejected",
+    after: before,
+  })
+})
+
+it("refuses a native NULL turn identity that contradicts the stored Run metadata", async () => {
+  const { store, raw, data } = await journalGuardFixture()
+  const corrupted = raw
+    .prepare("UPDATE runs SET turn_id=NULL WHERE id=? AND thread_id=? AND generation=?")
+    .run(data.runId, data.scope.threadId, data.scope.generation)
+  expect(corrupted.changes).toBe(1)
+  const row = raw.prepare("SELECT turn_id,payload FROM runs WHERE id=?").get(data.runId)
+  expect(row?.turn_id).toBeNull()
+  expect(JSON.parse(String(row?.payload)).metadata.turnId).toBe(data.runId)
+  expect(raw.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+  const before = journalGuardFacts(raw, data)
+  const outcome = await store
+    .transaction((tx) =>
+      tx.journal.append(journalBaselinePositive(journalGuardInput(data), journalLegacyIds[0])),
+    )
+    .then(
+      () => "resolved" as const,
+      () => "rejected" as const,
+    )
+  expect({ outcome, after: journalGuardFacts(raw, data) }).toEqual({
+    outcome: "rejected",
+    after: before,
+  })
+})
+
+it("uses stored continuation turn authority and rolls back appended facts with the callback", async () => {
+  const { store, raw, data, thread } = await journalGuardFixture()
+  const continuationId = "90000000-0000-4000-8000-000000000005"
+  const continuation = {
+    ...data.run,
+    run: { ...data.run.run, run_id: continuationId },
+    metadata: { ...data.run.metadata, previousRunId: data.runId, turnId: data.runId },
+  }
+  await store.transaction(async (tx) => {
+    await tx.runs.put(continuation)
+    await tx.thread.put({ ...thread, currentRunId: continuationId, revision: 2 })
+  })
+  const native = raw.prepare("SELECT id,turn_id,payload FROM runs WHERE id=?").get(continuationId)
+  expect(native?.turn_id).toBe(data.runId)
+  expect(native?.id).not.toBe(data.runId)
+  expect(JSON.parse(String(native?.payload))).toEqual(continuation)
+  const input = journalGuardInput(data, ["child/slash", "leaf"], continuationId)
+  const before = journalGuardFacts(raw, data)
+  const rollback = new Error("ordinary callback failure after successful append")
+  await expect(
+    store.transaction(async (tx) => {
+      const staged = await tx.journal.append(journalBaselinePositive(input, journalLegacyIds[0]))
+      expect(staged.seq).toBe(1)
+      expect(await tx.journal.read(0)).toEqual([staged])
+      throw rollback
+    }),
+  ).rejects.toBe(rollback)
+  expect(journalGuardFacts(raw, data)).toEqual(before)
+  const committed = await store.transaction((tx) =>
+    tx.journal.append(journalBaselinePositive(input, journalLegacyIds[1])),
+  )
+  expect(committed.seq).toBe(1)
+  expect(await store.transaction((tx) => tx.journal.read(0))).toEqual([committed])
+  const id = `b4e1.${data.scope.generation}.1`
+  expect(committed).toMatchObject({
+    eventId: id,
+    seq: 1,
+    namespace: input.namespace,
+    ownerRunId: continuationId,
+    event: {
+      eventId: id,
+      seq: 1,
+      b4: { v: 1, generation: data.scope.generation, runId: continuationId, turnId: data.runId },
+    },
+  })
+  expect(committed.event.params.data).toEqual(input.event.params.data)
+  expect(
+    raw.prepare("SELECT id,CAST(seq AS TEXT) AS seq,namespace,payload FROM journal").get(),
+  ).toEqual({
+    id,
+    seq: "1",
+    namespace: JSON.stringify(input.namespace),
+    payload: JSON.stringify(committed),
+  })
+})
+
+it("rolls back caught native projection INSERT and UPSERT aborts after journal and watermark writes", async () => {
+  const { store, raw, data, thread } = await journalGuardFixture()
+  // One DB: first absent projection (INSERT); then existing projection (UPSERT).
+  for (const seq of [1, 2]) {
+    if (seq === 2) {
+      const preceding = await store.transaction((tx) =>
+        tx.journal.append(journalBaselinePositive(journalGuardInput(data), journalLegacyIds[1])),
+      )
+      expect(preceding.seq).toBe(1)
+      expect(raw.prepare("SELECT CAST(through_seq AS TEXT) AS h FROM projections").get()?.h).toBe(
+        "1",
+      )
+    }
+    const before = journalGuardFacts(raw, data)
+    raw.exec(`CREATE TRIGGER r9_journal_projection_abort BEFORE ${seq === 1 ? "INSERT" : "UPDATE"} ON projections
+      WHEN NEW.thread_id='${data.scope.threadId}' AND NEW.generation='${data.scope.generation}'
+        AND NEW.through_seq=${seq}
+        AND EXISTS(SELECT 1 FROM journal WHERE thread_id=NEW.thread_id AND generation=NEW.generation AND seq=${seq})
+        AND (SELECT through_seq FROM scopes WHERE thread_id=NEW.thread_id AND generation=NEW.generation)=${seq}
+      BEGIN SELECT RAISE(ABORT,'fixture projection failure after real journal and H'); END`)
+    try {
+      let caught = false
+      let nativeMessage = ""
+      const outcome = await store
+        .transaction(async (tx) => {
+          await tx.thread.put({
+            ...thread,
+            revision: seq + 1,
+            thread: { ...thread.thread, metadata: { attemptedWrite: seq } },
+          })
+          try {
+            await tx.journal.append(
+              journalBaselinePositive(journalGuardInput(data), journalLegacyIds[2]),
+            )
+          } catch (error) {
+            caught = true
+            nativeMessage = error instanceof Error ? error.message : String(error)
+          }
+          return "caught" as const
+        })
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        )
+      expect(caught, "SETUP: actual conditional native projection trigger must fire").toBe(true)
+      expect(nativeMessage).toContain("fixture projection failure after real journal and H")
+      const after = journalGuardFacts(raw, data)
+      expect({ outcome, after }).toEqual({ outcome: "rejected", after: before })
+    } finally {
+      raw.exec("DROP TRIGGER r9_journal_projection_abort")
+    }
+  }
+})
+
+it("allows an ordinary thread write after a caught prewrite invalid journal stamp without advancing H", async () => {
+  const { store, raw, data, thread } = await journalGuardFixture()
+  const before = journalGuardFacts(raw, data)
+  const changed = {
+    ...thread,
+    revision: 2,
+    thread: { ...thread.thread, metadata: { ordinaryWrite: "retained" } },
+  }
+  const base = journalBaselinePositive(
+    journalGuardInput(data),
+    journalLegacyIds[0],
+  ) as unknown as Record<string, unknown>
+  const invalid = { ...base, b4: { v: 1, delivery: "snapshot" } }
+  let caught = false
+  const value = await store.transaction(async (tx) => {
+    await tx.thread.put(changed)
+    try {
+      await tx.journal.append(invalid as never)
+    } catch {
+      caught = true
+    }
+    return "ordinary-write-committed" as const
+  })
+  const after = journalGuardFacts(raw, data)
+  expect({
+    caught,
+    value,
+    scope: after.scope,
+    journal: after.journal,
+    projections: after.projections,
+    runs: after.runs,
+    identities: after.identities,
+  }).toEqual({
+    caught: true,
+    value: "ordinary-write-committed",
+    scope: before.scope,
+    journal: before.journal,
+    projections: before.projections,
+    runs: before.runs,
+    identities: before.identities,
+  })
+  expect(await store.transaction((tx) => tx.thread.get())).toEqual(changed)
+  expect(after.threads).toEqual([
+    { ...before.threads[0], revision: 2, payload: JSON.stringify(changed) },
+  ])
+})
+
+it("commits the maximum safe journal coordinate and refuses the next fact", async () => {
+  const { store, raw, data } = await journalGuardFixture()
+  raw
+    .prepare("UPDATE scopes SET through_seq=9007199254740990 WHERE thread_id=? AND generation=?")
+    .run(data.scope.threadId, data.scope.generation)
+  expect(
+    raw.prepare("SELECT CAST(through_seq AS TEXT) AS h,typeof(through_seq) AS t FROM scopes").get(),
+  ).toEqual({ h: "9007199254740990", t: "integer" })
+  const last = await store.transaction((tx) =>
+    tx.journal.append(
+      journalBaselinePositive(journalGuardInput(data, [], null), journalLegacyIds[0]),
+    ),
+  )
+  expect(last.seq).toBe(9007199254740991)
+  expect(raw.prepare("SELECT CAST(through_seq AS TEXT) AS h FROM scopes").get()?.h).toBe(
+    "9007199254740991",
+  )
+  const before = journalGuardFacts(raw, data)
+  await expect(
+    store.transaction((tx) =>
+      tx.journal.append(
+        journalBaselinePositive(journalGuardInput(data, [], null), journalLegacyIds[1]),
+      ),
+    ),
+  ).rejects.toThrow(/capacity|exhaust|sequence/i)
+  expect(journalGuardFacts(raw, data)).toEqual(before)
+  expect(await store.transaction((tx) => tx.journal.read(9007199254740990))).toEqual([last])
+  const id = `b4e1.${data.scope.generation}.9007199254740991`
+  expect(last).toMatchObject({
+    eventId: id,
+    seq: 9007199254740991,
+    event: { eventId: id, seq: 9007199254740991, b4: { v: 1, generation: data.scope.generation } },
+  })
+  expect(Object.hasOwn(last.event.b4 as object, "runId")).toBe(false)
+  expect(Object.hasOwn(last.event.b4 as object, "turnId")).toBe(false)
+})
+
+it("rolls back a caught post-allocation JavaScript throw undefined without losing the failure state", async () => {
+  const { owner, store, raw, data, thread } = await journalGuardFixture()
+  const { installationContext } = await import("../src/runtime/index.ts")
+  const writer = installationContext(owner).db
+  const originalOwn = Object.getOwnPropertyDescriptor(writer, "prepare")
+  const prepare = writer.prepare.bind(writer)
+  const before = journalGuardFacts(raw, data)
+  let reached = 0
+  let nativeWitness: { h: unknown; journal: unknown } | undefined
+  Object.defineProperty(writer, "prepare", {
+    configurable: true,
+    writable: true,
+    value: (...args: Parameters<DatabaseSync["prepare"]>): ReturnType<DatabaseSync["prepare"]> => {
+      if (args[0].startsWith("INSERT INTO projections")) {
+        reached += 1
+        // SAME native writer/transaction, bypassing only this wrapper; no fake DB or alternate write.
+        nativeWitness = {
+          h: prepare(
+            "SELECT CAST(through_seq AS TEXT) AS h FROM scopes WHERE thread_id=? AND generation=?",
+          ).get(data.scope.threadId, data.scope.generation)?.h,
+          journal: prepare(
+            "SELECT count(*) AS n FROM journal WHERE thread_id=? AND generation=? AND seq=1",
+          ).get(data.scope.threadId, data.scope.generation)?.n,
+        }
+        throw undefined
+      }
+      return prepare(...args)
+    },
+  })
+  let outcome:
+    | { status: "resolved"; value: "caught" }
+    | { status: "rejected"; reason: unknown }
+    | undefined
+  let caught = false
+  let caughtValue: unknown = "not-caught"
+  let restored = false
+  try {
+    outcome = await store
+      .transaction(async (tx) => {
+        await tx.thread.put({
+          ...thread,
+          revision: 2,
+          thread: { ...thread.thread, metadata: { attemptedWrite: "must roll back" } },
+        })
+        try {
+          await tx.journal.append(
+            journalBaselinePositive(journalGuardInput(data), journalLegacyIds[0]),
+          )
+        } catch (error) {
+          caught = true
+          caughtValue = error
+        }
+        return "caught" as const
+      })
+      .then(
+        (value) => ({ status: "resolved" as const, value }),
+        (reason) => ({ status: "rejected" as const, reason }),
+      )
+  } finally {
+    if (originalOwn) {
+      Object.defineProperty(writer, "prepare", originalOwn)
+      restored = true
+    } else restored = Reflect.deleteProperty(writer, "prepare")
+  }
+  expect(restored, "SETUP: restore the exact owned prepare descriptor/inherited method").toBe(true)
+  expect(Object.getOwnPropertyDescriptor(writer, "prepare")).toEqual(originalOwn)
+  expect(
+    { reached, nativeWitness, caught, caughtValue },
+    "SETUP: real INSERT and H writes precede JS throw undefined",
+  ).toEqual({
+    reached: 1,
+    nativeWitness: { h: "1", journal: 1 },
+    caught: true,
+    caughtValue: undefined,
+  })
+  const after = journalGuardFacts(raw, data)
+  expect({ outcome, after }).toEqual({
+    outcome: { status: "rejected", reason: undefined },
+    after: before,
+  })
+})
+
+it("refuses a native canonical journal ID collision without overwriting or skipping a fact", async () => {
+  const { store, raw, data, thread } = await journalGuardFixture()
+  // The scope has been admitted by real transactions and its journal/H are empty/zero.
+  const collisionId = `b4e1.${data.scope.generation}.2`
+  const legacy: import("@b4run/sdk/agent-protocol").RuntimeJournalRecord = {
+    eventId: collisionId,
+    seq: 1,
+    namespace: [],
+    ownerRunId: null,
+    // Genuine legacy read shape: embedded coordinates/correlation are optional.
+    event: {
+      type: "event",
+      method: "values",
+      params: {
+        namespace: [],
+        timestamp: Date.parse(data.now),
+        data: { legacy: "retain exact bytes 🌱", unknown: [true, null, 3.25] },
+      },
+    },
+  }
+  const legacyPayload = JSON.stringify(legacy)
+  raw.exec("BEGIN IMMEDIATE")
+  try {
+    raw
+      .prepare(
+        "INSERT INTO journal(thread_id,generation,id,seq,owner_run_id,namespace,payload) VALUES (?,?,?,1,NULL,'[]',?)",
+      )
+      .run(data.scope.threadId, data.scope.generation, collisionId, legacyPayload)
+    const changed = raw
+      .prepare(
+        "UPDATE scopes SET through_seq=1 WHERE thread_id=? AND generation=? AND through_seq=0",
+      )
+      .run(data.scope.threadId, data.scope.generation)
+    expect(
+      changed.changes,
+      "SETUP: raw legacy seed starts from the actual empty journal watermark",
+    ).toBe(1)
+    raw
+      .prepare(
+        "INSERT INTO projections(thread_id,generation,through_seq,revision,payload) VALUES (?,?,1,?,?)",
+      )
+      .run(
+        data.scope.threadId,
+        data.scope.generation,
+        thread.revision,
+        JSON.stringify({ throughSeq: 1 }),
+      )
+    raw.exec("COMMIT")
+  } catch (error) {
+    if (raw.isTransaction) raw.exec("ROLLBACK")
+    throw error
+  }
+  expect(raw.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+  expect(
+    raw
+      .prepare("SELECT id,CAST(seq AS TEXT) AS seq FROM journal WHERE thread_id=? AND generation=?")
+      .all(data.scope.threadId, data.scope.generation),
+  ).toEqual([{ id: collisionId, seq: "1" }])
+  expect(
+    raw
+      .prepare(
+        "SELECT CAST(through_seq AS TEXT) AS h FROM scopes WHERE thread_id=? AND generation=?",
+      )
+      .get(data.scope.threadId, data.scope.generation)?.h,
+  ).toBe("1")
+  expect(await store.transaction((tx) => tx.journal.read(0))).toEqual([legacy])
+  const legacyBytes = raw
+    .prepare("SELECT hex(payload) AS bytes FROM journal WHERE id=?")
+    .get(collisionId)?.bytes
+  expect(legacyBytes).toBe(Buffer.from(legacyPayload, "utf8").toString("hex").toUpperCase())
+  const before = journalGuardFacts(raw, data)
+  let caught = false
+  let nativeMessage = ""
+  const outcome = await store
+    .transaction(async (tx) => {
+      await tx.thread.put({
+        ...thread,
+        revision: 2,
+        thread: { ...thread.thread, metadata: { attemptedWrite: "collision must roll back" } },
+      })
+      try {
+        await tx.journal.append(
+          journalBaselinePositive(journalGuardInput(data, [], null), journalLegacyIds[0]),
+        )
+      } catch (error) {
+        caught = true
+        nativeMessage = error instanceof Error ? error.message : String(error)
+      }
+      return "caught" as const
+    })
+    .then(
+      () => "resolved" as const,
+      () => "rejected" as const,
+    )
+  const after = journalGuardFacts(raw, data)
+  // Primary baseline RED: random caller ID succeeds at H2; no accidental not-null/setup failure.
+  expect({ outcome, caught, after }).toEqual({ outcome: "rejected", caught: true, after: before })
+  expect(nativeMessage).toMatch(/unique.*journal\.id/i)
+  expect(
+    raw.prepare("SELECT hex(payload) AS bytes FROM journal WHERE id=?").get(collisionId)?.bytes,
+  ).toBe(legacyBytes)
+  expect(await store.transaction((tx) => tx.journal.read(0))).toEqual([legacy])
 })

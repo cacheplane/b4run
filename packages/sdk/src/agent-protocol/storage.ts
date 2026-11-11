@@ -446,6 +446,22 @@ export interface RuntimeExecutionLease {
   release(callback?: (tx: RuntimeTransaction) => Promise<void>): Promise<void>
 }
 
+/** An unsequenced fact from an already trusted producer. Storage supplies both
+ * coordinates and top-level correlation; those keys cannot be supplied even
+ * through wider variables or as explicitly undefined properties. */
+export interface RuntimeJournalAppendInput {
+  readonly namespace: Namespace
+  readonly ownerRunId: string | null
+  readonly event: AspEvent & {
+    readonly eventId?: never
+    readonly seq?: never
+    readonly b4?: never
+  }
+  readonly eventId?: never
+  readonly seq?: never
+  readonly b4?: never
+}
+
 export interface RuntimeJournalRecord {
   readonly eventId: string
   readonly seq: number
@@ -560,7 +576,7 @@ export interface RuntimeTransaction {
   readonly receipts: RuntimeRecords<RuntimeReceiptRecord>
   readonly journal: {
     /** Assign seq under the same Thread lock; materialize before commit. */
-    append(record: Omit<RuntimeJournalRecord, "seq">): Promise<RuntimeJournalRecord>
+    append(input: RuntimeJournalAppendInput): Promise<RuntimeJournalRecord>
     read(afterSeq: number): Promise<readonly RuntimeJournalRecord[]>
   }
   readonly inbox: RuntimeRecords<RuntimeInboxRecord>

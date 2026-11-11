@@ -208,7 +208,6 @@ export async function parkPermissions(
       },
     })
     await tx.journal.append({
-      eventId: crypto.randomUUID(),
       ownerRunId: runId,
       namespace: proposal.namespace,
       event: {
@@ -271,7 +270,6 @@ export async function parkPermissions(
     thread: { ...thread.thread, updated_at: timestamp, status: "interrupted" },
   })
   await tx.journal.append({
-    eventId: crypto.randomUUID(),
     ownerRunId: runId,
     namespace: row.namespace,
     event: {
@@ -336,7 +334,6 @@ export async function retirePermissionPause(
     thread: { ...thread.thread, status: "idle", updated_at: timestamp },
   })
   await tx.journal.append({
-    eventId: crypto.randomUUID(),
     namespace: run.namespace,
     ownerRunId: runId,
     event: {
@@ -931,7 +928,6 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           thread: { ...thread.thread, status: "busy", updated_at: timestamp },
         })
         await tx.journal.append({
-          eventId: crypto.randomUUID(),
           ownerRunId: runId,
           namespace: previous.namespace,
           event: {
@@ -977,7 +973,6 @@ export function createPermissionService(options: PermissionServiceOptions): Perm
           createdAt: timestamp,
         })
         await tx.journal.append({
-          eventId: crypto.randomUUID(),
           ownerRunId: continuationRunId,
           namespace: previous.namespace,
           event: {

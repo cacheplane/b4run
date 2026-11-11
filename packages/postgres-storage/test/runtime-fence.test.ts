@@ -345,7 +345,6 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
           await tx.thread.put({ ...thread, revision: 2 })
           await fixture.store.checkpointer(run.run.run_id).put(config, checkpoint, metadata, {})
           await tx.journal.append({
-            eventId: "expired-event",
             ownerRunId: run.run.run_id,
             namespace: [],
             event: {

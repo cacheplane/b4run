@@ -54,6 +54,7 @@ export interface Access {
   check(): void
   query<R = unknown>(sql: string, values?: readonly unknown[]): Promise<SqlResult<R>>
   reference(table: string, id: string | null): Promise<void>
+  failJournal(error: unknown): void
 }
 export function diagnostic(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code })
@@ -172,6 +173,19 @@ function makeAccess(
     scope,
     now,
     check,
+    failJournal(error) {
+      const activity = context.host.activity.getStore()
+      if (
+        activity?.kind === "transaction" &&
+        activity.owner === owner &&
+        activity.active &&
+        activity.scopeKey === scopeKey(owner, scope)
+      ) {
+        activity.failure ??= { error }
+        return
+      }
+      throw error
+    },
     async query<R>(sql: string, values?: readonly unknown[]) {
       check()
       let position = 0

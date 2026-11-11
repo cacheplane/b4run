@@ -393,7 +393,6 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       ],
     }
     const event = {
-      eventId: "journal-fact",
       namespace: [],
       ownerRunId: run.run.run_id,
       event: {
@@ -406,7 +405,7 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       await expect(
         fixture.store.transaction((tx) => tx.checkpoints.put(checkpoint)),
       ).rejects.toThrow(/foreign key/i)
-      await fixture.store.transaction(async (tx) => {
+      const first = await fixture.store.transaction(async (tx) => {
         await tx.runs.put(run)
         await tx.checkpoints.put(checkpoint)
         await tx.thread.put({ ...thread, headCheckpointId: checkpointId })
@@ -419,16 +418,36 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
           payload: { stop: true },
           createdAt: run.run.created_at,
         })
-        expect((await tx.journal.append(event)).seq).toBe(1)
+        const record = await tx.journal.append(event)
+        expect(record.seq).toBe(1)
+        return record
       })
-      await expect(fixture.store.transaction((tx) => tx.journal.append(event))).rejects.toThrow(
-        /unique/i,
-      )
+      const journalTable = `${fixture.naming.schema}.${fixture.naming.tablePrefix}_journal`
+      const firstBytes = (
+        await backend.second.query(
+          `SELECT id,seq::text AS seq,encode(convert_to(payload,'UTF8'),'hex') AS bytes FROM ${journalTable} WHERE seq=1`,
+        )
+      ).rows
+      expect(firstBytes).toHaveLength(1)
+      // Same unsequenced body produces a new canonical fact; actual collision rollback is
+      // retained separately in the new legacy-future-ID UNIQUE case, not silently waived.
+      const second = await fixture.store.transaction((tx) => tx.journal.append(event))
+      expect(first.eventId).toBe(`b4e1.${ids.generation}.1`)
+      expect(second.eventId).toBe(`b4e1.${ids.generation}.2`)
+      expect(second.seq).toBe(2)
+      expect(await fixture.store.transaction((tx) => tx.journal.read(0))).toEqual([first, second])
+      expect(
+        (
+          await backend.second.query(
+            `SELECT id,seq::text AS seq,encode(convert_to(payload,'UTF8'),'hex') AS bytes FROM ${journalTable} WHERE seq=1`,
+          )
+        ).rows,
+      ).toEqual(firstBytes)
       await fixture.store.transaction((tx) => tx.runs.delete(run.run.run_id))
       const snapshot = await fixture.observer.snapshot()
       expect(snapshot.runs).toEqual([])
       expect(snapshot.checkpoints).toEqual([checkpoint])
-      expect(snapshot.throughSeq).toBe(1)
+      expect(snapshot.throughSeq).toBe(2)
       const table = `${fixture.naming.schema}.${fixture.naming.tablePrefix}`
       expect(
         (await backend.second.query(`SELECT id,thread_id,generation FROM ${table}_run_identities`))
@@ -449,7 +468,7 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       ])
       expect(
         (await backend.second.query(`SELECT through_seq FROM ${table}_projections`)).rows,
-      ).toEqual([{ through_seq: "1" }])
+      ).toEqual([{ through_seq: "2" }])
     } finally {
       await fixture.close()
     }
@@ -1032,5 +1051,811 @@ describe.skipIf(process.env.B4_TEST_PGSTORAGE !== "1")("real Postgres runtime co
       expect(pool.totalCount).toBe(0)
       expect(pool.waitingCount).toBe(0)
     }
+  })
+
+  // Native journal guards use the existing suite-owned backend and per-case namespace.
+  type PgJournalInput = Pick<
+    import("@b4run/sdk/agent-protocol").RuntimeJournalRecord,
+    "namespace" | "ownerRunId" | "event"
+  >
+  type PgJournalData = typeof import("./fixtures/runtime-data.ts")
+  type PgJournalFixture = Awaited<ReturnType<typeof bound>> & { data: PgJournalData; table: string }
+  const pgJournalLegacyIds = [
+    "90000000-0000-4000-8000-000000000001",
+    "90000000-0000-4000-8000-000000000002",
+    "90000000-0000-4000-8000-000000000003",
+    "90000000-0000-4000-8000-000000000004",
+  ] as const
+  function pgJournalInput(
+    data: PgJournalData,
+    namespace: readonly string[] = [],
+    ownerRunId: string | null = data.run.run.run_id,
+  ): PgJournalInput {
+    return {
+      namespace,
+      ownerRunId,
+      event: {
+        type: "event",
+        method: "lifecycle",
+        params: {
+          namespace: [...namespace],
+          timestamp: Date.parse(data.run.run.created_at),
+          data: { event: "completed", cause: { type: "toolCall", toolCallId: "retained-cause" } },
+        },
+      },
+    }
+  }
+  function pgJournalBaselinePositive(input: PgJournalInput, _baselineId: string): never {
+    // The legacy ID parameter keeps the test-first API removal mechanical; it supplies no authority.
+    return input as never
+  }
+  async function pgJournalFacts(f: PgJournalFixture) {
+    const args = [ids.thread, ids.generation]
+    return {
+      scope: (
+        await backend.second.query(
+          `SELECT thread_id,generation,fence::text AS fence,lease_expires_at::text AS lease_expires_at,execution_owner,deleted,through_seq::text AS h FROM ${f.table}_scopes WHERE thread_id=$1 AND generation=$2`,
+          args,
+        )
+      ).rows,
+      journal: (
+        await backend.second.query(
+          `SELECT thread_id,generation,id,seq::text AS seq,owner_run_id,namespace,payload FROM ${f.table}_journal WHERE thread_id=$1 AND generation=$2 ORDER BY seq`,
+          args,
+        )
+      ).rows,
+      projections: (
+        await backend.second.query(
+          `SELECT thread_id,generation,through_seq::text AS through_seq,revision::text AS revision,payload FROM ${f.table}_projections WHERE thread_id=$1 AND generation=$2`,
+          args,
+        )
+      ).rows,
+      threads: (
+        await backend.second.query(
+          `SELECT thread_id,generation,revision::text AS revision,head_checkpoint_id,current_run_id,paused_generation,payload FROM ${f.table}_threads WHERE thread_id=$1 AND generation=$2`,
+          args,
+        )
+      ).rows,
+      runs: (
+        await backend.second.query(
+          `SELECT * FROM ${f.table}_runs WHERE thread_id=$1 AND generation=$2 ORDER BY id`,
+          args,
+        )
+      ).rows,
+      identities: (
+        await backend.second.query(
+          `SELECT * FROM ${f.table}_run_identities WHERE thread_id=$1 AND generation=$2 ORDER BY id`,
+          args,
+        )
+      ).rows,
+    }
+  }
+  async function withPgJournalFixture(body: (f: PgJournalFixture) => Promise<void>) {
+    const fixture = await bound(backend)
+    try {
+      const data = await import("./fixtures/runtime-data.ts")
+      const f = {
+        ...fixture,
+        data,
+        table: `${fixture.naming.schema}.${fixture.naming.tablePrefix}`,
+      }
+      await fixture.store.transaction(async (tx) => {
+        await tx.runs.put(data.run)
+        await tx.thread.put(data.thread)
+        expect(await tx.runs.get(data.run.run.run_id)).toEqual(data.run)
+      })
+      const before = await pgJournalFacts(f)
+      expect(before.scope[0]?.h).toBe("0")
+      expect(before.journal).toEqual([])
+      expect(before.projections).toEqual([])
+      const rollback = new Error("PG journal valid append setup rollback")
+      let reached = false
+      await expect(
+        fixture.store.transaction(async (tx) => {
+          const record = await tx.journal.append(
+            pgJournalBaselinePositive(pgJournalInput(data), pgJournalLegacyIds[3]),
+          )
+          expect(record.seq).toBe(1)
+          expect(await tx.journal.read(0)).toEqual([record])
+          reached = true
+          throw rollback
+        }),
+      ).rejects.toBe(rollback)
+      expect(reached, "SETUP: actual valid append/read/callback rollback must run").toBe(true)
+      expect(await pgJournalFacts(f)).toEqual(before)
+      await body(f)
+    } finally {
+      await fixture.close()
+    }
+  }
+
+  it("refuses wider caller journal stamps before native watermark or projection writes", async () => {
+    await withPgJournalFixture(async (f) => {
+      const before = await pgJournalFacts(f)
+      for (const level of ["outer", "embedded"] as const) {
+        for (const [key, value] of [
+          ["eventId", pgJournalLegacyIds[0]],
+          ["seq", 99],
+          ["b4", { v: 1, delivery: "snapshot" }],
+          ["eventId", undefined],
+          ["seq", undefined],
+          ["b4", undefined],
+        ] as const) {
+          const input = pgJournalInput(f.data)
+          const base = pgJournalBaselinePositive(input, pgJournalLegacyIds[1]) as unknown as Record<
+            string,
+            unknown
+          >
+          const wider =
+            level === "outer"
+              ? { ...base, [key]: value }
+              : { ...base, event: { ...input.event, [key]: value } }
+          const outcome = await f.store
+            .transaction((tx) => tx.journal.append(wider as never))
+            .then(
+              () => "resolved" as const,
+              () => "rejected" as const,
+            )
+          expect({ outcome, after: await pgJournalFacts(f) }, `${level} ${key} supplied`).toEqual({
+            outcome: "rejected",
+            after: before,
+          })
+        }
+      }
+      const next = await f.store.transaction((tx) =>
+        tx.journal.append(pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[2])),
+      )
+      expect(next.seq).toBe(1)
+    })
+  })
+
+  it("refuses a missing current Run even when its canonical identity remains retained", async () => {
+    await withPgJournalFixture(async (f) => {
+      const runId = f.data.run.run.run_id
+      await f.store.transaction((tx) => tx.runs.delete(runId))
+      expect(
+        (await backend.second.query(`SELECT id FROM ${f.table}_runs WHERE id=$1`, [runId])).rows,
+      ).toEqual([])
+      expect(
+        (
+          await backend.second.query(
+            `SELECT id,thread_id,generation FROM ${f.table}_run_identities WHERE id=$1`,
+            [runId],
+          )
+        ).rows,
+      ).toEqual([{ id: runId, thread_id: ids.thread, generation: ids.generation }])
+      const before = await pgJournalFacts(f)
+      const outcome = await f.store
+        .transaction((tx) =>
+          tx.journal.append(
+            pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[0]),
+          ),
+        )
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        )
+      expect({ outcome, after: await pgJournalFacts(f) }).toEqual({
+        outcome: "rejected",
+        after: before,
+      })
+    })
+  })
+
+  it("refuses a native NULL turn identity that contradicts the stored Run metadata", async () => {
+    await withPgJournalFixture(async (f) => {
+      const runId = f.data.run.run.run_id
+      const changed = await backend.second.query(
+        `UPDATE ${f.table}_runs SET turn_id=NULL WHERE id=$1 AND thread_id=$2 AND generation=$3 RETURNING id`,
+        [runId, ids.thread, ids.generation],
+      )
+      expect(changed.rows).toEqual([{ id: runId }])
+      const row = (
+        await backend.second.query(`SELECT turn_id,payload FROM ${f.table}_runs WHERE id=$1`, [
+          runId,
+        ])
+      ).rows[0]
+      expect(row?.turn_id).toBeNull()
+      expect(JSON.parse(row.payload).metadata.turnId).toBe(f.data.run.metadata.turnId)
+      const before = await pgJournalFacts(f)
+      const outcome = await f.store
+        .transaction((tx) =>
+          tx.journal.append(
+            pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[0]),
+          ),
+        )
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        )
+      expect({ outcome, after: await pgJournalFacts(f) }).toEqual({
+        outcome: "rejected",
+        after: before,
+      })
+    })
+  })
+
+  it("uses stored continuation turn authority and rolls back appended facts with the callback", async () => {
+    await withPgJournalFixture(async (f) => {
+      const turnId = f.data.run.metadata.turnId
+      const continuation = {
+        ...f.data.run,
+        run: { ...f.data.run.run, run_id: ids.continuation },
+        metadata: { ...f.data.run.metadata, previousRunId: f.data.run.run.run_id, turnId },
+      }
+      await f.store.transaction(async (tx) => {
+        await tx.runs.put(continuation)
+        await tx.thread.put({ ...f.data.thread, currentRunId: ids.continuation, revision: 2 })
+      })
+      const native = (
+        await backend.second.query(`SELECT id,turn_id,payload FROM ${f.table}_runs WHERE id=$1`, [
+          ids.continuation,
+        ])
+      ).rows[0]
+      expect(native.turn_id).toBe(turnId)
+      expect(native.id).not.toBe(turnId)
+      expect(JSON.parse(native.payload)).toEqual(continuation)
+      const input = pgJournalInput(f.data, ["child/slash", "leaf"], ids.continuation)
+      const before = await pgJournalFacts(f)
+      const rollback = new Error("PG ordinary callback after successful append")
+      await expect(
+        f.store.transaction(async (tx) => {
+          const staged = await tx.journal.append(
+            pgJournalBaselinePositive(input, pgJournalLegacyIds[0]),
+          )
+          expect(staged.seq).toBe(1)
+          expect(await tx.journal.read(0)).toEqual([staged])
+          throw rollback
+        }),
+      ).rejects.toBe(rollback)
+      expect(await pgJournalFacts(f)).toEqual(before)
+      const committed = await f.store.transaction((tx) =>
+        tx.journal.append(pgJournalBaselinePositive(input, pgJournalLegacyIds[1])),
+      )
+      expect(committed.seq).toBe(1)
+      expect(await f.store.transaction((tx) => tx.journal.read(0))).toEqual([committed])
+      const id = `b4e1.${ids.generation}.1`
+      expect(committed).toMatchObject({
+        eventId: id,
+        seq: 1,
+        namespace: input.namespace,
+        ownerRunId: ids.continuation,
+        event: {
+          eventId: id,
+          seq: 1,
+          b4: { v: 1, generation: ids.generation, runId: ids.continuation, turnId },
+        },
+      })
+      expect(committed.event.params.data).toEqual(input.event.params.data)
+      expect(
+        (
+          await backend.second.query(
+            `SELECT id,seq::text AS seq,namespace,payload FROM ${f.table}_journal`,
+          )
+        ).rows,
+      ).toEqual([
+        {
+          id,
+          seq: "1",
+          namespace: JSON.stringify(input.namespace),
+          payload: JSON.stringify(committed),
+        },
+      ])
+    })
+  })
+
+  it("rolls back caught native projection INSERT and UPSERT aborts after journal and watermark writes", async () => {
+    await withPgJournalFixture(async (f) => {
+      const fn = `${f.table}_journal_guard_abort`
+      for (const seq of [1, 2]) {
+        if (seq === 2) {
+          const preceding = await f.store.transaction((tx) =>
+            tx.journal.append(
+              pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[1]),
+            ),
+          )
+          expect(preceding.seq).toBe(1)
+          expect(
+            (
+              await backend.second.query(
+                `SELECT through_seq::text AS h FROM ${f.table}_projections`,
+              )
+            ).rows,
+          ).toEqual([{ h: "1" }])
+        }
+        const before = await pgJournalFacts(f)
+        // Raw PRIVATE fixture DDL outside any fenced callback: no dollar-quote/control bypass.
+        await backend.second.query(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+          IF NEW.thread_id='${ids.thread}' AND NEW.generation='${ids.generation}' AND NEW.through_seq=${seq}
+            AND EXISTS(SELECT 1 FROM ${f.table}_journal WHERE thread_id=NEW.thread_id AND generation=NEW.generation AND seq=${seq})
+            AND (SELECT through_seq FROM ${f.table}_scopes WHERE thread_id=NEW.thread_id AND generation=NEW.generation)=${seq}
+          THEN RAISE EXCEPTION 'fixture projection failure after real journal and H' USING ERRCODE='P0001'; END IF;
+          RETURN NEW; END $$`)
+        try {
+          await backend.second.query(
+            `CREATE TRIGGER journal_guard_abort BEFORE ${seq === 1 ? "INSERT" : "UPDATE"} ON ${f.table}_projections FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+          )
+          try {
+            let caught = false
+            let nativeMessage = ""
+            let nativeCode: unknown
+            const outcome = await f.store
+              .transaction(async (tx) => {
+                await tx.thread.put({
+                  ...f.data.thread,
+                  revision: seq + 1,
+                  thread: { ...f.data.thread.thread, metadata: { attemptedWrite: seq } },
+                })
+                try {
+                  await tx.journal.append(
+                    pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[2]),
+                  )
+                } catch (error) {
+                  caught = true
+                  nativeMessage = error instanceof Error ? error.message : String(error)
+                  nativeCode = (error as { code?: unknown })?.code
+                }
+                return "caught" as const
+              })
+              .then(
+                () => "resolved" as const,
+                () => "rejected" as const,
+              )
+            expect(
+              { caught, nativeCode },
+              "SETUP: real conditional native trigger must run",
+            ).toEqual({ caught: true, nativeCode: "P0001" })
+            expect(nativeMessage).toContain("fixture projection failure after real journal and H")
+            expect({ outcome, after: await pgJournalFacts(f) }).toEqual({
+              outcome: "rejected",
+              after: before,
+            })
+          } finally {
+            await backend.second.query(`DROP TRIGGER journal_guard_abort ON ${f.table}_projections`)
+          }
+        } finally {
+          await backend.second.query(`DROP FUNCTION ${fn}()`)
+        }
+      }
+    })
+  })
+
+  it("allows an ordinary thread write after a caught prewrite invalid journal stamp without advancing H", async () => {
+    await withPgJournalFixture(async (f) => {
+      const before = await pgJournalFacts(f)
+      const changed = {
+        ...f.data.thread,
+        revision: 2,
+        thread: { ...f.data.thread.thread, metadata: { ordinaryWrite: "retained" } },
+      }
+      const base = pgJournalBaselinePositive(
+        pgJournalInput(f.data),
+        pgJournalLegacyIds[0],
+      ) as unknown as Record<string, unknown>
+      let caught = false
+      const value = await f.store.transaction(async (tx) => {
+        await tx.thread.put(changed)
+        try {
+          await tx.journal.append({ ...base, b4: { v: 1, delivery: "snapshot" } } as never)
+        } catch {
+          caught = true
+        }
+        return "ordinary-write-committed" as const
+      })
+      const after = await pgJournalFacts(f)
+      expect({
+        caught,
+        value,
+        scope: after.scope,
+        journal: after.journal,
+        projections: after.projections,
+        runs: after.runs,
+        identities: after.identities,
+      }).toEqual({
+        caught: true,
+        value: "ordinary-write-committed",
+        scope: before.scope,
+        journal: before.journal,
+        projections: before.projections,
+        runs: before.runs,
+        identities: before.identities,
+      })
+      expect(await f.store.transaction((tx) => tx.thread.get())).toEqual(changed)
+      expect(after.threads).toEqual([
+        { ...before.threads[0], revision: "2", payload: JSON.stringify(changed) },
+      ])
+    })
+  })
+
+  it("commits the maximum safe journal coordinate and refuses the next fact", async () => {
+    await withPgJournalFixture(async (f) => {
+      await backend.second.query(
+        `UPDATE ${f.table}_scopes SET through_seq=9007199254740990 WHERE thread_id=$1 AND generation=$2`,
+        [ids.thread, ids.generation],
+      )
+      expect(
+        (
+          await backend.second.query(
+            `SELECT through_seq::text AS h,pg_typeof(through_seq)::text AS type FROM ${f.table}_scopes`,
+          )
+        ).rows,
+      ).toEqual([{ h: "9007199254740990", type: "bigint" }])
+      const last = await f.store.transaction((tx) =>
+        tx.journal.append(
+          pgJournalBaselinePositive(pgJournalInput(f.data, [], null), pgJournalLegacyIds[0]),
+        ),
+      )
+      expect(last.seq).toBe(9007199254740991)
+      expect(
+        (await backend.second.query(`SELECT through_seq::text AS h FROM ${f.table}_scopes`)).rows,
+      ).toEqual([{ h: "9007199254740991" }])
+      const before = await pgJournalFacts(f)
+      await expect(
+        f.store.transaction((tx) =>
+          tx.journal.append(
+            pgJournalBaselinePositive(pgJournalInput(f.data, [], null), pgJournalLegacyIds[1]),
+          ),
+        ),
+      ).rejects.toThrow(/capacity|exhaust|sequence/i)
+      expect(await pgJournalFacts(f)).toEqual(before)
+      expect(await f.store.transaction((tx) => tx.journal.read(9007199254740990))).toEqual([last])
+      const id = `b4e1.${ids.generation}.9007199254740991`
+      expect(last).toMatchObject({
+        eventId: id,
+        seq: 9007199254740991,
+        event: { eventId: id, seq: 9007199254740991, b4: { v: 1, generation: ids.generation } },
+      })
+      expect(Object.hasOwn(last.event.b4 as object, "runId")).toBe(false)
+      expect(Object.hasOwn(last.event.b4 as object, "turnId")).toBe(false)
+    })
+  })
+
+  it("rolls back caught post-allocation JavaScript errors including undefined without losing failure state", async () => {
+    await withPgJournalFixture(async (f) => {
+      const { installationContext } = await import("../src/runtime/index.ts")
+      type SqlClient = import("../src/sql.ts").SqlClient
+      type SqlResult<R> = import("../src/sql.ts").SqlResult<R>
+      for (const fault of [new Error("fixture JS after native journal and H"), undefined]) {
+        const before = await pgJournalFacts(f)
+        let reached = 0
+        let nativeWitness: { h: unknown; journal: unknown } | undefined
+        let caught = false
+        let caughtValue: unknown = "not-caught"
+        let restored = false
+        let descriptorBefore: PropertyDescriptor | undefined
+        let descriptorAfter: PropertyDescriptor | undefined
+        const outcome = await f.store
+          .transaction(async (tx) => {
+            await tx.thread.put({
+              ...f.data.thread,
+              revision: 2,
+              thread: { ...f.data.thread.thread, metadata: { attemptedWrite: "must roll back" } },
+            })
+            const activity = installationContext(f.owner).host.activity.getStore()
+            if (
+              activity?.kind !== "transaction" ||
+              activity.owner !== f.owner ||
+              !activity.active ||
+              activity.scopeKey !==
+                JSON.stringify([f.owner.installationId, ids.thread, ids.generation]) ||
+              !activity.client
+            )
+              throw new Error("SETUP: expected exact active enlisted client")
+            const client: SqlClient = activity.client
+            descriptorBefore = Object.getOwnPropertyDescriptor(client, "query")
+            const originalQuery = client.query
+            const query = <R = unknown>(sql: string, values?: readonly unknown[]) =>
+              originalQuery.call(client, sql, values) as Promise<SqlResult<R>>
+            Object.defineProperty(client, "query", {
+              configurable: true,
+              writable: true,
+              value: async <R = unknown>(
+                sql: string,
+                values?: readonly unknown[],
+              ): Promise<SqlResult<R>> => {
+                if (sql.startsWith(`INSERT INTO ${f.table}_projections`)) {
+                  reached += 1
+                  // Original fenced/enlisted query on SAME native writer; no observer connection.
+                  const h = await query<{ h: string }>(
+                    `SELECT through_seq::text AS h FROM ${f.table}_scopes WHERE thread_id=$1 AND generation=$2`,
+                    [ids.thread, ids.generation],
+                  )
+                  const journal = await query<{ n: string }>(
+                    `SELECT count(*)::text AS n FROM ${f.table}_journal WHERE thread_id=$1 AND generation=$2 AND seq=1`,
+                    [ids.thread, ids.generation],
+                  )
+                  nativeWitness = { h: h.rows[0]?.h, journal: journal.rows[0]?.n }
+                  // OUTSIDE originalQuery/enlistClient's catch, to require journal's own failure slot.
+                  throw fault
+                }
+                return query<R>(sql, values)
+              },
+            })
+            try {
+              try {
+                await tx.journal.append(
+                  pgJournalBaselinePositive(pgJournalInput(f.data), pgJournalLegacyIds[0]),
+                )
+              } catch (error) {
+                caught = true
+                caughtValue = error
+              }
+            } finally {
+              if (descriptorBefore) {
+                Object.defineProperty(client, "query", descriptorBefore)
+                restored = true
+              } else restored = Reflect.deleteProperty(client, "query")
+              descriptorAfter = Object.getOwnPropertyDescriptor(client, "query")
+            }
+            return "caught" as const
+          })
+          .then(
+            (value) => ({ status: "resolved" as const, value }),
+            (reason) => ({ status: "rejected" as const, reason }),
+          )
+        expect(restored, "SETUP: restore exact scoped client query method").toBe(true)
+        expect(descriptorAfter).toEqual(descriptorBefore)
+        expect(
+          { reached, nativeWitness, caught },
+          "SETUP: real native allocation+insert precede JS fault",
+        ).toEqual({ reached: 1, nativeWitness: { h: "1", journal: "1" }, caught: true })
+        expect(caughtValue).toBe(fault)
+        expect({ outcome, after: await pgJournalFacts(f) }).toEqual({
+          outcome: { status: "rejected", reason: fault },
+          after: before,
+        })
+        if (outcome.status === "rejected") expect(outcome.reason).toBe(fault)
+      }
+    })
+  })
+
+  it("refuses a native canonical journal ID collision without overwriting or skipping a fact", async () => {
+    await withPgJournalFixture(async (f) => {
+      const collisionId = `b4e1.${ids.generation}.2`
+      const legacy: import("@b4run/sdk/agent-protocol").RuntimeJournalRecord = {
+        eventId: collisionId,
+        seq: 1,
+        namespace: [],
+        ownerRunId: null,
+        event: {
+          type: "event",
+          method: "values",
+          params: {
+            namespace: [],
+            timestamp: 0,
+            data: { legacy: "retain exact bytes 🌱", unknown: [true, null, 3.25] },
+          },
+        },
+      }
+      const payload = JSON.stringify(legacy)
+      const client = await backend.second.connect()
+      try {
+        await client.query("BEGIN")
+        try {
+          await client.query(
+            `INSERT INTO ${f.table}_journal(thread_id,generation,id,seq,owner_run_id,namespace,payload) VALUES ($1,$2,$3,1,NULL,'[]',$4)`,
+            [ids.thread, ids.generation, collisionId, payload],
+          )
+          const changed = await client.query(
+            `UPDATE ${f.table}_scopes SET through_seq=1 WHERE thread_id=$1 AND generation=$2 AND through_seq=0 RETURNING through_seq::text AS h`,
+            [ids.thread, ids.generation],
+          )
+          expect(changed.rows).toEqual([{ h: "1" }])
+          await client.query(
+            `INSERT INTO ${f.table}_projections(thread_id,generation,through_seq,revision,payload) VALUES ($1,$2,1,$3,$4)`,
+            [ids.thread, ids.generation, f.data.thread.revision, JSON.stringify({ throughSeq: 1 })],
+          )
+          await client.query("COMMIT")
+        } catch (error) {
+          try {
+            await client.query("ROLLBACK")
+          } catch {
+            /* Preserve the original setup failure. */
+          }
+          throw error
+        }
+      } finally {
+        client.release()
+      }
+      expect(
+        (await backend.second.query(`SELECT id,seq::text AS seq FROM ${f.table}_journal`)).rows,
+      ).toEqual([{ id: collisionId, seq: "1" }])
+      expect(
+        (await backend.second.query(`SELECT through_seq::text AS h FROM ${f.table}_scopes`)).rows,
+      ).toEqual([{ h: "1" }])
+      expect(await f.store.transaction((tx) => tx.journal.read(0))).toEqual([legacy])
+      const legacyBytes = (
+        await backend.second.query(
+          `SELECT encode(convert_to(payload,'UTF8'),'hex') AS bytes FROM ${f.table}_journal WHERE id=$1`,
+          [collisionId],
+        )
+      ).rows[0]?.bytes
+      expect(legacyBytes).toBe(Buffer.from(payload, "utf8").toString("hex"))
+      const before = await pgJournalFacts(f)
+      let caught = false
+      let nativeCode: unknown
+      const outcome = await f.store
+        .transaction(async (tx) => {
+          await tx.thread.put({
+            ...f.data.thread,
+            revision: 2,
+            thread: {
+              ...f.data.thread.thread,
+              metadata: { attemptedWrite: "collision must roll back" },
+            },
+          })
+          try {
+            await tx.journal.append(
+              pgJournalBaselinePositive(pgJournalInput(f.data, [], null), pgJournalLegacyIds[0]),
+            )
+          } catch (error) {
+            caught = true
+            nativeCode = (error as { code?: unknown })?.code
+          }
+          return "caught" as const
+        })
+        .then(
+          () => "resolved" as const,
+          () => "rejected" as const,
+        )
+      expect({ outcome, caught, after: await pgJournalFacts(f) }).toEqual({
+        outcome: "rejected",
+        caught: true,
+        after: before,
+      })
+      expect(nativeCode).toBe("23505")
+      expect(
+        (
+          await backend.second.query(
+            `SELECT encode(convert_to(payload,'UTF8'),'hex') AS bytes FROM ${f.table}_journal WHERE id=$1`,
+            [collisionId],
+          )
+        ).rows[0]?.bytes,
+      ).toBe(legacyBytes)
+      expect(await f.store.transaction((tx) => tx.journal.read(0))).toEqual([legacy])
+    })
+  })
+
+  it("keeps canonical global order and final projection H across awaited concurrent appends", async () => {
+    await withPgJournalFixture(async (f) => {
+      const { installationContext } = await import("../src/runtime/index.ts")
+      type SqlClient = import("../src/sql.ts").SqlClient
+      type SqlResult<R> = import("../src/sql.ts").SqlResult<R>
+      const before = await pgJournalFacts(f)
+      const nativeProjectionOrder: number[] = []
+      let lowHeld = false
+      let highCompleted = false
+      let lowAfterHigh = false
+      let restored = false
+      let descriptorBefore: PropertyDescriptor | undefined
+      let descriptorAfter: PropertyDescriptor | undefined
+      const records = await f.store.transaction(async (tx) => {
+        const activity = installationContext(f.owner).host.activity.getStore()
+        if (
+          activity?.kind !== "transaction" ||
+          activity.owner !== f.owner ||
+          !activity.active ||
+          activity.scopeKey !==
+            JSON.stringify([f.owner.installationId, ids.thread, ids.generation]) ||
+          !activity.client
+        )
+          throw new Error("SETUP: expected exact active concurrent-append client")
+        const client: SqlClient = activity.client
+        descriptorBefore = Object.getOwnPropertyDescriptor(client, "query")
+        const originalQuery = client.query
+        const query = <R = unknown>(sql: string, values?: readonly unknown[]) =>
+          originalQuery.call(client, sql, values) as Promise<SqlResult<R>>
+        let releaseLow!: () => void
+        const highestProjection = new Promise<void>((resolve) => {
+          releaseLow = resolve
+        })
+        Object.defineProperty(client, "query", {
+          configurable: true,
+          writable: true,
+          value: async <R = unknown>(
+            sql: string,
+            values?: readonly unknown[],
+          ): Promise<SqlResult<R>> => {
+            const projection = sql.startsWith(`INSERT INTO ${f.table}_projections`)
+            const seq = values?.[2]
+            if (projection && seq === 1) {
+              lowHeld = true
+              // Wait OUTSIDE the original query queue, allowing all actual higher writes to run.
+              await highestProjection
+              lowAfterHigh = highCompleted
+            }
+            const result = await query<R>(sql, values)
+            if (projection && typeof seq === "number") {
+              nativeProjectionOrder.push(seq)
+              if (seq === 3) {
+                highCompleted = true
+                releaseLow()
+              }
+            }
+            return result
+          },
+        })
+        const appends: Promise<import("@b4run/sdk/agent-protocol").RuntimeJournalRecord>[] = []
+        const settlements: Promise<void>[] = []
+        let fulfilledAppends = 0
+        try {
+          const work = [
+            { input: pgJournalInput(f.data, ["parallel/one"]), legacyId: pgJournalLegacyIds[0] },
+            { input: pgJournalInput(f.data, ["parallel", "two"]), legacyId: pgJournalLegacyIds[1] },
+            { input: pgJournalInput(f.data, []), legacyId: pgJournalLegacyIds[2] },
+          ]
+          for (const { input, legacyId } of work) {
+            const append = tx.journal.append(pgJournalBaselinePositive(input, legacyId))
+            appends.push(append)
+            settlements.push(
+              append.then(
+                () => {
+                  fulfilledAppends += 1
+                  // While seq1 is held it cannot fulfill: two fulfillments are the OTHER appends.
+                  // A missed seq3 interception must fail the strict order assertions, not hang the gate.
+                  if (fulfilledAppends === work.length - 1) releaseLow()
+                },
+                () => {
+                  releaseLow()
+                },
+              ),
+            )
+          }
+          // Explicit aggregate await; no append may outlive this owner callback.
+          return await Promise.all(appends)
+        } finally {
+          releaseLow()
+          // Also join every actual append on an early rejection before restoring the scoped method.
+          await Promise.allSettled(appends)
+          // Join every immediately attached settlement observer before restoring the client method.
+          await Promise.all(settlements)
+          if (descriptorBefore) {
+            Object.defineProperty(client, "query", descriptorBefore)
+            restored = true
+          } else restored = Reflect.deleteProperty(client, "query")
+          descriptorAfter = Object.getOwnPropertyDescriptor(client, "query")
+        }
+      })
+      expect(
+        { lowHeld, highCompleted, lowAfterHigh, restored },
+        "SETUP: real H3 UPSERT must complete before older H1 UPSERT",
+      ).toEqual({ lowHeld: true, highCompleted: true, lowAfterHigh: true, restored: true })
+      expect(descriptorAfter).toEqual(descriptorBefore)
+      expect(nativeProjectionOrder).toHaveLength(3)
+      expect([...nativeProjectionOrder].sort((a, b) => a - b)).toEqual([1, 2, 3])
+      expect(nativeProjectionOrder.indexOf(3)).toBeLessThan(nativeProjectionOrder.indexOf(1))
+      const ordered = [...records].sort((a, b) => a.seq - b.seq)
+      expect(ordered.map((record) => record.seq)).toEqual([1, 2, 3])
+      expect(ordered.map((record) => record.eventId)).toEqual(
+        [1, 2, 3].map((seq) => `b4e1.${ids.generation}.${seq}`),
+      )
+      for (const record of ordered)
+        expect(record.event).toMatchObject({
+          eventId: record.eventId,
+          seq: record.seq,
+          b4: {
+            v: 1,
+            generation: ids.generation,
+            runId: f.data.run.run.run_id,
+            turnId: f.data.run.metadata.turnId,
+          },
+        })
+      expect(await f.store.transaction((tx) => tx.journal.read(0))).toEqual(ordered)
+      const facts = await pgJournalFacts(f)
+      expect(facts.scope).toEqual([{ ...before.scope[0], h: "3" }])
+      expect(facts.threads).toEqual(before.threads)
+      expect(facts.runs).toEqual(before.runs)
+      expect(facts.identities).toEqual(before.identities)
+      expect(facts.journal.map((row) => row.seq)).toEqual(["1", "2", "3"])
+      expect(facts.projections).toEqual([
+        {
+          thread_id: ids.thread,
+          generation: ids.generation,
+          through_seq: "3",
+          revision: "1",
+          payload: JSON.stringify({ throughSeq: 3 }),
+        },
+      ])
+    })
   })
 })

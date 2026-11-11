@@ -47,6 +47,7 @@ export interface Access {
   readonly now: () => string
   check(): void
   reference(table: string, id: string | null): void
+  failJournal(error: unknown): void
 }
 export function diagnostic(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code })
@@ -102,14 +103,19 @@ export function makeRecords<Row>(access: Access, spec: RecordSpec<Row>): Runtime
   }
 }
 
+interface JournalWriteState {
+  failure?: { readonly error: unknown }
+}
 function makeAccess(
   installation: RuntimeInstallation,
   db: DatabaseSync,
   scope: RuntimeStorageScope,
   now: () => string,
   alive: () => boolean,
+  journal: JournalWriteState = {},
 ): Access {
   const check = () => {
+    if (journal.failure) throw journal.failure.error
     if (!alive())
       throw diagnostic("closed_transaction", "Runtime transaction context is no longer active")
     const context = installationContext(installation)
@@ -127,6 +133,9 @@ function makeAccess(
     scope,
     now,
     check,
+    failJournal(error) {
+      journal.failure ??= { error }
+    },
     reference(table, id) {
       check()
       if (id === null) return
@@ -415,9 +424,10 @@ export function makeRuntimeStore(
     return scopeExclusive(() =>
       exclusive(async () => {
         let active = true
+        const journal: JournalWriteState = {}
         context.db.exec("BEGIN IMMEDIATE")
         try {
-          const access = makeAccess(installation, context.db, scope, now, () => active)
+          const access = makeAccess(installation, context.db, scope, now, () => active, journal)
           access.check()
           const result = await callback(makeTransaction(access))
           access.check()
@@ -452,9 +462,10 @@ export function makeRuntimeStore(
       exclusive(async () => {
         const db = context.db
         let active = true
+        const journal: JournalWriteState = {}
         db.exec("BEGIN IMMEDIATE")
         try {
-          makeAccess(installation, db, scope, now, () => active).check()
+          makeAccess(installation, db, scope, now, () => active, journal).check()
           const row = db
             .prepare(
               "SELECT execution_owner,execution_nonce FROM scopes WHERE thread_id=? AND generation=?",
@@ -475,7 +486,10 @@ export function makeRuntimeStore(
           )
             throw diagnostic("stale_fence", "Execution owner changed")
           if (releaseOwner && onRelease)
-            await onRelease(makeTransaction(makeAccess(installation, db, scope, now, () => active)))
+            await onRelease(
+              makeTransaction(makeAccess(installation, db, scope, now, () => active, journal)),
+            )
+          if (journal.failure) throw journal.failure.error
           const result = db
             .prepare(
               "UPDATE scopes SET fence=fence+1,execution_owner=?,execution_nonce=? WHERE thread_id=? AND generation=? AND fence=? AND fence<9007199254740991",
@@ -498,6 +512,7 @@ export function makeRuntimeStore(
             { ...scope, fence: scope.fence + 1 },
             now,
             () => active,
+            journal,
           )
           if (claim) await claim.callback(makeTransaction(access))
           access.check()

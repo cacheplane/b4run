@@ -163,9 +163,7 @@ it("preserves receipt checkpoint and journal facts across a crash after commit a
   const { fork } = await import("node:child_process")
   const { openRuntimeInstallation } = await import("../src/runtime/index.ts")
   const { bindRuntimeStore, createRuntimeBinding } = await import("../src/runtime/binding.ts")
-  const { checkpoint, receipt, run, scope, thread, eventId } = await import(
-    "./fixtures/runtime-data.ts"
-  )
+  const { checkpoint, receipt, run, scope, thread } = await import("./fixtures/runtime-data.ts")
   const path = mkdtempSync(join(tmpdir(), "b4-owner-crash-"))
   roots.push(path)
   const child = fork(new URL("./fixtures/runtime-worker.ts", import.meta.url), [path, "commit"], {
@@ -192,7 +190,20 @@ it("preserves receipt checkpoint and journal facts across a crash after commit a
         throughSeq: 1,
       })
       expect(await store.transaction((tx) => tx.journal.read(0))).toMatchObject([
-        { eventId, seq: 1 },
+        {
+          eventId: `b4e1.${scope.generation}.1`,
+          seq: 1,
+          event: {
+            eventId: `b4e1.${scope.generation}.1`,
+            seq: 1,
+            b4: {
+              v: 1,
+              generation: scope.generation,
+              runId: run.run.run_id,
+              turnId: run.metadata.turnId,
+            },
+          },
+        },
       ])
       expect(existsSync(join(path, "published"))).toBe(false)
     } finally {
