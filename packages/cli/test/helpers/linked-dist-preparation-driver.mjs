@@ -48,6 +48,68 @@ let failedBuildTransition
 const ownedReruns = []
 let rerunRejection
 let programmaticReruns
+const programmaticAdmission = {
+  armed: false,
+  initialStarts: [],
+  initialEnds: [],
+  next: 0,
+  active: undefined,
+  queue: [],
+  starts: [],
+  ends: [],
+  maximumActive: 0,
+  closed: false,
+}
+
+function runMembers(specs) {
+  return specs.map((spec) => JSON.stringify([spec.project.name, spec.moduleId])).sort()
+}
+function admitNextProgrammaticRun() {
+  if (programmaticAdmission.active || programmaticAdmission.queue.length === 0) return
+  const next = programmaticAdmission.queue.shift()
+  programmaticAdmission.active = next
+  programmaticAdmission.maximumActive = Math.max(programmaticAdmission.maximumActive, 1)
+  const record = Object.freeze({ id: next.id, members: next.members, active: 1 })
+  programmaticAdmission.starts.push(record)
+  event("programmatic-run-start", record)
+  next.admit()
+}
+async function enterProgrammaticRun(specs) {
+  const members = Object.freeze(runMembers(specs))
+  if (!programmaticAdmission.armed) {
+    programmaticAdmission.initialStarts.push(members)
+    return
+  }
+  // Preparation hooks remain concurrent. Only Vitest's shared file-task registry
+  // needs exclusive execution admission after those hooks have completed.
+  let admit
+  const ready = new Promise((resolve) => {
+    admit = resolve
+  })
+  programmaticAdmission.queue.push({ id: ++programmaticAdmission.next, members, admit })
+  admitNextProgrammaticRun()
+  await ready
+}
+function endProgrammaticRun(modules, errors, reason) {
+  const snapshot = Object.freeze({
+    members: Object.freeze(runMembers(modules.map((module) => module.toTestSpecification()))),
+    states: Object.freeze(modules.map((module) => module.state())),
+    errors: errors.length,
+    reason,
+  })
+  if (!programmaticAdmission.armed) {
+    programmaticAdmission.initialEnds.push(snapshot)
+    return
+  }
+  const completed = programmaticAdmission.active
+  const record = Object.freeze({ id: completed?.id ?? null, ...snapshot, active: 0 })
+  programmaticAdmission.ends.push(record)
+  event("programmatic-run-end", record)
+  // Only an actual public run-end opens this gate. Defer assertions until all
+  // owned requests join, so validation cannot interrupt production lease release.
+  programmaticAdmission.active = undefined
+  admitNextProgrammaticRun()
+}
 let allowAdmissionA
 const admission = { pausedA: false, dispatchedB: false, outcomes: new Map() }
 const admissionGateA = new Promise((resolve) => {
@@ -287,6 +349,7 @@ try {
       reporters: [
         {
           async onTestRunStart(specs) {
+            if (mode === "programmatic-coalescing") await enterProgrammaticRun(specs)
             if (
               mode === "later-reader-admission" &&
               specs.length === 1 &&
@@ -314,6 +377,7 @@ try {
             event("server-restart-observed", { reason: reason ?? null })
           },
           onTestRunEnd(modules, errors, reason) {
+            if (mode === "programmatic-coalescing") endProgrammaticRun(modules, errors, reason)
             runs.push({
               reason,
               moduleCount: modules.length,
@@ -534,6 +598,16 @@ try {
         new Set(specs.map((spec) => spec.project.name)),
         new Set(["owner", "reader"]),
       )
+      assert.deepEqual(programmaticAdmission.initialStarts, [runMembers(specs)])
+      assert.deepEqual(programmaticAdmission.initialEnds, [
+        {
+          members: runMembers(specs),
+          states: ["passed", "passed", "passed", "passed"],
+          errors: 0,
+          reason: "passed",
+        },
+      ])
+      programmaticAdmission.armed = true
       function requestRerun() {
         if (rerunRejection) throw rerunRejection.error
         const request = ownedReruns.length + 1
@@ -590,6 +664,55 @@ try {
       assert.ok(readers.every((row) => row.value === 5))
       assert.deepEqual(new Set(readers.map((row) => row.project)), new Set(["owner", "reader"]))
       assert.deepEqual(new Set(readers.map((row) => row.file)), new Set(files))
+      assert.equal(programmaticAdmission.next, 4)
+      assert.equal(programmaticAdmission.maximumActive, 1)
+      assert.equal(programmaticAdmission.active, undefined)
+      assert.equal(programmaticAdmission.queue.length, 0)
+      assert.deepEqual(
+        programmaticAdmission.starts.map((run) => run.id),
+        [1, 2, 3, 4],
+      )
+      assert.deepEqual(
+        programmaticAdmission.ends,
+        [1, 2, 3, 4].map((id) => ({
+          id,
+          members: runMembers(specs),
+          states: ["passed", "passed", "passed", "passed"],
+          errors: 0,
+          reason: "passed",
+          active: 0,
+        })),
+      )
+      // Actual worker reader records independently witness four bodies in each
+      // admitted interval; admission counters alone cannot establish execution.
+      let interval
+      let completedIntervals = 0
+      for (const row of events().slice(baseline)) {
+        if (row.kind === "programmatic-run-start") {
+          assert.equal(interval, undefined)
+          assert.equal(row.active, 1)
+          assert.deepEqual(row.members, runMembers(specs))
+          interval = { id: row.id, readers: [] }
+        } else if (row.kind === "reader") {
+          assert.ok(interval, "reader must belong to an admitted native run")
+          interval.readers.push(row)
+        } else if (row.kind === "programmatic-run-end") {
+          assert.ok(interval)
+          assert.equal(row.id, interval.id)
+          assert.equal(row.active, 0)
+          assert.equal(interval.readers.length, 4)
+          assert.ok(interval.readers.every((reader) => reader.value === 5))
+          assert.deepEqual(
+            interval.readers.map((reader) => JSON.stringify([reader.project, reader.file])).sort(),
+            runMembers(specs),
+          )
+          interval = undefined
+          completedIntervals += 1
+        }
+      }
+      assert.equal(interval, undefined)
+      assert.equal(completedIntervals, 4)
+      assert.equal(runs.length, 5, "one initial run and four complete public reruns")
     }
   }
   await context.waitForTestRunEnd()
@@ -621,7 +744,13 @@ try {
     } catch (error) {
       firstError ??= { name: error.name, message: error.message, stack: error.stack }
     }
+    // Do not reject queued start reporters: the production reporter may already
+    // hold their reader leases. Real run ends drain the queue before close.
     const outcomes = await Promise.all(ownedReruns)
+    if (mode === "programmatic-coalescing") {
+      programmaticAdmission.closed =
+        programmaticAdmission.active === undefined && programmaticAdmission.queue.length === 0
+    }
     programmaticReruns = outcomes.map((outcome) => {
       if (outcome.status === "rejected") {
         const error = {
@@ -677,6 +806,20 @@ const result = {
   firstError,
   ...(failedBuildTransition ? { failedBuildTransition } : {}),
   ...(programmaticReruns ? { programmaticReruns } : {}),
+  ...(mode === "programmatic-coalescing"
+    ? {
+        programmaticAdmission: {
+          initialStarts: programmaticAdmission.initialStarts.length,
+          initialEnds: programmaticAdmission.initialEnds.length,
+          starts: programmaticAdmission.starts.length,
+          ends: programmaticAdmission.ends.length,
+          maximumActive: programmaticAdmission.maximumActive,
+          active: programmaticAdmission.active ? 1 : 0,
+          queued: programmaticAdmission.queue.length,
+          closed: programmaticAdmission.closed,
+        },
+      }
+    : {}),
 }
 writeFileSync(join(root, "result.json"), JSON.stringify(result, null, 2) + "\n", { mode: 0o600 })
 process.stdout.write("CONTROL_RESULT=" + JSON.stringify(result) + "\n")

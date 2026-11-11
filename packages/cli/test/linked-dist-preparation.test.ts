@@ -698,6 +698,18 @@ test.each([
     expect(line, rawOut + rawErr).toBeDefined()
     const result = JSON.parse(line?.slice("CONTROL_RESULT=".length) ?? "{}")
     expect(result).toMatchObject({ ok: true, mode, maximumWriters: 1, closed: true })
+    if (mode === "programmatic-coalescing") {
+      expect(result.programmaticAdmission).toEqual({
+        initialStarts: 1,
+        initialEnds: 1,
+        starts: 4,
+        ends: 4,
+        maximumActive: 1,
+        active: 0,
+        queued: 0,
+        closed: true,
+      })
+    }
     if (mode === "failed-build") {
       expect([null, 0]).toContain(result.failedBuildTransition.before)
       expect(result.failedBuildTransition).toEqual({
