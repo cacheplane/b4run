@@ -6,7 +6,16 @@ async function retirePendingActions(
   native: typeof import("@langchain/langgraph"),
   input?: unknown,
 ) {
-  if (input instanceof native.Command || !("getState" in entry)) return
+  // Different installed copies of LangGraph share its native command symbol.
+  // Older isCommand implementations also accept a plain object's lg_name.
+  const isCommandInput =
+    input instanceof native.Command ||
+    (typeof input === "object" &&
+      input !== null &&
+      typeof native.COMMAND_SYMBOL === "symbol" &&
+      Object.hasOwn(input, native.COMMAND_SYMBOL) &&
+      native.isCommand(input))
+  if (isCommandInput || !("getState" in entry)) return
   if ("checkpointer" in entry && !entry.checkpointer) return
   const graph = entry as {
     config?: Record<string, unknown>

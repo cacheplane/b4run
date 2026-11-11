@@ -1,5 +1,15 @@
 import { CooperativeStopError } from "@b4run/sdk"
-import { Annotation, END, MemorySaver, RunControl, START, StateGraph } from "@langchain/langgraph"
+import {
+  Annotation,
+  COMMAND_SYMBOL,
+  Command,
+  END,
+  interrupt,
+  MemorySaver,
+  RunControl,
+  START,
+  StateGraph,
+} from "@langchain/langgraph"
 import { expect, it } from "vitest"
 import { graphAdapter, workflowAdapter } from "../src/langgraph-adapter.ts"
 
@@ -59,6 +69,47 @@ it("preserves stateless graph execution and receiver", async () => {
       { signal: new AbortController().signal, stopSignal: new AbortController().signal },
     ),
   ).resolves.toEqual({ count: 1 })
+})
+
+it("resumes a parked graph across command copies while rejecting JSON lookalikes", async () => {
+  let effects = 0
+  const graph = new StateGraph(state)
+    .addNode("approval", () => {
+      const decision = interrupt("allow?")
+      if (decision === "yes") effects++
+      return { count: decision === "yes" ? 1 : 0 }
+    })
+    .addEdge(START, "approval")
+    .addEdge("approval", END)
+    .compile({ checkpointer: new MemorySaver() })
+  const context = {
+    configurable: { thread_id: "cross-copy-resume" },
+    signal: new AbortController().signal,
+    stopSignal: new AbortController().signal,
+  }
+
+  await graphAdapter.execute(graph, {}, context)
+  const pending = await graph.getState(context)
+  expect(pending.tasks.some((task) => task.interrupts.length > 0)).toBe(true)
+  await expect(
+    graphAdapter.execute(graph, { lg_name: "Command", resume: "yes" }, context),
+  ).rejects.toThrow("A parked graph requires an authorized resume")
+  expect(effects).toBe(0)
+  expect((await graph.getState(context)).next).toEqual(["approval"])
+
+  const command = new Command({ resume: "yes" })
+  // Retain the native instance fields and brand but remove the local constructor
+  // identity, as with a Command created by a different copy of LangGraph.
+  const foreignPrototype = Object.create(
+    Object.getPrototypeOf(Command.prototype),
+    Object.getOwnPropertyDescriptors(Command.prototype),
+  )
+  const foreign = Object.create(foreignPrototype, Object.getOwnPropertyDescriptors(command))
+  expect(foreign).not.toBeInstanceOf(Command)
+  expect(Object.hasOwn(foreign, COMMAND_SYMBOL)).toBe(true)
+  await expect(graphAdapter.execute(graph, foreign, context)).resolves.toEqual({ count: 1 })
+  expect(effects).toBe(1)
+  expect((await graph.getState(context)).next).toEqual([])
 })
 
 it("gives an opaque workflow its context and lets its completed call win", async () => {

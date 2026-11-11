@@ -61,7 +61,7 @@
     "@b4run/sdk": "workspace:*",
     "@b4run/sqlite-storage": "workspace:*",
     "@b4run/workspace": "workspace:*",
-    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph": "1.4.17",
     "@typescript/old": "npm:typescript@6.0.2",
     "tsx": "^4.23.5",
     "typescript": "npm:@typescript/typescript6@6.0.2",
