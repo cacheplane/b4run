@@ -586,7 +586,6 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
           createdAt: timestamp,
         })
         const acceptedEvent = await tx.journal.append({
-          eventId: crypto.randomUUID(),
           ownerRunId: runId,
           namespace: [],
           event: {
@@ -606,7 +605,6 @@ export function createAdmissionService(options: AdmissionServiceOptions): Admiss
         for (const message of messages) {
           const next = ++sourceSeq
           await tx.journal.append({
-            eventId: crypto.randomUUID(),
             ownerRunId: runId,
             namespace: [],
             event: {

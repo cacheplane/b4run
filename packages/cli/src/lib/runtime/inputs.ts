@@ -267,7 +267,6 @@ async function inputFact(
   reason?: string,
 ) {
   await tx.journal.append({
-    eventId: crypto.randomUUID(),
     namespace: row.namespace,
     ownerRunId: row.runId,
     event: {

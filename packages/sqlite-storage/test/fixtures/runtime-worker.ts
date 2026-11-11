@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath } from "node:url"
 import { bindRuntimeStore, createRuntimeBinding } from "../../src/runtime/binding.ts"
 import { openRuntimeInstallation } from "../../src/runtime/index.ts"
-import { checkpoint, eventId, now, receipt, run, scope, thread } from "./runtime-data.ts"
+import { checkpoint, now, receipt, run, scope, thread } from "./runtime-data.ts"
 
 const root = process.argv[2]
 const mode = process.argv[3]
@@ -55,7 +55,6 @@ if (mode === "hot-runtime-journal" || mode === "hot-owner-journal") {
         await tx.thread.put(thread)
         await tx.receipts.put(receipt)
         await tx.journal.append({
-          eventId,
           namespace: [],
           ownerRunId: run.run.run_id,
           event: {

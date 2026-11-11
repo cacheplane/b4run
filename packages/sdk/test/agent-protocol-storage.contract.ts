@@ -1,9 +1,12 @@
 import type {
+  AspEvent,
+  AspLifecycleData,
   ReceiptV1,
   RecoveryV1,
   ReducedRuntimeStore,
   Run,
   RuntimeCheckpointRecord,
+  RuntimeJournalRecord,
   RuntimeReadLease,
   RuntimeReceiptRecord,
   RuntimeRunRecord,
@@ -135,3 +138,119 @@ tx.pending.get("same-public-id")
 tx.pending.get({ namespace: ["child"], inputId: "same-public-id" })
 // @ts-expect-error the current proposal identity is mandatory.
 tx.pending.get({ ownerRunId: "run", pausedGeneration: "pause", namespace: [], inputId: "id" })
+
+// Durable append owns new event coordinates; historical reads retain their existing shape.
+type _AppendReturn = Expect<
+  Equal<ReturnType<RuntimeTransaction["journal"]["append"]>, Promise<RuntimeJournalRecord>>
+>
+type _ReadReturn = Expect<
+  Equal<ReturnType<RuntimeTransaction["journal"]["read"]>, Promise<readonly RuntimeJournalRecord[]>>
+>
+type _ReadEventPreserved = Expect<Equal<RuntimeJournalRecord["event"], AspEvent>>
+type _HistoricalEmbeddedIdOptional = Expect<Equal<AspEvent["eventId"], string | undefined>>
+type _HistoricalEmbeddedSeqOptional = Expect<Equal<AspEvent["seq"], number | undefined>>
+type AppendArgument = Parameters<RuntimeTransaction["journal"]["append"]>[0]
+type DraftLifecycle = Extract<AppendArgument["event"], { readonly method: "lifecycle" }>
+type _LifecycleDiscrimination = Expect<Equal<DraftLifecycle["params"]["data"], AspLifecycleData>>
+
+const journalDraft = {
+  ownerRunId: null,
+  namespace: [],
+  event: {
+    type: "event",
+    method: "values",
+    extensionOwnedByService: { retain: true }, // AspEvent's open extension index is preserved.
+    params: { namespace: [], timestamp: 0, data: { ready: true } },
+  },
+} as const
+tx.journal.append(journalDraft) // Baseline semantic RED: old append requires caller eventId.
+const lifecycleDraft = {
+  ownerRunId: null,
+  namespace: ["child"],
+  event: {
+    type: "event",
+    method: "lifecycle",
+    params: {
+      namespace: ["child"],
+      timestamp: 0,
+      data: { event: "running", cause: { type: "toolCall", toolCallId: "call" } },
+    },
+  },
+} as const
+tx.journal.append(lifecycleDraft)
+function retainDiscriminator(event: AppendArgument["event"]): void {
+  if (event.method === "lifecycle") {
+    const lifecycle: AspLifecycleData = event.params.data
+    void lifecycle
+  }
+}
+void retainDiscriminator
+const invalidLifecycle = {
+  ...lifecycleDraft,
+  event: {
+    ...lifecycleDraft.event,
+    params: { ...lifecycleDraft.event.params, data: { event: 42 } },
+  },
+} as const
+// @ts-expect-error valid unsequenced input still preserves the closed lifecycle branch.
+tx.journal.append(invalidLifecycle)
+
+// Wider VARIABLES, not only excess-property checks on fresh literals.
+const outerEventIdValue = { ...journalDraft, eventId: "caller-generated" }
+// @ts-expect-error outer eventId is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerEventIdValue)
+const outerEventIdUndefined = { ...journalDraft, eventId: undefined }
+// @ts-expect-error outer eventId is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerEventIdUndefined)
+const outerSeqValue = { ...journalDraft, seq: 4 }
+// @ts-expect-error outer seq is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerSeqValue)
+const outerSeqUndefined = { ...journalDraft, seq: undefined }
+// @ts-expect-error outer seq is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerSeqUndefined)
+const outerB4Value = { ...journalDraft, b4: { v: 1, delivery: "snapshot" } }
+// @ts-expect-error outer b4 is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerB4Value)
+const outerB4Undefined = { ...journalDraft, b4: undefined }
+// @ts-expect-error outer b4 is backend-owned, including an explicitly undefined key.
+tx.journal.append(outerB4Undefined)
+const embeddedEventIdValue = {
+  ...journalDraft,
+  event: { ...journalDraft.event, eventId: "caller-generated" },
+}
+// @ts-expect-error embedded eventId is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedEventIdValue)
+const embeddedEventIdUndefined = {
+  ...journalDraft,
+  event: { ...journalDraft.event, eventId: undefined },
+}
+// @ts-expect-error embedded eventId is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedEventIdUndefined)
+const embeddedSeqValue = { ...journalDraft, event: { ...journalDraft.event, seq: 4 } }
+// @ts-expect-error embedded seq is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedSeqValue)
+const embeddedSeqUndefined = { ...journalDraft, event: { ...journalDraft.event, seq: undefined } }
+// @ts-expect-error embedded seq is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedSeqUndefined)
+const embeddedB4Value = {
+  ...journalDraft,
+  event: { ...journalDraft.event, b4: { v: 1, delivery: "snapshot" } },
+}
+// @ts-expect-error embedded b4 is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedB4Value)
+const embeddedB4Undefined = { ...journalDraft, event: { ...journalDraft.event, b4: undefined } }
+// @ts-expect-error embedded b4 is backend-owned, including an explicitly undefined key.
+tx.journal.append(embeddedB4Undefined)
+
+// Read/output compatibility intentionally retains legacy embedded-coordinate omission and IDs.
+const historicalReadRecord: RuntimeJournalRecord = {
+  eventId: "retained-legacy-id",
+  seq: 1,
+  namespace: [],
+  ownerRunId: null,
+  event: { type: "event", method: "values", params: { namespace: [], timestamp: 0, data: null } },
+}
+const readEvent: AspEvent = historicalReadRecord.event
+void readEvent
+// @ts-expect-error a read record's assigned outer coordinates are never a fresh append draft.
+tx.journal.append(historicalReadRecord)
