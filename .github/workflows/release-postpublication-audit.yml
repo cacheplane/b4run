@@ -70,7 +70,7 @@ jobs:
         if: always()
       - name: Retain exact audit result
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.audit.outputs.artifact_name }}
           path: ${{ steps.audit.outputs.evidence_directory }}/*.json
@@ -78,7 +78,7 @@ jobs:
           overwrite: false
       - name: Retain audit diagnostic
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: recovery-v2-audit-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/result.json
